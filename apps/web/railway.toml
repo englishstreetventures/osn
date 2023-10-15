@@ -1,13 +1,19 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "bun run build:web"
+buildCommand = "bun run build"
 watchPatterns = ["apps/web/**"]
 
 [build.nixpacksPlan.phases.setup]
 nixPkgs = ["...", "bun"]
 
+[build.nixpacksPlan.phases.install]
+cmds = [
+    'bun i --no-save',
+    'npm rebuild --platform=linux --arch=x64 sharp',
+]
+
 [deploy]
-startCommand = "bun run start:web"
+startCommand = "bun run serve"
 healthcheckPath = "/"
 healthcheckTimeout = 100
 restartPolicyType = "NEVER"
