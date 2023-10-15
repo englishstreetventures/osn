@@ -12,7 +12,7 @@
     "build": "qwik build",
     "build.client": "vite build",
     "build.preview": "vite build --ssr src/entry.preview.tsx",
-    "build.server": "vite build -c adapters/bun/vite.config.ts",
+    "build.server": "bun run vite build -c adapters/bun/vite.config.ts",
     "build.types": "tsc --incremental --noEmit",
     "deploy": "echo 'Run \"npm run qwik add\" to install a server adapter'",
     "dev": "vite --mode ssr",
@@ -33,6 +33,7 @@
     "@typescript-eslint/eslint-plugin": "6.2.0",
     "@typescript-eslint/parser": "6.2.0",
     "autoprefixer": "^10.4.14",
+    "bun-types": "latest",
     "eslint": "8.45.0",
     "eslint-plugin-qwik": "^1.2.13",
     "postcss": "8.4.27",
@@ -43,5 +44,6 @@
     "undici": "5.22.1",
     "vite": "4.4.7",
     "vite-tsconfig-paths": "4.2.0"
-  }
+  },
+  "module": "server/entry.bun.js"
 }
