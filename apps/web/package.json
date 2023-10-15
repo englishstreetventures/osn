@@ -45,5 +45,8 @@
     "vite": "4.4.7",
     "vite-tsconfig-paths": "4.2.0"
   },
-  "module": "server/entry.bun.js"
+  "module": "server/entry.bun.js",
+  "dependencies": {
+    "sharp": "^0.32.6"
+  }
 }
