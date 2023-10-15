@@ -1,0 +1,13 @@
+[build]
+builder = "NIXPACKS"
+buildCommand = "bun run build:web"
+watchPatterns = ["apps/web/**"]
+
+[build.nixpacksPlan.phases.setup]
+nixPkgs = ["...", "bun"]
+
+[deploy]
+startCommand = "bun run start:web"
+healthcheckPath = "/"
+healthcheckTimeout = 100
+restartPolicyType = "NEVER"
