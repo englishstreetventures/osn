@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "workspaces": ["apps/*"],
+  "scripts": {
+    "build:backend": "cd apps/backend && bun run build",
+    "start:backend": "cd apps/backend && bun run start",
+    "build:web": "cd apps/web && bun run build.server",
+    "start:web": "cd apps/web && bun run serve"
+  },
   "devDependencies": {
     "bun-types": "latest"
   },
