@@ -1,0 +1,13 @@
+{
+  "name": "osn",
+  "module": "index.ts",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*"],
+  "devDependencies": {
+    "bun-types": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

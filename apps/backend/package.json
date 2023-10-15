@@ -1,0 +1,17 @@
+{
+  "name": "osn-backend",
+  "version": "1.0.50",
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist",
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run ./dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "elysia": "latest"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  },
+  "module": "src/index.js"
+}
