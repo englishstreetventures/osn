@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "firstName" text DEFAULT 'placeholder' NOT NULL;

@@ -3,15 +3,25 @@
   "version": "1.0.50",
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist",
+    "db:pull": "bun drizzle-kit introspect:pg",
+    "db:studio": "bun drizzle-kit studio",
+    "db:migrate": "bun drizzle-kit generate:pg",
+    "db:push": "bun run src/db/utils/migrate.ts",
     "dev": "bun run --watch src/index.ts",
     "start": "bun run ./dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "elysia": "latest"
+    "drizzle-orm": "^0.28.6",
+    "drizzle-valibot": "^0.1.1",
+    "elysia": "latest",
+    "pg": "^8.11.3",
+    "valibot": "^0.19.0"
   },
   "devDependencies": {
-    "bun-types": "latest"
+    "@types/pg": "^8.10.7",
+    "bun-types": "latest",
+    "drizzle-kit": "^0.19.13"
   },
   "module": "dist/index.js"
 }

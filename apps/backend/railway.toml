@@ -1,13 +1,13 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "bun run build:backend"
+buildCommand = "bun run build"
 watchPatterns = ["apps/backend/**"]
 
 [build.nixpacksPlan.phases.setup]
 nixPkgs = ["...", "bun"]
 
 [deploy]
-startCommand = "bun run start:backend"
+startCommand = "bun run start"
 healthcheckPath = "/"
 healthcheckTimeout = 100
 restartPolicyType = "NEVER"
