@@ -12,16 +12,16 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "drizzle-orm": "^0.28.6",
-    "drizzle-valibot": "^0.1.1",
+    "drizzle-orm": "^0.30.3",
+    "drizzle-valibot": "^0.2.0",
     "elysia": "latest",
     "pg": "^8.11.3",
-    "valibot": "^0.19.0"
+    "valibot": "^0.30.0"
   },
   "devDependencies": {
-    "@types/pg": "^8.10.7",
+    "@types/pg": "^8.11.3",
     "bun-types": "latest",
-    "drizzle-kit": "^0.19.13"
+    "drizzle-kit": "^0.20.14"
   },
   "module": "dist/index.js"
 }

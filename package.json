@@ -6,14 +6,19 @@
   "workspaces": ["apps/*"],
   "scripts": {
     "build:backend": "cd apps/backend && bun run build",
-    "start:backend": "cd apps/backend && bun run start",
     "build:web": "cd apps/web && bun run build.server",
+    "db:migrate": "cd apps/backend && bun run db:migrate",
+    "clean": "git clean -fdX",
+    "lint": "bun oxlint .",
+    "reset": "bun run clean && bun i",
+    "start:backend": "cd apps/backend && bun run start",
     "start:web": "cd apps/web && bun run serve"
   },
   "devDependencies": {
-    "bun-types": "latest"
+    "bun-types": "latest",
+    "oxlint": "^0.2.14"
   },
   "peerDependencies": {
-    "typescript": "^5.0.0"
+    "typescript": "^5.4.2"
   }
 }
