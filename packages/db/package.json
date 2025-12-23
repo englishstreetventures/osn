@@ -1,0 +1,23 @@
+{
+  "name": "@osn/db",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts"
+  },
+  "scripts": {
+    "db:migrate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.38.0"
+  },
+  "devDependencies": {
+    "@osn/typescript-config": "workspace:*",
+    "drizzle-kit": "^0.30.0"
+  }
+}

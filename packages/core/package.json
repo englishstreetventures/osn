@@ -1,0 +1,17 @@
+{
+  "name": "@osn/core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@osn/typescript-config": "workspace:*"
+  }
+}

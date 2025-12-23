@@ -1,0 +1,25 @@
+{
+  "name": "@osn/api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts"
+  },
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "start": "bun run ./dist/index.js",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@elysiajs/eden": "^1.2.0",
+    "@osn/db": "workspace:*",
+    "elysia": "^1.2.0",
+    "valibot": "^1.0.0"
+  },
+  "devDependencies": {
+    "@osn/typescript-config": "workspace:*"
+  }
+}

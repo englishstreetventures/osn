@@ -1,0 +1,14 @@
+{
+  "extends": "@osn/typescript-config/node.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "#db": ["./src/db"],
+      "#db/*": ["./src/db/*"],
+      "#routes": ["./src/routes"],
+      "#routes/*": ["./src/routes/*"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

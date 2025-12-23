@@ -1,24 +1,31 @@
 {
   "name": "osn",
-  "module": "index.ts",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/*"],
+  "packageManager": "bun@1.3.5",
+  "workspaces": [
+    "apps/*",
+    "apps/*/web",
+    "apps/*/ios",
+    "packages/*"
+  ],
   "scripts": {
-    "build:backend": "cd apps/backend && bun run build",
-    "build:web": "cd apps/web && bun run build.server",
-    "db:migrate": "cd apps/backend && bun run db:migrate",
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "check": "turbo check",
     "clean": "git clean -fdX",
-    "lint": "bun oxlint .",
+    "fmt": "oxfmt .",
     "reset": "bun run clean && bun i",
-    "start:backend": "cd apps/backend && bun run start",
-    "start:web": "cd apps/web && bun run serve"
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "changeset publish"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.8",
     "bun-types": "latest",
-    "oxlint": "^0.2.14"
-  },
-  "peerDependencies": {
-    "typescript": "^5.4.2"
+    "oxlint": "^0.16.0",
+    "turbo": "^2.7.1",
+    "typescript": "^5.7.0"
   }
 }
