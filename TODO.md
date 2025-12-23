@@ -32,8 +32,10 @@ Decisions to revisit later. Add new items as they come up.
 - [x] Changesets for versioning
 - [x] Shared TypeScript configs
 - [x] Package structure (api, db, ui, core, crypto)
-- [ ] CI/CD pipeline (GitHub Actions)
-- [ ] Linting/formatting in CI
+- [x] CI/CD pipeline (GitHub Actions)
+- [x] Linting/formatting in CI
+- [x] Claude Code GitHub integration (@claude mentions, PR reviews)
+- [x] Automated security review on PRs
 
 ### Landing Page (`apps/landing`)
 - [x] Astro + Solid scaffolding
