@@ -4,7 +4,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Current Status
 
-Monorepo scaffolding complete. Ready to initialize Tauri apps and begin core development.
+Monorepo scaffolding complete. Pulse Tauri app initialized with iOS target. CI/CD pipeline working with Bun runtime. Ready to initialize remaining Tauri apps and begin core development.
 
 ---
 
@@ -34,6 +34,8 @@ Decisions to revisit later. Add new items as they come up.
 - [x] Package structure (api, db, ui, core, crypto)
 - [x] CI/CD pipeline (GitHub Actions)
 - [x] Linting/formatting in CI
+- [x] oxlint configuration (`oxlintrc.json` - React disabled, SolidJS compatible)
+- [x] lefthook pre-commit/pre-push hooks
 - [x] Claude Code GitHub integration (@claude mentions, PR reviews)
 - [x] Automated security review on PRs
 
@@ -52,8 +54,8 @@ Decisions to revisit later. Add new items as they come up.
 - [ ] Third-party app authorization flow
 
 ### Pulse (`apps/pulse`)
-- [x] Initialize Tauri app with SolidJS
-- [x] iOS target configured
+- [x] Initialize Tauri app with SolidJS (`bunx create-tauri-app`)
+- [x] iOS target configured (`bunx tauri ios init`)
 - [ ] Event data model and schema
 - [ ] Event CRUD operations
 - [ ] Event lifecycle auto-transitions

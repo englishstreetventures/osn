@@ -66,22 +66,21 @@ Users can opt out of specific formats (e.g., disable short-form video entirely).
 ```
 apps/
   landing/          # Marketing site (Astro + Solid)
-  osn/
-    web/            # OSN web app (Solid)
-    ios/            # OSN iOS app (Tauri + Solid)
-  pulse/
-    web/            # Pulse web app (Solid)
-    ios/            # Pulse iOS app (Tauri + Solid)
-  messaging/
-    web/            # Messaging web app (Solid)
-    ios/            # Messaging iOS app (Tauri + Solid)
+  osn/              # OSN identity app (Tauri + Solid)
+  pulse/            # Events app (Tauri + Solid)
+  messaging/        # Messaging app (Tauri + Solid)
 packages/
   api/              # Unified Elysia backend
   db/               # Drizzle schema + migrations
   ui/               # Shared UI components (Solid)
   core/             # Shared business logic
   crypto/           # Signal protocol implementation
+  typescript-config/ # Shared TS configs
 ```
+
+Each Tauri app follows the standard structure:
+- `src/` - SolidJS frontend
+- `src-tauri/` - Rust native layer with iOS/Android targets
 
 ### Backend
 - **Single unified API** serving all apps with domain modules

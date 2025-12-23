@@ -1,0 +1,34 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import", "promise"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "pedantic": "off",
+    "style": "off",
+    "restriction": "off"
+  },
+  "rules": {
+    "no-console": "off",
+    "no-unused-vars": "warn",
+    "prefer-const": "warn",
+    "eqeqeq": "error",
+    "no-var": "error",
+    "unicorn/no-null": "off",
+    "unicorn/prefer-top-level-await": "off",
+    "unicorn/filename-case": "off",
+    "unicorn/prevent-abbreviations": "off",
+    "import/no-cycle": "error",
+    "import/no-self-import": "error",
+    "import/no-unassigned-import": "off",
+    "promise/no-return-wrap": "error"
+  },
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    ".turbo",
+    "src-tauri/target",
+    "*.gen.ts",
+    "*.astro"
+  ]
+}

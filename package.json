@@ -12,7 +12,7 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
-    "lint": "oxlint .",
+    "lint": "oxlint -c oxlintrc.json .",
     "check": "turbo check",
     "clean": "git clean -fdX",
     "fmt": "oxfmt .",

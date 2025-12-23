@@ -18,16 +18,18 @@ Phase 1 apps: OSN Core (auth), Pulse (events), Messaging (TBD name), Landing (ma
 
 ```
 apps/
-  landing/             # ✓ Astro + Solid
-  osn/                 # Pending: bunx tauri init
-  pulse/               # ✓ Tauri + SolidJS (iOS ready)
-  messaging/           # Pending: bunx tauri init
+  landing/             # ✓ Astro + Solid (marketing site)
+  pulse/               # ✓ Tauri + SolidJS (iOS target ready)
+    src/               # SolidJS frontend
+    src-tauri/         # Rust + Tauri native layer
+  osn/                 # Pending: bunx create-tauri-app
+  messaging/           # Pending: bunx create-tauri-app
 packages/
   api/                 # ✓ Elysia + Eden
   db/                  # ✓ Drizzle + SQLite
-  ui/                  # ✓ Placeholder
-  core/                # ✓ Placeholder
-  crypto/              # ✓ Placeholder
+  ui/                  # ✓ Placeholder (shared components)
+  core/                # ✓ Placeholder (shared business logic)
+  crypto/              # ✓ Placeholder (Signal protocol)
   typescript-config/   # ✓ base, node, solid configs
 ```
 
@@ -37,7 +39,7 @@ Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+RES
 
 ## Conventions
 
-- Tauri apps created via CLI (`bunx tauri init`), not manually
+- Tauri apps created via CLI (`bunx create-tauri-app`), not manually
 - Effect.ts: trial with OSN/Pulse first, then decide (see TODO.md)
 - Messaging backend is shared service (direct/indirect modes)
 - E2E encryption everywhere
@@ -45,6 +47,8 @@ Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+RES
 - Priority: iOS > Web > Android (Android deferred)
 - Pre-commit: lefthook runs oxlint + oxfmt on staged files
 - Pre-push: lefthook runs type check
+- oxlint configured via `oxlintrc.json` (React plugin disabled for SolidJS)
+- Use `bunx --bun` flag for all tooling (bypasses Node.js)
 
 ## Backend Code Patterns
 
