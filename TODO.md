@@ -52,7 +52,8 @@ Decisions to revisit later. Add new items as they come up.
 - [ ] Third-party app authorization flow
 
 ### Pulse (`apps/pulse`)
-- [ ] Initialize Tauri app (`bunx tauri init`)
+- [x] Initialize Tauri app with SolidJS
+- [x] iOS target configured
 - [ ] Event data model and schema
 - [ ] Event CRUD operations
 - [ ] Event lifecycle auto-transitions

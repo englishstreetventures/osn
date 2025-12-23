@@ -20,7 +20,7 @@ Phase 1 apps: OSN Core (auth), Pulse (events), Messaging (TBD name), Landing (ma
 apps/
   landing/             # ✓ Astro + Solid
   osn/                 # Pending: bunx tauri init
-  pulse/               # Pending: bunx tauri init
+  pulse/               # ✓ Tauri + SolidJS (iOS ready)
   messaging/           # Pending: bunx tauri init
 packages/
   api/                 # ✓ Elysia + Eden
