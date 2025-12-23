@@ -12,18 +12,22 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
-    "lint": "turbo lint",
+    "lint": "oxlint .",
     "check": "turbo check",
     "clean": "git clean -fdX",
     "fmt": "oxfmt .",
+    "fmt:check": "oxfmt . --check",
     "reset": "bun run clean && bun i",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "changeset publish"
+    "release": "changeset publish",
+    "prepare": "lefthook install"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.8",
     "bun-types": "latest",
+    "lefthook": "^2.0.12",
+    "oxfmt": "^0.20.0",
     "oxlint": "^0.16.0",
     "turbo": "^2.7.1",
     "typescript": "^5.7.0"

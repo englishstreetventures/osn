@@ -43,6 +43,8 @@ Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+RES
 - E2E encryption everywhere
 - All personalization data user-accessible + resettable
 - Priority: iOS > Web > Android (Android deferred)
+- Pre-commit: lefthook runs oxlint + oxfmt on staged files
+- Pre-push: lefthook runs type check
 
 ## Backend Code Patterns
 
@@ -79,7 +81,8 @@ bun run check            # Type-check all packages (turbo)
 
 # Code quality
 bun run lint             # oxlint
-bun run fmt              # oxfmt
+bun run fmt              # oxfmt format
+bun run fmt:check        # oxfmt check (CI)
 
 # Database (from packages/db)
 bun run db:migrate       # Generate migrations
