@@ -176,3 +176,9 @@ dist
 
 # misc
 **/tmp
+
+# Turborepo
+.turbo
+
+# Astro
+.astro
