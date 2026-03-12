@@ -11,7 +11,9 @@
     "dev": "bun run --watch src/index.ts",
     "build": "bun build ./src/index.ts --outdir ./dist --target bun",
     "start": "bun run ./dist/index.js",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.0",
@@ -23,6 +25,8 @@
     "valibot": "^1.0.0"
   },
   "devDependencies": {
-    "@osn/typescript-config": "workspace:*"
+    "@effect/vitest": "^0.27.0",
+    "@osn/typescript-config": "workspace:*",
+    "vitest": "^4.0.18"
   }
 }

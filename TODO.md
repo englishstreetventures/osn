@@ -4,7 +4,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Current Status
 
-Monorepo scaffolding complete. Pulse Tauri app initialized with iOS target. CI/CD pipeline working with Bun runtime. Ready to initialize remaining Tauri apps and begin core development.
+Events API fully operational with Effect.ts service pattern and test coverage. Pulse backend has complete CRUD for events (list, today, get, create, update, delete) with Valibot validation and proper error types. 29 tests cover service layer (Effect) and HTTP routes (integration). Frontend surfaces events via Eden client. Ready to build out event discovery, lifecycle transitions, and the Pulse UI.
 
 ---
 
@@ -16,7 +16,7 @@ Decisions to revisit later. Add new items as they come up.
 |----------|---------|--------------|
 | Messaging app name | Need a catchy name | Before public launch |
 | Social media platform name | Need a catchy name | Before starting Phase 3 |
-| Effect.ts adoption | Trial with OSN/Pulse backend first | After trial evaluation |
+| Effect.ts adoption | Trial underway in `packages/api` (events service complete) | After more service coverage |
 | Supabase migration | Currently SQLite for simplicity | When scaling needed |
 | Android support | iOS priority for now | Phase 3 |
 | Self-hosting | Enterprise use case | Phase 3 |
@@ -38,6 +38,7 @@ Decisions to revisit later. Add new items as they come up.
 - [x] lefthook pre-commit/pre-push hooks
 - [x] Claude Code GitHub integration (@claude mentions, PR reviews)
 - [x] Automated security review on PRs
+- [x] Vitest + @effect/vitest test setup (packages/api, packages/db)
 
 ### Landing Page (`apps/landing`)
 - [x] Astro + Solid scaffolding
@@ -56,8 +57,9 @@ Decisions to revisit later. Add new items as they come up.
 ### Pulse (`apps/pulse`)
 - [x] Initialize Tauri app with SolidJS (`bunx create-tauri-app`)
 - [x] iOS target configured (`bunx tauri ios init`)
-- [ ] Event data model and schema
-- [ ] Event CRUD operations
+- [x] Event data model and schema
+- [x] Event CRUD operations (list, today, get, create, update, delete)
+- [x] Events surfaced to frontend via Eden client
 - [ ] Event lifecycle auto-transitions
 - [ ] Event discovery (location, category, datetime, friends, interests)
 - [ ] "What's on today" default view
@@ -82,19 +84,22 @@ Decisions to revisit later. Add new items as they come up.
 ### Backend (`packages/api`)
 - [x] Basic Elysia setup
 - [x] Eden client export
-- [ ] Effect.ts trial integration
-- [ ] Domain modules (osn, pulse, messaging)
+- [x] Effect.ts trial integration (events service)
+- [x] Events domain module (list, today, get, create, update, delete)
+- [x] Service + route tests (Vitest, 26 tests)
+- [ ] OSN/messaging domain modules
 - [ ] WebSocket setup for real-time
 - [ ] REST endpoints for third-party consumers
 
 ### Database (`packages/db`)
 - [x] Drizzle + SQLite setup
+- [x] Event schema
+- [x] Migrations
+- [x] Schema smoke tests (Vitest, 3 tests)
 - [ ] User schema
 - [ ] Social graph schema
-- [ ] Event schema
 - [ ] Event series schema
 - [ ] Chat/Message schema
-- [ ] Migrations
 
 ### UI Components (`packages/ui`)
 - [ ] Design system / tokens

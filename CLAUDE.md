@@ -35,7 +35,7 @@ packages/
 
 ## Tech (one-liner)
 
-Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+REST, WebSockets, Signal Protocol, SolidJS, Astro, Tauri, Turborepo, oxlint, oxfmt, Valibot
+Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+REST, WebSockets, Signal Protocol, SolidJS, Astro, Tauri, Turborepo, oxlint, oxfmt, Valibot, Vitest + @effect/vitest
 
 ## Conventions
 
@@ -49,6 +49,65 @@ Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+RES
 - Pre-push: lefthook runs type check
 - oxlint configured via `oxlintrc.json` (React plugin disabled for SolidJS)
 - Use `bunx --bun` flag for all tooling (bypasses Node.js)
+
+## Testing Patterns
+
+Test files live in `tests/` at the package root, mirroring the `src/` structure:
+
+```
+packages/api/
+  tests/
+    helpers/db.ts                  # createTestLayer() — shared test utility
+    services/events.test.ts        # Effect service tests
+    routes/events.test.ts          # HTTP integration tests
+packages/db/
+  tests/
+    schema.test.ts                 # Schema smoke tests
+```
+
+```typescript
+// Service tests: it.effect from @effect/vitest, isolated DB per test
+import { it, expect } from "@effect/vitest";
+import { Effect } from "effect";
+import { createTestLayer } from "../helpers/db";
+
+it.effect("creates event with evt_ prefix", () =>
+  Effect.gen(function* () {
+    const event = yield* createEvent({ title: "Test", startTime: "2030-06-01T10:00:00.000Z" });
+    expect(event.id).toMatch(/^evt_/);
+  }).pipe(Effect.provide(createTestLayer()))
+);
+
+// Error assertions: use Effect.flip to promote errors to success channel
+it.effect("fails with EventNotFound", () =>
+  Effect.gen(function* () {
+    const error = yield* Effect.flip(getEvent("nonexistent"));
+    expect(error._tag).toBe("EventNotFound");
+  }).pipe(Effect.provide(createTestLayer()))
+);
+
+// Route tests: plain vitest, fresh app per test via beforeEach
+import { describe, it, expect, beforeEach } from "vitest";
+import { createEventsRoutes } from "../../src/routes/events";
+
+describe("events routes", () => {
+  let app: ReturnType<typeof createEventsRoutes>;
+  beforeEach(() => { app = createEventsRoutes(createTestLayer()); });
+
+  it("GET /events → 200", async () => {
+    const res = await app.handle(new Request("http://localhost/events"));
+    expect(res.status).toBe(200);
+  });
+});
+```
+
+**Rules:**
+- All tests use in-memory SQLite — no file DB, no migrations needed
+- Service tests: `it.effect` + `Effect.provide(createTestLayer())` per test (full isolation)
+- Route tests: `createEventsRoutes(createTestLayer())` in `beforeEach` (full isolation)
+- Routes accept an optional `dbLayer` param for injection; default is `DbLive`
+- Use `bunx --bun vitest` (not plain `vitest`) — required for `bun:sqlite` module access
+- Use future dates (e.g. `2030-06-01T10:00:00.000Z`) for test events; default `listEvents` filters past events out
 
 ## Backend Code Patterns
 
@@ -82,6 +141,12 @@ tsconfig paths: `#db` → `./src/db`, `#routes` → `./src/routes`
 bun run dev              # Start all dev servers (turbo)
 bun run build            # Build all packages (turbo)
 bun run check            # Type-check all packages (turbo)
+
+# Testing
+bun run test                          # run all tests (turbo, skips packages without test script)
+bun run --cwd packages/api test:run   # run API tests once
+bun run --cwd packages/db test:run    # run db schema tests once
+bun run --cwd packages/api test       # watch mode
 
 # Code quality
 bun run lint             # oxlint
