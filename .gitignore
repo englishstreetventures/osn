@@ -182,3 +182,10 @@ dist
 
 # Astro
 .astro
+
+# SolidStart / Vinxi
+.output
+app.config.timestamp_*.js
+
+# Local data
+data/

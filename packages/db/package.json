@@ -8,9 +8,10 @@
     "./schema": "./src/schema/index.ts"
   },
   "scripts": {
-    "db:migrate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio",
+    "db:migrate": "bunx drizzle-kit generate",
+    "db:push": "bunx drizzle-kit push",
+    "db:studio": "bunx drizzle-kit studio",
+    "db:seed": "bun run src/seed.ts",
     "check": "tsc --noEmit"
   },
   "dependencies": {
@@ -18,6 +19,8 @@
   },
   "devDependencies": {
     "@osn/typescript-config": "workspace:*",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.5.0",
     "drizzle-kit": "^0.30.0"
   }
 }
