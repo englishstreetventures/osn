@@ -1,5 +1,16 @@
 import { Data, Effect } from "effect";
 import { and, eq, gte, lte, type SQL } from "drizzle-orm";
+import {
+  isoTimestamp,
+  nonEmpty,
+  object,
+  optional,
+  parse,
+  picklist,
+  pipe,
+  string,
+  transform,
+} from "valibot";
 import { events } from "@osn/db";
 import type { Event } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
@@ -11,6 +22,36 @@ export class EventNotFound extends Data.TaggedError("EventNotFound")<{
 export class DatabaseError extends Data.TaggedError("DatabaseError")<{
   readonly cause: unknown;
 }> {}
+
+export class ValidationError extends Data.TaggedError("ValidationError")<{
+  readonly cause: unknown;
+}> {}
+
+const toDate = (s: string) => new Date(s);
+
+const insertEventSchema = object({
+  title: pipe(string(), nonEmpty("Title is required")),
+  description: optional(string()),
+  location: optional(string()),
+  venue: optional(string()),
+  category: optional(string()),
+  startTime: pipe(string(), isoTimestamp(), transform(toDate)),
+  endTime: optional(pipe(string(), isoTimestamp(), transform(toDate))),
+  status: optional(picklist(["upcoming", "ongoing", "finished", "cancelled"])),
+  imageUrl: optional(string()),
+});
+
+const updateEventSchema = object({
+  title: optional(pipe(string(), nonEmpty())),
+  description: optional(string()),
+  location: optional(string()),
+  venue: optional(string()),
+  category: optional(string()),
+  startTime: optional(pipe(string(), isoTimestamp(), transform(toDate))),
+  endTime: optional(pipe(string(), isoTimestamp(), transform(toDate))),
+  status: optional(picklist(["upcoming", "ongoing", "finished", "cancelled"])),
+  imageUrl: optional(string()),
+});
 
 interface ListEventsParams {
   status?: "upcoming" | "ongoing" | "finished" | "cancelled";
@@ -81,4 +122,66 @@ export const getEvent = (id: string): Effect.Effect<Event, EventNotFound | Datab
     }
 
     return result[0]!;
+  });
+
+export const createEvent = (
+  data: unknown,
+): Effect.Effect<Event, ValidationError | DatabaseError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+
+    const validated = yield* Effect.try({
+      try: () => parse(insertEventSchema, data),
+      catch: (cause) => new ValidationError({ cause }),
+    });
+
+    const id = "evt_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const now = new Date();
+
+    yield* Effect.tryPromise({
+      try: () => db.insert(events).values({ ...validated, id, createdAt: now, updatedAt: now }),
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+
+    return yield* getEvent(id).pipe(
+      Effect.mapError((e) => (e instanceof EventNotFound ? new DatabaseError({ cause: e }) : e)),
+    );
+  });
+
+export const updateEvent = (
+  id: string,
+  data: unknown,
+): Effect.Effect<Event, EventNotFound | ValidationError | DatabaseError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+
+    yield* getEvent(id);
+
+    const validated = yield* Effect.try({
+      try: () => parse(updateEventSchema, data),
+      catch: (cause) => new ValidationError({ cause }),
+    });
+
+    yield* Effect.tryPromise({
+      try: () =>
+        db
+          .update(events)
+          .set({ ...validated, updatedAt: new Date() })
+          .where(eq(events.id, id)),
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+
+    return yield* getEvent(id);
+  });
+
+export const deleteEvent = (id: string): Effect.Effect<void, EventNotFound | DatabaseError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+
+    yield* getEvent(id);
+
+    yield* Effect.tryPromise({
+      try: () => db.delete(events).where(eq(events.id, id)),
+      catch: (cause) => new DatabaseError({ cause }),
+    });
   });
