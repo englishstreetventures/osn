@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema/index.ts"
+    "./schema": "./src/schema/index.ts",
+    "./service": "./src/service.ts"
   },
   "scripts": {
     "db:migrate": "bunx drizzle-kit generate",
@@ -15,7 +16,8 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "drizzle-orm": "^0.38.0"
+    "drizzle-orm": "^0.38.0",
+    "effect": "^3.19.19"
   },
   "devDependencies": {
     "@osn/typescript-config": "workspace:*",

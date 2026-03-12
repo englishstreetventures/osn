@@ -1,5 +1,6 @@
-import { db } from "./client";
+import { Effect } from "effect";
 import { events } from "./schema";
+import { Db, DbLive } from "./service";
 
 const sampleEvents = [
   {
@@ -43,18 +44,24 @@ const sampleEvents = [
   },
 ];
 
-async function seed() {
-  console.log("🌱 Seeding database...");
+const seed = Effect.gen(function* () {
+  const { db } = yield* Db;
 
-  // Clear existing events
-  await db.delete(events);
+  yield* Effect.try({
+    try: () => db.delete(events),
+    catch: (cause) => new Error(`Delete failed: ${cause}`),
+  });
 
-  // Insert sample events
   for (const event of sampleEvents) {
-    await db.insert(events).values(event);
+    yield* Effect.try({
+      try: () => db.insert(events).values(event),
+      catch: (cause) => new Error(`Insert failed: ${cause}`),
+    });
   }
 
-  console.log(`✅ Seeded ${sampleEvents.length} events`);
-}
+  return sampleEvents.length;
+});
 
-seed().catch(console.error);
+Effect.runPromise(seed.pipe(Effect.provide(DbLive)))
+  .then((count) => console.log(`Seeded ${count} events`))
+  .catch(console.error);

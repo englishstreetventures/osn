@@ -1,34 +1,14 @@
 import { Elysia, t } from "elysia";
-import { db, events } from "@osn/db";
-import { gte, and, eq } from "drizzle-orm";
+import { Effect } from "effect";
+import { DbLive } from "@osn/db/service";
+import { listEvents, listTodayEvents, getEvent } from "../services/events";
 
 export const eventsRoutes = new Elysia({ prefix: "/events" })
   .get(
     "/",
     async ({ query }) => {
-      const now = new Date();
-      const filters = [];
-
-      if (query.status) {
-        filters.push(eq(events.status, query.status));
-      }
-
-      if (query.category) {
-        filters.push(eq(events.category, query.category));
-      }
-
-      if (query.upcoming !== "false") {
-        filters.push(gte(events.startTime, now));
-      }
-
-      const results = await db
-        .select()
-        .from(events)
-        .where(filters.length > 0 ? and(...filters) : undefined)
-        .orderBy(events.startTime)
-        .limit(query.limit ? Number(query.limit) : 20);
-
-      return { events: results };
+      const result = await Effect.runPromise(listEvents(query).pipe(Effect.provide(DbLive)));
+      return { events: result };
     },
     {
       query: t.Object({
@@ -47,28 +27,23 @@ export const eventsRoutes = new Elysia({ prefix: "/events" })
     },
   )
   .get("/today", async () => {
-    const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
-
-    const results = await db
-      .select()
-      .from(events)
-      .where(and(gte(events.startTime, startOfDay), gte(endOfDay, events.startTime)))
-      .orderBy(events.startTime);
-
-    return { events: results };
+    const result = await Effect.runPromise(listTodayEvents.pipe(Effect.provide(DbLive)));
+    return { events: result };
   })
   .get(
     "/:id",
-    async ({ params, error }) => {
-      const result = await db.select().from(events).where(eq(events.id, params.id)).limit(1);
-
-      if (result.length === 0) {
-        return error(404, { message: "Event not found" });
+    async ({ params, set }) => {
+      const result = await Effect.runPromise(
+        getEvent(params.id).pipe(
+          Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
+          Effect.provide(DbLive),
+        ),
+      );
+      if (result === null) {
+        set.status = 404;
+        return { message: "Event not found" };
       }
-
-      return { event: result[0] };
+      return { event: result };
     },
     {
       params: t.Object({
