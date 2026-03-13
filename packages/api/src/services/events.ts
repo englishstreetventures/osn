@@ -60,6 +60,30 @@ interface ListEventsParams {
   limit?: string;
 }
 
+const deriveStatus = (event: Event, now: Date): Event["status"] => {
+  if (event.status === "cancelled" || event.status === "finished") return event.status;
+  const started = event.startTime <= now;
+  const ended = event.endTime !== null && event.endTime <= now;
+  if (ended) return "finished";
+  if (started) return "ongoing";
+  return "upcoming";
+};
+
+export const applyTransition = (event: Event): Effect.Effect<Event, DatabaseError, Db> => {
+  const now = new Date();
+  const derived = deriveStatus(event, now);
+  if (derived === event.status) return Effect.succeed(event);
+  return Effect.gen(function* () {
+    const { db } = yield* Db;
+    yield* Effect.tryPromise({
+      try: () =>
+        db.update(events).set({ status: derived, updatedAt: now }).where(eq(events.id, event.id)),
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+    return { ...event, status: derived, updatedAt: now };
+  });
+};
+
 export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
@@ -78,7 +102,7 @@ export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], Dat
       filters.push(gte(events.startTime, now));
     }
 
-    return yield* Effect.tryPromise({
+    const results = yield* Effect.tryPromise({
       try: (): Promise<Event[]> =>
         db
           .select()
@@ -88,6 +112,8 @@ export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], Dat
           .limit(params.limit ? Number(params.limit) : 20) as Promise<Event[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
+
+    return yield* Effect.forEach(results, applyTransition);
   });
 
 export const listTodayEvents: Effect.Effect<Event[], DatabaseError, Db> = Effect.gen(function* () {
@@ -96,7 +122,7 @@ export const listTodayEvents: Effect.Effect<Event[], DatabaseError, Db> = Effect
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
 
-  return yield* Effect.tryPromise({
+  const results = yield* Effect.tryPromise({
     try: (): Promise<Event[]> =>
       db
         .select()
@@ -105,6 +131,8 @@ export const listTodayEvents: Effect.Effect<Event[], DatabaseError, Db> = Effect
         .orderBy(events.startTime) as Promise<Event[]>,
     catch: (cause) => new DatabaseError({ cause }),
   });
+
+  return yield* Effect.forEach(results, applyTransition);
 });
 
 export const getEvent = (id: string): Effect.Effect<Event, EventNotFound | DatabaseError, Db> =>
@@ -121,7 +149,7 @@ export const getEvent = (id: string): Effect.Effect<Event, EventNotFound | Datab
       return yield* Effect.fail(new EventNotFound({ id }));
     }
 
-    return result[0]!;
+    return yield* applyTransition(result[0]!);
   });
 
 export const createEvent = (

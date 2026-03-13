@@ -22,6 +22,8 @@ Decisions to revisit later. Add new items as they come up.
 | Self-hosting | Enterprise use case | Phase 3 |
 | Payment handling | Deferred for Pulse ticketing | After core Pulse features |
 | Two-way calendar sync | Currently one-way (Pulse → external) | Phase 2 |
+| Community event-ended reporting | When 15–20 attendees report an event as ended, auto-finish it; host gets push notification to mark it finished | When attendee/messaging features land |
+| Max event duration | Frontend should prompt for a max auto-finish duration (e.g. 4h) when creating events without an endTime | When Pulse event creation UI is built |
 
 ---
 
@@ -60,7 +62,8 @@ Decisions to revisit later. Add new items as they come up.
 - [x] Event data model and schema
 - [x] Event CRUD operations (list, today, get, create, update, delete)
 - [x] Events surfaced to frontend via Eden client
-- [ ] Event lifecycle auto-transitions
+- [x] Event lifecycle auto-transitions (on-read, no background job)
+- [ ] Frontend UX: prompt for max event duration when creating events without an endTime
 - [ ] Event discovery (location, category, datetime, friends, interests)
 - [ ] "What's on today" default view
 - [ ] Recurring events (series + instances)

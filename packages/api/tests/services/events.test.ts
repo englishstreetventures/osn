@@ -12,6 +12,8 @@ import {
 
 const FUTURE = "2030-06-01T10:00:00.000Z";
 const PAST = "2020-01-01T10:00:00.000Z";
+const STARTED = new Date(Date.now() - 60_000).toISOString();
+const ENDED = new Date(Date.now() - 30_000).toISOString();
 
 const provide = <A, E>(effect: Effect.Effect<A, E, any>) =>
   effect.pipe(Effect.provide(createTestLayer()));
@@ -61,7 +63,7 @@ it.effect("listEvents filters by status", () =>
   provide(
     Effect.gen(function* () {
       yield* createEvent({ title: "Upcoming Event", startTime: FUTURE });
-      yield* createEvent({ title: "Ongoing Event", startTime: FUTURE, status: "ongoing" });
+      yield* createEvent({ title: "Ongoing Event", startTime: STARTED });
       const events = yield* listEvents({ upcoming: "false", status: "ongoing" });
       expect(events.length).toBe(1);
       expect(events[0]!.title).toBe("Ongoing Event");
@@ -178,6 +180,78 @@ it.effect("deleteEvent fails with EventNotFound for unknown id", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(deleteEvent("nonexistent"));
       expect(error._tag).toBe("EventNotFound");
+    }),
+  ),
+);
+
+it.effect("getEvent auto-transitions upcoming → ongoing when startTime passed", () =>
+  provide(
+    Effect.gen(function* () {
+      const created = yield* createEvent({ title: "Started", startTime: STARTED });
+      expect(created.status).toBe("ongoing");
+      const fetched = yield* getEvent(created.id);
+      expect(fetched.status).toBe("ongoing");
+    }),
+  ),
+);
+
+it.effect("getEvent auto-transitions to finished when endTime passed", () =>
+  provide(
+    Effect.gen(function* () {
+      const created = yield* createEvent({ title: "Ended", startTime: STARTED, endTime: ENDED });
+      expect(created.status).toBe("finished");
+      const fetched = yield* getEvent(created.id);
+      expect(fetched.status).toBe("finished");
+    }),
+  ),
+);
+
+it.effect("getEvent does not transition cancelled events", () =>
+  provide(
+    Effect.gen(function* () {
+      const created = yield* createEvent({
+        title: "Cancelled",
+        startTime: STARTED,
+        status: "cancelled",
+      });
+      const fetched = yield* getEvent(created.id);
+      expect(fetched.status).toBe("cancelled");
+    }),
+  ),
+);
+
+it.effect("getEvent does not transition finished events", () =>
+  provide(
+    Effect.gen(function* () {
+      const created = yield* createEvent({
+        title: "Finished",
+        startTime: STARTED,
+        status: "finished",
+      });
+      const fetched = yield* getEvent(created.id);
+      expect(fetched.status).toBe("finished");
+    }),
+  ),
+);
+
+it.effect("listEvents returns transitioned statuses", () =>
+  provide(
+    Effect.gen(function* () {
+      yield* createEvent({ title: "Started", startTime: STARTED });
+      const results = yield* listEvents({ upcoming: "false" });
+      const started = results.find((e) => e.title === "Started");
+      expect(started?.status).toBe("ongoing");
+    }),
+  ),
+);
+
+it.effect("listTodayEvents returns transitioned statuses", () =>
+  provide(
+    Effect.gen(function* () {
+      yield* createEvent({ title: "Today Started", startTime: STARTED });
+      const results = yield* listTodayEvents;
+      const started = results.find((e) => e.title === "Today Started");
+      expect(started?.status).toBe("ongoing");
     }),
   ),
 );
