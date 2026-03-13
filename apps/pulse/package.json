@@ -17,7 +17,7 @@
   "dependencies": {
     "@osn/core": "workspace:*",
     "@osn/ui": "workspace:*",
-"@tailwindcss/vite": "^4.2.1",
+    "@tailwindcss/vite": "^4.2.1",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
     "solid-js": "^1.9.3",
