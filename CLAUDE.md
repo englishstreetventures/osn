@@ -49,6 +49,9 @@ Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+RES
 - Pre-push: lefthook runs type check
 - oxlint configured via `oxlintrc.json` (React plugin disabled for SolidJS)
 - Use `bunx --bun` flag for all tooling (bypasses Node.js)
+- PRs required to merge to main (no direct pushes)
+- Every PR must include a changeset (`bun run changeset`) — CI will fail without one
+- Versioning is automatic: changesets are consumed and committed by CI on merge to main
 
 ## Testing Patterns
 
@@ -159,8 +162,8 @@ bun run db:push          # Push schema
 bun run db:studio        # Drizzle Studio
 
 # Versioning
-bun run changeset        # Create changeset
-bun run version          # Version packages
+bun run changeset        # Create changeset (required for every PR)
+# Note: bun run version runs automatically on merge to main — do not run manually
 
 # Maintenance
 bun run clean            # git clean -fdX

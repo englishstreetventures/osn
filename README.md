@@ -168,7 +168,17 @@ This allows Pulse users to participate in event chats without requiring full Mes
 
 ## Contributing
 
-This project prioritizes getting the foundations right. Code practices and architecture decisions should be discussed before implementation.
+All changes go through pull requests — direct pushes to `main` are not permitted.
+
+**Every PR must include a changeset** describing the change type and affected packages. To create one:
+
+```bash
+bun run changeset
+```
+
+Select the packages affected, choose the bump type (patch/minor/major), and write a summary. The CI "Changeset Check" job will fail without one.
+
+On merge, CI automatically runs `changeset version` to bump package versions and update changelogs, then commits the result directly to `main`.
 
 See also:
 - `TODO.md` - Current progress, task checklists, deferred decisions
