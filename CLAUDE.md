@@ -50,6 +50,7 @@ Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+RES
 - oxlint configured via `oxlintrc.json` (React plugin disabled for SolidJS)
 - Use `bunx --bun` flag for all tooling (bypasses Node.js)
 - PRs required to merge to main (no direct pushes)
+- Always work on a feature branch — never commit directly to main
 - Every PR must include a changeset (`bun run changeset`) — CI will fail without one
 - Versioning is automatic: changesets are consumed and committed by CI on merge to main
 
