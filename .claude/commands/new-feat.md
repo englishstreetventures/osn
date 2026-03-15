@@ -32,3 +32,9 @@ The plan should:
 After both agents complete, summarise:
 - The branch that was created
 - The full implementation plan
+
+---
+
+Once the user confirms they are happy with the implementation, prompt them:
+
+"Ready to prepare this branch for a PR? Run `/prep-pr` to validate changesets, run tests, get performance and security reviews, and push the branch."
