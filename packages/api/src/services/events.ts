@@ -11,7 +11,7 @@ import {
   string,
   transform,
 } from "valibot";
-import { events } from "@osn/db";
+import { events } from "@osn/db/schema";
 import type { Event } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 
