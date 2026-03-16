@@ -8,13 +8,20 @@ import {
   Show,
 } from "solid-js";
 import { api } from "./lib/api";
+import { AuthProvider, useAuth } from "@osn/client/solid";
 import "./App.css";
+
+const OSN_ISSUER_URL = import.meta.env.VITE_OSN_ISSUER_URL ?? "http://localhost:4000";
+const OSN_CLIENT_ID = import.meta.env.VITE_OSN_CLIENT_ID ?? "pulse";
+const REDIRECT_URI = import.meta.env.VITE_REDIRECT_URI ?? `${window.location.origin}/callback`;
 
 type EventsResponse = Awaited<ReturnType<typeof api.events.get>>;
 type EventItem = NonNullable<NonNullable<EventsResponse["data"]>["events"]>[number];
 
-async function fetchEvents(): Promise<EventItem[]> {
-  const { data, error } = await api.events.get();
+async function fetchEvents(accessToken: string | null): Promise<EventItem[]> {
+  const headers: Record<string, string> = {};
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+  const { data, error } = await api.events.get({ headers });
   if (error) throw error;
   return data!.events;
 }
@@ -139,7 +146,11 @@ function LocationInput(props: { value: string; onValue: (v: string) => void }) {
   );
 }
 
-function CreateEventForm(props: { onSuccess: () => void; onCancel: () => void }) {
+function CreateEventForm(props: {
+  accessToken: string | null;
+  onSuccess: () => void;
+  onCancel: () => void;
+}) {
   const [title, setTitle] = createSignal("");
   const [startTime, setStartTime] = createSignal(toDatetimeLocal(new Date()));
   const [endTime, setEndTime] = createSignal("");
@@ -155,13 +166,18 @@ function CreateEventForm(props: { onSuccess: () => void; onCancel: () => void })
     if (endTimeError()) return;
     setSubmitting(true);
     try {
-      const { error } = await api.events.post({
-        title: title(),
-        startTime: new Date(startTime()) as unknown as string,
-        endTime: endTime() ? (new Date(endTime()) as unknown as string) : undefined,
-        location: location() || undefined,
-        description: description() || undefined,
-      });
+      const headers: Record<string, string> = {};
+      if (props.accessToken) headers["Authorization"] = `Bearer ${props.accessToken}`;
+      const { error } = await api.events.post(
+        {
+          title: title(),
+          startTime: new Date(startTime()) as unknown as string,
+          endTime: endTime() ? (new Date(endTime()) as unknown as string) : undefined,
+          location: location() || undefined,
+          description: description() || undefined,
+        },
+        { headers },
+      );
       if (error) throw error;
       props.onSuccess();
     } finally {
@@ -304,14 +320,19 @@ function EventCard(props: { event: EventItem; onDelete: (id: string) => void }) 
   );
 }
 
-export default function App() {
-  const [events, { refetch }] = createResource(fetchEvents);
+function EventList() {
+  const { session, login, logout } = useAuth();
+  const accessToken = () => session()?.accessToken ?? null;
+  const [events, { refetch }] = createResource(accessToken, fetchEvents);
   const [showForm, setShowForm] = createSignal(false);
 
   function handleDelete(id: string) {
+    const headers: Record<string, string> = {};
+    const token = accessToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
     api
       .events({ id })
-      .delete()
+      .delete(undefined, { headers })
       .then(() => refetch())
       .catch((err) => console.error("Failed to delete event:", err));
   }
@@ -325,15 +346,37 @@ export default function App() {
     <main class="max-w-xl mx-auto px-4 py-6">
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-3xl font-bold text-foreground">Pulse</h1>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          class="rounded-md px-3 py-1.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90"
-        >
-          {showForm() ? "Cancel" : "New Event"}
-        </button>
+        <div class="flex gap-2">
+          <Show when={!session()}>
+            <button
+              onClick={() => login(REDIRECT_URI)}
+              class="rounded-md px-3 py-1.5 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80"
+            >
+              Sign in with OSN
+            </button>
+          </Show>
+          <Show when={session()}>
+            <button
+              onClick={() => setShowForm((v) => !v)}
+              class="rounded-md px-3 py-1.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              {showForm() ? "Cancel" : "New Event"}
+            </button>
+            <button
+              onClick={logout}
+              class="rounded-md px-3 py-1.5 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80"
+            >
+              Sign out
+            </button>
+          </Show>
+        </div>
       </div>
       <Show when={showForm()}>
-        <CreateEventForm onSuccess={handleFormSuccess} onCancel={() => setShowForm(false)} />
+        <CreateEventForm
+          accessToken={accessToken()}
+          onSuccess={handleFormSuccess}
+          onCancel={() => setShowForm(false)}
+        />
       </Show>
       <Show when={events.loading}>
         <p class="text-center text-muted-foreground py-16">Loading events…</p>
@@ -352,5 +395,13 @@ export default function App() {
         </div>
       </Show>
     </main>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL, clientId: OSN_CLIENT_ID }}>
+      <EventList />
+    </AuthProvider>
   );
 }

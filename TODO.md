@@ -4,7 +4,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Current Status
 
-Events API fully operational with Effect.ts service pattern and test coverage. Pulse backend has complete CRUD for events (list, today, get, create, update, delete) with Valibot validation and proper error types. 29 tests cover service layer (Effect) and HTTP routes (integration). Frontend surfaces events via Eden client. Ready to build out event discovery, lifecycle transitions, and the Pulse UI.
+Events API fully operational with Effect.ts service pattern and test coverage. Pulse backend has complete CRUD for events (list, today, get, create, update, delete) with Effect Schema validation and proper error types. 29 tests cover service layer (Effect) and HTTP routes (integration). Frontend surfaces events via Eden client. DB split into `@osn/db` (OSN Core, placeholder) and `@pulse/db` (Pulse events). Ready to build out event discovery, lifecycle transitions, and the Pulse UI.
 
 ---
 
@@ -102,15 +102,14 @@ Decisions to revisit later. Add new items as they come up.
 - [ ] Cap `limit` query parameter in `listEvents` (min 1, max 100) — M2
 - [ ] Lock down CORS `origin` before any non-local deployment — L1
 
-### Database (`packages/db`)
-- [x] Drizzle + SQLite setup
-- [x] Event schema
-- [x] Migrations
-- [x] Schema smoke tests (Vitest, 3 tests)
-- [ ] User schema
-- [ ] Social graph schema
-- [ ] Event series schema
-- [ ] Chat/Message schema
+### Database (`packages/osn-db` → `@osn/db`, `packages/pulse-db` → `@pulse/db`)
+- [x] Split DB into per-app packages (osn-db, pulse-db)
+- [x] Pulse: Drizzle + SQLite setup, event schema, migrations, schema smoke tests (3 tests)
+- [ ] OSN Core: User schema (users, passkey credentials)
+- [ ] OSN Core: Session schema (sessions, refresh tokens)
+- [ ] OSN Core: Social graph schema (connections, blocks)
+- [ ] Pulse: Event series schema
+- [ ] Pulse: Chat/Message schema (via messaging backend)
 
 ### UI Components (`packages/ui`)
 - [ ] Design system / tokens

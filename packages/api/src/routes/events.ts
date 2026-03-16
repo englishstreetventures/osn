@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { Effect, type Layer } from "effect";
-import { DbLive, type Db } from "@osn/db/service";
+import { DbLive, type Db } from "@pulse/db/service";
 import {
   createEvent,
   deleteEvent,

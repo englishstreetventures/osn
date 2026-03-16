@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Layer } from "effect";
-import * as schema from "@osn/db/schema";
-import { Db } from "@osn/db/service";
+import * as schema from "@pulse/db/schema";
+import { Db } from "@pulse/db/service";
 
 export function createTestLayer() {
   const sqlite = new Database(":memory:");
