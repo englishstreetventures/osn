@@ -64,6 +64,7 @@ Decisions to revisit later. Add new items as they come up.
 - [x] Events surfaced to frontend via Eden client
 - [x] Event lifecycle auto-transitions (on-read, no background job)
 - [ ] Frontend UX: prompt for max event duration when creating events without an endTime
+- [ ] Add toast notification system (errors, warnings, info) — errors currently only logged to console or silently dropped
 - [ ] Event discovery (location, category, datetime, friends, interests)
 - [ ] "What's on today" default view
 - [ ] Recurring events (series + instances)
@@ -93,6 +94,13 @@ Decisions to revisit later. Add new items as they come up.
 - [ ] OSN/messaging domain modules
 - [ ] WebSocket setup for real-time
 - [ ] REST endpoints for third-party consumers
+
+### Security (follow-up PR)
+- [ ] Add authentication/authorisation middleware to all API routes (OWASP A01) — H1
+- [ ] Add ownership model to mutating event operations (create/update/delete) — H2
+- [ ] Evaluate Photon (Komoot) geocoding privacy: keystrokes sent to third-party with no user notice — add consent UI or proxy — M1
+- [ ] Cap `limit` query parameter in `listEvents` (min 1, max 100) — M2
+- [ ] Lock down CORS `origin` before any non-local deployment — L1
 
 ### Database (`packages/db`)
 - [x] Drizzle + SQLite setup

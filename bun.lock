@@ -30,8 +30,9 @@
     },
     "apps/pulse": {
       "name": "@osn/pulse",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
+        "@osn/api": "workspace:*",
         "@osn/core": "workspace:*",
         "@osn/ui": "workspace:*",
         "@tailwindcss/vite": "^4.2.1",
@@ -50,7 +51,7 @@
     },
     "packages/api": {
       "name": "@osn/api",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
         "@elysiajs/eden": "^1.2.0",
@@ -82,7 +83,7 @@
     },
     "packages/db": {
       "name": "@osn/db",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "dependencies": {
         "drizzle-orm": "^0.38.0",
         "effect": "^3.19.19",

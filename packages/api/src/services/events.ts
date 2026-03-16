@@ -10,6 +10,7 @@ import {
   pipe,
   string,
   transform,
+  url,
 } from "valibot";
 import { events } from "@osn/db/schema";
 import type { Event } from "@osn/db/schema";
@@ -38,7 +39,7 @@ const insertEventSchema = object({
   startTime: pipe(string(), isoTimestamp(), transform(toDate)),
   endTime: optional(pipe(string(), isoTimestamp(), transform(toDate))),
   status: optional(picklist(["upcoming", "ongoing", "finished", "cancelled"])),
-  imageUrl: optional(string()),
+  imageUrl: optional(pipe(string(), url())),
 });
 
 const updateEventSchema = object({
@@ -50,7 +51,7 @@ const updateEventSchema = object({
   startTime: optional(pipe(string(), isoTimestamp(), transform(toDate))),
   endTime: optional(pipe(string(), isoTimestamp(), transform(toDate))),
   status: optional(picklist(["upcoming", "ongoing", "finished", "cancelled"])),
-  imageUrl: optional(string()),
+  imageUrl: optional(pipe(string(), url())),
 });
 
 interface ListEventsParams {
@@ -113,7 +114,7 @@ export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], Dat
       catch: (cause) => new DatabaseError({ cause }),
     });
 
-    return yield* Effect.forEach(results, applyTransition);
+    return yield* Effect.forEach(results, applyTransition, { concurrency: "unbounded" });
   });
 
 export const listTodayEvents: Effect.Effect<Event[], DatabaseError, Db> = Effect.gen(function* () {
@@ -132,7 +133,7 @@ export const listTodayEvents: Effect.Effect<Event[], DatabaseError, Db> = Effect
     catch: (cause) => new DatabaseError({ cause }),
   });
 
-  return yield* Effect.forEach(results, applyTransition);
+  return yield* Effect.forEach(results, applyTransition, { concurrency: "unbounded" });
 });
 
 export const getEvent = (id: string): Effect.Effect<Event, EventNotFound | DatabaseError, Db> =>

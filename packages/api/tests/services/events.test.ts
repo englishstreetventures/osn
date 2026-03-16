@@ -134,6 +134,30 @@ it.effect("createEvent fails with ValidationError for bad startTime", () =>
   ),
 );
 
+it.effect("createEvent fails with ValidationError for invalid imageUrl", () =>
+  provide(
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        createEvent({ title: "Test", startTime: FUTURE, imageUrl: "not-a-url" }),
+      );
+      expect(error._tag).toBe("ValidationError");
+    }),
+  ),
+);
+
+it.effect("createEvent accepts valid imageUrl", () =>
+  provide(
+    Effect.gen(function* () {
+      const event = yield* createEvent({
+        title: "Test",
+        startTime: FUTURE,
+        imageUrl: "https://example.com/image.jpg",
+      });
+      expect(event.imageUrl).toBe("https://example.com/image.jpg");
+    }),
+  ),
+);
+
 it.effect("updateEvent updates fields", () =>
   provide(
     Effect.gen(function* () {
@@ -159,6 +183,16 @@ it.effect("updateEvent fails with ValidationError for empty title", () =>
     Effect.gen(function* () {
       const created = yield* createEvent({ title: "Original", startTime: FUTURE });
       const error = yield* Effect.flip(updateEvent(created.id, { title: "" }));
+      expect(error._tag).toBe("ValidationError");
+    }),
+  ),
+);
+
+it.effect("updateEvent fails with ValidationError for invalid imageUrl", () =>
+  provide(
+    Effect.gen(function* () {
+      const created = yield* createEvent({ title: "Original", startTime: FUTURE });
+      const error = yield* Effect.flip(updateEvent(created.id, { imageUrl: "not-a-url" }));
       expect(error._tag).toBe("ValidationError");
     }),
   ),

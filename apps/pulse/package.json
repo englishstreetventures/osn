@@ -15,6 +15,7 @@
   },
   "license": "GPL-3.0",
   "dependencies": {
+    "@osn/api": "workspace:*",
     "@osn/core": "workspace:*",
     "@osn/ui": "workspace:*",
     "@tailwindcss/vite": "^4.2.1",

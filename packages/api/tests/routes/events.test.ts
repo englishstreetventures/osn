@@ -66,6 +66,26 @@ describe("events routes", () => {
     expect(res.status).toBe(422);
   });
 
+  it("POST /events returns 422 for invalid imageUrl", async () => {
+    const res = await post(app, "/events", {
+      title: "Concert",
+      startTime: FUTURE,
+      imageUrl: "not-a-url",
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("POST /events accepts valid imageUrl", async () => {
+    const res = await post(app, "/events", {
+      title: "Concert",
+      startTime: FUTURE,
+      imageUrl: "https://example.com/image.jpg",
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { event: { imageUrl: string } };
+    expect(body.event.imageUrl).toBe("https://example.com/image.jpg");
+  });
+
   it("PATCH /events/:id updates event and returns 200", async () => {
     const createRes = await post(app, "/events", { title: "Original", startTime: FUTURE });
     const { event } = (await createRes.json()) as { event: { id: string } };
@@ -78,6 +98,13 @@ describe("events routes", () => {
   it("PATCH /events/:id returns 404 for nonexistent event", async () => {
     const res = await patch(app, "/events/nonexistent", { title: "Updated" });
     expect(res.status).toBe(404);
+  });
+
+  it("PATCH /events/:id returns 422 for invalid imageUrl", async () => {
+    const createRes = await post(app, "/events", { title: "Original", startTime: FUTURE });
+    const { event } = (await createRes.json()) as { event: { id: string } };
+    const res = await patch(app, `/events/${event.id}`, { imageUrl: "not-a-url" });
+    expect(res.status).toBe(422);
   });
 
   it("DELETE /events/:id returns 204", async () => {
