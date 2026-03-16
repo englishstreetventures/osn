@@ -63,6 +63,9 @@ Decisions to revisit later. Add new items as they come up.
 - [x] Event CRUD operations (list, today, get, create, update, delete)
 - [x] Events surfaced to frontend via Eden client
 - [x] Event lifecycle auto-transitions (on-read, no background job)
+- [x] Event CRUD UI (create form, delete, Eden client, shadcn tokens)
+- [x] Vitest setup + utils tests (formatTime, toDatetimeLocal, composeLabel)
+- [ ] Component tests for `LocationInput` debounce/abort logic and `CreateEventForm` end-time validation (needs jsdom/browser test setup)
 - [ ] Frontend UX: prompt for max event duration when creating events without an endTime
 - [ ] Add toast notification system (errors, warnings, info) — errors currently only logged to console or silently dropped
 - [ ] Event discovery (location, category, datetime, friends, interests)
@@ -90,7 +93,12 @@ Decisions to revisit later. Add new items as they come up.
 - [x] Eden client export
 - [x] Effect.ts trial integration (events service)
 - [x] Events domain module (list, today, get, create, update, delete)
-- [x] Service + route tests (Vitest, 26 tests)
+- [x] Service + route tests (Vitest, 44 tests)
+- [ ] HTTP-level test for `GET /events?category=<value>` (service layer covered, route wiring untested)
+- [ ] HTTP-level 422 test for `PATCH /events/:id` with invalid `startTime`/`endTime`
+- [ ] Batch status-transition `UPDATE`s in `listEvents`/`listTodayEvents` (currently N individual writes — W1)
+- [ ] Eliminate extra `getEvent` round-trips in `createEvent`/`updateEvent` via `RETURNING *` — W2
+- [ ] Add indexes on `status` and `category` columns in `pulse-db` events schema — I1
 - [ ] OSN/messaging domain modules
 - [ ] WebSocket setup for real-time
 - [ ] REST endpoints for third-party consumers
@@ -99,8 +107,12 @@ Decisions to revisit later. Add new items as they come up.
 - [ ] Add authentication/authorisation middleware to all API routes (OWASP A01) — H1
 - [ ] Add ownership model to mutating event operations (create/update/delete) — H2
 - [ ] Evaluate Photon (Komoot) geocoding privacy: keystrokes sent to third-party with no user notice — add consent UI or proxy — M1
-- [ ] Cap `limit` query parameter in `listEvents` (min 1, max 100) — M2
-- [ ] Lock down CORS `origin` before any non-local deployment — L1
+- [ ] Cap `limit` query parameter in `listEvents` (min 1, max 100) and guard `NaN` → no-limit fallback — M2
+- [ ] Lock down CORS `origin` before any non-local deployment — M3
+- [ ] `getSession()` returns expired tokens without checking `expiresAt` — add expiry check + silent refresh — M4
+- [ ] `imageUrl` allows `data:` URIs; add CSP `img-src` header — L1
+- [ ] Failed OAuth callback leaves PKCE verifier in `localStorage` — clear on state mismatch — L2
+- [ ] `REDIRECT_URI` derived from `window.location.origin` at runtime — prefer explicit env var — L3
 
 ### Database (`packages/osn-db` → `@osn/db`, `packages/pulse-db` → `@pulse/db`)
 - [x] Split DB into per-app packages (osn-db, pulse-db)

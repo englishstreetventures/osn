@@ -31,7 +31,6 @@ export const createEventsRoutes = (dbLayer: Layer.Layer<Db> = DbLive) =>
         query: t.Object({
           status: statusEnum,
           category: t.Optional(t.String()),
-          upcoming: t.Optional(t.String()),
           limit: t.Optional(t.String()),
         }),
       },

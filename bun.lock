@@ -30,7 +30,7 @@
     },
     "apps/pulse": {
       "name": "@osn/pulse",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@osn/api": "workspace:*",
         "@osn/client": "workspace:*",
@@ -48,11 +48,12 @@
         "typescript": "~5.6.2",
         "vite": "^6.0.3",
         "vite-plugin-solid": "^2.11.0",
+        "vitest": "^4.1.0",
       },
     },
     "packages/api": {
       "name": "@osn/api",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
         "@elysiajs/eden": "^1.2.0",
@@ -69,7 +70,7 @@
     },
     "packages/client": {
       "name": "@osn/client",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "effect": "^3.19.19",
         "valibot": "^1.0.0",
@@ -77,19 +78,12 @@
       "devDependencies": {
         "@effect/vitest": "^0.27.0",
         "@osn/typescript-config": "workspace:*",
-        "@types/react": "^18.0.0",
-        "react": "^18.0.0",
         "solid-js": "^1.9.3",
         "vitest": "^4.0.18",
       },
       "peerDependencies": {
-        "react": ">=18.0.0",
         "solid-js": ">=1.0.0",
       },
-      "optionalPeers": [
-        "react",
-        "solid-js",
-      ],
     },
     "packages/core": {
       "name": "@osn/core",
@@ -107,7 +101,7 @@
     },
     "packages/osn-db": {
       "name": "@osn/db",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "dependencies": {
         "@utils/db": "workspace:*",
         "drizzle-orm": "^0.38.0",
@@ -124,7 +118,7 @@
     },
     "packages/pulse-db": {
       "name": "@pulse/db",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@utils/db": "workspace:*",
         "drizzle-orm": "^0.38.0",
@@ -155,7 +149,7 @@
     },
     "packages/utils-db": {
       "name": "@utils/db",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "drizzle-orm": "^0.38.0",
         "effect": "^3.19.19",

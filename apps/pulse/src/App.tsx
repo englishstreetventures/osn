@@ -8,6 +8,7 @@ import {
   Show,
 } from "solid-js";
 import { api } from "./lib/api";
+import { formatTime, toDatetimeLocal, composeLabel, type PhotonFeature } from "./lib/utils";
 import { AuthProvider, useAuth } from "@osn/client/solid";
 import "./App.css";
 
@@ -24,37 +25,6 @@ async function fetchEvents(accessToken: string | null): Promise<EventItem[]> {
   const { data, error } = await api.events.get({ headers });
   if (error) throw error;
   return data!.events;
-}
-
-function formatTime(iso: string | Date) {
-  return new Date(iso).toLocaleString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function toDatetimeLocal(date: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  // Round up to next minute so the default start time is always slightly in the future
-  const rounded = new Date(Math.ceil(date.getTime() / 60000) * 60000);
-  return `${rounded.getFullYear()}-${pad(rounded.getMonth() + 1)}-${pad(rounded.getDate())}T${pad(rounded.getHours())}:${pad(rounded.getMinutes())}`;
-}
-
-interface PhotonFeature {
-  properties: {
-    name?: string;
-    street?: string;
-    city?: string;
-    state?: string;
-    country?: string;
-  };
-}
-
-function composeLabel(p: PhotonFeature["properties"]): string {
-  return [p.name, p.street, p.city, p.state, p.country].filter(Boolean).join(", ");
 }
 
 function LocationInput(props: { value: string; onValue: (v: string) => void }) {

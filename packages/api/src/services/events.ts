@@ -64,7 +64,6 @@ const UpdateEventSchema = Schema.Struct({
 interface ListEventsParams {
   status?: "upcoming" | "ongoing" | "finished" | "cancelled";
   category?: string;
-  upcoming?: string;
   limit?: string;
 }
 
@@ -95,7 +94,6 @@ export const applyTransition = (event: Event): Effect.Effect<Event, DatabaseErro
 export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
-    const now = new Date();
     const filters: SQL[] = [];
 
     if (params.status) {
@@ -104,10 +102,6 @@ export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], Dat
 
     if (params.category) {
       filters.push(eq(events.category, params.category));
-    }
-
-    if (params.upcoming !== "false") {
-      filters.push(gte(events.startTime, now));
     }
 
     const results = yield* Effect.tryPromise({
