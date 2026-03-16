@@ -1,6 +1,6 @@
 {
   "name": "@osn/pulse",
-  "version": "0.0.2",
+  "version": "0.2.0",
   "private": true,
   "description": "Pulse - Events platform for OSN",
   "type": "module",
@@ -11,10 +11,14 @@
     "build:ios": "tauri ios build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run"
   },
   "license": "GPL-3.0",
   "dependencies": {
+    "@osn/api": "workspace:*",
+    "@osn/client": "workspace:*",
     "@osn/core": "workspace:*",
     "@osn/ui": "workspace:*",
     "@tailwindcss/vite": "^4.2.1",
@@ -28,6 +32,7 @@
     "@tauri-apps/cli": "^2",
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
-    "vite-plugin-solid": "^2.11.0"
+    "vite-plugin-solid": "^2.11.0",
+    "vitest": "^4.1.0"
   }
 }

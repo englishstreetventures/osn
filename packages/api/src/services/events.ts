@@ -1,19 +1,8 @@
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 import { and, eq, gte, lte, type SQL } from "drizzle-orm";
-import {
-  isoTimestamp,
-  nonEmpty,
-  object,
-  optional,
-  parse,
-  picklist,
-  pipe,
-  string,
-  transform,
-} from "valibot";
-import { events } from "@osn/db/schema";
-import type { Event } from "@osn/db/schema";
-import { Db } from "@osn/db/service";
+import { events } from "@pulse/db/schema";
+import type { Event } from "@pulse/db/schema";
+import { Db } from "@pulse/db/service";
 
 export class EventNotFound extends Data.TaggedError("EventNotFound")<{
   readonly id: string;
@@ -27,36 +16,54 @@ export class ValidationError extends Data.TaggedError("ValidationError")<{
   readonly cause: unknown;
 }> {}
 
-const toDate = (s: string) => new Date(s);
+const StatusEnum = Schema.Literal("upcoming", "ongoing", "finished", "cancelled");
 
-const insertEventSchema = object({
-  title: pipe(string(), nonEmpty("Title is required")),
-  description: optional(string()),
-  location: optional(string()),
-  venue: optional(string()),
-  category: optional(string()),
-  startTime: pipe(string(), isoTimestamp(), transform(toDate)),
-  endTime: optional(pipe(string(), isoTimestamp(), transform(toDate))),
-  status: optional(picklist(["upcoming", "ongoing", "finished", "cancelled"])),
-  imageUrl: optional(string()),
+// Schema.DateFromString in this Effect version allows Invalid Date — use a validated transform
+const ValidDateString = Schema.String.pipe(Schema.filter((s) => !isNaN(new Date(s).getTime())));
+const DateFromISOString = Schema.transform(ValidDateString, Schema.DateFromSelf, {
+  strict: true,
+  decode: (s) => new Date(s),
+  encode: (d) => d.toISOString(),
 });
 
-const updateEventSchema = object({
-  title: optional(pipe(string(), nonEmpty())),
-  description: optional(string()),
-  location: optional(string()),
-  venue: optional(string()),
-  category: optional(string()),
-  startTime: optional(pipe(string(), isoTimestamp(), transform(toDate))),
-  endTime: optional(pipe(string(), isoTimestamp(), transform(toDate))),
-  status: optional(picklist(["upcoming", "ongoing", "finished", "cancelled"])),
-  imageUrl: optional(string()),
+const ValidUrl = Schema.String.pipe(
+  Schema.filter((s) => {
+    try {
+      new URL(s);
+      return true;
+    } catch {
+      return false;
+    }
+  }),
+);
+
+const InsertEventSchema = Schema.Struct({
+  title: Schema.NonEmptyString,
+  description: Schema.optional(Schema.String),
+  location: Schema.optional(Schema.String),
+  venue: Schema.optional(Schema.String),
+  category: Schema.optional(Schema.String),
+  startTime: DateFromISOString,
+  endTime: Schema.optional(DateFromISOString),
+  status: Schema.optional(StatusEnum),
+  imageUrl: Schema.optional(ValidUrl),
+});
+
+const UpdateEventSchema = Schema.Struct({
+  title: Schema.optional(Schema.NonEmptyString),
+  description: Schema.optional(Schema.String),
+  location: Schema.optional(Schema.String),
+  venue: Schema.optional(Schema.String),
+  category: Schema.optional(Schema.String),
+  startTime: Schema.optional(DateFromISOString),
+  endTime: Schema.optional(DateFromISOString),
+  status: Schema.optional(StatusEnum),
+  imageUrl: Schema.optional(ValidUrl),
 });
 
 interface ListEventsParams {
   status?: "upcoming" | "ongoing" | "finished" | "cancelled";
   category?: string;
-  upcoming?: string;
   limit?: string;
 }
 
@@ -87,7 +94,6 @@ export const applyTransition = (event: Event): Effect.Effect<Event, DatabaseErro
 export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
-    const now = new Date();
     const filters: SQL[] = [];
 
     if (params.status) {
@@ -96,10 +102,6 @@ export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], Dat
 
     if (params.category) {
       filters.push(eq(events.category, params.category));
-    }
-
-    if (params.upcoming !== "false") {
-      filters.push(gte(events.startTime, now));
     }
 
     const results = yield* Effect.tryPromise({
@@ -113,7 +115,7 @@ export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], Dat
       catch: (cause) => new DatabaseError({ cause }),
     });
 
-    return yield* Effect.forEach(results, applyTransition);
+    return yield* Effect.forEach(results, applyTransition, { concurrency: "unbounded" });
   });
 
 export const listTodayEvents: Effect.Effect<Event[], DatabaseError, Db> = Effect.gen(function* () {
@@ -132,7 +134,7 @@ export const listTodayEvents: Effect.Effect<Event[], DatabaseError, Db> = Effect
     catch: (cause) => new DatabaseError({ cause }),
   });
 
-  return yield* Effect.forEach(results, applyTransition);
+  return yield* Effect.forEach(results, applyTransition, { concurrency: "unbounded" });
 });
 
 export const getEvent = (id: string): Effect.Effect<Event, EventNotFound | DatabaseError, Db> =>
@@ -158,10 +160,9 @@ export const createEvent = (
   Effect.gen(function* () {
     const { db } = yield* Db;
 
-    const validated = yield* Effect.try({
-      try: () => parse(insertEventSchema, data),
-      catch: (cause) => new ValidationError({ cause }),
-    });
+    const validated = yield* Schema.decodeUnknown(InsertEventSchema)(data).pipe(
+      Effect.mapError((cause) => new ValidationError({ cause })),
+    );
 
     const id = "evt_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
     const now = new Date();
@@ -185,10 +186,9 @@ export const updateEvent = (
 
     yield* getEvent(id);
 
-    const validated = yield* Effect.try({
-      try: () => parse(updateEventSchema, data),
-      catch: (cause) => new ValidationError({ cause }),
-    });
+    const validated = yield* Schema.decodeUnknown(UpdateEventSchema)(data).pipe(
+      Effect.mapError((cause) => new ValidationError({ cause })),
+    );
 
     yield* Effect.tryPromise({
       try: () =>

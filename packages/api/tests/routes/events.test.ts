@@ -66,6 +66,26 @@ describe("events routes", () => {
     expect(res.status).toBe(422);
   });
 
+  it("POST /events returns 422 for invalid imageUrl", async () => {
+    const res = await post(app, "/events", {
+      title: "Concert",
+      startTime: FUTURE,
+      imageUrl: "not-a-url",
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("POST /events accepts valid imageUrl", async () => {
+    const res = await post(app, "/events", {
+      title: "Concert",
+      startTime: FUTURE,
+      imageUrl: "https://example.com/image.jpg",
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { event: { imageUrl: string } };
+    expect(body.event.imageUrl).toBe("https://example.com/image.jpg");
+  });
+
   it("PATCH /events/:id updates event and returns 200", async () => {
     const createRes = await post(app, "/events", { title: "Original", startTime: FUTURE });
     const { event } = (await createRes.json()) as { event: { id: string } };
@@ -80,6 +100,13 @@ describe("events routes", () => {
     expect(res.status).toBe(404);
   });
 
+  it("PATCH /events/:id returns 422 for invalid imageUrl", async () => {
+    const createRes = await post(app, "/events", { title: "Original", startTime: FUTURE });
+    const { event } = (await createRes.json()) as { event: { id: string } };
+    const res = await patch(app, `/events/${event.id}`, { imageUrl: "not-a-url" });
+    expect(res.status).toBe(422);
+  });
+
   it("DELETE /events/:id returns 204", async () => {
     const createRes = await post(app, "/events", { title: "To Delete", startTime: FUTURE });
     const { event } = (await createRes.json()) as { event: { id: string } };
@@ -90,5 +117,34 @@ describe("events routes", () => {
   it("DELETE /events/:id returns 404 for nonexistent event", async () => {
     const res = await del(app, "/events/nonexistent");
     expect(res.status).toBe(404);
+  });
+
+  it("GET /events/:id returns 200 with event body", async () => {
+    const createRes = await post(app, "/events", { title: "My Event", startTime: FUTURE });
+    const { event } = (await createRes.json()) as { event: { id: string } };
+    const res = await app.handle(new Request(`http://localhost/events/${event.id}`));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { event: { title: string } };
+    expect(body.event.title).toBe("My Event");
+  });
+
+  it("GET /events?status=upcoming filters results", async () => {
+    const STARTED = new Date(Date.now() - 60_000).toISOString();
+    await post(app, "/events", { title: "Upcoming Event", startTime: FUTURE });
+    await post(app, "/events", { title: "Ongoing Event", startTime: STARTED });
+    const res = await app.handle(new Request("http://localhost/events?status=upcoming"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { events: { title: string }[] };
+    expect(body.events.every((e) => e.title === "Upcoming Event")).toBe(true);
+    expect(body.events.length).toBe(1);
+  });
+
+  it("GET /events?limit=1 returns at most 1 event", async () => {
+    await post(app, "/events", { title: "Event A", startTime: FUTURE });
+    await post(app, "/events", { title: "Event B", startTime: FUTURE });
+    const res = await app.handle(new Request("http://localhost/events?limit=1"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { events: unknown[] };
+    expect(body.events.length).toBe(1);
   });
 });

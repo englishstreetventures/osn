@@ -26,7 +26,9 @@ apps/
   messaging/           # Pending: bunx create-tauri-app
 packages/
   api/                 # ✓ Elysia + Eden
-  db/                  # ✓ Drizzle + SQLite
+  osn-db/              # ✓ @osn/db — Drizzle + SQLite (OSN Core: users, sessions, passkeys)
+  pulse-db/            # ✓ @pulse/db — Drizzle + SQLite (Pulse: events, RSVPs)
+  utils-db/            # ✓ @utils/db — shared DB utilities (createDrizzleClient, makeDbLive)
   ui/                  # ✓ Placeholder (shared components)
   core/                # ✓ Placeholder (shared business logic)
   crypto/              # ✓ Placeholder (Signal protocol)
@@ -35,7 +37,7 @@ packages/
 
 ## Tech (one-liner)
 
-Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+REST, WebSockets, Signal Protocol, SolidJS, Astro, Tauri, Turborepo, oxlint, oxfmt, Valibot, Vitest + @effect/vitest
+Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+REST, WebSockets, Signal Protocol, SolidJS, Astro, Tauri, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest
 
 ## Conventions
 
@@ -64,7 +66,7 @@ packages/api/
     helpers/db.ts                  # createTestLayer() — shared test utility
     services/events.test.ts        # Effect service tests
     routes/events.test.ts          # HTTP integration tests
-packages/db/
+packages/pulse-db/
   tests/
     schema.test.ts                 # Schema smoke tests
 ```
@@ -113,30 +115,76 @@ describe("events routes", () => {
 - Use `bunx --bun vitest` (not plain `vitest`) — required for `bun:sqlite` module access
 - Use future dates (e.g. `2030-06-01T10:00:00.000Z`) for test events; default `listEvents` filters past events out
 
+## Schema Layers
+
+Two schema tools, two distinct layers — never mix them:
+
+**Elysia TypeBox (`t` from `elysia`)** — HTTP boundary only:
+- Validates raw request types (query params, route bodies, path params)
+- Drives Eden client type inference — must stay in routes
+- Strings stay strings (no transforms); keep it structural
+- Example: `t.String({ format: "date-time" })` validates the wire format
+
+**Effect Schema (`Schema` from `effect`)** — service/domain layer only:
+- Validates AND transforms (e.g. ISO string → `Date`, enum narrowing)
+- Returns `Effect<A, ParseError>` — integrates naturally with Effect pipelines
+- Used via `Schema.decodeUnknown(MySchema)(data)` inside service functions
+- Example: `Schema.DateFromString` decodes `"2030-06-01T..."` → `Date`
+
+```
+HTTP request
+  ↓
+[Elysia TypeBox]  validates raw HTTP types, powers Eden types
+  ↓
+service called with typed-but-still-primitive body (strings, not Dates)
+  ↓
+[Effect Schema]   transforms + validates into domain types
+  ↓
+database operation
+```
+
 ## Backend Code Patterns
 
 ```typescript
-// Path aliases: use # prefix
-import { schema } from "#db";
-import { Context } from "#routes/context";
+// Route layer — Elysia TypeBox for HTTP shapes
+export const createEventsRoutes = (dbLayer = DbLive) =>
+  new Elysia({ prefix: "/events" })
+    .post("/", async ({ body, set }) => {
+      const result = await Effect.runPromise(
+        createEvent(body).pipe(Effect.provide(dbLayer))
+      );
+      set.status = 201;
+      return { event: result };
+    }, {
+      body: t.Object({
+        title: t.String(),
+        startTime: t.String({ format: "date-time" }), // string at HTTP layer
+      }),
+    });
 
-// Route organization: group by domain, separate handlers
-export const routes = new Elysia()
-  .state("ctx", createContext())
-  .group("/events", routes => routes
-    .get("/:id", ({ store: { ctx }, params }) => getEvent(ctx, params))
-    .post("/", ({ store: { ctx }, body }) => createEvent(ctx, body))
-  );
+// Service layer — Effect Schema for domain validation + transforms
+// Schema.DateFromString allows Invalid Date — use a validated transform instead
+const ValidDateString = Schema.String.pipe(Schema.filter((s) => !isNaN(new Date(s).getTime())));
+const DateFromISOString = Schema.transform(ValidDateString, Schema.DateFromSelf, {
+  strict: true,
+  decode: (s) => new Date(s),
+  encode: (d) => d.toISOString(),
+});
 
-// Handlers: pure functions with context injection
-export const getEvent = (ctx: Context, params: { id: string }) =>
-  ctx.db.select().from(schema.events).where(eq(schema.events.id, params.id));
+const InsertEventSchema = Schema.Struct({
+  title: Schema.NonEmptyString,
+  startTime: DateFromISOString,                 // string → Date (validated)
+  status: Schema.optional(Schema.Literal("upcoming", "ongoing", "finished", "cancelled")),
+});
 
-// Validation: valibot parse before db ops
-const validated = parse(insertEventSchema, body);
+export const createEvent = (data: unknown) =>
+  Effect.gen(function* () {
+    const validated = yield* Schema.decodeUnknown(InsertEventSchema)(data).pipe(
+      Effect.mapError((cause) => new ValidationError({ cause })),
+    );
+    // validated.startTime is now a Date
+  });
 ```
-
-tsconfig paths: `#db` → `./src/db`, `#routes` → `./src/routes`
 
 ## Commands
 
@@ -148,19 +196,20 @@ bun run check            # Type-check all packages (turbo)
 
 # Testing
 bun run test                          # run all tests (turbo, skips packages without test script)
-bun run --cwd packages/api test:run   # run API tests once
-bun run --cwd packages/db test:run    # run db schema tests once
-bun run --cwd packages/api test       # watch mode
+bun run --cwd packages/api test:run       # run API tests once
+bun run --cwd packages/pulse-db test:run  # run Pulse DB schema tests once
+bun run --cwd packages/api test           # watch mode
 
 # Code quality
 bun run lint             # oxlint
 bun run fmt              # oxfmt format
 bun run fmt:check        # oxfmt check (CI)
 
-# Database (from packages/db)
+# Database (run from the relevant package directory)
 bun run db:migrate       # Generate migrations
 bun run db:push          # Push schema
 bun run db:studio        # Drizzle Studio
+# e.g. bun run --cwd packages/pulse-db db:studio
 
 # Versioning
 bun run changeset        # Create changeset (required for every PR)
@@ -181,5 +230,5 @@ bunx tauri build         # Build app
 ```bash
 # Use --cwd (not --filter)
 bun add solid-js --cwd apps/landing
-bun add drizzle-orm --cwd packages/db
+bun add drizzle-orm --cwd packages/pulse-db
 ```
