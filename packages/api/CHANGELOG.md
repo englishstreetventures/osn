@@ -1,5 +1,11 @@
 # @osn/api
 
+## 0.2.1
+
+### Patch Changes
+
+- 7d3f9dd: Add events CRUD UI to Pulse: create-event form with validation, location autocomplete via Photon (Komoot), delete support, Eden typed API client replacing raw fetch, shadcn design tokens, and fix for newly created events not appearing in the list due to datetime truncation.
+
 ## 0.2.0
 
 ### Minor Changes
