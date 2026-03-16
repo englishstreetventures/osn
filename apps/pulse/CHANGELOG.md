@@ -1,5 +1,15 @@
 # @osn/pulse
 
+## 0.1.1
+
+### Patch Changes
+
+- 880e762: Add @osn/client package with OAuth 2.0 + PKCE auth core, SolidJS and React adapters. Wire AuthProvider into Pulse.
+- Updated dependencies [880e762]
+- Updated dependencies [880e762]
+  - @osn/client@0.0.2
+  - @osn/api@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes
