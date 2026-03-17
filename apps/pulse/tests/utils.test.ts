@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { formatTime, toDatetimeLocal, composeLabel, type PhotonFeature } from "../src/lib/utils";
+import {
+  formatTime,
+  toDatetimeLocal,
+  composeLabel,
+  isEndBeforeOrAtStart,
+  type PhotonFeature,
+} from "../src/lib/utils";
 
 describe("toDatetimeLocal", () => {
   it("leaves an already-rounded time unchanged (Math.ceil is idempotent at boundaries)", () => {
@@ -43,6 +49,24 @@ describe("composeLabel", () => {
 
   it("returns empty string when all fields are absent", () => {
     expect(composeLabel({})).toBe("");
+  });
+});
+
+describe("isEndBeforeOrAtStart", () => {
+  it("returns false when end is empty", () => {
+    expect(isEndBeforeOrAtStart("2030-06-01T10:00", "")).toBe(false);
+  });
+
+  it("returns true when end equals start", () => {
+    expect(isEndBeforeOrAtStart("2030-06-01T10:00", "2030-06-01T10:00")).toBe(true);
+  });
+
+  it("returns true when end is before start", () => {
+    expect(isEndBeforeOrAtStart("2030-06-01T10:00", "2030-06-01T09:00")).toBe(true);
+  });
+
+  it("returns false when end is after start", () => {
+    expect(isEndBeforeOrAtStart("2030-06-01T10:00", "2030-06-01T11:00")).toBe(false);
   });
 });
 

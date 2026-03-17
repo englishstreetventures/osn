@@ -8,10 +8,23 @@
     "./*": "./src/*"
   },
   "scripts": {
-    "check": "tsc --noEmit"
+    "dev": "bun run --watch src/index.ts",
+    "check": "tsc --noEmit",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@elysiajs/cors": "^1.4.0",
+    "@osn/db": "workspace:*",
+    "@simplewebauthn/server": "^13.1.1",
+    "drizzle-orm": "^0.38.0",
+    "effect": "^3.19.19",
+    "elysia": "^1.2.0",
+    "jose": "^5.9.6"
+  },
   "devDependencies": {
-    "@osn/typescript-config": "workspace:*"
+    "@effect/vitest": "^0.27.0",
+    "@osn/typescript-config": "workspace:*",
+    "vitest": "^4.0.18"
   }
 }

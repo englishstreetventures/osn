@@ -28,3 +28,8 @@ export interface PhotonFeature {
 export function composeLabel(p: PhotonFeature["properties"]): string {
   return [p.name, p.street, p.city, p.state, p.country].filter(Boolean).join(", ");
 }
+
+/** Returns true when end is set and is not strictly after start (form validation). */
+export function isEndBeforeOrAtStart(start: string, end: string): boolean {
+  return !!end && end <= start;
+}

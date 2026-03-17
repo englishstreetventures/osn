@@ -147,4 +147,28 @@ describe("events routes", () => {
     const body = (await res.json()) as { events: unknown[] };
     expect(body.events.length).toBe(1);
   });
+
+  it("GET /events?category=music filters by category", async () => {
+    await post(app, "/events", { title: "Music Night", startTime: FUTURE, category: "music" });
+    await post(app, "/events", { title: "Sports Day", startTime: FUTURE, category: "sports" });
+    const res = await app.handle(new Request("http://localhost/events?category=music"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { events: { title: string }[] };
+    expect(body.events.length).toBe(1);
+    expect(body.events[0]!.title).toBe("Music Night");
+  });
+
+  it("PATCH /events/:id returns 422 for invalid startTime", async () => {
+    const createRes = await post(app, "/events", { title: "Original", startTime: FUTURE });
+    const { event } = (await createRes.json()) as { event: { id: string } };
+    const res = await patch(app, `/events/${event.id}`, { startTime: "not-a-date" });
+    expect(res.status).toBe(422);
+  });
+
+  it("PATCH /events/:id returns 422 for invalid endTime", async () => {
+    const createRes = await post(app, "/events", { title: "Original", startTime: FUTURE });
+    const { event } = (await createRes.json()) as { event: { id: string } };
+    const res = await patch(app, `/events/${event.id}`, { endTime: "not-a-date" });
+    expect(res.status).toBe(422);
+  });
 });

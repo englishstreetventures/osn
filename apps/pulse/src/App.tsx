@@ -1,14 +1,7 @@
-import {
-  createResource,
-  createSignal,
-  createMemo,
-  createEffect,
-  onCleanup,
-  For,
-  Show,
-} from "solid-js";
+import { createResource, createSignal, createMemo, For, Show, onMount } from "solid-js";
 import { api } from "./lib/api";
-import { formatTime, toDatetimeLocal, composeLabel, type PhotonFeature } from "./lib/utils";
+import { formatTime, toDatetimeLocal, isEndBeforeOrAtStart } from "./lib/utils";
+import { LocationInput } from "./lib/LocationInput";
 import { AuthProvider, useAuth } from "@osn/client/solid";
 import "./App.css";
 
@@ -27,95 +20,6 @@ async function fetchEvents(accessToken: string | null): Promise<EventItem[]> {
   return data!.events;
 }
 
-function LocationInput(props: { value: string; onValue: (v: string) => void }) {
-  const [query, setQuery] = createSignal(props.value);
-  const [suggestions, setSuggestions] = createSignal<PhotonFeature[]>([]);
-  const [open, setOpen] = createSignal(false);
-  let selecting = false;
-
-  createEffect(() => {
-    const q = query();
-    if (q.length < 2) {
-      setSuggestions([]);
-      setOpen(false);
-      return;
-    }
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5&lang=en`,
-          { signal: controller.signal },
-        );
-        const json = (await res.json()) as { features: PhotonFeature[] };
-        setSuggestions(json.features ?? []);
-        setOpen(json.features.length > 0);
-      } catch (err) {
-        if (!(err instanceof Error && err.name === "AbortError")) {
-          // ignore non-abort fetch errors silently
-        }
-      }
-    }, 300);
-    onCleanup(() => {
-      clearTimeout(timer);
-      controller.abort();
-    });
-  });
-
-  function select(feature: PhotonFeature) {
-    const label = composeLabel(feature.properties);
-    setQuery(label);
-    props.onValue(label);
-    setSuggestions([]);
-    setOpen(false);
-  }
-
-  function handleInput(e: InputEvent & { currentTarget: HTMLInputElement }) {
-    const v = e.currentTarget.value;
-    setQuery(v);
-    props.onValue(v);
-  }
-
-  function handleBlur() {
-    if (selecting) return;
-    setOpen(false);
-  }
-
-  return (
-    <div class="relative">
-      <input
-        id="location"
-        type="text"
-        value={query()}
-        onInput={handleInput}
-        onBlur={handleBlur}
-        onFocus={() => suggestions().length > 0 && setOpen(true)}
-        class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
-      />
-      <Show when={open() && suggestions().length > 0}>
-        <ul class="absolute z-10 mt-1 w-full rounded-md border border-border bg-card shadow-lg">
-          <For each={suggestions()}>
-            {(feature) => (
-              <li
-                class="px-3 py-2 text-sm text-foreground cursor-pointer hover:bg-muted"
-                onMouseDown={() => {
-                  selecting = true;
-                  select(feature);
-                }}
-                onMouseUp={() => {
-                  selecting = false;
-                }}
-              >
-                {composeLabel(feature.properties)}
-              </li>
-            )}
-          </For>
-        </ul>
-      </Show>
-    </div>
-  );
-}
-
 function CreateEventForm(props: {
   accessToken: string | null;
   onSuccess: () => void;
@@ -128,7 +32,7 @@ function CreateEventForm(props: {
   const [description, setDescription] = createSignal("");
   const [submitting, setSubmitting] = createSignal(false);
   const endTimeError = createMemo(() =>
-    endTime() && endTime() <= startTime() ? "End time must be after start time" : "",
+    isEndBeforeOrAtStart(startTime(), endTime()) ? "End time must be after start time" : "",
   );
 
   async function handleSubmit(e: SubmitEvent) {
@@ -293,7 +197,10 @@ function EventCard(props: { event: EventItem; onDelete: (id: string) => void }) 
 function EventList() {
   const { session, login, logout } = useAuth();
   const accessToken = () => session()?.accessToken ?? null;
-  const [events, { refetch }] = createResource(accessToken, fetchEvents);
+  const [events, { refetch }] = createResource(
+    () => ({ token: accessToken() }),
+    ({ token }) => fetchEvents(token),
+  );
   const [showForm, setShowForm] = createSignal(false);
 
   function handleDelete(id: string) {
@@ -368,9 +275,28 @@ function EventList() {
   );
 }
 
+function CallbackHandler() {
+  const { handleCallback } = useAuth();
+
+  onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const state = params.get("state");
+
+    if (code && state) {
+      handleCallback({ code, state, redirectUri: REDIRECT_URI }).then(() => {
+        window.history.replaceState({}, "", window.location.pathname);
+      });
+    }
+  });
+
+  return null;
+}
+
 export default function App() {
   return (
     <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL, clientId: OSN_CLIENT_ID }}>
+      <CallbackHandler />
       <EventList />
     </AuthProvider>
   );
