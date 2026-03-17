@@ -14,6 +14,27 @@ Phase 1 apps: OSN Core (auth), Pulse (events), Messaging (TBD name), Landing (ma
 - `CLAUDE.md` → Code patterns, commands, current state, conventions (AI reference)
 - `TODO.md` → Progress tracking, deferred decisions, task checklists
 
+## TODO.md Structure + Maintenance
+
+`TODO.md` is organised into these top-level sections — add new items to the right place:
+
+| Section | What goes here |
+|---------|---------------|
+| **Current Status** | One-paragraph snapshot of what was last shipped. Update after each PR merges to main. |
+| **Up Next** | ≤8 highest-priority items across all areas. Keep it short — if everything is a priority, nothing is. Prune when items are done or promoted to a feature section. |
+| **App sections** (Pulse, OSN Core, Messaging, Landing) | Feature work specific to that app. Check items off when done; don't delete them. |
+| **Platform** (API, DB, Client, UI, Infra) | Shared package work and infrastructure. Same check-off rule. |
+| **Security Backlog** | All security findings, sorted H → M → L. Add new findings from PR reviews here. Mark done with `[x]` + short note. Never delete — the history matters. |
+| **Performance Backlog** | All perf findings. Same rules as Security. |
+| **Deferred Decisions** | Questions we're not answering yet. Add a row; remove it when the decision is made. |
+| **Future** | Phase 2/3 items. Vague is fine here — detail gets added when the phase starts. |
+
+**When to update TODO.md:**
+- After a PR merges → update Current Status; check off completed items; add any new findings from the review
+- When a security/performance review surfaces findings → add to the relevant backlog section
+- When a new deferred decision comes up → add a row to the table
+- Keep Up Next pruned to the real next things — it should be actionable at a glance
+
 ## Current State
 
 ```
