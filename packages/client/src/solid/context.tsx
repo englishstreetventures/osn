@@ -14,6 +14,7 @@ interface AuthContextValue {
   session: Resource<Session | null>;
   login: (redirectUri: string, scopes?: string[]) => void;
   logout: () => Promise<void>;
+  handleCallback: (params: { code: string; state: string; redirectUri: string }) => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue>();
@@ -51,8 +52,15 @@ export function AuthProvider(props: AuthProviderProps) {
     refetch();
   };
 
+  const handleCallback = async (params: { code: string; state: string; redirectUri: string }) => {
+    await run(Effect.flatMap(OsnAuth, (auth) => auth.handleCallback(params)));
+    refetch();
+  };
+
   return (
-    <AuthContext.Provider value={{ session, login, logout }}>{props.children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ session, login, logout, handleCallback }}>
+      {props.children}
+    </AuthContext.Provider>
   );
 }
 

@@ -22,15 +22,15 @@ apps/
   pulse/               # ✓ Tauri + SolidJS (iOS target ready)
     src/               # SolidJS frontend
     src-tauri/         # Rust + Tauri native layer
-  osn/                 # Pending: bunx create-tauri-app
+  osn/                 # ✓ Bun/Elysia auth server (port 4000) — imports @osn/core
   messaging/           # Pending: bunx create-tauri-app
 packages/
   api/                 # ✓ Elysia + Eden
-  osn-db/              # ✓ @osn/db — Drizzle + SQLite (OSN Core: users, sessions, passkeys)
+  osn-db/              # ✓ @osn/db — Drizzle + SQLite (OSN Core: users, passkeys)
   pulse-db/            # ✓ @pulse/db — Drizzle + SQLite (Pulse: events, RSVPs)
   utils-db/            # ✓ @utils/db — shared DB utilities (createDrizzleClient, makeDbLive)
   ui/                  # ✓ Placeholder (shared components)
-  core/                # ✓ Placeholder (shared business logic)
+  core/                # ✓ @osn/core — auth services + Elysia routes (passkey, OTP, magic link, PKCE, JWT)
   crypto/              # ✓ Placeholder (Signal protocol)
   typescript-config/   # ✓ base, node, solid configs
 ```
@@ -66,6 +66,11 @@ packages/api/
     helpers/db.ts                  # createTestLayer() — shared test utility
     services/events.test.ts        # Effect service tests
     routes/events.test.ts          # HTTP integration tests
+packages/core/
+  tests/
+    helpers/db.ts                  # createTestLayer() for osn-db (users + passkeys)
+    services/auth.test.ts          # Effect service tests
+    routes/auth.test.ts            # HTTP integration tests
 packages/pulse-db/
   tests/
     schema.test.ts                 # Schema smoke tests
@@ -112,6 +117,7 @@ describe("events routes", () => {
 - Service tests: `it.effect` + `Effect.provide(createTestLayer())` per test (full isolation)
 - Route tests: `createEventsRoutes(createTestLayer())` in `beforeEach` (full isolation)
 - Routes accept an optional `dbLayer` param for injection; default is `DbLive`
+- `packages/core` auth routes use `createAuthRoutes(authConfig, dbLayer?)` — config is required (no global default)
 - Use `bunx --bun vitest` (not plain `vitest`) — required for `bun:sqlite` module access
 - Use future dates (e.g. `2030-06-01T10:00:00.000Z`) for test events; default `listEvents` filters past events out
 
@@ -197,6 +203,7 @@ bun run check            # Type-check all packages (turbo)
 # Testing
 bun run test                          # run all tests (turbo, skips packages without test script)
 bun run --cwd packages/api test:run       # run API tests once
+bun run --cwd packages/core test:run      # run core auth tests once
 bun run --cwd packages/pulse-db test:run  # run Pulse DB schema tests once
 bun run --cwd packages/api test           # watch mode
 

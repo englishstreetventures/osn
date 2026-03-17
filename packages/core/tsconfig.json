@@ -1,5 +1,5 @@
 {
-  "extends": "@osn/typescript-config/base.json",
-  "include": ["src/**/*"],
+  "extends": "@osn/typescript-config/node.json",
+  "include": ["src/**/*", "tests/**/*"],
   "exclude": ["node_modules"]
 }

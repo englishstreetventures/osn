@@ -122,7 +122,12 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         Effect.gen(function* () {
           const raw = yield* storage.get(SESSION_KEY);
           if (!raw) return null;
-          return JSON.parse(raw) as Session;
+          const session = JSON.parse(raw) as Session;
+          if (Date.now() >= session.expiresAt) {
+            yield* storage.remove(SESSION_KEY);
+            return null;
+          }
+          return session;
         });
 
       const refreshSession = () =>
