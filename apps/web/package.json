@@ -1,0 +1,22 @@
+{
+  "name": "@cire/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@astrojs/solid-js": "^3.0.0",
+    "@motionone/solid": "^10.16.4",
+    "astro": "^5.5.0",
+    "solid-js": "^1.9.0"
+  },
+  "devDependencies": {
+    "jsdom": "^29.0.0",
+    "vite-plugin-solid": "^2.11.0",
+    "vitest": "^3.1.0"
+  }
+}

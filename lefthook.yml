@@ -1,0 +1,9 @@
+pre-push:
+  parallel: false
+  commands:
+    lint:
+      run: bunx oxlint .
+    format:
+      run: bunx oxfmt --check .
+    test:
+      run: bun run test

@@ -1,0 +1,26 @@
+{
+  "mehndi": {
+    "id": "mehndi",
+    "name": "Mehndi",
+    "date": "2026-09-18",
+    "location": "The Sharma Residence, Sydney",
+    "description": "An intimate evening of music, henna, and family. Traditional dress warmly welcomed.",
+    "guests": ["Priya Sharma", "Auntie Meena"]
+  },
+  "wedding": {
+    "id": "wedding",
+    "name": "Wedding Ceremony",
+    "date": "2026-09-20",
+    "location": "Royal Botanic Garden, Sydney",
+    "description": "The ceremony will begin at 4 PM. Please be seated by 3:45 PM.",
+    "guests": ["Priya Sharma", "James & Emma Wilson", "Auntie Meena", "Dev Patel"]
+  },
+  "reception": {
+    "id": "reception",
+    "name": "Reception",
+    "date": "2026-09-20",
+    "location": "Doltone House, Pyrmont",
+    "description": "Dinner and dancing from 7 PM. Cocktail attire.",
+    "guests": ["Priya Sharma", "James & Emma Wilson", "Dev Patel"]
+  }
+}

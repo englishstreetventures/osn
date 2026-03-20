@@ -1,0 +1,189 @@
+---
+import OrganiserView from '../components/OrganiserView'
+---
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Organiser — Cire</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <main class="organiser-shell">
+      <OrganiserView client:load apiUrl={import.meta.env.PUBLIC_API_URL} />
+    </main>
+  </body>
+</html>
+
+<style is:global>
+  :root {
+    --color-bg: #0b1a0d;
+    --color-surface: #122016;
+    --color-surface-raised: #1a2e1e;
+    --color-border: rgba(180, 220, 180, 0.10);
+    --color-text: #f0ede5;
+    --color-text-muted: rgba(240, 237, 229, 0.50);
+    --color-gold: #c9a96e;
+    --color-gold-dim: rgba(201, 169, 110, 0.35);
+    --font-display: 'Cormorant Garamond', Georgia, serif;
+    --font-body: 'Lato', system-ui, sans-serif;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-weight: 400;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  .organiser-shell {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 3rem 2rem;
+  }
+
+  .organiser {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+
+  .organiser-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .organiser-eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    font-size: 0.72rem;
+    color: var(--color-gold);
+    font-family: var(--font-body);
+  }
+
+  .organiser-title {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-weight: 300;
+    font-style: italic;
+    color: var(--color-text);
+    line-height: 1.1;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+  }
+
+  .guest-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-body);
+    font-size: 0.88rem;
+  }
+
+  .guest-table th {
+    text-align: left;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-gold);
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+
+  .guest-table td {
+    padding: 1rem;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text);
+    vertical-align: middle;
+  }
+
+  .guest-table tr:hover td {
+    background: var(--color-surface);
+  }
+
+  .guest-name {
+    font-weight: 400;
+  }
+
+  .guest-code {
+    font-family: monospace;
+    color: var(--color-text-muted);
+    font-size: 0.82rem;
+    letter-spacing: 0.06em;
+  }
+
+  .event-cell {
+    text-align: center;
+  }
+
+  .badge {
+    display: inline-block;
+    font-size: 0.8rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 2px;
+  }
+
+  .badge--yes {
+    color: #6ec97a;
+  }
+
+  .badge--no {
+    color: var(--color-text-muted);
+  }
+
+  .badge--claimed {
+    background: rgba(110, 201, 122, 0.15);
+    color: #6ec97a;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .organiser-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .skeleton-row {
+    height: 52px;
+    background: var(--color-surface);
+    border-radius: 2px;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.5 }
+    50% { opacity: 0.8 }
+  }
+
+  .organiser-error {
+    color: #e07070;
+    font-size: 0.88rem;
+    padding: 1rem;
+    border: 1px solid rgba(224, 112, 112, 0.2);
+    border-radius: 2px;
+    background: rgba(224, 112, 112, 0.05);
+  }
+</style>

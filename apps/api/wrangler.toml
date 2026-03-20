@@ -1,0 +1,15 @@
+name = "cire-api"
+main = "src/index.ts"
+compatibility_date = "2025-03-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+WEB_ORIGIN = "http://localhost:4321"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cire-db"
+database_id = "placeholder-replace-after-d1-create"
+
+[env.production.vars]
+WEB_ORIGIN = "https://cire.pages.dev"

@@ -1,0 +1,251 @@
+/* ── Claim wrapper ── */
+.claim-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.claim-seal {
+  margin-bottom: -48px;
+  z-index: 1;
+  position: relative;
+  pointer-events: none;
+}
+
+/* ── Card ── */
+.claim-card {
+  max-width: 420px;
+  width: 100%;
+  padding: 4rem 2.5rem 3rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: 3px;
+  text-align: center;
+}
+
+/* ── Typography ── */
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.72rem;
+  color: var(--color-gold);
+  font-family: var(--font-body);
+  margin: 0 0 0.75rem;
+}
+
+.display-heading {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 6vw, 4rem);
+  font-weight: 300;
+  font-style: italic;
+  color: var(--color-text);
+  margin: 0 0 0.75rem;
+  line-height: 1.1;
+}
+
+.subtext {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin: 0 0 2rem;
+  font-family: var(--font-body);
+  font-weight: 300;
+}
+
+/* ── Form ── */
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+input[type='text'] {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 2px;
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  letter-spacing: 0.1em;
+  padding: 0.85rem 1rem;
+  text-align: center;
+  text-transform: uppercase;
+  transition: border-color 0.2s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+input[type='text']::placeholder {
+  color: var(--color-text-muted);
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+
+input[type='text']:focus {
+  outline: none;
+  border-color: var(--color-gold);
+}
+
+input[type='text']:disabled {
+  opacity: 0.5;
+}
+
+.error {
+  color: #e07070;
+  font-size: 0.82rem;
+  font-family: var(--font-body);
+  margin: 0;
+  padding: 0.5rem 0;
+}
+
+button[type='submit'] {
+  background: transparent;
+  border: 1px solid var(--color-gold);
+  border-radius: 2px;
+  color: var(--color-gold);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  padding: 0.85rem 1.5rem;
+  text-transform: uppercase;
+  transition: background 0.2s, color 0.2s;
+}
+
+button[type='submit']:hover:not(:disabled) {
+  background: var(--color-gold);
+  color: #0b1a0d;
+}
+
+button[type='submit']:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── Invite layout (post-claim) ── */
+.invite-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 3rem;
+  max-width: 920px;
+  width: 100%;
+  padding: 2rem;
+  box-sizing: border-box;
+}
+
+.claim-card--corner {
+  position: sticky;
+  top: 2rem;
+  align-self: start;
+  text-align: left;
+  padding: 2rem;
+  max-width: none;
+}
+
+.invite-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.invite-intro {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 300;
+  font-style: italic;
+  color: var(--color-text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.event-card {
+  padding: 1.75rem 2rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: 2px;
+}
+
+.event-name {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 400;
+  font-style: italic;
+  color: var(--color-text);
+  margin: 0 0 0.5rem;
+}
+
+.event-date {
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-gold);
+  margin: 0 0 0.35rem;
+}
+
+.event-location {
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+  margin: 0 0 1rem;
+}
+
+.event-desc {
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  font-weight: 300;
+  color: var(--color-text-muted);
+  line-height: 1.65;
+  margin: 0;
+}
+
+/* ── View Transitions ── */
+@keyframes vt-fade-in {
+  from { opacity: 0 }
+  to { opacity: 1 }
+}
+
+@keyframes vt-fade-out {
+  from { opacity: 1 }
+  to { opacity: 0 }
+}
+
+::view-transition-old(claim-box) {
+  animation: 280ms ease-out vt-fade-out;
+}
+
+::view-transition-new(claim-box) {
+  animation: 380ms ease-out vt-fade-in;
+}
+
+::view-transition-old(root) {
+  animation: none;
+}
+
+::view-transition-new(root) {
+  animation: none;
+}
+
+/* ── Mobile ── */
+@media (max-width: 640px) {
+  .invite-layout {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    padding: 1rem;
+  }
+
+  .claim-card--corner {
+    position: static;
+  }
+
+  .claim-card {
+    padding: 3.5rem 1.5rem 2.5rem;
+  }
+}

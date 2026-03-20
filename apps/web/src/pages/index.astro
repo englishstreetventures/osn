@@ -1,0 +1,63 @@
+---
+import ClaimFlow from '../components/ClaimFlow'
+---
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>You're Invited</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <main>
+      <ClaimFlow client:load apiUrl={import.meta.env.PUBLIC_API_URL} />
+    </main>
+  </body>
+</html>
+
+<style is:global>
+  :root {
+    --color-bg: #0b1a0d;
+    --color-surface: #122016;
+    --color-surface-raised: #1a2e1e;
+    --color-border: rgba(180, 220, 180, 0.10);
+    --color-text: #f0ede5;
+    --color-text-muted: rgba(240, 237, 229, 0.50);
+    --color-gold: #c9a96e;
+    --color-gold-dim: rgba(201, 169, 110, 0.35);
+    --font-display: 'Cormorant Garamond', Georgia, serif;
+    --font-body: 'Lato', system-ui, sans-serif;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-weight: 400;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  main {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+</style>
