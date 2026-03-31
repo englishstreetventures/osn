@@ -1,5 +1,11 @@
 # @osn/pulse
 
+## 0.2.2
+
+### Patch Changes
+
+- a9329a6: Refactor App.tsx into focused modules: lib/types.ts, lib/auth.ts, components/CallbackHandler.tsx, components/CreateEventForm.tsx, components/EventCard.tsx, components/EventList.tsx
+
 ## 0.2.1
 
 ### Patch Changes
