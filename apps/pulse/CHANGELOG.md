@@ -1,5 +1,29 @@
 # @osn/pulse
 
+## 0.2.2
+
+### Patch Changes
+
+- a9329a6: Refactor App.tsx into focused modules: lib/types.ts, lib/auth.ts, components/CallbackHandler.tsx, components/CreateEventForm.tsx, components/EventCard.tsx, components/EventList.tsx
+
+## 0.2.1
+
+### Patch Changes
+
+- 75f801b: Implement OSN Core auth system.
+
+  - `@osn/core`: new auth implementation — passkey (WebAuthn via @simplewebauthn/server), OTP, and magic-link sign-in flows; PKCE authorization endpoint; JWT-based token issuance and refresh; OIDC discovery; Elysia route factory; sign-in HTML page with three-tab UI; 25 service tests + route integration tests
+  - `@osn/osn`: new Bun/Elysia auth server entrypoint at port 4000; imports `@osn/core` routes; dev JWT secret fallback
+  - `@osn/db`: schema updated with `users` and `passkeys` tables; migration generated
+  - `@osn/client`: `getSession()` now checks `expiresAt` and clears expired sessions; `handleCallback` exposed from `AuthProvider` context
+  - `@osn/pulse`: `CallbackHandler` handles OAuth redirect on page load; fix events resource to load without waiting for auth; fix location autocomplete re-triggering search after selection
+  - `@osn/api`: HTTP-level route tests for category filter and invalid startTime/endTime
+
+- Updated dependencies [75f801b]
+  - @osn/core@0.1.0
+  - @osn/client@0.0.3
+  - @osn/api@0.2.2
+
 ## 0.2.0
 
 ### Minor Changes

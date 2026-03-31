@@ -4,7 +4,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Current Status
 
-`@osn/core` — full OIDC-style auth server: passkey (WebAuthn), OTP, magic-link, PKCE, JWT, OIDC discovery. `@osn/db` — users + passkeys schema. `apps/osn` — auth server entry point on port 4000. `@osn/client` — session expiry check, `handleCallback`. `apps/pulse` — auth callback handler, event CRUD UI, location autocomplete. `@osn/api` — events domain fully tested. 99 tests passing across 8 packages.
+`@osn/core` — full OIDC-style auth server: passkey (WebAuthn), OTP, magic-link, PKCE, JWT, OIDC discovery. `@osn/db` — users + passkeys schema. `apps/osn` — auth server entry point on port 4000. `@osn/client` — session expiry check, `handleCallback`. `apps/pulse` — auth callback handler, event CRUD UI, location autocomplete; component test suite expanded to EventCard, CreateEventForm, EventList (41 tests). `@osn/api` — events domain fully tested. 109 tests passing across 8 packages.
 
 ---
 
@@ -32,6 +32,7 @@ Highest-priority items across all areas.
 - [x] Location autocomplete (`LocationInput` with debounce/abort)
 - [x] Auth callback handler (`CallbackHandler`)
 - [x] Test coverage: utils, LocationInput, CreateEventForm end-time validation
+- [x] Test coverage: EventCard, CreateEventForm (full), EventList (auth/unauth)
 - [ ] Toast notification system (errors, warnings, info)
 - [ ] "What's on today" default view
 - [ ] Prompt for max event duration when creating events without an endTime
@@ -148,6 +149,7 @@ Address **High** items before any non-local deployment.
 - [ ] Magic-link tokens use `crypto.randomUUID` without additional entropy hardening — M7
 - [ ] `limit` query param in `listEvents` uncapped — guard `NaN` and clamp to 1–100 — M2
 - [ ] Photon (Komoot) geocoding: keystrokes sent to third-party with no user notice — add consent UI or proxy — M1
+- [ ] Pulse `REDIRECT_URI` falls back to `window.location.origin` — validate allowed redirect URIs server-side in `@osn/core`; already tracked as H3 — M12
 
 ### Low
 - [x] `getSession()` returned expired tokens — fixed
@@ -160,6 +162,9 @@ Address **High** items before any non-local deployment.
 - [ ] `REDIRECT_URI` derived from `window.location.origin` at runtime — prefer explicit env var — L3
 - [ ] PKCE `state` not validated against a stored nonce — L4
 - [ ] `jose` and `@simplewebauthn/server` use caret version ranges — pin to exact versions — L7
+- [ ] Pulse `auth.ts` exports only public/build-time config — add comment discouraging secrets in that file — L8
+- [ ] `EventList` `console.error` logs raw server error objects — guard with `NODE_ENV` check before web deployment — L9
+- [ ] `@vitest/coverage-istanbul` uses caret version range in `apps/pulse/package.json` — pin to exact version — L10
 
 ---
 
