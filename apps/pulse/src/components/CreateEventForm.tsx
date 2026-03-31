@@ -1,4 +1,5 @@
 import { createSignal, createMemo, Show } from "solid-js";
+import { toast } from "solid-toast";
 import { api } from "../lib/api";
 import { LocationInput } from "../lib/LocationInput";
 import { toDatetimeLocal, isEndBeforeOrAtStart } from "../lib/utils";
@@ -35,7 +36,11 @@ export function CreateEventForm(props: {
         },
         { headers },
       );
-      if (error) return;
+      if (error) {
+        if (import.meta.env.DEV) console.error("Failed to create event:", error);
+        toast.error("Failed to create event");
+        return;
+      }
       props.onSuccess();
     } finally {
       setSubmitting(false);

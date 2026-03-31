@@ -111,4 +111,25 @@ describe("EventCard", () => {
     ));
     expect(getByText("cancelled")).toBeTruthy();
   });
+
+  it("deleting=true → button shows 'Deleting…' and is disabled", () => {
+    const { getByText } = render(() => (
+      <EventCard event={mockEvent} onDelete={() => {}} deleting={true} />
+    ));
+    const btn = getByText("Deleting…") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+  });
+
+  it("deleting=true → does not call onDelete when clicked", () => {
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
+    const onDelete = vi.fn();
+    const { getByText } = render(() => (
+      <EventCard event={mockEvent} onDelete={onDelete} deleting={true} />
+    ));
+    fireEvent.click(getByText("Deleting…"));
+    expect(onDelete).not.toHaveBeenCalled();
+  });
 });

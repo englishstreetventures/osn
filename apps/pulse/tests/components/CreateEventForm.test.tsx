@@ -3,6 +3,12 @@ import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { CreateEventForm } from "../../src/components/CreateEventForm";
 
+vi.mock("solid-toast", async () => {
+  const { solidToastMock } = await import("../helpers/toast");
+  return solidToastMock();
+});
+import { mockToastError } from "../helpers/toast";
+
 const mockPost = vi.fn();
 vi.mock("../../src/lib/api", () => ({
   api: {
@@ -21,6 +27,7 @@ vi.stubGlobal(
 describe("CreateEventForm", () => {
   beforeEach(() => {
     mockPost.mockReset();
+    mockToastError.mockReset();
   });
 
   afterEach(() => {
@@ -155,7 +162,7 @@ describe("CreateEventForm", () => {
     expect(body.endTime).toBeDefined();
   });
 
-  it("API error → does not call onSuccess", async () => {
+  it("API error → does not call onSuccess; calls toast.error", async () => {
     mockPost.mockResolvedValue({ error: new Error("server error") });
     const onSuccess = vi.fn();
     const { getByLabelText, getByText } = render(() => (
@@ -170,6 +177,7 @@ describe("CreateEventForm", () => {
     await Promise.resolve();
 
     expect(onSuccess).not.toHaveBeenCalled();
+    expect(mockToastError).toHaveBeenCalledWith("Failed to create event");
   });
 
   it("button shows 'Creating…' while mockPost is pending", async () => {

@@ -89,7 +89,7 @@ Ask the user: "Do you want to address any findings before pushing?" If yes, paus
 
 Run `git push -u origin HEAD`.
 
-Then open the PR using `gh pr create`. Derive the title and body from the branch's commit history (`git log main...HEAD --oneline`):
+Then open the PR using `gh pr create`. Derive the title and body from the branch's commit history (`git log main...HEAD --oneline`) and everything that happened during this prep-pr run:
 
 - **Title**: short imperative summary of the overall change (under 70 chars)
 - **Body**: use this structure:
@@ -102,6 +102,9 @@ gh pr create --title "<title>" --body "$(cat <<'EOF'
 ## Workspaces affected
 - <list of affected packages/apps, or "CI/infra only">
 
+## Decisions & issues
+- <every non-trivial decision made during implementation or prep, and every issue found and how it was resolved — e.g. lint fixes, test failures, security/perf findings accepted or addressed, library choices, approach changes. One bullet per item. Be specific: name the problem and the fix.>
+
 ## Test plan
 - <checklist of what to verify when reviewing>
 
@@ -109,5 +112,12 @@ gh pr create --title "<title>" --body "$(cat <<'EOF'
 EOF
 )"
 ```
+
+**The "Decisions & issues" section is mandatory.** It must capture:
+- Any approach changes (e.g. switched library, changed architecture)
+- Any lint/format/type errors encountered and how they were fixed
+- Any test failures found during prep and how they were resolved
+- Security or performance findings from the review, and whether each was addressed or dismissed (with rationale)
+- Any non-obvious implementation choices that a reviewer might question
 
 Report the PR URL once created.

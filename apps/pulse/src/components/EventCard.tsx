@@ -2,7 +2,11 @@ import { Show } from "solid-js";
 import type { EventItem } from "../lib/types";
 import { formatTime } from "../lib/utils";
 
-export function EventCard(props: { event: EventItem; onDelete: (id: string) => void }) {
+export function EventCard(props: {
+  event: EventItem;
+  onDelete: (id: string) => void;
+  deleting?: boolean;
+}) {
   return (
     <div class="rounded-xl border border-border bg-card overflow-hidden">
       <Show when={props.event.imageUrl}>
@@ -39,9 +43,10 @@ export function EventCard(props: { event: EventItem; onDelete: (id: string) => v
             onClick={() => {
               if (confirm(`Delete "${props.event.title}"?`)) props.onDelete(props.event.id);
             }}
-            class="text-xs text-destructive hover:text-destructive/80"
+            disabled={props.deleting}
+            class="text-xs text-destructive hover:text-destructive/80 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Delete
+            {props.deleting ? "Deleting…" : "Delete"}
           </button>
         </div>
       </div>
