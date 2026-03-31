@@ -1,5 +1,11 @@
 # @osn/pulse
 
+## 0.2.3
+
+### Patch Changes
+
+- b8a40bc: Add toast notifications for event create, delete, and error states using solid-toast
+
 ## 0.2.2
 
 ### Patch Changes
