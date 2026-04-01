@@ -13,6 +13,8 @@ export function CreateEventForm(props: {
   const [startTime, setStartTime] = createSignal(toDatetimeLocal(new Date()));
   const [endTime, setEndTime] = createSignal("");
   const [location, setLocation] = createSignal("");
+  const [latitude, setLatitude] = createSignal<number | undefined>(undefined);
+  const [longitude, setLongitude] = createSignal<number | undefined>(undefined);
   const [description, setDescription] = createSignal("");
   const [submitting, setSubmitting] = createSignal(false);
   const endTimeError = createMemo(() =>
@@ -32,6 +34,8 @@ export function CreateEventForm(props: {
           startTime: new Date(startTime()) as unknown as string,
           endTime: endTime() ? (new Date(endTime()) as unknown as string) : undefined,
           location: location() || undefined,
+          latitude: latitude(),
+          longitude: longitude(),
           description: description() || undefined,
         },
         { headers },
@@ -100,7 +104,19 @@ export function CreateEventForm(props: {
         <label class="text-sm font-medium text-foreground" for="location">
           Location
         </label>
-        <LocationInput value={location()} onValue={setLocation} />
+        <LocationInput
+          value={location()}
+          onValue={(v) => {
+            setLocation(v);
+            // Clear coords when text is manually edited (not from autocomplete)
+            setLatitude(undefined);
+            setLongitude(undefined);
+          }}
+          onCoords={(lat, lng) => {
+            setLatitude(lat);
+            setLongitude(lng);
+          }}
+        />
       </div>
       <div class="flex flex-col gap-1">
         <label class="text-sm font-medium text-foreground" for="description">

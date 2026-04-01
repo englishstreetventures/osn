@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core";
 
 export const events = sqliteTable(
   "events",
@@ -8,6 +8,8 @@ export const events = sqliteTable(
     description: text("description"),
     location: text("location"),
     venue: text("venue"),
+    latitude: real("latitude"),
+    longitude: real("longitude"),
     category: text("category"),
     startTime: integer("start_time", { mode: "timestamp" }).notNull(),
     endTime: integer("end_time", { mode: "timestamp" }),

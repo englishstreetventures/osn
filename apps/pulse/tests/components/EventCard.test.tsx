@@ -120,6 +120,35 @@ describe("EventCard", () => {
     expect(btn.disabled).toBe(true);
   });
 
+  it("renders Maps link with coordinate URL when lat/lng provided", () => {
+    const { getByText } = render(() => (
+      <EventCard
+        event={{ ...mockEvent, latitude: 40.7195, longitude: -73.9875 }}
+        onDelete={() => {}}
+      />
+    ));
+    const link = getByText("Open in Maps") as HTMLAnchorElement;
+    expect(link.href).toBe("https://maps.google.com/?q=40.7195,-73.9875");
+    expect(link.target).toBe("_blank");
+  });
+
+  it("renders Maps link with text search URL when only location/venue provided", () => {
+    const { getByText } = render(() => (
+      <EventCard
+        event={{ ...mockEvent, venue: "The Cellar Bar", location: "New York" }}
+        onDelete={() => {}}
+      />
+    ));
+    const link = getByText("Open in Maps") as HTMLAnchorElement;
+    expect(link.href).toContain("maps/search");
+    expect(link.href).toContain("The%20Cellar%20Bar");
+  });
+
+  it("omits Maps link when no location data", () => {
+    const { queryByText } = render(() => <EventCard event={mockEvent} onDelete={() => {}} />);
+    expect(queryByText("Open in Maps")).toBeNull();
+  });
+
   it("deleting=true → does not call onDelete when clicked", () => {
     vi.stubGlobal(
       "confirm",

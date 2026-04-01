@@ -37,11 +37,16 @@ const ValidUrl = Schema.String.pipe(
   }),
 );
 
+const LatitudeSchema = Schema.Number.pipe(Schema.between(-90, 90));
+const LongitudeSchema = Schema.Number.pipe(Schema.between(-180, 180));
+
 const InsertEventSchema = Schema.Struct({
   title: Schema.NonEmptyString,
   description: Schema.optional(Schema.String),
   location: Schema.optional(Schema.String),
   venue: Schema.optional(Schema.String),
+  latitude: Schema.optional(LatitudeSchema),
+  longitude: Schema.optional(LongitudeSchema),
   category: Schema.optional(Schema.String),
   startTime: DateFromISOString,
   endTime: Schema.optional(DateFromISOString),
@@ -54,6 +59,8 @@ const UpdateEventSchema = Schema.Struct({
   description: Schema.optional(Schema.String),
   location: Schema.optional(Schema.String),
   venue: Schema.optional(Schema.String),
+  latitude: Schema.optional(LatitudeSchema),
+  longitude: Schema.optional(LongitudeSchema),
   category: Schema.optional(Schema.String),
   startTime: Schema.optional(DateFromISOString),
   endTime: Schema.optional(DateFromISOString),

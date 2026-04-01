@@ -18,6 +18,8 @@ function createTestDb() {
       end_time INTEGER,
       status TEXT NOT NULL DEFAULT 'upcoming',
       image_url TEXT,
+      latitude REAL,
+      longitude REAL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -70,6 +72,14 @@ describe("buildSeedEvents", () => {
     const rows = buildSeedEvents(new Date());
     for (const r of rows) {
       expect(r.id).toMatch(/^evt_seed_/);
+    }
+  });
+
+  it("all events have latitude and longitude", () => {
+    const rows = buildSeedEvents(new Date());
+    for (const r of rows) {
+      expect(typeof r.latitude).toBe("number");
+      expect(typeof r.longitude).toBe("number");
     }
   });
 

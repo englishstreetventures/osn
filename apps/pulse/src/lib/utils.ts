@@ -16,6 +16,9 @@ export function toDatetimeLocal(date: Date): string {
 }
 
 export interface PhotonFeature {
+  geometry: {
+    coordinates: [number, number]; // [longitude, latitude] — GeoJSON order
+  };
   properties: {
     name?: string;
     street?: string;

@@ -2,6 +2,15 @@ import { Show } from "solid-js";
 import type { EventItem } from "../lib/types";
 import { formatTime } from "../lib/utils";
 
+function mapsUrl(event: EventItem): string | null {
+  if (event.latitude != null && event.longitude != null) {
+    return `https://maps.google.com/?q=${event.latitude},${event.longitude}`;
+  }
+  const query = [event.venue, event.location].filter(Boolean).join(", ");
+  if (query) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+  return null;
+}
+
 export function EventCard(props: {
   event: EventItem;
   onDelete: (id: string) => void;
@@ -38,7 +47,19 @@ export function EventCard(props: {
           </Show>
           <span>{formatTime(props.event.startTime)}</span>
         </div>
-        <div class="mt-3 flex justify-end">
+        <div class="mt-3 flex items-center justify-between">
+          <Show when={mapsUrl(props.event)}>
+            {(url) => (
+              <a
+                href={url()}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-xs text-primary hover:underline"
+              >
+                Open in Maps
+              </a>
+            )}
+          </Show>
           <button
             onClick={() => {
               if (confirm(`Delete "${props.event.title}"?`)) props.onDelete(props.event.id);

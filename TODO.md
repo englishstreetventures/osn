@@ -4,7 +4,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Current Status
 
-`@osn/core` — full OIDC-style auth server: passkey (WebAuthn), OTP, magic-link, PKCE, JWT, OIDC discovery. `@osn/db` — users + passkeys schema. `apps/osn` — auth server entry point on port 4000. `@osn/client` — session expiry check, `handleCallback`. `apps/pulse` — auth callback handler, event CRUD UI, location autocomplete, toast notifications (solid-toast), double-click guard on delete; 56 component tests. `@osn/api` — events domain fully tested. 109 tests passing across 8 packages.
+`@osn/core` — full OIDC-style auth server: passkey (WebAuthn), OTP, magic-link, PKCE, JWT, OIDC discovery. `@osn/db` — users + passkeys schema. `apps/osn` — auth server entry point on port 4000. `@osn/client` — session expiry check, `handleCallback`. `apps/pulse` — auth callback handler, event CRUD UI, location autocomplete (with coordinate capture), Maps button on EventCard, toast notifications (solid-toast), double-click guard on delete; 59 component tests. `@pulse/db` — lat/lng columns + dynamic seed data. `@osn/api` — events domain fully tested with coordinate range validation. 119 tests passing across 10 files.
 
 ---
 
@@ -34,6 +34,8 @@ Highest-priority items across all areas.
 - [x] Test coverage: utils, LocationInput, CreateEventForm end-time validation
 - [x] Test coverage: EventCard, CreateEventForm (full), EventList (auth/unauth)
 - [x] Toast notification system (solid-toast: event created, deleted, create/delete errors)
+- [x] Coordinate storage (lat/lng from Photon autocomplete) + Maps button on EventCard
+- [ ] Map preview in expanded event view (Leaflet + OpenStreetMap, no API key)
 - [ ] "What's on today" default view
 - [ ] Prompt for max event duration when creating events without an endTime
 - [ ] Event discovery (location, category, datetime, friends, interests)
@@ -152,6 +154,7 @@ Address **High** items before any non-local deployment.
 - [ ] Pulse `REDIRECT_URI` falls back to `window.location.origin` — validate allowed redirect URIs server-side in `@osn/core`; already tracked as H3 — M12
 
 ### Low
+- [ ] Tauri CSP is `null` — when tightened, allowlist `photon.komoot.io` (geocoding fetch) and `maps.google.com` / `www.google.com` (Maps links) — L7
 - [x] `getSession()` returned expired tokens — fixed
 - [x] OTP used `Math.random()` — replaced with `crypto.getRandomValues`
 - [ ] `jwtSecret` falls back to `"dev-secret"` — throw at startup in production — M9

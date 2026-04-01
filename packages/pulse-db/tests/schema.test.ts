@@ -18,6 +18,8 @@ function createTestDb() {
       end_time INTEGER,
       status TEXT NOT NULL DEFAULT 'upcoming',
       image_url TEXT,
+      latitude REAL,
+      longitude REAL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -84,5 +86,7 @@ describe("events schema", () => {
     expect(row!.category).toBeNull();
     expect(row!.endTime).toBeNull();
     expect(row!.imageUrl).toBeNull();
+    expect(row!.latitude).toBeNull();
+    expect(row!.longitude).toBeNull();
   });
 });

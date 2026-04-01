@@ -1,7 +1,11 @@
 import { createSignal, createEffect, onCleanup, For, Show } from "solid-js";
 import { composeLabel, type PhotonFeature } from "./utils";
 
-export function LocationInput(props: { value: string; onValue: (v: string) => void }) {
+export function LocationInput(props: {
+  value: string;
+  onValue: (v: string) => void;
+  onCoords?: (lat: number, lng: number) => void;
+}) {
   const [inputValue, setInputValue] = createSignal(props.value);
   const [searchQuery, setSearchQuery] = createSignal(props.value);
   const [suggestions, setSuggestions] = createSignal<PhotonFeature[]>([]);
@@ -41,6 +45,8 @@ export function LocationInput(props: { value: string; onValue: (v: string) => vo
     const label = composeLabel(feature.properties);
     setInputValue(label); // update display only — does not re-trigger search
     props.onValue(label);
+    // GeoJSON order: [longitude, latitude] — swap for callers
+    props.onCoords?.(feature.geometry.coordinates[1], feature.geometry.coordinates[0]);
     setSuggestions([]);
     setOpen(false);
   }
