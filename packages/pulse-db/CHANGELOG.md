@@ -1,5 +1,11 @@
 # @pulse/db
 
+## 0.3.0
+
+### Minor Changes
+
+- 89b104c: Add latitude/longitude columns to the events schema, store geocoordinates from Photon autocomplete in the create form, and display an "Open in Maps" link on each EventCard using coordinates when available or text-based search as a fallback.
+
 ## 0.2.1
 
 ### Patch Changes
