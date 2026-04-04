@@ -51,21 +51,41 @@ function decodeJwtPayload(accessToken: string): Record<string, unknown> | null {
 
 /** Extracts the `sub` (user ID) claim from an access token. */
 export function getUserIdFromToken(accessToken: string | null): string | null {
-  if (!accessToken) return null;
-  const payload = decodeJwtPayload(accessToken);
-  return typeof payload?.sub === "string" ? payload.sub : null;
+  return getTokenClaims(accessToken).userId;
+}
+
+export interface TokenClaims {
+  userId: string | null;
+  email: string | null;
+  handle: string | null;
+  displayName: string | null;
+}
+
+/** Decodes all OSN claims from an access token in one pass. */
+export function getTokenClaims(accessToken: string | null): TokenClaims {
+  const payload = decodeJwtPayload(accessToken ?? "");
+  return {
+    userId: typeof payload?.sub === "string" ? payload.sub : null,
+    email: typeof payload?.email === "string" ? payload.email : null,
+    handle: typeof payload?.handle === "string" ? payload.handle : null,
+    displayName: typeof payload?.displayName === "string" ? payload.displayName : null,
+  };
 }
 
 /**
- * Derives a display name from the `email` claim in an access token.
- * Uses the local-part of the email (before @) as a fallback until a
- * proper user profile endpoint is available.
+ * Derives a display name from an access token.
+ * Prefers the `displayName` claim, falls back to `@handle`, then to the email local-part.
  */
 export function getDisplayNameFromToken(accessToken: string | null): string | null {
   if (!accessToken) return null;
-  const payload = decodeJwtPayload(accessToken);
-  if (typeof payload?.email === "string") {
-    return payload.email.split("@")[0] ?? null;
-  }
+  const { displayName, handle, email } = getTokenClaims(accessToken);
+  if (displayName) return displayName;
+  if (handle) return `@${handle}`;
+  if (email) return email.split("@")[0] ?? null;
   return null;
+}
+
+/** Extracts the `handle` claim from an access token, without the @ sigil. */
+export function getHandleFromToken(accessToken: string | null): string | null {
+  return getTokenClaims(accessToken).handle;
 }

@@ -4,12 +4,15 @@ export const users = sqliteTable(
   "users",
   {
     id: text("id").primaryKey(), // "usr_" prefix
+    handle: text("handle").notNull().unique(), // @handle — immutable social identity
     email: text("email").notNull().unique(),
     displayName: text("display_name"),
     avatarUrl: text("avatar_url"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
+  // users_email_idx kept for explicit query planning; handle UNIQUE constraint
+  // already provides an implicit index so no separate handle index is needed.
   (t) => [index("users_email_idx").on(t.email)],
 );
 

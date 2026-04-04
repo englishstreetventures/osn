@@ -24,14 +24,21 @@ const statusEnum = t.Optional(
 async function extractClaims(
   authHeader: string | undefined,
   secret: Uint8Array,
-): Promise<{ userId: string; email: string | null } | null> {
+): Promise<{
+  userId: string;
+  email: string | null;
+  handle: string | null;
+  displayName: string | null;
+} | null> {
   if (!authHeader?.startsWith("Bearer ")) return null;
   try {
     const { payload } = await jwtVerify(authHeader.slice(7), secret);
     const userId = typeof payload.sub === "string" ? payload.sub : null;
     if (!userId) return null;
     const email = typeof payload.email === "string" ? payload.email : null;
-    return { userId, email };
+    const handle = typeof payload.handle === "string" ? payload.handle : null;
+    const displayName = typeof payload.displayName === "string" ? payload.displayName : null;
+    return { userId, email, handle, displayName };
   } catch {
     return null;
   }
@@ -95,7 +102,10 @@ export const createEventsRoutes = (
         }
         const creator = {
           createdByUserId: claims.userId,
-          createdByName: claims.email ? (claims.email.split("@")[0] ?? null) : null,
+          createdByName:
+            claims.displayName ??
+            (claims.handle ? `@${claims.handle}` : null) ??
+            (claims.email ? (claims.email.split("@")[0] ?? null) : null),
           createdByAvatar: null,
         };
         const result = await Effect.runPromise(

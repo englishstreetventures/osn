@@ -9,6 +9,7 @@ export function createTestLayer() {
   sqlite.run(`
     CREATE TABLE users (
       id TEXT PRIMARY KEY,
+      handle TEXT NOT NULL UNIQUE,
       email TEXT NOT NULL UNIQUE,
       display_name TEXT,
       avatar_url TEXT,

@@ -143,6 +143,8 @@ Address **High** items before any non-local deployment.
 - [x] No ownership check on mutating event operations (create/update/delete) — H2 (createdByUserId NOT NULL; 403 on non-owner)
 
 ### Medium
+- [ ] `POST /register` has no rate limiting or email verification — handles can be squatted in bulk; add per-IP rate limit and email confirmation before first login — M13
+- [ ] `displayName` is embedded in JWT access tokens (1 h TTL) — stale after a profile update; `createdByName` on events reflects the old value until token expires — M14
 - [ ] Wildcard CORS on auth server — restrict to known client origins before deployment — M3
 - [ ] No OTP attempt limit — 6-digit codes brute-forceable at HTTP speeds — M8
 - [ ] All auth state in process memory (`otpStore`, `magicStore`, `pkceStore`, etc.) — lost on restart, unsafe for multi-process — M6
@@ -167,6 +169,8 @@ Address **High** items before any non-local deployment.
 - [ ] PKCE `state` not validated against a stored nonce — L4
 - [ ] `jose` and `@simplewebauthn/server` use caret version ranges — pin to exact versions — L7
 - [ ] Pulse `auth.ts` exports only public/build-time config — add comment discouraging secrets in that file — L8
+- [ ] `assertion: t.Any()` on passkey register/login routes — add lightweight TypeBox shape validation for top-level WebAuthn fields (`id`, `rawId`, `response`, `type`) — L10
+- [ ] No reserved-handle blocklist in DB — currently enforced in app layer only (`RESERVED_HANDLES` set in `@osn/core`); consider a DB-level check constraint or migration-managed table — L11
 - [x] `EventList` `console.error` logs raw server error objects — guarded with `import.meta.env.DEV` — L9
 - ~~`@vitest/coverage-istanbul` uses caret version range — L10~~ dismissed: caret ranges are the project standard
 
@@ -179,7 +183,7 @@ Address **High** items before any non-local deployment.
 - [ ] `new TextEncoder()` allocated per `verifyPkceChallenge` call — move to module scope — P3
 - [ ] `AuthProvider` reconstructs Effect `Layer` on every render — wrap with `createMemo` — P4
 - [ ] `completePasskeyLogin` calls `findUserByEmail` redundantly — `pk.userId` already on passkey row — P5
-- [ ] Duplicate index on `users.email` — `unique()` already creates one implicitly — P6
+- [ ] Duplicate index on `users.email` — `unique()` already creates one implicitly in SQLite; explicit `users_email_idx` is redundant (pre-existing; handle_idx removed in feat/user-handle-system) — P6
 - [ ] Batch status-transition `UPDATE`s in `listEvents`/`listTodayEvents` (N individual writes today) — P7
 - [x] Eliminate extra `getEvent` round-trips in `updateEvent` — P8 (returns in-memory merged result; applyTransition called locally)
 - [ ] Eliminate extra `getEvent` round-trip in `createEvent` via `RETURNING *` — P9

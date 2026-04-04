@@ -125,6 +125,48 @@ const EmailSchema = Schema.String.pipe(
   }),
 );
 
+const HandleSchema = Schema.String.pipe(
+  Schema.filter((s) => /^[a-z0-9_]{1,30}$/.test(s), {
+    message: () => "Handle must be 1–30 characters: lowercase letters, numbers, underscores only",
+  }),
+);
+
+/**
+ * Normalises an identifier by stripping a leading @ sigil.
+ * Users may type "@alice" meaning handle "alice"; this strips it before dispatch.
+ */
+function normaliseIdentifier(identifier: string): string {
+  return identifier.startsWith("@") ? identifier.slice(1) : identifier;
+}
+
+/** Returns true if the (already-normalised) identifier looks like an email address. */
+function looksLikeEmail(identifier: string): boolean {
+  return identifier.includes("@");
+}
+
+const RESERVED_HANDLES = new Set([
+  "me",
+  "admin",
+  "api",
+  "support",
+  "help",
+  "osn",
+  "pulse",
+  "messaging",
+  "auth",
+  "login",
+  "logout",
+  "register",
+  "signup",
+  "signin",
+  "about",
+  "terms",
+  "privacy",
+  "status",
+  "null",
+  "undefined",
+]);
+
 // ---------------------------------------------------------------------------
 // Auth service factory
 // ---------------------------------------------------------------------------
@@ -149,33 +191,103 @@ export function createAuthService(config: AuthConfig) {
       return result[0] ?? null;
     });
 
-  const upsertUser = (email: string): Effect.Effect<User, DatabaseError, Db> =>
+  const findUserByHandle = (handle: string): Effect.Effect<User | null, DatabaseError, Db> =>
     Effect.gen(function* () {
-      const existing = yield* findUserByEmail(email);
-      if (existing) return existing;
+      const { db } = yield* Db;
+      const result = yield* Effect.tryPromise({
+        try: () => db.select().from(users).where(eq(users.handle, handle)).limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      return result[0] ?? null;
+    });
+
+  /**
+   * Resolves a (normalised) identifier to a user.
+   * Identifiers containing "@" are treated as email addresses; all others as handles.
+   */
+  const resolveIdentifier = (identifier: string): Effect.Effect<User | null, DatabaseError, Db> =>
+    looksLikeEmail(identifier) ? findUserByEmail(identifier) : findUserByHandle(identifier);
+
+  /**
+   * Registers a new user. Fails if the email or handle is already taken.
+   * This is the only way to create a user — OTP/magic/passkey flows are login-only.
+   */
+  const registerUser = (
+    email: string,
+    handle: string,
+    displayName?: string,
+  ): Effect.Effect<User, AuthError | ValidationError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      yield* Schema.decodeUnknown(EmailSchema)(email).pipe(
+        Effect.mapError((cause) => new ValidationError({ cause })),
+      );
+      yield* Schema.decodeUnknown(HandleSchema)(handle).pipe(
+        Effect.mapError((cause) => new ValidationError({ cause })),
+      );
+
+      if (RESERVED_HANDLES.has(handle)) {
+        return yield* Effect.fail(new AuthError({ message: "Handle is reserved" }));
+      }
+
+      const [existingEmail, existingHandle] = yield* Effect.all(
+        [findUserByEmail(email), findUserByHandle(handle)],
+        { concurrency: "unbounded" },
+      );
+      if (existingEmail) {
+        return yield* Effect.fail(new AuthError({ message: "Email already registered" }));
+      }
+      if (existingHandle) {
+        return yield* Effect.fail(new AuthError({ message: "Handle already taken" }));
+      }
+
       const { db } = yield* Db;
       const id = genId("usr_");
       const ts = now();
+      const dn = displayName ?? null;
+
       yield* Effect.tryPromise({
-        try: () => db.insert(users).values({ id, email, createdAt: ts, updatedAt: ts }),
+        try: () =>
+          db
+            .insert(users)
+            .values({ id, handle, email, displayName: dn, createdAt: ts, updatedAt: ts }),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      return { id, email, displayName: null, avatarUrl: null, createdAt: ts, updatedAt: ts };
+
+      return { id, handle, email, displayName: dn, avatarUrl: null, createdAt: ts, updatedAt: ts };
+    });
+
+  /**
+   * Checks whether a handle is valid format and not yet taken.
+   */
+  const checkHandle = (
+    handle: string,
+  ): Effect.Effect<{ available: boolean }, ValidationError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      yield* Schema.decodeUnknown(HandleSchema)(handle).pipe(
+        Effect.mapError((cause) => new ValidationError({ cause })),
+      );
+      if (RESERVED_HANDLES.has(handle)) return { available: false };
+      const existing = yield* findUserByHandle(handle);
+      return { available: existing === null };
     });
 
   // -------------------------------------------------------------------------
   // Token issuance
   // -------------------------------------------------------------------------
 
-  const issueTokens = (userId: string, email: string) =>
+  const issueTokens = (userId: string, email: string, handle: string, displayName: string | null) =>
     Effect.tryPromise({
       try: async () => {
+        const payload: Record<string, unknown> = {
+          sub: userId,
+          email,
+          handle,
+          scope: "openid profile",
+        };
+        if (displayName !== null) payload["displayName"] = displayName;
+
         const [accessToken, refreshToken] = await Promise.all([
-          signJwt(
-            { sub: userId, email, scope: "openid profile" },
-            config.jwtSecret,
-            accessTokenTtl,
-          ),
+          signJwt(payload, config.jwtSecret, accessTokenTtl),
           signJwt({ sub: userId, type: "refresh" }, config.jwtSecret, refreshTokenTtl),
         ]);
         return { accessToken, refreshToken, expiresIn: accessTokenTtl };
@@ -222,7 +334,7 @@ export function createAuthService(config: AuthConfig) {
       if (!user) {
         return yield* Effect.fail(new AuthError({ message: "User not found" }));
       }
-      return yield* issueTokens(userId, user.email);
+      return yield* issueTokens(userId, user.email, user.handle, user.displayName);
     });
 
   // -------------------------------------------------------------------------
@@ -254,7 +366,7 @@ export function createAuthService(config: AuthConfig) {
       if (!user) {
         return yield* Effect.fail(new AuthError({ message: "User not found" }));
       }
-      return yield* issueTokens(userId, user.email);
+      return yield* issueTokens(userId, user.email, user.handle, user.displayName);
     });
 
   // -------------------------------------------------------------------------
@@ -263,16 +375,28 @@ export function createAuthService(config: AuthConfig) {
 
   const verifyAccessToken = (
     token: string,
-  ): Effect.Effect<{ userId: string; email: string }, AuthError> =>
+  ): Effect.Effect<
+    { userId: string; email: string; handle: string; displayName: string | null },
+    AuthError
+  > =>
     Effect.gen(function* () {
       const payload = yield* Effect.tryPromise({
         try: () => verifyJwt(token, config.jwtSecret),
         catch: () => new AuthError({ message: "Invalid or expired access token" }),
       });
-      if (typeof payload["sub"] !== "string" || typeof payload["email"] !== "string") {
+      if (
+        typeof payload["sub"] !== "string" ||
+        typeof payload["email"] !== "string" ||
+        typeof payload["handle"] !== "string"
+      ) {
         return yield* Effect.fail(new AuthError({ message: "Invalid token claims" }));
       }
-      return { userId: payload["sub"], email: payload["email"] };
+      return {
+        userId: payload["sub"],
+        email: payload["email"],
+        handle: payload["handle"],
+        displayName: typeof payload["displayName"] === "string" ? payload["displayName"] : null,
+      };
     });
 
   // -------------------------------------------------------------------------
@@ -308,8 +432,8 @@ export function createAuthService(config: AuthConfig) {
             rpName: config.rpName,
             rpID: config.rpId,
             userID: new TextEncoder().encode(userId),
-            userName: user.email,
-            userDisplayName: user.email,
+            userName: `@${user.handle}`,
+            userDisplayName: user.displayName ?? `@${user.handle}`,
             attestationType: "none",
             excludeCredentials: existingPasskeys.map((pk) => ({
               id: pk.credentialId,
@@ -392,16 +516,17 @@ export function createAuthService(config: AuthConfig) {
   // -------------------------------------------------------------------------
 
   const beginPasskeyLogin = (
-    email: string,
+    identifier: string,
   ): Effect.Effect<
     { options: PublicKeyCredentialRequestOptionsJSON },
     AuthError | DatabaseError,
     Db
   > =>
     Effect.gen(function* () {
-      const user = yield* findUserByEmail(email);
+      const normalised = normaliseIdentifier(identifier);
+      const user = yield* resolveIdentifier(normalised);
       if (!user) {
-        return yield* Effect.fail(new AuthError({ message: "No account found for this email" }));
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
 
       const { db } = yield* Db;
@@ -431,7 +556,9 @@ export function createAuthService(config: AuthConfig) {
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
 
-      loginChallenges.set(email, {
+      // Key challenge by normalised identifier so completePasskeyLogin can
+      // check the in-memory guard before touching the DB.
+      loginChallenges.set(normalised, {
         challenge: options.challenge,
         expiresAt: Date.now() + 120_000,
       });
@@ -444,19 +571,21 @@ export function createAuthService(config: AuthConfig) {
   // -------------------------------------------------------------------------
 
   const completePasskeyLogin = (
-    email: string,
+    identifier: string,
     assertion: AuthenticationResponseJSON,
   ): Effect.Effect<{ code: string; userId: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const entry = loginChallenges.get(email);
+      // Check in-memory challenge guard before any DB lookup.
+      const normalised = normaliseIdentifier(identifier);
+      const entry = loginChallenges.get(normalised);
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
       }
-      loginChallenges.delete(email);
+      loginChallenges.delete(normalised);
 
-      const user = yield* findUserByEmail(email);
+      const user = yield* resolveIdentifier(normalised);
       if (!user) {
-        return yield* Effect.fail(new AuthError({ message: "User not found" }));
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
 
       const { db } = yield* Db;
@@ -493,7 +622,6 @@ export function createAuthService(config: AuthConfig) {
         return yield* Effect.fail(new AuthError({ message: "Passkey verification failed" }));
       }
 
-      // Update counter
       yield* Effect.tryPromise({
         try: () =>
           db
@@ -508,23 +636,35 @@ export function createAuthService(config: AuthConfig) {
     });
 
   // -------------------------------------------------------------------------
-  // OTP: begin
+  // OTP: begin (login only — user must already be registered)
   // -------------------------------------------------------------------------
 
   const beginOtp = (
-    email: string,
+    identifier: string,
   ): Effect.Effect<{ sent: boolean }, AuthError | ValidationError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      yield* Schema.decodeUnknown(EmailSchema)(email).pipe(
-        Effect.mapError((cause) => new ValidationError({ cause })),
-      );
+      const normalised = normaliseIdentifier(identifier);
+      if (looksLikeEmail(normalised)) {
+        yield* Schema.decodeUnknown(EmailSchema)(normalised).pipe(
+          Effect.mapError((cause) => new ValidationError({ cause })),
+        );
+      } else {
+        yield* Schema.decodeUnknown(HandleSchema)(normalised).pipe(
+          Effect.mapError((cause) => new ValidationError({ cause })),
+        );
+      }
 
-      const user = yield* upsertUser(email);
+      const user = yield* resolveIdentifier(normalised);
+      if (!user) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+      }
+
       const buf = new Uint32Array(1);
       crypto.getRandomValues(buf);
       const code = (100_000 + (buf[0] % 900_000)).toString();
 
-      otpStore.set(email, {
+      // Key by normalised identifier so completeOtp can check in-memory first.
+      otpStore.set(normalised, {
         code,
         userId: user.id,
         expiresAt: Date.now() + otpTtl * 1000,
@@ -534,14 +674,14 @@ export function createAuthService(config: AuthConfig) {
         yield* Effect.tryPromise({
           try: () =>
             config.sendEmail!(
-              email,
+              user.email,
               "Your OSN sign-in code",
               `Your one-time sign-in code is: ${code}\n\nThis code expires in ${otpTtl / 60} minutes.`,
             ),
           catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
         });
       } else {
-        console.log(`[OSN dev] OTP for ${email}: ${code}`);
+        console.log(`[OSN dev] OTP for ${user.email}: ${code}`);
       }
 
       return { sent: true };
@@ -552,36 +692,49 @@ export function createAuthService(config: AuthConfig) {
   // -------------------------------------------------------------------------
 
   const completeOtp = (
-    email: string,
+    identifier: string,
     code: string,
   ): Effect.Effect<{ code: string; userId: string }, AuthError, Db> =>
     Effect.gen(function* () {
-      const entry = otpStore.get(email);
+      // Check in-memory store first — no DB hit on expired/invalid attempts.
+      const normalised = normaliseIdentifier(identifier);
+      const entry = otpStore.get(normalised);
       if (!entry || Date.now() > entry.expiresAt) {
-        return yield* Effect.fail(new AuthError({ message: "Code expired or not found" }));
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
       if (entry.code !== code) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid code" }));
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
-      otpStore.delete(email);
+      otpStore.delete(normalised);
 
       const authCode = yield* issueCode(entry.userId);
       return { code: authCode, userId: entry.userId };
     });
 
   // -------------------------------------------------------------------------
-  // Magic link: begin
+  // Magic link: begin (login only — user must already be registered)
   // -------------------------------------------------------------------------
 
   const beginMagic = (
-    email: string,
+    identifier: string,
   ): Effect.Effect<{ sent: boolean }, AuthError | ValidationError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      yield* Schema.decodeUnknown(EmailSchema)(email).pipe(
-        Effect.mapError((cause) => new ValidationError({ cause })),
-      );
+      const normalised = normaliseIdentifier(identifier);
+      if (looksLikeEmail(normalised)) {
+        yield* Schema.decodeUnknown(EmailSchema)(normalised).pipe(
+          Effect.mapError((cause) => new ValidationError({ cause })),
+        );
+      } else {
+        yield* Schema.decodeUnknown(HandleSchema)(normalised).pipe(
+          Effect.mapError((cause) => new ValidationError({ cause })),
+        );
+      }
 
-      const user = yield* upsertUser(email);
+      const user = yield* resolveIdentifier(normalised);
+      if (!user) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+      }
+
       const token = genId("mlnk_") + crypto.randomUUID().replace(/-/g, "");
 
       magicStore.set(token, {
@@ -596,14 +749,14 @@ export function createAuthService(config: AuthConfig) {
         yield* Effect.tryPromise({
           try: () =>
             config.sendEmail!(
-              email,
+              user.email,
               "Your OSN magic sign-in link",
               `Click this link to sign in: ${magicUrl}\n\nThis link expires in ${magicTtl / 60} minutes.`,
             ),
           catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
         });
       } else {
-        console.log(`[OSN dev] Magic link for ${email}: ${magicUrl}`);
+        console.log(`[OSN dev] Magic link for ${user.email}: ${magicUrl}`);
       }
 
       return { sent: true };
@@ -634,7 +787,10 @@ export function createAuthService(config: AuthConfig) {
 
   return {
     findUserByEmail,
-    upsertUser,
+    findUserByHandle,
+    resolveIdentifier,
+    registerUser,
+    checkHandle,
     issueTokens,
     exchangeCode,
     refreshTokens,

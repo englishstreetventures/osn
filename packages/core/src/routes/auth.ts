@@ -25,6 +25,47 @@ export function createAuthRoutes(authConfig: AuthConfig, dbLayer: Layer.Layer<Db
   return (
     new Elysia({ prefix: "" })
       // -------------------------------------------------------------------------
+      // Handle availability check
+      // -------------------------------------------------------------------------
+      .get(
+        "/handle/:handle",
+        async ({ params, set }) => {
+          try {
+            const result = await run(auth.checkHandle(params.handle));
+            return result;
+          } catch (e) {
+            set.status = 400;
+            return { error: String(e) };
+          }
+        },
+        {
+          params: t.Object({ handle: t.String() }),
+        },
+      )
+      // -------------------------------------------------------------------------
+      // Registration
+      // -------------------------------------------------------------------------
+      .post(
+        "/register",
+        async ({ body, set }) => {
+          try {
+            const user = await run(auth.registerUser(body.email, body.handle, body.displayName));
+            set.status = 201;
+            return { userId: user.id, handle: user.handle, email: user.email };
+          } catch (e) {
+            set.status = 400;
+            return { error: String(e) };
+          }
+        },
+        {
+          body: t.Object({
+            email: t.String(),
+            handle: t.String(),
+            displayName: t.Optional(t.String()),
+          }),
+        },
+      )
+      // -------------------------------------------------------------------------
       // Authorization endpoint — renders the sign-in page
       // -------------------------------------------------------------------------
       .get(
@@ -105,10 +146,6 @@ export function createAuthRoutes(authConfig: AuthConfig, dbLayer: Layer.Layer<Db
               return { error: "invalid_request" };
             }
 
-            // Verify PKCE if we have a stored entry
-            // For simplicity, we look up the pkce entry by trying all unexpired entries
-            // In production you'd associate code with the pkce entry directly
-            // Here we do a best-effort: if state provided, use it
             if (state) {
               const pkce = pkceStore.get(state);
               if (pkce) {
@@ -219,13 +256,13 @@ export function createAuthRoutes(authConfig: AuthConfig, dbLayer: Layer.Layer<Db
         },
       )
       // -------------------------------------------------------------------------
-      // Passkey: begin login
+      // Passkey: begin login (identifier = email or handle)
       // -------------------------------------------------------------------------
       .post(
         "/passkey/login/begin",
         async ({ body, set }) => {
           try {
-            const result = await run(auth.beginPasskeyLogin(body.email));
+            const result = await run(auth.beginPasskeyLogin(body.identifier));
             return result;
           } catch (e) {
             set.status = 400;
@@ -233,17 +270,17 @@ export function createAuthRoutes(authConfig: AuthConfig, dbLayer: Layer.Layer<Db
           }
         },
         {
-          body: t.Object({ email: t.String() }),
+          body: t.Object({ identifier: t.String() }),
         },
       )
       // -------------------------------------------------------------------------
-      // Passkey: complete login
+      // Passkey: complete login (identifier = email or handle)
       // -------------------------------------------------------------------------
       .post(
         "/passkey/login/complete",
         async ({ body, set }) => {
           try {
-            const result = await run(auth.completePasskeyLogin(body.email, body.assertion));
+            const result = await run(auth.completePasskeyLogin(body.identifier, body.assertion));
             return result;
           } catch (e) {
             set.status = 400;
@@ -252,19 +289,19 @@ export function createAuthRoutes(authConfig: AuthConfig, dbLayer: Layer.Layer<Db
         },
         {
           body: t.Object({
-            email: t.String(),
+            identifier: t.String(),
             assertion: t.Any(),
           }),
         },
       )
       // -------------------------------------------------------------------------
-      // OTP: begin
+      // OTP: begin (identifier = email or handle)
       // -------------------------------------------------------------------------
       .post(
         "/otp/begin",
         async ({ body, set }) => {
           try {
-            const result = await run(auth.beginOtp(body.email));
+            const result = await run(auth.beginOtp(body.identifier));
             return result;
           } catch (e) {
             set.status = 400;
@@ -272,17 +309,17 @@ export function createAuthRoutes(authConfig: AuthConfig, dbLayer: Layer.Layer<Db
           }
         },
         {
-          body: t.Object({ email: t.String() }),
+          body: t.Object({ identifier: t.String() }),
         },
       )
       // -------------------------------------------------------------------------
-      // OTP: complete
+      // OTP: complete (identifier = email or handle)
       // -------------------------------------------------------------------------
       .post(
         "/otp/complete",
         async ({ body, set }) => {
           try {
-            const result = await run(auth.completeOtp(body.email, body.code));
+            const result = await run(auth.completeOtp(body.identifier, body.code));
             return result;
           } catch (e) {
             set.status = 400;
@@ -290,17 +327,17 @@ export function createAuthRoutes(authConfig: AuthConfig, dbLayer: Layer.Layer<Db
           }
         },
         {
-          body: t.Object({ email: t.String(), code: t.String() }),
+          body: t.Object({ identifier: t.String(), code: t.String() }),
         },
       )
       // -------------------------------------------------------------------------
-      // Magic link: begin
+      // Magic link: begin (identifier = email or handle)
       // -------------------------------------------------------------------------
       .post(
         "/magic/begin",
         async ({ body, set }) => {
           try {
-            const result = await run(auth.beginMagic(body.email));
+            const result = await run(auth.beginMagic(body.identifier));
             return result;
           } catch (e) {
             set.status = 400;
@@ -308,7 +345,7 @@ export function createAuthRoutes(authConfig: AuthConfig, dbLayer: Layer.Layer<Db
           }
         },
         {
-          body: t.Object({ email: t.String() }),
+          body: t.Object({ identifier: t.String() }),
         },
       )
       // -------------------------------------------------------------------------

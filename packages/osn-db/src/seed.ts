@@ -19,6 +19,7 @@ export function buildSeedUsers(now: Date): NewUser[] {
   return [
     {
       id: "usr_seed_alice",
+      handle: "alice",
       email: "alice@seed.osn.dev",
       displayName: "Alice Chen",
       avatarUrl: null,
@@ -27,6 +28,7 @@ export function buildSeedUsers(now: Date): NewUser[] {
     },
     {
       id: "usr_seed_bob",
+      handle: "bob",
       email: "bob@seed.osn.dev",
       displayName: "Bob Martinez",
       avatarUrl: null,
@@ -35,6 +37,7 @@ export function buildSeedUsers(now: Date): NewUser[] {
     },
     {
       id: "usr_seed_me",
+      handle: "me",
       email: "me@seed.osn.dev",
       displayName: "You (seed)",
       avatarUrl: null,
