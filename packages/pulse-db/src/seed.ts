@@ -3,6 +3,19 @@ import { DbLive, Db } from "./service";
 import { events } from "./schema";
 import type { NewEvent } from "./schema";
 
+/**
+ * Seed user IDs that match the osn-db user seed.
+ * usr_seed_me is a stable sentinel — the Pulse frontend compares
+ * event.createdByUserId against the real JWT sub at runtime, so
+ * events owned by usr_seed_me will only show delete controls when
+ * the signed-in user's ID actually matches (i.e. in dev, never —
+ * unless you manually set your user ID to usr_seed_me in the DB).
+ * Create events manually when signed in to get true ownership.
+ */
+const ALICE = { id: "usr_seed_alice", name: "Alice Chen", avatar: null };
+const BOB = { id: "usr_seed_bob", name: "Bob Martinez", avatar: null };
+const ME = { id: "usr_seed_me", name: "You (seed)", avatar: null };
+
 class SeedError extends Data.TaggedError("SeedError")<{ cause: unknown }> {}
 
 /**
@@ -30,6 +43,9 @@ export function buildSeedEvents(now: Date): NewEvent[] {
       startTime: d(-3),
       endTime: new Date(dMs(-3) + 3 * 3_600_000),
       status: "finished",
+      createdByUserId: ALICE.id,
+      createdByName: ALICE.name,
+      createdByAvatar: ALICE.avatar,
       createdAt: now,
       updatedAt: now,
     },
@@ -47,6 +63,9 @@ export function buildSeedEvents(now: Date): NewEvent[] {
       startTime: h(-2),
       endTime: h(4),
       status: "ongoing",
+      createdByUserId: BOB.id,
+      createdByName: BOB.name,
+      createdByAvatar: BOB.avatar,
       createdAt: now,
       updatedAt: now,
     },
@@ -62,6 +81,9 @@ export function buildSeedEvents(now: Date): NewEvent[] {
       startTime: h(-5),
       endTime: h(7),
       status: "ongoing",
+      createdByUserId: ALICE.id,
+      createdByName: ALICE.name,
+      createdByAvatar: ALICE.avatar,
       createdAt: now,
       updatedAt: now,
     },
@@ -77,6 +99,9 @@ export function buildSeedEvents(now: Date): NewEvent[] {
       startTime: new Date(ms - 45 * 60_000),
       endTime: new Date(ms + 75 * 60_000),
       status: "ongoing",
+      createdByUserId: ME.id,
+      createdByName: ME.name,
+      createdByAvatar: ME.avatar,
       createdAt: now,
       updatedAt: now,
     },
@@ -94,6 +119,9 @@ export function buildSeedEvents(now: Date): NewEvent[] {
       startTime: d(2),
       endTime: new Date(dMs(2) + 3 * 3_600_000),
       status: "upcoming",
+      createdByUserId: ME.id,
+      createdByName: ME.name,
+      createdByAvatar: ME.avatar,
       createdAt: now,
       updatedAt: now,
     },
@@ -109,6 +137,9 @@ export function buildSeedEvents(now: Date): NewEvent[] {
       startTime: d(5),
       endTime: new Date(dMs(5) + 2 * 3_600_000),
       status: "upcoming",
+      createdByUserId: BOB.id,
+      createdByName: BOB.name,
+      createdByAvatar: BOB.avatar,
       createdAt: now,
       updatedAt: now,
     },
@@ -124,6 +155,9 @@ export function buildSeedEvents(now: Date): NewEvent[] {
       startTime: d(8),
       endTime: new Date(dMs(8) + 4 * 3_600_000),
       status: "upcoming",
+      createdByUserId: ALICE.id,
+      createdByName: ALICE.name,
+      createdByAvatar: ALICE.avatar,
       createdAt: now,
       updatedAt: now,
     },
@@ -139,6 +173,9 @@ export function buildSeedEvents(now: Date): NewEvent[] {
       startTime: d(12),
       endTime: new Date(dMs(12) + 3 * 3_600_000),
       status: "upcoming",
+      createdByUserId: BOB.id,
+      createdByName: BOB.name,
+      createdByAvatar: BOB.avatar,
       createdAt: now,
       updatedAt: now,
     },
@@ -154,6 +191,9 @@ export function buildSeedEvents(now: Date): NewEvent[] {
       startTime: d(18),
       endTime: new Date(dMs(18) + 2.5 * 3_600_000),
       status: "upcoming",
+      createdByUserId: ME.id,
+      createdByName: ME.name,
+      createdByAvatar: ME.avatar,
       createdAt: now,
       updatedAt: now,
     },

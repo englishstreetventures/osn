@@ -36,3 +36,36 @@ export function composeLabel(p: PhotonFeature["properties"]): string {
 export function isEndBeforeOrAtStart(start: string, end: string): boolean {
   return !!end && end <= start;
 }
+
+/**
+ * Decodes a JWT payload without verifying the signature.
+ * Safe for display-only purposes — the server verifies the signature on every write.
+ */
+function decodeJwtPayload(accessToken: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(atob(accessToken.split(".")[1]!)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** Extracts the `sub` (user ID) claim from an access token. */
+export function getUserIdFromToken(accessToken: string | null): string | null {
+  if (!accessToken) return null;
+  const payload = decodeJwtPayload(accessToken);
+  return typeof payload?.sub === "string" ? payload.sub : null;
+}
+
+/**
+ * Derives a display name from the `email` claim in an access token.
+ * Uses the local-part of the email (before @) as a fallback until a
+ * proper user profile endpoint is available.
+ */
+export function getDisplayNameFromToken(accessToken: string | null): string | null {
+  if (!accessToken) return null;
+  const payload = decodeJwtPayload(accessToken);
+  if (typeof payload?.email === "string") {
+    return payload.email.split("@")[0] ?? null;
+  }
+  return null;
+}

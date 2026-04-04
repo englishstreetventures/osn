@@ -20,6 +20,9 @@ function createTestDb() {
       image_url TEXT,
       latitude REAL,
       longitude REAL,
+      created_by_user_id TEXT,
+      created_by_name TEXT,
+      created_by_avatar TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -89,6 +92,22 @@ describe("buildSeedEvents", () => {
     expect(categories.every(Boolean)).toBe(true);
     // Covers the full spread of categories used for preference/discovery testing
     expect(new Set(categories).size).toBeGreaterThanOrEqual(7);
+  });
+
+  it("all 9 events have a createdByUserId and createdByName", () => {
+    const rows = buildSeedEvents(new Date());
+    for (const r of rows) {
+      expect(typeof r.createdByUserId).toBe("string");
+      expect(typeof r.createdByName).toBe("string");
+    }
+  });
+
+  it("seed user IDs use stable usr_seed_* prefix", () => {
+    const rows = buildSeedEvents(new Date());
+    const ids = rows.map((r) => r.createdByUserId).filter(Boolean);
+    for (const id of ids) {
+      expect(id).toMatch(/^usr_seed_/);
+    }
   });
 });
 

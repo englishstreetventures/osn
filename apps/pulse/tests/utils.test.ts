@@ -4,6 +4,8 @@ import {
   toDatetimeLocal,
   composeLabel,
   isEndBeforeOrAtStart,
+  getUserIdFromToken,
+  getDisplayNameFromToken,
   type PhotonFeature,
 } from "../src/lib/utils";
 
@@ -67,6 +69,59 @@ describe("isEndBeforeOrAtStart", () => {
 
   it("returns false when end is after start", () => {
     expect(isEndBeforeOrAtStart("2030-06-01T10:00", "2030-06-01T11:00")).toBe(false);
+  });
+});
+
+// Builds a fake JWT with a base64-encoded payload (no signature verification in client code)
+function fakeJwt(payload: Record<string, unknown>): string {
+  return `header.${btoa(JSON.stringify(payload))}.sig`;
+}
+
+describe("getUserIdFromToken", () => {
+  it("returns null for null input", () => {
+    expect(getUserIdFromToken(null)).toBeNull();
+  });
+
+  it("returns null for a malformed token (no dots)", () => {
+    expect(getUserIdFromToken("notajwt")).toBeNull();
+  });
+
+  it("returns null for a token with invalid base64 payload", () => {
+    expect(getUserIdFromToken("header.!!!.sig")).toBeNull();
+  });
+
+  it("returns null when payload has no sub claim", () => {
+    expect(getUserIdFromToken(fakeJwt({ email: "alice@example.com" }))).toBeNull();
+  });
+
+  it("returns null when sub claim is not a string", () => {
+    expect(getUserIdFromToken(fakeJwt({ sub: 42 }))).toBeNull();
+  });
+
+  it("returns the sub claim when present", () => {
+    expect(getUserIdFromToken(fakeJwt({ sub: "usr_test" }))).toBe("usr_test");
+  });
+});
+
+describe("getDisplayNameFromToken", () => {
+  it("returns null for null input", () => {
+    expect(getDisplayNameFromToken(null)).toBeNull();
+  });
+
+  it("returns null for a malformed token", () => {
+    expect(getDisplayNameFromToken("notajwt")).toBeNull();
+  });
+
+  it("returns null when payload has no email claim", () => {
+    expect(getDisplayNameFromToken(fakeJwt({ sub: "usr_test" }))).toBeNull();
+  });
+
+  it("returns the local-part of the email claim", () => {
+    expect(getDisplayNameFromToken(fakeJwt({ email: "alice@example.com" }))).toBe("alice");
+  });
+
+  it("returns null when email claim is not a string", () => {
+    expect(getDisplayNameFromToken(fakeJwt({ email: 123 }))).toBeNull();
   });
 });
 

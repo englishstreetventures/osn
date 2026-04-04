@@ -160,7 +160,7 @@ export function createAuthService(config: AuthConfig) {
         try: () => db.insert(users).values({ id, email, createdAt: ts, updatedAt: ts }),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      return { id, email, createdAt: ts, updatedAt: ts };
+      return { id, email, displayName: null, avatarUrl: null, createdAt: ts, updatedAt: ts };
     });
 
   // -------------------------------------------------------------------------

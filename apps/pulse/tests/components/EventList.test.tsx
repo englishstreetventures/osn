@@ -106,9 +106,12 @@ describe("EventList — unauthenticated", () => {
   });
 });
 
+// A minimal fake JWT with a decodable payload — no signature verification in client code.
+const FAKE_JWT = `header.${btoa(JSON.stringify({ sub: "usr_test", email: "test@example.com" }))}.sig`;
+
 describe("EventList — authenticated", () => {
   beforeEach(() => {
-    mockSession = () => ({ accessToken: "tok" });
+    mockSession = () => ({ accessToken: FAKE_JWT });
     mockGet.mockReset();
     mockLogin.mockReset();
     mockLogout.mockReset();
@@ -172,6 +175,7 @@ describe("EventList — authenticated", () => {
             title: "Delete Me",
             status: "upcoming",
             startTime: "2030-06-01T10:00:00.000Z",
+            createdByUserId: "usr_test",
           },
         ],
       },
@@ -205,6 +209,7 @@ describe("EventList — authenticated", () => {
             title: "Fail Delete",
             status: "upcoming",
             startTime: "2030-06-01T10:00:00.000Z",
+            createdByUserId: "usr_test",
           },
         ],
       },

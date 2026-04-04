@@ -20,6 +20,9 @@ function createTestDb() {
       image_url TEXT,
       latitude REAL,
       longitude REAL,
+      created_by_user_id TEXT NOT NULL,
+      created_by_name TEXT,
+      created_by_avatar TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -35,6 +38,7 @@ describe("events schema", () => {
       id: "evt_test",
       title: "Schema Test",
       startTime: now,
+      createdByUserId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
@@ -59,6 +63,7 @@ describe("events schema", () => {
       id: "evt_ts",
       title: "Timestamp Test",
       startTime: ts,
+      createdByUserId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
@@ -75,6 +80,7 @@ describe("events schema", () => {
       id: "evt_nulls",
       title: "Null Test",
       startTime: now,
+      createdByUserId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
@@ -88,5 +94,7 @@ describe("events schema", () => {
     expect(row!.imageUrl).toBeNull();
     expect(row!.latitude).toBeNull();
     expect(row!.longitude).toBeNull();
+    expect(row!.createdByName).toBeNull();
+    expect(row!.createdByAvatar).toBeNull();
   });
 });

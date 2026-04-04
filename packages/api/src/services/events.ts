@@ -16,6 +16,10 @@ export class ValidationError extends Data.TaggedError("ValidationError")<{
   readonly cause: unknown;
 }> {}
 
+export class NotEventOwner extends Data.TaggedError("NotEventOwner")<{
+  readonly id: string;
+}> {}
+
 const StatusEnum = Schema.Literal("upcoming", "ongoing", "finished", "cancelled");
 
 // Schema.DateFromString in this Effect version allows Invalid Date — use a validated transform
@@ -118,7 +122,9 @@ export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], Dat
           .from(events)
           .where(filters.length > 0 ? and(...filters) : undefined)
           .orderBy(events.startTime)
-          .limit(params.limit ? Number(params.limit) : 20) as Promise<Event[]>,
+          .limit(params.limit ? Math.min(Math.max(1, Number(params.limit)), 100) : 20) as Promise<
+          Event[]
+        >,
       catch: (cause) => new DatabaseError({ cause }),
     });
 
@@ -161,8 +167,15 @@ export const getEvent = (id: string): Effect.Effect<Event, EventNotFound | Datab
     return yield* applyTransition(result[0]!);
   });
 
+interface CreatorInfo {
+  createdByUserId: string;
+  createdByName: string | null;
+  createdByAvatar: string | null;
+}
+
 export const createEvent = (
   data: unknown,
+  creator: CreatorInfo,
 ): Effect.Effect<Event, ValidationError | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
@@ -175,7 +188,8 @@ export const createEvent = (
     const now = new Date();
 
     yield* Effect.tryPromise({
-      try: () => db.insert(events).values({ ...validated, id, createdAt: now, updatedAt: now }),
+      try: () =>
+        db.insert(events).values({ ...validated, ...creator, id, createdAt: now, updatedAt: now }),
       catch: (cause) => new DatabaseError({ cause }),
     });
 
@@ -187,33 +201,47 @@ export const createEvent = (
 export const updateEvent = (
   id: string,
   data: unknown,
-): Effect.Effect<Event, EventNotFound | ValidationError | DatabaseError, Db> =>
+  requestingUserId: string | null = null,
+): Effect.Effect<Event, EventNotFound | NotEventOwner | ValidationError | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
 
-    yield* getEvent(id);
+    const existing = yield* getEvent(id);
+    if (existing.createdByUserId !== requestingUserId) {
+      return yield* Effect.fail(new NotEventOwner({ id }));
+    }
 
     const validated = yield* Schema.decodeUnknown(UpdateEventSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 
+    const now = new Date();
     yield* Effect.tryPromise({
       try: () =>
         db
           .update(events)
-          .set({ ...validated, updatedAt: new Date() })
+          .set({ ...validated, updatedAt: now })
           .where(eq(events.id, id)),
       catch: (cause) => new DatabaseError({ cause }),
     });
 
-    return yield* getEvent(id);
+    // Build the updated event in-memory rather than re-fetching from DB.
+    // applyTransition is still called in case startTime/endTime changed.
+    const updated = { ...existing, ...validated, updatedAt: now } as Event;
+    return yield* applyTransition(updated);
   });
 
-export const deleteEvent = (id: string): Effect.Effect<void, EventNotFound | DatabaseError, Db> =>
+export const deleteEvent = (
+  id: string,
+  requestingUserId: string | null = null,
+): Effect.Effect<void, EventNotFound | NotEventOwner | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
 
-    yield* getEvent(id);
+    const existing = yield* getEvent(id);
+    if (existing.createdByUserId !== requestingUserId) {
+      return yield* Effect.fail(new NotEventOwner({ id }));
+    }
 
     yield* Effect.tryPromise({
       try: () => db.delete(events).where(eq(events.id, id)),

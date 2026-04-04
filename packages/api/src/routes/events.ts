@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import { Effect, type Layer } from "effect";
+import { jwtVerify } from "jose";
 import { DbLive, type Db } from "@pulse/db/service";
 import {
   createEvent,
@@ -19,8 +20,32 @@ const statusEnum = t.Optional(
   ]),
 );
 
-export const createEventsRoutes = (dbLayer: Layer.Layer<Db> = DbLive) =>
-  new Elysia({ prefix: "/events" })
+/** Extracts verified claims from a Bearer token. Returns null on any failure. */
+async function extractClaims(
+  authHeader: string | undefined,
+  secret: Uint8Array,
+): Promise<{ userId: string; email: string | null } | null> {
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  try {
+    const { payload } = await jwtVerify(authHeader.slice(7), secret);
+    const userId = typeof payload.sub === "string" ? payload.sub : null;
+    if (!userId) return null;
+    const email = typeof payload.email === "string" ? payload.email : null;
+    return { userId, email };
+  } catch {
+    return null;
+  }
+}
+
+const DEFAULT_JWT_SECRET = process.env.OSN_JWT_SECRET ?? "dev-secret-change-in-prod";
+
+export const createEventsRoutes = (
+  dbLayer: Layer.Layer<Db> = DbLive,
+  jwtSecret: string = DEFAULT_JWT_SECRET,
+) => {
+  const secretBytes = new TextEncoder().encode(jwtSecret);
+
+  return new Elysia({ prefix: "/events" })
     .get(
       "/",
       async ({ query }) => {
@@ -62,9 +87,19 @@ export const createEventsRoutes = (dbLayer: Layer.Layer<Db> = DbLive) =>
     )
     .post(
       "/",
-      async ({ body, set }) => {
+      async ({ body, headers, set }) => {
+        const claims = await extractClaims(headers["authorization"], secretBytes);
+        if (!claims) {
+          set.status = 401;
+          return { message: "Unauthorized" } as const;
+        }
+        const creator = {
+          createdByUserId: claims.userId,
+          createdByName: claims.email ? (claims.email.split("@")[0] ?? null) : null,
+          createdByAvatar: null,
+        };
         const result = await Effect.runPromise(
-          createEvent(body).pipe(
+          createEvent(body, creator).pipe(
             Effect.catchTag("ValidationError", (e) =>
               Effect.sync(() => {
                 set.status = 422;
@@ -96,10 +131,22 @@ export const createEventsRoutes = (dbLayer: Layer.Layer<Db> = DbLive) =>
     )
     .patch(
       "/:id",
-      async ({ params, body, set }) => {
+      async ({ params, body, headers, set }) => {
+        const claims = await extractClaims(headers["authorization"], secretBytes);
+        if (!claims) {
+          set.status = 401;
+          return { message: "Unauthorized" } as const;
+        }
+        const userId = claims.userId;
         const result = await Effect.runPromise(
-          updateEvent(params.id, body).pipe(
+          updateEvent(params.id, body, userId).pipe(
             Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
+            Effect.catchTag("NotEventOwner", () =>
+              Effect.sync(() => {
+                set.status = 403;
+                return { message: "Forbidden" } as const;
+              }),
+            ),
             Effect.catchTag("ValidationError", (e) =>
               Effect.sync(() => {
                 set.status = 422;
@@ -114,6 +161,7 @@ export const createEventsRoutes = (dbLayer: Layer.Layer<Db> = DbLive) =>
           return { message: "Event not found" };
         }
         if ("error" in result) return result;
+        if ("message" in result) return result;
         return { event: result };
       },
       {
@@ -135,10 +183,22 @@ export const createEventsRoutes = (dbLayer: Layer.Layer<Db> = DbLive) =>
     )
     .delete(
       "/:id",
-      async ({ params, set }) => {
+      async ({ params, headers, set }) => {
+        const claims = await extractClaims(headers["authorization"], secretBytes);
+        if (!claims) {
+          set.status = 401;
+          return { message: "Unauthorized" } as const;
+        }
+        const userId = claims.userId;
         const result = await Effect.runPromise(
-          deleteEvent(params.id).pipe(
+          deleteEvent(params.id, userId).pipe(
             Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
+            Effect.catchTag("NotEventOwner", () =>
+              Effect.sync(() => {
+                set.status = 403;
+                return { message: "Forbidden" } as const;
+              }),
+            ),
             Effect.provide(dbLayer),
           ),
         );
@@ -146,6 +206,7 @@ export const createEventsRoutes = (dbLayer: Layer.Layer<Db> = DbLive) =>
           set.status = 404;
           return { message: "Event not found" };
         }
+        if (result != null && "message" in result) return result;
         set.status = 204;
         return null;
       },
@@ -153,5 +214,6 @@ export const createEventsRoutes = (dbLayer: Layer.Layer<Db> = DbLive) =>
         params: t.Object({ id: t.String() }),
       },
     );
+};
 
 export const eventsRoutes = createEventsRoutes();

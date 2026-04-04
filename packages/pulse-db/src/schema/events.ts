@@ -17,6 +17,9 @@ export const events = sqliteTable(
       .notNull()
       .default("upcoming"),
     imageUrl: text("image_url"),
+    createdByUserId: text("created_by_user_id").notNull(),
+    createdByName: text("created_by_name"),
+    createdByAvatar: text("created_by_avatar"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -24,7 +27,10 @@ export const events = sqliteTable(
       .notNull()
       .$defaultFn(() => new Date()),
   },
-  (t) => [index("events_start_time_idx").on(t.startTime)],
+  (t) => [
+    index("events_start_time_idx").on(t.startTime),
+    index("events_created_by_user_id_idx").on(t.createdByUserId),
+  ],
 );
 
 export type Event = typeof events.$inferSelect;

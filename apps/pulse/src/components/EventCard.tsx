@@ -11,11 +11,25 @@ function mapsUrl(event: EventItem): string | null {
   return null;
 }
 
+/** Derives initials from a display name for avatar fallback rendering. */
+function initials(name: string): string {
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
 export function EventCard(props: {
   event: EventItem;
   onDelete: (id: string) => void;
   deleting?: boolean;
+  currentUserId?: string | null;
 }) {
+  const canDelete = () =>
+    !!props.currentUserId && props.event.createdByUserId === props.currentUserId;
+
   return (
     <div class="rounded-xl border border-border bg-card overflow-hidden">
       <Show when={props.event.imageUrl}>
@@ -37,6 +51,29 @@ export function EventCard(props: {
         <h2 class="text-base font-semibold text-foreground mb-1">{props.event.title}</h2>
         <Show when={props.event.description}>
           <p class="text-sm text-muted-foreground line-clamp-2 mb-3">{props.event.description}</p>
+        </Show>
+        <Show when={props.event.createdByName}>
+          {(name) => (
+            <div class="flex items-center gap-2 mb-3">
+              <Show
+                when={props.event.createdByAvatar}
+                fallback={
+                  <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-muted text-muted-foreground text-[10px] font-semibold shrink-0">
+                    {initials(name())}
+                  </span>
+                }
+              >
+                {(avatar) => (
+                  <img
+                    src={avatar()}
+                    alt={name()}
+                    class="w-6 h-6 rounded-full object-cover shrink-0"
+                  />
+                )}
+              </Show>
+              <span class="text-xs text-muted-foreground">Hosted by {name()}</span>
+            </div>
+          )}
         </Show>
         <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <Show when={props.event.venue}>
@@ -60,15 +97,17 @@ export function EventCard(props: {
               </a>
             )}
           </Show>
-          <button
-            onClick={() => {
-              if (confirm(`Delete "${props.event.title}"?`)) props.onDelete(props.event.id);
-            }}
-            disabled={props.deleting}
-            class="text-xs text-destructive hover:text-destructive/80 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {props.deleting ? "Deleting…" : "Delete"}
-          </button>
+          <Show when={canDelete()}>
+            <button
+              onClick={() => {
+                if (confirm(`Delete "${props.event.title}"?`)) props.onDelete(props.event.id);
+              }}
+              disabled={props.deleting}
+              class="text-xs text-destructive hover:text-destructive/80 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {props.deleting ? "Deleting…" : "Delete"}
+            </button>
+          </Show>
         </div>
       </div>
     </div>

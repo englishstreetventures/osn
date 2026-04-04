@@ -139,8 +139,8 @@ Address **High** items before any non-local deployment.
 ### High
 - [ ] Open redirect in `/magic/verify`: `redirect_uri` not validated against an allowlist — attacker can steal auth codes — H3
 - [ ] PKCE check optional at `/token`: silently skipped when `state` absent — make mandatory per RFC 7636 — H4
-- [ ] No auth/authorisation middleware on API routes (OWASP A01) — H1
-- [ ] No ownership check on mutating event operations (create/update/delete) — H2
+- [x] No auth/authorisation middleware on API routes (OWASP A01) — H1 (POST/PATCH/DELETE require auth; unauthenticated → 401)
+- [x] No ownership check on mutating event operations (create/update/delete) — H2 (createdByUserId NOT NULL; 403 on non-owner)
 
 ### Medium
 - [ ] Wildcard CORS on auth server — restrict to known client origins before deployment — M3
@@ -149,12 +149,13 @@ Address **High** items before any non-local deployment.
 - [ ] `redirect_uri` at `/token` not matched against value stored in `pkceStore` during `/authorize` (RFC 6749 §4.1.3) — M10
 - [ ] `/passkey/register/begin` accepts arbitrary `userId` with no auth check — M11
 - [ ] Magic-link tokens use `crypto.randomUUID` without additional entropy hardening — M7
-- [ ] `limit` query param in `listEvents` uncapped — guard `NaN` and clamp to 1–100 — M2
+- [x] `limit` query param in `listEvents` uncapped — guard `NaN` and clamp to 1–100 — M2 (clamped in service layer)
 - [ ] Photon (Komoot) geocoding: keystrokes sent to third-party with no user notice — add consent UI or proxy — M1
 - [ ] Pulse `REDIRECT_URI` falls back to `window.location.origin` — validate allowed redirect URIs server-side in `@osn/core`; already tracked as H3 — M12
 
 ### Low
 - [ ] Tauri CSP is `null` — when tightened, allowlist `photon.komoot.io` (geocoding fetch) and `maps.google.com` / `www.google.com` (Maps links) — L7
+- [ ] `createdByAvatar` is always null — no avatar claim in JWT; populate from user profile record once user profiles exist — L8-pulse
 - [x] `getSession()` returned expired tokens — fixed
 - [x] OTP used `Math.random()` — replaced with `crypto.getRandomValues`
 - [ ] `jwtSecret` falls back to `"dev-secret"` — throw at startup in production — M9
@@ -180,7 +181,9 @@ Address **High** items before any non-local deployment.
 - [ ] `completePasskeyLogin` calls `findUserByEmail` redundantly — `pk.userId` already on passkey row — P5
 - [ ] Duplicate index on `users.email` — `unique()` already creates one implicitly — P6
 - [ ] Batch status-transition `UPDATE`s in `listEvents`/`listTodayEvents` (N individual writes today) — P7
-- [ ] Eliminate extra `getEvent` round-trips in `createEvent`/`updateEvent` via `RETURNING *` — P8
+- [x] Eliminate extra `getEvent` round-trips in `updateEvent` — P8 (returns in-memory merged result; applyTransition called locally)
+- [ ] Eliminate extra `getEvent` round-trip in `createEvent` via `RETURNING *` — P9
+- [ ] Add index on `created_by_user_id` in pulse-db events — done in feat/event-ownership; move to done once merged
 
 ---
 

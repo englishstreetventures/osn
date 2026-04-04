@@ -10,6 +10,8 @@ function createTestDb() {
     CREATE TABLE users (
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
+      display_name TEXT,
+      avatar_url TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -58,6 +60,36 @@ describe("users schema", () => {
         .insert(schema.users)
         .values({ id: "usr_b", email: "dup@example.com", createdAt: now, updatedAt: now }),
     ).rejects.toThrow();
+  });
+
+  it("displayName and avatarUrl round-trip correctly", async () => {
+    const db = createTestDb();
+    const now = new Date();
+    await db.insert(schema.users).values({
+      id: "usr_display",
+      email: "display@example.com",
+      displayName: "Alice Chen",
+      avatarUrl: "https://example.com/avatar.jpg",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const [row] = await db.select().from(schema.users).where(eq(schema.users.id, "usr_display"));
+    expect(row!.displayName).toBe("Alice Chen");
+    expect(row!.avatarUrl).toBe("https://example.com/avatar.jpg");
+  });
+
+  it("displayName and avatarUrl default to null", async () => {
+    const db = createTestDb();
+    const now = new Date();
+    await db.insert(schema.users).values({
+      id: "usr_nodisplay",
+      email: "nodisplay@example.com",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const [row] = await db.select().from(schema.users).where(eq(schema.users.id, "usr_nodisplay"));
+    expect(row!.displayName).toBeNull();
+    expect(row!.avatarUrl).toBeNull();
   });
 
   it("createdAt round-trips as Date via timestamp mode", async () => {

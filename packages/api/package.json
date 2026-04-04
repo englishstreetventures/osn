@@ -21,7 +21,8 @@
     "@pulse/db": "workspace:*",
     "drizzle-orm": "^0.38.0",
     "effect": "^3.19.19",
-    "elysia": "^1.2.0"
+    "elysia": "^1.2.0",
+    "jose": "^6.2.2"
   },
   "devDependencies": {
     "@effect/vitest": "^0.27.0",

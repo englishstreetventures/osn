@@ -15,13 +15,15 @@ const PAST = "2020-01-01T10:00:00.000Z";
 const STARTED = new Date(Date.now() - 60_000).toISOString();
 const ENDED = new Date(Date.now() - 30_000).toISOString();
 
+const ALICE = { createdByUserId: "usr_alice", createdByName: "Alice", createdByAvatar: null };
+
 const provide = <A, E>(effect: Effect.Effect<A, E, any>) =>
   effect.pipe(Effect.provide(createTestLayer()));
 
 it.effect("getEvent returns event", () =>
   provide(
     Effect.gen(function* () {
-      const created = yield* createEvent({ title: "Concert", startTime: FUTURE });
+      const created = yield* createEvent({ title: "Concert", startTime: FUTURE }, ALICE);
       const fetched = yield* getEvent(created.id);
       expect(fetched.id).toBe(created.id);
       expect(fetched.title).toBe("Concert");
@@ -50,8 +52,8 @@ it.effect("listEvents returns empty list when no events", () =>
 it.effect("listEvents returns all events regardless of time", () =>
   provide(
     Effect.gen(function* () {
-      yield* createEvent({ title: "Future", startTime: FUTURE });
-      yield* createEvent({ title: "Past", startTime: PAST });
+      yield* createEvent({ title: "Future", startTime: FUTURE }, ALICE);
+      yield* createEvent({ title: "Past", startTime: PAST }, ALICE);
       const events = yield* listEvents({});
       expect(events.length).toBe(2);
     }),
@@ -61,8 +63,8 @@ it.effect("listEvents returns all events regardless of time", () =>
 it.effect("listEvents filters by status", () =>
   provide(
     Effect.gen(function* () {
-      yield* createEvent({ title: "Upcoming Event", startTime: FUTURE });
-      yield* createEvent({ title: "Ongoing Event", startTime: STARTED });
+      yield* createEvent({ title: "Upcoming Event", startTime: FUTURE }, ALICE);
+      yield* createEvent({ title: "Ongoing Event", startTime: STARTED }, ALICE);
       const events = yield* listEvents({ status: "ongoing" });
       expect(events.length).toBe(1);
       expect(events[0]!.title).toBe("Ongoing Event");
@@ -73,8 +75,8 @@ it.effect("listEvents filters by status", () =>
 it.effect("listEvents filters by category", () =>
   provide(
     Effect.gen(function* () {
-      yield* createEvent({ title: "Music Event", startTime: FUTURE, category: "music" });
-      yield* createEvent({ title: "Sports Event", startTime: FUTURE, category: "sports" });
+      yield* createEvent({ title: "Music Event", startTime: FUTURE, category: "music" }, ALICE);
+      yield* createEvent({ title: "Sports Event", startTime: FUTURE, category: "sports" }, ALICE);
       const events = yield* listEvents({ category: "music" });
       expect(events.length).toBe(1);
       expect(events[0]!.title).toBe("Music Event");
@@ -86,8 +88,8 @@ it.effect("listTodayEvents returns only today's events", () =>
   provide(
     Effect.gen(function* () {
       const now = new Date().toISOString();
-      yield* createEvent({ title: "Today Event", startTime: now });
-      yield* createEvent({ title: "Future Event", startTime: FUTURE });
+      yield* createEvent({ title: "Today Event", startTime: now }, ALICE);
+      yield* createEvent({ title: "Future Event", startTime: FUTURE }, ALICE);
       const events = yield* listTodayEvents;
       expect(events.length).toBe(1);
       expect(events[0]!.title).toBe("Today Event");
@@ -98,7 +100,7 @@ it.effect("listTodayEvents returns only today's events", () =>
 it.effect("createEvent returns event with evt_ prefix", () =>
   provide(
     Effect.gen(function* () {
-      const event = yield* createEvent({ title: "Test", startTime: FUTURE });
+      const event = yield* createEvent({ title: "Test", startTime: FUTURE }, ALICE);
       expect(event.id).toMatch(/^evt_/);
       expect(event.title).toBe("Test");
       expect(event.status).toBe("upcoming");
@@ -109,7 +111,7 @@ it.effect("createEvent returns event with evt_ prefix", () =>
 it.effect("createEvent fails with ValidationError for missing title", () =>
   provide(
     Effect.gen(function* () {
-      const error = yield* Effect.flip(createEvent({ startTime: FUTURE }));
+      const error = yield* Effect.flip(createEvent({ startTime: FUTURE }, ALICE));
       expect(error._tag).toBe("ValidationError");
     }),
   ),
@@ -118,7 +120,7 @@ it.effect("createEvent fails with ValidationError for missing title", () =>
 it.effect("createEvent fails with ValidationError for empty title", () =>
   provide(
     Effect.gen(function* () {
-      const error = yield* Effect.flip(createEvent({ title: "", startTime: FUTURE }));
+      const error = yield* Effect.flip(createEvent({ title: "", startTime: FUTURE }, ALICE));
       expect(error._tag).toBe("ValidationError");
     }),
   ),
@@ -127,7 +129,9 @@ it.effect("createEvent fails with ValidationError for empty title", () =>
 it.effect("createEvent fails with ValidationError for bad startTime", () =>
   provide(
     Effect.gen(function* () {
-      const error = yield* Effect.flip(createEvent({ title: "Test", startTime: "not-a-date" }));
+      const error = yield* Effect.flip(
+        createEvent({ title: "Test", startTime: "not-a-date" }, ALICE),
+      );
       expect(error._tag).toBe("ValidationError");
     }),
   ),
@@ -137,7 +141,7 @@ it.effect("createEvent fails with ValidationError for invalid imageUrl", () =>
   provide(
     Effect.gen(function* () {
       const error = yield* Effect.flip(
-        createEvent({ title: "Test", startTime: FUTURE, imageUrl: "not-a-url" }),
+        createEvent({ title: "Test", startTime: FUTURE, imageUrl: "not-a-url" }, ALICE),
       );
       expect(error._tag).toBe("ValidationError");
     }),
@@ -147,11 +151,14 @@ it.effect("createEvent fails with ValidationError for invalid imageUrl", () =>
 it.effect("createEvent accepts valid imageUrl", () =>
   provide(
     Effect.gen(function* () {
-      const event = yield* createEvent({
-        title: "Test",
-        startTime: FUTURE,
-        imageUrl: "https://example.com/image.jpg",
-      });
+      const event = yield* createEvent(
+        {
+          title: "Test",
+          startTime: FUTURE,
+          imageUrl: "https://example.com/image.jpg",
+        },
+        ALICE,
+      );
       expect(event.imageUrl).toBe("https://example.com/image.jpg");
     }),
   ),
@@ -160,8 +167,8 @@ it.effect("createEvent accepts valid imageUrl", () =>
 it.effect("updateEvent updates fields", () =>
   provide(
     Effect.gen(function* () {
-      const created = yield* createEvent({ title: "Original", startTime: FUTURE });
-      const updated = yield* updateEvent(created.id, { title: "Updated" });
+      const created = yield* createEvent({ title: "Original", startTime: FUTURE }, ALICE);
+      const updated = yield* updateEvent(created.id, { title: "Updated" }, "usr_alice");
       expect(updated.title).toBe("Updated");
       expect(updated.startTime).toEqual(created.startTime);
     }),
@@ -180,8 +187,8 @@ it.effect("updateEvent fails with EventNotFound for unknown id", () =>
 it.effect("updateEvent fails with ValidationError for empty title", () =>
   provide(
     Effect.gen(function* () {
-      const created = yield* createEvent({ title: "Original", startTime: FUTURE });
-      const error = yield* Effect.flip(updateEvent(created.id, { title: "" }));
+      const created = yield* createEvent({ title: "Original", startTime: FUTURE }, ALICE);
+      const error = yield* Effect.flip(updateEvent(created.id, { title: "" }, "usr_alice"));
       expect(error._tag).toBe("ValidationError");
     }),
   ),
@@ -190,8 +197,10 @@ it.effect("updateEvent fails with ValidationError for empty title", () =>
 it.effect("updateEvent fails with ValidationError for invalid imageUrl", () =>
   provide(
     Effect.gen(function* () {
-      const created = yield* createEvent({ title: "Original", startTime: FUTURE });
-      const error = yield* Effect.flip(updateEvent(created.id, { imageUrl: "not-a-url" }));
+      const created = yield* createEvent({ title: "Original", startTime: FUTURE }, ALICE);
+      const error = yield* Effect.flip(
+        updateEvent(created.id, { imageUrl: "not-a-url" }, "usr_alice"),
+      );
       expect(error._tag).toBe("ValidationError");
     }),
   ),
@@ -200,8 +209,8 @@ it.effect("updateEvent fails with ValidationError for invalid imageUrl", () =>
 it.effect("deleteEvent removes the event", () =>
   provide(
     Effect.gen(function* () {
-      const created = yield* createEvent({ title: "To Delete", startTime: FUTURE });
-      yield* deleteEvent(created.id);
+      const created = yield* createEvent({ title: "To Delete", startTime: FUTURE }, ALICE);
+      yield* deleteEvent(created.id, "usr_alice");
       const error = yield* Effect.flip(getEvent(created.id));
       expect(error._tag).toBe("EventNotFound");
     }),
@@ -217,10 +226,89 @@ it.effect("deleteEvent fails with EventNotFound for unknown id", () =>
   ),
 );
 
+// ── Ownership ────────────────────────────────────────────────────────────────
+
+it.effect("createEvent stores createdByUserId, createdByName, createdByAvatar", () =>
+  provide(
+    Effect.gen(function* () {
+      const event = yield* createEvent(
+        { title: "Owned", startTime: FUTURE },
+        { createdByUserId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
+      );
+      expect(event.createdByUserId).toBe("usr_alice");
+      expect(event.createdByName).toBe("Alice");
+      expect(event.createdByAvatar).toBeNull();
+    }),
+  ),
+);
+
+it.effect("deleteEvent succeeds when requestingUserId matches createdByUserId", () =>
+  provide(
+    Effect.gen(function* () {
+      const event = yield* createEvent(
+        { title: "Mine", startTime: FUTURE },
+        { createdByUserId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
+      );
+      yield* deleteEvent(event.id, "usr_alice");
+      const error = yield* Effect.flip(getEvent(event.id));
+      expect(error._tag).toBe("EventNotFound");
+    }),
+  ),
+);
+
+it.effect("deleteEvent fails with NotEventOwner when requestingUserId does not match", () =>
+  provide(
+    Effect.gen(function* () {
+      const event = yield* createEvent(
+        { title: "Not Mine", startTime: FUTURE },
+        { createdByUserId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
+      );
+      const error = yield* Effect.flip(deleteEvent(event.id, "usr_bob"));
+      expect(error._tag).toBe("NotEventOwner");
+    }),
+  ),
+);
+
+it.effect("deleteEvent fails with NotEventOwner when no requestingUserId provided", () =>
+  provide(
+    Effect.gen(function* () {
+      const event = yield* createEvent({ title: "Mine", startTime: FUTURE }, ALICE);
+      const error = yield* Effect.flip(deleteEvent(event.id));
+      expect(error._tag).toBe("NotEventOwner");
+    }),
+  ),
+);
+
+it.effect("updateEvent fails with NotEventOwner when requestingUserId does not match", () =>
+  provide(
+    Effect.gen(function* () {
+      const event = yield* createEvent(
+        { title: "Not Mine", startTime: FUTURE },
+        { createdByUserId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
+      );
+      const error = yield* Effect.flip(updateEvent(event.id, { title: "Hijacked" }, "usr_bob"));
+      expect(error._tag).toBe("NotEventOwner");
+    }),
+  ),
+);
+
+it.effect("updateEvent succeeds when requestingUserId matches createdByUserId", () =>
+  provide(
+    Effect.gen(function* () {
+      const event = yield* createEvent(
+        { title: "Mine", startTime: FUTURE },
+        { createdByUserId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
+      );
+      const updated = yield* updateEvent(event.id, { title: "Updated" }, "usr_alice");
+      expect(updated.title).toBe("Updated");
+    }),
+  ),
+);
+
 it.effect("getEvent auto-transitions upcoming → ongoing when startTime passed", () =>
   provide(
     Effect.gen(function* () {
-      const created = yield* createEvent({ title: "Started", startTime: STARTED });
+      const created = yield* createEvent({ title: "Started", startTime: STARTED }, ALICE);
       expect(created.status).toBe("ongoing");
       const fetched = yield* getEvent(created.id);
       expect(fetched.status).toBe("ongoing");
@@ -231,7 +319,10 @@ it.effect("getEvent auto-transitions upcoming → ongoing when startTime passed"
 it.effect("getEvent auto-transitions to finished when endTime passed", () =>
   provide(
     Effect.gen(function* () {
-      const created = yield* createEvent({ title: "Ended", startTime: STARTED, endTime: ENDED });
+      const created = yield* createEvent(
+        { title: "Ended", startTime: STARTED, endTime: ENDED },
+        ALICE,
+      );
       expect(created.status).toBe("finished");
       const fetched = yield* getEvent(created.id);
       expect(fetched.status).toBe("finished");
@@ -242,11 +333,14 @@ it.effect("getEvent auto-transitions to finished when endTime passed", () =>
 it.effect("getEvent does not transition cancelled events", () =>
   provide(
     Effect.gen(function* () {
-      const created = yield* createEvent({
-        title: "Cancelled",
-        startTime: STARTED,
-        status: "cancelled",
-      });
+      const created = yield* createEvent(
+        {
+          title: "Cancelled",
+          startTime: STARTED,
+          status: "cancelled",
+        },
+        ALICE,
+      );
       const fetched = yield* getEvent(created.id);
       expect(fetched.status).toBe("cancelled");
     }),
@@ -256,11 +350,14 @@ it.effect("getEvent does not transition cancelled events", () =>
 it.effect("getEvent does not transition finished events", () =>
   provide(
     Effect.gen(function* () {
-      const created = yield* createEvent({
-        title: "Finished",
-        startTime: STARTED,
-        status: "finished",
-      });
+      const created = yield* createEvent(
+        {
+          title: "Finished",
+          startTime: STARTED,
+          status: "finished",
+        },
+        ALICE,
+      );
       const fetched = yield* getEvent(created.id);
       expect(fetched.status).toBe("finished");
     }),
@@ -270,7 +367,7 @@ it.effect("getEvent does not transition finished events", () =>
 it.effect("listEvents returns transitioned statuses", () =>
   provide(
     Effect.gen(function* () {
-      yield* createEvent({ title: "Started", startTime: STARTED });
+      yield* createEvent({ title: "Started", startTime: STARTED }, ALICE);
       const results = yield* listEvents({});
       const started = results.find((e) => e.title === "Started");
       expect(started?.status).toBe("ongoing");
@@ -281,7 +378,7 @@ it.effect("listEvents returns transitioned statuses", () =>
 it.effect("listTodayEvents returns transitioned statuses", () =>
   provide(
     Effect.gen(function* () {
-      yield* createEvent({ title: "Today Started", startTime: STARTED });
+      yield* createEvent({ title: "Today Started", startTime: STARTED }, ALICE);
       const results = yield* listTodayEvents;
       const started = results.find((e) => e.title === "Today Started");
       expect(started?.status).toBe("ongoing");
@@ -292,9 +389,9 @@ it.effect("listTodayEvents returns transitioned statuses", () =>
 it.effect("listEvents respects limit param", () =>
   provide(
     Effect.gen(function* () {
-      yield* createEvent({ title: "Event 1", startTime: FUTURE });
-      yield* createEvent({ title: "Event 2", startTime: FUTURE });
-      yield* createEvent({ title: "Event 3", startTime: FUTURE });
+      yield* createEvent({ title: "Event 1", startTime: FUTURE }, ALICE);
+      yield* createEvent({ title: "Event 2", startTime: FUTURE }, ALICE);
+      yield* createEvent({ title: "Event 3", startTime: FUTURE }, ALICE);
       const events = yield* listEvents({ limit: "2" });
       expect(events.length).toBe(2);
     }),
@@ -305,7 +402,7 @@ it.effect("createEvent fails with ValidationError for invalid status", () =>
   provide(
     Effect.gen(function* () {
       const error = yield* Effect.flip(
-        createEvent({ title: "Test", startTime: FUTURE, status: "invalid" }),
+        createEvent({ title: "Test", startTime: FUTURE, status: "invalid" }, ALICE),
       );
       expect(error._tag).toBe("ValidationError");
     }),
@@ -315,8 +412,8 @@ it.effect("createEvent fails with ValidationError for invalid status", () =>
 it.effect("updateEvent fails with ValidationError for invalid status", () =>
   provide(
     Effect.gen(function* () {
-      const created = yield* createEvent({ title: "Original", startTime: FUTURE });
-      const error = yield* Effect.flip(updateEvent(created.id, { status: "invalid" }));
+      const created = yield* createEvent({ title: "Original", startTime: FUTURE }, ALICE);
+      const error = yield* Effect.flip(updateEvent(created.id, { status: "invalid" }, "usr_alice"));
       expect(error._tag).toBe("ValidationError");
     }),
   ),
