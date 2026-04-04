@@ -1,5 +1,11 @@
 # @pulse/db
 
+## 0.4.0
+
+### Minor Changes
+
+- 05a9022: Add event ownership enforcement: `createdByUserId NOT NULL` on events, auth required for POST/PATCH/DELETE, ownership check (403) on mutating operations, `createdByName` derived server-side from JWT email claim, index on `created_by_user_id`, `updateEvent` eliminates extra DB round-trip.
+
 ## 0.3.0
 
 ### Minor Changes
