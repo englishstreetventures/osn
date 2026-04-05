@@ -47,18 +47,42 @@ apps/
   messaging/           # Pending: bunx create-tauri-app
 packages/
   api/                 # ✓ Elysia + Eden
-  osn-db/              # ✓ @osn/db — Drizzle + SQLite (OSN Core: users, passkeys)
+  osn-db/              # ✓ @osn/db — Drizzle + SQLite (OSN Core: users, passkeys, social graph)
   pulse-db/            # ✓ @pulse/db — Drizzle + SQLite (Pulse: events, RSVPs)
   utils-db/            # ✓ @utils/db — shared DB utilities (createDrizzleClient, makeDbLive)
   ui/                  # ✓ Placeholder (shared components)
-  core/                # ✓ @osn/core — auth services + Elysia routes (passkey, OTP, magic link, PKCE, JWT)
-  crypto/              # ✓ Placeholder (Signal protocol)
+  core/                # ✓ @osn/core — auth services + Elysia routes (passkey, OTP, magic link, PKCE, JWT) + social graph service + routes
+  crypto/              # Pending: @osn/crypto — Signal protocol + ARC tokens (S2S auth)
   typescript-config/   # ✓ base, node, solid configs
 ```
 
 ## Tech (one-liner)
 
 Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+REST, WebSockets, Signal Protocol, SolidJS, Astro, Tauri, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest
+
+## ARC Tokens (S2S Auth)
+
+ARC is OSN's service-to-service authentication token — an ASAP-style self-issued JWT for backend-to-backend calls (e.g. Pulse API querying OSN Core's social graph).
+
+**Key properties:**
+- ES256 (ECDSA P-256) — compact, fast, no shared secret
+- Self-issued: each service signs its own token with its private key
+- Short-lived (5 min TTL); cached in-memory, re-issued 30s before expiry
+- Scope-gated: `scope` claim limits what the token can do (e.g. `graph:read`)
+- Audience-scoped: `aud` claim names the target service (e.g. `"osn-core"`)
+- Public key discovery: first-party services registered in `service_accounts` DB table (`service_id`, `public_key_jwk`, `allowed_scopes`); third-party apps use JWKS URL derived from `iss`
+
+**Lives in:** `packages/crypto` (`@osn/crypto`) alongside Signal Protocol utilities.
+
+**Exports (planned):**
+```typescript
+generateArcKeyPair()                          // → { privateKey, publicKey } CryptoKeyPair
+createArcToken(privateKey, { iss, aud, scope, ttl? })  // → signed JWT string
+verifyArcToken(token, publicKey)              // → { iss, aud, scope } or throws
+resolvePublicKey(iss, db)                     // → CryptoKey (from service_accounts or JWKS)
+```
+
+**Current S2S strategy:** Pulse API imports `createGraphService()` from `@osn/core` directly (Option 1 — zero network overhead, read-only access to `osn.db`). ARC tokens will be used when migrating to HTTP-based S2S (Option 2) at scaling time, and immediately for any third-party app needing graph access.
 
 ## Conventions
 

@@ -30,7 +30,7 @@
     },
     "apps/osn": {
       "name": "@osn/osn",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
         "@osn/core": "workspace:*",
@@ -44,7 +44,7 @@
     },
     "apps/pulse": {
       "name": "@osn/pulse",
-      "version": "0.2.5",
+      "version": "0.2.7",
       "dependencies": {
         "@osn/api": "workspace:*",
         "@osn/client": "workspace:*",
@@ -71,7 +71,7 @@
     },
     "packages/api": {
       "name": "@osn/api",
-      "version": "0.3.0",
+      "version": "0.4.1",
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
         "@elysiajs/eden": "^1.2.0",
@@ -106,7 +106,7 @@
     },
     "packages/core": {
       "name": "@osn/core",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
         "@osn/db": "workspace:*",
@@ -131,7 +131,7 @@
     },
     "packages/osn-db": {
       "name": "@osn/db",
-      "version": "0.2.2",
+      "version": "0.3.0",
       "dependencies": {
         "@utils/db": "workspace:*",
         "drizzle-orm": "^0.38.0",
@@ -148,7 +148,7 @@
     },
     "packages/pulse-db": {
       "name": "@pulse/db",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@utils/db": "workspace:*",
         "drizzle-orm": "^0.38.0",

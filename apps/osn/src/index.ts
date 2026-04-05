@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
 import { cors } from "@elysiajs/cors";
-import { createAuthRoutes } from "@osn/core";
+import { createAuthRoutes, createGraphRoutes } from "@osn/core";
 import { DbLive } from "@osn/db/service";
 
 const port = Number(process.env.PORT) || 4000;
@@ -19,7 +19,8 @@ const app = new Elysia()
   .use(cors())
   .get("/", () => ({ status: "ok", service: "osn-auth" }))
   .get("/health", () => ({ status: "healthy" }))
-  .use(createAuthRoutes(authConfig, DbLive));
+  .use(createAuthRoutes(authConfig, DbLive))
+  .use(createGraphRoutes(authConfig, DbLive));
 
 if (process.env.NODE_ENV !== "test") {
   app.listen(port);

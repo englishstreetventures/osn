@@ -4,7 +4,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Current Status
 
-`@osn/core` — full OIDC-style auth server: passkey (WebAuthn), OTP, magic-link, PKCE, JWT, OIDC discovery. `@osn/db` — users + passkeys schema. `apps/osn` — auth server entry point on port 4000. `@osn/client` — session expiry check, `handleCallback`. `apps/pulse` — auth callback handler, event CRUD UI, location autocomplete (with coordinate capture), Maps button on EventCard, toast notifications (solid-toast), double-click guard on delete; 59 component tests. `@pulse/db` — lat/lng columns + dynamic seed data. `@osn/api` — events domain fully tested with coordinate range validation. 119 tests passing across 10 files.
+`@osn/core` — full OIDC-style auth server (passkey, OTP, magic-link, PKCE, JWT, OIDC discovery) + complete social graph service + HTTP routes (connections, close friends, blocks) with rate limiting, input validation, pagination, N+1-free list queries, and safe error responses. `@osn/db` — users + passkeys + social graph schema. `apps/osn` — auth + graph server on port 4000. `apps/pulse` — full event CRUD UI (59 component tests), location autocomplete, Maps button, toast, double-click guard. `@pulse/db` — lat/lng + dynamic seed. `@osn/api` — events domain with coordinate range validation. 127 tests passing across 12 files.
 
 ---
 
@@ -12,8 +12,9 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 Highest-priority items across all areas.
 
-- [ ] OSN Core: social graph data model (connections, close friends, blocks)
+- [x] OSN Core: social graph data model (connections, close friends, blocks)
 - [x] Pulse: toast notification system (solid-toast)
+- [ ] Platform: ARC tokens — implement `@osn/crypto` arc module + `service_accounts` table (first consumer: Pulse API → OSN Core)
 - [ ] Pulse: "What's on today" default view
 - [ ] Landing page: design and content
 - [ ] Security: fix open redirect in `/magic/verify` before any deployment — H3
@@ -54,8 +55,9 @@ Highest-priority items across all areas.
 - [x] User registration/login flows
 - [x] `apps/osn` auth server entry point (port 4000)
 - [x] 50 tests: services, routes, lib/crypto, lib/html
-- [ ] Social graph data model (connections, close friends, blocks)
-- [ ] Per-app vs global blocking logic
+- [x] Social graph data model (connections, close friends, blocks) — 124 tests
+- [ ] ARC token verification middleware on internal graph routes (`/graph/internal/*`)
+- [ ] Per-app vs global blocking logic (deferred — global blocking across all OSN apps for now)
 - [ ] Interest profile selection (onboarding)
 - [ ] Third-party app authorization flow
 
@@ -91,6 +93,7 @@ Highest-priority items across all areas.
 - [x] Events domain (list, today, get, create, update, delete) — 47 tests
 - [ ] Batch status-transition `UPDATE`s in `listEvents`/`listTodayEvents` (currently N individual writes)
 - [ ] Eliminate extra `getEvent` round-trips in `createEvent`/`updateEvent` via `RETURNING *`
+- [ ] S2S graph access: add `@osn/core` + `@osn/db` deps; use `createGraphService()` read-only for event filtering (`hideBlocked`, `onlyConnections`) — first ARC token consumer
 - [ ] OSN/messaging domain modules
 - [ ] WebSocket setup for real-time
 - [ ] REST endpoints for third-party consumers
@@ -100,7 +103,8 @@ Highest-priority items across all areas.
 - [x] Per-app DB packages (osn-db, pulse-db)
 - [x] Pulse: events schema, migrations, smoke tests
 - [x] OSN Core: users + passkeys schema, migration, smoke tests
-- [ ] OSN Core: social graph schema (connections, blocks)
+- [x] OSN Core: social graph schema (connections, close_friends, blocks)
+- [ ] OSN Core: `service_accounts` table — `service_id`, `public_key_jwk`, `allowed_scopes` (for ARC token verification)
 - [ ] OSN Core: session schema (JWT-based for now; DB storage deferred)
 - [ ] Pulse: event series schema
 - [ ] Pulse: chat/message schema (via messaging backend)
@@ -112,6 +116,16 @@ Highest-priority items across all areas.
 - [x] `getSession()` with expiry check
 - [x] `AuthProvider` + `handleCallback` for SolidJS
 - [x] 10 tests
+
+### Crypto (`packages/crypto`)
+
+ARC = OSN's ASAP-style service-to-service (S2S) auth token. ES256 (ECDSA), short-lived (5 min), cached in-memory until 30s before expiry. Self-issued by the calling service, verified by the receiver using the caller's public key (looked up from `service_accounts` table or a JWKS URL for third-party apps). Scope-gated (`graph:read`, `graph:write`, etc.).
+
+- [ ] `generateArcKeyPair()` — ES256 keypair generation
+- [ ] `createArcToken(privateKey, { iss, aud, scope, ttl? })` — signs and returns a short-lived JWT
+- [ ] `verifyArcToken(token, publicKey)` — verifies signature, expiry, audience
+- [ ] `resolvePublicKey(iss)` — looks up public key from `service_accounts` table or JWKS URL (for third-party apps)
+- [ ] In-memory token cache with 30s-before-expiry eviction
 
 ### UI Components (`packages/ui`)
 
@@ -173,6 +187,14 @@ Address **High** items before any non-local deployment.
 - [ ] No reserved-handle blocklist in DB — currently enforced in app layer only (`RESERVED_HANDLES` set in `@osn/core`); consider a DB-level check constraint or migration-managed table — L11
 - [x] `EventList` `console.error` logs raw server error objects — guarded with `import.meta.env.DEV` — L9
 - ~~`@vitest/coverage-istanbul` uses caret version range — L10~~ dismissed: caret ranges are the project standard
+- [x] Graph GET endpoints unguarded — all GET handlers now wrapped in try/catch; generic "Request failed" on unexpected errors — H2-graph (fixed in feat/social-graph-data-model)
+- [x] `is-blocked` route used `eitherBlocked`, leaking whether target had blocked caller — route now uses `isBlocked(caller, target)` only — M1-graph (fixed in feat/social-graph-data-model)
+- [x] No rate limiting on graph write endpoints — module-level fixed-window limiter added (60/user/min) — M2-graph (fixed in feat/social-graph-data-model)
+- [x] Raw DB/Effect errors surfaced in graph responses — `safeError()` helper added; only `GraphError`/`NotFoundError` messages exposed — M3-graph (fixed in feat/social-graph-data-model)
+- [x] No input validation on `:handle` route param in graph routes — TypeBox `HandleParam` with regex `^[a-z0-9_]+$` + length bounds added — M4-graph (fixed in feat/social-graph-data-model)
+- [ ] Graph rate-limit store (`rateLimitStore`) never evicts expired windows — same eviction gap as auth stores; add periodic sweep — L12-graph
+- [x] `displayName` returned as `undefined` in graph list responses when absent — normalised to `null` via `userProjection()` — L3-graph (fixed in feat/social-graph-data-model)
+- [ ] `jwtSecret` falls back to `"dev-secret"` in graph auth (pre-existing from auth service) — throw at startup in production — already tracked as M9
 
 ---
 
@@ -188,6 +210,11 @@ Address **High** items before any non-local deployment.
 - [x] Eliminate extra `getEvent` round-trips in `updateEvent` — P8 (returns in-memory merged result; applyTransition called locally)
 - [ ] Eliminate extra `getEvent` round-trip in `createEvent` via `RETURNING *` — P9
 - [ ] Add index on `created_by_user_id` in pulse-db events — done in feat/event-ownership; move to done once merged
+- [x] N+1 queries in graph list functions — replaced with `inArray` batch fetches — P1-graph (fixed in feat/social-graph-data-model)
+- [x] `eitherBlocked` made two sequential `isBlocked` calls — collapsed to single OR query — P2-graph (fixed in feat/social-graph-data-model)
+- [x] `blockUser` used SELECT-then-DELETE pattern — replaced with direct `DELETE WHERE OR` — P3-graph (fixed in feat/social-graph-data-model)
+- [ ] `resolveHandle` re-fetches user from DB even when the handler already has the User row — minor; consolidate once graph routes grow — P10-graph
+- [ ] Graph list endpoints load entire result set before slicing — add DB-level `LIMIT`/`OFFSET` once pagination is a user-facing concern — P11-graph (low priority; clamped to 100 rows today)
 
 ---
 
@@ -205,6 +232,8 @@ Address **High** items before any non-local deployment.
 | Two-way calendar sync | Currently one-way (Pulse → external) | Phase 2 |
 | Community event-ended reporting | 15–20 attendees auto-finish; host notified | When attendee/messaging features land |
 | Max event duration | Prompt user when creating events without endTime | When Pulse event creation UI is built |
+| S2S scaling: HTTP graph API | Current approach is direct package import (`createGraphService()`) — zero network overhead, Pulse API reads `osn.db` read-only. When horizontal scaling is needed, migrate to HTTP `/graph/internal/*` endpoints verified via ARC tokens. | When multi-process or multi-machine deployment needed |
+| Per-app blocking | Currently blocks are global across all OSN apps. Per-app scope deferred. | When Messaging or a third-party app needs independent block lists |
 
 ---
 
