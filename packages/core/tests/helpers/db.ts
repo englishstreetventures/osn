@@ -62,6 +62,15 @@ export function createTestLayer() {
   `);
   sqlite.run(`CREATE INDEX blocks_blocker_idx ON blocks (blocker_id)`);
   sqlite.run(`CREATE INDEX blocks_blocked_idx ON blocks (blocked_id)`);
+  sqlite.run(`
+    CREATE TABLE service_accounts (
+      service_id TEXT PRIMARY KEY,
+      public_key_jwk TEXT NOT NULL,
+      allowed_scopes TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
   const db = drizzle(sqlite, { schema });
   return Layer.succeed(Db, { db });
 }

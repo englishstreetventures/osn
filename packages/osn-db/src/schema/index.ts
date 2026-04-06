@@ -108,3 +108,18 @@ export type CloseFriend = typeof closeFriends.$inferSelect;
 export type NewCloseFriend = typeof closeFriends.$inferInsert;
 export type Block = typeof blocks.$inferSelect;
 export type NewBlock = typeof blocks.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Service accounts (ARC token S2S auth)
+// ---------------------------------------------------------------------------
+
+export const serviceAccounts = sqliteTable("service_accounts", {
+  serviceId: text("service_id").primaryKey(), // e.g. "pulse-api", "messaging"
+  publicKeyJwk: text("public_key_jwk").notNull(), // JSON-serialised JWK (ES256)
+  allowedScopes: text("allowed_scopes").notNull(), // comma-separated: "graph:read,graph:write"
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export type ServiceAccount = typeof serviceAccounts.$inferSelect;
+export type NewServiceAccount = typeof serviceAccounts.$inferInsert;

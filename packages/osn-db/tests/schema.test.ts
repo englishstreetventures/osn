@@ -28,6 +28,15 @@ function createTestDb() {
       created_at INTEGER NOT NULL
     )
   `);
+  sqlite.run(`
+    CREATE TABLE service_accounts (
+      service_id TEXT PRIMARY KEY,
+      public_key_jwk TEXT NOT NULL,
+      allowed_scopes TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
   return drizzle(sqlite, { schema });
 }
 
@@ -225,5 +234,68 @@ describe("passkeys schema", () => {
         createdAt: now,
       }),
     ).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// service_accounts schema
+// ---------------------------------------------------------------------------
+
+describe("service_accounts schema", () => {
+  it("inserts and retrieves a service account", async () => {
+    const db = createTestDb();
+    const now = new Date();
+    const jwk = JSON.stringify({ kty: "EC", crv: "P-256", x: "abc", y: "def" });
+    await db.insert(schema.serviceAccounts).values({
+      serviceId: "pulse-api",
+      publicKeyJwk: jwk,
+      allowedScopes: "graph:read,graph:write",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const rows = await db
+      .select()
+      .from(schema.serviceAccounts)
+      .where(eq(schema.serviceAccounts.serviceId, "pulse-api"));
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    expect(row.serviceId).toBe("pulse-api");
+    expect(row.publicKeyJwk).toBe(jwk);
+    expect(row.allowedScopes).toBe("graph:read,graph:write");
+    expect(row.createdAt).toBeInstanceOf(Date);
+  });
+
+  it("enforces primary key uniqueness on service_id", async () => {
+    const db = createTestDb();
+    const now = new Date();
+    const base = {
+      publicKeyJwk: "{}",
+      allowedScopes: "graph:read",
+      createdAt: now,
+      updatedAt: now,
+    };
+    await db.insert(schema.serviceAccounts).values({ serviceId: "svc-a", ...base });
+    await expect(
+      db.insert(schema.serviceAccounts).values({ serviceId: "svc-a", ...base }),
+    ).rejects.toThrow();
+  });
+
+  it("timestamps round-trip as Date", async () => {
+    const db = createTestDb();
+    const ts = new Date("2030-01-15T08:00:00.000Z");
+    await db.insert(schema.serviceAccounts).values({
+      serviceId: "svc-ts",
+      publicKeyJwk: "{}",
+      allowedScopes: "graph:read",
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    const [row] = await db
+      .select()
+      .from(schema.serviceAccounts)
+      .where(eq(schema.serviceAccounts.serviceId, "svc-ts"));
+    expect(row!.createdAt.getTime()).toBe(ts.getTime());
+    expect(row!.updatedAt.getTime()).toBe(ts.getTime());
   });
 });

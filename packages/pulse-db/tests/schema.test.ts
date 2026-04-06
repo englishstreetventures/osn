@@ -27,6 +27,16 @@ function createTestDb() {
       updated_at INTEGER NOT NULL
     )
   `);
+  sqlite.run(`
+    CREATE TABLE event_rsvps (
+      id TEXT PRIMARY KEY,
+      event_id TEXT NOT NULL REFERENCES events(id),
+      user_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'going',
+      created_at INTEGER NOT NULL,
+      UNIQUE (event_id, user_id)
+    )
+  `);
   return drizzle(sqlite, { schema });
 }
 
@@ -96,5 +106,131 @@ describe("events schema", () => {
     expect(row!.longitude).toBeNull();
     expect(row!.createdByName).toBeNull();
     expect(row!.createdByAvatar).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// event_rsvps schema
+// ---------------------------------------------------------------------------
+
+describe("event_rsvps schema", () => {
+  async function seedEvent(db: ReturnType<typeof createTestDb>) {
+    const now = new Date();
+    await db.insert(schema.events).values({
+      id: "evt_rsvp_test",
+      title: "RSVP Test Event",
+      startTime: now,
+      createdByUserId: "usr_alice",
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  it("inserts and retrieves an RSVP", async () => {
+    const db = createTestDb();
+    await seedEvent(db);
+    const now = new Date();
+    await db.insert(schema.eventRsvps).values({
+      id: "rsvp_test",
+      eventId: "evt_rsvp_test",
+      userId: "usr_alice",
+      status: "going",
+      createdAt: now,
+    });
+
+    const rows = await db
+      .select()
+      .from(schema.eventRsvps)
+      .where(eq(schema.eventRsvps.id, "rsvp_test"));
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    expect(row.eventId).toBe("evt_rsvp_test");
+    expect(row.userId).toBe("usr_alice");
+    expect(row.status).toBe("going");
+    expect(row.createdAt).toBeInstanceOf(Date);
+  });
+
+  it("defaults status to 'going'", async () => {
+    const db = createTestDb();
+    await seedEvent(db);
+    await db.insert(schema.eventRsvps).values({
+      id: "rsvp_default",
+      eventId: "evt_rsvp_test",
+      userId: "usr_bob",
+      createdAt: new Date(),
+    });
+
+    const [row] = await db
+      .select()
+      .from(schema.eventRsvps)
+      .where(eq(schema.eventRsvps.id, "rsvp_default"));
+    expect(row!.status).toBe("going");
+  });
+
+  it("enforces unique (event_id, user_id) constraint", async () => {
+    const db = createTestDb();
+    await seedEvent(db);
+    const now = new Date();
+    await db.insert(schema.eventRsvps).values({
+      id: "rsvp_dup1",
+      eventId: "evt_rsvp_test",
+      userId: "usr_alice",
+      createdAt: now,
+    });
+    await expect(
+      db.insert(schema.eventRsvps).values({
+        id: "rsvp_dup2",
+        eventId: "evt_rsvp_test",
+        userId: "usr_alice",
+        createdAt: now,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("allows same user on different events", async () => {
+    const db = createTestDb();
+    const now = new Date();
+    await db.insert(schema.events).values([
+      {
+        id: "evt_a",
+        title: "A",
+        startTime: now,
+        createdByUserId: "usr_x",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "evt_b",
+        title: "B",
+        startTime: now,
+        createdByUserId: "usr_x",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.eventRsvps).values([
+      { id: "rsvp_a", eventId: "evt_a", userId: "usr_alice", createdAt: now },
+      { id: "rsvp_b", eventId: "evt_b", userId: "usr_alice", createdAt: now },
+    ]);
+    const rows = await db.select().from(schema.eventRsvps);
+    expect(rows).toHaveLength(2);
+  });
+
+  it("createdAt round-trips as Date via timestamp mode", async () => {
+    const db = createTestDb();
+    await seedEvent(db);
+    const ts = new Date("2030-01-15T08:00:00.000Z");
+    await db.insert(schema.eventRsvps).values({
+      id: "rsvp_ts",
+      eventId: "evt_rsvp_test",
+      userId: "usr_ts",
+      createdAt: ts,
+    });
+    const [row] = await db
+      .select()
+      .from(schema.eventRsvps)
+      .where(eq(schema.eventRsvps.id, "rsvp_ts"));
+    expect(row!.createdAt).toBeInstanceOf(Date);
+    expect(row!.createdAt.getTime()).toBe(ts.getTime());
   });
 });

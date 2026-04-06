@@ -4,7 +4,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Current Status
 
-`@osn/core` — full OIDC-style auth server (passkey, OTP, magic-link, PKCE, JWT, OIDC discovery) + complete social graph service + HTTP routes (connections, close friends, blocks) with rate limiting, input validation, pagination, N+1-free list queries, and safe error responses. `@osn/db` — users + passkeys + social graph schema. `apps/osn` — auth + graph server on port 4000. `apps/pulse` — full event CRUD UI (59 component tests), location autocomplete, Maps button, toast, double-click guard. `@pulse/db` — lat/lng + dynamic seed. `@osn/api` — events domain with coordinate range validation. 127 tests passing across 12 files.
+`@osn/crypto` — ARC token system for S2S auth: ES256 key pair generation, JWT creation/verification, scope validation, public key resolution from DB, in-memory token cache with 30s-before-expiry eviction. `@osn/db` — `service_accounts` table added for ARC key registration. `@osn/core` — full OIDC-style auth server (passkey, OTP, magic-link, PKCE, JWT, OIDC discovery) + complete social graph service + HTTP routes (connections, close friends, blocks) with rate limiting, input validation, pagination, N+1-free list queries, and safe error responses. `apps/osn` — auth + graph server on port 4000. `apps/pulse` — full event CRUD UI (59 component tests), location autocomplete, Maps button, toast, double-click guard. `@pulse/db` — lat/lng + dynamic seed. `@osn/api` — events domain with coordinate range validation. 143 tests passing across 13 files.
 
 ---
 
@@ -14,7 +14,7 @@ Highest-priority items across all areas.
 
 - [x] OSN Core: social graph data model (connections, close friends, blocks)
 - [x] Pulse: toast notification system (solid-toast)
-- [ ] Platform: ARC tokens — implement `@osn/crypto` arc module + `service_accounts` table (first consumer: Pulse API → OSN Core)
+- [x] Platform: ARC tokens — implement `@osn/crypto` arc module + `service_accounts` table (first consumer: Pulse API → OSN Core)
 - [ ] Pulse: "What's on today" default view
 - [ ] Landing page: design and content
 - [ ] Security: fix open redirect in `/magic/verify` before any deployment — H3
@@ -104,7 +104,7 @@ Highest-priority items across all areas.
 - [x] Pulse: events schema, migrations, smoke tests
 - [x] OSN Core: users + passkeys schema, migration, smoke tests
 - [x] OSN Core: social graph schema (connections, close_friends, blocks)
-- [ ] OSN Core: `service_accounts` table — `service_id`, `public_key_jwk`, `allowed_scopes` (for ARC token verification)
+- [x] OSN Core: `service_accounts` table — `service_id`, `public_key_jwk`, `allowed_scopes` (for ARC token verification)
 - [ ] OSN Core: session schema (JWT-based for now; DB storage deferred)
 - [ ] Pulse: event series schema
 - [ ] Pulse: chat/message schema (via messaging backend)
@@ -121,11 +121,13 @@ Highest-priority items across all areas.
 
 ARC = OSN's ASAP-style service-to-service (S2S) auth token. ES256 (ECDSA), short-lived (5 min), cached in-memory until 30s before expiry. Self-issued by the calling service, verified by the receiver using the caller's public key (looked up from `service_accounts` table or a JWKS URL for third-party apps). Scope-gated (`graph:read`, `graph:write`, etc.).
 
-- [ ] `generateArcKeyPair()` — ES256 keypair generation
-- [ ] `createArcToken(privateKey, { iss, aud, scope, ttl? })` — signs and returns a short-lived JWT
-- [ ] `verifyArcToken(token, publicKey)` — verifies signature, expiry, audience
-- [ ] `resolvePublicKey(iss)` — looks up public key from `service_accounts` table or JWKS URL (for third-party apps)
-- [ ] In-memory token cache with 30s-before-expiry eviction
+- [x] `generateArcKeyPair()` — ES256 keypair generation
+- [x] `createArcToken(privateKey, { iss, aud, scope, ttl? })` — signs and returns a short-lived JWT
+- [x] `verifyArcToken(token, publicKey)` — verifies signature, expiry, audience, scope
+- [x] `resolvePublicKey(iss)` — looks up public key from `service_accounts` table (Effect-based, requires Db)
+- [x] In-memory token cache with 30s-before-expiry eviction (`getOrCreateArcToken`)
+- [x] Key import/export utilities (`exportKeyToJwk`, `importKeyFromJwk`)
+- [ ] JWKS URL fallback in `resolvePublicKey` for third-party apps
 
 ### UI Components (`packages/ui`)
 
