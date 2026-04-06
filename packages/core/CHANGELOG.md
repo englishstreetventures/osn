@@ -1,5 +1,13 @@
 # @osn/core
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [45248b2]
+- Updated dependencies [45248b2]
+  - @osn/db@0.5.0
+
 ## 0.3.0
 
 ### Minor Changes
