@@ -45,11 +45,28 @@ describe("buildAuthorizeHtml", () => {
     expect(html).toContain('"issuerUrl"');
   });
 
-  it("includes three sign-in tabs", () => {
+  it("includes four sign-in tabs", () => {
     const html = buildAuthorizeHtml(baseParams);
     expect(html).toContain('data-tab="passkey"');
     expect(html).toContain('data-tab="otp"');
-    expect(html).toContain('data-tab="email"');
+    expect(html).toContain('data-tab="magic"');
+    expect(html).toContain('data-tab="register"');
+  });
+
+  it("includes registration panel with handle field and OTP section", () => {
+    const html = buildAuthorizeHtml(baseParams);
+    expect(html).toContain('id="panel-register"');
+    expect(html).toContain('id="reg-email"');
+    expect(html).toContain('id="reg-handle"');
+    expect(html).toContain('id="reg-btn"');
+    expect(html).toContain('id="reg-otp-section"');
+  });
+
+  it("includes email/handle toggle for each sign-in panel", () => {
+    const html = buildAuthorizeHtml(baseParams);
+    expect(html).toContain('data-group="passkey"');
+    expect(html).toContain('data-group="otp"');
+    expect(html).toContain('data-group="magic"');
   });
 
   it("references the issuerUrl in the script body", () => {

@@ -2,6 +2,13 @@
 
 AI coding assistant reference. For full spec see README.md. For progress/decisions see TODO.md.
 
+## Communication Style
+
+- Short, 3–6 word sentences.
+- No filler, preamble, or pleasantries.
+- Run tools first, show result, then stop. Do not narrate.
+- Drop articles ("Fix bug" not "I will fix the bug").
+
 ## Quick Context
 
 OSN: Modular social platform. Users own identity + social graph. Apps opt-in/out independently.
@@ -52,7 +59,7 @@ packages/
   utils-db/            # ✓ @utils/db — shared DB utilities (createDrizzleClient, makeDbLive)
   ui/                  # ✓ Placeholder (shared components)
   core/                # ✓ @osn/core — auth services + Elysia routes (passkey, OTP, magic link, PKCE, JWT) + social graph service + routes
-  crypto/              # Pending: @osn/crypto — Signal protocol + ARC tokens (S2S auth)
+  crypto/              # ✓ @osn/crypto — ARC tokens (S2S auth); Signal protocol pending
   typescript-config/   # ✓ base, node, solid configs
 ```
 
@@ -72,17 +79,83 @@ ARC is OSN's service-to-service authentication token — an ASAP-style self-issu
 - Audience-scoped: `aud` claim names the target service (e.g. `"osn-core"`)
 - Public key discovery: first-party services registered in `service_accounts` DB table (`service_id`, `public_key_jwk`, `allowed_scopes`); third-party apps use JWKS URL derived from `iss`
 
-**Lives in:** `packages/crypto` (`@osn/crypto`) alongside Signal Protocol utilities.
+**Lives in:** `packages/crypto` (`@osn/crypto`). Import from `@osn/crypto/arc`.
 
-**Exports (planned):**
+**Exports:**
 ```typescript
-generateArcKeyPair()                          // → { privateKey, publicKey } CryptoKeyPair
-createArcToken(privateKey, { iss, aud, scope, ttl? })  // → signed JWT string
-verifyArcToken(token, publicKey)              // → { iss, aud, scope } or throws
-resolvePublicKey(iss, db)                     // → CryptoKey (from service_accounts or JWKS)
+generateArcKeyPair()                                      // → CryptoKeyPair (ES256)
+exportKeyToJwk(key)                                       // → JSON string (for DB storage)
+importKeyFromJwk(jwk)                                     // → CryptoKey
+createArcToken(privateKey, { iss, aud, scope }, ttl?)     // → signed JWT string
+verifyArcToken(token, publicKey, expectedAud, scope?)     // → ArcTokenPayload or throws
+resolvePublicKey(issuer, tokenScopes?)                    // → Effect<CryptoKey, ArcTokenError, Db>
+getOrCreateArcToken(privateKey, { iss, aud, scope }, ttl?) // → cached JWT (re-issues 30s before expiry)
+clearTokenCache() / clearPublicKeyCache()                 // → for testing / key rotation
 ```
 
-**Current S2S strategy:** Pulse API imports `createGraphService()` from `@osn/core` directly (Option 1 — zero network overhead, read-only access to `osn.db`). ARC tokens will be used when migrating to HTTP-based S2S (Option 2) at scaling time, and immediately for any third-party app needing graph access.
+### When to use ARC tokens
+
+| Scenario | Use ARC? | Why |
+|----------|----------|-----|
+| Pulse API → OSN Core graph (current) | No | Direct package import (`createGraphService()`); zero overhead |
+| Pulse API → OSN Core graph (multi-process) | **Yes** | HTTP call to `/graph/internal/*` must prove caller identity |
+| Third-party app → any OSN endpoint | **Yes** | Caller has no shared secret; presents its public key via JWKS |
+| User-facing API call | No | Use user JWT (Bearer token); ARC is machine-to-machine only |
+| Background job → OSN Core | **Yes** | Job acts as a service, not a user |
+
+### Calling service (token issuer) — typical pattern
+
+```typescript
+import { getOrCreateArcToken, importKeyFromJwk } from "@osn/crypto/arc";
+
+// Boot-time: load private key from env/secret store
+const privateKey = await importKeyFromJwk(process.env.ARC_PRIVATE_KEY_JWK!);
+
+// Per-request: get a cached or fresh token
+const token = await getOrCreateArcToken(privateKey, {
+  iss: "pulse-api",      // this service's service_id
+  aud: "osn-core",       // target service
+  scope: "graph:read",   // minimal required scope
+});
+
+// Attach to outgoing HTTP request
+fetch("http://localhost:4000/graph/internal/connections", {
+  headers: { Authorization: `ARC ${token}` },
+});
+```
+
+### Receiving service (token verifier) — typical pattern
+
+```typescript
+import { verifyArcToken } from "@osn/crypto/arc";
+import { resolvePublicKey } from "@osn/crypto/arc";
+import { Effect } from "effect";
+
+// In an Elysia route guard or middleware:
+const arcMiddleware = (requiredScope: string) => async (ctx) => {
+  const auth = ctx.headers.authorization;
+  if (!auth?.startsWith("ARC ")) return ctx.set.status = 401;
+
+  const token = auth.slice(4);
+  // resolvePublicKey looks up the issuer in service_accounts table + validates allowed_scopes
+  const publicKey = await Effect.runPromise(
+    resolvePublicKey(/* iss from token */, [requiredScope]).pipe(Effect.provide(DbLive))
+  );
+  const claims = await verifyArcToken(token, publicKey, "osn-core", requiredScope);
+  // claims.iss, claims.aud, claims.scope are now verified
+};
+```
+
+### Service registration
+
+Each first-party service must have a row in `service_accounts`:
+```sql
+INSERT INTO service_accounts (service_id, public_key_jwk, allowed_scopes)
+VALUES ('pulse-api', '<exported-public-key-jwk>', 'graph:read');
+```
+Generate a key pair once at service setup with `generateArcKeyPair()`, store the **private key** in an env/secret store, and insert the **public key** (via `exportKeyToJwk`) into the DB.
+
+**Current S2S strategy:** Pulse API imports `createGraphService()` from `@osn/core` directly (zero network overhead). ARC tokens guard HTTP-based S2S (`/graph/internal/*`) — needed when scaling to multi-process, and immediately for any third-party app. See the "S2S scaling" deferred decision in TODO.md.
 
 ## Conventions
 

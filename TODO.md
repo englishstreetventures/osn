@@ -153,19 +153,23 @@ ARC = OSN's ASAP-style service-to-service (S2S) auth token. ES256 (ECDSA), short
 Address **High** items before any non-local deployment.
 
 ### High
-- [ ] Open redirect in `/magic/verify`: `redirect_uri` not validated against an allowlist — attacker can steal auth codes — H3
+- [ ] Open redirect in `/magic/verify`: `redirect_uri` not validated against an allowlist — attacker can steal auth codes — H3 (now also reachable via registration OTP verify path — three call sites total)
 - [ ] PKCE check optional at `/token`: silently skipped when `state` absent — make mandatory per RFC 7636 — H4
+- [ ] `/passkey/register/begin` accepts arbitrary `userId` with no auth check (M11) — worsened by registration flow: fresh `userId` returned pre-email-verification; combined with M11 enables account pre-hijacking. Fix: require verified session/code before accepting passkey registration — H5
 - [x] No auth/authorisation middleware on API routes (OWASP A01) — H1 (POST/PATCH/DELETE require auth; unauthenticated → 401)
 - [x] No ownership check on mutating event operations (create/update/delete) — H2 (createdByUserId NOT NULL; 403 on non-owner)
 
 ### Medium
-- [ ] `POST /register` has no rate limiting or email verification — handles can be squatted in bulk; add per-IP rate limit and email confirmation before first login — M13
+- [ ] `POST /register` has no rate limiting or email verification — handles can be squatted in bulk; add per-IP rate limit and email confirmation before first login — M13 (now user-facing via "Create account" tab — urgency increased)
+- [ ] No "resend code" button after registration OTP send; if SMTP fails the handle/email are claimed but user is stuck with no recovery path — M15
+- [ ] `GET /handle/:handle` has no auth and no rate limit — handle namespace fully enumerable at HTTP speeds — M16
+- [ ] `POST /register` returns raw `String(catch)` error — can expose Drizzle constraint internals; normalise to user-safe strings — M17
 - [ ] `displayName` is embedded in JWT access tokens (1 h TTL) — stale after a profile update; `createdByName` on events reflects the old value until token expires — M14
 - [ ] Wildcard CORS on auth server — restrict to known client origins before deployment — M3
 - [ ] No OTP attempt limit — 6-digit codes brute-forceable at HTTP speeds — M8
 - [ ] All auth state in process memory (`otpStore`, `magicStore`, `pkceStore`, etc.) — lost on restart, unsafe for multi-process — M6
 - [ ] `redirect_uri` at `/token` not matched against value stored in `pkceStore` during `/authorize` (RFC 6749 §4.1.3) — M10
-- [ ] `/passkey/register/begin` accepts arbitrary `userId` with no auth check — M11
+- [ ] `/passkey/register/begin` accepts arbitrary `userId` with no auth check — M11 (elevated to H5 above; see High section)
 - [ ] Magic-link tokens use `crypto.randomUUID` without additional entropy hardening — M7
 - [x] `limit` query param in `listEvents` uncapped — guard `NaN` and clamp to 1–100 — M2 (clamped in service layer)
 - [ ] Photon (Komoot) geocoding: keystrokes sent to third-party with no user notice — add consent UI or proxy — M1
