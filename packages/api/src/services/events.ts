@@ -187,6 +187,10 @@ export const createEvent = (
     const id = "evt_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
     const now = new Date();
 
+    if (validated.startTime.getTime() <= now.getTime()) {
+      return yield* Effect.fail(new ValidationError({ cause: "startTime must be in the future" }));
+    }
+
     yield* Effect.tryPromise({
       try: () =>
         db.insert(events).values({ ...validated, ...creator, id, createdAt: now, updatedAt: now }),

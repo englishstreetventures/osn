@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { Effect } from "effect";
 import { SignJWT } from "jose";
 import { createEventsRoutes } from "../../src/routes/events";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, seedEvent } from "../helpers/db";
 
 const FUTURE = "2030-06-01T10:00:00.000Z";
 const TEST_JWT_SECRET = "test-secret";
@@ -57,10 +58,12 @@ const del = (app: ReturnType<typeof createEventsRoutes>, path: string, token?: s
 
 describe("events routes", () => {
   let app: ReturnType<typeof createEventsRoutes>;
+  let layer: ReturnType<typeof createTestLayer>;
   let aliceToken: string;
 
   beforeEach(async () => {
-    app = createEventsRoutes(createTestLayer(), TEST_JWT_SECRET);
+    layer = createTestLayer();
+    app = createEventsRoutes(layer, TEST_JWT_SECRET);
     aliceToken = await makeToken("usr_alice");
   });
 
@@ -197,14 +200,24 @@ describe("events routes", () => {
   });
 
   it("GET /events?status=upcoming filters results", async () => {
-    const STARTED = new Date(Date.now() - 60_000).toISOString();
+    const STARTED = new Date(Date.now() - 60_000);
     await post(app, "/events", { title: "Upcoming Event", startTime: FUTURE }, aliceToken);
-    await post(app, "/events", { title: "Ongoing Event", startTime: STARTED }, aliceToken);
+    await Effect.runPromise(
+      seedEvent({ title: "Ongoing Event", startTime: STARTED, status: "ongoing" }).pipe(
+        Effect.provide(layer),
+      ),
+    );
     const res = await app.handle(new Request("http://localhost/events?status=upcoming"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { events: { title: string }[] };
     expect(body.events.every((e) => e.title === "Upcoming Event")).toBe(true);
     expect(body.events.length).toBe(1);
+  });
+
+  it("POST /events returns 422 when startTime is in the past", async () => {
+    const PAST = "2020-01-01T10:00:00.000Z";
+    const res = await post(app, "/events", { title: "Past", startTime: PAST }, aliceToken);
+    expect(res.status).toBe(422);
   });
 
   it("GET /events?limit=1 returns at most 1 event", async () => {

@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { Layer } from "effect";
+import { Effect, Layer } from "effect";
 import * as schema from "@pulse/db/schema";
+import { events, type Event } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 
 export function createTestLayer() {
@@ -42,3 +43,46 @@ export function createTestLayer() {
   const db = drizzle(sqlite, { schema });
   return Layer.succeed(Db, { db });
 }
+
+/**
+ * Insert an event directly into the DB, bypassing service-layer validation.
+ * Used by tests that need events with past startTime (e.g. transition tests).
+ */
+export interface SeedEventInput {
+  title: string;
+  startTime: string | Date;
+  endTime?: string | Date;
+  status?: "upcoming" | "ongoing" | "finished" | "cancelled";
+  category?: string;
+  createdByUserId?: string;
+  createdByName?: string | null;
+  createdByAvatar?: string | null;
+}
+
+export const seedEvent = (input: SeedEventInput): Effect.Effect<Event, never, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const id = "evt_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const now = new Date();
+    const row: Event = {
+      id,
+      title: input.title,
+      description: null,
+      location: null,
+      venue: null,
+      latitude: null,
+      longitude: null,
+      category: input.category ?? null,
+      startTime: new Date(input.startTime),
+      endTime: input.endTime ? new Date(input.endTime) : null,
+      status: input.status ?? "upcoming",
+      imageUrl: null,
+      createdByUserId: input.createdByUserId ?? "usr_alice",
+      createdByName: input.createdByName ?? "Alice",
+      createdByAvatar: input.createdByAvatar ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    yield* Effect.promise(() => db.insert(events).values(row));
+    return row;
+  });

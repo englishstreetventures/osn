@@ -1,6 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, seedEvent } from "../helpers/db";
 import {
   createEvent,
   deleteEvent,
@@ -53,7 +53,7 @@ it.effect("listEvents returns all events regardless of time", () =>
   provide(
     Effect.gen(function* () {
       yield* createEvent({ title: "Future", startTime: FUTURE }, ALICE);
-      yield* createEvent({ title: "Past", startTime: PAST }, ALICE);
+      yield* seedEvent({ title: "Past", startTime: PAST });
       const events = yield* listEvents({});
       expect(events.length).toBe(2);
     }),
@@ -64,7 +64,7 @@ it.effect("listEvents filters by status", () =>
   provide(
     Effect.gen(function* () {
       yield* createEvent({ title: "Upcoming Event", startTime: FUTURE }, ALICE);
-      yield* createEvent({ title: "Ongoing Event", startTime: STARTED }, ALICE);
+      yield* seedEvent({ title: "Ongoing Event", startTime: STARTED, status: "ongoing" });
       const events = yield* listEvents({ status: "ongoing" });
       expect(events.length).toBe(1);
       expect(events[0]!.title).toBe("Ongoing Event");
@@ -87,8 +87,7 @@ it.effect("listEvents filters by category", () =>
 it.effect("listTodayEvents returns only today's events", () =>
   provide(
     Effect.gen(function* () {
-      const now = new Date().toISOString();
-      yield* createEvent({ title: "Today Event", startTime: now }, ALICE);
+      yield* seedEvent({ title: "Today Event", startTime: new Date() });
       yield* createEvent({ title: "Future Event", startTime: FUTURE }, ALICE);
       const events = yield* listTodayEvents;
       expect(events.length).toBe(1);
@@ -121,6 +120,25 @@ it.effect("createEvent fails with ValidationError for empty title", () =>
   provide(
     Effect.gen(function* () {
       const error = yield* Effect.flip(createEvent({ title: "", startTime: FUTURE }, ALICE));
+      expect(error._tag).toBe("ValidationError");
+    }),
+  ),
+);
+
+it.effect("createEvent fails with ValidationError for past startTime", () =>
+  provide(
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(createEvent({ title: "Test", startTime: PAST }, ALICE));
+      expect(error._tag).toBe("ValidationError");
+    }),
+  ),
+);
+
+it.effect("createEvent fails with ValidationError for startTime equal to now", () =>
+  provide(
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const error = yield* Effect.flip(createEvent({ title: "Test", startTime: now }, ALICE));
       expect(error._tag).toBe("ValidationError");
     }),
   ),
@@ -308,9 +326,8 @@ it.effect("updateEvent succeeds when requestingUserId matches createdByUserId", 
 it.effect("getEvent auto-transitions upcoming → ongoing when startTime passed", () =>
   provide(
     Effect.gen(function* () {
-      const created = yield* createEvent({ title: "Started", startTime: STARTED }, ALICE);
-      expect(created.status).toBe("ongoing");
-      const fetched = yield* getEvent(created.id);
+      const seeded = yield* seedEvent({ title: "Started", startTime: STARTED });
+      const fetched = yield* getEvent(seeded.id);
       expect(fetched.status).toBe("ongoing");
     }),
   ),
@@ -319,12 +336,12 @@ it.effect("getEvent auto-transitions upcoming → ongoing when startTime passed"
 it.effect("getEvent auto-transitions to finished when endTime passed", () =>
   provide(
     Effect.gen(function* () {
-      const created = yield* createEvent(
-        { title: "Ended", startTime: STARTED, endTime: ENDED },
-        ALICE,
-      );
-      expect(created.status).toBe("finished");
-      const fetched = yield* getEvent(created.id);
+      const seeded = yield* seedEvent({
+        title: "Ended",
+        startTime: STARTED,
+        endTime: ENDED,
+      });
+      const fetched = yield* getEvent(seeded.id);
       expect(fetched.status).toBe("finished");
     }),
   ),
@@ -333,15 +350,12 @@ it.effect("getEvent auto-transitions to finished when endTime passed", () =>
 it.effect("getEvent does not transition cancelled events", () =>
   provide(
     Effect.gen(function* () {
-      const created = yield* createEvent(
-        {
-          title: "Cancelled",
-          startTime: STARTED,
-          status: "cancelled",
-        },
-        ALICE,
-      );
-      const fetched = yield* getEvent(created.id);
+      const seeded = yield* seedEvent({
+        title: "Cancelled",
+        startTime: STARTED,
+        status: "cancelled",
+      });
+      const fetched = yield* getEvent(seeded.id);
       expect(fetched.status).toBe("cancelled");
     }),
   ),
@@ -350,15 +364,12 @@ it.effect("getEvent does not transition cancelled events", () =>
 it.effect("getEvent does not transition finished events", () =>
   provide(
     Effect.gen(function* () {
-      const created = yield* createEvent(
-        {
-          title: "Finished",
-          startTime: STARTED,
-          status: "finished",
-        },
-        ALICE,
-      );
-      const fetched = yield* getEvent(created.id);
+      const seeded = yield* seedEvent({
+        title: "Finished",
+        startTime: STARTED,
+        status: "finished",
+      });
+      const fetched = yield* getEvent(seeded.id);
       expect(fetched.status).toBe("finished");
     }),
   ),
@@ -367,7 +378,7 @@ it.effect("getEvent does not transition finished events", () =>
 it.effect("listEvents returns transitioned statuses", () =>
   provide(
     Effect.gen(function* () {
-      yield* createEvent({ title: "Started", startTime: STARTED }, ALICE);
+      yield* seedEvent({ title: "Started", startTime: STARTED });
       const results = yield* listEvents({});
       const started = results.find((e) => e.title === "Started");
       expect(started?.status).toBe("ongoing");
@@ -378,7 +389,7 @@ it.effect("listEvents returns transitioned statuses", () =>
 it.effect("listTodayEvents returns transitioned statuses", () =>
   provide(
     Effect.gen(function* () {
-      yield* createEvent({ title: "Today Started", startTime: STARTED }, ALICE);
+      yield* seedEvent({ title: "Today Started", startTime: STARTED });
       const results = yield* listTodayEvents;
       const started = results.find((e) => e.title === "Today Started");
       expect(started?.status).toBe("ongoing");
