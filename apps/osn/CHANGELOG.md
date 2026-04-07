@@ -1,5 +1,13 @@
 # @osn/osn
 
+## 0.1.5
+
+### Patch Changes
+
+- 3a0196b: Update CLAUDE.md with complete ARC token usage guidance: when to use ARC vs. direct package import, calling/receiving service patterns with code examples, and service registration steps.
+- Updated dependencies [3a0196b]
+  - @osn/core@0.3.2
+
 ## 0.1.4
 
 ### Patch Changes
