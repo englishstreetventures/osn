@@ -2,23 +2,15 @@
 
 Progress tracking and deferred decisions. For full spec see README.md. For code patterns see CLAUDE.md.
 
-## Current Status
-
-`@osn/crypto` — ARC token system for S2S auth: ES256 key pair generation, JWT creation/verification, scope validation, public key resolution from DB, in-memory token cache with 30s-before-expiry eviction. `@osn/db` — `service_accounts` table added for ARC key registration. `@osn/core` — full OIDC-style auth server (passkey, OTP, magic-link, PKCE, JWT, OIDC discovery) + complete social graph service + HTTP routes (connections, close friends, blocks) with rate limiting, input validation, pagination, N+1-free list queries, and safe error responses. `apps/osn` — auth + graph server on port 4000. `apps/pulse` — full event CRUD UI (59 component tests), location autocomplete, Maps button, toast, double-click guard. `@pulse/db` — lat/lng + dynamic seed. `@osn/api` — events domain with coordinate range validation. 143 tests passing across 13 files.
-
----
-
 ## Up Next
 
-Highest-priority items across all areas.
-
-- [x] OSN Core: social graph data model (connections, close friends, blocks)
-- [x] Pulse: toast notification system (solid-toast)
-- [x] Platform: ARC tokens — implement `@osn/crypto` arc module + `service_accounts` table (first consumer: Pulse API → OSN Core)
 - [ ] Pulse: "What's on today" default view
 - [ ] Landing page: design and content
-- [ ] Security: fix open redirect in `/magic/verify` before any deployment — H3
-- [ ] Security: make PKCE mandatory at `/token` — H4
+- [ ] S-H3 — Open redirect in `/magic/verify` — fix before any deployment
+- [ ] S-H4 — Make PKCE mandatory at `/token`
+- [ ] S-H1 — Rate limit `POST /register`
+- [ ] S-M1 — `verifyAccessToken` rejects tokens missing `handle` claim — grace period needed
+- [ ] ARC token verification middleware on internal graph routes (`/graph/internal/*`)
 
 ---
 
@@ -56,6 +48,7 @@ Highest-priority items across all areas.
 - [x] `apps/osn` auth server entry point (port 4000)
 - [x] 50 tests: services, routes, lib/crypto, lib/html
 - [x] Social graph data model (connections, close friends, blocks) — 124 tests
+- [x] Handle system — registration, real-time availability check, email/handle sign-in toggle
 - [ ] ARC token verification middleware on internal graph routes (`/graph/internal/*`)
 - [ ] Per-app vs global blocking logic (deferred — global blocking across all OSN apps for now)
 - [ ] Interest profile selection (onboarding)
@@ -119,8 +112,6 @@ Highest-priority items across all areas.
 
 ### Crypto (`packages/crypto`)
 
-ARC = OSN's ASAP-style service-to-service (S2S) auth token. ES256 (ECDSA), short-lived (5 min), cached in-memory until 30s before expiry. Self-issued by the calling service, verified by the receiver using the caller's public key (looked up from `service_accounts` table or a JWKS URL for third-party apps). Scope-gated (`graph:read`, `graph:write`, etc.).
-
 - [x] `generateArcKeyPair()` — ES256 keypair generation
 - [x] `createArcToken(privateKey, { iss, aud, scope, ttl? })` — signs and returns a short-lived JWT
 - [x] `verifyArcToken(token, publicKey)` — verifies signature, expiry, audience, scope
@@ -145,6 +136,8 @@ ARC = OSN's ASAP-style service-to-service (S2S) auth token. ES256 (ECDSA), short
 - [x] lefthook pre-commit/pre-push hooks
 - [x] oxlint + oxfmt
 - [x] Claude Code GitHub integration
+- [x] Claude skills: review-security, review-performance, review-tests, prep-pr, review-deps
+- [x] UserPromptSubmit hook for tone enforcement
 
 ---
 
@@ -153,74 +146,86 @@ ARC = OSN's ASAP-style service-to-service (S2S) auth token. ES256 (ECDSA), short
 Address **High** items before any non-local deployment.
 
 ### High
-- [ ] Open redirect in `/magic/verify`: `redirect_uri` not validated against an allowlist — attacker can steal auth codes — H3 (now also reachable via registration OTP verify path — three call sites total)
-- [ ] PKCE check optional at `/token`: silently skipped when `state` absent — make mandatory per RFC 7636 — H4
-- [ ] `/passkey/register/begin` accepts arbitrary `userId` with no auth check (M11) — worsened by registration flow: fresh `userId` returned pre-email-verification; combined with M11 enables account pre-hijacking. Fix: require verified session/code before accepting passkey registration — H5
-- [x] No auth/authorisation middleware on API routes (OWASP A01) — H1 (POST/PATCH/DELETE require auth; unauthenticated → 401)
-- [x] No ownership check on mutating event operations (create/update/delete) — H2 (createdByUserId NOT NULL; 403 on non-owner)
+
+- [ ] S-H1 — `POST /register` no rate limit — handles squattable in bulk; add per-IP rate limit (urgency increased: now user-facing via "Create account" tab)
+- [ ] S-H2 — `GET /handle/:handle` no rate limit — handle namespace fully enumerable at HTTP speeds; add 10 req/IP/min limit
+- [ ] S-H3 — Open redirect in `/magic/verify`: `redirect_uri` not validated against allowlist — attacker can steal auth codes (three call sites: magic verify + registration OTP verify path)
+- [ ] S-H4 — PKCE check optional at `/token`: silently skipped when `state` absent — make mandatory per RFC 7636
+- [ ] S-H5 — `/passkey/register/begin` accepts arbitrary `userId` with no auth check — combined with fresh `userId` returned pre-email-verification, enables account pre-hijacking; require verified session/code before accepting passkey registration
+- [x] S-H6 — No auth/authorisation middleware on API routes (OWASP A01) — POST/PATCH/DELETE require auth; unauthenticated → 401
+- [x] S-H7 — No ownership check on mutating event operations — createdByUserId NOT NULL; 403 on non-owner
+- [x] S-H8 — Graph GET endpoints unguarded — all GET handlers wrapped in try/catch; generic "Request failed" on unexpected errors
 
 ### Medium
-- [ ] `POST /register` has no rate limiting or email verification — handles can be squatted in bulk; add per-IP rate limit and email confirmation before first login — M13 (now user-facing via "Create account" tab — urgency increased)
-- [ ] No "resend code" button after registration OTP send; if SMTP fails the handle/email are claimed but user is stuck with no recovery path — M15
-- [ ] `GET /handle/:handle` has no auth and no rate limit — handle namespace fully enumerable at HTTP speeds — M16
-- [ ] `POST /register` returns raw `String(catch)` error — can expose Drizzle constraint internals; normalise to user-safe strings — M17
-- [ ] `displayName` is embedded in JWT access tokens (1 h TTL) — stale after a profile update; `createdByName` on events reflects the old value until token expires — M14
-- [ ] Wildcard CORS on auth server — restrict to known client origins before deployment — M3
-- [ ] No OTP attempt limit — 6-digit codes brute-forceable at HTTP speeds — M8
-- [ ] All auth state in process memory (`otpStore`, `magicStore`, `pkceStore`, etc.) — lost on restart, unsafe for multi-process — M6
-- [ ] `redirect_uri` at `/token` not matched against value stored in `pkceStore` during `/authorize` (RFC 6749 §4.1.3) — M10
-- [ ] `/passkey/register/begin` accepts arbitrary `userId` with no auth check — M11 (elevated to H5 above; see High section)
-- [ ] Magic-link tokens use `crypto.randomUUID` without additional entropy hardening — M7
-- [x] `limit` query param in `listEvents` uncapped — guard `NaN` and clamp to 1–100 — M2 (clamped in service layer)
-- [ ] Photon (Komoot) geocoding: keystrokes sent to third-party with no user notice — add consent UI or proxy — M1
-- [ ] Pulse `REDIRECT_URI` falls back to `window.location.origin` — validate allowed redirect URIs server-side in `@osn/core`; already tracked as H3 — M12
+
+- [ ] S-M1 — `verifyAccessToken` rejects tokens missing `handle` claim — old tokens 401 silently; treat missing `handle` as `null` during transition period
+- [ ] S-M2 — In-memory rate limiter resets on restart/deploy — document as known; migrate to shared counter when scaling horizontally
+- [ ] S-M3 — No "resend code" button after registration OTP; if SMTP fails, handle/email are claimed with no recovery path
+- [ ] S-M4 — `POST /register` returns raw `String(catch)` error — can expose Drizzle constraint internals; normalise to user-safe strings
+- [ ] S-M5 — `displayName` embedded in JWT (1h TTL) — stale after profile update; `createdByName` on events reflects old value until token expires
+- [ ] S-M6 — Wildcard CORS on auth server — restrict to known client origins before deployment
+- [ ] S-M7 — No OTP attempt limit — 6-digit codes brute-forceable at HTTP speeds
+- [ ] S-M8 — All auth state in process memory (`otpStore`, `magicStore`, `pkceStore`) — lost on restart, unsafe for multi-process
+- [ ] S-M9 — `redirect_uri` at `/token` not matched against value stored in `pkceStore` during `/authorize` (RFC 6749 §4.1.3)
+- [ ] S-M10 — `/passkey/register/begin` accepts arbitrary `userId` with no auth check (elevated to S-H5; see High section)
+- [ ] S-M11 — Magic-link tokens use `crypto.randomUUID` without additional entropy hardening
+- [x] S-M12 — `limit` query param in `listEvents` uncapped — clamped to 1–100 in service layer
+- [ ] S-M13 — Photon (Komoot) geocoding: keystrokes sent to third-party with no user notice — add consent UI or proxy
+- [ ] S-M14 — Pulse `REDIRECT_URI` falls back to `window.location.origin` — validate allowed redirect URIs server-side; tracked as S-H3
+- [x] S-M15 — `is-blocked` route leaked whether target had blocked caller — route now uses `isBlocked(caller, target)` only
+- [x] S-M16 — No rate limiting on graph write endpoints — module-level fixed-window limiter added (60/user/min)
+- [x] S-M17 — Raw DB/Effect errors surfaced in graph responses — `safeError()` helper; only `GraphError`/`NotFoundError` messages exposed
+- [x] S-M18 — No input validation on `:handle` route param in graph routes — TypeBox `HandleParam` with regex + length bounds added
 
 ### Low
-- [ ] Tauri CSP is `null` — when tightened, allowlist `photon.komoot.io` (geocoding fetch) and `maps.google.com` / `www.google.com` (Maps links) — L7
-- [ ] `createdByAvatar` is always null — no avatar claim in JWT; populate from user profile record once user profiles exist — L8-pulse
-- [x] `getSession()` returned expired tokens — fixed
-- [x] OTP used `Math.random()` — replaced with `crypto.getRandomValues`
-- [ ] `jwtSecret` falls back to `"dev-secret"` — throw at startup in production — M9
-- [ ] OTP codes and magic link URLs logged to stdout — guard with `NODE_ENV` check — L5
-- [ ] `imageUrl` allows `data:` URIs — add CSP `img-src` header — L1
-- [ ] Sign-in page loads `@simplewebauthn/browser` from unpkg CDN without SRI hash — L6
-- [ ] Failed OAuth callback leaves PKCE verifier in `localStorage` — clear on state mismatch — L2
-- [ ] `REDIRECT_URI` derived from `window.location.origin` at runtime — prefer explicit env var — L3
-- [ ] PKCE `state` not validated against a stored nonce — L4
-- [ ] `jose` and `@simplewebauthn/server` use caret version ranges — pin to exact versions — L7
-- [ ] Pulse `auth.ts` exports only public/build-time config — add comment discouraging secrets in that file — L8
-- [ ] `assertion: t.Any()` on passkey register/login routes — add lightweight TypeBox shape validation for top-level WebAuthn fields (`id`, `rawId`, `response`, `type`) — L10
-- [ ] No reserved-handle blocklist in DB — currently enforced in app layer only (`RESERVED_HANDLES` set in `@osn/core`); consider a DB-level check constraint or migration-managed table — L11
-- [x] `EventList` `console.error` logs raw server error objects — guarded with `import.meta.env.DEV` — L9
-- ~~`@vitest/coverage-istanbul` uses caret version range — L10~~ dismissed: caret ranges are the project standard
-- [x] Graph GET endpoints unguarded — all GET handlers now wrapped in try/catch; generic "Request failed" on unexpected errors — H2-graph (fixed in feat/social-graph-data-model)
-- [x] `is-blocked` route used `eitherBlocked`, leaking whether target had blocked caller — route now uses `isBlocked(caller, target)` only — M1-graph (fixed in feat/social-graph-data-model)
-- [x] No rate limiting on graph write endpoints — module-level fixed-window limiter added (60/user/min) — M2-graph (fixed in feat/social-graph-data-model)
-- [x] Raw DB/Effect errors surfaced in graph responses — `safeError()` helper added; only `GraphError`/`NotFoundError` messages exposed — M3-graph (fixed in feat/social-graph-data-model)
-- [x] No input validation on `:handle` route param in graph routes — TypeBox `HandleParam` with regex `^[a-z0-9_]+$` + length bounds added — M4-graph (fixed in feat/social-graph-data-model)
-- [ ] Graph rate-limit store (`rateLimitStore`) never evicts expired windows — same eviction gap as auth stores; add periodic sweep — L12-graph
-- [x] `displayName` returned as `undefined` in graph list responses when absent — normalised to `null` via `userProjection()` — L3-graph (fixed in feat/social-graph-data-model)
-- [ ] `jwtSecret` falls back to `"dev-secret"` in graph auth (pre-existing from auth service) — throw at startup in production — already tracked as M9
+
+- [ ] S-L1 — Seed data uses reserved handle `"me"` — inserted via Drizzle bypassing service layer; reveals reservation is not DB-enforced
+- [ ] S-L2 — `Effect.orDie` in `requireAuth` swallows auth errors as defects — replace with `Effect.either` + explicit 401
+- [ ] S-L3 — Tauri CSP is `null` — when tightened, allowlist `photon.komoot.io`, `maps.google.com`, `www.google.com`
+- [ ] S-L4 — `createdByAvatar` always null — no avatar claim in JWT; populate from user profile once profiles exist
+- [x] S-L5 — `getSession()` returned expired tokens — fixed
+- [x] S-L6 — OTP used `Math.random()` — replaced with `crypto.getRandomValues`
+- [ ] S-L7 — `jwtSecret` falls back to `"dev-secret"` — throw at startup in production
+- [ ] S-L8 — OTP codes and magic link URLs logged to stdout — guard with `NODE_ENV` check
+- [ ] S-L9 — `imageUrl` allows `data:` URIs — add CSP `img-src` header
+- [ ] S-L10 — Sign-in page loads `@simplewebauthn/browser` from unpkg CDN without SRI hash
+- [ ] S-L11 — Failed OAuth callback leaves PKCE verifier in `localStorage` — clear on state mismatch
+- [ ] S-L12 — `REDIRECT_URI` derived from `window.location.origin` at runtime — prefer explicit env var
+- [ ] S-L13 — PKCE `state` not validated against a stored nonce
+- [ ] S-L14 — `assertion: t.Any()` on passkey register/login routes — add TypeBox shape validation for top-level WebAuthn fields
+- [ ] S-L15 — No reserved-handle blocklist in DB — enforced in app layer only; consider DB-level check constraint
+- [x] S-L16 — `EventList` `console.error` logs raw server error objects — guarded with `import.meta.env.DEV`
+- [x] S-L17 — `displayName` returned as `undefined` in graph list responses — normalised to `null` via `userProjection()`
+- [ ] S-L18 — Graph rate-limit store (`rateLimitStore`) never evicts expired windows — add periodic sweep
+- [ ] S-L19 — `jwtSecret` falls back to `"dev-secret"` in graph auth — already tracked as S-L7
 
 ---
 
 ## Performance Backlog
 
-- [ ] Auth Maps (`otpStore`, `magicStore`, `pkceStore`, etc.) never evict expired entries — add periodic sweep — P1
-- [ ] `new TextEncoder()` allocated per JWT sign/verify call — cache encoded secret or import `CryptoKey` once — P2
-- [ ] `new TextEncoder()` allocated per `verifyPkceChallenge` call — move to module scope — P3
-- [ ] `AuthProvider` reconstructs Effect `Layer` on every render — wrap with `createMemo` — P4
-- [ ] `completePasskeyLogin` calls `findUserByEmail` redundantly — `pk.userId` already on passkey row — P5
-- [ ] Duplicate index on `users.email` — `unique()` already creates one implicitly in SQLite; explicit `users_email_idx` is redundant (pre-existing; handle_idx removed in feat/user-handle-system) — P6
-- [ ] Batch status-transition `UPDATE`s in `listEvents`/`listTodayEvents` (N individual writes today) — P7
-- [x] Eliminate extra `getEvent` round-trips in `updateEvent` — P8 (returns in-memory merged result; applyTransition called locally)
-- [ ] Eliminate extra `getEvent` round-trip in `createEvent` via `RETURNING *` — P9
-- [ ] Add index on `created_by_user_id` in pulse-db events — done in feat/event-ownership; move to done once merged
-- [x] N+1 queries in graph list functions — replaced with `inArray` batch fetches — P1-graph (fixed in feat/social-graph-data-model)
-- [x] `eitherBlocked` made two sequential `isBlocked` calls — collapsed to single OR query — P2-graph (fixed in feat/social-graph-data-model)
-- [x] `blockUser` used SELECT-then-DELETE pattern — replaced with direct `DELETE WHERE OR` — P3-graph (fixed in feat/social-graph-data-model)
-- [ ] `resolveHandle` re-fetches user from DB even when the handler already has the User row — minor; consolidate once graph routes grow — P10-graph
-- [ ] Graph list endpoints load entire result set before slicing — add DB-level `LIMIT`/`OFFSET` once pagination is a user-facing concern — P11-graph (low priority; clamped to 100 rows today)
+### Warning
+
+- [ ] P-W1 — `rateLimitStore` in graph routes grows without bound — expired entries never evicted; add `setInterval` sweep
+- [ ] P-W2 — `resolvePublicKey` hits DB on every scoped call despite warm cache — cache `CryptoKey` + `allowedScopes` together
+- [ ] P-W3 — `sendConnectionRequest` makes two sequential independent DB reads — use `Effect.all` with `concurrency: "unbounded"`
+- [ ] P-W4 — Auth Maps (`otpStore`, `magicStore`, `pkceStore`) never evict expired entries — add periodic sweep
+- [ ] P-W5 — Batch status-transition `UPDATE`s in `listEvents`/`listTodayEvents` (N individual writes today)
+- [x] P-W6 — N+1 queries in graph list functions — replaced with `inArray` batch fetches
+- [x] P-W7 — `eitherBlocked` made two sequential `isBlocked` calls — collapsed to single OR query
+- [x] P-W8 — `blockUser` used SELECT-then-DELETE pattern — replaced with direct `DELETE WHERE OR`
+- [x] P-W9 — Eliminate extra `getEvent` round-trips in `updateEvent` — returns in-memory merged result
+
+### Info
+
+- [ ] P-I1 — `evictExpiredTokens` in `arc.ts` iterates full cache on every `getOrCreateArcToken` call — throttle or remove; `MAX_CACHE_SIZE` is sufficient
+- [ ] P-I2 — `new TextEncoder()` allocated per JWT sign/verify call — cache encoded secret or import `CryptoKey` once
+- [ ] P-I3 — `new TextEncoder()` allocated per `verifyPkceChallenge` call — move to module scope
+- [ ] P-I4 — `AuthProvider` reconstructs Effect `Layer` on every render — wrap with `createMemo`
+- [ ] P-I5 — `completePasskeyLogin` calls `findUserByEmail` redundantly — `pk.userId` already on passkey row
+- [ ] P-I6 — Duplicate index on `users.email` — `unique()` already creates one implicitly in SQLite
+- [ ] P-I7 — Eliminate extra `getEvent` round-trip in `createEvent` via `RETURNING *`
+- [ ] P-I8 — `resolveHandle` re-fetches user from DB when handler already has the User row
+- [ ] P-I9 — Graph list endpoints load entire result set before slicing — add DB-level `LIMIT`/`OFFSET` when pagination is user-facing
 
 ---
 
@@ -238,8 +243,8 @@ Address **High** items before any non-local deployment.
 | Two-way calendar sync | Currently one-way (Pulse → external) | Phase 2 |
 | Community event-ended reporting | 15–20 attendees auto-finish; host notified | When attendee/messaging features land |
 | Max event duration | Prompt user when creating events without endTime | When Pulse event creation UI is built |
-| S2S scaling: HTTP graph API | Current approach is direct package import (`createGraphService()`) — zero network overhead, Pulse API reads `osn.db` read-only. When horizontal scaling is needed, migrate to HTTP `/graph/internal/*` endpoints verified via ARC tokens. | When multi-process or multi-machine deployment needed |
-| Per-app blocking | Currently blocks are global across all OSN apps. Per-app scope deferred. | When Messaging or a third-party app needs independent block lists |
+| S2S scaling: HTTP graph API | Current: direct package import (`createGraphService()`). Migrate to HTTP `/graph/internal/*` + ARC tokens when scaling horizontally. | When multi-process or multi-machine deployment needed |
+| Per-app blocking | Blocks are global across all OSN apps. Per-app scope deferred. | When Messaging or a third-party app needs independent block lists |
 
 ---
 

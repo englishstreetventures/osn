@@ -42,11 +42,26 @@ Read all changed source files in the affected workspaces and examine them for th
 
 ---
 
-Report findings as a prioritised list using these labels:
+---
 
-- **Critical** — exploitable vulnerability that must be fixed before merging
-- **High** — significant risk requiring a fix or explicit documented exception
-- **Medium** — notable concern that should be addressed soon
-- **Low** — minor issue or hardening suggestion
+## Finding format
+
+Number each finding with a short ID: `S-C1`, `S-C2`, … for Critical; `S-H1`, `S-H2`, … for High; `S-M1`, … for Medium; `S-L1`, … for Low. Increment the counter within each tier across the full report. This lets findings be referenced unambiguously (e.g. "fix S-H2 before merging").
+
+Each finding must use this exact structure:
+
+```
+**S-H1** — <short title>
+**Issue:** What the problem is, stated concisely.
+**Why:** Why this is a security concern — the threat, the attack vector, or the OWASP category it falls under.
+**Solution:** What was changed or what needs to be done.
+**Rationale:** Why this solution correctly addresses the risk.
+```
+
+Tier definitions:
+- **Critical (S-C)** — exploitable vulnerability; must be fixed before merging
+- **High (S-H)** — significant risk; requires a fix or an explicit documented exception
+- **Medium (S-M)** — notable concern; should be addressed soon
+- **Low (S-L)** — minor issue or hardening suggestion
 
 If no concerns are found, state that explicitly: "No security concerns found."

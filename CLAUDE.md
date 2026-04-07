@@ -2,13 +2,6 @@
 
 AI coding assistant reference. For full spec see README.md. For progress/decisions see TODO.md.
 
-## Communication Style
-
-- Short, 3–6 word sentences.
-- No filler, preamble, or pleasantries.
-- Run tools first, show result, then stop. Do not narrate.
-- Drop articles ("Fix bug" not "I will fix the bug").
-
 ## Quick Context
 
 OSN: Modular social platform. Users own identity + social graph. Apps opt-in/out independently.
@@ -27,7 +20,6 @@ Phase 1 apps: OSN Core (auth), Pulse (events), Messaging (TBD name), Landing (ma
 
 | Section | What goes here |
 |---------|---------------|
-| **Current Status** | One-paragraph snapshot of what was last shipped. Update after each PR merges to main. |
 | **Up Next** | ≤8 highest-priority items across all areas. Keep it short — if everything is a priority, nothing is. Prune when items are done or promoted to a feature section. |
 | **App sections** (Pulse, OSN Core, Messaging, Landing) | Feature work specific to that app. Check items off when done; don't delete them. |
 | **Platform** (API, DB, Client, UI, Infra) | Shared package work and infrastructure. Same check-off rule. |
@@ -37,7 +29,7 @@ Phase 1 apps: OSN Core (auth), Pulse (events), Messaging (TBD name), Landing (ma
 | **Future** | Phase 2/3 items. Vague is fine here — detail gets added when the phase starts. |
 
 **When to update TODO.md:**
-- After a PR merges → update Current Status; check off completed items; add any new findings from the review
+- After a PR merges → check off completed items; add any new findings; update Up Next
 - When a security/performance review surfaces findings → add to the relevant backlog section
 - When a new deferred decision comes up → add a row to the table
 - Keep Up Next pruned to the real next things — it should be actionable at a glance
@@ -156,6 +148,24 @@ VALUES ('pulse-api', '<exported-public-key-jwk>', 'graph:read');
 Generate a key pair once at service setup with `generateArcKeyPair()`, store the **private key** in an env/secret store, and insert the **public key** (via `exportKeyToJwk`) into the DB.
 
 **Current S2S strategy:** Pulse API imports `createGraphService()` from `@osn/core` directly (zero network overhead). ARC tokens guard HTTP-based S2S (`/graph/internal/*`) — needed when scaling to multi-process, and immediately for any third-party app. See the "S2S scaling" deferred decision in TODO.md.
+
+## Review Finding IDs
+
+All review skills (`/review-security`, `/review-performance`, `/review-tests`) tag findings with short IDs so they can be referenced precisely (e.g. "fix S-H1 before merging", "P-C2 still open").
+
+| Prefix | Skill | Tiers |
+|--------|-------|-------|
+| `S-C`, `S-H`, `S-M`, `S-L` | review-security | Critical / High / Medium / Low |
+| `P-C`, `P-W`, `P-I` | review-performance | Critical / Warning / Info |
+| `T-M`, `T-U`, `T-E`, `T-R`, `T-S` | review-tests | Missing file / Untested export / Error path / Route test / Suggestion |
+
+Counters increment within each tier across the full report (`S-H1`, `S-H2`, …). Each finding uses a four-field format: **Issue** / **Why** / **Solution** / **Rationale**.
+
+When adding findings to the TODO.md Security or Performance backlogs, use the finding ID as the item label:
+```
+- [ ] S-M3 — No rate limit on /foo endpoint
+- [x] P-W1 — N+1 in listEvents (fixed: inArray batch fetch)
+```
 
 ## Conventions
 

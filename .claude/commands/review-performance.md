@@ -32,10 +32,25 @@ Read all changed source files in the affected workspaces and examine them for th
 
 ---
 
-Report findings as a prioritised list using these labels:
+---
 
-- **Critical** — will cause measurable degradation in production (e.g. unbounded query on hot path)
-- **Warning** — likely to cause issues under load or as the codebase grows
-- **Info** — minor inefficiency or best-practice suggestion
+## Finding format
+
+Number each finding with a short ID: `P-C1`, `P-C2`, … for Critical; `P-W1`, `P-W2`, … for Warning; `P-I1`, … for Info. Increment the counter within each tier across the full report. This lets findings be referenced unambiguously (e.g. "address P-C1 before merging").
+
+Each finding must use this exact structure:
+
+```
+**P-W1** — <short title>
+**Issue:** What the problem is, stated concisely.
+**Why:** Why this is a performance concern — the failure mode, the scale at which it bites, or the measurable impact.
+**Solution:** What was changed or what needs to be done.
+**Rationale:** Why this solution correctly addresses the bottleneck.
+```
+
+Tier definitions:
+- **Critical (P-C)** — will cause measurable degradation in production (e.g. unbounded query on a hot path)
+- **Warning (P-W)** — likely to cause issues under load or as the codebase grows
+- **Info (P-I)** — minor inefficiency or best-practice suggestion
 
 If no concerns are found, state that explicitly: "No performance concerns found."

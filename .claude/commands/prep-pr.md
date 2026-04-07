@@ -27,6 +27,7 @@ Run `git diff --name-only main...HEAD -- .changeset/` and filter out `config.jso
 
 **If changeset(s) exist:**
 - Read each new changeset file and extract the package names listed in its YAML frontmatter (between the `---` fences).
+- **Validate every package name** against the actual `name` field in its `package.json`. Run `jq -r .name <workspace>/package.json` for each. A mismatch (e.g. `osn` instead of `@osn/osn`) will cause `changeset version` to fail in CI with "package not in workspace". Fix any mismatches before continuing.
 - Compare against the affected workspace packages from step 1.
 - If any affected package is missing from all changesets, warn the user and offer to run `bun run changeset` to add coverage.
 
@@ -79,13 +80,28 @@ Read the file `.claude/commands/review-performance.md` and execute its instructi
 **Agent 2 — Security review** (general-purpose agent):
 Read the file `.claude/commands/review-security.md` and execute its instructions, passing the list of affected workspaces and the branch name as context.
 
-Wait for both agents to complete. Present both reports to the user in full.
+Wait for both agents to complete. Present both reports to the user in full, using the finding IDs from each review (e.g. S-H1, P-W2) so they can be referenced in the PR description.
 
 Ask the user: "Do you want to address any findings before pushing?" If yes, pause and let the user make changes, then re-run steps 3 and 4 before continuing.
 
 ---
 
-## Step 7 — Push and open PR
+## Step 7 — Update documentation
+
+Before pushing, update the relevant docs to reflect the changes made on this branch.
+
+**Always check and update as needed:**
+
+- **`TODO.md` — Security/Performance backlogs**: add any new `S-*` / `P-*` findings from Step 6. Use the finding ID as the item label (e.g. `- [ ] S-M1 — No rate limit on /foo endpoint`). Mark findings resolved on this branch with `[x]` + short note.
+- **`TODO.md` — App/Platform sections**: check off items completed by this branch.
+- **`TODO.md` — Up Next**: prune completed items. Review the full TODO and surface 2–3 suggested next priorities to the user — items that are now unblocked, newly urgent, or logically follow from this branch's work. Let the user decide whether to add them.
+- **`CLAUDE.md`**: update if this branch introduces a new pattern, package, convention, or architectural decision that future AI sessions need to know about. Do not add noise — only update if the change is genuinely reusable context.
+
+Commit any doc updates with the message: `docs: update TODO and CLAUDE for <branch-summary>`.
+
+---
+
+## Step 8 — Push and open PR
 
 Run `git push -u origin HEAD`.
 
@@ -103,7 +119,14 @@ gh pr create --title "<title>" --body "$(cat <<'EOF'
 - <list of affected packages/apps, or "CI/infra only">
 
 ## Decisions & issues
-- <every non-trivial decision made during implementation or prep, and every issue found and how it was resolved — e.g. lint fixes, test failures, security/perf findings accepted or addressed, library choices, approach changes. One bullet per item. Be specific: name the problem and the fix.>
+
+<For every non-trivial decision, lint/type error, test failure, or security/perf finding — use this format per item:>
+
+**[S-H1 / P-W2 / approach / etc.]** — <short title>
+- **Issue:** What the problem was.
+- **Why:** Why it mattered — risk, correctness, or design concern.
+- **Solution:** What was done to address it.
+- **Rationale:** Why this is the right fix.
 
 ## Test plan
 - <checklist of what to verify when reviewing>
@@ -113,11 +136,6 @@ EOF
 )"
 ```
 
-**The "Decisions & issues" section is mandatory.** It must capture:
-- Any approach changes (e.g. switched library, changed architecture)
-- Any lint/format/type errors encountered and how they were fixed
-- Any test failures found during prep and how they were resolved
-- Security or performance findings from the review, and whether each was addressed or dismissed (with rationale)
-- Any non-obvious implementation choices that a reviewer might question
+**The "Decisions & issues" section is mandatory.** Every entry must use the four-field format above. Entries that were dismissed rather than fixed must still appear — include the rationale for dismissal in the Rationale field.
 
 Report the PR URL once created.

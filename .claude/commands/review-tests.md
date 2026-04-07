@@ -53,11 +53,24 @@ Produce a structured report:
 - List each workspace, test counts, and pass/fail status
 
 ### Coverage gaps
-Prioritised list:
-- **Missing** — no test file exists for a changed module
-- **Untested export** — a new/changed function has no test assertions
-- **Missing error path** — Effect error cases not tested
-- **Missing integration test** — new route with no HTTP test
-- **Suggestion** — additional edge cases worth adding
+
+Number each gap with a short ID: `T-M1`, `T-M2`, … for Missing test file; `T-U1`, … for Untested export; `T-E1`, … for Missing error path; `T-R1`, … for Missing route test; `T-S1`, … for Suggestion. Increment the counter within each tier across the full report. This lets gaps be referenced unambiguously (e.g. "address T-M1 before merging").
+
+Each gap must use this exact structure:
+
+```
+**T-U1** — <short title>
+**Issue:** What is untested or missing.
+**Why:** Why this gap matters — what failure mode it leaves undetected.
+**Solution:** What test(s) to add, referencing existing patterns from CLAUDE.md.
+**Rationale:** Why this covers the gap adequately.
+```
+
+Tier definitions:
+- **Missing (T-M)** — no test file exists for a changed module
+- **Untested export (T-U)** — a new/changed function has no test assertions
+- **Error path (T-E)** — Effect error cases not tested with `Effect.flip`
+- **Route test (T-R)** — new Elysia route with no HTTP integration test
+- **Suggestion (T-S)** — additional edge cases worth adding
 
 If test coverage is thorough and all tests pass, state: "Build and test surface look good."
