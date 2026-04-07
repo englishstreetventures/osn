@@ -1,5 +1,6 @@
 import { Data, Effect, Schema } from "effect";
 import { eq } from "drizzle-orm";
+import { timingSafeEqual } from "node:crypto";
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -82,11 +83,30 @@ interface MagicEntry {
   expiresAt: number;
 }
 
+interface PendingRegistration {
+  email: string;
+  handle: string;
+  displayName: string | null;
+  code: string;
+  attempts: number;
+  expiresAt: number;
+}
+
+// Bound on in-memory pending registrations to cap memory under abuse.
+const MAX_PENDING_REGISTRATIONS = 10_000;
+// Max OTP guesses against a single pending entry before it is wiped.
+const MAX_OTP_ATTEMPTS = 5;
+
 // keyed by userId for registration, by email for login
 const registrationChallenges = new Map<string, ChallengeEntry>();
 const loginChallenges = new Map<string, ChallengeEntry>();
 const otpStore = new Map<string, OtpEntry>();
 const magicStore = new Map<string, MagicEntry>();
+// Pending email-verification registrations, keyed by lowercased email.
+const pendingRegistrations = new Map<string, PendingRegistration>();
+// Single-use enrollment tokens that have already been consumed by a passkey
+// register/complete call. Cleared opportunistically by sweepEnrollmentTokens.
+const consumedEnrollmentTokens = new Map<string, number>();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -117,6 +137,44 @@ async function verifyJwt(token: string, secret: string): Promise<Record<string, 
   const key = new TextEncoder().encode(secret);
   const { payload } = await jwtVerify(token, key);
   return payload as Record<string, unknown>;
+}
+
+/**
+ * Generates a uniformly distributed 6-digit OTP via rejection sampling.
+ * `crypto.getRandomValues` returns a 32-bit value; naive `% 900_000` is biased
+ * because 2^32 is not a multiple of 900_000. We discard draws that fall in the
+ * tail and resample.
+ */
+function genOtpCode(): string {
+  const buf = new Uint32Array(1);
+  // 2^32 = 4_294_967_296. Largest multiple of 900_000 not exceeding it.
+  const ceil = Math.floor(0x1_0000_0000 / 900_000) * 900_000;
+  do {
+    crypto.getRandomValues(buf);
+  } while (buf[0]! >= ceil);
+  return (100_000 + (buf[0]! % 900_000)).toString();
+}
+
+/**
+ * Constant-time string comparison. Falls back to `false` for length mismatch.
+ * Used for comparing user-supplied OTP codes against expected values to remove
+ * the (already small) timing side channel that JS string `===` exposes.
+ */
+function timingSafeEqualString(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
+}
+
+/**
+ * Drops expired entries from a TTL-keyed map. Called opportunistically on
+ * insert paths to bound memory growth without needing a background sweeper.
+ * O(n) but n is capped (MAX_PENDING_REGISTRATIONS for that store).
+ */
+function sweepExpired<T extends { expiresAt: number }>(map: Map<string, T>): void {
+  const nowMs = Date.now();
+  for (const [key, entry] of map) {
+    if (entry.expiresAt <= nowMs) map.delete(key);
+  }
 }
 
 const EmailSchema = Schema.String.pipe(
@@ -257,6 +315,219 @@ export function createAuthService(config: AuthConfig) {
     });
 
   /**
+   * Step 1 of email-verified registration. Validates input, normalises the
+   * email to lowercase, generates an unbiased 6-digit OTP, stores a pending
+   * registration entry, and emails the code. No DB row is created yet.
+   *
+   * Security properties:
+   *  - Always returns `{ sent: true }` regardless of whether the email or
+   *    handle is already taken (S-M1: removes the user-enumeration oracle).
+   *    The "is this handle free?" question is answered separately by the
+   *    public `/handle/:handle` endpoint, which is the appropriate channel
+   *    and can be rate-limited independently.
+   *  - The pending-registrations map is bounded (MAX_PENDING_REGISTRATIONS)
+   *    and swept of expired entries on every insert, so unauthenticated
+   *    abuse can't grow it without bound (S-M2 / P-W1).
+   *  - Refuses to overwrite a non-expired pending entry, preventing an
+   *    attacker from resetting a victim's in-progress OTP (S-M2).
+   *  - The dev-only `console.log` of the OTP is gated on
+   *    `NODE_ENV !== "production"` (S-M3).
+   *
+   * Validation errors (bad email format, bad handle format, reserved handle)
+   * are still surfaced as ValidationError / AuthError because they're not
+   * enumeration leaks — the same input would fail client-side too.
+   */
+  const beginRegistration = (
+    email: string,
+    handle: string,
+    displayName?: string,
+  ): Effect.Effect<{ sent: boolean }, AuthError | ValidationError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      yield* Schema.decodeUnknown(EmailSchema)(email).pipe(
+        Effect.mapError((cause) => new ValidationError({ cause })),
+      );
+      yield* Schema.decodeUnknown(HandleSchema)(handle).pipe(
+        Effect.mapError((cause) => new ValidationError({ cause })),
+      );
+
+      if (RESERVED_HANDLES.has(handle)) {
+        return yield* Effect.fail(new AuthError({ message: "Handle is reserved" }));
+      }
+
+      // Normalise email to lowercase (S-H3) — the canonical form is what we
+      // persist and what we key the pending-registrations map by.
+      const normalisedEmail = email.toLowerCase();
+
+      // Sweep expired entries first so we don't refuse a legitimate retry
+      // simply because the user's previous OTP timed out.
+      sweepExpired(pendingRegistrations);
+
+      // Refuse to grow the map past its cap. Returning the same generic
+      // success keeps the response shape uniform under abuse.
+      if (pendingRegistrations.size >= MAX_PENDING_REGISTRATIONS) {
+        return { sent: true };
+      }
+
+      const [existingEmail, existingHandle] = yield* Effect.all(
+        [findUserByEmail(normalisedEmail), findUserByHandle(handle)],
+        { concurrency: "unbounded" },
+      );
+
+      // S-M1: silently no-op when the email/handle already exists. The user
+      // can use the login flow if they already have an account; we don't
+      // confirm or deny their existence over an unauthenticated channel.
+      if (existingEmail || existingHandle) {
+        return { sent: true };
+      }
+
+      // S-M2: don't let an attacker reset a victim's in-progress OTP by
+      // re-posting begin with the same email.
+      const existingPending = pendingRegistrations.get(normalisedEmail);
+      if (existingPending && existingPending.expiresAt > Date.now()) {
+        return { sent: true };
+      }
+
+      const code = genOtpCode();
+      pendingRegistrations.set(normalisedEmail, {
+        email: normalisedEmail,
+        handle,
+        displayName: displayName ?? null,
+        code,
+        attempts: 0,
+        expiresAt: Date.now() + otpTtl * 1000,
+      });
+
+      if (config.sendEmail) {
+        yield* Effect.tryPromise({
+          try: () =>
+            config.sendEmail!(
+              normalisedEmail,
+              "Verify your OSN email",
+              `Your OSN verification code is: ${code}\n\nThis code expires in ${otpTtl / 60} minutes.`,
+            ),
+          catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
+        });
+      } else if (process.env["NODE_ENV"] !== "production") {
+        // S-M3: only print the OTP to logs in non-production environments.
+        console.log(`[OSN dev] Registration OTP for ${normalisedEmail}: ${code}`);
+      }
+
+      return { sent: true };
+    });
+
+  /**
+   * Step 2 of email-verified registration. Verifies the OTP against the
+   * pending registration and, if valid, creates the user row, then returns a
+   * full Session (access + refresh tokens) AND a short-lived single-use
+   * enrollment token the client can use to add a passkey via the
+   * Authorization-gated `/passkey/register/*` routes.
+   *
+   * Security properties:
+   *  - Constant-time OTP comparison (S-M4 / `timingSafeEqualString`).
+   *  - Per-entry attempt counter; after MAX_OTP_ATTEMPTS the entry is wiped,
+   *    capping brute-force probability at ~5/1_000_000 per registration (S-H1
+   *    partial; full rate-limit fix is tracked in the security backlog).
+   *  - The pending entry is only deleted AFTER a successful insert. A losing
+   *    race against another insert (TOCTOU) leaves the pending entry intact
+   *    so the user can retry without burning their OTP (S-H4).
+   *  - Insert relies on the DB-level UNIQUE constraint on email/handle as
+   *    the source of truth, mapping constraint violations to a clean
+   *    AuthError instead of leaking driver text (S-H4 / S-H5).
+   *  - Returns access + refresh tokens directly. The legacy `/token` PKCE
+   *    bypass (tracked separately as a security-backlog item) is therefore
+   *    not on the registration code path at all.
+   */
+  const completeRegistration = (
+    email: string,
+    code: string,
+  ): Effect.Effect<
+    {
+      userId: string;
+      handle: string;
+      email: string;
+      displayName: string | null;
+      accessToken: string;
+      refreshToken: string;
+      expiresIn: number;
+      enrollmentToken: string;
+    },
+    AuthError | DatabaseError,
+    Db
+  > =>
+    Effect.gen(function* () {
+      const key = email.toLowerCase();
+      const pending = pendingRegistrations.get(key);
+      if (!pending || Date.now() > pending.expiresAt) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      }
+
+      if (!timingSafeEqualString(pending.code, code)) {
+        // Increment the attempt counter; wipe after too many guesses.
+        pending.attempts += 1;
+        if (pending.attempts >= MAX_OTP_ATTEMPTS) {
+          pendingRegistrations.delete(key);
+        }
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      }
+
+      const { db } = yield* Db;
+      const id = genId("usr_");
+      const ts = now();
+
+      // Insert directly. The DB-level UNIQUE constraints on `email` and
+      // `handle` are the source of truth for race-free uniqueness; a
+      // constraint violation here means another registration won the race
+      // (or the legacy `/register` endpoint was called concurrently). We
+      // surface that as a clean AuthError without leaking driver text.
+      const inserted = yield* Effect.tryPromise({
+        try: async () => {
+          try {
+            await db.insert(users).values({
+              id,
+              handle: pending.handle,
+              email: pending.email,
+              displayName: pending.displayName,
+              createdAt: ts,
+              updatedAt: ts,
+            });
+            return { ok: true as const };
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            if (/UNIQUE|constraint/i.test(msg)) {
+              return { ok: false as const, reason: "conflict" };
+            }
+            throw e;
+          }
+        },
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+
+      if (!inserted.ok) {
+        // Don't burn the pending entry — the user can still retry if the
+        // conflicting insert is rolled back. The collision is rare in
+        // practice (race window is microseconds).
+        return yield* Effect.fail(new AuthError({ message: "Email or handle already registered" }));
+      }
+
+      // Success: only NOW delete the pending entry.
+      pendingRegistrations.delete(key);
+
+      const tokens = yield* issueTokens(id, pending.email, pending.handle, pending.displayName);
+      const enrollmentToken = yield* issueEnrollmentToken(id);
+
+      return {
+        userId: id,
+        handle: pending.handle,
+        email: pending.email,
+        displayName: pending.displayName,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresIn: tokens.expiresIn,
+        enrollmentToken,
+      };
+    });
+
+  /**
    * Checks whether a handle is valid format and not yet taken.
    */
   const checkHandle = (
@@ -303,6 +574,75 @@ export function createAuthService(config: AuthConfig) {
     Effect.tryPromise({
       try: () => signJwt({ sub: userId, type: "code" }, config.jwtSecret, 120),
       catch: (cause) => new AuthError({ message: String(cause) }),
+    });
+
+  // -------------------------------------------------------------------------
+  // Enrollment tokens
+  //
+  // Short-lived (5 min) single-use bearer tokens minted by completeRegistration
+  // (and only by completeRegistration) so that the new user can prove the
+  // server-side identity it just received over the same channel when it calls
+  // /passkey/register/{begin,complete}. The token's `sub` is the userId of the
+  // user being enrolled. Calls to /passkey/register/* compare the token's sub
+  // against the request body's userId; a mismatch is rejected.
+  //
+  // The "consumed" set tracks the JWT IDs (`jti`) of tokens that have already
+  // been used by /passkey/register/complete. /passkey/register/begin does NOT
+  // consume the token (the user may need to retry the WebAuthn ceremony).
+  // -------------------------------------------------------------------------
+
+  const enrollmentTokenTtl = 5 * 60; // seconds
+
+  const issueEnrollmentToken = (userId: string) =>
+    Effect.tryPromise({
+      try: () => {
+        const jti = crypto.randomUUID();
+        return signJwt(
+          { sub: userId, type: "passkey-enroll", jti },
+          config.jwtSecret,
+          enrollmentTokenTtl,
+        );
+      },
+      catch: (cause) => new AuthError({ message: String(cause) }),
+    });
+
+  /**
+   * Verifies an enrollment token. Returns the userId on success.
+   * If `consume` is true (used by /passkey/register/complete) the token's jti
+   * is recorded in `consumedEnrollmentTokens` and any subsequent verification
+   * with the same jti will fail.
+   */
+  const verifyEnrollmentToken = (
+    token: string,
+    options: { consume: boolean } = { consume: false },
+  ): Effect.Effect<{ userId: string }, AuthError> =>
+    Effect.gen(function* () {
+      const payload = yield* Effect.tryPromise({
+        try: () => verifyJwt(token, config.jwtSecret),
+        catch: () => new AuthError({ message: "Invalid or expired enrollment token" }),
+      });
+      if (
+        payload["type"] !== "passkey-enroll" ||
+        typeof payload["sub"] !== "string" ||
+        typeof payload["jti"] !== "string"
+      ) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid enrollment token" }));
+      }
+
+      // Sweep consumed tokens whose original TTL has elapsed (Date.now() ms).
+      const cutoff = Date.now() - enrollmentTokenTtl * 1000;
+      for (const [jti, ts] of consumedEnrollmentTokens) {
+        if (ts < cutoff) consumedEnrollmentTokens.delete(jti);
+      }
+
+      const jti = payload["jti"] as string;
+      if (consumedEnrollmentTokens.has(jti)) {
+        return yield* Effect.fail(new AuthError({ message: "Enrollment token already used" }));
+      }
+      if (options.consume) {
+        consumedEnrollmentTokens.set(jti, Date.now());
+      }
+      return { userId: payload["sub"] as string };
     });
 
   // -------------------------------------------------------------------------
@@ -790,6 +1130,10 @@ export function createAuthService(config: AuthConfig) {
     findUserByHandle,
     resolveIdentifier,
     registerUser,
+    beginRegistration,
+    completeRegistration,
+    issueEnrollmentToken,
+    verifyEnrollmentToken,
     checkHandle,
     issueTokens,
     exchangeCode,

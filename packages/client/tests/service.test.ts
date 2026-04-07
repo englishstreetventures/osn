@@ -145,3 +145,46 @@ it.effect("refreshSession fails when there is no refresh token", () =>
     vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
+
+it.effect("setSession persists a session that getSession can read back", () =>
+  Effect.gen(function* () {
+    const auth = yield* OsnAuth;
+    const fixture = {
+      accessToken: "acc_persisted",
+      refreshToken: "ref_persisted",
+      idToken: null,
+      expiresAt: Date.now() + 60_000,
+      scopes: ["openid", "profile"],
+    };
+    yield* auth.setSession(fixture);
+
+    const stored = yield* auth.getSession();
+    expect(stored).not.toBeNull();
+    expect(stored?.accessToken).toBe("acc_persisted");
+    expect(stored?.refreshToken).toBe("ref_persisted");
+    expect(stored?.scopes).toEqual(["openid", "profile"]);
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("setSession overwrites a previously persisted session", () =>
+  Effect.gen(function* () {
+    const auth = yield* OsnAuth;
+    yield* auth.setSession({
+      accessToken: "first",
+      refreshToken: null,
+      idToken: null,
+      expiresAt: Date.now() + 60_000,
+      scopes: [],
+    });
+    yield* auth.setSession({
+      accessToken: "second",
+      refreshToken: null,
+      idToken: null,
+      expiresAt: Date.now() + 60_000,
+      scopes: [],
+    });
+
+    const stored = yield* auth.getSession();
+    expect(stored?.accessToken).toBe("second");
+  }).pipe(Effect.provide(createTestLayer())),
+);

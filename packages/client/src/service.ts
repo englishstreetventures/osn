@@ -41,6 +41,13 @@ export interface OsnAuthService {
   readonly refreshSession: () => Effect.Effect<Session, TokenRefreshError | StorageError>;
 
   readonly logout: () => Effect.Effect<void, StorageError>;
+
+  /**
+   * Persists a Session that was obtained out-of-band (e.g. from the
+   * email-verified registration flow, which exchanges its auth code through
+   * the standalone registration client and bypasses the PKCE callback).
+   */
+  readonly setSession: (session: Session) => Effect.Effect<void, StorageError>;
 }
 
 export class OsnAuth extends Context.Tag("@osn/client/OsnAuth")<OsnAuth, OsnAuthService>() {}
@@ -164,7 +171,9 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
 
       const logout = () => storage.remove(SESSION_KEY);
 
-      return { startLogin, handleCallback, getSession, refreshSession, logout };
+      const setSession = (session: Session) => storage.set(SESSION_KEY, JSON.stringify(session));
+
+      return { startLogin, handleCallback, getSession, refreshSession, logout, setSession };
     }),
   );
 }

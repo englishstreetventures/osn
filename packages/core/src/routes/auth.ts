@@ -5,6 +5,45 @@ import { createAuthService, type AuthConfig } from "../services/auth";
 import { buildAuthorizeHtml } from "../lib/html";
 import { verifyPkceChallenge } from "../lib/crypto";
 
+/**
+ * Maps a thrown Effect-tagged error (or anything else) to a stable, public,
+ * non-leaky error payload. The full cause is logged server-side for diagnosis,
+ * but only opaque codes / sanitised messages cross the wire (S-H5 / S-M6).
+ *
+ * Tagged Effect errors come through `Effect.runPromise` wrapped in a
+ * `FiberFailure`; we walk the cause chain looking for the original tag.
+ */
+function publicError(e: unknown): { status: number; body: { error: string; message?: string } } {
+  // Walk the FiberFailure / Cause chain to find an Effect-tagged error.
+  const tag = (() => {
+    const seen = new Set<unknown>();
+    const queue: unknown[] = [e];
+    while (queue.length) {
+      const node = queue.shift();
+      if (!node || typeof node !== "object" || seen.has(node)) continue;
+      seen.add(node);
+      const t = (node as { _tag?: unknown })._tag;
+      if (typeof t === "string") return t;
+      for (const v of Object.values(node)) queue.push(v);
+    }
+    return null;
+  })();
+
+  // Always log the underlying cause for operators.
+  console.error("[auth route]", e);
+
+  switch (tag) {
+    case "ValidationError":
+      return { status: 400, body: { error: "invalid_request" } };
+    case "AuthError":
+      return { status: 400, body: { error: "invalid_request" } };
+    case "DatabaseError":
+      return { status: 500, body: { error: "internal_error" } };
+    default:
+      return { status: 400, body: { error: "invalid_request" } };
+  }
+}
+
 // In-memory PKCE challenge store (keyed by state)
 interface PkceEntry {
   codeChallenge: string;
@@ -21,6 +60,55 @@ export function createAuthRoutes(authConfig: AuthConfig, dbLayer: Layer.Layer<Db
 
   const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
     Effect.runPromise(eff.pipe(Effect.provide(dbLayer)) as Effect.Effect<A, never, never>);
+
+  /**
+   * Resolves the authenticated principal for /passkey/register/* calls. The
+   * caller may present an Authorization header containing either a normal
+   * access token (existing user) or an enrollment token (new user from the
+   * registration flow). When the header is present and verifies, the
+   * resulting userId is compared against `bodyUserId` and a mismatch returns
+   * `{ unauthorized: true }`.
+   *
+   * When the header is absent, the route falls back to the legacy unauth'd
+   * path that simply trusts `bodyUserId`. This is preserved only for the
+   * hosted /authorize HTML page (`buildAuthorizeHtml`); see the security
+   * backlog for the removal plan.
+   */
+  type Principal = { unauthorized: true } | { unauthorized: false; userId: string };
+  async function resolvePasskeyEnrollPrincipal(
+    authHeader: string | undefined,
+    bodyUserId: string,
+    options: { consume: boolean } = { consume: false },
+  ): Promise<Principal> {
+    if (authHeader && /^Bearer\s+/i.test(authHeader)) {
+      const token = authHeader.replace(/^Bearer\s+/i, "");
+
+      // Try as a normal access token first.
+      const accessResult = await Effect.runPromise(Effect.either(auth.verifyAccessToken(token)));
+      if (accessResult._tag === "Right") {
+        if (accessResult.right.userId !== bodyUserId) return { unauthorized: true };
+        return { unauthorized: false, userId: accessResult.right.userId };
+      }
+
+      // Otherwise try as an enrollment token (and consume on /complete).
+      const enrollResult = await Effect.runPromise(
+        Effect.either(auth.verifyEnrollmentToken(token, options)),
+      );
+      if (enrollResult._tag === "Right") {
+        if (enrollResult.right.userId !== bodyUserId) return { unauthorized: true };
+        return { unauthorized: false, userId: enrollResult.right.userId };
+      }
+
+      return { unauthorized: true };
+    }
+
+    // Legacy unauth'd path — kept only for the hosted sign-in HTML page.
+    // Removal is tracked as S-C1-followup in the security backlog.
+    console.warn(
+      "[auth] DEPRECATED: /passkey/register/* called without Authorization header — body.userId is being trusted as principal. This path will be removed; see security backlog (S-C1-followup).",
+    );
+    return { unauthorized: false, userId: bodyUserId };
+  }
 
   return (
     new Elysia({ prefix: "" })
@@ -62,6 +150,71 @@ export function createAuthRoutes(authConfig: AuthConfig, dbLayer: Layer.Layer<Db
             email: t.String(),
             handle: t.String(),
             displayName: t.Optional(t.String()),
+          }),
+        },
+      )
+      // -------------------------------------------------------------------------
+      // Email-verified registration: begin (sends OTP, does not create user)
+      //
+      // Always returns `{ sent: true }` (or a public error code on validation
+      // failure) regardless of whether the email/handle is already taken —
+      // this removes the user-enumeration oracle (S-M1).
+      // -------------------------------------------------------------------------
+      .post(
+        "/register/begin",
+        async ({ body, set }) => {
+          try {
+            return await run(auth.beginRegistration(body.email, body.handle, body.displayName));
+          } catch (e) {
+            const { status, body: errBody } = publicError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          body: t.Object({
+            email: t.String(),
+            handle: t.String(),
+            displayName: t.Optional(t.String()),
+          }),
+        },
+      )
+      // -------------------------------------------------------------------------
+      // Email-verified registration: complete (verifies OTP, creates user)
+      //
+      // Returns access + refresh tokens directly (no `/token` round-trip) plus
+      // a single-use enrollment_token the client uses to authenticate the
+      // subsequent passkey-enrolment calls.
+      // -------------------------------------------------------------------------
+      .post(
+        "/register/complete",
+        async ({ body, set }) => {
+          try {
+            const result = await run(auth.completeRegistration(body.email, body.code));
+            set.status = 201;
+            return {
+              userId: result.userId,
+              handle: result.handle,
+              email: result.email,
+              session: {
+                access_token: result.accessToken,
+                refresh_token: result.refreshToken,
+                token_type: "Bearer",
+                expires_in: result.expiresIn,
+                scope: "openid profile",
+              },
+              enrollment_token: result.enrollmentToken,
+            };
+          } catch (e) {
+            const { status, body: errBody } = publicError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          body: t.Object({
+            email: t.String(),
+            code: t.String(),
           }),
         },
       )
@@ -216,16 +369,36 @@ export function createAuthRoutes(authConfig: AuthConfig, dbLayer: Layer.Layer<Db
       )
       // -------------------------------------------------------------------------
       // Passkey: begin registration
+      //
+      // Authorization model:
+      //  - Preferred: client sends `Authorization: Bearer <token>`. Token is
+      //    either a normal access token (existing user adding a passkey from
+      //    a settings screen) or an enrollment token (new user from the
+      //    registration flow). The principal's userId is taken from the token
+      //    and the request body's `userId` MUST match.
+      //  - Legacy: no header. The route trusts `body.userId` as-is. This is
+      //    insecure and is tracked for removal in the security backlog (the
+      //    hosted /authorize HTML page is the last remaining caller). A
+      //    deprecation warning is logged on every legacy hit.
       // -------------------------------------------------------------------------
       .post(
         "/passkey/register/begin",
-        async ({ body, set }) => {
+        async ({ body, set, headers }) => {
           try {
-            const result = await run(auth.beginPasskeyRegistration(body.userId));
+            const principal = await resolvePasskeyEnrollPrincipal(
+              headers.authorization,
+              body.userId,
+            );
+            if (principal.unauthorized) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const result = await run(auth.beginPasskeyRegistration(principal.userId));
             return result.options;
           } catch (e) {
-            set.status = 400;
-            return { error: String(e) };
+            const { status, body: errBody } = publicError(e);
+            set.status = status;
+            return errBody;
           }
         },
         {
@@ -237,15 +410,25 @@ export function createAuthRoutes(authConfig: AuthConfig, dbLayer: Layer.Layer<Db
       // -------------------------------------------------------------------------
       .post(
         "/passkey/register/complete",
-        async ({ body, set }) => {
+        async ({ body, set, headers }) => {
           try {
+            const principal = await resolvePasskeyEnrollPrincipal(
+              headers.authorization,
+              body.userId,
+              { consume: true },
+            );
+            if (principal.unauthorized) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
             const result = await run(
-              auth.completePasskeyRegistration(body.userId, body.attestation),
+              auth.completePasskeyRegistration(principal.userId, body.attestation),
             );
             return result;
           } catch (e) {
-            set.status = 400;
-            return { error: String(e) };
+            const { status, body: errBody } = publicError(e);
+            set.status = status;
+            return errBody;
           }
         },
         {

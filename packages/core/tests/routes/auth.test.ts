@@ -93,6 +93,214 @@ describe("auth routes", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Email-verified registration (begin + complete)
+  // -------------------------------------------------------------------------
+  describe("POST /register/begin + /register/complete", () => {
+    it("does not create the user until the OTP is verified", async () => {
+      let captured: string | undefined;
+      const verifiedConfig = {
+        ...config,
+        sendEmail: async (_to: string, _subject: string, body: string) => {
+          const m = body.match(/code is: (\d{6})/);
+          if (m) captured = m[1];
+        },
+      };
+      const verifiedApp = createAuthRoutes(verifiedConfig, layer);
+
+      // Begin: should send a code but NOT create the user yet.
+      const beginRes = await verifiedApp.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: "verify-me@example.com",
+            handle: "verifyme",
+            displayName: "Verify Me",
+          }),
+        }),
+      );
+      expect(beginRes.status).toBe(200);
+      expect(((await beginRes.json()) as { sent: boolean }).sent).toBe(true);
+      expect(captured).toMatch(/^\d{6}$/);
+
+      // Handle should still be free, since user wasn't created.
+      const checkRes = await verifiedApp.handle(new Request("http://localhost/handle/verifyme"));
+      expect(((await checkRes.json()) as { available: boolean }).available).toBe(true);
+
+      // Complete: with the right code, user is created and a Session +
+      // enrollment_token are returned directly (no /token round-trip).
+      const completeRes = await verifiedApp.handle(
+        new Request("http://localhost/register/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "verify-me@example.com", code: captured! }),
+        }),
+      );
+      expect(completeRes.status).toBe(201);
+      const json = (await completeRes.json()) as {
+        userId: string;
+        handle: string;
+        email: string;
+        session: {
+          access_token: string;
+          refresh_token: string;
+          token_type: string;
+          expires_in: number;
+        };
+        enrollment_token: string;
+      };
+      expect(json.userId).toMatch(/^usr_/);
+      expect(json.handle).toBe("verifyme");
+      expect(json.email).toBe("verify-me@example.com");
+      expect(json.session.access_token.length).toBeGreaterThan(0);
+      expect(json.session.refresh_token.length).toBeGreaterThan(0);
+      expect(json.session.token_type).toBe("Bearer");
+      expect(json.session.expires_in).toBeGreaterThan(0);
+      expect(json.enrollment_token.length).toBeGreaterThan(0);
+
+      // Handle now taken.
+      const checkRes2 = await verifiedApp.handle(new Request("http://localhost/handle/verifyme"));
+      expect(((await checkRes2.json()) as { available: boolean }).available).toBe(false);
+    });
+
+    it("rejects the wrong OTP and does not create the user", async () => {
+      const beginRes = await app.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "wrong-otp@example.com", handle: "wrongotp" }),
+        }),
+      );
+      expect(beginRes.status).toBe(200);
+
+      const completeRes = await app.handle(
+        new Request("http://localhost/register/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "wrong-otp@example.com", code: "000000" }),
+        }),
+      );
+      expect(completeRes.status).toBe(400);
+
+      const checkRes = await app.handle(new Request("http://localhost/handle/wrongotp"));
+      expect(((await checkRes.json()) as { available: boolean }).available).toBe(true);
+    });
+
+    it("S-M1: returns sent:true silently when the email is already registered", async () => {
+      // Enumeration-resistant: never differentiate between "free" and "taken"
+      // accounts on /register/begin. The handle availability check is the
+      // appropriate channel for that question.
+      await app.handle(
+        new Request("http://localhost/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "taken@example.com", handle: "takenuser" }),
+        }),
+      );
+      const res = await app.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "taken@example.com", handle: "newhandle" }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { sent: boolean }).sent).toBe(true);
+    });
+
+    it("S-M1: returns sent:true silently when the handle is already taken", async () => {
+      await app.handle(
+        new Request("http://localhost/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "first@example.com", handle: "duphandle" }),
+        }),
+      );
+      const res = await app.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "second@example.com", handle: "duphandle" }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { sent: boolean }).sent).toBe(true);
+    });
+
+    it("rejects begin for an invalid handle format", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "ok@example.com", handle: "Bad Handle!" }),
+        }),
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects /register/complete with no preceding /register/begin", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/register/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "never-began@example.com", code: "123456" }),
+        }),
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects /register/complete on replay (single-use OTP)", async () => {
+      let captured: string | undefined;
+      const verifiedConfig = {
+        ...config,
+        sendEmail: async (_to: string, _subject: string, body: string) => {
+          const m = body.match(/code is: (\d{6})/);
+          if (m) captured = m[1];
+        },
+      };
+      const verifiedApp = createAuthRoutes(verifiedConfig, layer);
+
+      await verifiedApp.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "replay-route@example.com", handle: "replayroute" }),
+        }),
+      );
+
+      const first = await verifiedApp.handle(
+        new Request("http://localhost/register/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "replay-route@example.com", code: captured! }),
+        }),
+      );
+      expect(first.status).toBe(201);
+
+      const second = await verifiedApp.handle(
+        new Request("http://localhost/register/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "replay-route@example.com", code: captured! }),
+        }),
+      );
+      expect(second.status).toBe(400);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Reserved handles via /handle/:handle
+  // -------------------------------------------------------------------------
+  describe("GET /handle/:handle (reserved)", () => {
+    it("returns available:false for a reserved handle", async () => {
+      const res = await app.handle(new Request("http://localhost/handle/admin"));
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { available: boolean };
+      expect(json.available).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Handle availability
   // -------------------------------------------------------------------------
   describe("GET /handle/:handle", () => {
@@ -437,6 +645,149 @@ describe("auth routes", () => {
         }),
       );
       expect(res.status).toBe(400);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Authorization gating on /passkey/register/*
+  // -------------------------------------------------------------------------
+  describe("POST /passkey/register/begin (Authorization gating)", () => {
+    /**
+     * Helper: register a user via the legacy path, then mint an enrollment
+     * token directly via the service. Mirrors what completeRegistration does
+     * in the new flow.
+     */
+    async function setupUserAndEnrollmentToken(): Promise<{
+      userId: string;
+      enrollmentToken: string;
+    }> {
+      const svc = createAuthService(config);
+      const user = await Effect.runPromise(
+        svc.registerUser("paul@example.com", "paul").pipe(Effect.provide(layer)),
+      );
+      const enrollmentToken = await Effect.runPromise(svc.issueEnrollmentToken(user.id));
+      return { userId: user.id, enrollmentToken };
+    }
+
+    it("S-C1: rejects with 401 when Authorization header is present but invalid", async () => {
+      const { userId } = await setupUserAndEnrollmentToken();
+      const res = await app.handle(
+        new Request("http://localhost/passkey/register/begin", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer not-a-real-token",
+          },
+          body: JSON.stringify({ userId }),
+        }),
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it("S-C1: rejects with 401 when enrollment token's sub mismatches body.userId", async () => {
+      const { enrollmentToken } = await setupUserAndEnrollmentToken();
+      const res = await app.handle(
+        new Request("http://localhost/passkey/register/begin", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${enrollmentToken}`,
+          },
+          body: JSON.stringify({ userId: "usr_someoneelse" }),
+        }),
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it("accepts a valid enrollment token whose sub matches body.userId", async () => {
+      const { userId, enrollmentToken } = await setupUserAndEnrollmentToken();
+      const res = await app.handle(
+        new Request("http://localhost/passkey/register/begin", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${enrollmentToken}`,
+          },
+          body: JSON.stringify({ userId }),
+        }),
+      );
+      // 200 OK (WebAuthn options blob) — not 401, not 400.
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { challenge?: string };
+      expect(json.challenge).toBeTruthy();
+    });
+
+    it("accepts a normal access token (existing user adding a passkey)", async () => {
+      const svc = createAuthService(config);
+      const user = await Effect.runPromise(
+        svc.registerUser("quinn@example.com", "quinn").pipe(Effect.provide(layer)),
+      );
+      const tokens = await Effect.runPromise(
+        svc.issueTokens(user.id, user.email, user.handle, user.displayName),
+      );
+      const res = await app.handle(
+        new Request("http://localhost/passkey/register/begin", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${tokens.accessToken}`,
+          },
+          body: JSON.stringify({ userId: user.id }),
+        }),
+      );
+      expect(res.status).toBe(200);
+    });
+
+    it("legacy unauth'd path is still permitted (deprecated; tracked for removal)", async () => {
+      const svc = createAuthService(config);
+      const user = await Effect.runPromise(
+        svc.registerUser("rita@example.com", "rita").pipe(Effect.provide(layer)),
+      );
+      const res = await app.handle(
+        new Request("http://localhost/passkey/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: user.id }),
+        }),
+      );
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe("POST /passkey/register/complete (enrollment token consumption)", () => {
+    it("rejects when the enrollment token has already been consumed", async () => {
+      const svc = createAuthService(config);
+      const user = await Effect.runPromise(
+        svc.registerUser("sam@example.com", "samuser").pipe(Effect.provide(layer)),
+      );
+      const enrollmentToken = await Effect.runPromise(svc.issueEnrollmentToken(user.id));
+
+      // First call: consumes the token. The attestation is bogus so the
+      // service will fail downstream — but the *consumption* happens in the
+      // route guard before that, so this still marks the token used.
+      await app.handle(
+        new Request("http://localhost/passkey/register/complete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${enrollmentToken}`,
+          },
+          body: JSON.stringify({ userId: user.id, attestation: { id: "x" } }),
+        }),
+      );
+
+      // Second call with the same token must be rejected at the auth layer.
+      const second = await app.handle(
+        new Request("http://localhost/passkey/register/complete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${enrollmentToken}`,
+          },
+          body: JSON.stringify({ userId: user.id, attestation: { id: "x" } }),
+        }),
+      );
+      expect(second.status).toBe(401);
     });
   });
 });

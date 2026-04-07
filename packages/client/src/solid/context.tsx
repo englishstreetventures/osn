@@ -15,6 +15,11 @@ interface AuthContextValue {
   login: (redirectUri: string, scopes?: string[]) => void;
   logout: () => Promise<void>;
   handleCallback: (params: { code: string; state: string; redirectUri: string }) => Promise<void>;
+  /**
+   * Persists a Session obtained from the registration flow (or any other
+   * out-of-band source) and refetches the session resource so the UI updates.
+   */
+  adoptSession: (session: Session) => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue>();
@@ -57,8 +62,13 @@ export function AuthProvider(props: AuthProviderProps) {
     refetch();
   };
 
+  const adoptSession = async (next: Session) => {
+    await run(Effect.flatMap(OsnAuth, (auth) => auth.setSession(next)));
+    refetch();
+  };
+
   return (
-    <AuthContext.Provider value={{ session, login, logout, handleCallback }}>
+    <AuthContext.Provider value={{ session, login, logout, handleCallback, adoptSession }}>
       {props.children}
     </AuthContext.Provider>
   );

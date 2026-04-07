@@ -7,6 +7,7 @@ import { REDIRECT_URI } from "../lib/auth";
 import { getUserIdFromToken, getDisplayNameFromToken } from "../lib/utils";
 import { EventCard } from "./EventCard";
 import { CreateEventForm } from "./CreateEventForm";
+import { Register } from "./Register";
 
 async function fetchEvents(accessToken: string | null): Promise<EventItem[]> {
   const headers: Record<string, string> = {};
@@ -27,6 +28,7 @@ export function EventList() {
   const tokenSource = createMemo(() => ({ token: accessToken() }));
   const [events, { refetch }] = createResource(tokenSource, ({ token }) => fetchEvents(token));
   const [showForm, setShowForm] = createSignal(false);
+  const [showRegister, setShowRegister] = createSignal(false);
   const [deletingIds, setDeletingIds] = createSignal(new Set<string>());
 
   function handleDelete(id: string) {
@@ -68,6 +70,12 @@ export function EventList() {
         <div class="flex gap-2">
           <Show when={!session()}>
             <button
+              onClick={() => setShowRegister(true)}
+              class="rounded-md px-3 py-1.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              Create account
+            </button>
+            <button
               onClick={() => login(REDIRECT_URI())}
               class="rounded-md px-3 py-1.5 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80"
             >
@@ -90,6 +98,9 @@ export function EventList() {
           </Show>
         </div>
       </div>
+      <Show when={showRegister() && !session()}>
+        <Register onCancel={() => setShowRegister(false)} />
+      </Show>
       <Show when={showForm()}>
         <CreateEventForm
           accessToken={accessToken()}
