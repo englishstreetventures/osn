@@ -6,11 +6,11 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 - [ ] Pulse: "What's on today" default view
 - [ ] Landing page: design and content
+- [ ] Zap M0 scaffold — `@zap/app` (Tauri+Solid), `@zap/api` (Elysia), `@zap/db` (Drizzle)
 - [ ] S-H1 — Rate limit registration + login auth endpoints (per-IP / per-email throttle)
 - [ ] S-H3 — Open redirect in `/magic/verify` — fix before any deployment
 - [ ] S-H4 — Make PKCE mandatory at `/token` (drop the `if (state)` conditional; affects every code-issuing flow)
 - [ ] S-H5 — Migrate the hosted `/authorize` HTML page to send `Authorization: Bearer <token>` to `/passkey/register/*`, then remove the legacy unauth'd path
-- [ ] S-M1 — `verifyAccessToken` rejects tokens missing `handle` claim — grace period needed
 - [ ] ARC token verification middleware on internal graph routes (`/graph/internal/*`)
 
 ---
@@ -58,16 +58,82 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ---
 
-## Messaging (`pulse/messaging` — TBD)
+## Zap (`zap/app` + `zap/api` + `zap/db`)
 
-- [ ] Initialize Tauri app (`bunx tauri init`)
-- [ ] Signal protocol research/implementation (`osn/crypto`)
-- [ ] Direct/indirect mode architecture
-- [ ] DM functionality
-- [ ] Group chats
-- [ ] Event chat linking (show event overview in settings)
-- [ ] Backup options (cloud, self-hosted, local)
-- [ ] Device transfer
+OSN's messaging app. Currently a placeholder — `zap/` exists with a
+README and is wired into the workspaces glob, but no workspaces have
+been scaffolded yet. Stack matches Pulse (Bun, Tauri+Solid, Elysia+Eden,
+Drizzle+SQLite, Effect.ts) unless a real reason emerges to diverge.
+Signal Protocol lives in `@osn/crypto`, not `zap/`.
+
+### M0 — Scaffold (no behaviour, just the skeleton)
+
+- [ ] `bunx create-tauri-app` for `@zap/app` (iOS target enabled, Solid template)
+- [ ] `@zap/api` workspace (Elysia + Eden, mirror `@pulse/api` layout, port TBD)
+- [ ] `@zap/db` workspace (Drizzle + SQLite, mirror `@pulse/db` layout)
+- [ ] `@zap/app` consumes `@osn/client` + `@osn/ui/auth` for sign-in (re-uses the same `<SignIn>` / `<Register>` from Pulse)
+- [ ] Initial test infra (`tests/helpers/db.ts`, `createTestLayer()`) for `@zap/api` and `@zap/db`
+- [ ] Add `@zap/app`, `@zap/api`, `@zap/db` to the turbo pipeline (build / check / test)
+- [ ] Register `zap-app` and `zap-api` in `service_accounts` (ARC token issuer rows)
+
+### M1 — 1:1 DMs (E2E)
+
+- [ ] Signal Protocol primitives in `@osn/crypto/signal` (X3DH handshake, double ratchet)
+- [ ] `@zap/db` schema: `chats`, `chat_members`, `messages`, `device_keys`, `prekey_bundles`
+- [ ] `@zap/api` routes: `POST /chats` (create DM), `POST /chats/:id/messages`, `GET /chats/:id/messages`
+- [ ] WebSocket transport for live message delivery (`@zap/api`)
+- [ ] Push receipt + read receipt model (defer push notifications themselves to M4)
+- [ ] `@zap/app` Socials view: chat list + message thread UI
+- [ ] Resolve recipients via `@osn/client` (handle → user lookup) + ARC-gated `/graph/internal/connections` to filter out blocked users
+- [ ] Test coverage: handshake, ratchet, message ordering, blocked-user enforcement
+- [ ] Disappearing messages flag at chat level + per-message TTL sweep
+
+### M2 — Group chats
+
+- [ ] Group session establishment (sender keys or MLS — pick one and document)
+- [ ] `@zap/db` schema: `chat_role` (admin/member), `chat_invites`
+- [ ] Add/remove members, role transitions, invite links
+- [ ] Group-level disappearing-message defaults
+- [ ] Event chat linking: when a `@pulse/api` event is created, optionally provision a Zap group chat and stash the chat ID on the event row
+- [ ] Show linked event overview inside the chat settings sheet (read from `@pulse/api` via Eden or ARC-gated S2S)
+- [ ] Test coverage: group rekeying on member removal, race conditions on simultaneous joins
+
+### M3 — Organisation chats (the differentiator)
+
+- [ ] `organisations` table in `@osn/db` (verified flag, owner user, allowed scopes, public profile)
+- [ ] Verification flow (manual review for now; document the criteria)
+- [ ] `org_chats` and `org_agents` schemas in `@zap/db` — assignment, queue, status (open/pending/resolved), SLA timestamps
+- [ ] Organisation-side dashboard (separate `@zap/app` view, role-gated): inbox, agent assignment, transcript export, analytics
+- [ ] Embeddable web widget — small standalone bundle (Vite + Solid) shipped from `@zap/api` static, accepts an OSN handle and opens a conversation under the calling org
+- [ ] E-commerce checkout integration: capture OSN handle alongside email at checkout, surface order context to org agents
+- [ ] Public REST API for orgs to ingest support context from third-party systems (Zendesk-shaped surface)
+
+### M4 — Locality / government channels
+
+- [ ] Locality opt-in flow in `@zap/app` (permanent home + temporary travel subscriptions with expiry)
+- [ ] `localities` and `locality_subscriptions` schemas in `@zap/db`; `locality_org` join to organisations
+- [ ] Push channel for verified locality/government broadcasts (one-way; users can ask follow-ups via the org channel)
+- [ ] AI-assisted query endpoint scoped to a locality ("nearest relief centre to my location") — defer model choice
+- [ ] Privacy: locality stored on device + minimal server-side join; user-resettable per the OSN data principles
+- [ ] Test coverage: travel subscription expiry, broadcast fan-out, query authority filtering
+
+### M5 — Polish + AI view + native
+
+- [ ] Themes (token-driven, share `@osn/ui` design tokens once those exist)
+- [ ] Stickers + GIFs (third-party provider TBD; needs CSP review)
+- [ ] Polls (per-chat, with privacy mode)
+- [ ] Easter-egg mini-games (scoped, opt-in)
+- [ ] AI view: dedicated tab for model conversations, quarantined from the Socials inbox; user-selectable model
+- [ ] Push notifications (APNs first, FCM later — ties to Android deferral)
+- [ ] Backup options: encrypted cloud / self-hosted / local-only
+- [ ] Device transfer flow (key migration, backup restore)
+
+### Cross-cutting / open questions
+
+- [ ] Signal vs MLS for group chats — Signal sender-keys is simpler; MLS scales better past ~50 members. Decide before M2.
+- [ ] Storage backend at scale: SQLite is fine for a single Bun process but messages have very different access patterns to events/users. Revisit when message volume forces it (likely Postgres / Supabase, possibly with an object store for media).
+- [ ] Message media (images, video, voice notes) — needs E2E-friendly blob storage. Defer to post-M2.
+- [ ] Spam / abuse model for organisation handles — verification gate is M3 but we'll need ongoing review tooling.
 
 ---
 
@@ -140,6 +206,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [x] Claude Code GitHub integration
 - [x] Claude skills: review-security, review-performance, review-tests, prep-pr, review-deps
 - [x] UserPromptSubmit hook for tone enforcement
+- [x] Changeset Check workflow runs `bunx changeset status` so a `.changeset/*.md` referencing a non-existent workspace name fails the PR — previously such typos blew up the Release workflow on main and blocked all subsequent versioning (e.g. `"pulse"` instead of `"@pulse/app"` in `fix-handle-regex-error-message.md`).
 
 ---
 
@@ -251,8 +318,9 @@ Address **High** items before any non-local deployment.
 
 | Decision | Context | Revisit When |
 |----------|---------|--------------|
-| Messaging app name | Need a catchy name | Before public launch |
 | Social media platform name | Need a catchy name | Before starting Phase 3 |
+| Signal vs MLS for Zap group chats | Sender-keys is simpler; MLS scales past ~50 members | Before Zap M2 |
+| Zap media storage (images / voice / video) | Needs E2E-friendly blob storage; SQLite-only won't cut it | When Zap M2 lands |
 | Effect.ts adoption | Trial underway in `pulse/api` | After more service coverage |
 | Supabase migration | Currently SQLite | When scaling needed |
 | Android support | iOS priority | Phase 3 |

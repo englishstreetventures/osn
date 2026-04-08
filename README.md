@@ -39,15 +39,53 @@ A unified events platform combining the social ease of Facebook Events, the fun 
 - Calendar view with iCal export (one-way sync to Google Calendar, Apple Calendar)
 - Hidden attendance option for private events
 
-### Messaging App (Name TBD)
-Secure messaging with deep integration into the OSN ecosystem.
+### Zap (Messaging)
+Secure, playful messaging that doubles as the OSN ecosystem's
+identity-aware customer-support and announcements channel. Visually:
+somewhere between Messenger, Instagram, and iMessage — playful but not
+overbearing, modern, secure, transparent.
 
-**Key Features:**
-- Signal protocol for E2E encryption
-- Event group chats accessible from both Pulse and Messaging
+**Two top-level views:**
+1. **Socials** — DMs, group chats, organisation chats; filterable.
+2. **AI** — dedicated view for conversations with AI models, kept out
+   of the regular inbox.
+
+**Core features:**
+- DMs and group chats
+- Disappearing messages (optional, per chat)
+- Themes
+- Easter-egg mini-games
+- Stickers and GIFs
+- Polls
+- AI model conversations (dedicated view)
+- E2E encryption via Signal Protocol (`@osn/crypto`)
+- Event group chats accessible from both Pulse and Zap
 - Event overview visible in group chat settings
 - Backup options: encrypted cloud, self-hosted cloud, local-only
 - Device transfer support
+
+**Key differentiator — Organisation chats:**
+- **Verified organisations** — blue-tick-style verification for
+  businesses, public bodies, and NGOs.
+- **Customer support via Zap handle** — businesses replace
+  `support@acme.com` with `@acme`. Phishing surface drops because the
+  verified handle is the source of truth.
+- **Embeddable web widget** — third-party sites swap their
+  email-capture support form for "Enter your OSN handle". The
+  conversation surfaces in Zap under the verified organisation account
+  with full history. E-commerce checkouts can capture an OSN handle
+  alongside (or instead of) email to streamline post-purchase support.
+- **Organisation tooling** — backend dashboards for triage, agent
+  assignment, analytics, SLA monitoring, and audit.
+- **Locality / government channels** — users opt in to a locality
+  (their home city, plus temporary subscriptions while travelling) and
+  receive official announcements (floods, evacuation, public safety)
+  directly. AI-assisted queries route citizens to authoritative answers
+  ("where's the nearest relief centre?") in real time.
+
+Implementation lives under `zap/` (`@zap/app`, `@zap/api`, `@zap/db`).
+The directory is currently a placeholder — see [TODO.md](TODO.md) for
+the build plan.
 
 ### Social Media Platform (Spec Only - Deferred)
 Multi-format social content with opt-out granularity.
@@ -64,7 +102,7 @@ Users can opt out of specific formats (e.g., disable short-form video entirely).
 
 ### Monorepo Structure
 
-The monorepo is organised by domain. Three top-level directories, one
+The monorepo is organised by domain. Four top-level directories, one
 workspace prefix each:
 
 ```
@@ -82,6 +120,11 @@ pulse/            # @pulse/* — events stack
   api/              # Elysia + Eden events server (port 3001)
   db/               # Drizzle schema — events, RSVPs
 
+zap/              # @zap/* — messaging stack (placeholder, see TODO.md)
+  app/              # planned: Tauri + SolidJS messaging client
+  api/              # planned: Elysia + Eden messaging server
+  db/               # planned: Drizzle schema — chats, messages, group state
+
 shared/           # @shared/* — cross-cutting utilities
   db-utils/         # createDrizzleClient, makeDbLive
   typescript-config/ # base / node / solid tsconfigs
@@ -92,9 +135,9 @@ Each Tauri app follows the standard structure:
 - `src-tauri/` - Rust native layer with iOS/Android targets
 
 **Prefix rule:** every workspace lives under exactly one of `osn/`,
-`pulse/`, or `shared/`, and its `package.json` `name` field uses the
-matching prefix. There are no cross-domain prefixes — `@osn/api` etc. are
-gone for good.
+`pulse/`, `zap/`, or `shared/`, and its `package.json` `name` field uses
+the matching prefix. There are no cross-domain prefixes — `@osn/api` etc.
+are gone for good.
 
 ### Backend
 - **Single unified API** serving all apps with domain modules
@@ -113,11 +156,11 @@ gone for good.
 - **Astro + Solid** for landing/marketing site
 
 ### Messaging Architecture
-The messaging backend serves as a shared service:
-- **Direct mode**: User has opted into the Messaging app
+`@zap/api` serves as the shared messaging backend:
+- **Direct mode**: User has opted into the Zap app
 - **Indirect mode**: User only uses messaging features through other apps (e.g., Pulse event chats)
 
-This allows Pulse users to participate in event chats without requiring full Messaging app opt-in.
+This allows Pulse users to participate in event chats without requiring a full Zap install.
 
 ## Tech Stack
 

@@ -6,6 +6,7 @@
   "workspaces": [
     "osn/*",
     "pulse/*",
+    "zap/*",
     "shared/*",
     "pulse/*/web",
     "pulse/*/ios"

@@ -6,7 +6,7 @@ AI coding assistant reference. For full spec see README.md. For progress/decisio
 
 OSN: Modular social platform. Users own identity + social graph. Apps opt-in/out independently.
 
-Phase 1 apps: OSN Core (auth), Pulse (events), Messaging (TBD name), Landing (marketing).
+Phase 1 apps: OSN Core (auth), Pulse (events), Zap (messaging), Landing (marketing).
 
 ## File Responsibilities
 
@@ -21,7 +21,7 @@ Phase 1 apps: OSN Core (auth), Pulse (events), Messaging (TBD name), Landing (ma
 | Section | What goes here |
 |---------|---------------|
 | **Up Next** | ≤8 highest-priority items across all areas. Keep it short — if everything is a priority, nothing is. Prune when items are done or promoted to a feature section. |
-| **App sections** (Pulse, OSN Core, Messaging, Landing) | Feature work specific to that app. Check items off when done; don't delete them. |
+| **App sections** (Pulse, OSN Core, Zap, Landing) | Feature work specific to that app. Check items off when done; don't delete them. |
 | **Platform** (API, DB, Client, UI, Infra) | Shared package work and infrastructure. Same check-off rule. |
 | **Security Backlog** | All security findings, sorted H → M → L. Add new findings from PR reviews here. Mark done with `[x]` + short note. Never delete — the history matters. |
 | **Performance Backlog** | All perf findings. Same rules as Security. |
@@ -36,14 +36,15 @@ Phase 1 apps: OSN Core (auth), Pulse (events), Messaging (TBD name), Landing (ma
 
 ## Current State
 
-The monorepo is organised by **domain**. Three top-level directories, three
+The monorepo is organised by **domain**. Four top-level directories, four
 workspace-name prefixes, one prefix per directory — no mixing:
 
 | Dir | Prefix | What lives here |
 |-----|--------|-----------------|
 | `osn/`    | `@osn/*`    | OSN identity stack (auth, graph, SDK, crypto, landing) |
 | `pulse/`  | `@pulse/*`  | Pulse events stack (app, events API, DB) |
-| `shared/` | `@shared/*` | Cross-cutting utilities consumable by either stack |
+| `zap/`    | `@zap/*`    | Zap messaging stack (app, messaging API, DB) — placeholder, see TODO.md |
+| `shared/` | `@shared/*` | Cross-cutting utilities consumable by any stack |
 
 ```
 osn/
@@ -60,6 +61,10 @@ pulse/
     src-tauri/         # Rust + Tauri native layer
   api/                 # ✓ @pulse/api — Elysia + Eden events server (port 3001). Consumed by @pulse/app via @pulse/api/client
   db/                  # ✓ @pulse/db — Drizzle + SQLite (events, RSVPs)
+zap/                   # ⏳ placeholder — see zap/README.md and the Zap section of TODO.md
+  app/                 # planned: @zap/app — Tauri + SolidJS messaging client
+  api/                 # planned: @zap/api — Elysia + Eden messaging server
+  db/                  # planned: @zap/db — Drizzle schema (chats, messages, group state)
 shared/
   db-utils/            # ✓ @shared/db-utils — createDrizzleClient, makeDbLive (consumed by @osn/db and @pulse/db)
   typescript-config/   # ✓ @shared/typescript-config — base.json, node.json, solid.json
@@ -201,7 +206,7 @@ When adding findings to the TODO.md Security or Performance backlogs, use the fi
 
 - Tauri apps created via CLI (`bunx create-tauri-app`), not manually
 - Effect.ts: trial with OSN/Pulse first, then decide (see TODO.md)
-- Messaging backend is shared service (direct/indirect modes)
+- Messaging backend (`@zap/api`) is a shared service: Zap consumes it directly; Pulse uses it indirectly for event chats. Users don't need a Zap install to participate in event group chats.
 - E2E encryption everywhere
 - All personalization data user-accessible + resettable
 - Priority: iOS > Web > Android (Android deferred)
@@ -212,6 +217,7 @@ When adding findings to the TODO.md Security or Performance backlogs, use the fi
 - PRs required to merge to main (no direct pushes)
 - Always work on a feature branch — never commit directly to main
 - Every PR must include a changeset (`bun run changeset`) — CI will fail without one
+- **Changeset packages must use the workspace `name` field exactly** (e.g. `"@pulse/app"`, not `"pulse"`). The Changeset Check workflow runs `bunx changeset status` to catch typos before merge — without it, a bad reference fails the Release workflow on main and blocks all subsequent versioning.
 - Versioning is automatic: changesets are consumed and committed by CI on merge to main
 
 ## Testing Patterns
