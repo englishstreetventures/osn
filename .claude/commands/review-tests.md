@@ -1,4 +1,4 @@
-Build the affected workspaces and analyse the test surface to ensure the feature is appropriately and extensively tested. $ARGUMENTS should contain a list of affected workspace paths (e.g. `packages/api apps/pulse`); if not provided, derive them from `git diff --name-only main...HEAD`.
+Build the affected workspaces and analyse the test surface to ensure the feature is appropriately and extensively tested. $ARGUMENTS should contain a list of affected workspace paths (e.g. `pulse/api pulse/app`); if not provided, derive them from `git diff --name-only main...HEAD`.
 
 ---
 

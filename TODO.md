@@ -15,7 +15,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ---
 
-## Pulse (`apps/pulse`)
+## Pulse (`pulse/app` + `pulse/api` + `pulse/db`)
 
 - [x] Initialize Tauri app with SolidJS
 - [x] iOS target configured
@@ -43,11 +43,11 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ---
 
-## OSN Core (`apps/osn` + `packages/core`)
+## OSN Core (`osn/app` + `osn/core`)
 
 - [x] OAuth/OIDC provider (passkey, OTP, magic link, PKCE, JWT) in `@osn/core`
 - [x] User registration/login flows
-- [x] `apps/osn` auth server entry point (port 4000)
+- [x] `osn/app` auth server entry point (port 4000)
 - [x] 50 tests: services, routes, lib/crypto, lib/html
 - [x] Social graph data model (connections, close friends, blocks) — 124 tests
 - [x] Handle system — registration, real-time availability check, email/handle sign-in toggle
@@ -58,10 +58,10 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ---
 
-## Messaging (`apps/messaging`)
+## Messaging (`pulse/messaging` — TBD)
 
 - [ ] Initialize Tauri app (`bunx tauri init`)
-- [ ] Signal protocol research/implementation (`packages/crypto`)
+- [ ] Signal protocol research/implementation (`osn/crypto`)
 - [ ] Direct/indirect mode architecture
 - [ ] DM functionality
 - [ ] Group chats
@@ -71,7 +71,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ---
 
-## Landing (`apps/landing`)
+## Landing (`osn/landing`)
 
 - [x] Astro + Solid scaffolding
 - [ ] Design and build landing page content
@@ -81,7 +81,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Platform
 
-### API (`packages/api`)
+### Pulse events API (`pulse/api`)
 
 - [x] Elysia setup + Eden client
 - [x] Effect.ts trial integration
@@ -93,7 +93,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [ ] WebSocket setup for real-time
 - [ ] REST endpoints for third-party consumers
 
-### Database (`packages/osn-db`, `packages/pulse-db`)
+### Database (`osn/db`, `pulse/db`)
 
 - [x] Per-app DB packages (osn-db, pulse-db)
 - [x] Pulse: events schema, migrations, smoke tests
@@ -105,14 +105,14 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [ ] Pulse: chat/message schema (via messaging backend)
 - [ ] Add indexes on `status` and `category` columns in pulse-db events schema
 
-### Auth Client (`packages/client`)
+### Auth Client (`osn/client`)
 
 - [x] Eden client wrapper
 - [x] `getSession()` with expiry check
 - [x] `AuthProvider` + `handleCallback` for SolidJS
 - [x] 10 tests
 
-### Crypto (`packages/crypto`)
+### Crypto (`osn/crypto`)
 
 - [x] `generateArcKeyPair()` — ES256 keypair generation
 - [x] `createArcToken(privateKey, { iss, aud, scope, ttl? })` — signs and returns a short-lived JWT
@@ -122,7 +122,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [x] Key import/export utilities (`exportKeyToJwk`, `importKeyFromJwk`)
 - [ ] JWKS URL fallback in `resolvePublicKey` for third-party apps
 
-### UI Components (`packages/ui`)
+### UI Components (`osn/ui`)
 
 - [ ] Design system / tokens
 - [ ] Button, Input, Card basics
@@ -253,7 +253,7 @@ Address **High** items before any non-local deployment.
 |----------|---------|--------------|
 | Messaging app name | Need a catchy name | Before public launch |
 | Social media platform name | Need a catchy name | Before starting Phase 3 |
-| Effect.ts adoption | Trial underway in `packages/api` | After more service coverage |
+| Effect.ts adoption | Trial underway in `pulse/api` | After more service coverage |
 | Supabase migration | Currently SQLite | When scaling needed |
 | Android support | iOS priority | Phase 3 |
 | Self-hosting | Enterprise use case | Phase 3 |
@@ -263,7 +263,7 @@ Address **High** items before any non-local deployment.
 | Max event duration | Prompt user when creating events without endTime | When Pulse event creation UI is built |
 | S2S scaling: HTTP graph API | Current: direct package import (`createGraphService()`). Migrate to HTTP `/graph/internal/*` + ARC tokens when scaling horizontally. | When multi-process or multi-machine deployment needed |
 | Per-app blocking | Blocks are global across all OSN apps. Per-app scope deferred. | When Messaging or a third-party app needs independent block lists |
-| Tauri passkey support on iOS | Tauri webview does not expose WebAuthn natively — `apps/pulse` registration flow feature-detects via `browserSupportsWebAuthn()` and auto-skips the passkey step on unsupported environments. Options when we ship mobile: (a) adopt [`tauri-plugin-webauthn`](https://github.com/Profiidev/tauri-plugin-webauthn) (third-party, audit first), (b) write our own thin Tauri plugin wrapping `ASAuthorizationPlatformPublicKeyCredentialProvider`, (c) wait for upstream — track [tauri#7926](https://github.com/tauri-apps/tauri/issues/7926). | When iOS build of Pulse is ready for sign-in |
+| Tauri passkey support on iOS | Tauri webview does not expose WebAuthn natively — `pulse/app` registration flow (rendered by `@osn/ui/auth/Register`) feature-detects via `browserSupportsWebAuthn()` and auto-skips the passkey step on unsupported environments. Options when we ship mobile: (a) adopt [`tauri-plugin-webauthn`](https://github.com/Profiidev/tauri-plugin-webauthn) (third-party, audit first), (b) write our own thin Tauri plugin wrapping `ASAuthorizationPlatformPublicKeyCredentialProvider`, (c) wait for upstream — track [tauri#7926](https://github.com/tauri-apps/tauri/issues/7926). | When iOS build of Pulse is ready for sign-in |
 
 ---
 

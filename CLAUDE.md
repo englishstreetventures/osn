@@ -36,24 +36,54 @@ Phase 1 apps: OSN Core (auth), Pulse (events), Messaging (TBD name), Landing (ma
 
 ## Current State
 
+The monorepo is organised by **domain**. Three top-level directories, three
+workspace-name prefixes, one prefix per directory — no mixing:
+
+| Dir | Prefix | What lives here |
+|-----|--------|-----------------|
+| `osn/`    | `@osn/*`    | OSN identity stack (auth, graph, SDK, crypto, landing) |
+| `pulse/`  | `@pulse/*`  | Pulse events stack (app, events API, DB) |
+| `shared/` | `@shared/*` | Cross-cutting utilities consumable by either stack |
+
 ```
-apps/
-  landing/             # ✓ Astro + Solid (marketing site)
-  pulse/               # ✓ Tauri + SolidJS (iOS target ready)
+osn/
+  app/                 # ✓ @osn/app — Bun/Elysia auth server (port 4000); thin wrapper over @osn/core
+  landing/             # ✓ @osn/landing — Astro + Solid (marketing site)
+  core/                # ✓ @osn/core — auth services + routes (passkey, OTP, magic link, PKCE, JWT, /login/*) + social graph service + routes + hosted /authorize HTML
+  client/              # ✓ @osn/client — SDK: createRegistrationClient, createLoginClient, OsnAuthService; @osn/client/solid AuthProvider + useAuth
+  crypto/              # ✓ @osn/crypto — ARC tokens (S2S auth); Signal protocol pending
+  db/                  # ✓ @osn/db — Drizzle + SQLite (users, passkeys, social graph, service accounts)
+  ui/                  # ✓ @osn/ui — shared SolidJS components: <Register>, <SignIn>, <MagicLinkHandler> under @osn/ui/auth/*
+pulse/
+  app/                 # ✓ @pulse/app — Tauri + SolidJS (iOS target ready). Consumes @osn/client, @osn/ui, @pulse/api
     src/               # SolidJS frontend
     src-tauri/         # Rust + Tauri native layer
-  osn/                 # ✓ Bun/Elysia auth server (port 4000) — imports @osn/core
-  messaging/           # Pending: bunx create-tauri-app
-packages/
-  api/                 # ✓ Elysia + Eden
-  osn-db/              # ✓ @osn/db — Drizzle + SQLite (OSN Core: users, passkeys, social graph)
-  pulse-db/            # ✓ @pulse/db — Drizzle + SQLite (Pulse: events, RSVPs)
-  utils-db/            # ✓ @utils/db — shared DB utilities (createDrizzleClient, makeDbLive)
-  ui/                  # ✓ Placeholder (shared components)
-  core/                # ✓ @osn/core — auth services + Elysia routes (passkey, OTP, magic link, PKCE, JWT) + social graph service + routes
-  crypto/              # ✓ @osn/crypto — ARC tokens (S2S auth); Signal protocol pending
-  typescript-config/   # ✓ base, node, solid configs
+  api/                 # ✓ @pulse/api — Elysia + Eden events server (port 3001). Consumed by @pulse/app via @pulse/api/client
+  db/                  # ✓ @pulse/db — Drizzle + SQLite (events, RSVPs)
+shared/
+  db-utils/            # ✓ @shared/db-utils — createDrizzleClient, makeDbLive (consumed by @osn/db and @pulse/db)
+  typescript-config/   # ✓ @shared/typescript-config — base.json, node.json, solid.json
 ```
+
+### @osn/core vs @pulse/api — the distinction, for the record
+
+`@osn/core` is a **library** — it never calls `listen()`. It exports
+Elysia route factories (`createAuthRoutes`, `createGraphRoutes`) + Effect
+services. `@osn/app` is the binary that imports it and actually listens on
+port 4000.
+
+`@pulse/api`, by contrast, **is** the binary — it runs its own Elysia
+process on port 3001 and exposes `@pulse/api/client` (an Eden treaty
+wrapper) for the Pulse frontend to consume. It imports `@pulse/db` and
+has nothing to do with OSN identity.
+
+### Sign-in + Register are now shared
+
+Both `<Register />` and `<SignIn />` live in `@osn/ui/auth/*`, receive an
+injected client prop, and talk to first-party `/login/*` + `/register/*`
+endpoints that return `{ session, user }` directly (no PKCE). The hosted
+`/authorize` HTML + PKCE flow stays put in `@osn/core` for third-party
+OAuth clients but is no longer used by first-party apps like Pulse.
 
 ## Tech (one-liner)
 
@@ -71,7 +101,7 @@ ARC is OSN's service-to-service authentication token — an ASAP-style self-issu
 - Audience-scoped: `aud` claim names the target service (e.g. `"osn-core"`)
 - Public key discovery: first-party services registered in `service_accounts` DB table (`service_id`, `public_key_jwk`, `allowed_scopes`); third-party apps use JWKS URL derived from `iss`
 
-**Lives in:** `packages/crypto` (`@osn/crypto`). Import from `@osn/crypto/arc`.
+**Lives in:** `osn/crypto` (`@osn/crypto`). Import from `@osn/crypto/arc`.
 
 **Exports:**
 ```typescript
@@ -189,19 +219,24 @@ When adding findings to the TODO.md Security or Performance backlogs, use the fi
 Test files live in `tests/` at the package root, mirroring the `src/` structure:
 
 ```
-packages/api/
+pulse/api/
   tests/
     helpers/db.ts                  # createTestLayer() — shared test utility
     services/events.test.ts        # Effect service tests
     routes/events.test.ts          # HTTP integration tests
-packages/core/
+osn/core/
   tests/
-    helpers/db.ts                  # createTestLayer() for osn-db (users + passkeys)
+    helpers/db.ts                  # createTestLayer() for osn/db (users + passkeys)
     services/auth.test.ts          # Effect service tests
     routes/auth.test.ts            # HTTP integration tests
-packages/pulse-db/
+pulse/db/
   tests/
     schema.test.ts                 # Schema smoke tests
+osn/ui/
+  tests/
+    auth/Register.test.tsx         # Shared Register component (Solid + happy-dom)
+    auth/SignIn.test.tsx           # Shared SignIn component
+    auth/MagicLinkHandler.test.tsx # Magic-link deep-link helper
 ```
 
 ```typescript
@@ -245,7 +280,7 @@ describe("events routes", () => {
 - Service tests: `it.effect` + `Effect.provide(createTestLayer())` per test (full isolation)
 - Route tests: `createEventsRoutes(createTestLayer())` in `beforeEach` (full isolation)
 - Routes accept an optional `dbLayer` param for injection; default is `DbLive`
-- `packages/core` auth routes use `createAuthRoutes(authConfig, dbLayer?)` — config is required (no global default)
+- `osn/core` auth routes use `createAuthRoutes(authConfig, dbLayer?)` — config is required (no global default)
 - Use `bunx --bun vitest` (not plain `vitest`) — required for `bun:sqlite` module access
 - Use future dates (e.g. `2030-06-01T10:00:00.000Z`) for test events; default `listEvents` filters past events out
 
@@ -330,10 +365,12 @@ bun run check            # Type-check all packages (turbo)
 
 # Testing
 bun run test                          # run all tests (turbo, skips packages without test script)
-bun run --cwd packages/api test:run       # run API tests once
-bun run --cwd packages/core test:run      # run core auth tests once
-bun run --cwd packages/pulse-db test:run  # run Pulse DB schema tests once
-bun run --cwd packages/api test           # watch mode
+bun run --cwd pulse/api test:run          # run Pulse events API tests once
+bun run --cwd osn/core test:run           # run OSN core auth tests once
+bun run --cwd osn/client test:run         # run OSN client SDK tests once
+bun run --cwd osn/ui test:run             # run shared auth component tests once
+bun run --cwd pulse/db test:run           # run Pulse DB schema tests once
+bun run --cwd pulse/api test              # watch mode
 
 # Code quality
 bun run lint             # oxlint
@@ -344,7 +381,7 @@ bun run fmt:check        # oxfmt check (CI)
 bun run db:migrate       # Generate migrations
 bun run db:push          # Push schema
 bun run db:studio        # Drizzle Studio
-# e.g. bun run --cwd packages/pulse-db db:studio
+# e.g. bun run --cwd pulse/db db:studio
 
 # Versioning
 bun run changeset        # Create changeset (required for every PR)
@@ -364,6 +401,6 @@ bunx tauri build         # Build app
 
 ```bash
 # Use --cwd (not --filter)
-bun add solid-js --cwd apps/landing
-bun add drizzle-orm --cwd packages/pulse-db
+bun add solid-js --cwd osn/landing
+bun add drizzle-orm --cwd pulse/db
 ```

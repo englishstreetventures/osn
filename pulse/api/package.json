@@ -1,0 +1,32 @@
+{
+  "name": "@pulse/api",
+  "version": "0.4.3",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts"
+  },
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "start": "bun run ./dist/index.js",
+    "check": "tsc --noEmit",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "^1.4.0",
+    "@elysiajs/eden": "^1.2.0",
+    "@pulse/db": "workspace:*",
+    "drizzle-orm": "^0.38.0",
+    "effect": "^3.19.19",
+    "elysia": "^1.2.0",
+    "jose": "^6.2.2"
+  },
+  "devDependencies": {
+    "@effect/vitest": "^0.27.0",
+    "@shared/typescript-config": "workspace:*",
+    "vitest": "^4.0.18"
+  }
+}

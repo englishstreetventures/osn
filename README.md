@@ -63,24 +63,38 @@ Users can opt out of specific formats (e.g., disable short-form video entirely).
 ## Architecture
 
 ### Monorepo Structure
+
+The monorepo is organised by domain. Three top-level directories, one
+workspace prefix each:
+
 ```
-apps/
+osn/              # @osn/* — identity stack
+  app/              # Bun/Elysia auth server (port 4000)
+  core/             # Auth + social graph library (services, routes, hosted HTML)
+  client/           # Client SDK (Effect-based + SolidJS bindings)
+  crypto/           # ARC S2S tokens (Signal Protocol to come)
+  db/               # Drizzle schema — users, passkeys, graph, service accounts
+  ui/               # Shared SolidJS auth components (<SignIn>, <Register>)
   landing/          # Marketing site (Astro + Solid)
-  osn/              # OSN identity app (Tauri + Solid)
-  pulse/            # Events app (Tauri + Solid)
-  messaging/        # Messaging app (Tauri + Solid)
-packages/
-  api/              # Unified Elysia backend
-  db/               # Drizzle schema + migrations
-  ui/               # Shared UI components (Solid)
-  core/             # Shared business logic
-  crypto/           # Signal protocol implementation
-  typescript-config/ # Shared TS configs
+
+pulse/            # @pulse/* — events stack
+  app/              # Tauri + SolidJS frontend
+  api/              # Elysia + Eden events server (port 3001)
+  db/               # Drizzle schema — events, RSVPs
+
+shared/           # @shared/* — cross-cutting utilities
+  db-utils/         # createDrizzleClient, makeDbLive
+  typescript-config/ # base / node / solid tsconfigs
 ```
 
 Each Tauri app follows the standard structure:
 - `src/` - SolidJS frontend
 - `src-tauri/` - Rust native layer with iOS/Android targets
+
+**Prefix rule:** every workspace lives under exactly one of `osn/`,
+`pulse/`, or `shared/`, and its `package.json` `name` field uses the
+matching prefix. There are no cross-domain prefixes — `@osn/api` etc. are
+gone for good.
 
 ### Backend
 - **Single unified API** serving all apps with domain modules
@@ -93,7 +107,7 @@ Each Tauri app follows the standard structure:
 ### Frontend
 - **Standalone apps first**, working toward a hybrid super-app
 - **iOS priority**, then Web, then Android (Android deferred)
-- **Shared UI components** via `packages/ui`
+- **Shared UI components** via `@osn/ui` (`osn/ui/`)
 - **SolidJS** for reactive UI rendering
 - **Tauri** for native iOS builds (follows Tauri's project conventions)
 - **Astro + Solid** for landing/marketing site

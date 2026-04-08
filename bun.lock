@@ -14,23 +14,9 @@
         "typescript": "^5.7.0",
       },
     },
-    "apps/landing": {
-      "name": "@osn/landing",
-      "version": "0.0.1",
-      "dependencies": {
-        "@astrojs/solid-js": "6.0.0",
-        "astro": "6.0.3",
-        "solid-js": "^1.9.0",
-      },
-      "devDependencies": {
-        "@astrojs/check": "0.9.7",
-        "@osn/typescript-config": "workspace:*",
-        "typescript": "^5.9.3",
-      },
-    },
-    "apps/osn": {
-      "name": "@osn/osn",
-      "version": "0.1.4",
+    "osn/app": {
+      "name": "@osn/app",
+      "version": "0.1.6",
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
         "@osn/core": "workspace:*",
@@ -38,66 +24,20 @@
         "elysia": "^1.2.0",
       },
       "devDependencies": {
-        "@osn/typescript-config": "workspace:*",
+        "@shared/typescript-config": "workspace:*",
         "vitest": "^4.0.18",
       },
     },
-    "apps/pulse": {
-      "name": "@osn/pulse",
-      "version": "0.2.9",
-      "dependencies": {
-        "@osn/api": "workspace:*",
-        "@osn/client": "workspace:*",
-        "@osn/core": "workspace:*",
-        "@osn/ui": "workspace:*",
-        "@simplewebauthn/browser": "^13.3.0",
-        "@tailwindcss/vite": "^4.2.1",
-        "@tauri-apps/api": "^2",
-        "@tauri-apps/plugin-opener": "^2",
-        "solid-js": "^1.9.3",
-        "solid-toast": "^0.5.0",
-        "tailwindcss": "^4.2.1",
-      },
-      "devDependencies": {
-        "@osn/typescript-config": "workspace:*",
-        "@solidjs/testing-library": "^0.8.10",
-        "@tauri-apps/cli": "^2",
-        "@vitest/coverage-istanbul": "^4.1.0",
-        "happy-dom": "^20.8.4",
-        "typescript": "~5.6.2",
-        "vite": "^6.0.3",
-        "vite-plugin-solid": "^2.11.0",
-        "vitest": "^4.1.0",
-      },
-    },
-    "packages/api": {
-      "name": "@osn/api",
-      "version": "0.4.2",
-      "dependencies": {
-        "@elysiajs/cors": "^1.4.0",
-        "@elysiajs/eden": "^1.2.0",
-        "@pulse/db": "workspace:*",
-        "drizzle-orm": "^0.38.0",
-        "effect": "^3.19.19",
-        "elysia": "^1.2.0",
-        "jose": "^6.2.2",
-      },
-      "devDependencies": {
-        "@effect/vitest": "^0.27.0",
-        "@osn/typescript-config": "workspace:*",
-        "vitest": "^4.0.18",
-      },
-    },
-    "packages/client": {
+    "osn/client": {
       "name": "@osn/client",
-      "version": "0.0.3",
+      "version": "0.1.0",
       "dependencies": {
         "effect": "^3.19.19",
         "valibot": "^1.0.0",
       },
       "devDependencies": {
         "@effect/vitest": "^0.27.0",
-        "@osn/typescript-config": "workspace:*",
+        "@shared/typescript-config": "workspace:*",
         "solid-js": "^1.9.3",
         "vitest": "^4.0.18",
       },
@@ -105,9 +45,9 @@
         "solid-js": ">=1.0.0",
       },
     },
-    "packages/core": {
+    "osn/core": {
       "name": "@osn/core",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
         "@osn/db": "workspace:*",
@@ -119,11 +59,11 @@
       },
       "devDependencies": {
         "@effect/vitest": "^0.27.0",
-        "@osn/typescript-config": "workspace:*",
+        "@shared/typescript-config": "workspace:*",
         "vitest": "^4.0.18",
       },
     },
-    "packages/crypto": {
+    "osn/crypto": {
       "name": "@osn/crypto",
       "version": "0.1.0",
       "dependencies": {
@@ -134,70 +74,141 @@
       },
       "devDependencies": {
         "@effect/vitest": "^0.27.0",
-        "@osn/typescript-config": "workspace:*",
+        "@shared/typescript-config": "workspace:*",
         "vitest": "^4.1.2",
       },
     },
-    "packages/osn-db": {
+    "osn/db": {
       "name": "@osn/db",
       "version": "0.5.0",
       "dependencies": {
-        "@utils/db": "workspace:*",
+        "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.38.0",
         "effect": "^3.19.19",
       },
       "devDependencies": {
         "@effect/vitest": "^0.27.0",
-        "@osn/typescript-config": "workspace:*",
+        "@shared/typescript-config": "workspace:*",
         "@types/better-sqlite3": "^7.6.13",
         "better-sqlite3": "^12.5.0",
         "drizzle-kit": "^0.30.0",
         "vitest": "^4.0.18",
       },
     },
-    "packages/pulse-db": {
-      "name": "@pulse/db",
-      "version": "0.5.0",
-      "dependencies": {
-        "@utils/db": "workspace:*",
-        "drizzle-orm": "^0.38.0",
-        "effect": "^3.19.19",
-      },
-      "devDependencies": {
-        "@effect/vitest": "^0.27.0",
-        "@osn/typescript-config": "workspace:*",
-        "@types/better-sqlite3": "^7.6.13",
-        "better-sqlite3": "^12.5.0",
-        "drizzle-kit": "^0.30.0",
-        "vitest": "^4.0.18",
-      },
-    },
-    "packages/typescript-config": {
-      "name": "@osn/typescript-config",
-      "version": "0.0.1",
-    },
-    "packages/ui": {
-      "name": "@osn/ui",
+    "osn/landing": {
+      "name": "@osn/landing",
       "version": "0.0.1",
       "dependencies": {
+        "@astrojs/solid-js": "6.0.0",
+        "astro": "6.0.3",
         "solid-js": "^1.9.0",
       },
       "devDependencies": {
-        "@osn/typescript-config": "workspace:*",
+        "@astrojs/check": "0.9.7",
+        "@shared/typescript-config": "workspace:*",
+        "typescript": "^5.9.3",
       },
     },
-    "packages/utils-db": {
-      "name": "@utils/db",
+    "osn/ui": {
+      "name": "@osn/ui",
+      "version": "0.1.0",
+      "dependencies": {
+        "@osn/client": "workspace:*",
+        "@simplewebauthn/browser": "^13.3.0",
+      },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "@solidjs/testing-library": "^0.8.10",
+        "happy-dom": "^20.8.4",
+        "solid-js": "^1.9.3",
+        "solid-toast": "^0.5.0",
+        "vite": "^6.0.3",
+        "vite-plugin-solid": "^2.11.0",
+        "vitest": "^4.1.0",
+      },
+      "peerDependencies": {
+        "solid-js": ">=1.9",
+        "solid-toast": ">=0.5",
+      },
+    },
+    "pulse/api": {
+      "name": "@pulse/api",
+      "version": "0.4.3",
+      "dependencies": {
+        "@elysiajs/cors": "^1.4.0",
+        "@elysiajs/eden": "^1.2.0",
+        "@pulse/db": "workspace:*",
+        "drizzle-orm": "^0.38.0",
+        "effect": "^3.19.19",
+        "elysia": "^1.2.0",
+        "jose": "^6.2.2",
+      },
+      "devDependencies": {
+        "@effect/vitest": "^0.27.0",
+        "@shared/typescript-config": "workspace:*",
+        "vitest": "^4.0.18",
+      },
+    },
+    "pulse/app": {
+      "name": "@pulse/app",
+      "version": "0.3.0",
+      "dependencies": {
+        "@osn/client": "workspace:*",
+        "@osn/ui": "workspace:*",
+        "@pulse/api": "workspace:*",
+        "@simplewebauthn/browser": "^13.3.0",
+        "@tailwindcss/vite": "^4.2.1",
+        "@tauri-apps/api": "^2",
+        "@tauri-apps/plugin-opener": "^2",
+        "solid-js": "^1.9.3",
+        "solid-toast": "^0.5.0",
+        "tailwindcss": "^4.2.1",
+      },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "@solidjs/testing-library": "^0.8.10",
+        "@tauri-apps/cli": "^2",
+        "@vitest/coverage-istanbul": "^4.1.0",
+        "happy-dom": "^20.8.4",
+        "typescript": "~5.6.2",
+        "vite": "^6.0.3",
+        "vite-plugin-solid": "^2.11.0",
+        "vitest": "^4.1.0",
+      },
+    },
+    "pulse/db": {
+      "name": "@pulse/db",
+      "version": "0.5.0",
+      "dependencies": {
+        "@shared/db-utils": "workspace:*",
+        "drizzle-orm": "^0.38.0",
+        "effect": "^3.19.19",
+      },
+      "devDependencies": {
+        "@effect/vitest": "^0.27.0",
+        "@shared/typescript-config": "workspace:*",
+        "@types/better-sqlite3": "^7.6.13",
+        "better-sqlite3": "^12.5.0",
+        "drizzle-kit": "^0.30.0",
+        "vitest": "^4.0.18",
+      },
+    },
+    "shared/db-utils": {
+      "name": "@shared/db-utils",
       "version": "0.2.0",
       "dependencies": {
         "drizzle-orm": "^0.38.0",
         "effect": "^3.19.19",
       },
       "devDependencies": {
-        "@osn/typescript-config": "workspace:*",
+        "@shared/typescript-config": "workspace:*",
         "@types/better-sqlite3": "^7.6.13",
         "better-sqlite3": "^12.5.0",
       },
+    },
+    "shared/typescript-config": {
+      "name": "@shared/typescript-config",
+      "version": "0.0.1",
     },
   },
   "packages": {
@@ -459,25 +470,19 @@
 
     "@oslojs/encoding": ["@oslojs/encoding@1.1.0", "", {}, "sha512-70wQhgYmndg4GCPxPPxPGevRKqTIJ2Nh4OkiMWmDAVYsTQ+Ta7Sq+rPevXyXGdzr30/qZBnyOalCszoMxlyldQ=="],
 
-    "@osn/api": ["@osn/api@workspace:packages/api"],
+    "@osn/app": ["@osn/app@workspace:osn/app"],
 
-    "@osn/client": ["@osn/client@workspace:packages/client"],
+    "@osn/client": ["@osn/client@workspace:osn/client"],
 
-    "@osn/core": ["@osn/core@workspace:packages/core"],
+    "@osn/core": ["@osn/core@workspace:osn/core"],
 
-    "@osn/crypto": ["@osn/crypto@workspace:packages/crypto"],
+    "@osn/crypto": ["@osn/crypto@workspace:osn/crypto"],
 
-    "@osn/db": ["@osn/db@workspace:packages/osn-db"],
+    "@osn/db": ["@osn/db@workspace:osn/db"],
 
-    "@osn/landing": ["@osn/landing@workspace:apps/landing"],
+    "@osn/landing": ["@osn/landing@workspace:osn/landing"],
 
-    "@osn/osn": ["@osn/osn@workspace:apps/osn"],
-
-    "@osn/pulse": ["@osn/pulse@workspace:apps/pulse"],
-
-    "@osn/typescript-config": ["@osn/typescript-config@workspace:packages/typescript-config"],
-
-    "@osn/ui": ["@osn/ui@workspace:packages/ui"],
+    "@osn/ui": ["@osn/ui@workspace:osn/ui"],
 
     "@oxfmt/darwin-arm64": ["@oxfmt/darwin-arm64@0.20.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-bjR5dqvrd9gxKYfYR0ljUu3/T3+TuDVWcwA7d+tsfmx9lqidlw3zhgBTblnjF1mrd1zkPMoc5zzq86GeSEt1cA=="],
 
@@ -537,7 +542,11 @@
 
     "@petamoriken/float16": ["@petamoriken/float16@3.9.3", "", {}, "sha512-8awtpHXCx/bNpFt4mt2xdkgtgVvKqty8VbjHI/WWWQuEw+KLzFot3f4+LkQY9YmOtq7A5GdOnqoIC8Pdygjk2g=="],
 
-    "@pulse/db": ["@pulse/db@workspace:packages/pulse-db"],
+    "@pulse/api": ["@pulse/api@workspace:pulse/api"],
+
+    "@pulse/app": ["@pulse/app@workspace:pulse/app"],
+
+    "@pulse/db": ["@pulse/db@workspace:pulse/db"],
 
     "@rollup/pluginutils": ["@rollup/pluginutils@5.3.0", "", { "dependencies": { "@types/estree": "^1.0.0", "estree-walker": "^2.0.2", "picomatch": "^4.0.2" }, "peerDependencies": { "rollup": "^1.20.0||^2.0.0||^3.0.0||^4.0.0" }, "optionalPeers": ["rollup"] }, "sha512-5EdhGZtnu3V88ces7s53hhfK5KSASnJZv8Lulpc04cWO3REESroJXg73DFsOmgbU2BhwV0E20bu2IDZb3VKW4Q=="],
 
@@ -590,6 +599,10 @@
     "@rollup/rollup-win32-x64-gnu": ["@rollup/rollup-win32-x64-gnu@4.60.1", "", { "os": "win32", "cpu": "x64" }, "sha512-k+600V9Zl1CM7eZxJgMyTUzmrmhB/0XZnF4pRypKAlAgxmedUA+1v9R+XOFv56W4SlHEzfeMtzujLJD22Uz5zg=="],
 
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.60.1", "", { "os": "win32", "cpu": "x64" }, "sha512-lWMnixq/QzxyhTV6NjQJ4SFo1J6PvOX8vUx5Wb4bBPsEb+8xZ89Bz6kOXpfXj9ak9AHTQVQzlgzBEc1SyM27xQ=="],
+
+    "@shared/db-utils": ["@shared/db-utils@workspace:shared/db-utils"],
+
+    "@shared/typescript-config": ["@shared/typescript-config@workspace:shared/typescript-config"],
 
     "@shikijs/core": ["@shikijs/core@4.0.2", "", { "dependencies": { "@shikijs/primitive": "4.0.2", "@shikijs/types": "4.0.2", "@shikijs/vscode-textmate": "^10.0.2", "@types/hast": "^3.0.4", "hast-util-to-html": "^9.0.5" } }, "sha512-hxT0YF4ExEqB8G/qFdtJvpmHXBYJ2lWW7qTHDarVkIudPFE6iCIrqdgWxGn5s+ppkGXI0aEGlibI0PAyzP3zlw=="],
 
@@ -730,8 +743,6 @@
     "@types/ws": ["@types/ws@8.18.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg=="],
 
     "@ungap/structured-clone": ["@ungap/structured-clone@1.3.0", "", {}, "sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g=="],
-
-    "@utils/db": ["@utils/db@workspace:packages/utils-db"],
 
     "@vitest/coverage-istanbul": ["@vitest/coverage-istanbul@4.1.2", "", { "dependencies": { "@babel/core": "^7.29.0", "@istanbuljs/schema": "^0.1.3", "@jridgewell/gen-mapping": "^0.3.13", "@jridgewell/trace-mapping": "0.3.31", "istanbul-lib-coverage": "^3.2.2", "istanbul-lib-report": "^3.0.1", "istanbul-reports": "^3.2.0", "magicast": "^0.5.2", "obug": "^2.1.1", "tinyrainbow": "^3.1.0" }, "peerDependencies": { "vitest": "4.1.2" } }, "sha512-WSz7+4a7PcMtMNvIP7AXUMffsq4JrWeJaguC8lg6fSQyGxSfaT4Rf81idqwxTT6qX5kjjZw2t9rAnCRRQobSqw=="],
 
@@ -1727,7 +1738,7 @@
 
     "@manypkg/get-packages/fs-extra": ["fs-extra@8.1.0", "", { "dependencies": { "graceful-fs": "^4.2.0", "jsonfile": "^4.0.0", "universalify": "^0.1.0" } }, "sha512-yhlQgA6mnOJUKOsRUFsgJdQCvkKhcz8tlZG5HBQfReYZy46OwLcY+Zia0mtdHsOo9y/hP+CxMN0TU9QxoOtG4g=="],
 
-    "@osn/pulse/typescript": ["typescript@5.6.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-hjcS1mhfuyi4WW8IWtjP7brDrG2cuDZukyrYrSauoXGNgx0S7zceP07adYkJycEr56BOUTNPzbInooiN3fn1qw=="],
+    "@pulse/app/typescript": ["typescript@5.6.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-hjcS1mhfuyi4WW8IWtjP7brDrG2cuDZukyrYrSauoXGNgx0S7zceP07adYkJycEr56BOUTNPzbInooiN3fn1qw=="],
 
     "@rollup/pluginutils/estree-walker": ["estree-walker@2.0.2", "", {}, "sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w=="],
 

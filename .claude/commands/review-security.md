@@ -18,7 +18,7 @@ Read all changed source files in the affected workspaces and examine them for th
 
 ## Cryptography (OWASP A02)
 
-- Use of weak algorithms: MD5, SHA1, DES — anywhere in `packages/crypto` or elsewhere
+- Use of weak algorithms: MD5, SHA1, DES — anywhere in `osn/crypto` or elsewhere
 - Hardcoded secrets, API keys, or credentials committed to source files (not `.env`)
 - `Math.random()` used for security-sensitive purposes (tokens, nonces, IDs)
 - Message payloads that should be E2E encrypted per project spec but are stored or transmitted in plaintext

@@ -55,7 +55,7 @@ Run `rustc --version`.
   Then follow the prompts and run `source ~/.cargo/env` (or restart the shell).
 - If installed: run `rustup update` to ensure the toolchain is current.
 
-Rust is required for Tauri (`apps/pulse/src-tauri`). The project uses the 2021 edition.
+Rust is required for Tauri (`pulse/app/src-tauri`). The project uses the 2021 edition.
 
 ---
 

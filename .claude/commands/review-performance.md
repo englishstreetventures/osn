@@ -4,7 +4,7 @@ Read all changed source files in the affected workspaces and examine them for th
 
 ---
 
-## Backend (packages/api, packages/db)
+## Backend (osn/core, osn/db, pulse/api, pulse/db)
 
 - **N+1 queries** — loops that issue DB calls inside iterations instead of batching with `inArray` or a join
 - **Missing indexes** — columns used in `WHERE`/`JOIN` in Drizzle queries that have no corresponding index in the schema
@@ -13,7 +13,7 @@ Read all changed source files in the affected workspaces and examine them for th
 - **Large serialised payloads** — JSON responses that include unnecessary nested data or could be streamed
 - **WebSocket fan-out** — message broadcasting that iterates all connections in O(n) without grouping or batching
 
-## Frontend (apps/pulse, apps/landing)
+## Frontend (pulse/app, osn/landing, osn/ui)
 
 - **Unnecessary SolidJS re-renders** — signals read outside of JSX or tracked contexts (defeating fine-grained reactivity), or `createEffect` with broad dependencies
 - **Heavy bundle imports** — importing entire libraries (`import * as _`) where tree-shaking would suffice; or missing dynamic `import()` for large code paths

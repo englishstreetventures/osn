@@ -27,8 +27,8 @@ Flag any package where the declared ranges differ between workspaces. Report:
 
 | Package | Workspace | Declared version |
 |---------|-----------|-----------------|
-| `effect` | `packages/core` | `^3.0.0` |
-| `effect` | `packages/api` | `^3.1.0` |
+| `effect` | `osn/core` | `^3.0.0` |
+| `effect` | `pulse/api` | `^3.1.0` |
 
 **Goal:** every shared package should declare the same version range everywhere. Drift indicates a workspace silently using an older or newer API surface.
 
