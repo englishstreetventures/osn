@@ -361,6 +361,94 @@ export const createEvent = (data: unknown) =>
   });
 ```
 
+## Cross-package S2S patterns (`pulse/api` → `@osn/core`)
+
+When a Pulse service needs identity or graph data (RSVP visibility,
+user displays, close-friends lookups), **every call must go through
+`pulse/api/src/services/graphBridge.ts`**. That file is the single
+import surface for `@osn/core` + `@osn/db` inside Pulse, so:
+
+- The eventual S2S migration from direct package import to ARC-token
+  HTTP is a single-file change.
+- A reviewer can `grep '@osn/core' pulse/api/src` and see every
+  cross-boundary call in one place.
+- The bridge maps OSN errors onto a single `GraphBridgeError` tagged
+  error so callers catch one tag instead of a union of errors they
+  don't own.
+
+Exports:
+
+```typescript
+getConnectionIds(userId)                      // accepted connections set
+getCloseFriendIds(userId)                     // outbound close-friends set
+getCloseFriendsOf(viewerId, attendeeIds[])    // attendees who marked viewer as CF
+getUserDisplays(userIds[])                    // batched user metadata join
+OsnDbLayer                                     // Effect Layer for routes
+```
+
+Graph membership sets are bounded by `MAX_EVENT_GUESTS` (see limits
+below) — the bridge is not paginated and never returns partial sets
+for the visibility filter.
+
+## Shared visibility gate (`loadVisibleEvent`)
+
+`pulse/api/src/services/eventAccess.ts` exports `canViewEvent(event,
+viewerId)` and `loadVisibleEvent(eventId, viewerId)` — the single
+source of truth for "can this viewer see this event?".
+
+Every direct-fetch route (`GET /events/:id`, `/ics`, `/comms`,
+`/rsvps[/counts/latest]`) MUST use this gate or private events
+become bypassable by direct ID. Discovery (`listEvents`) uses the
+equivalent SQL predicate — keep them in sync.
+
+Rules:
+- **Public events**: visible to everyone (incl. unauthenticated)
+- **Private events**: visible to the organiser OR any user with an
+  RSVP row (going / interested / not_going / invited)
+- Non-authorised viewers get `null` → route returns **404** (not 403
+  — 403 would disclose existence)
+
+When adding a new event-scoped route, always load the event via
+`loadVisibleEvent` instead of `getEvent`.
+
+## Platform limits (`pulse/api/src/lib/limits.ts`)
+
+Platform-wide caps live in a single `limits.ts` file per workspace.
+Schemas, route bodies, and documentation reference the named
+constant — never inline the number.
+
+Current limits:
+
+| Constant          | Value | Bites |
+|-------------------|-------|-------|
+| `MAX_EVENT_GUESTS` | 1000 | Bulk-invite batch size; graph membership sets in `graphBridge.ts` |
+
+Beyond 1000 guests, events belong to a future verified-organisation
+tier (Pulse phase 2 — dashboards, SLA, bulk import/export, paid
+ticketing). Do not bump this number without a team discussion.
+
+## Shared UI tokens (`pulse/app/src/lib/ui.ts`)
+
+Visual treatments that appear in more than one component live in
+`lib/ui.ts` as exported constants. Changing a colour or ring style
+should be a **single-file edit**.
+
+Current tokens:
+
+```typescript
+CLOSE_FRIEND_RING_CLASS  // green outline on attendees who are close friends
+avatarClasses(base, isCloseFriend)  // helper that appends the ring class
+```
+
+The `RsvpAvatar` component reads the constant, and both `RsvpSection`
+and `RsvpModal` use `RsvpAvatar` — so the entire event-detail page's
+close-friend affordance updates from one file.
+
+Rule: when you find yourself copy-pasting the same Tailwind class
+list across two components, lift it into `lib/ui.ts`. The
+`RsvpAvatar` test asserts the constant flows to the DOM so you can
+verify the linkage stays intact.
+
 ## Commands
 
 ```bash

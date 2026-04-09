@@ -429,3 +429,53 @@ it.effect("updateEvent fails with ValidationError for invalid status", () =>
     }),
   ),
 );
+
+// ── Discovery visibility filter ──────────────────────────────────────────────
+//
+// listEvents now hides `visibility = "private"` events from non-owners and
+// from unauthenticated callers. The viewer's own private events stay visible
+// so they can manage them. The route layer (events.new.test.ts) covers the
+// HTTP surface; these cases pin the invariant at the service layer so the
+// authorization check can't silently regress during a refactor.
+
+it.effect("listEvents hides private events from unauthenticated callers", () =>
+  provide(
+    Effect.gen(function* () {
+      yield* createEvent({ title: "Public", startTime: FUTURE }, ALICE);
+      yield* createEvent({ title: "Private", startTime: FUTURE, visibility: "private" }, ALICE);
+      const events = yield* listEvents({});
+      expect(events.length).toBe(1);
+      expect(events[0]!.title).toBe("Public");
+    }),
+  ),
+);
+
+it.effect("listEvents hides private events from non-owner viewers", () =>
+  provide(
+    Effect.gen(function* () {
+      yield* createEvent({ title: "Public", startTime: FUTURE }, ALICE);
+      yield* createEvent(
+        { title: "Alice's private", startTime: FUTURE, visibility: "private" },
+        ALICE,
+      );
+      const events = yield* listEvents({ viewerId: "usr_bob" });
+      expect(events.length).toBe(1);
+      expect(events[0]!.title).toBe("Public");
+    }),
+  ),
+);
+
+it.effect("listEvents shows private events to their own creator", () =>
+  provide(
+    Effect.gen(function* () {
+      yield* createEvent({ title: "Public", startTime: FUTURE }, ALICE);
+      yield* createEvent(
+        { title: "Alice's private", startTime: FUTURE, visibility: "private" },
+        ALICE,
+      );
+      const events = yield* listEvents({ viewerId: "usr_alice" });
+      expect(events.length).toBe(2);
+      expect(events.map((e) => e.title).sort()).toEqual(["Alice's private", "Public"]);
+    }),
+  ),
+);

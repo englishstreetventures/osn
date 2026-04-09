@@ -1,7 +1,15 @@
 // @vitest-environment happy-dom
-import { render, cleanup, fireEvent } from "@solidjs/testing-library";
+import type { JSX } from "solid-js";
+import { render as _baseRender, cleanup, fireEvent } from "@solidjs/testing-library";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { EventList } from "../../src/components/EventList";
+import { wrapRouter } from "../helpers/router";
+
+// EventList renders <EventCard> (which uses `<A>`) and itself uses `<A>`
+// for the Settings link, so it needs a Router context. Wrap render once
+// so the existing test bodies stay unchanged.
+const render: typeof _baseRender = ((factory: () => JSX.Element) =>
+  _baseRender(wrapRouter(factory))) as unknown as typeof _baseRender;
 
 vi.mock("solid-toast", async () => {
   const { solidToastMock } = await import("../helpers/toast");

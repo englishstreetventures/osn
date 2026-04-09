@@ -1,5 +1,5 @@
 import { Data, Effect, Schema } from "effect";
-import { and, eq, gte, lte, type SQL } from "drizzle-orm";
+import { and, eq, gte, lte, or, type SQL } from "drizzle-orm";
 import { events } from "@pulse/db/schema";
 import type { Event } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
@@ -21,6 +21,16 @@ export class NotEventOwner extends Data.TaggedError("NotEventOwner")<{
 }> {}
 
 const StatusEnum = Schema.Literal("upcoming", "ongoing", "finished", "cancelled");
+const VisibilityEnum = Schema.Literal("public", "private");
+const GuestListVisibilityEnum = Schema.Literal("public", "connections", "private");
+const JoinPolicyEnum = Schema.Literal("open", "guest_list");
+const CommsChannelSchema = Schema.Literal("sms", "email");
+const CommsChannelsSchema = Schema.Array(CommsChannelSchema).pipe(
+  Schema.minItems(1),
+  Schema.filter((channels) => new Set(channels).size === channels.length, {
+    message: () => "commsChannels must not contain duplicates",
+  }),
+);
 
 // Schema.DateFromString in this Effect version allows Invalid Date — use a validated transform
 const ValidDateString = Schema.String.pipe(Schema.filter((s) => !isNaN(new Date(s).getTime())));
@@ -44,38 +54,64 @@ const ValidUrl = Schema.String.pipe(
 const LatitudeSchema = Schema.Number.pipe(Schema.between(-90, 90));
 const LongitudeSchema = Schema.Number.pipe(Schema.between(-180, 180));
 
+// Length caps on user-provided text fields. Without these, an
+// authenticated user can POST an event with a 10MB description and bloat
+// every discovery response that returns it. The numbers are deliberately
+// generous — they cap abuse without constraining real events.
+const TitleString = Schema.NonEmptyString.pipe(Schema.maxLength(200));
+const DescriptionString = Schema.String.pipe(Schema.maxLength(5000));
+const LocationString = Schema.String.pipe(Schema.maxLength(500));
+const VenueString = Schema.String.pipe(Schema.maxLength(500));
+const CategoryString = Schema.String.pipe(Schema.maxLength(100));
+
 const InsertEventSchema = Schema.Struct({
-  title: Schema.NonEmptyString,
-  description: Schema.optional(Schema.String),
-  location: Schema.optional(Schema.String),
-  venue: Schema.optional(Schema.String),
+  title: TitleString,
+  description: Schema.optional(DescriptionString),
+  location: Schema.optional(LocationString),
+  venue: Schema.optional(VenueString),
   latitude: Schema.optional(LatitudeSchema),
   longitude: Schema.optional(LongitudeSchema),
-  category: Schema.optional(Schema.String),
+  category: Schema.optional(CategoryString),
   startTime: DateFromISOString,
   endTime: Schema.optional(DateFromISOString),
   status: Schema.optional(StatusEnum),
   imageUrl: Schema.optional(ValidUrl),
+  visibility: Schema.optional(VisibilityEnum),
+  guestListVisibility: Schema.optional(GuestListVisibilityEnum),
+  joinPolicy: Schema.optional(JoinPolicyEnum),
+  allowInterested: Schema.optional(Schema.Boolean),
+  commsChannels: Schema.optional(CommsChannelsSchema),
 });
 
 const UpdateEventSchema = Schema.Struct({
-  title: Schema.optional(Schema.NonEmptyString),
-  description: Schema.optional(Schema.String),
-  location: Schema.optional(Schema.String),
-  venue: Schema.optional(Schema.String),
+  title: Schema.optional(TitleString),
+  description: Schema.optional(DescriptionString),
+  location: Schema.optional(LocationString),
+  venue: Schema.optional(VenueString),
   latitude: Schema.optional(LatitudeSchema),
   longitude: Schema.optional(LongitudeSchema),
-  category: Schema.optional(Schema.String),
+  category: Schema.optional(CategoryString),
   startTime: Schema.optional(DateFromISOString),
   endTime: Schema.optional(DateFromISOString),
   status: Schema.optional(StatusEnum),
   imageUrl: Schema.optional(ValidUrl),
+  visibility: Schema.optional(VisibilityEnum),
+  guestListVisibility: Schema.optional(GuestListVisibilityEnum),
+  joinPolicy: Schema.optional(JoinPolicyEnum),
+  allowInterested: Schema.optional(Schema.Boolean),
+  commsChannels: Schema.optional(CommsChannelsSchema),
 });
 
 interface ListEventsParams {
   status?: "upcoming" | "ongoing" | "finished" | "cancelled";
   category?: string;
   limit?: string;
+  /**
+   * If provided, the viewer's own private events stay visible while other
+   * users' private events are filtered out. When omitted, ALL private
+   * events are filtered out (discovery behaviour).
+   */
+  viewerId?: string | null;
 }
 
 const deriveStatus = (event: Event, now: Date): Event["status"] => {
@@ -114,6 +150,19 @@ export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], Dat
     if (params.category) {
       filters.push(eq(events.category, params.category));
     }
+
+    // Discovery rule: private events are filtered at the SQL layer so
+    // (a) the page size returned to the client is stable (post-filtering
+    // in JS would silently shrink the page), and (b) the
+    // `events_visibility_idx` index actually gets used.
+    //
+    // The viewer's own private events stay visible so they can manage
+    // them. A future enhancement will also include events the viewer
+    // has been invited to (requires a join with event_rsvps).
+    const visibilityFilter = params.viewerId
+      ? or(eq(events.visibility, "public"), eq(events.createdByUserId, params.viewerId))
+      : eq(events.visibility, "public");
+    if (visibilityFilter) filters.push(visibilityFilter);
 
     const results = yield* Effect.tryPromise({
       try: (): Promise<Event[]> =>
@@ -191,9 +240,21 @@ export const createEvent = (
       return yield* Effect.fail(new ValidationError({ cause: "startTime must be in the future" }));
     }
 
+    // Serialise the commsChannels array to JSON text for the DB column.
+    // The schema default is `'["email"]'` so only overwrite when the
+    // caller explicitly provided a value.
+    const { commsChannels, ...rest } = validated;
+    const row = {
+      ...rest,
+      ...creator,
+      id,
+      createdAt: now,
+      updatedAt: now,
+      ...(commsChannels ? { commsChannels: JSON.stringify(commsChannels) } : {}),
+    };
+
     yield* Effect.tryPromise({
-      try: () =>
-        db.insert(events).values({ ...validated, ...creator, id, createdAt: now, updatedAt: now }),
+      try: () => db.insert(events).values(row),
       catch: (cause) => new DatabaseError({ cause }),
     });
 
@@ -220,18 +281,20 @@ export const updateEvent = (
     );
 
     const now = new Date();
+    const { commsChannels, ...rest } = validated;
+    const update = {
+      ...rest,
+      updatedAt: now,
+      ...(commsChannels ? { commsChannels: JSON.stringify(commsChannels) } : {}),
+    };
     yield* Effect.tryPromise({
-      try: () =>
-        db
-          .update(events)
-          .set({ ...validated, updatedAt: now })
-          .where(eq(events.id, id)),
+      try: () => db.update(events).set(update).where(eq(events.id, id)),
       catch: (cause) => new DatabaseError({ cause }),
     });
 
     // Build the updated event in-memory rather than re-fetching from DB.
     // applyTransition is still called in case startTime/endTime changed.
-    const updated = { ...existing, ...validated, updatedAt: now } as Event;
+    const updated = { ...existing, ...update } as Event;
     return yield* applyTransition(updated);
   });
 

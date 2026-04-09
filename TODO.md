@@ -4,9 +4,10 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Up Next
 
+- [ ] Zap M0 scaffold — `@zap/app` (Tauri+Solid), `@zap/api` (Elysia), `@zap/db` (Drizzle)
+- [ ] Wire Pulse event chat to Zap once M2 lands (replace `EventChatPlaceholder`)
 - [ ] Pulse: "What's on today" default view
 - [ ] Landing page: design and content
-- [ ] Zap M0 scaffold — `@zap/app` (Tauri+Solid), `@zap/api` (Elysia), `@zap/db` (Drizzle)
 - [ ] S-H1 — Rate limit registration + login auth endpoints (per-IP / per-email throttle)
 - [ ] S-H3 — Open redirect in `/magic/verify` — fix before any deployment
 - [ ] S-H4 — Make PKCE mandatory at `/token` (drop the `if (state)` conditional; affects every code-issuing flow)
@@ -30,16 +31,32 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [x] Toast notification system (solid-toast: event created, deleted, create/delete errors)
 - [x] Registration UI: multi-step flow (email + handle + display name → OTP → passkey enrolment), live handle availability check, auto-login on completion via `adoptSession`
 - [x] Coordinate storage (lat/lng from Photon autocomplete) + Maps button on EventCard
-- [ ] Map preview in expanded event view (Leaflet + OpenStreetMap, no API key)
+- [x] Full event view at `/events/:id` with shareable URL (client routing via `@solidjs/router`)
+- [x] Map preview in expanded event view (Leaflet + OpenStreetMap, no API key)
+- [x] iCal export (ICS) — `GET /events/:id/ics` + Add-to-calendar button
+- [x] RSVP service: upsert/list/counts/invite, cross-DB join with `@osn/db` user displays
+- [x] RSVP visibility filtering — public / connections / private guest list, with per-attendee `attendanceVisibility` (`connections` / `close_friends` / `no_one`) honoured server-side
+- [x] Event public/private discovery flag — `listEvents` filters out private events from non-owners
+- [x] Join policy — `open` vs `guest_list` (invited users only)
+- [x] Allow-interested toggle for events that don't accept "Maybe" RSVPs
+- [x] Communications config (`commsChannels`) and stubbed blast log (`event_comms` table); organiser-only `POST /events/:id/comms/blasts`
+- [x] Per-step info popovers in `CreateEventForm`
+- [x] `pulse_users` table for Pulse-side user settings (separate from OSN identity)
+- [x] `PATCH /me/settings` route for attendance visibility
+- [x] Event chat placeholder (will be replaced with Zap M2)
 - [ ] "What's on today" default view
 - [ ] Prompt for max event duration when creating events without an endTime
 - [ ] Event discovery (location, category, datetime, friends, interests)
 - [ ] Recurring events (series + instances)
-- [ ] Event group chats (via messaging backend)
-- [ ] Calendar view + iCal export
-- [ ] Hidden attendance option
+- [ ] Event group chats (via Zap once M2 lands — placeholder shipped)
+- [ ] Hidden attendance option (delivered above as `attendanceVisibility = "no_one"`)
 - [ ] Organizer tools (moderation, blacklists)
 - [ ] Venue pages
+- [ ] Real SMS/email comms providers — `sendBlast` is stubbed (writes to `event_comms`); plug in actual delivery
+- [ ] Tighten Tauri CSP to allowlist `*.tile.openstreetmap.org` for the new Leaflet tile loads (rolls into S-L3)
+- [ ] Drizzle: `@pulse/db` test helpers (`tests/schema.test.ts`, `tests/seed.test.ts`, `pulse/api/tests/helpers/db.ts`) hand-roll the SQL schema in three places — extract a shared `createSchemaSql()` helper so adding a column is a one-file change
+- [ ] Verified-organisation tier (Pulse phase 2): organisation accounts can run events over `MAX_EVENT_GUESTS` (1000) via a per-event support flow that bumps the cap. Required for conferences / festivals / large weddings. Blocks: org claim on JWT, support request flow, billing, dashboards.
+- [ ] Once `@osn/core` exposes a directional `isCloseFriendOf(attendee, viewer)` graph helper, drop the `getCloseFriendsOf` SQL query from `pulse/api/src/services/graphBridge.ts` and call the service helper instead. The bridge query is correct but a service-level helper is cleaner and easier to migrate to ARC-token HTTP later.
 
 ---
 
@@ -227,6 +244,11 @@ Address **High** items before any non-local deployment.
 - [x] S-H9 — `/register/complete` exploited a pre-existing PKCE bypass at `/token` to mint a session — fixed in the registration flow redesign: `register/complete` now issues access + refresh tokens directly and the registration code path never calls `/token`. Underlying `/token` bypass is tracked separately as S-H4.
 - [x] S-H10 — TOCTOU between OTP verify and user insert in `completeRegistration` — fixed: insert is attempted directly, the unique constraint is the source of truth, and a losing race no longer burns the pending OTP entry.
 - [x] S-H11 — `email.toLowerCase()` was used as the pending-registrations map key but the original-cased value was persisted, allowing two near-duplicate accounts — fixed: the lowercased value is now the canonical form throughout the registration pipeline (the legacy `/register` path is unchanged; tracked as S-M19 below).
+- [x] S-H12 — `GET /events/:id` did not gate by `visibility`. `listEvents` filtered private events from discovery but direct ID fetch returned full event details to anyone with the URL (incl. unauthenticated). Fixed in the full-event-view PR via shared `loadVisibleEvent` helper in `pulse/api/src/services/eventAccess.ts` — returns 404 (not 403) to non-authorised viewers to avoid existence disclosure.
+- [x] S-H13 — `GET /events/:id/ics` had the same root cause as S-H12 — leaked private event metadata including GEO coordinates as a downloadable file. Fixed via `loadVisibleEvent`.
+- [x] S-H14 — `GET /events/:id/comms` had the same root cause as S-H12 — leaked organiser blast bodies (which may contain venue codes, addresses, dress codes). Fixed via `loadVisibleEvent`.
+- [x] S-H15 — `GET /events/:id/rsvps?status=invited` leaked the organiser's invite list to anyone (or to any of the organiser's connections for connections-gated events). Invitees never opted in (the public-guest-list override applies only to people who have actually attended). Fixed in `listRsvps`: queries with `status: "invited"` return empty unless the viewer is the event organiser.
+- [x] S-H16 — `GET /events/:id/rsvps/counts` leaked existence + activity of private events. Fixed via the shared `loadVisibleEvent` gate.
 
 ### Medium
 
@@ -256,6 +278,9 @@ Address **High** items before any non-local deployment.
 - [x] S-M24 — Biased modulo OTP generation (`buf[0] % 900_000` over a 32-bit draw) — fixed in the new registration flow via rejection sampling in `genOtpCode()`. Login OTP path still uses the biased version; lift the helper.
 - [x] S-M25 — Non-constant-time OTP comparison via `===` — fixed in the new registration flow via `timingSafeEqualString()`. Login OTP path still uses `!==`; lift the helper.
 - [x] S-M26 — Differential error responses on `/register/begin` (`Email already registered` vs `Handle already taken` vs `sent: true`) leaked which accounts exist — fixed: the route now always returns `{ sent: true }` regardless of conflict status. The handle availability check via `/handle/:handle` remains the appropriate channel for that question and can be rate-limited independently.
+- [x] S-M27 — `close_friends` per-row visibility filter in `pulse/api/src/services/rsvps.ts` had inverted directionality: it checked the *viewer's* close-friends list, allowing a stalker who unilaterally added a target as a close friend to see the target's gated RSVPs. Fixed in the full-event-view PR via a new `getCloseFriendsOf(viewerId, attendeeIds[])` bridge query that returns the subset of attendees who have marked the *viewer* as a close friend. The attendee owns the privacy decision; the filter now reflects that.
+- [x] S-M28 — `getConnectionIds` / `getCloseFriendIds` in `pulse/api/src/services/graphBridge.ts` silently capped membership sets at 100, causing the visibility filter to under-permit users with larger graphs. Fixed in the full-event-view PR by raising the cap to `MAX_EVENT_GUESTS` (1000) — the platform-wide hard cap on event guest count, documented in `pulse/api/src/lib/limits.ts` and the package README. Resolves both this finding and P-W13 (same root cause).
+- [x] S-M29 — No `maxLength` on `title` / `description` / `location` / `venue` / `category` in `InsertEventSchema` allowed an authenticated user to POST a 10MB description and bloat every discovery response. Fixed in the full-event-view PR with explicit caps (title 200, description 5000, location/venue 500, category 100) on both Insert and Update schemas.
 
 ### Low
 
@@ -272,6 +297,9 @@ Address **High** items before any non-local deployment.
 - [ ] S-L11 — Failed OAuth callback leaves PKCE verifier in `localStorage` — clear on state mismatch
 - [ ] S-L12 — `REDIRECT_URI` derived from `window.location.origin` at runtime — prefer explicit env var
 - [ ] S-L13 — PKCE `state` not validated against a stored nonce
+- [x] S-L20 — `sendBlast` in `pulse/api/src/services/comms.ts` `console.log`ged the first 60 chars of every blast body to stdout in non-test envs. Blast bodies frequently contain venue codes / addresses / private details. Fixed in the full-event-view PR by removing the log entirely — tests cover the contract directly via the returned `blasts` array.
+- [x] S-L21 — `serializeRsvp` in `pulse/api/src/routes/events.ts` returned `invitedByUserId` to all viewers, revealing which co-host invited each attendee on multi-organiser events. Fixed in the full-event-view PR by passing an `isOrganiser` flag through the route layer; non-organiser viewers now receive `invitedByUserId: null`.
+- [ ] S-L22 — `listRsvps` counts privacy-filtered rows toward `limit`, providing a weak side-channel oracle: an attacker can vary `limit` and infer how many privacy-filtered rows exist between visible ones. Low exploitability (requires many probes; only reveals counts of an opaque population). Fix would loop until `limit` visible rows are collected. Deferred — folded into a future "stable pagination" pass on `listRsvps`.
 - [ ] S-L14 — `assertion: t.Any()` on passkey register/login routes — add TypeBox shape validation for top-level WebAuthn fields
 - [ ] S-L15 — No reserved-handle blocklist in DB — enforced in app layer only; consider DB-level check constraint
 - [x] S-L16 — `EventList` `console.error` logs raw server error objects — guarded with `import.meta.env.DEV`
@@ -282,6 +310,10 @@ Address **High** items before any non-local deployment.
 ---
 
 ## Performance Backlog
+
+### Critical
+
+- [x] P-C1 — `filterByAttendeePrivacy` in `pulse/api/src/services/rsvps.ts` had an N+1 lookup against `pulse_users` (the comment claimed "batch-fetch" but the implementation did `for (id of attendeeIds) yield* getAttendanceVisibility(id)`), firing up to 200 extra queries per `listRsvps` call on busy events. Fixed in the full-event-view PR by adding `getAttendanceVisibilityBatch(userIds[])` to `pulseUsers.ts` (single `WHERE userId IN (...)` query, defaults missing keys to `connections`) and replacing the for-loop with a single call.
 
 ### Warning
 
@@ -296,6 +328,9 @@ Address **High** items before any non-local deployment.
 - [x] P-W7 — `eitherBlocked` made two sequential `isBlocked` calls — collapsed to single OR query
 - [x] P-W8 — `blockUser` used SELECT-then-DELETE pattern — replaced with direct `DELETE WHERE OR`
 - [x] P-W9 — Eliminate extra `getEvent` round-trips in `updateEvent` — returns in-memory merged result
+- [x] P-W12 — `listEvents` in `pulse/api/src/services/events.ts` clamped with `LIMIT` *before* the in-JS visibility filter, yielding unstable page sizes (the DB returned 20 rows but the JS filter could drop several private ones, leaving the client with fewer than requested) AND defeating the `events_visibility_idx` index. Fixed in the full-event-view PR by pushing the visibility filter into the SQL `WHERE` clause via `or(eq(events.visibility, "public"), eq(events.createdByUserId, viewerId))`.
+- [x] P-W13 — Same root cause as S-M28: `getConnectionIds` / `getCloseFriendIds` capped at 100, silently truncating membership sets. Fixed jointly with S-M28 by raising the bound to `MAX_EVENT_GUESTS`.
+- [x] P-W14 — `MapPreview` and Leaflet (~150KB + CSS) shipped on every Pulse cold start because the route, the page component, and Leaflet itself were all static imports from `App.tsx`. Fixed in the full-event-view PR with two complementary changes: (1) `EventDetailPage` and `SettingsPage` are now route-level `lazy()`-loaded in `App.tsx`, and (2) `MapPreview` itself dynamic-imports Leaflet inside `onMount` so events without coordinates never pay for the chunk at all.
 
 ### Info
 
@@ -311,6 +346,9 @@ Address **High** items before any non-local deployment.
 - [x] P-I10 — `Register.tsx` used `createEffect` to auto-skip the passkey step when WebAuthn was unsupported — fixed: skip is now imperative, called directly from `submitOtp` after the step transition. Removes the re-fire surface area and the `!busy()` infinite-loop guard.
 - [x] P-I11 — `Register.tsx` wrapped `detailsValid` in `createMemo` for a 3-line boolean expression — fixed: inlined as a plain accessor function. Solid's reactivity already re-runs JSX accessors fine-grainedly; the memo node was pure overhead.
 - [x] P-I12 — `Register.tsx` reallocated the `RegistrationClient` (and its closures) on every component mount — fixed: hoisted to module scope.
+- [ ] P-I13 — `upsertRsvp` calls `ensurePulseUser(userId)` even on the update branch (the row must already exist for the user to have an RSVP). Folded into the full-event-view PR's RSVP rewrite — `ensurePulseUser` now only runs on the insert branch, saving one round-trip per RSVP update. Tracking here for posterity. **Already fixed; this entry is documentation.**
+- [ ] P-I14 — `GET /events/:id/ics` in `pulse/api/src/routes/events.ts` has no `Cache-Control` / `ETag` headers despite the response being a pure function of `event.id` + `event.updatedAt`. Calendar clients re-poll the URL on a schedule and would benefit from `If-None-Match` revalidation. Deferred — quality-of-life, not a hot path.
+- [ ] P-I15 — `rsvpCounts` in `pulse/api/src/services/rsvps.ts` calls `loadEvent(eventId)` purely to produce a 404 signal. The route already gates the event via `loadVisibleEvent` upstream, so the second `loadEvent` is redundant on every counts request. Deferred — minor cleanup, the defensive 404 is cheap.
 
 ---
 

@@ -20,6 +20,11 @@ function createTestDb() {
       image_url TEXT,
       latitude REAL,
       longitude REAL,
+      visibility TEXT NOT NULL DEFAULT 'public',
+      guest_list_visibility TEXT NOT NULL DEFAULT 'public',
+      join_policy TEXT NOT NULL DEFAULT 'open',
+      allow_interested INTEGER NOT NULL DEFAULT 1,
+      comms_channels TEXT NOT NULL DEFAULT '["email"]',
       created_by_user_id TEXT,
       created_by_name TEXT,
       created_by_avatar TEXT,
@@ -33,6 +38,7 @@ function createTestDb() {
       event_id TEXT NOT NULL REFERENCES events(id),
       user_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'going',
+      invited_by_user_id TEXT,
       created_at INTEGER NOT NULL,
       UNIQUE (event_id, user_id)
     )

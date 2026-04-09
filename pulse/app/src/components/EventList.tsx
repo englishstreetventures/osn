@@ -1,4 +1,5 @@
 import { createResource, createSignal, createMemo, For, Show } from "solid-js";
+import { A } from "@solidjs/router";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "solid-toast";
 import { api } from "../lib/api";
@@ -91,6 +92,12 @@ export function EventList() {
             >
               {showForm() ? "Cancel" : "New Event"}
             </button>
+            <A
+              href="/settings"
+              class="rounded-md px-3 py-1.5 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80"
+            >
+              Settings
+            </A>
             <button
               onClick={logout}
               class="rounded-md px-3 py-1.5 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80"

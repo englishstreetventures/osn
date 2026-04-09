@@ -9,9 +9,15 @@ export const eventRsvps = sqliteTable(
       .notNull()
       .references(() => events.id),
     userId: text("user_id").notNull(), // references osn-db users (cross-DB, no FK)
-    status: text("status", { enum: ["going", "interested", "not_going"] })
+    // "invited" is the pre-RSVP state for events with joinPolicy = "guest_list".
+    // Organisers invite users (status = "invited") and those users can then
+    // transition to "going" / "interested" / "not_going".
+    // "interested" is rendered as "Maybe" in the UI.
+    status: text("status", { enum: ["going", "interested", "not_going", "invited"] })
       .notNull()
       .default("going"),
+    // Optional: who added the "invited" row (organiser). NULL on self-RSVPs.
+    invitedByUserId: text("invited_by_user_id"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),

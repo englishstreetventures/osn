@@ -1,7 +1,15 @@
 // @vitest-environment happy-dom
-import { render, cleanup, fireEvent } from "@solidjs/testing-library";
+import type { JSX } from "solid-js";
+import { render as _baseRender, cleanup, fireEvent } from "@solidjs/testing-library";
 import { vi, describe, it, expect, afterEach } from "vitest";
 import { EventCard } from "../../src/components/EventCard";
+import { wrapRouter } from "../helpers/router";
+
+// EventCard now uses `<A>` from @solidjs/router, which requires a Router
+// context. Wrap every render in a MemoryRouter so the existing test
+// bodies don't need to change.
+const render: typeof _baseRender = ((factory: () => JSX.Element) =>
+  _baseRender(wrapRouter(factory))) as unknown as typeof _baseRender;
 
 const mockEvent = {
   id: "evt_1",

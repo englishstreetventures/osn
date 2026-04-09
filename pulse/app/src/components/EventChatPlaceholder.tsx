@@ -1,0 +1,23 @@
+/**
+ * Placeholder for the event chat. Zap — OSN's messaging app — has its
+ * name and workspace layout pinned (`@zap/app` / `@zap/api` / `@zap/db`)
+ * but no code yet; the event-chat integration lands in Zap M2 per
+ * TODO.md. When Zap M2 ships, swap this for the real chat component.
+ *
+ * Kept as a dedicated component so the swap is localised and the page
+ * layout doesn't need to change.
+ */
+export function EventChatPlaceholder(props: { eventId: string }) {
+  return (
+    <div class="rounded-xl border border-dashed border-border bg-card/50 p-6 text-center">
+      <h3 class="text-sm font-semibold text-foreground mb-1">Event chat</h3>
+      <p class="text-xs text-muted-foreground">
+        Chat for this event will live here — powered by <span class="font-semibold">Zap</span>,
+        OSN's messaging app.
+      </p>
+      <p class="text-[10px] text-muted-foreground/70 mt-1">
+        Tracked under Zap M2 · event id <code class="font-mono">{props.eventId}</code>
+      </p>
+    </div>
+  );
+}

@@ -1,4 +1,5 @@
 import { Show } from "solid-js";
+import { A } from "@solidjs/router";
 import type { EventItem } from "../lib/types";
 import { formatTime } from "../lib/utils";
 
@@ -32,23 +33,36 @@ export function EventCard(props: {
 
   return (
     <div class="rounded-xl border border-border bg-card overflow-hidden">
-      <Show when={props.event.imageUrl}>
-        <img class="w-full h-44 object-cover" src={props.event.imageUrl!} alt={props.event.title} />
-      </Show>
-      <div class="p-4">
-        <div class="flex items-center gap-2 mb-2">
-          <Show when={props.event.category}>
-            <span class="text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-              {props.event.category}
+      {/* The block above the action row is a single navigable link to the
+          full event view. We exclude the bottom row (Maps link + Delete
+          button) so nested interactive elements don't steal the click. */}
+      <A href={`/events/${props.event.id}`} class="block hover:opacity-95">
+        <Show when={props.event.imageUrl}>
+          <img
+            class="w-full h-44 object-cover"
+            src={props.event.imageUrl!}
+            alt={props.event.title}
+          />
+        </Show>
+        <div class="p-4 pb-0">
+          <div class="flex items-center gap-2 mb-2">
+            <Show when={props.event.category}>
+              <span class="text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                {props.event.category}
+              </span>
+            </Show>
+            <span
+              class={`text-xs ${props.event.status === "ongoing" ? "text-green-600 font-semibold" : props.event.status === "cancelled" ? "text-destructive" : "text-muted-foreground"}`}
+            >
+              {props.event.status}
             </span>
-          </Show>
-          <span
-            class={`text-xs ${props.event.status === "ongoing" ? "text-green-600 font-semibold" : props.event.status === "cancelled" ? "text-destructive" : "text-muted-foreground"}`}
-          >
-            {props.event.status}
-          </span>
+          </div>
+          <h2 class="text-base font-semibold text-foreground mb-1">{props.event.title}</h2>
         </div>
-        <h2 class="text-base font-semibold text-foreground mb-1">{props.event.title}</h2>
+      </A>
+      {/* Bottom half — NOT wrapped in the link so nested interactive
+          elements (Maps link, Delete button) receive their own clicks. */}
+      <div class="p-4 pt-2">
         <Show when={props.event.description}>
           <p class="text-sm text-muted-foreground line-clamp-2 mb-3">{props.event.description}</p>
         </Show>
@@ -84,19 +98,24 @@ export function EventCard(props: {
           </Show>
           <span>{formatTime(props.event.startTime)}</span>
         </div>
-        <div class="mt-3 flex items-center justify-between">
-          <Show when={mapsUrl(props.event)}>
-            {(url) => (
-              <a
-                href={url()}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-xs text-primary hover:underline"
-              >
-                Open in Maps
-              </a>
-            )}
-          </Show>
+        <div class="mt-3 flex items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <A href={`/events/${props.event.id}`} class="text-xs text-primary hover:underline">
+              View details
+            </A>
+            <Show when={mapsUrl(props.event)}>
+              {(url) => (
+                <a
+                  href={url()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-xs text-primary hover:underline"
+                >
+                  Open in Maps
+                </a>
+              )}
+            </Show>
+          </div>
           <Show when={canDelete()}>
             <button
               onClick={() => {
