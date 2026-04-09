@@ -184,6 +184,218 @@ Generate a key pair once at service setup with `generateArcKeyPair()`, store the
 
 **Current S2S strategy:** Pulse API imports `createGraphService()` from `@osn/core` directly (zero network overhead). ARC tokens guard HTTP-based S2S (`/graph/internal/*`) — needed when scaling to multi-process, and immediately for any third-party app. See the "S2S scaling" deferred decision in TODO.md.
 
+## Observability (Logging / Metrics / Tracing)
+
+OSN uses **OpenTelemetry end-to-end**, shipped to **Grafana Cloud** (free tier: 10k active series, 50 GB/mo logs, 50 GB/mo traces, 14-day rolling retention). Frontend observability via **Grafana Faro** (same OTLP endpoint, no Sentry). All plumbing lives in `@shared/observability` — no other package should import `@opentelemetry/*` directly.
+
+**Package layout:**
+```
+shared/observability/
+  src/
+    config.ts              # env → typed config
+    logger/                # Effect Logger.json + redaction (no pino)
+    tracing/               # @effect/opentelemetry NodeSdk layer
+    metrics/
+      factory.ts           # typed createCounter / createHistogram / createUpDownCounter
+      attrs.ts             # shared attribute string-literal unions (Result, AuthMethod, …)
+    elysia/plugin.ts       # request ID, spans, access log, RED metrics, /health, /ready
+    fetch/instrument.ts    # outbound fetch wrapper: injects W3C traceparent + ARC token preserved
+```
+
+### The three golden rules
+
+1. **Never call `console.*` in backend code.** Use `Effect.logInfo` / `Effect.logWarn` / `Effect.logError`. The logger is automatically replaced with `Logger.jsonLogger` in prod and `Logger.prettyLogger()` in dev via `ObservabilityLive`.
+2. **Never construct OTel meters/tracers directly.** Use the typed helpers from `@shared/observability/metrics`. Raw `metrics.getMeter(...)` calls are banned (lint rule enforces this).
+3. **Never put unbounded values in metric attributes.** No `userId`, no `requestId`, no `eventId`, no email, no handle. Those belong in traces (spans) or logs (annotations), never metrics.
+
+### Logging rules
+
+- **Use `Effect.logInfo/Warn/Error` inside Effect pipelines.** Trace context is attached automatically — no manual `traceId` plumbing.
+- **Put structured context in annotations, not message text.** `Effect.logInfo("event created").pipe(Effect.annotateLogs({ eventId: e.id }))`, not `Effect.logInfo(`event created: ${e.id}`)`. The JSON logger keeps annotations as structured fields; interpolated strings get redacted-or-missed.
+- **Every error path logs with `Effect.logError`, including the `_tag` and cause.** Let the tagged error *be* the structured context — do not reformat.
+- **Redaction is non-negotiable.** The logger layer applies a deny-list scrubber before serialization: `email`, `password`, `otp`, `otpCode`, `token`, `accessToken`, `refreshToken`, `authorization`, `cookie`, `set-cookie`, `passkey`, `credential`, `privateKey`, `ciphertext`, `plaintext`, `messageBody`, `signalEnvelope`, `ratchetKey`, `identityKey`, `prekey`, `senderKey`. Add to the list; never remove.
+- **`userId` is OK to log; `handle` and `email` are not.** Use the ID.
+- **Dev-mode OTP/magic-link logging** (which exists today at `console.log` sites flagged in S-L8) is replaced by a dedicated `Effect.logDebug` path gated on `NODE_ENV !== "production"`.
+
+### Tracing rules
+
+- **Wrap every service-level function in `Effect.withSpan("<domain>.<operation>")`.** Examples: `events.create`, `auth.register.complete`, `graph.connection.accept`, `arc.token.verify`.
+- **Span names are hierarchical and snake_case.** Dots separate layers; underscores separate words. Match the metric naming convention so dashboards can correlate on shared prefixes.
+- **Do not create spans at route level** — the Elysia plugin already creates a span per request with `http.*` attributes. Creating a second span inside the handler is redundant; add service spans inside the Effect pipeline instead.
+- **Propagate trace context across services via the shared `fetch` wrapper.** Any outbound HTTP from our code goes through `instrumentedFetch` from `@shared/observability/fetch` — it injects `traceparent` + (if configured) the ARC token header. Never raw `fetch()` for service-to-service calls.
+- **Inbound `traceparent` is only trusted from ARC-authenticated callers.** The Elysia plugin extracts upstream trace context when — and only when — the request presents `Authorization: ARC ...`. Anonymous/public requests start fresh root spans to prevent external attackers from forcing sampling decisions or injecting chosen trace IDs into our internal traces (S-H13).
+- **Elysia hook limitation (known).** Elysia's `onRequest → handler → onAfterResponse` hooks run as separate invocations, not inside a single enclosing callback. OTel's `context.with(ctx, fn)` scope only lives for the duration of `fn`, so there is no way to make a single OTel `Context` active across the hook → handler boundary via hooks alone. Consequences: `trace.getActiveSpan()` inside a synchronous handler does NOT see the server span, and Effect service spans created via `Effect.withSpan` become root spans rather than children of the HTTP request. Distributed tracing across services still works (inbound/outbound `traceparent` propagation is unaffected). For handlers that explicitly want child spans, use `getRequestContext(request)` + `context.with(...)` as an escape hatch.
+- **WebSocket spans are out of scope for the initial rollout** — flagged to add per-message spans when `@zap/api` lands.
+
+### Metrics rules
+
+**Naming convention** — follow [OTel semantic conventions](https://opentelemetry.io/docs/specs/semconv/general/metrics/) where they exist (`http.server.*`, `db.client.*`, `process.runtime.*`). For OSN-specific metrics:
+
+```
+{namespace}.{domain}.{subject}.{measurement}
+```
+
+- `namespace`: `osn`, `pulse`, `zap`, `arc`, `db`, `http`, `process` — identifies the owner
+- `domain` + `subject`: lowercase, `snake_case` inside each segment, dots between
+- No `_total` / `_count` suffix (OTel prometheus exporter adds `_total` for counters automatically)
+- Unit lives in the metric's `unit` field, not the name
+- `{attempt}`, `{event}`, `{token}`, `{operation}` for UCUM-style unit-less counts; `s` for seconds; `By` for bytes; `1` for dimensionless ratios
+
+Examples: `osn.auth.register.attempts`, `osn.auth.login.duration`, `pulse.events.created`, `pulse.events.status_transitions`, `arc.token.issued`, `arc.token.verification`.
+
+**Default resource attributes** — applied to every metric by the SDK init, never set per-call:
+- `service.name` (e.g. `pulse-api`)
+- `service.namespace` (always `osn`)
+- `service.version` (from `package.json`)
+- `service.instance.id` (`<hostname>-<pid>`)
+- `deployment.environment` (`dev` | `staging` | `production`)
+
+**Single-definition-site rule:** every metric is declared exactly once, in a `metrics.ts` file co-located with its domain:
+- `pulse/api/src/metrics.ts` — Pulse API domain metrics
+- `osn/core/src/metrics.ts` — OSN Core auth + graph metrics
+- `osn/crypto/src/arc-metrics.ts` — ARC token metrics
+- `shared/observability/src/metrics/http.ts` — shared HTTP RED metrics (used by the Elysia plugin)
+
+Each file exports:
+1. An **`OSN_METRICS`** (or `PULSE_METRICS`, `ARC_METRICS`, etc.) const object of metric name strings — the single source of truth, grep-able, refactor-safe.
+2. **Typed counter/histogram instances** built via `createCounter<Attrs>(...)` from `@shared/observability/metrics/factory`. The `Attrs` generic pins the allowed attribute keys at declaration — TypeScript rejects any caller passing an unknown key, so cardinality footguns become compile errors.
+3. Optionally, small **wrapper functions** for common call sites (`metricLoginAttempt(method, result)`) so the call site reads as a verb, not a `.inc()`.
+
+**Per-metric attributes** — strict rules:
+- **Must be bounded.** The `Attrs` type is a `Record<string, string>` where every value is a string-literal union (`"ok" | "error" | "rate_limited"`, not `string`).
+- **Must be documented at the declaration site** via the TypeScript type. The type *is* the contract.
+- **Never include user-identifying, request-identifying, or session-identifying values** — even via `as`. Reviewers reject the diff; logs and traces are the correct home for those.
+- **Max ~5 attributes per metric.** More than that and you're probably modelling what should be two metrics.
+- **Free-text → bounded bucket.** When an attribute value comes from user input or a runtime registry whose set can't be known at compile time (e.g. event category, ARC service ID), do NOT type it as `string`. Define a closed allow-list and a `bucketX()` / `safeX()` helper that collapses unknown values to `"other"` or `"unknown"` before emission. See `bucketCategory()` in `pulse/api/src/metrics.ts` and `safeIssuer()` in `osn/crypto/src/arc-metrics.ts` for the canonical pattern. This is the runtime analogue of the compile-time string-literal-union rule.
+- **Route attributes default to a fixed sentinel.** HTTP-style route labels must never be set from a raw URL path. The shared Elysia plugin defaults `http.route` to `"unmatched"` and only overwrites it with Elysia's matched route template in `onAfterHandle`. Any request that short-circuits before then (404, body validation failure) records as `unmatched`, not as a raw attacker-controlled path (S-C1).
+
+### Canonical code example
+
+```typescript
+// shared/observability/src/metrics/factory.ts — typed factory
+import { metrics, type Attributes } from "@opentelemetry/api";
+
+const meter = metrics.getMeter("osn");
+
+export interface Counter<A extends Attributes> {
+  add(value: number, attrs: A): void;
+  inc(attrs: A): void;
+}
+
+export const createCounter = <A extends Attributes>(opts: {
+  name: string;
+  description: string;
+  unit: string;
+}): Counter<A> => {
+  const c = meter.createCounter(opts.name, {
+    description: opts.description,
+    unit: opts.unit,
+  });
+  return {
+    add: (value, attrs) => c.add(value, attrs),
+    inc: (attrs) => c.add(1, attrs),
+  };
+};
+
+// Standard latency buckets (seconds) — use for all HTTP / DB / Effect-span histograms
+export const LATENCY_BUCKETS_S = [
+  0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10,
+] as const;
+```
+
+```typescript
+// shared/observability/src/metrics/attrs.ts — shared string-literal unions
+export type Result = "ok" | "error" | "unauthorized" | "rate_limited" | "not_found";
+export type AuthMethod = "passkey" | "otp" | "magic_link" | "refresh";
+export type ArcVerifyResult =
+  | "ok" | "expired" | "bad_signature" | "unknown_issuer"
+  | "scope_denied" | "audience_mismatch";
+```
+
+```typescript
+// osn/core/src/metrics.ts — domain metrics for OSN Core
+import { createCounter, createHistogram, LATENCY_BUCKETS_S } from "@shared/observability/metrics";
+import type { Result, AuthMethod } from "@shared/observability/metrics";
+
+/** Single source of truth for OSN Core metric names. */
+export const OSN_METRICS = {
+  authRegisterAttempts: "osn.auth.register.attempts",
+  authRegisterDuration: "osn.auth.register.duration",
+  authLoginAttempts: "osn.auth.login.attempts",
+  authLoginDuration: "osn.auth.login.duration",
+  authTokenRefresh: "osn.auth.token.refresh",
+  authHandleCheck: "osn.auth.handle.check",
+  graphConnectionOps: "osn.graph.connection.operations",
+  graphBlockOps: "osn.graph.block.operations",
+  graphRateLimited: "osn.graph.rate_limited",
+} as const;
+
+type RegisterAttrs = { step: "begin" | "complete"; result: Result };
+type LoginAttrs    = { method: AuthMethod; result: Result };
+
+export const authRegisterAttempts = createCounter<RegisterAttrs>({
+  name: OSN_METRICS.authRegisterAttempts,
+  description: "Registration flow attempts by step and outcome",
+  unit: "{attempt}",
+});
+
+export const authLoginAttempts = createCounter<LoginAttrs>({
+  name: OSN_METRICS.authLoginAttempts,
+  description: "Login attempts by auth method and outcome",
+  unit: "{attempt}",
+});
+
+export const authLoginDuration = createHistogram<LoginAttrs>({
+  name: OSN_METRICS.authLoginDuration,
+  description: "Login flow duration by method",
+  unit: "s",
+  advice: { explicitBucketBoundaries: LATENCY_BUCKETS_S },
+});
+```
+
+```typescript
+// osn/core/src/services/auth.ts — call site
+import { authLoginAttempts } from "../metrics";
+
+export const login = (input: LoginInput) =>
+  Effect.gen(function* () {
+    // ... verification logic ...
+    return session;
+  }).pipe(
+    Effect.withSpan("auth.login", { attributes: { "auth.method": input.method } }),
+    Effect.tap(() =>
+      Effect.sync(() => authLoginAttempts.inc({ method: input.method, result: "ok" })),
+    ),
+    Effect.tapError((e) =>
+      Effect.sync(() =>
+        authLoginAttempts.inc({
+          method: input.method,
+          result: e._tag === "RateLimited" ? "rate_limited" : "error",
+        }),
+      ),
+    ),
+  );
+```
+
+TypeScript rejects `authLoginAttempts.inc({ userId: "u_123" })` at compile time because `userId` is not in `LoginAttrs`. **Cardinality is enforced by the compiler, not by code review.**
+
+### Checklist when adding a new feature / service / route
+
+Every feature PR should answer these questions:
+
+- [ ] **Logs** — are all error paths covered by `Effect.logError` with the tagged error? Any `console.*` calls? Any secret fields that need adding to the redaction deny-list?
+- [ ] **Traces** — is every service function wrapped in `Effect.withSpan("<domain>.<operation>")`? Are the span names consistent with existing ones? Any outbound HTTP going through `instrumentedFetch`?
+- [ ] **Metrics** — does this feature need new counters/histograms? If yes, added to the correct `metrics.ts` file with typed `Attrs`? Names follow `{namespace}.{domain}.{subject}.{measurement}`? Cardinality bounded?
+- [ ] **Dashboards / alerts** — if this is a critical path (auth, payments, S2S, messaging), is there a follow-up task to add a dashboard row or alert rule? (Out of scope for most feature PRs but worth noting.)
+
+### What stays out of scope (for now)
+
+- Alerting rules and dashboards (separate post-instrumentation work)
+- Self-hosted collector (use Grafana Cloud OTLP endpoint directly)
+- Continuous profiling (pyroscope)
+- WebSocket per-message spans (deferred to Zap M1)
+- Log-based metrics (straight counters/histograms only)
+
 ## Review Finding IDs
 
 All review skills (`/review-security`, `/review-performance`, `/review-tests`) tag findings with short IDs so they can be referenced precisely (e.g. "fix S-H1 before merging", "P-C2 still open").

@@ -15,6 +15,8 @@
     "@elysiajs/cors": "^1.4.0",
     "@osn/core": "workspace:*",
     "@osn/db": "workspace:*",
+    "@shared/observability": "workspace:*",
+    "effect": "^3.19.19",
     "elysia": "^1.2.0"
   },
   "devDependencies": {

@@ -2,6 +2,7 @@ import { Data, Effect } from "effect";
 import { and, eq, inArray, or } from "drizzle-orm";
 import { users, connections, closeFriends, blocks } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { withGraphBlockOp, withGraphConnectionOp } from "../metrics";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -171,7 +172,7 @@ export function createGraphService() {
           }),
         catch: (cause) => new DatabaseError({ cause }),
       });
-    });
+    }).pipe(withGraphConnectionOp("request"));
 
   const acceptConnection = (
     addresseeId: string,
@@ -207,7 +208,7 @@ export function createGraphService() {
             .where(eq(connections.id, rows[0].id)),
         catch: (cause) => new DatabaseError({ cause }),
       });
-    });
+    }).pipe(withGraphConnectionOp("accept"));
 
   /**
    * Rejects a pending request by deleting the row (keeps schema clean).
@@ -242,7 +243,7 @@ export function createGraphService() {
         try: () => db.delete(connections).where(eq(connections.id, rows[0].id)),
         catch: (cause) => new DatabaseError({ cause }),
       });
-    });
+    }).pipe(withGraphConnectionOp("reject"));
 
   /**
    * Removes an accepted connection or cancels a pending request in either direction.
@@ -276,7 +277,7 @@ export function createGraphService() {
         try: () => db.delete(connections).where(eq(connections.id, rows[0].id)),
         catch: (cause) => new DatabaseError({ cause }),
       });
-    });
+    }).pipe(withGraphConnectionOp("remove"));
 
   const listConnections = (
     userId: string,
@@ -496,7 +497,7 @@ export function createGraphService() {
             .onConflictDoNothing(),
         catch: (cause) => new DatabaseError({ cause }),
       });
-    });
+    }).pipe(withGraphBlockOp("add"));
 
   const unblockUser = (
     blockerId: string,
@@ -522,7 +523,7 @@ export function createGraphService() {
         try: () => db.delete(blocks).where(eq(blocks.id, rows[0].id)),
         catch: (cause) => new DatabaseError({ cause }),
       });
-    });
+    }).pipe(withGraphBlockOp("remove"));
 
   const listBlocks = (
     userId: string,

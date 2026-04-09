@@ -2,6 +2,7 @@ import { Data, Effect, Schema } from "effect";
 import { desc, eq } from "drizzle-orm";
 import { eventComms, type EventComm, events, type Event } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { metricCommsBlastSent } from "../metrics";
 import { EventNotFound } from "./events";
 
 export class DatabaseError extends Data.TaggedError("DatabaseError")<{
@@ -131,8 +132,15 @@ export const sendBlast = (
     // aggregation systems. Tests cover the contract directly via the
     // returned `blasts` array.
 
+    // One counter increment per channel — a multi-channel blast counts
+    // as one write per channel in dashboards.
+    const bodyBytes = new TextEncoder().encode(validated.body).length;
+    for (const row of rows) {
+      metricCommsBlastSent(row.channel, bodyBytes, "ok");
+    }
+
     return { blasts: rows };
-  });
+  }).pipe(Effect.withSpan("comms.blast.send"));
 
 /**
  * Returns the most recent N blasts for an event (any channel). Used by the
@@ -156,4 +164,4 @@ export const listBlasts = (
           .limit(clamped) as Promise<EventComm[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
-  });
+  }).pipe(Effect.withSpan("comms.blast.list"));

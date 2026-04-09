@@ -13,11 +13,12 @@ describe("OSN auth server", () => {
   });
 
   describe("GET /health", () => {
-    it("returns healthy status", async () => {
+    it("returns ok status from shared observability health route", async () => {
       const res = await app.handle(new Request("http://localhost/health"));
       expect(res.status).toBe(200);
-      const json = (await res.json()) as { status: string };
-      expect(json.status).toBe("healthy");
+      const json = (await res.json()) as { status: string; service: string };
+      expect(json.status).toBe("ok");
+      expect(json.service).toBe("osn-app");
     });
   });
 

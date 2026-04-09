@@ -3,6 +3,15 @@ import { Effect, Data } from "effect";
 import { eq } from "drizzle-orm";
 import { Db } from "@osn/db/service";
 import { serviceAccounts } from "@osn/db";
+import {
+  classifyArcVerifyError,
+  metricArcPublicKeyCacheHit,
+  metricArcPublicKeyCacheMiss,
+  metricArcTokenCacheHit,
+  metricArcTokenCacheMiss,
+  metricArcTokenIssued,
+  metricArcTokenVerification,
+} from "./arc-metrics";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -142,13 +151,16 @@ export async function createArcToken(
   const scopes = normaliseScopes(claims.scope);
   validateScopeFormat(scopes);
 
-  return new SignJWT({ scope: scopes.join(",") })
+  const token = await new SignJWT({ scope: scopes.join(",") })
     .setProtectedHeader({ alg: ARC_ALG })
     .setIssuer(claims.iss)
     .setAudience(claims.aud)
     .setIssuedAt()
     .setExpirationTime(`${ttl}s`)
     .sign(privateKey);
+
+  metricArcTokenIssued(claims.iss, claims.aud);
+  return token;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,34 +181,47 @@ export async function verifyArcToken(
   expectedAudience: string,
   requiredScope?: string,
 ): Promise<ArcTokenPayload> {
-  const { payload } = await jwtVerify(token, publicKey, {
-    algorithms: [ARC_ALG],
-    audience: expectedAudience,
-  }).catch((cause) => {
-    throw new ArcTokenError({ message: "ARC token verification failed", cause });
-  });
+  // We don't know the issuer until we've parsed the token, so we record
+  // the metric once we have it. On early failure (bad signature, etc.)
+  // we label with "unknown" so the counter still increments.
+  let issForMetric = "unknown";
+  try {
+    const { payload } = await jwtVerify(token, publicKey, {
+      algorithms: [ARC_ALG],
+      audience: expectedAudience,
+    }).catch((cause) => {
+      throw new ArcTokenError({ message: "ARC token verification failed", cause });
+    });
 
-  const scope = payload.scope as string | undefined;
-  if (!scope) {
-    throw new ArcTokenError({ message: "ARC token missing scope claim" });
-  }
+    if (typeof payload.iss === "string") issForMetric = payload.iss;
 
-  if (requiredScope) {
-    const scopes = normaliseScopes(scope);
-    if (!scopes.includes(requiredScope.trim().toLowerCase())) {
-      throw new ArcTokenError({
-        message: `ARC token missing required scope: ${requiredScope}`,
-      });
+    const scope = payload.scope as string | undefined;
+    if (!scope) {
+      throw new ArcTokenError({ message: "ARC token missing scope claim" });
     }
-  }
 
-  return {
-    iss: payload.iss!,
-    aud: (Array.isArray(payload.aud) ? payload.aud[0] : payload.aud)!,
-    scope,
-    iat: payload.iat!,
-    exp: payload.exp!,
-  };
+    if (requiredScope) {
+      const scopes = normaliseScopes(scope);
+      if (!scopes.includes(requiredScope.trim().toLowerCase())) {
+        throw new ArcTokenError({
+          message: `ARC token missing required scope: ${requiredScope}`,
+        });
+      }
+    }
+
+    metricArcTokenVerification(issForMetric, "ok");
+
+    return {
+      iss: payload.iss!,
+      aud: (Array.isArray(payload.aud) ? payload.aud[0] : payload.aud)!,
+      scope,
+      iat: payload.iat!,
+      exp: payload.exp!,
+    };
+  } catch (err) {
+    metricArcTokenVerification(issForMetric, classifyArcVerifyError(err));
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -220,16 +245,24 @@ export const resolvePublicKey = (
   Effect.gen(function* () {
     const now = Math.floor(Date.now() / 1000);
 
-    // Check CryptoKey cache first
+    // Check CryptoKey cache first. Cache entries only exist for
+    // issuers we've already verified against the DB, so recording the
+    // hit metric with `issuer` here is safe (S-C2).
     const cached = publicKeyCache.get(issuer);
     if (cached && cached.expiresAt > now) {
       // Still need to validate scopes against DB if tokenScopes provided
       // but skip the DB query for key material — we fetch allowedScopes below
       if (!tokenScopes || tokenScopes.length === 0) {
+        metricArcPublicKeyCacheHit(issuer);
         return cached.key;
       }
     }
 
+    // S-C2: do NOT record the miss metric yet. At this point `issuer`
+    // is attacker-controlled (it's the `iss` claim of an unverified
+    // token). Recording it as a metric label would let anyone explode
+    // cardinality. Defer until the DB lookup confirms the issuer
+    // exists in `service_accounts`.
     const { db } = yield* Db;
 
     const rows = yield* Effect.tryPromise({
@@ -246,8 +279,14 @@ export const resolvePublicKey = (
     });
 
     if (rows.length === 0) {
+      // Unknown issuer — record the miss against the "unknown" bucket
+      // so we still observe the probe volume.
+      metricArcPublicKeyCacheMiss("unknown");
       return yield* Effect.fail(new ArcTokenError({ message: `Unknown service: ${issuer}` }));
     }
+
+    // Issuer verified — safe to record against the real service ID.
+    metricArcPublicKeyCacheMiss(issuer);
 
     const { publicKeyJwk, allowedScopes } = rows[0];
 
@@ -323,9 +362,11 @@ export async function getOrCreateArcToken(
 
   const cached = tokenCache.get(key);
   if (cached && cached.expiresAt - CACHE_REISSUE_BUFFER_SECONDS > now) {
+    metricArcTokenCacheHit(claims.iss);
     return cached.token;
   }
 
+  metricArcTokenCacheMiss(claims.iss);
   const token = await createArcToken(privateKey, claims, ttl);
 
   // Enforce max cache size — evict oldest entry if full

@@ -4,6 +4,9 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Up Next
 
+- [ ] S-H21 — Migrate dev-mode `console.log` of OTP + email + magic-link in `auth.ts` to `Effect.logDebug` (deferred from observability rollout — CLAUDE.md golden rule #1)
+- [ ] Provision Grafana Cloud free tier + wire `OTEL_EXPORTER_OTLP_ENDPOINT` + headers into deploy env
+- [ ] Build first observability dashboards (HTTP RED, auth funnel, ARC verification, events CRUD)
 - [ ] Zap M0 scaffold — `@zap/app` (Tauri+Solid), `@zap/api` (Elysia), `@zap/db` (Drizzle)
 - [ ] Wire Pulse event chat to Zap once M2 lands (replace `EventChatPlaceholder`)
 - [ ] Pulse: "What's on today" default view
@@ -231,6 +234,12 @@ Signal Protocol lives in `@osn/crypto`, not `zap/`.
 
 Address **High** items before any non-local deployment.
 
+### Critical
+
+- [x] S-C1 — Unbounded HTTP route metric cardinality from raw URL paths. Plugin initialised `state.route = url.pathname` and only upgraded to the route template in `onAfterHandle`, so any 404 or short-circuiting request recorded the raw path as the metric label — financial DoS on Grafana Cloud billing + path-segment leakage into observability storage. Fixed: default `state.route = "unmatched"`, only overwrite from Elysia's route template.
+- [x] S-C2 — Untrusted ARC `iss` claim became metric label before verification. `metricArcPublicKeyCacheMiss(issuer)` was called with the caller-supplied issuer *before* the DB lookup proved it existed. Fixed: (a) moved miss-metric emission to after `service_accounts` lookup succeeds, unknown issuers record against `"unknown"`; (b) added `safeIssuer()` runtime guard in `arc-metrics.ts` — any `iss`/`aud` not matching `/^[a-z][a-z0-9-]{1,30}$/` collapses to `"unknown"` as defence-in-depth.
+- [x] S-C3 — User-supplied `category` was unbounded on `pulse.events.created`. The metric typed `category: string` (despite CLAUDE.md's string-literal-union rule), letting any authenticated Pulse user blow up cardinality via `category: crypto.randomUUID()`. Fixed: closed `AllowedCategory` union (13 values) + `bucketCategory()` helper that collapses anything else to `"other"`.
+
 ### High
 
 - [ ] S-H1 — Rate limit `/register/begin`, `/register/complete`, `/handle/:handle`, and the OTP/magic-link login endpoints. New registration flow has a per-entry attempt cap (max 5 wrong OTPs → wipe) but still no per-IP / per-email throttle, so an attacker can email-bomb arbitrary addresses or spray begin-then-complete cycles. Needs middleware infra; the existing graph rate-limiter is per-user, which doesn't apply to unauthenticated routes.
@@ -249,6 +258,11 @@ Address **High** items before any non-local deployment.
 - [x] S-H14 — `GET /events/:id/comms` had the same root cause as S-H12 — leaked organiser blast bodies (which may contain venue codes, addresses, dress codes). Fixed via `loadVisibleEvent`.
 - [x] S-H15 — `GET /events/:id/rsvps?status=invited` leaked the organiser's invite list to anyone (or to any of the organiser's connections for connections-gated events). Invitees never opted in (the public-guest-list override applies only to people who have actually attended). Fixed in `listRsvps`: queries with `status: "invited"` return empty unless the viewer is the event organiser.
 - [x] S-H16 — `GET /events/:id/rsvps/counts` leaked existence + activity of private events. Fixed via the shared `loadVisibleEvent` gate.
+- [x] S-H17 — `/ready` readiness probe leaked internal error messages (driver text, hostnames, connection strings) to unauthenticated callers when the probe threw. Fixed: `/ready` now returns a fixed opaque `{ status: "not_ready", service }` body regardless of why the probe failed; the underlying cause is routed to operators via `Effect.logError`. `false`-return and thrown-probe responses are byte-identical.
+- [x] S-H18 — Inbound W3C `traceparent` was honoured unconditionally, letting external attackers force 100% sampling + inject chosen trace IDs into internal traces (privilege escalation across observability trust boundaries). Fixed: plugin only extracts upstream trace context when the caller presents an `Authorization: ARC ...` header; anonymous/public requests start a fresh root span. Trust boundary now matches the ARC S2S auth boundary.
+- [x] S-H19 — Client-supplied `x-request-id` was echoed + logged unsanitised (log injection via CRLF, ANSI escape hijack of operator terminals, storage bloat via unbounded length). Fixed: inbound values must match `/^[A-Za-z0-9_.-]{1,64}$/`; anything else is discarded and replaced with a freshly generated ID. Bun's `Request` already rejects literal CRLF at construction; our regex is the second layer.
+- [x] S-H20 — Outbound `instrumentedFetch` set `url.full` to the full URL including query string — OAuth `code`, magic-link `token`, presigned S3 signatures, OTP callbacks would all land in trace storage. Fixed: span now records `<scheme>://<host><path>` only (no query component); `url.path` remains available for routing without the secret payload.
+- [ ] S-H21 — Dev-mode `console.log` of OTP codes + recipient email + magic-link URLs still present in `osn/core/src/services/auth.ts` (`beginRegistration`, `beginOtp`, `beginMagic`). CLAUDE.md's first golden rule bans raw `console.*` in backend code, and the redactor only protects `Effect.log*` — raw `console.log(email + code)` bypasses the deny-list entirely. **Deferred to the follow-up "console migration" PR by user direction.** Fix: replace each site with `Effect.logDebug` + structured annotations (which the redactor will scrub correctly).
 
 ### Medium
 
@@ -281,6 +295,9 @@ Address **High** items before any non-local deployment.
 - [x] S-M27 — `close_friends` per-row visibility filter in `pulse/api/src/services/rsvps.ts` had inverted directionality: it checked the *viewer's* close-friends list, allowing a stalker who unilaterally added a target as a close friend to see the target's gated RSVPs. Fixed in the full-event-view PR via a new `getCloseFriendsOf(viewerId, attendeeIds[])` bridge query that returns the subset of attendees who have marked the *viewer* as a close friend. The attendee owns the privacy decision; the filter now reflects that.
 - [x] S-M28 — `getConnectionIds` / `getCloseFriendIds` in `pulse/api/src/services/graphBridge.ts` silently capped membership sets at 100, causing the visibility filter to under-permit users with larger graphs. Fixed in the full-event-view PR by raising the cap to `MAX_EVENT_GUESTS` (1000) — the platform-wide hard cap on event guest count, documented in `pulse/api/src/lib/limits.ts` and the package README. Resolves both this finding and P-W13 (same root cause).
 - [x] S-M29 — No `maxLength` on `title` / `description` / `location` / `venue` / `category` in `InsertEventSchema` allowed an authenticated user to POST a 10MB description and bloat every discovery response. Fixed in the full-event-view PR with explicit caps (title 200, description 5000, location/venue 500, category 100) on both Insert and Update schemas.
+- [x] S-M30 — `OTEL_EXPORTER_OTLP_HEADERS` parser tolerated malformed input (CRLF in values, spaces / colons in keys) — header smuggling risk against the OTLP collector if env vars are influenced by an attacker (compromised CI secret, misconfigured vault). Fixed: strict regex validation on both keys (`/^[A-Za-z0-9-]+$/`) and values (printable ASCII, no CR/LF); malformed input throws at `loadConfig` so misconfiguration crashes loudly at boot rather than silently smuggling headers.
+- [x] S-M31 — Redaction deny-list was missing user-chosen name fields — `displayName`, `firstName`, `lastName`, `fullName`, `legalName` (and snake_case variants) all passed through the log scrubber unchanged despite typically containing PII. Also added `dob`, `address`, `streetAddress`, `postalCode`, `ssn`, `taxId`. Fixed by expanding `REDACT_KEYS` + updated the "walks full deny-list" test to lock the new entries in.
+- [x] S-M32 — `span.recordException(error)` in the Elysia plugin wrote the error's enumerable own properties as span event attributes outside the log redactor's reach. Effect tagged errors embedding `email`, `handle`, `cause` etc. would leak to trace storage. Fixed: plugin wraps `recordException` to first scrub the error via `redact()` and only passes `name` + redacted `message` to OTel; `span.setStatus.message` is also routed through `redact()`.
 
 ### Low
 
@@ -306,6 +323,7 @@ Address **High** items before any non-local deployment.
 - [x] S-L17 — `displayName` returned as `undefined` in graph list responses — normalised to `null` via `userProjection()`
 - [ ] S-L18 — Graph rate-limit store (`rateLimitStore`) never evicts expired windows — add periodic sweep
 - [ ] S-L19 — `jwtSecret` falls back to `"dev-secret"` in graph auth — already tracked as S-L7
+- [x] S-L20 — `loadConfig` silently classified production deploys as `dev` if operators forgot to set `OSN_ENV=production` (Bun leaves `NODE_ENV` empty by default), enabling pretty-printing, 100% trace sampling, and any future dev-only code paths in prod. Fixed: `loadConfig` now throws when `OSN_ENV=production` in the environment but the resolved env differs, refusing to boot with a mismatched environment. Operators must be explicit about production classification.
 
 ---
 
@@ -331,6 +349,7 @@ Address **High** items before any non-local deployment.
 - [x] P-W12 — `listEvents` in `pulse/api/src/services/events.ts` clamped with `LIMIT` *before* the in-JS visibility filter, yielding unstable page sizes (the DB returned 20 rows but the JS filter could drop several private ones, leaving the client with fewer than requested) AND defeating the `events_visibility_idx` index. Fixed in the full-event-view PR by pushing the visibility filter into the SQL `WHERE` clause via `or(eq(events.visibility, "public"), eq(events.createdByUserId, viewerId))`.
 - [x] P-W13 — Same root cause as S-M28: `getConnectionIds` / `getCloseFriendIds` capped at 100, silently truncating membership sets. Fixed jointly with S-M28 by raising the bound to `MAX_EVENT_GUESTS`.
 - [x] P-W14 — `MapPreview` and Leaflet (~150KB + CSS) shipped on every Pulse cold start because the route, the page component, and Leaflet itself were all static imports from `App.tsx`. Fixed in the full-event-view PR with two complementary changes: (1) `EventDetailPage` and `SettingsPage` are now route-level `lazy()`-loaded in `App.tsx`, and (2) `MapPreview` itself dynamic-imports Leaflet inside `onMount` so events without coordinates never pay for the chunk at all.
+- [x] P-W15 — Observability plugin had a no-op `context.with(ctxWithSpan, () => {})` call in `onRequest` that tore the activated OTel context back down immediately — the broken line made service-level `Effect.withSpan` calls root spans instead of children of the HTTP request span, breaking parent-based sampling and trace correlation. Fixed: line removed, OTel `Context` with the server span is now stashed on `REQUEST_STATE` and exposed via `getRequestContext(request)` as an explicit escape hatch for callers that want parent linkage. Documented in code why Elysia hooks cannot wrap the handler invocation via `context.with(...)` directly (separate hook invocations, not a single enclosing scope).
 
 ### Info
 
@@ -349,6 +368,9 @@ Address **High** items before any non-local deployment.
 - [ ] P-I13 — `upsertRsvp` calls `ensurePulseUser(userId)` even on the update branch (the row must already exist for the user to have an RSVP). Folded into the full-event-view PR's RSVP rewrite — `ensurePulseUser` now only runs on the insert branch, saving one round-trip per RSVP update. Tracking here for posterity. **Already fixed; this entry is documentation.**
 - [ ] P-I14 — `GET /events/:id/ics` in `pulse/api/src/routes/events.ts` has no `Cache-Control` / `ETag` headers despite the response being a pure function of `event.id` + `event.updatedAt`. Calendar clients re-poll the URL on a schedule and would benefit from `If-None-Match` revalidation. Deferred — quality-of-life, not a hot path.
 - [ ] P-I15 — `rsvpCounts` in `pulse/api/src/services/rsvps.ts` calls `loadEvent(eventId)` purely to produce a 404 signal. The route already gates the event via `loadVisibleEvent` upstream, so the second `loadEvent` is redundant on every counts request. Deferred — minor cleanup, the defensive 404 is cheap.
+- [x] P-I16 — `redact()` unconditionally walked every log payload even for scalar messages (primitive fast path missed) — allocated a fresh WeakSet on every call. Fixed: primitives (`null`, `undefined`, scalars, `Date`) return immediately without allocating or walking.
+- [x] P-I17 — `listEvents` / `listTodayEvents` used `Effect.forEach(..., { concurrency: "unbounded" })` over `applyTransition`, fanning out up to 100 in-flight DB UPDATEs + 100 child spans per list response. Fixed: bounded concurrency to 5 — enough parallelism to hide round-trip latency without unleashing a burst against the SQLite writer. (Still worth batching the UPDATEs themselves into a single `WHERE id IN (...)` query — tracked as part of pre-existing P-W5.)
+- [x] P-I18 — `instrumentedFetch` allocated a fresh `Headers` instance + spread `init` on every outbound call even when the caller had already passed a `Headers` object. Fixed: reuse the caller's Headers instance in place when it's already a Headers object; only allocate when the caller passed a plain record.
 
 ---
 

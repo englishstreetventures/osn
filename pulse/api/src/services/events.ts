@@ -3,6 +3,14 @@ import { and, eq, gte, lte, or, type SQL } from "drizzle-orm";
 import { events } from "@pulse/db/schema";
 import type { Event } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import {
+  metricEventCreated,
+  metricEventDeleted,
+  metricEventStatusTransition,
+  metricEventUpdated,
+  metricEventValidationFailure,
+  metricEventsListed,
+} from "../metrics";
 
 export class EventNotFound extends Data.TaggedError("EventNotFound")<{
   readonly id: string;
@@ -127,6 +135,7 @@ export const applyTransition = (event: Event): Effect.Effect<Event, DatabaseErro
   const now = new Date();
   const derived = deriveStatus(event, now);
   if (derived === event.status) return Effect.succeed(event);
+  const previous = event.status;
   return Effect.gen(function* () {
     const { db } = yield* Db;
     yield* Effect.tryPromise({
@@ -134,8 +143,13 @@ export const applyTransition = (event: Event): Effect.Effect<Event, DatabaseErro
         db.update(events).set({ status: derived, updatedAt: now }).where(eq(events.id, event.id)),
       catch: (cause) => new DatabaseError({ cause }),
     });
+    metricEventStatusTransition(previous, derived);
     return { ...event, status: derived, updatedAt: now };
-  });
+  }).pipe(
+    Effect.withSpan("events.apply_transition", {
+      attributes: { "event.from": previous, "event.to": derived },
+    }),
+  );
 };
 
 export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], DatabaseError, Db> =>
@@ -177,8 +191,15 @@ export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], Dat
       catch: (cause) => new DatabaseError({ cause }),
     });
 
-    return yield* Effect.forEach(results, applyTransition, { concurrency: "unbounded" });
-  });
+    // Bounded concurrency: 5 is enough parallelism to hide DB round-trip
+    // latency but avoids unleashing a burst of N in-flight UPDATEs (and
+    // N child spans) against SQLite for a page-size of 100 results.
+    const transitioned = yield* Effect.forEach(results, applyTransition, {
+      concurrency: 5,
+    });
+    metricEventsListed("all", transitioned.length);
+    return transitioned;
+  }).pipe(Effect.withSpan("events.list"));
 
 export const listTodayEvents: Effect.Effect<Event[], DatabaseError, Db> = Effect.gen(function* () {
   const { db } = yield* Db;
@@ -196,8 +217,13 @@ export const listTodayEvents: Effect.Effect<Event[], DatabaseError, Db> = Effect
     catch: (cause) => new DatabaseError({ cause }),
   });
 
-  return yield* Effect.forEach(results, applyTransition, { concurrency: "unbounded" });
-});
+  // Bounded concurrency (see listEvents for the rationale).
+  const transitioned = yield* Effect.forEach(results, applyTransition, {
+    concurrency: 5,
+  });
+  metricEventsListed("today", transitioned.length);
+  return transitioned;
+}).pipe(Effect.withSpan("events.list_today"));
 
 export const getEvent = (id: string): Effect.Effect<Event, EventNotFound | DatabaseError, Db> =>
   Effect.gen(function* () {
@@ -214,7 +240,7 @@ export const getEvent = (id: string): Effect.Effect<Event, EventNotFound | Datab
     }
 
     return yield* applyTransition(result[0]!);
-  });
+  }).pipe(Effect.withSpan("events.get"));
 
 interface CreatorInfo {
   createdByUserId: string;
@@ -230,6 +256,7 @@ export const createEvent = (
     const { db } = yield* Db;
 
     const validated = yield* Schema.decodeUnknown(InsertEventSchema)(data).pipe(
+      Effect.tapError(() => Effect.sync(() => metricEventValidationFailure("create", "schema"))),
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 
@@ -237,6 +264,7 @@ export const createEvent = (
     const now = new Date();
 
     if (validated.startTime.getTime() <= now.getTime()) {
+      metricEventValidationFailure("create", "past_start_time");
       return yield* Effect.fail(new ValidationError({ cause: "startTime must be in the future" }));
     }
 
@@ -258,10 +286,12 @@ export const createEvent = (
       catch: (cause) => new DatabaseError({ cause }),
     });
 
-    return yield* getEvent(id).pipe(
+    const result = yield* getEvent(id).pipe(
       Effect.mapError((e) => (e instanceof EventNotFound ? new DatabaseError({ cause: e }) : e)),
     );
-  });
+    metricEventCreated(result.category, result.endTime !== null);
+    return result;
+  }).pipe(Effect.withSpan("events.create"));
 
 export const updateEvent = (
   id: string,
@@ -273,10 +303,12 @@ export const updateEvent = (
 
     const existing = yield* getEvent(id);
     if (existing.createdByUserId !== requestingUserId) {
+      metricEventUpdated("forbidden");
       return yield* Effect.fail(new NotEventOwner({ id }));
     }
 
     const validated = yield* Schema.decodeUnknown(UpdateEventSchema)(data).pipe(
+      Effect.tapError(() => Effect.sync(() => metricEventValidationFailure("update", "schema"))),
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 
@@ -294,9 +326,13 @@ export const updateEvent = (
 
     // Build the updated event in-memory rather than re-fetching from DB.
     // applyTransition is still called in case startTime/endTime changed.
+    // Build the updated event in-memory rather than re-fetching from DB.
+    // applyTransition is still called in case startTime/endTime changed.
     const updated = { ...existing, ...update } as Event;
-    return yield* applyTransition(updated);
-  });
+    const result = yield* applyTransition(updated);
+    metricEventUpdated("ok");
+    return result;
+  }).pipe(Effect.withSpan("events.update"));
 
 export const deleteEvent = (
   id: string,
@@ -307,6 +343,7 @@ export const deleteEvent = (
 
     const existing = yield* getEvent(id);
     if (existing.createdByUserId !== requestingUserId) {
+      metricEventDeleted("forbidden");
       return yield* Effect.fail(new NotEventOwner({ id }));
     }
 
@@ -314,4 +351,5 @@ export const deleteEvent = (
       try: () => db.delete(events).where(eq(events.id, id)),
       catch: (cause) => new DatabaseError({ cause }),
     });
-  });
+    metricEventDeleted("ok");
+  }).pipe(Effect.withSpan("events.delete"));

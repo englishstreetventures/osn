@@ -76,7 +76,7 @@ export const loadVisibleEvent = (
     const event = rows[0]!;
     const visible = yield* canViewEvent(event, viewerId);
     return visible ? event : null;
-  });
+  }).pipe(Effect.withSpan("events.load_visible"));
 
 /**
  * Re-export for tests + routes that don't need the full event row.

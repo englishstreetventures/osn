@@ -3,6 +3,7 @@ import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { events, eventRsvps, type Event, type EventRsvp } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { MAX_EVENT_GUESTS } from "../lib/limits";
+import { metricRsvpInviteBatch, metricRsvpListed, metricRsvpUpserted } from "../metrics";
 import { EventNotFound, DatabaseError, ValidationError } from "./events";
 import { ensurePulseUser, getAttendanceVisibilityBatch } from "./pulseUsers";
 import {
@@ -310,6 +311,7 @@ export const upsertRsvp = (
           }),
         catch: (cause) => new DatabaseError({ cause }),
       });
+      metricRsvpUpserted(validated.status, true, "ok");
       return {
         id,
         eventId,
@@ -328,8 +330,9 @@ export const upsertRsvp = (
           .where(eq(eventRsvps.id, existing.id)),
       catch: (cause) => new DatabaseError({ cause }),
     });
+    metricRsvpUpserted(validated.status, false, "ok");
     return { ...existing, status: validated.status };
-  });
+  }).pipe(Effect.withSpan("rsvps.upsert"));
 
 /**
  * Organiser-only: bulk-invite users to a guest-list event. Creates rows
@@ -373,7 +376,10 @@ export const inviteGuests = (
     });
     const existingIds = new Set(existing.map((r) => r.userId));
     const toInvite = validated.userIds.filter((id) => !existingIds.has(id));
-    if (toInvite.length === 0) return { invited: 0 };
+    if (toInvite.length === 0) {
+      metricRsvpInviteBatch(0, "ok");
+      return { invited: 0 };
+    }
 
     const now = new Date();
     const rows = toInvite.map((uid) => ({
@@ -388,8 +394,9 @@ export const inviteGuests = (
       try: () => db.insert(eventRsvps).values(rows),
       catch: (cause) => new DatabaseError({ cause }),
     });
+    metricRsvpInviteBatch(rows.length, "ok");
     return { invited: rows.length };
-  });
+  }).pipe(Effect.withSpan("rsvps.invite_guests"));
 
 /**
  * Returns RSVPs for an event, joined with user display metadata, after
@@ -417,11 +424,15 @@ export const listRsvps = (
     // any other "no visible rows" state — the existence of the event
     // is already gated upstream by the route's canViewEvent check.
     if (options.status === "invited" && viewerId !== event.createdByUserId) {
+      metricRsvpListed("invited", 0);
       return [];
     }
 
     const canSee = yield* computeCanSeeAnyRsvps(event, viewerId);
-    if (!canSee) return [];
+    if (!canSee) {
+      metricRsvpListed(options.status ?? "all", 0);
+      return [];
+    }
 
     const { db } = yield* Db;
     const limit = Math.min(Math.max(1, options.limit ?? 50), 200);
@@ -455,8 +466,10 @@ export const listRsvps = (
     // Even when per-row filtering isn't required (organiser view), we
     // still want to stamp the close-friend flag — the organiser sees
     // the list and benefits from the same affordance.
-    return yield* filterByAttendeePrivacy(event, joined, viewerId);
-  });
+    const filtered = yield* filterByAttendeePrivacy(event, joined, viewerId);
+    metricRsvpListed(options.status ?? "all", filtered.length);
+    return filtered;
+  }).pipe(Effect.withSpan("rsvps.list"));
 
 /**
  * Returns the latest N RSVPs (default 5) for the inline "who's going" strip

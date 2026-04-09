@@ -23,6 +23,11 @@ import { updateSettings } from "../services/pulseUsers";
 import { OsnDb, OsnDbLayer } from "../services/graphBridge";
 import { loadVisibleEvent } from "../services/eventAccess";
 import { MAX_EVENT_GUESTS } from "../lib/limits";
+import {
+  metricCalendarIcsGenerated,
+  metricEventAccessDenied,
+  metricSettingsUpdated,
+} from "../metrics";
 
 const visibilityEnum = t.Optional(t.Union([t.Literal("public"), t.Literal("private")]));
 const guestListVisibilityEnum = t.Optional(
@@ -153,6 +158,10 @@ export const createEventsRoutes = (
             loadVisibleEvent(params.id, claims?.userId ?? null).pipe(Effect.provide(dbLayer)),
           );
           if (result === null) {
+            metricEventAccessDenied(
+              "get",
+              claims?.userId == null ? "private_anonymous" : "private_no_rsvp",
+            );
             set.status = 404;
             return { message: "Event not found" };
           }
@@ -317,6 +326,10 @@ export const createEventsRoutes = (
             loadVisibleEvent(params.id, viewerId).pipe(Effect.provide(dbLayer)),
           );
           if (event === null) {
+            metricEventAccessDenied(
+              "rsvps",
+              viewerId == null ? "private_anonymous" : "private_no_rsvp",
+            );
             set.status = 404;
             return { message: "Event not found" } as const;
           }
@@ -370,6 +383,10 @@ export const createEventsRoutes = (
             loadVisibleEvent(params.id, claims?.userId ?? null).pipe(Effect.provide(dbLayer)),
           );
           if (event === null) {
+            metricEventAccessDenied(
+              "rsvps_counts",
+              claims?.userId == null ? "private_anonymous" : "private_no_rsvp",
+            );
             set.status = 404;
             return { message: "Event not found" } as const;
           }
@@ -523,10 +540,15 @@ export const createEventsRoutes = (
             loadVisibleEvent(params.id, claims?.userId ?? null).pipe(Effect.provide(dbLayer)),
           );
           if (event === null) {
+            metricEventAccessDenied(
+              "ics",
+              claims?.userId == null ? "private_anonymous" : "private_no_rsvp",
+            );
             set.status = 404;
             return { message: "Event not found" } as const;
           }
           const ics = buildIcs(event);
+          metricCalendarIcsGenerated("ok");
           set.headers["content-type"] = "text/calendar; charset=utf-8";
           set.headers["content-disposition"] = `attachment; filename="${event.id}.ics"`;
           return ics;
@@ -545,6 +567,10 @@ export const createEventsRoutes = (
             loadVisibleEvent(params.id, claims?.userId ?? null).pipe(Effect.provide(dbLayer)),
           );
           if (event === null) {
+            metricEventAccessDenied(
+              "comms",
+              claims?.userId == null ? "private_anonymous" : "private_no_rsvp",
+            );
             set.status = 404;
             return { message: "Event not found" } as const;
           }
@@ -637,6 +663,7 @@ export const createSettingsRoutes = (
     async ({ body, headers, set }) => {
       const claims = await extractClaims(headers["authorization"], secretBytes);
       if (!claims) {
+        metricSettingsUpdated("attendance_visibility", "unauthorized");
         set.status = 401;
         return { message: "Unauthorized" } as const;
       }
@@ -651,7 +678,11 @@ export const createSettingsRoutes = (
           Effect.provide(dbLayer),
         ),
       );
-      if ("error" in result) return result;
+      if ("error" in result) {
+        metricSettingsUpdated("attendance_visibility", "validation_error");
+        return result;
+      }
+      metricSettingsUpdated("attendance_visibility", "ok");
       return {
         settings: {
           userId: result.userId,

@@ -18,6 +18,14 @@ import { SignJWT, jwtVerify } from "jose";
 import { users, passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import type { User } from "@osn/db/schema";
+import {
+  metricAuthHandleCheck,
+  metricAuthMagicLinkSent,
+  metricAuthOtpSent,
+  withAuthLogin,
+  withAuthRegister,
+  withAuthTokenRefresh,
+} from "../metrics";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -446,8 +454,9 @@ export function createAuthService(config: AuthConfig) {
         console.log(`[OSN dev] Registration OTP for ${normalisedEmail}: ${code}`);
       }
 
+      metricAuthOtpSent("registration");
       return { sent: true };
-    });
+    }).pipe(withAuthRegister("begin"));
 
   /**
    * Step 2 of email-verified registration. Verifies the OTP against the
@@ -559,7 +568,7 @@ export function createAuthService(config: AuthConfig) {
         expiresIn: tokens.expiresIn,
         enrollmentToken,
       };
-    });
+    }).pipe(withAuthRegister("complete"));
 
   /**
    * Checks whether a handle is valid format and not yet taken.
@@ -569,12 +578,17 @@ export function createAuthService(config: AuthConfig) {
   ): Effect.Effect<{ available: boolean }, ValidationError | DatabaseError, Db> =>
     Effect.gen(function* () {
       yield* Schema.decodeUnknown(HandleSchema)(handle).pipe(
+        Effect.tapError(() => Effect.sync(() => metricAuthHandleCheck("invalid"))),
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
-      if (RESERVED_HANDLES.has(handle)) return { available: false };
+      if (RESERVED_HANDLES.has(handle)) {
+        metricAuthHandleCheck("taken");
+        return { available: false };
+      }
       const existing = yield* findUserByHandle(handle);
+      metricAuthHandleCheck(existing === null ? "available" : "taken");
       return { available: existing === null };
-    });
+    }).pipe(Effect.withSpan("auth.handle.check"));
 
   // -------------------------------------------------------------------------
   // Token issuance
@@ -741,7 +755,7 @@ export function createAuthService(config: AuthConfig) {
         return yield* Effect.fail(new AuthError({ message: "User not found" }));
       }
       return yield* issueTokens(userId, user.email, user.handle, user.displayName);
-    });
+    }).pipe(withAuthTokenRefresh);
 
   // -------------------------------------------------------------------------
   // Verify access token (for protected routes)
@@ -938,7 +952,7 @@ export function createAuthService(config: AuthConfig) {
       });
 
       return { options };
-    });
+    }).pipe(Effect.withSpan("auth.login.passkey.begin"));
 
   // -------------------------------------------------------------------------
   // Passkey: verify assertion (extracted so both the code-issuing and
@@ -1023,7 +1037,7 @@ export function createAuthService(config: AuthConfig) {
       const user = yield* verifyPasskeyAssertion(identifier, assertion);
       const code = yield* issueCode(user.id);
       return { code, userId: user.id };
-    });
+    }).pipe(withAuthLogin("passkey"));
 
   // -------------------------------------------------------------------------
   // Passkey: complete login — direct session (first-party path, bypasses
@@ -1038,7 +1052,7 @@ export function createAuthService(config: AuthConfig) {
       const user = yield* verifyPasskeyAssertion(identifier, assertion);
       const session = yield* issueTokens(user.id, user.email, user.handle, user.displayName);
       return { session, user: toPublicUser(user) };
-    });
+    }).pipe(withAuthLogin("passkey"));
 
   // -------------------------------------------------------------------------
   // OTP: begin (login only — user must already be registered)
@@ -1089,8 +1103,9 @@ export function createAuthService(config: AuthConfig) {
         console.log(`[OSN dev] OTP for ${user.email}: ${code}`);
       }
 
+      metricAuthOtpSent("login");
       return { sent: true };
-    });
+    }).pipe(Effect.withSpan("auth.otp.begin"));
 
   // -------------------------------------------------------------------------
   // OTP: verify code (extracted). Returns the full User row so both the
@@ -1138,7 +1153,7 @@ export function createAuthService(config: AuthConfig) {
       const user = yield* verifyOtpCode(identifier, code);
       const authCode = yield* issueCode(user.id);
       return { code: authCode, userId: user.id };
-    });
+    }).pipe(withAuthLogin("otp"));
 
   // -------------------------------------------------------------------------
   // OTP: complete direct (first-party — returns a Session + PublicUser)
@@ -1152,7 +1167,7 @@ export function createAuthService(config: AuthConfig) {
       const user = yield* verifyOtpCode(identifier, code);
       const session = yield* issueTokens(user.id, user.email, user.handle, user.displayName);
       return { session, user: toPublicUser(user) };
-    });
+    }).pipe(withAuthLogin("otp"));
 
   // -------------------------------------------------------------------------
   // Magic link: begin (login only — user must already be registered)
@@ -1202,8 +1217,9 @@ export function createAuthService(config: AuthConfig) {
         console.log(`[OSN dev] Magic link for ${user.email}: ${magicUrl}`);
       }
 
+      metricAuthMagicLinkSent("ok");
       return { sent: true };
-    });
+    }).pipe(Effect.withSpan("auth.magic_link.begin"));
 
   // -------------------------------------------------------------------------
   // Magic link: consume token (extracted). Atomically removes the entry and
@@ -1247,7 +1263,7 @@ export function createAuthService(config: AuthConfig) {
       url.searchParams.set("code", code);
       url.searchParams.set("state", state);
       return { redirectUrl: url.toString() };
-    });
+    }).pipe(withAuthLogin("magic_link"));
 
   // -------------------------------------------------------------------------
   // Magic link: verify direct (first-party — returns a Session + PublicUser)
@@ -1260,7 +1276,7 @@ export function createAuthService(config: AuthConfig) {
       const user = yield* consumeMagicToken(token);
       const session = yield* issueTokens(user.id, user.email, user.handle, user.displayName);
       return { session, user: toPublicUser(user) };
-    });
+    }).pipe(withAuthLogin("magic_link"));
 
   return {
     findUserByEmail,

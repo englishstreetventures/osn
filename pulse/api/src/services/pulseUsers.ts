@@ -151,4 +151,4 @@ export const updateSettings = (
     });
     // ensurePulseUser just ran, so the row must exist.
     return rows[0]!;
-  });
+  }).pipe(Effect.withSpan("pulse.settings.update"));

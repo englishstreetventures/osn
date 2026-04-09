@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@osn/db": "workspace:*",
+    "@shared/observability": "workspace:*",
     "drizzle-orm": "^0.38.0",
     "effect": "^3.19.19",
     "jose": "^6.2.2"

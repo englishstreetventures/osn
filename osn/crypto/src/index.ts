@@ -21,3 +21,6 @@ export {
   evictExpiredTokens,
   tokenCacheSize,
 } from "./arc";
+
+// ARC observability — metric name consts; emitted by the arc.ts module itself.
+export { ARC_METRICS } from "./arc-metrics";

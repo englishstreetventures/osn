@@ -26,6 +26,11 @@ The plan should:
 - Outline the implementation steps in order
 - Flag any Effect.ts, WebSocket, or E2E encryption considerations
 - Note if a changeset will be needed (it always is)
+- **Observability plan** — for every new service, route, or service-layer function, spell out what gets instrumented. Specifically:
+  - **Logs**: which error paths use `Effect.logError`; any new secret fields that need adding to the redaction deny-list; confirm no `console.*` calls
+  - **Traces**: which service functions get `Effect.withSpan("<domain>.<operation>")`; confirm any outbound HTTP goes through `instrumentedFetch` from `@shared/observability/fetch`
+  - **Metrics**: which new counters/histograms (if any) get added to the relevant `metrics.ts` file (`pulse/api/src/metrics.ts`, `osn/core/src/metrics.ts`, `osn/crypto/src/arc-metrics.ts`, …); confirm they follow the `{namespace}.{domain}.{subject}.{measurement}` naming and that the attribute type is a bounded string-literal union (no userId / requestId / eventId in attributes — those go in spans/logs)
+  - See the "Observability" section in `CLAUDE.md` for the full rules and canonical code example.
 
 ---
 

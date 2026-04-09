@@ -2,8 +2,14 @@ import { Elysia } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { createAuthRoutes, createGraphRoutes } from "@osn/core";
 import { DbLive } from "@osn/db/service";
+import { healthRoutes, initObservability, observabilityPlugin } from "@shared/observability";
+import { Effect, Logger } from "effect";
 
+const SERVICE_NAME = "osn-app";
 const port = Number(process.env.PORT) || 4000;
+
+// Initialise observability (logger, tracing, metrics) before building the app.
+const { layer: observabilityLayer } = initObservability({ serviceName: SERVICE_NAME });
 
 const authConfig = {
   rpId: process.env.OSN_RP_ID || "localhost",
@@ -17,14 +23,21 @@ const authConfig = {
 
 const app = new Elysia()
   .use(cors())
+  .use(observabilityPlugin({ serviceName: SERVICE_NAME }))
+  .use(healthRoutes({ serviceName: SERVICE_NAME }))
   .get("/", () => ({ status: "ok", service: "osn-auth" }))
-  .get("/health", () => ({ status: "healthy" }))
   .use(createAuthRoutes(authConfig, DbLive))
   .use(createGraphRoutes(authConfig, DbLive));
 
 if (process.env.NODE_ENV !== "test") {
   app.listen(port);
-  console.log(`OSN auth server running at http://localhost:${port}`);
+  void Effect.runPromise(
+    Effect.logInfo("osn-app listening").pipe(
+      Effect.annotateLogs({ port: String(port), service: SERVICE_NAME }),
+      Effect.provide(Logger.pretty),
+      Effect.provide(observabilityLayer),
+    ),
+  );
 }
 
 export { app };
