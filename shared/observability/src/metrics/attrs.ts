@@ -45,3 +45,17 @@ export type GraphBlockAction = "add" | "remove";
 
 /** Event lifecycle states (mirrors Pulse events schema). */
 export type EventStatus = "upcoming" | "ongoing" | "finished" | "cancelled";
+
+/** Auth endpoints subject to IP-based rate limiting (S-H1). */
+export type AuthRateLimitedEndpoint =
+  | "register_begin"
+  | "register_complete"
+  | "handle_check"
+  | "otp_begin"
+  | "otp_complete"
+  | "magic_begin"
+  | "magic_verify"
+  | "passkey_login_begin"
+  | "passkey_login_complete"
+  | "passkey_register_begin"
+  | "passkey_register_complete";

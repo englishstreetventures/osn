@@ -391,6 +391,22 @@ describe("auth routes", () => {
         authHelper.completeOtp("judy@example.com", capturedOtp!).pipe(Effect.provide(layer)),
       );
 
+      // S-H4: PKCE is now mandatory — set up a PKCE entry via /authorize first
+      const verifier = "test-verifier-that-is-long-enough";
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+      const challenge = Buffer.from(digest)
+        .toString("base64")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=/g, "");
+      const testState = "test-state-" + Date.now();
+
+      await app.handle(
+        new Request(
+          `http://localhost/authorize?response_type=code&client_id=pulse&redirect_uri=${encodeURIComponent("http://localhost:5173/callback")}&state=${testState}&code_challenge=${challenge}&code_challenge_method=S256`,
+        ),
+      );
+
       const res = await app.handle(
         new Request("http://localhost/token", {
           method: "POST",
@@ -400,7 +416,8 @@ describe("auth routes", () => {
             code,
             redirect_uri: "http://localhost:5173/callback",
             client_id: "pulse",
-            code_verifier: "test-verifier",
+            code_verifier: verifier,
+            state: testState,
           }),
         }),
       );
@@ -905,7 +922,7 @@ describe("auth routes", () => {
       expect(res.status).toBe(200);
     });
 
-    it("legacy unauth'd path is still permitted (deprecated; tracked for removal)", async () => {
+    it("rejects requests without Authorization header (S-H5: legacy path removed)", async () => {
       const svc = createAuthService(config);
       const user = await Effect.runPromise(
         svc.registerUser("rita@example.com", "rita").pipe(Effect.provide(layer)),
@@ -917,7 +934,7 @@ describe("auth routes", () => {
           body: JSON.stringify({ userId: user.id }),
         }),
       );
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(401);
     });
   });
 
@@ -955,6 +972,316 @@ describe("auth routes", () => {
         }),
       );
       expect(second.status).toBe(401);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Rate limiting (S-H1)
+  // -------------------------------------------------------------------------
+  describe("rate limiting", () => {
+    it("returns 429 after exceeding rate limit on /handle/:handle", async () => {
+      // The handle check limiter allows 10 req/min. Create a fresh app
+      // so the limiter is clean.
+      const freshApp = createAuthRoutes(config, layer);
+      for (let i = 0; i < 10; i++) {
+        const res = await freshApp.handle(
+          new Request(`http://localhost/handle/test${i}`, {
+            headers: { "x-forwarded-for": "1.2.3.4" },
+          }),
+        );
+        // May be 200 or 400 depending on user existence — doesn't matter
+        expect(res.status).not.toBe(429);
+      }
+      // 11th request should be rate-limited
+      const blocked = await freshApp.handle(
+        new Request("http://localhost/handle/test99", {
+          headers: { "x-forwarded-for": "1.2.3.4" },
+        }),
+      );
+      expect(blocked.status).toBe(429);
+      const json = (await blocked.json()) as { error: string };
+      expect(json.error).toBe("rate_limited");
+    });
+
+    it("rate limits are per-IP — different IPs are independent", async () => {
+      const freshApp = createAuthRoutes(config, layer);
+      // Exhaust the limit for IP A
+      for (let i = 0; i < 10; i++) {
+        await freshApp.handle(
+          new Request(`http://localhost/handle/x${i}`, {
+            headers: { "x-forwarded-for": "10.0.0.1" },
+          }),
+        );
+      }
+      // IP A is blocked
+      const blockedA = await freshApp.handle(
+        new Request("http://localhost/handle/y", {
+          headers: { "x-forwarded-for": "10.0.0.1" },
+        }),
+      );
+      expect(blockedA.status).toBe(429);
+
+      // IP B is not blocked
+      const allowedB = await freshApp.handle(
+        new Request("http://localhost/handle/y", {
+          headers: { "x-forwarded-for": "10.0.0.2" },
+        }),
+      );
+      expect(allowedB.status).not.toBe(429);
+    });
+
+    it("returns 429 on /register/begin when rate-limited", async () => {
+      const freshApp = createAuthRoutes(config, layer);
+      // register/begin allows 5 req/min
+      for (let i = 0; i < 5; i++) {
+        await freshApp.handle(
+          new Request("http://localhost/register/begin", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-forwarded-for": "5.5.5.5" },
+            body: JSON.stringify({ email: `u${i}@example.com`, handle: `u${i}` }),
+          }),
+        );
+      }
+      const blocked = await freshApp.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-forwarded-for": "5.5.5.5" },
+          body: JSON.stringify({ email: "extra@example.com", handle: "extra" }),
+        }),
+      );
+      expect(blocked.status).toBe(429);
+    });
+
+    it("returns 429 on /login/otp/begin when rate-limited", async () => {
+      const freshApp = createAuthRoutes(config, layer);
+      // otp/begin allows 5 req/min — shared with /login/otp/begin
+      for (let i = 0; i < 5; i++) {
+        await freshApp.handle(
+          new Request("http://localhost/login/otp/begin", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-forwarded-for": "6.6.6.6" },
+            body: JSON.stringify({ identifier: `u${i}@example.com` }),
+          }),
+        );
+      }
+      const blocked = await freshApp.handle(
+        new Request("http://localhost/login/otp/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-forwarded-for": "6.6.6.6" },
+          body: JSON.stringify({ identifier: "extra@example.com" }),
+        }),
+      );
+      expect(blocked.status).toBe(429);
+      const json = (await blocked.json()) as { error: string };
+      expect(json.error).toBe("rate_limited");
+    });
+
+    it("returns 429 on /login/magic/begin when rate-limited", async () => {
+      const freshApp = createAuthRoutes(config, layer);
+      for (let i = 0; i < 5; i++) {
+        await freshApp.handle(
+          new Request("http://localhost/login/magic/begin", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-forwarded-for": "7.7.7.7" },
+            body: JSON.stringify({ identifier: `u${i}@example.com` }),
+          }),
+        );
+      }
+      const blocked = await freshApp.handle(
+        new Request("http://localhost/login/magic/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-forwarded-for": "7.7.7.7" },
+          body: JSON.stringify({ identifier: "extra@example.com" }),
+        }),
+      );
+      expect(blocked.status).toBe(429);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // PKCE enforcement (S-H4)
+  // -------------------------------------------------------------------------
+  describe("POST /token — PKCE enforcement", () => {
+    it("returns 400 when state is missing", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            grant_type: "authorization_code",
+            code: "some-code",
+            redirect_uri: "http://localhost:5173/callback",
+            client_id: "pulse",
+            code_verifier: "some-verifier",
+          }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { error: string; message: string };
+      expect(json.message).toBe("PKCE parameters required");
+    });
+
+    it("returns 400 when code_verifier is missing", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            grant_type: "authorization_code",
+            code: "some-code",
+            redirect_uri: "http://localhost:5173/callback",
+            client_id: "pulse",
+            state: "some-state",
+          }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { error: string; message: string };
+      expect(json.message).toBe("PKCE parameters required");
+    });
+
+    it("returns 400 for unknown state", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            grant_type: "authorization_code",
+            code: "some-code",
+            redirect_uri: "http://localhost:5173/callback",
+            client_id: "pulse",
+            code_verifier: "some-verifier",
+            state: "nonexistent-state",
+          }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { error: string; message: string };
+      expect(json.message).toBe("Unknown state");
+    });
+
+    it("returns 400 when redirect_uri does not match stored value", async () => {
+      // Set up a PKCE entry via /authorize
+      const verifier = "test-verifier-for-mismatch";
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+      const challenge = Buffer.from(digest)
+        .toString("base64")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=/g, "");
+      const testState = "mismatch-state-" + Date.now();
+
+      await app.handle(
+        new Request(
+          `http://localhost/authorize?response_type=code&client_id=pulse&redirect_uri=${encodeURIComponent("http://localhost:5173/callback")}&state=${testState}&code_challenge=${challenge}&code_challenge_method=S256`,
+        ),
+      );
+
+      const res = await app.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            grant_type: "authorization_code",
+            code: "some-code",
+            redirect_uri: "http://different-origin:5173/callback",
+            client_id: "pulse",
+            code_verifier: verifier,
+            state: testState,
+          }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { error: string; message: string };
+      expect(json.message).toBe("redirect_uri mismatch");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Redirect URI allowlist (S-H3)
+  // -------------------------------------------------------------------------
+  describe("redirect URI allowlist", () => {
+    it("/authorize rejects disallowed redirect_uri when allowlist is set", async () => {
+      const restrictedApp = createAuthRoutes(
+        { ...config, allowedRedirectUris: ["http://localhost:5173"] },
+        layer,
+      );
+      const res = await restrictedApp.handle(
+        new Request(
+          "http://localhost/authorize?response_type=code&client_id=pulse&redirect_uri=http%3A%2F%2Fevil.com%2Fcallback&state=s1&code_challenge=ch1&code_challenge_method=S256",
+        ),
+      );
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { error: string; message: string };
+      expect(json.message).toBe("redirect_uri not allowed");
+    });
+
+    it("/authorize allows redirect_uri from the allowlist", async () => {
+      const restrictedApp = createAuthRoutes(
+        { ...config, allowedRedirectUris: ["http://localhost:5173"] },
+        layer,
+      );
+      const res = await restrictedApp.handle(
+        new Request(
+          "http://localhost/authorize?response_type=code&client_id=pulse&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2Fcallback&state=s2&code_challenge=ch2&code_challenge_method=S256",
+        ),
+      );
+      // Should return HTML (200), not an error
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toContain("Sign in to OSN");
+    });
+
+    it("/authorize allows any redirect_uri when allowlist is empty", async () => {
+      // Default config has no allowedRedirectUris
+      const res = await app.handle(
+        new Request(
+          "http://localhost/authorize?response_type=code&client_id=pulse&redirect_uri=http%3A%2F%2Fanything.example.com%2Fcb&state=s3&code_challenge=ch3&code_challenge_method=S256",
+        ),
+      );
+      expect(res.status).toBe(200);
+    });
+
+    it("/token rejects disallowed redirect_uri when allowlist is set", async () => {
+      const restrictedApp = createAuthRoutes(
+        { ...config, allowedRedirectUris: ["http://localhost:5173"] },
+        layer,
+      );
+
+      // First set up a valid PKCE entry with the allowed redirect_uri
+      const verifier = "redirect-test-verifier";
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+      const challenge = Buffer.from(digest)
+        .toString("base64")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=/g, "");
+      const testState = "redirect-test-state";
+
+      await restrictedApp.handle(
+        new Request(
+          `http://localhost/authorize?response_type=code&client_id=pulse&redirect_uri=${encodeURIComponent("http://localhost:5173/callback")}&state=${testState}&code_challenge=${challenge}&code_challenge_method=S256`,
+        ),
+      );
+
+      // Try /token with a different origin
+      const res = await restrictedApp.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            grant_type: "authorization_code",
+            code: "test",
+            redirect_uri: "http://evil.com/callback",
+            client_id: "pulse",
+            code_verifier: verifier,
+            state: testState,
+          }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { error: string; message: string };
+      expect(json.message).toBe("redirect_uri not allowed");
     });
   });
 });

@@ -11,10 +11,10 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [ ] Wire Pulse event chat to Zap once M2 lands (replace `EventChatPlaceholder`)
 - [ ] Pulse: "What's on today" default view
 - [ ] Landing page: design and content
-- [ ] S-H1 — Rate limit registration + login auth endpoints (per-IP / per-email throttle)
-- [ ] S-H3 — Open redirect in `/magic/verify` — fix before any deployment
-- [ ] S-H4 — Make PKCE mandatory at `/token` (drop the `if (state)` conditional; affects every code-issuing flow)
-- [ ] S-H5 — Migrate the hosted `/authorize` HTML page to send `Authorization: Bearer <token>` to `/passkey/register/*`, then remove the legacy unauth'd path
+- [x] S-H1 — Rate limit all auth endpoints (per-IP fixed-window via `osn/core/src/lib/rate-limit.ts`; 5 req/min on begin/send endpoints, 10 req/min on verify/complete; new `osn.auth.rate_limited` metric with bounded `AuthRateLimitedEndpoint` union)
+- [x] S-H3 — Open redirect in `/magic/verify` fixed: `allowedRedirectUris` field on `AuthConfig`; validated at `/authorize`, `/magic/verify` (service-level), and `/token` (route-level origin match + S-M9 exact redirect_uri match against pkceStore)
+- [x] S-H4 — PKCE now mandatory at `/token`: `state` and `code_verifier` required for `authorization_code` grants; unknown/expired state returns 400; redirect_uri must match the value stored at `/authorize` (S-M9 RFC 6749 §4.1.3)
+- [x] S-H5 — Legacy unauth'd passkey path removed: `resolvePasskeyEnrollPrincipal` now returns 401 when `Authorization` header is absent. Hosted `/authorize` HTML passkey-enrollment prompt removed (passkey enrollment requires auth; users enrol through first-party apps). `console.warn` deprecation log removed. `SimpleWebAuthn` script tag removed from hosted HTML.
 - [ ] ARC token verification middleware on internal graph routes (`/graph/internal/*`)
 
 ---
@@ -242,11 +242,11 @@ Address **High** items before any non-local deployment.
 
 ### High
 
-- [ ] S-H1 — Rate limit `/register/begin`, `/register/complete`, `/handle/:handle`, and the OTP/magic-link login endpoints. New registration flow has a per-entry attempt cap (max 5 wrong OTPs → wipe) but still no per-IP / per-email throttle, so an attacker can email-bomb arbitrary addresses or spray begin-then-complete cycles. Needs middleware infra; the existing graph rate-limiter is per-user, which doesn't apply to unauthenticated routes.
-- [ ] S-H2 — `GET /handle/:handle` no rate limit — handle namespace fully enumerable at HTTP speeds; add 10 req/IP/min limit
-- [ ] S-H3 — Open redirect in `/magic/verify`: `redirect_uri` not validated against allowlist — attacker can steal auth codes
-- [ ] S-H4 — PKCE check optional at `/token`: silently skipped when `state` absent — make mandatory per RFC 7636. The new registration flow no longer depends on this bypass (it returns tokens directly from `register/complete`), but every other flow that mints an authorization code (`/passkey/login/complete`, `/otp/complete`, `/magic/verify`) is still vulnerable: any leaked code can be redeemed without proof of possession by simply omitting `state`. Drop the `if (state) { … }` conditional in `routes/auth.ts:150-180` so PKCE verification is unconditional on `authorization_code` grants.
-- [ ] S-H5 — `/passkey/register/{begin,complete}` legacy unauth'd path: when no `Authorization` header is present, the routes still trust `body.userId` as proof of identity. The new registration flow no longer hits this path (it carries an enrollment token), but the hosted `/authorize` HTML page (`buildAuthorizeHtml`) still does, which means the cross-user passkey enrolment vector is reachable for any user that authenticates through the hosted UI. Migrate the hosted UI to also use enrollment tokens (or just access tokens for already-logged-in flows) and then make the `Authorization` header required on both routes.
+- [x] S-H1 — Rate limit all auth endpoints via per-IP fixed-window limiter (`osn/core/src/lib/rate-limit.ts`). 5 req/IP/min on OTP/magic send endpoints, 10 req/IP/min on verify/complete. `osn.auth.rate_limited` metric with bounded `AuthRateLimitedEndpoint` type. Also covers S-H2 (handle check: 10 req/IP/min).
+- [x] S-H2 — `GET /handle/:handle` rate limited at 10 req/IP/min (fixed as part of S-H1)
+- [x] S-H3 — Open redirect in `/magic/verify` fixed: `allowedRedirectUris` on `AuthConfig` validates redirect_uri origin at `/authorize`, `/magic/verify`, and `/token`.
+- [x] S-H4 — PKCE now mandatory at `/token`: `state` and `code_verifier` required for `authorization_code` grants. Also validates redirect_uri match (S-M9 RFC 6749 §4.1.3).
+- [x] S-H5 — Legacy unauth'd passkey path removed. `resolvePasskeyEnrollPrincipal` returns 401 without Authorization header. Hosted HTML passkey prompt + SimpleWebAuthn script removed.
 - [x] S-H6 — No auth/authorisation middleware on API routes (OWASP A01) — POST/PATCH/DELETE require auth; unauthenticated → 401
 - [x] S-H7 — No ownership check on mutating event operations — createdByUserId NOT NULL; 403 on non-owner
 - [x] S-H8 — Graph GET endpoints unguarded — all GET handlers wrapped in try/catch; generic "Request failed" on unexpected errors
@@ -272,10 +272,10 @@ Address **High** items before any non-local deployment.
 - [ ] S-M4 — Legacy `POST /register` (unverified email) returns raw `String(catch)` error — can expose Drizzle constraint internals. The new `/register/{begin,complete}` routes already use the `publicError()` mapper from `routes/auth.ts`; extend the same mapper to the legacy endpoint and to all other routes that still use `String(e)`.
 - [ ] S-M5 — `displayName` embedded in JWT (1h TTL) — stale after profile update; `createdByName` on events reflects old value until token expires
 - [ ] S-M6 — Wildcard CORS on auth server — restrict to known client origins before deployment
-- [ ] S-M7 — Login OTP (`/otp/begin` → `/otp/complete`) has no per-entry attempt limit. The new registration `completeRegistration` enforces 5 wrong guesses → wipe; mirror that into `completeOtp`.
+- [x] S-M7 — Login OTP attempt limit added: `verifyOtpCode` now increments `entry.attempts` on wrong-code and wipes the entry after `MAX_OTP_ATTEMPTS` (5) wrong guesses, mirroring the registration flow.
 - [ ] S-M8 — All auth state in process memory (`otpStore`, `magicStore`, `pkceStore`) — lost on restart, unsafe for multi-process
-- [ ] S-M9 — `redirect_uri` at `/token` not matched against value stored in `pkceStore` during `/authorize` (RFC 6749 §4.1.3)
-- [ ] S-M10 — `/passkey/register/begin` accepts arbitrary `userId` with no auth check (elevated to S-H5; see High section)
+- [x] S-M9 — `redirect_uri` at `/token` now matched against value stored in `pkceStore` (RFC 6749 §4.1.3); fixed as part of S-H4.
+- [x] S-M10 — `/passkey/register/begin` arbitrary `userId` fixed: Authorization header now required (fixed as part of S-H5).
 - [ ] S-M11 — Magic-link tokens use `crypto.randomUUID` without additional entropy hardening
 - [x] S-M12 — `limit` query param in `listEvents` uncapped — clamped to 1–100 in service layer
 - [ ] S-M13 — Photon (Komoot) geocoding: keystrokes sent to third-party with no user notice — add consent UI or proxy
@@ -287,10 +287,10 @@ Address **High** items before any non-local deployment.
 - [ ] S-M19 — Legacy `/register` does not lowercase emails — two users can register `Alice@example.com` and `alice@example.com` as distinct accounts. New email-verified path normalises; lift the same normalisation into `registerUser`, `findUserByEmail`, OTP login, and magic-link login. Add a DB-level unique index on `lower(email)` to enforce.
 - [ ] S-M20 — Refresh tokens stored in `localStorage` via `OsnAuth.setSession` (default `Storage` adapter is `localStorage`). XSS in the Pulse webview = permanent account takeover. For Tauri, swap in a keychain-backed adapter (`tauri-plugin-stronghold` or an OS-encrypted store); for web targets, prefer HttpOnly cookies issued by the auth server.
 - [ ] S-M21 — `/register/begin` differential timing oracle on the silent no-op branch — when an email is already taken, the route skips the `sendEmail` call, so the response is consistently faster than the legitimate path. Add a synthetic delay or perform a dummy hash to flatten timing if/when this becomes exploitable.
-- [x] S-M22 — `console.log` of OTP in dev fallback unconditionally exposed credentials in any environment without `sendEmail` set — fixed in the new registration flow: gated on `NODE_ENV !== "production"`. Same fix should be applied to the login OTP path (`beginOtp`).
+- [x] S-M22 — `console.log` of OTP in dev fallback unconditionally exposed credentials in any environment without `sendEmail` set — fixed in the new registration flow: gated on `NODE_ENV !== "production"`. Login OTP and magic-link dev-log branches now also gated on `NODE_ENV !== "production"`.
 - [x] S-M23 — `pendingRegistrations` Map grew unboundedly with no eviction (P-W1 / S-M2 of the security review) — fixed: capped at 10 000 entries, swept on every insert, and refuses to overwrite a non-expired entry to prevent griefing.
-- [x] S-M24 — Biased modulo OTP generation (`buf[0] % 900_000` over a 32-bit draw) — fixed in the new registration flow via rejection sampling in `genOtpCode()`. Login OTP path still uses the biased version; lift the helper.
-- [x] S-M25 — Non-constant-time OTP comparison via `===` — fixed in the new registration flow via `timingSafeEqualString()`. Login OTP path still uses `!==`; lift the helper.
+- [x] S-M24 — Biased modulo OTP generation (`buf[0] % 900_000` over a 32-bit draw) — fixed in the new registration flow via rejection sampling in `genOtpCode()`. Login OTP path now also uses `genOtpCode()`.
+- [x] S-M25 — Non-constant-time OTP comparison via `===` — fixed in the new registration flow via `timingSafeEqualString()`. Login OTP path (`verifyOtpCode`) now also uses `timingSafeEqualString()`.
 - [x] S-M26 — Differential error responses on `/register/begin` (`Email already registered` vs `Handle already taken` vs `sent: true`) leaked which accounts exist — fixed: the route now always returns `{ sent: true }` regardless of conflict status. The handle availability check via `/handle/:handle` remains the appropriate channel for that question and can be rate-limited independently.
 - [x] S-M27 — `close_friends` per-row visibility filter in `pulse/api/src/services/rsvps.ts` had inverted directionality: it checked the *viewer's* close-friends list, allowing a stalker who unilaterally added a target as a close friend to see the target's gated RSVPs. Fixed by removing the `close_friends` visibility bucket entirely — close-friendship is a one-way graph edge and makes a poor access gate in either direction. Attendance visibility is `connections | no_one`; close-friend attendees are surfaced first in the returned list via the existing `isCloseFriend` display flag.
 - [x] S-M28 — `getConnectionIds` / `getCloseFriendIds` in `pulse/api/src/services/graphBridge.ts` silently capped membership sets at 100, causing the visibility filter to under-permit users with larger graphs. Fixed in the full-event-view PR by raising the cap to `MAX_EVENT_GUESTS` (1000) — the platform-wide hard cap on event guest count, documented in `pulse/api/src/lib/limits.ts` and the package README. Resolves both this finding and P-W13 (same root cause).
@@ -299,6 +299,8 @@ Address **High** items before any non-local deployment.
 - [x] S-M31 — Redaction deny-list was missing user-chosen name fields — `displayName` (the only such field that exists in the schema today) was added so it gets scrubbed alongside `email` / `handle`. Originally also added speculative entries for `firstName`, `lastName`, `fullName`, `legalName`, `dob`, `address`, `streetAddress`, `postalCode`, `ssn`, `taxId`; these were removed in the S-H21 follow-up because none of them exist as real object keys in the codebase. The deny-list is now grown only when a sensitive field actually lands in the schema/types — see the file header in `shared/observability/src/logger/redact.ts` for the criteria and the lock-step assertion in `redact.test.ts` that pins the exact set.
 - [x] S-M32 — `span.recordException(error)` in the Elysia plugin wrote the error's enumerable own properties as span event attributes outside the log redactor's reach. Effect tagged errors embedding `email`, `handle`, `cause` etc. would leak to trace storage. Fixed: plugin wraps `recordException` to first scrub the error via `redact()` and only passes `name` + redacted `message` to OTel; `span.setStatus.message` is also routed through `redact()`.
 - [x] S-M33 — `enrollmentToken` (and snake-case `enrollment_token`) was missing from the trimmed redaction deny-list. It is a real single-use bearer credential returned by `/register/complete` (`osn/core/src/routes/auth.ts:225`) and sent back as `Authorization: Bearer <token>` for passkey enrollment (`osn/client/src/register.ts:131,142`) — same secrecy profile as `accessToken`. Defence-in-depth (no current log path emits the completeRegistration result), but the file header criterion in `redact.ts` explicitly requires real-bearer-credential fields to be on the list. Fixed by adding both spellings to `REDACT_KEYS` under the OAuth token block, updating the lock-step assertion + positive test, and pointing at the two call sites in the comment.
+- [ ] S-M34 — Rate limiter trusts `X-Forwarded-For` without reverse-proxy guarantee — any client can spoof the header to bypass IP-based rate limits. Add `trustProxy` config flag or fall back to socket IP when no proxy is configured.
+- [ ] S-M35 — Redirect URI allowlist matches origin only, not exact URI per OAuth 2.0 Security BCP (RFC 9700 §4.1.3). Upgrade to exact string comparison for stricter validation.
 
 ### Low
 
@@ -323,6 +325,8 @@ Address **High** items before any non-local deployment.
 - [x] S-L16 — `EventList` `console.error` logs raw server error objects — guarded with `import.meta.env.DEV`
 - [x] S-L17 — `displayName` returned as `undefined` in graph list responses — normalised to `null` via `userProjection()`
 - [ ] S-L18 — Graph rate-limit store (`rateLimitStore`) never evicts expired windows — add periodic sweep
+- [ ] S-L23 — `pkceStore` has no size bound or eviction sweep — unauthenticated `/authorize` can fill memory. Add maxEntries cap + sweepExpired.
+- [ ] S-L24 — `/token` and legacy `POST /register` have no rate limiting — add per-IP limiters for consistency
 - [ ] S-L19 — `jwtSecret` falls back to `"dev-secret"` in graph auth — already tracked as S-L7
 - [x] S-L20 — `loadConfig` silently classified production deploys as `dev` if operators forgot to set `OSN_ENV=production` (Bun leaves `NODE_ENV` empty by default), enabling pretty-printing, 100% trace sampling, and any future dev-only code paths in prod. Fixed: `loadConfig` now throws when `OSN_ENV=production` in the environment but the resolved env differs, refusing to boot with a mismatched environment. Operators must be explicit about production classification.
 
@@ -337,6 +341,8 @@ Address **High** items before any non-local deployment.
 ### Warning
 
 - [ ] P-W1 — `rateLimitStore` in graph routes grows without bound — expired entries never evicted; add `setInterval` sweep
+- [x] P-W16 — Auth rate limiter Maps swept proactively: sweep now runs on every `check()` when at least one window has elapsed since the last sweep, not just when `maxEntries` is exceeded. Deterministic memory profile in long-running processes.
+- [x] P-W17 — Redirect URI allowlist pre-computed: `allowedOrigins` Set built once at boot in both `createAuthRoutes` and `createAuthService`. Per-request check is a single `Set.has()` call.
 - [ ] P-W2 — `resolvePublicKey` hits DB on every scoped call despite warm cache — cache `CryptoKey` + `allowedScopes` together
 - [ ] P-W3 — `sendConnectionRequest` makes two sequential independent DB reads — use `Effect.all` with `concurrency: "unbounded"`
 - [ ] P-W4 — Auth Maps (`otpStore`, `magicStore`, `pkceStore`) never evict expired entries — add periodic sweep. The new `pendingRegistrations` map already uses `sweepExpired()` on insert; lift the helper into the other stores.

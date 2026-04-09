@@ -438,6 +438,78 @@ When adding findings to the TODO.md Security or Performance backlogs, use the fi
 - **Changeset packages must use the workspace `name` field exactly** (e.g. `"@pulse/app"`, not `"pulse"`). The Changeset Check workflow runs `bunx changeset status` to catch typos before merge — without it, a bad reference fails the Release workflow on main and blocks all subsequent versioning.
 - Versioning is automatic: changesets are consumed and committed by CI on merge to main
 
+## Rate Limiting
+
+OSN uses **per-IP fixed-window rate limiting** on all auth endpoints. The implementation lives in `osn/core/src/lib/rate-limit.ts` and is consumed by `createAuthRoutes` in `osn/core/src/routes/auth.ts`.
+
+### Architecture
+
+```
+osn/core/src/lib/rate-limit.ts     # Generic createRateLimiter + getClientIp
+osn/core/src/routes/auth.ts        # 11 limiter instances, one per endpoint group
+osn/core/src/metrics.ts            # osn.auth.rate_limited counter
+shared/observability/src/metrics/
+  attrs.ts                          # AuthRateLimitedEndpoint bounded union
+```
+
+### When to add rate limiting
+
+| Scenario | Rate limit? | Key | Why |
+|----------|-------------|-----|-----|
+| New **unauthenticated** endpoint | **Yes** | IP (`getClientIp(headers)`) | No user identity; IP is the only option |
+| New **authenticated** endpoint (write) | **Yes** | User ID | Already done for graph writes (`routes/graph.ts:12-31`) |
+| New **authenticated** endpoint (read) | **Maybe** | User ID | Only if the read is expensive or enumerable |
+| Internal S2S endpoint (ARC-gated) | **No** | — | ARC tokens are machine-to-machine; rate limit at the service mesh level |
+
+### How to add a rate limiter
+
+1. **Create** a limiter instance inside the route factory:
+   ```typescript
+   import { createRateLimiter, getClientIp } from "../lib/rate-limit";
+   const rl = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+   ```
+
+2. **Check** at the top of the handler:
+   ```typescript
+   async ({ body, set, headers }) => {
+     const ip = getClientIp(headers);
+     if (!rl.check(ip)) {
+       metricAuthRateLimited("endpoint_name");
+       set.status = 429;
+       return { error: "rate_limited" };
+     }
+     // ... handler logic
+   }
+   ```
+
+3. **Add the endpoint name** to `AuthRateLimitedEndpoint` in `shared/observability/src/metrics/attrs.ts` (bounded union — no free-form strings).
+
+4. **Write a route test** that sends `maxRequests + 1` requests and asserts the last returns 429.
+
+### Current limits
+
+| Endpoint group | Max req/IP/min | Rationale |
+|----------------|----------------|-----------|
+| `/register/begin`, `/otp/begin`, `/magic/begin`, `/login/otp/begin`, `/login/magic/begin` | 5 | OTP/email send — prevents email bombing |
+| `/register/complete`, `/otp/complete`, `/magic/verify`, `/login/otp/complete`, `/login/passkey/begin`, `/login/passkey/complete`, `/passkey/register/begin`, `/passkey/register/complete`, `/handle/:handle` | 10 | Verify/complete — slightly higher to allow legitimate retries |
+
+### Config
+
+```typescript
+interface RateLimiterConfig {
+  maxRequests: number;     // requests allowed per window
+  windowMs: number;        // window duration in milliseconds
+  maxEntries?: number;     // max distinct keys before expired-entry sweep (default: 10_000)
+}
+```
+
+### Known limitations
+
+- **In-memory only** — resets on restart; not safe for multi-process. S-M2 tracks migration to a shared counter (Redis / Cloudflare Durable Objects) for horizontal scaling.
+- **Trusts `X-Forwarded-For`** — clients can spoof the header without a trusted reverse proxy. S-M34 tracks adding a `trustProxy` config flag.
+- **Fixed window** — a burst at the window boundary can allow 2x the limit. Acceptable for auth endpoints; sliding window is overkill for current traffic.
+- **Proactive sweep** — expired entries are evicted on every `check()` call when at least one window has elapsed since the last sweep. The `maxEntries` cap is a hard backstop; periodic sweeping keeps memory deterministic under normal load.
+
 ## Testing Patterns
 
 Test files live in `tests/` at the package root, mirroring the `src/` structure:

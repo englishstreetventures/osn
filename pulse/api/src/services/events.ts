@@ -48,16 +48,7 @@ const DateFromISOString = Schema.transform(ValidDateString, Schema.DateFromSelf,
   encode: (d) => d.toISOString(),
 });
 
-const ValidUrl = Schema.String.pipe(
-  Schema.filter((s) => {
-    try {
-      new URL(s);
-      return true;
-    } catch {
-      return false;
-    }
-  }),
-);
+const ValidUrl = Schema.String.pipe(Schema.filter((s) => URL.parse(s) !== null));
 
 const LatitudeSchema = Schema.Number.pipe(Schema.between(-90, 90));
 const LongitudeSchema = Schema.Number.pipe(Schema.between(-180, 180));

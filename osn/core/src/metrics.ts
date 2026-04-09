@@ -16,6 +16,7 @@ import {
 } from "@shared/observability/metrics";
 import type {
   AuthMethod,
+  AuthRateLimitedEndpoint,
   GraphBlockAction,
   GraphConnectionAction,
   RegisterStep,
@@ -32,6 +33,7 @@ export const OSN_METRICS = {
   authHandleCheck: "osn.auth.handle.check",
   authOtpSent: "osn.auth.otp.sent",
   authMagicLinkSent: "osn.auth.magic_link.sent",
+  authRateLimited: "osn.auth.rate_limited",
   graphConnectionOps: "osn.graph.connection.operations",
   graphBlockOps: "osn.graph.block.operations",
 } as const;
@@ -46,6 +48,7 @@ type TokenRefreshAttrs = { result: Result };
 type HandleCheckAttrs = { result: "available" | "taken" | "invalid" };
 type OtpSentAttrs = { purpose: "registration" | "login" };
 type MagicLinkSentAttrs = { result: Result };
+type AuthRateLimitAttrs = { endpoint: AuthRateLimitedEndpoint };
 type GraphConnectionAttrs = { action: GraphConnectionAction; result: Result };
 type GraphBlockAttrs = { action: GraphBlockAction; result: Result };
 
@@ -101,6 +104,12 @@ const authMagicLinkSent = createCounter<MagicLinkSentAttrs>({
   name: OSN_METRICS.authMagicLinkSent,
   description: "Magic-link emails",
   unit: "{message}",
+});
+
+const authRateLimited = createCounter<AuthRateLimitAttrs>({
+  name: OSN_METRICS.authRateLimited,
+  description: "Auth requests rejected by IP-based rate limiting",
+  unit: "{rejection}",
 });
 
 const graphConnectionOps = createCounter<GraphConnectionAttrs>({
@@ -256,3 +265,6 @@ export const metricAuthOtpSent = (purpose: "registration" | "login"): void =>
   authOtpSent.inc({ purpose });
 
 export const metricAuthMagicLinkSent = (result: Result): void => authMagicLinkSent.inc({ result });
+
+export const metricAuthRateLimited = (endpoint: AuthRateLimitedEndpoint): void =>
+  authRateLimited.inc({ endpoint });

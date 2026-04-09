@@ -111,17 +111,6 @@ export function buildAuthorizeHtml(params: AuthorizeHtmlParams): string {
     .hint.ok { color: #16a34a; }
     .hint.bad { color: #c00; }
     .hidden { display: none !important; }
-    .passkey-prompt {
-      border-top: 1px solid #e5e5e5;
-      padding-top: 1rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-    }
-    .passkey-prompt p { font-size: 0.875rem; margin: 0; }
-    .passkey-prompt .actions { display: flex; gap: 0.5rem; }
-    .passkey-prompt .actions button { flex: 1; padding: 0.5rem; font-size: 0.8125rem; border-radius: 6px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
-    .passkey-prompt .actions button.yes { background: #111; color: #fff; border-color: #111; }
     .field { display: flex; flex-direction: column; gap: 0.25rem; }
     .handle-wrap { position: relative; }
     .handle-wrap .at { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: #999; font-size: 0.875rem; pointer-events: none; }
@@ -230,14 +219,7 @@ export function buildAuthorizeHtml(params: AuthorizeHtmlParams): string {
     </div>
   </div>
 
-  <!-- Post-auth passkey prompt -->
-  <div class="passkey-prompt hidden" id="passkey-prompt">
-    <p>Add a passkey to this device for faster sign-in next time?</p>
-    <div class="actions">
-      <button class="yes" id="passkey-prompt-yes">Add passkey</button>
-      <button id="passkey-prompt-no">Not now</button>
-    </div>
-  </div>
+  <!-- Post-auth passkey prompt removed (S-H5) -->
 </div>
 
 <script src="https://unpkg.com/@simplewebauthn/browser@13/dist/bundle/index.es5.umd.min.js"></script>
@@ -324,38 +306,10 @@ export function buildAuthorizeHtml(params: AuthorizeHtmlParams): string {
   }
 
   // ---------------------------------------------------------------------------
-  // Post-auth passkey prompt
+  // Post-auth passkey prompt (S-H5: removed — passkey enrollment now requires
+  // Authorization: Bearer header, which the hosted HTML does not have.
+  // Users enrol passkeys through first-party apps after sign-in.)
   // ---------------------------------------------------------------------------
-  function showPasskeyPrompt(userId, onDone) {
-    var prompt = document.getElementById('passkey-prompt');
-    prompt.classList.remove('hidden');
-
-    function dismiss() {
-      prompt.classList.add('hidden');
-      onDone();
-    }
-
-    document.getElementById('passkey-prompt-no').onclick = dismiss;
-
-    document.getElementById('passkey-prompt-yes').onclick = async function() {
-      try {
-        var opts = await fetch(issuer + '/passkey/register/begin', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: userId })
-        }).then(function(r) { return r.json(); });
-        var attestation = await SimpleWebAuthnBrowser.startRegistration({ optionsJSON: opts });
-        await fetch(issuer + '/passkey/register/complete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: userId, attestation: attestation })
-        });
-      } catch(e) {
-        console.error('Passkey registration failed:', e);
-      }
-      dismiss();
-    };
-  }
 
   // ---------------------------------------------------------------------------
   // Passkey sign-in
@@ -434,7 +388,7 @@ export function buildAuthorizeHtml(params: AuthorizeHtmlParams): string {
         body: JSON.stringify({ identifier: otpIdentifier, code: code })
       }).then(function(r) { return r.json(); });
       if (res.error) { showErr('otp-err', res.error); return; }
-      showPasskeyPrompt(res.userId, function() { completeAuth(res.code); });
+      completeAuth(res.code);
     } catch(e) {
       showErr('otp-err', e.message || 'Verification failed.');
     }
@@ -581,7 +535,7 @@ export function buildAuthorizeHtml(params: AuthorizeHtmlParams): string {
         body: JSON.stringify({ identifier: _regEmail, code: code })
       }).then(function(r) { return r.json(); });
       if (res.error) { showErr('reg-otp-err', res.error); return; }
-      showPasskeyPrompt(_regUserId, function() { completeAuth(res.code); });
+      completeAuth(res.code);
     } catch(e) {
       showErr('reg-otp-err', e.message || 'Verification failed.');
     }

@@ -23,6 +23,7 @@ export {
 export {
   type Result,
   type AuthMethod,
+  type AuthRateLimitedEndpoint,
   type RegisterStep,
   type ArcVerifyResult,
   type GraphConnectionAction,

@@ -726,3 +726,171 @@ describe("dev-mode Effect.logDebug fallback", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
+
+// ---------------------------------------------------------------------------
+// Redirect URI validation (S-H3)
+// ---------------------------------------------------------------------------
+describe("validateRedirectUri", () => {
+  it.effect("accepts any URI when allowedRedirectUris is not set", () =>
+    Effect.gen(function* () {
+      const svc = createAuthService(config); // no allowedRedirectUris
+      yield* svc.validateRedirectUri("http://anything.example.com/callback");
+    }),
+  );
+
+  it.effect("accepts any URI when allowedRedirectUris is empty", () =>
+    Effect.gen(function* () {
+      const svc = createAuthService({ ...config, allowedRedirectUris: [] });
+      yield* svc.validateRedirectUri("http://anything.example.com/callback");
+    }),
+  );
+
+  it.effect("accepts URI whose origin matches the allowlist", () =>
+    Effect.gen(function* () {
+      const svc = createAuthService({
+        ...config,
+        allowedRedirectUris: ["http://localhost:5173"],
+      });
+      yield* svc.validateRedirectUri("http://localhost:5173/callback");
+    }),
+  );
+
+  it.effect("accepts URI with a different path on the same origin", () =>
+    Effect.gen(function* () {
+      const svc = createAuthService({
+        ...config,
+        allowedRedirectUris: ["http://localhost:5173/some-path"],
+      });
+      yield* svc.validateRedirectUri("http://localhost:5173/other-path");
+    }),
+  );
+
+  it.effect("rejects URI from a different origin", () =>
+    Effect.gen(function* () {
+      const svc = createAuthService({
+        ...config,
+        allowedRedirectUris: ["http://localhost:5173"],
+      });
+      const error = yield* Effect.flip(svc.validateRedirectUri("http://evil.com/callback"));
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("redirect_uri not allowed");
+    }),
+  );
+
+  it.effect("rejects URI with different port on same host", () =>
+    Effect.gen(function* () {
+      const svc = createAuthService({
+        ...config,
+        allowedRedirectUris: ["http://localhost:5173"],
+      });
+      const error = yield* Effect.flip(svc.validateRedirectUri("http://localhost:9999/callback"));
+      expect(error._tag).toBe("AuthError");
+    }),
+  );
+
+  it.effect("rejects URI with different scheme", () =>
+    Effect.gen(function* () {
+      const svc = createAuthService({
+        ...config,
+        allowedRedirectUris: ["http://localhost:5173"],
+      });
+      const error = yield* Effect.flip(svc.validateRedirectUri("https://localhost:5173/callback"));
+      expect(error._tag).toBe("AuthError");
+    }),
+  );
+
+  it.effect("rejects invalid URI", () =>
+    Effect.gen(function* () {
+      const svc = createAuthService({
+        ...config,
+        allowedRedirectUris: ["http://localhost:5173"],
+      });
+      const error = yield* Effect.flip(svc.validateRedirectUri("not-a-url"));
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toBe("Invalid redirect_uri");
+    }),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// OTP login attempt limit (S-M7)
+// ---------------------------------------------------------------------------
+describe("login OTP attempt limit", () => {
+  it.effect("wipes OTP entry after 5 wrong guesses — correct code fails after that", () =>
+    Effect.gen(function* () {
+      let capturedCode: string | undefined;
+      const svc = createAuthService({
+        ...config,
+        sendEmail: async (_to, _subject, body) => {
+          const m = body.match(/code is: (\d{6})/);
+          if (m) capturedCode = m[1];
+        },
+      });
+
+      yield* svc.registerUser("brute@example.com", "brute");
+      yield* svc.beginOtp("brute@example.com");
+      expect(capturedCode).toBeTruthy();
+
+      // 5 wrong guesses
+      for (let i = 0; i < 5; i++) {
+        const error = yield* Effect.flip(svc.completeOtp("brute@example.com", "000000"));
+        expect(error._tag).toBe("AuthError");
+      }
+
+      // Now the correct code should also fail (entry wiped)
+      const error = yield* Effect.flip(svc.completeOtp("brute@example.com", capturedCode!));
+      expect(error._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("allows correct code before attempt limit is reached", () =>
+    Effect.gen(function* () {
+      let capturedCode: string | undefined;
+      const svc = createAuthService({
+        ...config,
+        sendEmail: async (_to, _subject, body) => {
+          const m = body.match(/code is: (\d{6})/);
+          if (m) capturedCode = m[1];
+        },
+      });
+
+      yield* svc.registerUser("careful@example.com", "careful");
+      yield* svc.beginOtp("careful@example.com");
+
+      // 4 wrong guesses (under the limit)
+      for (let i = 0; i < 4; i++) {
+        yield* Effect.flip(svc.completeOtp("careful@example.com", "000000"));
+      }
+
+      // Correct code still works
+      const result = yield* svc.completeOtp("careful@example.com", capturedCode!);
+      expect(result.code).toBeTruthy();
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("completeOtpDirect also respects the attempt limit", () =>
+    Effect.gen(function* () {
+      let capturedCode: string | undefined;
+      const svc = createAuthService({
+        ...config,
+        sendEmail: async (_to, _subject, body) => {
+          const m = body.match(/code is: (\d{6})/);
+          if (m) capturedCode = m[1];
+        },
+      });
+
+      yield* svc.registerUser("direct@example.com", "direct");
+      yield* svc.beginOtp("direct@example.com");
+      expect(capturedCode).toBeTruthy();
+
+      // 5 wrong guesses via direct path
+      for (let i = 0; i < 5; i++) {
+        yield* Effect.flip(svc.completeOtpDirect("direct@example.com", "000000"));
+      }
+
+      // Correct code fails (entry wiped)
+      const error = yield* Effect.flip(svc.completeOtpDirect("direct@example.com", capturedCode!));
+      expect(error._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
