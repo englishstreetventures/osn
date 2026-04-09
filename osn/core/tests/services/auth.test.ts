@@ -1,5 +1,5 @@
 import { it, expect, describe } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Logger, LogLevel } from "effect";
 import { createTestLayer } from "../helpers/db";
 import { createAuthService } from "../../src/services/auth";
 
@@ -636,6 +636,93 @@ describe("verifyAccessToken", () => {
     Effect.gen(function* () {
       const error = yield* Effect.flip(auth.verifyAccessToken("not.a.token"));
       expect(error._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Dev-mode Effect.logDebug fallback (S-H21 / S-M3 / T-U1)
+// ---------------------------------------------------------------------------
+// When sendEmail is unset (local dev) the begin* paths emit the OTP code /
+// magic link URL via Effect.logDebug. The invariant these tests lock:
+//
+//   1. Exactly one debug line is emitted per call.
+//   2. The literal OTP / URL appears in the captured message — the values
+//      are interpolated into the message STRING on purpose, because the
+//      redacting logger walks annotation objects by key name but passes
+//      message strings through unchanged. Putting the value in annotations
+//      would scrub it via the PII deny-list ("email" is in REDACT_KEYS) and
+//      defeat the whole point of the dev-mode log.
+//   3. "[REDACTED]" never appears in the captured message — defence against
+//      a future PR that wraps the call with Effect.annotateLogs({ code }).
+// ---------------------------------------------------------------------------
+
+describe("dev-mode Effect.logDebug fallback", () => {
+  /**
+   * Install a capture logger in place of Effect's default, returning an
+   * array that will be populated with every emitted message string.
+   */
+  function captureLogs() {
+    const captured: string[] = [];
+    const sinkLogger = Logger.make<unknown, void>((options) => {
+      const msg = Array.isArray(options.message)
+        ? options.message.join(" ")
+        : String(options.message);
+      captured.push(msg);
+    });
+    const loggerLayer = Logger.replace(Logger.defaultLogger, sinkLogger);
+    return { captured, loggerLayer };
+  }
+
+  it.effect("beginRegistration logs the OTP via Effect.logDebug when sendEmail is unset", () =>
+    Effect.gen(function* () {
+      const { captured, loggerLayer } = captureLogs();
+      // config has no sendEmail — the dev-fallback branch is reached.
+      const svc = createAuthService(config);
+
+      yield* svc
+        .beginRegistration("dev@example.com", "devuser", "Dev User")
+        .pipe(Effect.provide(loggerLayer), Logger.withMinimumLogLevel(LogLevel.Debug));
+
+      expect(captured.length).toBe(1);
+      expect(captured[0]).toMatch(/Registration OTP for dev@example\.com: \d{6}/);
+      expect(captured[0]).not.toContain("[REDACTED]");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("beginOtp logs the login code via Effect.logDebug when sendEmail is unset", () =>
+    Effect.gen(function* () {
+      // beginOtp requires the user to exist already — register first.
+      yield* auth.registerUser("dev-login@example.com", "devlogin");
+
+      const { captured, loggerLayer } = captureLogs();
+      const svc = createAuthService(config);
+
+      yield* svc
+        .beginOtp("dev-login@example.com")
+        .pipe(Effect.provide(loggerLayer), Logger.withMinimumLogLevel(LogLevel.Debug));
+
+      expect(captured.length).toBe(1);
+      expect(captured[0]).toMatch(/OTP for dev-login@example\.com: \d{6}/);
+      expect(captured[0]).not.toContain("[REDACTED]");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("beginMagic logs the magic-link URL via Effect.logDebug when sendEmail is unset", () =>
+    Effect.gen(function* () {
+      yield* auth.registerUser("dev-magic@example.com", "devmagic");
+
+      const { captured, loggerLayer } = captureLogs();
+      const svc = createAuthService(config);
+
+      yield* svc
+        .beginMagic("dev-magic@example.com")
+        .pipe(Effect.provide(loggerLayer), Logger.withMinimumLogLevel(LogLevel.Debug));
+
+      expect(captured.length).toBe(1);
+      expect(captured[0]).toContain("Magic link for dev-magic@example.com:");
+      expect(captured[0]).toContain(`${config.issuerUrl}/magic/verify?token=`);
+      expect(captured[0]).not.toContain("[REDACTED]");
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

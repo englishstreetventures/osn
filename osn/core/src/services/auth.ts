@@ -372,7 +372,7 @@ export function createAuthService(config: AuthConfig) {
    *    abuse can't grow it without bound (S-M2 / P-W1).
    *  - Refuses to overwrite a non-expired pending entry, preventing an
    *    attacker from resetting a victim's in-progress OTP (S-M2).
-   *  - The dev-only `console.log` of the OTP is gated on
+   *  - The dev-only `Effect.logDebug` of the OTP is gated on
    *    `NODE_ENV !== "production"` (S-M3).
    *
    * Validation errors (bad email format, bad handle format, reserved handle)
@@ -451,7 +451,10 @@ export function createAuthService(config: AuthConfig) {
         });
       } else if (process.env["NODE_ENV"] !== "production") {
         // S-M3: only print the OTP to logs in non-production environments.
-        console.log(`[OSN dev] Registration OTP for ${normalisedEmail}: ${code}`);
+        // Values are interpolated into the message string (not annotations) so
+        // the redacting logger doesn't scrub them — the whole point of this
+        // dev-only log is to expose the code so the developer can act on it.
+        yield* Effect.logDebug(`[OSN dev] Registration OTP for ${normalisedEmail}: ${code}`);
       }
 
       metricAuthOtpSent("registration");
@@ -1100,7 +1103,10 @@ export function createAuthService(config: AuthConfig) {
           catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
         });
       } else {
-        console.log(`[OSN dev] OTP for ${user.email}: ${code}`);
+        // Dev-only fallback when no email sender is configured. See the
+        // matching block in beginRegistration for why values are interpolated
+        // into the message string instead of using log annotations.
+        yield* Effect.logDebug(`[OSN dev] OTP for ${user.email}: ${code}`);
       }
 
       metricAuthOtpSent("login");
@@ -1214,7 +1220,10 @@ export function createAuthService(config: AuthConfig) {
           catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
         });
       } else {
-        console.log(`[OSN dev] Magic link for ${user.email}: ${magicUrl}`);
+        // Dev-only fallback when no email sender is configured. See the
+        // matching block in beginRegistration for why values are interpolated
+        // into the message string instead of using log annotations.
+        yield* Effect.logDebug(`[OSN dev] Magic link for ${user.email}: ${magicUrl}`);
       }
 
       metricAuthMagicLinkSent("ok");

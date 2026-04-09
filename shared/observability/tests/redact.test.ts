@@ -10,44 +10,77 @@ describe("redact", () => {
     expect(redact(undefined)).toBe(undefined);
   });
 
-  it("redacts top-level auth/credential keys", () => {
+  it("redacts OAuth / first-party token responses", () => {
     const input = {
       userId: "u_123",
-      password: "hunter2",
       accessToken: "eyJ...",
       refreshToken: "eyJ...",
-      authorization: "Bearer ...",
-      jwt: "eyJ...",
+      idToken: "eyJ...",
+      enrollmentToken: "enroll_xyz",
+      access_token: "eyJ...",
+      refresh_token: "eyJ...",
+      id_token: "eyJ...",
+      enrollment_token: "enroll_xyz",
     };
     const out = redact(input) as Record<string, unknown>;
     expect(out.userId).toBe("u_123");
-    expect(out.password).toBe(REDACTION_PLACEHOLDER);
     expect(out.accessToken).toBe(REDACTION_PLACEHOLDER);
     expect(out.refreshToken).toBe(REDACTION_PLACEHOLDER);
-    expect(out.authorization).toBe(REDACTION_PLACEHOLDER);
-    expect(out.jwt).toBe(REDACTION_PLACEHOLDER);
+    expect(out.idToken).toBe(REDACTION_PLACEHOLDER);
+    expect(out.enrollmentToken).toBe(REDACTION_PLACEHOLDER);
+    expect(out.access_token).toBe(REDACTION_PLACEHOLDER);
+    expect(out.refresh_token).toBe(REDACTION_PLACEHOLDER);
+    expect(out.id_token).toBe(REDACTION_PLACEHOLDER);
+    expect(out.enrollment_token).toBe(REDACTION_PLACEHOLDER);
   });
 
-  it("redacts PII (email, phone, handle, displayName)", () => {
+  it("redacts the Authorization header", () => {
+    const input = {
+      url: "/graph/internal/connections",
+      headers: { authorization: "ARC eyJ..." },
+    };
+    const out = redact(input) as { url: string; headers: { authorization: string } };
+    expect(out.url).toBe("/graph/internal/connections");
+    expect(out.headers.authorization).toBe(REDACTION_PLACEHOLDER);
+  });
+
+  it("redacts WebAuthn assertion bodies", () => {
+    const input = {
+      identifier: "u_123",
+      assertion: { id: "...", response: { signature: "..." } },
+    };
+    const out = redact(input) as Record<string, unknown>;
+    expect(out.identifier).toBe("u_123");
+    expect(out.assertion).toBe(REDACTION_PLACEHOLDER);
+  });
+
+  it("redacts ARC private key handles", () => {
+    const input = {
+      iss: "pulse-api",
+      privateKey: "<CryptoKey>",
+      private_key: "<jwk-string>",
+    };
+    const out = redact(input) as Record<string, unknown>;
+    expect(out.iss).toBe("pulse-api");
+    expect(out.privateKey).toBe(REDACTION_PLACEHOLDER);
+    expect(out.private_key).toBe(REDACTION_PLACEHOLDER);
+  });
+
+  it("redacts user PII (email, handle, displayName) but keeps userId", () => {
     const input = {
       userId: "u_123",
       email: "alice@example.com",
-      phone: "+15551234567",
       handle: "alice",
       displayName: "Alice Smith",
-      firstName: "Alice",
-      lastName: "Smith",
+      display_name: "Alice Smith",
       createdAtTs: 1234567890,
     };
     const out = redact(input) as Record<string, unknown>;
     expect(out.userId).toBe("u_123");
     expect(out.email).toBe(REDACTION_PLACEHOLDER);
-    expect(out.phone).toBe(REDACTION_PLACEHOLDER);
     expect(out.handle).toBe(REDACTION_PLACEHOLDER);
-    // S-M2: user-chosen name fields are redacted
     expect(out.displayName).toBe(REDACTION_PLACEHOLDER);
-    expect(out.firstName).toBe(REDACTION_PLACEHOLDER);
-    expect(out.lastName).toBe(REDACTION_PLACEHOLDER);
+    expect(out.display_name).toBe(REDACTION_PLACEHOLDER);
     // Non-sensitive fields pass through unchanged
     expect(out.createdAtTs).toBe(1234567890);
   });
@@ -94,26 +127,6 @@ describe("redact", () => {
     expect(out.EMAIL).toBe(REDACTION_PLACEHOLDER);
     expect(out.AccessToken).toBe(REDACTION_PLACEHOLDER);
     expect(out.ACCESS_TOKEN).toBe(REDACTION_PLACEHOLDER);
-  });
-
-  it("redacts E2E encryption payloads (Zap / Signal)", () => {
-    const input = {
-      chatId: "chat_123",
-      messageBody: "hello world",
-      ciphertext: "base64stuff",
-      plaintext: "hello",
-      ratchetKey: "keybytes",
-      identityKey: "keybytes",
-      senderKey: "keybytes",
-    };
-    const out = redact(input) as Record<string, unknown>;
-    expect(out.chatId).toBe("chat_123");
-    expect(out.messageBody).toBe(REDACTION_PLACEHOLDER);
-    expect(out.ciphertext).toBe(REDACTION_PLACEHOLDER);
-    expect(out.plaintext).toBe(REDACTION_PLACEHOLDER);
-    expect(out.ratchetKey).toBe(REDACTION_PLACEHOLDER);
-    expect(out.identityKey).toBe(REDACTION_PLACEHOLDER);
-    expect(out.senderKey).toBe(REDACTION_PLACEHOLDER);
   });
 
   it("preserves Date values", () => {
@@ -164,10 +177,11 @@ describe("redact", () => {
    * Walks every entry in the deny-list and confirms it redacts.
    * Self-maintaining: any key added to (or removed from) REDACT_KEYS
    * automatically gets coverage. Guards against a future refactor
-   * accidentally dropping a "non-negotiable" entry (per CLAUDE.md).
+   * accidentally dropping an entry without updating the explicit
+   * assertion below.
    */
   it("every entry in REDACT_KEYS is actually redacted", () => {
-    expect(REDACT_KEYS.size).toBeGreaterThan(20);
+    expect(REDACT_KEYS.size).toBeGreaterThan(0);
     for (const key of REDACT_KEYS) {
       const input = { [key]: "sensitive-value" };
       const out = redact(input) as Record<string, unknown>;
@@ -175,41 +189,76 @@ describe("redact", () => {
     }
   });
 
-  it("explicitly asserts headers + crypto + signal keys stay on the list", () => {
-    // These are the "non-negotiable" keys called out in CLAUDE.md.
-    // Locking them with an explicit assertion here means a PR that
-    // accidentally deletes any one of them will fail this test by name,
-    // not just the generic loop above.
-    const mustBeRedacted = [
-      "cookie",
-      "set-cookie",
-      "setCookie",
-      "authorization",
-      "apiKey",
-      "api_key",
-      "privateKey",
-      "private_key",
-      "secretKey",
-      "secret_key",
-      "password_hash",
-      "sessionToken",
-      "session_token",
-      "signalEnvelope",
-      "signal_envelope",
-      "prekey",
-      "preKey",
-      "senderKey",
-      "sender_key",
-      "identityKey",
-      "identity_key",
-      "ratchetKey",
-      "ratchet_key",
-    ];
-    for (const key of mustBeRedacted) {
-      expect(
-        REDACT_KEYS.has(key.toLowerCase()),
-        `deny-list is missing "${key}" — this is a non-negotiable key per CLAUDE.md`,
-      ).toBe(true);
+  /**
+   * Deliberately-removed keys pass through unchanged. This is a behavioural
+   * regression anchor: the file header in `src/logger/redact.ts` documents
+   * the "real fields only" rule, and this test makes that intent executable
+   * so a well-meaning "let's add password back for safety" PR has to
+   * acknowledge it. Mirrors the historical S-M31 / S-H21 trim decision.
+   */
+  it("no longer scrubs keys that do not correspond to real fields", () => {
+    const input = {
+      // Auth / credentials that don't exist as field names:
+      password: "hunter2",
+      passwordHash: "hash",
+      otp: "000000",
+      otpCode: "000000",
+      jwt: "eyJ...",
+      sessionToken: "tok",
+      cookie: "sid=abc",
+      apiKey: "sk_live_",
+      secretKey: "sk",
+      // E2E / Signal — no messaging impl yet:
+      ciphertext: "aGVsbG8=",
+      plaintext: "hello",
+      ratchetKey: "k",
+      senderKey: "k",
+      identityKey: "k",
+      messageBody: "hi",
+      signalEnvelope: "env",
+      prekey: "pk",
+      // PII fields that don't exist in the schema:
+      firstName: "Alice",
+      lastName: "Smith",
+      fullName: "Alice Smith",
+      legalName: "Alice Smith",
+      dob: "1990-01-01",
+      address: "1 Test St",
+      phone: "+15551234567",
+      ssn: "000-00-0000",
+      taxId: "TAX",
+    };
+    const out = redact(input) as Record<string, string>;
+    for (const [k, v] of Object.entries(input)) {
+      expect(out[k], `${k} should pass through unchanged`).toBe(v);
     }
+  });
+
+  /**
+   * Locks the exact deny-list so a PR that adds or removes a key has to
+   * touch this assertion as well — forcing the author to acknowledge the
+   * change. The deny-list is small on purpose; see the file header in
+   * src/logger/redact.ts for the criteria for adding entries.
+   */
+  it("deny-list contains the documented set of keys (and only that set)", () => {
+    const expected = [
+      "authorization",
+      "accesstoken",
+      "access_token",
+      "refreshtoken",
+      "refresh_token",
+      "idtoken",
+      "id_token",
+      "enrollmenttoken",
+      "enrollment_token",
+      "assertion",
+      "privatekey",
+      "private_key",
+      "email",
+      "handle",
+      "displayname",
+      "display_name",
+    ].sort();
+    expect([...REDACT_KEYS].sort()).toEqual(expected);
   });
 });

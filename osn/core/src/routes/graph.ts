@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { Effect, type Layer } from "effect";
+import { Effect, Layer } from "effect";
 import { DbLive, type Db } from "@osn/db/service";
 import type { User } from "@osn/db/schema";
 import { createAuthService, type AuthConfig } from "../services/auth";
@@ -80,12 +80,23 @@ function parsePagination(query: { limit?: string; offset?: string }) {
   };
 }
 
-export function createGraphRoutes(authConfig: AuthConfig, dbLayer: Layer.Layer<Db> = DbLive) {
+export function createGraphRoutes(
+  authConfig: AuthConfig,
+  dbLayer: Layer.Layer<Db> = DbLive,
+  /** See `createAuthRoutes` — same semantics. */
+  loggerLayer: Layer.Layer<never> = Layer.empty,
+) {
   const auth = createAuthService(authConfig);
   const graph = createGraphService();
 
   const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
-    Effect.runPromise(eff.pipe(Effect.provide(dbLayer)) as Effect.Effect<A, never, never>);
+    Effect.runPromise(
+      eff.pipe(Effect.provide(dbLayer), Effect.provide(loggerLayer)) as Effect.Effect<
+        A,
+        never,
+        never
+      >,
+    );
 
   // Verify token and return caller claims, or set 401
   async function requireAuth(

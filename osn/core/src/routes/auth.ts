@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { Effect, type Layer } from "effect";
+import { Effect, Layer } from "effect";
 import { DbLive, type Db } from "@osn/db/service";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { buildAuthorizeHtml } from "../lib/html";
@@ -55,11 +55,30 @@ interface PkceEntry {
 }
 const pkceStore = new Map<string, PkceEntry>();
 
-export function createAuthRoutes(authConfig: AuthConfig, dbLayer: Layer.Layer<Db> = DbLive) {
+export function createAuthRoutes(
+  authConfig: AuthConfig,
+  dbLayer: Layer.Layer<Db> = DbLive,
+  /**
+   * Optional observability layer. When provided, per-request Effect pipelines
+   * (including `Effect.logDebug` in the dev-mode OTP / magic-link branches
+   * inside `auth.ts`) run with the application's logger + tracing wiring. When
+   * omitted, defaults to `Layer.empty` — the service still runs correctly but
+   * debug-level logs are dropped by Effect's default logger, so dev OTP/magic
+   * values are not visible unless the host application wires this in. See
+   * `osn/app/src/index.ts` for the canonical wiring.
+   */
+  loggerLayer: Layer.Layer<never> = Layer.empty,
+) {
   const auth = createAuthService(authConfig);
 
   const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
-    Effect.runPromise(eff.pipe(Effect.provide(dbLayer)) as Effect.Effect<A, never, never>);
+    Effect.runPromise(
+      eff.pipe(Effect.provide(dbLayer), Effect.provide(loggerLayer)) as Effect.Effect<
+        A,
+        never,
+        never
+      >,
+    );
 
   /**
    * Resolves the authenticated principal for /passkey/register/* calls. The

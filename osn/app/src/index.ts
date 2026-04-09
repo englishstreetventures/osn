@@ -26,8 +26,8 @@ const app = new Elysia()
   .use(observabilityPlugin({ serviceName: SERVICE_NAME }))
   .use(healthRoutes({ serviceName: SERVICE_NAME }))
   .get("/", () => ({ status: "ok", service: "osn-auth" }))
-  .use(createAuthRoutes(authConfig, DbLive))
-  .use(createGraphRoutes(authConfig, DbLive));
+  .use(createAuthRoutes(authConfig, DbLive, observabilityLayer))
+  .use(createGraphRoutes(authConfig, DbLive, observabilityLayer));
 
 if (process.env.NODE_ENV !== "test") {
   app.listen(port);

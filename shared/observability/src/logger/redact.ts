@@ -1,103 +1,127 @@
 /**
  * Deny-list based redaction for log annotations and error causes.
  *
- * Security invariant: these keys must NEVER appear in any log output.
- * Add new keys as new secret-bearing fields are introduced; never remove.
+ * # Goal
  *
- * Matching is case-insensitive on the key name only. Values are replaced
- * with a fixed string so the shape of the log entry is preserved (handy
- * when debugging why a field is empty: "oh right, we redact that").
+ * Stop secret-bearing values from leaving the process via the logger. Every
+ * `Effect.log*` call routes annotations and `cause` payloads through this
+ * scrubber before serialization (see `./layer.ts`), so any object key listed
+ * here is replaced with `[REDACTED]` regardless of where it appears in the
+ * tree.
+ *
+ * # When to add a key
+ *
+ * Add a key here when **all** of the following are true:
+ *
+ *   1. The name is used as an actual object property somewhere in the
+ *      codebase — a DB column, a request body field, a response field, an
+ *      Effect tagged-error field, an HTTP header name, etc. We do not pad
+ *      this list with hypothetical secret names; if a field doesn't exist,
+ *      don't pre-emptively guard it. The `osn:lint:redact-coverage` mental
+ *      model is "every entry should have a `grep` hit outside this file".
+ *
+ *   2. Logging the value would be a security or privacy regression — auth
+ *      credentials (tokens, passkey assertions), private keys, or PII that
+ *      we have a policy commitment to keep out of operator-readable logs
+ *      (per CLAUDE.md: `userId` is OK; `email` and `handle` are not).
+ *
+ *   3. There is no safer alternative on the call site. If the call site is
+ *      `Effect.annotateLogs({ email })`, prefer fixing the call site to use
+ *      `userId` instead. The deny-list is the *second* line of defence,
+ *      not the first.
+ *
+ * Add **both** the camelCase and snake_case spelling if the field is reached
+ * in both forms (Drizzle returns camelCase from the TS layer but raw column
+ * names — and OAuth wire format — surface snake_case).
+ *
+ * # When to remove a key
+ *
+ * Remove a key only when the underlying field is gone from the codebase
+ * (schema column dropped, route body removed, type deleted). When that
+ * happens, drop the entry from this list and the matching assertion in
+ * `redact.test.ts` in the same commit so the deny-list never drifts.
+ *
+ * # What does NOT belong here
+ *
+ *   - Generic identifiers like `code` or `id` — too broad, would scrub PKCE
+ *     codes, event IDs, etc. The right fix is to never log the whole
+ *     in-memory store entry, not to redact the field name.
+ *
+ *   - Speculative entries for features that haven't been built. When the
+ *     Signal/E2E messaging code lands in `@zap/api`, the PR that adds
+ *     `ciphertext` / `ratchetKey` / `senderKey` to a schema also adds
+ *     them here. Until then, they aren't fields, so they aren't on the list.
+ *
+ *   - Fields whose values are public by design — `publicKey`, `credentialId`
+ *     (the WebAuthn handle, not the credential bytes), avatar URLs.
+ *
+ * # Matching rules
+ *
+ * Case-insensitive on the key name. No regex — exact key match only — to
+ * keep the rule auditable and avoid surprising over-redaction.
  */
 
 export const REDACTION_PLACEHOLDER = "[REDACTED]";
 
 /**
- * Case-insensitive deny-list of object keys. Keep sorted and grouped by
- * theme. Do NOT use regex — key names must match exactly (case-insensitive)
- * to avoid accidentally matching innocent fields.
+ * Case-insensitive deny-list of object keys. Each entry maps to a real
+ * field that exists somewhere in the codebase as of this commit; see the
+ * file header for the criteria.
+ *
+ * Grouped by theme; sorted within group. Each group includes a brief note
+ * pointing at the call site so reviewers can confirm the entry is earning
+ * its keep.
  */
 export const REDACT_KEYS: ReadonlySet<string> = new Set(
   [
-    // --- auth / credentials ---
-    "password",
-    "passwordHash",
-    "password_hash",
-    "otp",
-    "otpCode",
-    "otp_code",
-    "token",
+    // --- HTTP headers ---
+    // `headers.authorization` is read in osn/core routes (graph, auth) and
+    // in the shared Elysia plugin. Anything that logs a `headers` object —
+    // an error log that includes the inbound request, an outbound fetch
+    // trace event — must not leak the bearer token.
+    "authorization",
+
+    // --- OAuth / first-party token responses ---
+    // Both spellings exist: snake_case is the OAuth wire format
+    // (osn/client/src/tokens.ts → tokenResponseSchema), camelCase is the
+    // post-parse `Session` type and what auth.ts response bodies return.
     "accessToken",
     "access_token",
     "refreshToken",
     "refresh_token",
-    "sessionToken",
-    "session_token",
     "idToken",
     "id_token",
-    "jwt",
-    "authorization",
-    "cookie",
-    "set-cookie",
-    "setCookie",
-    "passkey",
-    "credential",
+    // Enrollment token — single-use bearer returned by /register/complete
+    // (osn/core/src/routes/auth.ts:225 wire; osn/core/src/services/auth.ts:498
+    // service return) and sent back as `Authorization: Bearer <token>` for
+    // passkey enrollment (osn/client/src/register.ts:131,142). Same secrecy
+    // profile as accessToken.
+    "enrollmentToken",
+    "enrollment_token",
+
+    // --- WebAuthn ---
+    // `assertion` is the AuthenticationResponseJSON body posted to
+    // /passkey/login/complete (osn/core/src/routes/auth.ts:476,607). It
+    // carries clientDataJSON + signature material that should never be
+    // mirrored back into logs verbatim.
     "assertion",
 
-    // --- crypto keys ---
+    // --- ARC token signing keys ---
+    // `privateKey` is the parameter name on createArcToken /
+    // getOrCreateArcToken (osn/crypto/src/arc.ts). If a service ever logs
+    // its config object or an Effect cause referencing the key handle,
+    // the key material must not show up.
     "privateKey",
     "private_key",
-    "secretKey",
-    "secret_key",
-    "apiKey",
-    "api_key",
 
-    // --- PII ---
+    // --- PII (per CLAUDE.md observability rules) ---
+    // The users table (osn/db/src/schema/index.ts) holds these as actual
+    // columns. Policy: log `userId`, never `email` / `handle` /
+    // `displayName`. The deny-list backstops accidental annotations.
     "email",
-    "emailAddress",
-    "email_address",
-    "phone",
-    "phoneNumber",
-    "phone_number",
-    "handle", // borderline but safer to redact in logs; use userId instead
-    // User-chosen free-text name fields (S-M2) — often contain the
-    // user's real name, which is PII.
+    "handle",
     "displayName",
     "display_name",
-    "firstName",
-    "first_name",
-    "lastName",
-    "last_name",
-    "fullName",
-    "full_name",
-    "legalName",
-    "legal_name",
-    "dob",
-    "dateOfBirth",
-    "date_of_birth",
-    "address",
-    "streetAddress",
-    "street_address",
-    "postalCode",
-    "postal_code",
-    "ssn",
-    "taxId",
-    "tax_id",
-
-    // --- E2E encryption (Zap / Signal) ---
-    "ciphertext",
-    "plaintext",
-    "messageBody",
-    "message_body",
-    "signalEnvelope",
-    "signal_envelope",
-    "ratchetKey",
-    "ratchet_key",
-    "identityKey",
-    "identity_key",
-    "prekey",
-    "preKey",
-    "senderKey",
-    "sender_key",
   ].map((k) => k.toLowerCase()),
 );
 
