@@ -4,18 +4,13 @@ import { toast } from "solid-toast";
 import { useAuth } from "@osn/client/solid";
 import { updateMySettings } from "../lib/rsvps";
 
-type Visibility = "connections" | "close_friends" | "no_one";
+type Visibility = "connections" | "no_one";
 
 const OPTIONS: { value: Visibility; label: string; description: string }[] = [
   {
     value: "connections",
     label: "My connections",
     description: "People you're connected to on OSN can see events you're attending.",
-  },
-  {
-    value: "close_friends",
-    label: "Close friends only",
-    description: "Only people on your OSN close-friends list can see events you're attending.",
   },
   {
     value: "no_one",

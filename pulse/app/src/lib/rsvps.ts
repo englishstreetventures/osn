@@ -96,7 +96,7 @@ export async function upsertMyRsvp(
 }
 
 export async function updateMySettings(
-  data: { attendanceVisibility: "connections" | "close_friends" | "no_one" },
+  data: { attendanceVisibility: "connections" | "no_one" },
   token: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(`${BASE_URL}/me/settings`, {

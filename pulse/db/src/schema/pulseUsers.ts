@@ -13,15 +13,14 @@ import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
  */
 export const pulseUsers = sqliteTable("pulse_users", {
   userId: text("user_id").primaryKey(),
-  // "connections"    → visible to the user's connections (default)
-  // "close_friends"  → visible to the user's close-friends subset only
-  // "no_one"         → hidden from everyone on Pulse
+  // "connections" → visible to the user's connections (default)
+  // "no_one"      → hidden from everyone on Pulse
   //
   // Public-guest-list events override this setting: by attending such an
   // event the user implicitly accepts their RSVP is visible to anyone who
   // can see the event. Enforcement lives in `pulse/api/src/services/rsvps.ts`.
   attendanceVisibility: text("attendance_visibility", {
-    enum: ["connections", "close_friends", "no_one"],
+    enum: ["connections", "no_one"],
   })
     .notNull()
     .default("connections"),

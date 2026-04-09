@@ -39,16 +39,16 @@ it.effect("ensurePulseUser is idempotent", () =>
 
 it.effect("updateSettings creates a row on first update", () =>
   Effect.gen(function* () {
-    const row = yield* updateSettings("usr_alice", { attendanceVisibility: "close_friends" });
-    expect(row.attendanceVisibility).toBe("close_friends");
+    const row = yield* updateSettings("usr_alice", { attendanceVisibility: "no_one" });
+    expect(row.attendanceVisibility).toBe("no_one");
   }).pipe(Effect.provide(createTestLayer())),
 );
 
 it.effect("updateSettings changes an existing row", () =>
   Effect.gen(function* () {
-    yield* updateSettings("usr_alice", { attendanceVisibility: "close_friends" });
-    const updated = yield* updateSettings("usr_alice", { attendanceVisibility: "no_one" });
-    expect(updated.attendanceVisibility).toBe("no_one");
+    yield* updateSettings("usr_alice", { attendanceVisibility: "no_one" });
+    const updated = yield* updateSettings("usr_alice", { attendanceVisibility: "connections" });
+    expect(updated.attendanceVisibility).toBe("connections");
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -87,12 +87,12 @@ it.effect(
   () =>
     Effect.gen(function* () {
       yield* updateSettings("usr_alice", { attendanceVisibility: "no_one" });
-      yield* updateSettings("usr_bob", { attendanceVisibility: "close_friends" });
+      yield* updateSettings("usr_bob", { attendanceVisibility: "connections" });
       // usr_carol has no row at all → should default to "connections".
       const map = yield* getAttendanceVisibilityBatch(["usr_alice", "usr_bob", "usr_carol"]);
       expect(map.size).toBe(3);
       expect(map.get("usr_alice")).toBe("no_one");
-      expect(map.get("usr_bob")).toBe("close_friends");
+      expect(map.get("usr_bob")).toBe("connections");
       expect(map.get("usr_carol")).toBe(DEFAULT_ATTENDANCE_VISIBILITY);
     }).pipe(Effect.provide(createTestLayer())),
 );

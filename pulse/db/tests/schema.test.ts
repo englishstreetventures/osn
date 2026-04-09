@@ -350,20 +350,20 @@ describe("pulse_users schema", () => {
     expect(row!.attendanceVisibility).toBe("connections");
   });
 
-  it("accepts close_friends and no_one values", async () => {
+  it("accepts connections and no_one values", async () => {
     const db = createTestDb();
     const now = new Date();
     await db.insert(schema.pulseUsers).values([
       {
-        userId: "usr_close",
-        attendanceVisibility: "close_friends",
+        userId: "usr_conn",
+        attendanceVisibility: "connections",
         createdAt: now,
         updatedAt: now,
       },
       { userId: "usr_none", attendanceVisibility: "no_one", createdAt: now, updatedAt: now },
     ]);
     const rows = await db.select().from(schema.pulseUsers);
-    expect(rows.map((r) => r.attendanceVisibility).sort()).toEqual(["close_friends", "no_one"]);
+    expect(rows.map((r) => r.attendanceVisibility).sort()).toEqual(["connections", "no_one"]);
   });
 });
 

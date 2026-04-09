@@ -20,7 +20,7 @@ export const DEFAULT_ATTENDANCE_VISIBILITY = "connections" as const;
 
 export type AttendanceVisibility = PulseUser["attendanceVisibility"];
 
-const AttendanceVisibilitySchema = Schema.Literal("connections", "close_friends", "no_one");
+const AttendanceVisibilitySchema = Schema.Literal("connections", "no_one");
 
 const UpdateSettingsSchema = Schema.Struct({
   attendanceVisibility: Schema.optional(AttendanceVisibilitySchema),

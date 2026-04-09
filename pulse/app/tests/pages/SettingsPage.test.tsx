@@ -42,10 +42,9 @@ describe("SettingsPage", () => {
     mockToastSuccess.mockReset();
   });
 
-  it("renders all three attendance visibility options", () => {
+  it("renders both attendance visibility options", () => {
     const { getByText } = render(() => <SettingsPage />);
     expect(getByText("My connections")).toBeTruthy();
-    expect(getByText("Close friends only")).toBeTruthy();
     expect(getByText("No one")).toBeTruthy();
   });
 
@@ -64,13 +63,13 @@ describe("SettingsPage", () => {
 
   it("clicking Save calls updateMySettings with the selected visibility", async () => {
     const { container, getByText } = render(() => <SettingsPage />);
-    const closeFriends = container.querySelector(
-      'input[name="attendanceVisibility"][value="close_friends"]',
+    const noOne = container.querySelector(
+      'input[name="attendanceVisibility"][value="no_one"]',
     ) as HTMLInputElement;
-    fireEvent.click(closeFriends);
+    fireEvent.click(noOne);
     fireEvent.click(getByText("Save"));
     await waitFor(() => {
-      expect(mockUpdate).toHaveBeenCalledWith({ attendanceVisibility: "close_friends" }, "tok");
+      expect(mockUpdate).toHaveBeenCalledWith({ attendanceVisibility: "no_one" }, "tok");
       expect(mockToastSuccess).toHaveBeenCalledWith("Settings saved");
     });
   });

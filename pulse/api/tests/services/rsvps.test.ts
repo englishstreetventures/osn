@@ -391,63 +391,93 @@ it.effect("viewer always sees their own RSVP", () =>
   }),
 );
 
-it.effect(
-  "close_friends visibility shows the row when the attendee marked the viewer as a close friend",
-  () =>
-    Effect.gen(function* () {
-      const { pulse, osn, layer } = setup();
-      yield* Effect.promise(() => seedBasicUsers(osn));
-      yield* Effect.promise(() => seedConnection(osn, "usr_alice", "usr_dan"));
-      yield* Effect.promise(() => seedConnection(osn, "usr_dan", "usr_bob"));
-      // Bob (the attendee) marks Dan (the viewer) as a close friend —
-      // the directionally-correct semantic. Bob's RSVP should appear
-      // for Dan because Bob owns the privacy decision.
-      yield* Effect.promise(() => seedCloseFriend(osn, "usr_bob", "usr_dan"));
-      const event = yield* seedEvent({
-        title: "Connections",
-        startTime: "2030-06-01T10:00:00.000Z",
-        guestListVisibility: "connections",
-        createdByUserId: "usr_alice",
-      }).pipe(Effect.provide(pulse));
-      yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
-      yield* updateSettings("usr_bob", { attendanceVisibility: "close_friends" }).pipe(
-        Effect.provide(pulse),
-      );
-      const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
-        Effect.provide(layer),
-      );
-      expect(rows.length).toBe(1);
-      expect(rows[0]!.isCloseFriend).toBe(true);
-    }),
+it.effect("isCloseFriend flag is stamped when the attendee has marked the viewer as a CF", () =>
+  Effect.gen(function* () {
+    const { pulse, osn, layer } = setup();
+    yield* Effect.promise(() => seedBasicUsers(osn));
+    yield* Effect.promise(() => seedConnection(osn, "usr_alice", "usr_dan"));
+    yield* Effect.promise(() => seedConnection(osn, "usr_dan", "usr_bob"));
+    // Bob (the attendee) marks Dan (the viewer) as a close friend.
+    // This is now purely a display affordance — it does not affect
+    // visibility, just surfaces Bob first in the returned list.
+    yield* Effect.promise(() => seedCloseFriend(osn, "usr_bob", "usr_dan"));
+    const event = yield* seedEvent({
+      title: "Connections",
+      startTime: "2030-06-01T10:00:00.000Z",
+      guestListVisibility: "connections",
+      createdByUserId: "usr_alice",
+    }).pipe(Effect.provide(pulse));
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
+    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
+      Effect.provide(layer),
+    );
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.isCloseFriend).toBe(true);
+  }),
 );
 
-it.effect(
-  "close_friends visibility hides the row when only the viewer marked the attendee (inverted)",
-  () =>
-    Effect.gen(function* () {
-      const { pulse, osn, layer } = setup();
-      yield* Effect.promise(() => seedBasicUsers(osn));
-      yield* Effect.promise(() => seedConnection(osn, "usr_alice", "usr_dan"));
-      yield* Effect.promise(() => seedConnection(osn, "usr_dan", "usr_bob"));
-      // Inverted: Dan (viewer) marks Bob (attendee). Bob did NOT mark
-      // Dan back. With the new directional check, Bob's gated RSVP
-      // must NOT leak to Dan — this is the S-M1 fix in action.
-      yield* Effect.promise(() => seedCloseFriend(osn, "usr_dan", "usr_bob"));
-      const event = yield* seedEvent({
-        title: "Connections",
-        startTime: "2030-06-01T10:00:00.000Z",
-        guestListVisibility: "connections",
-        createdByUserId: "usr_alice",
-      }).pipe(Effect.provide(pulse));
-      yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
-      yield* updateSettings("usr_bob", { attendanceVisibility: "close_friends" }).pipe(
-        Effect.provide(pulse),
-      );
-      const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
-        Effect.provide(layer),
-      );
-      expect(rows.length).toBe(0);
-    }),
+it.effect("isCloseFriend flag is NOT stamped when only the viewer marked the attendee", () =>
+  Effect.gen(function* () {
+    const { pulse, osn, layer } = setup();
+    yield* Effect.promise(() => seedBasicUsers(osn));
+    yield* Effect.promise(() => seedConnection(osn, "usr_alice", "usr_dan"));
+    yield* Effect.promise(() => seedConnection(osn, "usr_dan", "usr_bob"));
+    // Dan (viewer) marks Bob (attendee). Bob did NOT mark Dan. The
+    // flag keys on the attendee's CF list — so Dan doesn't get the
+    // ring affordance. The row is still visible because Bob's
+    // attendance visibility defaults to "connections" and Dan is
+    // connected to Bob.
+    yield* Effect.promise(() => seedCloseFriend(osn, "usr_dan", "usr_bob"));
+    const event = yield* seedEvent({
+      title: "Connections",
+      startTime: "2030-06-01T10:00:00.000Z",
+      guestListVisibility: "connections",
+      createdByUserId: "usr_alice",
+    }).pipe(Effect.provide(pulse));
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
+    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
+      Effect.provide(layer),
+    );
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.isCloseFriend).toBe(false);
+  }),
+);
+
+it.effect("listRsvps surfaces close-friend rows first, newest-within-bucket after", () =>
+  Effect.gen(function* () {
+    const { pulse, osn, layer } = setup();
+    yield* Effect.promise(() => seedBasicUsers(osn));
+    yield* Effect.promise(() =>
+      seedOsnUser(osn, { id: "usr_eve", handle: "eve", displayName: "Eve" }),
+    );
+    // Dan is connected to everyone so visibility allows every RSVP.
+    yield* Effect.promise(() => seedConnection(osn, "usr_alice", "usr_dan"));
+    yield* Effect.promise(() => seedConnection(osn, "usr_dan", "usr_bob"));
+    yield* Effect.promise(() => seedConnection(osn, "usr_dan", "usr_carol"));
+    yield* Effect.promise(() => seedConnection(osn, "usr_dan", "usr_eve"));
+    // Only Eve has marked Dan as a close friend. Bob and Carol RSVP
+    // after Eve, so the default createdAt-DESC order would put Eve
+    // last — but the close-friend-first sort must hoist her first.
+    yield* Effect.promise(() => seedCloseFriend(osn, "usr_eve", "usr_dan"));
+    const event = yield* seedEvent({
+      title: "Connections",
+      startTime: "2030-06-01T10:00:00.000Z",
+      guestListVisibility: "connections",
+      createdByUserId: "usr_alice",
+    }).pipe(Effect.provide(pulse));
+    yield* upsertRsvp(event.id, "usr_eve", { status: "going" }).pipe(Effect.provide(pulse));
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
+    yield* upsertRsvp(event.id, "usr_carol", { status: "going" }).pipe(Effect.provide(pulse));
+    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
+      Effect.provide(layer),
+    );
+    expect(rows.length).toBe(3);
+    // Eve first (close friend), then the non-CF rows in createdAt DESC order.
+    expect(rows[0]!.userId).toBe("usr_eve");
+    expect(rows[0]!.isCloseFriend).toBe(true);
+    expect(rows[1]!.isCloseFriend).toBe(false);
+    expect(rows[2]!.isCloseFriend).toBe(false);
+  }),
 );
 
 it.effect("listRsvps joins user display metadata onto rows", () =>

@@ -71,8 +71,14 @@ export interface RsvpWithUser extends EventRsvp {
   /**
    * True when this attendee has marked the current viewer as a close
    * friend. Computed server-side against the OSN graph so the client
-   * can't derive it by other means. Drives the green-outline avatar
-   * affordance on the event-detail page.
+   * can't derive it by other means. Used for two things:
+   *   1. Surfaces friendly attendees at the top of the returned list
+   *      (see the close-friend-first sort in `listRsvps`).
+   *   2. Drives the green-outline avatar affordance on the
+   *      event-detail page.
+   *
+   * This is a display signal only — it is NEVER used as a visibility
+   * gate. Attendance visibility is `"connections" | "no_one"`.
    *
    * Always false for unauthenticated viewers.
    */
@@ -166,11 +172,8 @@ const computeCanSeeAnyRsvps = (
  *
  * Each attendee's own attendanceVisibility setting determines whether
  * their RSVP can be exposed to a specific viewer:
- * - "connections"   → only attendees connected to the viewer see the row
- * - "close_friends" → only attendees who have marked the viewer as a
- *                     close friend (attendee-side directional check —
- *                     the attendee owns the privacy decision)
- * - "no_one"        → hidden from everyone
+ * - "connections" → only attendees connected to the viewer see the row
+ * - "no_one"      → hidden from everyone
  *
  * PUBLIC-GUEST-LIST OVERRIDE: if the event's guest list is public, the
  * attendee has implicitly opted in by RSVPing — their per-row setting is
@@ -179,10 +182,11 @@ const computeCanSeeAnyRsvps = (
  * The viewer themselves always sees their own RSVP.
  * The organiser always sees all RSVPs (handled in computeGuestListAccess).
  *
- * This function ALSO stamps `isCloseFriend` on every returned row so the
- * client can render a close-friend affordance (e.g. a coloured outline
- * on the avatar). The flag is computed from the attendee's close-friends
- * list relative to the viewer — same directional semantic as the filter.
+ * This function ALSO stamps `isCloseFriend` on every returned row so
+ * `listRsvps` can sort close-friend rows to the top and the client can
+ * render the green avatar outline. The flag is keyed on the attendee's
+ * close-friends list (the viewer must be in there) so it can't be
+ * conjured unilaterally — it's a display signal, never a gate.
  */
 const filterByAttendeePrivacy = (
   event: Event,
@@ -192,9 +196,8 @@ const filterByAttendeePrivacy = (
   Effect.gen(function* () {
     const attendeeIds = Array.from(new Set(rows.map((r) => r.userId)));
 
-    // `closeFriendsOfViewer` is the set of attendee ids who have marked
-    // the viewer as a close friend. Used for the per-row filter AND for
-    // the `isCloseFriend` flag on returned rows.
+    // Set of attendee ids who have marked the viewer as a close friend,
+    // used to stamp the display flag and drive the sort.
     const closeFriendsOfViewer = viewerId
       ? yield* getCloseFriendsOf(viewerId, attendeeIds)
       : new Set<string>();
@@ -235,12 +238,6 @@ const filterByAttendeePrivacy = (
             return false;
           case "connections":
             return viewerId != null && viewerConnections.has(row.userId);
-          case "close_friends":
-            // Attendee-side directional check: the attendee must have
-            // added the viewer to their close-friends list. A viewer
-            // who unilaterally marks someone as a close friend does
-            // NOT gain visibility into that person's gated RSVPs.
-            return closeFriendsOfViewer.has(row.userId);
         }
       })
       .map(stampCloseFriend);
@@ -437,6 +434,13 @@ export const listRsvps = (
     const { db } = yield* Db;
     const limit = Math.min(Math.max(1, options.limit ?? 50), 200);
 
+    // Fetch a wider pool than `limit` so the close-friend-first sort
+    // below can surface friendly attendees that would otherwise fall
+    // outside a small window (e.g. the 5-row inline strip). Capped at
+    // 200 to keep the pool bounded; beyond that we accept that close
+    // friends outside the most-recent-200 window won't get promoted.
+    const fetchLimit = Math.min(Math.max(limit, 200), 200);
+
     const filters = [eq(eventRsvps.eventId, eventId)];
     if (options.status) filters.push(eq(eventRsvps.status, options.status));
 
@@ -447,7 +451,7 @@ export const listRsvps = (
           .from(eventRsvps)
           .where(and(...filters))
           .orderBy(desc(eventRsvps.createdAt))
-          .limit(limit) as Promise<EventRsvp[]>,
+          .limit(fetchLimit) as Promise<EventRsvp[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
 
@@ -467,8 +471,17 @@ export const listRsvps = (
     // still want to stamp the close-friend flag — the organiser sees
     // the list and benefits from the same affordance.
     const filtered = yield* filterByAttendeePrivacy(event, joined, viewerId);
-    metricRsvpListed(options.status ?? "all", filtered.length);
-    return filtered;
+
+    // Close friends first, createdAt DESC within each bucket (stable
+    // sort preserves the DB ordering). This is how we "surface close
+    // friends" without using them as an access gate.
+    const sorted = [...filtered].sort((a, b) => {
+      if (a.isCloseFriend === b.isCloseFriend) return 0;
+      return a.isCloseFriend ? -1 : 1;
+    });
+    const sliced = sorted.slice(0, limit);
+    metricRsvpListed(options.status ?? "all", sliced.length);
+    return sliced;
   }).pipe(Effect.withSpan("rsvps.list"));
 
 /**

@@ -593,7 +593,7 @@ describe("PATCH /me/settings", () => {
     const res = await patch(
       settingsApp,
       "/me/settings",
-      { attendanceVisibility: "close_friends" },
+      { attendanceVisibility: "no_one" },
       aliceToken,
     );
     expect(res.status).toBe(200);
@@ -601,7 +601,7 @@ describe("PATCH /me/settings", () => {
       settings: { userId: string; attendanceVisibility: string };
     };
     expect(body.settings.userId).toBe("usr_alice");
-    expect(body.settings.attendanceVisibility).toBe("close_friends");
+    expect(body.settings.attendanceVisibility).toBe("no_one");
   });
 
   it("returns 422 for invalid enum value", async () => {
