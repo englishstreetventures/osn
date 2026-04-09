@@ -1,5 +1,13 @@
 # @osn/api
 
+## 0.7.1
+
+### Patch Changes
+
+- Updated dependencies [1cc3aa5]
+  - @osn/core@0.7.0
+  - @shared/observability@0.2.1
+
 ## 0.7.0
 
 ### Minor Changes
