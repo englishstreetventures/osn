@@ -44,7 +44,7 @@ export function DetailsModal(props: DetailsModalProps) {
                   <div class="flex flex-col items-center gap-2">
                     <div
                       class="h-12 w-12 rounded-full border border-border"
-                      style={{ "background-color": c.hex }}
+                      style={{ "background-color": c.color }}
                     />
                     <span class="font-body text-[0.72rem] uppercase tracking-[0.08em] text-text-muted">
                       {c.name}

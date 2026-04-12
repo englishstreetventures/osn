@@ -1,40 +1,34 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #0b1a0d;
-  --color-surface: #122016;
-  --color-surface-raised: #1a2e1e;
-  --color-border: rgba(180, 220, 180, 0.10);
-  --color-text: #f0ede5;
-  --color-text-muted: rgba(240, 237, 229, 0.50);
-  --color-gold: #c9a96e;
-  --color-gold-dim: rgba(201, 169, 110, 0.35);
-  --color-error: #e07070;
-  --color-success: #6ec97a;
+  --color-bg: oklch(19.96% 0.0331 147.34);
+  --color-surface: oklch(22.70% 0.0275 152.78);
+  --color-surface-raised: oklch(27.87% 0.0393 149.62);
+  --color-border: oklch(85.51% 0.0690 144.94 / 0.10);
+  --color-text: oklch(94.62% 0.0111 89.72);
+  --color-text-muted: oklch(94.62% 0.0111 89.72 / 0.50);
+  --color-gold: oklch(74.99% 0.0854 82.08);
+  --color-gold-dim: oklch(74.99% 0.0854 82.08 / 0.35);
+  --color-error: oklch(67.56% 0.1401 21.48);
+  --color-success: oklch(75.96% 0.1421 146.94);
   --font-display: 'Cormorant Garamond', Georgia, serif;
   --font-body: 'Lato', system-ui, sans-serif;
+  --default-font-family: var(--font-body);
 }
 
-/* ── Base reset ── */
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+@layer base {
+  html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 
-html {
-  font-size: 16px;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-body {
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: var(--font-body);
-  font-weight: 400;
-  line-height: 1.5;
-  min-height: 100vh;
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-weight: 400;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
 }

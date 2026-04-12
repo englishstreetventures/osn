@@ -13,5 +13,5 @@ export interface ClaimResult {
 
 export interface DressCodeInfo {
   description: string
-  palette: { name: string hex: string }[]
+  palette: { name: string color: string }[]
 }
