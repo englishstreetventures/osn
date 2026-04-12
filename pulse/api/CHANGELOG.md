@@ -1,5 +1,27 @@
 # @osn/api
 
+## 0.7.3
+
+### Patch Changes
+
+- e8b4f93: Add close friends to the OSN graph properly
+
+  - Add `isCloseFriendOf` and `getCloseFriendsOfBatch` helpers to the graph service
+  - Add `GET /graph/close-friends/:handle` status check endpoint
+  - Instrument close friend operations with metrics (`osn.graph.close_friend.operations`) and tracing spans
+  - Fix `removeConnection` to clean up close-friend entries in both directions (consistency bug)
+  - Transaction-wrap `removeConnection` and `blockUser` multi-step mutations
+  - Add `close_friends_friend_idx` index on `friend_id` for reverse lookups
+  - Clamp `getCloseFriendsOfBatch` input to 1000 items (SQLite variable limit)
+  - Sanitize error objects in graph operation log annotations
+  - Migrate Pulse graph bridge from raw SQL to service-level `getCloseFriendsOfBatch`
+  - Add `GraphCloseFriendAction` attribute type to shared observability
+
+- Updated dependencies [e8b4f93]
+  - @osn/core@0.9.0
+  - @osn/db@0.5.2
+  - @shared/observability@0.2.3
+
 ## 0.7.2
 
 ### Patch Changes
