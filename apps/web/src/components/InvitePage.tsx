@@ -3,7 +3,6 @@ import { LoginSection } from "./LoginSection"
 import { EventCard } from "./EventCard"
 import { RsvpModal } from "./RsvpModal"
 import { DetailsModal } from "./DetailsModal"
-import { unlockRevealSequence } from "./UnlockReveal.motion"
 import type { ClaimResult, EventSummary } from "./types"
 
 interface InvitePageProps {
@@ -28,6 +27,7 @@ export default function InvitePage(props: InvitePageProps) {
     await new Promise((r) => setTimeout(r, 0))
 
     if (loginFormRef && welcomeRef && eventsSectionRef) {
+      const { unlockRevealSequence } = await import("./UnlockReveal.motion")
       unlockRevealSequence(loginFormRef, welcomeRef, eventsSectionRef)
     }
   }
