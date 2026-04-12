@@ -3,8 +3,8 @@ import { LoginSection } from "./LoginSection"
 import { EventCard } from "./EventCard"
 import { RsvpModal } from "./RsvpModal"
 import { DetailsModal } from "./DetailsModal"
+import { unlockRevealSequence } from "./UnlockReveal.motion"
 import type { ClaimResult, EventSummary } from "./types"
-import "./InvitePage.css"
 
 interface InvitePageProps {
   apiUrl: string
@@ -17,28 +17,50 @@ export default function InvitePage(props: InvitePageProps) {
     null,
   )
 
+  let loginFormRef!: HTMLDivElement
+  let welcomeRef!: HTMLDivElement
+  let eventsSectionRef!: HTMLElement
+
+  async function handleClaimed(result: ClaimResult) {
+    setClaimResult(result)
+
+    // Wait a tick so SolidJS renders the events section into the DOM
+    await new Promise((r) => setTimeout(r, 0))
+
+    if (loginFormRef && welcomeRef && eventsSectionRef) {
+      unlockRevealSequence(loginFormRef, welcomeRef, eventsSectionRef)
+    }
+  }
+
   return (
     <>
       <LoginSection
         apiUrl={props.apiUrl}
         result={claimResult()}
-        onClaimed={setClaimResult}
+        onClaimed={handleClaimed}
+        formRef={(el) => (loginFormRef = el)}
+        welcomeRef={(el) => (welcomeRef = el)}
       />
 
       <Show when={claimResult()}>
         {(data) => (
-          <section class="section events-section">
-            <div class="section-inner">
-              <p class="section-eyebrow">Celebrate With Us</p>
-              <h2 class="section-heading">Your Events</h2>
-              <div class="events-list">
+          <section
+            ref={eventsSectionRef}
+            class="border-y border-border bg-surface px-6 py-16 opacity-0 md:px-8 md:py-20"
+          >
+            <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
+              <p class="mb-3 font-body text-[0.72rem] uppercase tracking-[0.2em] text-gold">Celebrate With Us</p>
+              <h2 class="mb-5 font-display text-[clamp(2rem,5vw,3rem)] font-light italic leading-[1.15] text-text">Your Events</h2>
+              <div class="flex flex-col gap-5 text-left">
                 <For each={data().events}>
                   {(event) => (
-                    <EventCard
-                      event={event}
-                      onRespond={setRsvpEvent}
-                      onDetails={setDetailsEvent}
-                    />
+                    <div data-event-card>
+                      <EventCard
+                        event={event}
+                        onRespond={setRsvpEvent}
+                        onDetails={setDetailsEvent}
+                      />
+                    </div>
                   )}
                 </For>
               </div>

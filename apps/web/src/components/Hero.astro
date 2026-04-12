@@ -1,73 +1,15 @@
 ---
 ---
-<section class="hero">
-  <div class="hero-photo"></div>
-  <div class="hero-overlay">
-    <div class="monogram">
-      <span class="monogram-initial">S</span>
-      <span class="monogram-amp">&amp;</span>
-      <span class="monogram-initial">J</span>
+<section class="relative h-dvh overflow-hidden">
+  <div
+    class="absolute inset-0 bg-cover bg-center"
+    style="background: linear-gradient(160deg, #1a2e1e 0%, #0b1a0d 40%, #122016 100%);"
+  ></div>
+  <div class="absolute inset-0 flex items-center justify-center bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.15)_0%,rgba(0,0,0,0.45)_100%)]">
+    <div class="flex items-center gap-3 select-none">
+      <span class="font-display text-[clamp(4rem,12vw,8rem)] font-light italic text-gold leading-none">S</span>
+      <span class="font-display text-[clamp(2.5rem,7vw,5rem)] font-light italic text-gold-dim leading-none">&amp;</span>
+      <span class="font-display text-[clamp(4rem,12vw,8rem)] font-light italic text-gold leading-none">J</span>
     </div>
   </div>
 </section>
-
-<style>
-  .hero {
-    position: relative;
-    height: 100vh;
-    height: 100dvh;
-    overflow: hidden;
-  }
-
-  .hero-photo {
-    position: absolute;
-    inset: 0;
-    /* Placeholder gradient — replace with background-image: url(...) */
-    background: linear-gradient(
-      160deg,
-      #1a2e1e 0%,
-      #0b1a0d 40%,
-      #122016 100%
-    );
-    background-size: cover;
-    background-position: center;
-  }
-
-  .hero-overlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: radial-gradient(
-      ellipse at center,
-      rgba(0, 0, 0, 0.15) 0%,
-      rgba(0, 0, 0, 0.45) 100%
-    );
-  }
-
-  .monogram {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    user-select: none;
-  }
-
-  .monogram-initial {
-    font-family: var(--font-display);
-    font-size: clamp(4rem, 12vw, 8rem);
-    font-weight: 300;
-    font-style: italic;
-    color: var(--color-gold);
-    line-height: 1;
-  }
-
-  .monogram-amp {
-    font-family: var(--font-display);
-    font-size: clamp(2.5rem, 7vw, 5rem);
-    font-weight: 300;
-    font-style: italic;
-    color: var(--color-gold-dim);
-    line-height: 1;
-  }
-</style>

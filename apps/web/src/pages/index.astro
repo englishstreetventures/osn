@@ -1,4 +1,5 @@
 ---
+import '../styles/global.css'
 import Hero from '../components/Hero.astro'
 import OurStory from '../components/OurStory.astro'
 import InvitePage from '../components/InvitePage'
@@ -27,79 +28,3 @@ import InvitePage from '../components/InvitePage'
     <InvitePage client:visible apiUrl={import.meta.env.PUBLIC_API_URL} />
   </body>
 </html>
-
-<style is:global>
-  :root {
-    --color-bg: #0b1a0d;
-    --color-surface: #122016;
-    --color-surface-raised: #1a2e1e;
-    --color-border: rgba(180, 220, 180, 0.10);
-    --color-text: #f0ede5;
-    --color-text-muted: rgba(240, 237, 229, 0.50);
-    --color-gold: #c9a96e;
-    --color-gold-dim: rgba(201, 169, 110, 0.35);
-    --font-display: 'Cormorant Garamond', Georgia, serif;
-    --font-body: 'Lato', system-ui, sans-serif;
-  }
-
-  *, *::before, *::after {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-  }
-
-  html {
-    font-size: 16px;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-
-  body {
-    background: var(--color-bg);
-    color: var(--color-text);
-    font-family: var(--font-body);
-    font-weight: 400;
-    line-height: 1.5;
-    min-height: 100vh;
-  }
-
-  /* ── Shared section rhythm (used by .astro + SolidJS components) ── */
-  .section {
-    padding: 4rem 1.5rem;
-  }
-
-  .section-inner {
-    max-width: 540px;
-    margin: 0 auto;
-    text-align: center;
-  }
-
-  .section-eyebrow {
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
-    font-size: 0.72rem;
-    color: var(--color-gold);
-    font-family: var(--font-body);
-    margin: 0 0 0.75rem;
-  }
-
-  .section-heading {
-    font-family: var(--font-display);
-    font-size: clamp(2rem, 5vw, 3rem);
-    font-weight: 300;
-    font-style: italic;
-    color: var(--color-text);
-    margin: 0 0 1.25rem;
-    line-height: 1.15;
-  }
-
-  @media (min-width: 641px) {
-    .section {
-      padding: 5rem 2rem;
-    }
-
-    .section-inner {
-      max-width: 640px;
-    }
-  }
-</style>

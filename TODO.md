@@ -4,7 +4,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Current Status
 
-Monorepo built and functional. `packages/db` has Drizzle schema (guests, events, guestEvents, rsvps, sessions). `apps/api` has Hono + Effect service layer with Effect Schema validation, a claim code route backed by bun:sqlite in-memory DB seeded from JSON, an organiser dashboard route, and 11 passing Vitest tests. `apps/web` has Astro + SolidJS with a mobile-first scrollable invite page — hero (photo + monogram), our story, guest login, conditional event sections, RSVP modal stub, and dress code section. Local dev runs via `bun run dev`. No auth yet — D1, passkeys, invite groups, and full RSVP are next.
+Monorepo built and functional. `packages/db` has Drizzle schema (guests, events, guestEvents, rsvps, sessions). `apps/api` has Hono + Effect service layer with Effect Schema validation, a claim code route backed by bun:sqlite in-memory DB seeded from JSON, an organiser dashboard route, and 11 passing Vitest tests. `apps/web` has Astro + SolidJS with a mobile-first scrollable invite page — hero (photo + monogram), our story, guest login, conditional event sections, RSVP modal stub, and dress code section. All CSS migrated to Tailwind v4 with `@tailwindcss/vite` plugin. Motion One animations added: unlock reveal sequence (login → welcome → staggered events), animated modal enter/exit for RSVP and Details modals. Local dev runs via `bun run dev`. No auth yet — D1, passkeys, invite groups, and full RSVP are next.
 
 ---
 
@@ -17,8 +17,6 @@ Monorepo built and functional. `packages/db` has Drizzle schema (guests, events,
 - [ ] Auth middleware — validate passkey session token
 - [ ] Wire RSVP modal to `POST /api/rsvp` endpoint
 - [ ] Rate-limit claim code attempts
-- [ ] Tailwind v4 migration
-
 ---
 
 ## apps/web
@@ -35,6 +33,9 @@ Monorepo built and functional. `packages/db` has Drizzle schema (guests, events,
 - [x] Event cards with time, place, and RSVP button
 - [x] RSVP response modal (stub — invite group members + attendance + dietary)
 - [x] Dress code section (colour palette + Pinterest embed placeholder)
+- [x] Tailwind v4 migration — all CSS converted to utility classes, global.css with @theme tokens
+- [x] Unlock reveal animation — login form fades out, welcome fades in, events slide up with staggered cards
+- [x] Animated modal enter/exit — backdrop fade + panel slide-up/scale with Motion One
 
 ### To Do
 - [ ] Replace hero photo placeholder with actual photo
@@ -45,7 +46,6 @@ Monorepo built and functional. `packages/db` has Drizzle schema (guests, events,
 - [ ] Wire RSVP modal to API (pending invite group backend)
 - [ ] Show invite group members in RSVP modal (pending backend)
 - [ ] Per-person attendance toggle + dietary input in modal
-- [ ] Tailwind v4 migration
 - [ ] "Open in Maps" button on event cards (Apple Maps / Google Maps)
 - [ ] Add-to-calendar links (Google Calendar, Apple Calendar, .ics)
 - [ ] Passkey registration + login UI
