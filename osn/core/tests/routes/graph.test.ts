@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { createTestLayer } from "../helpers/db";
 import { createAuthRoutes } from "../../src/routes/auth";
 import { createGraphRoutes } from "../../src/routes/graph";
+import type { RateLimiterBackend } from "../../src/lib/rate-limit";
 import { createAuthService } from "../../src/services/auth";
 import type { Db } from "@osn/db/service";
 
@@ -765,5 +766,76 @@ describe("graph routes", () => {
     );
     const json = (await statusRes.json()) as { status: string };
     expect(json.status).toBe("none");
+  });
+
+  // -------------------------------------------------------------------------
+  // Rate limiter dependency injection (Phase 1 of Redis migration)
+  // -------------------------------------------------------------------------
+  describe("rate limiter dependency injection", () => {
+    it("uses the injected rate limiter on write operations", async () => {
+      const rejectAll: RateLimiterBackend = { check: () => false };
+      const freshGraph = createGraphRoutes(config, layer, Layer.empty, rejectAll);
+      const alice = await registerAndGetToken("alice@example.com", "alice");
+      await registerAndGetToken("bob@example.com", "bob");
+
+      const res = await freshGraph.handle(
+        new Request("http://localhost/graph/connections/bob", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${alice.token}` },
+        }),
+      );
+      expect(res.status).toBe(429);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("Too many requests");
+    });
+
+    it("supports async rate limiter backends", async () => {
+      const asyncReject: RateLimiterBackend = {
+        check: () => Promise.resolve(false),
+      };
+      const freshGraph = createGraphRoutes(config, layer, Layer.empty, asyncReject);
+      const alice = await registerAndGetToken("alice@example.com", "alice");
+      await registerAndGetToken("bob@example.com", "bob");
+
+      const res = await freshGraph.handle(
+        new Request("http://localhost/graph/close-friends/bob", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${alice.token}` },
+        }),
+      );
+      expect(res.status).toBe(429);
+    });
+
+    it("fails closed when the backend rejects (S-M1)", async () => {
+      const failing: RateLimiterBackend = {
+        check: () => Promise.reject(new Error("Redis connection refused")),
+      };
+      const freshGraph = createGraphRoutes(config, layer, Layer.empty, failing);
+      const alice = await registerAndGetToken("alice@example.com", "alice");
+      await registerAndGetToken("bob@example.com", "bob");
+
+      const res = await freshGraph.handle(
+        new Request("http://localhost/graph/connections/bob", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${alice.token}` },
+        }),
+      );
+      // Must return 429 (fail-closed), not 500 (unhandled rejection).
+      expect(res.status).toBe(429);
+    });
+
+    it("does not rate-limit read operations", async () => {
+      const rejectAll: RateLimiterBackend = { check: () => false };
+      const freshGraph = createGraphRoutes(config, layer, Layer.empty, rejectAll);
+      const alice = await registerAndGetToken("alice@example.com", "alice");
+
+      // GET /connections is a read — should not hit the rate limiter
+      const res = await freshGraph.handle(
+        new Request("http://localhost/graph/connections", {
+          headers: { Authorization: `Bearer ${alice.token}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+    });
   });
 });

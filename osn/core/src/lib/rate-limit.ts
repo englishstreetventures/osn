@@ -2,9 +2,26 @@
  * Generic per-key fixed-window rate limiter for unauthenticated endpoints.
  *
  * Designed for auth routes where keying is by IP address (callers aren't
- * authenticated). The store is in-process memory — resets on restart.
- * See S-M2 for the migration-to-shared-counter note.
+ * authenticated). The default in-memory backend stores state in-process —
+ * resets on restart. See S-M2 for the migration-to-shared-counter note.
+ *
+ * The `RateLimiterBackend` interface is backend-agnostic so routes can be
+ * wired to a future Redis backend without any call-site changes (Phase 2 of
+ * the Redis migration plan in TODO.md). `check()` returns `boolean | Promise<boolean>`
+ * so consumers `await` the result — sync backends resolve immediately, async
+ * backends (Redis INCR+EXPIRE via Lua) return a real promise.
  */
+
+/**
+ * Backend-agnostic rate limiter contract. The in-memory implementation
+ * (`createRateLimiter`) satisfies this sync-only; a future Redis backend
+ * will satisfy it async. Route factories depend on this abstract type so
+ * swapping backends is a single-import change at composition time.
+ */
+export interface RateLimiterBackend {
+  /** Returns `true` if the request is allowed, `false` if rate-limited. */
+  check(key: string): boolean | Promise<boolean>;
+}
 
 export interface RateLimiterConfig {
   /** Maximum requests allowed per window. */
@@ -20,10 +37,9 @@ interface Entry {
   windowStart: number;
 }
 
-export interface RateLimiter {
-  /** Returns `true` if the request is allowed, `false` if rate-limited. */
+/** In-memory backend extension of `RateLimiterBackend`. `_store` is visible for testing. */
+export interface RateLimiter extends RateLimiterBackend {
   check(key: string): boolean;
-  /** Visible for testing only. */
   readonly _store: Map<string, Entry>;
 }
 

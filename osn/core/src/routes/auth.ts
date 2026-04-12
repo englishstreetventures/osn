@@ -4,7 +4,7 @@ import { DbLive, type Db } from "@osn/db/service";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { buildAuthorizeHtml } from "../lib/html";
 import { verifyPkceChallenge } from "../lib/crypto";
-import { createRateLimiter, getClientIp } from "../lib/rate-limit";
+import { createRateLimiter, getClientIp, type RateLimiterBackend } from "../lib/rate-limit";
 import { metricAuthRateLimited } from "../metrics";
 import type { AuthRateLimitedEndpoint } from "@shared/observability/metrics";
 
@@ -19,6 +19,48 @@ interface PkceEntry {
 }
 const pkceStore = new Map<string, PkceEntry>();
 
+/**
+ * Typed map of every rate limiter the auth routes consume. Split out as a
+ * named type so the Redis migration (Phase 2) can supply a mixed bag of
+ * Redis-backed and in-memory backends per endpoint without touching
+ * `createAuthRoutes` call sites.
+ */
+export type AuthRateLimiters = Readonly<{
+  registerBegin: RateLimiterBackend;
+  registerComplete: RateLimiterBackend;
+  handleCheck: RateLimiterBackend;
+  otpBegin: RateLimiterBackend;
+  otpComplete: RateLimiterBackend;
+  magicBegin: RateLimiterBackend;
+  magicVerify: RateLimiterBackend;
+  passkeyLoginBegin: RateLimiterBackend;
+  passkeyLoginComplete: RateLimiterBackend;
+  passkeyRegisterBegin: RateLimiterBackend;
+  passkeyRegisterComplete: RateLimiterBackend;
+}>;
+
+/**
+ * Default in-memory rate limiter bundle used when callers don't pass an
+ * explicit `rateLimiters` override. Limits match the values documented in
+ * CLAUDE.md > Rate Limiting (S-H1): 5 req/IP/min on send endpoints, 10
+ * req/IP/min on verify/complete endpoints.
+ */
+export function createDefaultAuthRateLimiters(): AuthRateLimiters {
+  return {
+    registerBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
+    registerComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    handleCheck: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    otpBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
+    otpComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    magicBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
+    magicVerify: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    passkeyLoginBegin: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    passkeyLoginComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    passkeyRegisterBegin: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    passkeyRegisterComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+  };
+}
+
 export function createAuthRoutes(
   authConfig: AuthConfig,
   dbLayer: Layer.Layer<Db> = DbLive,
@@ -32,7 +74,23 @@ export function createAuthRoutes(
    * `osn/app/src/index.ts` for the canonical wiring.
    */
   loggerLayer: Layer.Layer<never> = Layer.empty,
+  /**
+   * Rate limiter backends for every auth endpoint group. Defaults to a fresh
+   * in-memory bundle via `createDefaultAuthRateLimiters()`. Phase 2 of the
+   * Redis migration will construct Redis-backed bundles at the host
+   * application (`osn/app/src/index.ts`) and inject them here.
+   */
+  rateLimiters: AuthRateLimiters = createDefaultAuthRateLimiters(),
 ) {
+  // Fail-fast: validate every limiter slot at construction time (S-L2) so a
+  // partially-valid object surfaces immediately instead of on the first
+  // request to a rarely-hit endpoint.
+  for (const [key, backend] of Object.entries(rateLimiters)) {
+    if (typeof (backend as RateLimiterBackend)?.check !== "function") {
+      throw new Error(`AuthRateLimiters.${key} must have a check() method`);
+    }
+  }
+
   const auth = createAuthService(authConfig);
 
   const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
@@ -85,30 +143,29 @@ export function createAuthRoutes(
   }
 
   // ---------------------------------------------------------------------------
-  // IP-based rate limiters (S-H1)
+  // IP-based rate limiters (S-H1). Injected via the `rateLimiters` parameter
+  // so callers can swap in Redis-backed backends at composition time.
   // ---------------------------------------------------------------------------
 
-  const rl = {
-    registerBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
-    registerComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-    handleCheck: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-    otpBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
-    otpComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-    magicBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
-    magicVerify: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-    passkeyLoginBegin: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-    passkeyLoginComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-    passkeyRegisterBegin: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-    passkeyRegisterComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-  } as const;
+  const rl = rateLimiters;
 
-  function rateLimit(
+  // Async to accommodate future Redis backends where `check()` returns a Promise.
+  // In-memory backends resolve immediately; `await` on a non-Promise is a no-op.
+  // Fail-closed (S-M1): if the backend rejects, treat it as rate-limited so a
+  // Redis outage blocks rather than bypasses the limiter.
+  async function rateLimit(
     headers: Record<string, string | undefined>,
     endpoint: AuthRateLimitedEndpoint,
-    limiter: ReturnType<typeof createRateLimiter>,
-  ): { error: string } | null {
+    limiter: RateLimiterBackend,
+  ): Promise<{ error: string } | null> {
     const ip = getClientIp(headers);
-    if (!limiter.check(ip)) {
+    let allowed: boolean;
+    try {
+      allowed = await limiter.check(ip);
+    } catch {
+      allowed = false;
+    }
+    if (!allowed) {
       metricAuthRateLimited(endpoint);
       return { error: "rate_limited" };
     }
@@ -177,7 +234,7 @@ export function createAuthRoutes(
       .get(
         "/handle/:handle",
         async ({ params, set, headers }) => {
-          const rlErr = rateLimit(headers, "handle_check", rl.handleCheck);
+          const rlErr = await rateLimit(headers, "handle_check", rl.handleCheck);
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -227,7 +284,7 @@ export function createAuthRoutes(
       .post(
         "/register/begin",
         async ({ body, set, headers }) => {
-          const rlErr = rateLimit(headers, "register_begin", rl.registerBegin);
+          const rlErr = await rateLimit(headers, "register_begin", rl.registerBegin);
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -258,7 +315,7 @@ export function createAuthRoutes(
       .post(
         "/register/complete",
         async ({ body, set, headers }) => {
-          const rlErr = rateLimit(headers, "register_complete", rl.registerComplete);
+          const rlErr = await rateLimit(headers, "register_complete", rl.registerComplete);
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -475,7 +532,7 @@ export function createAuthRoutes(
       .post(
         "/passkey/register/begin",
         async ({ body, set, headers }) => {
-          const rlErr = rateLimit(headers, "passkey_register_begin", rl.passkeyRegisterBegin);
+          const rlErr = await rateLimit(headers, "passkey_register_begin", rl.passkeyRegisterBegin);
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -507,7 +564,11 @@ export function createAuthRoutes(
       .post(
         "/passkey/register/complete",
         async ({ body, set, headers }) => {
-          const rlErr = rateLimit(headers, "passkey_register_complete", rl.passkeyRegisterComplete);
+          const rlErr = await rateLimit(
+            headers,
+            "passkey_register_complete",
+            rl.passkeyRegisterComplete,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -545,7 +606,7 @@ export function createAuthRoutes(
       .post(
         "/passkey/login/begin",
         async ({ body, set, headers }) => {
-          const rlErr = rateLimit(headers, "passkey_login_begin", rl.passkeyLoginBegin);
+          const rlErr = await rateLimit(headers, "passkey_login_begin", rl.passkeyLoginBegin);
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -568,7 +629,7 @@ export function createAuthRoutes(
       .post(
         "/passkey/login/complete",
         async ({ body, set, headers }) => {
-          const rlErr = rateLimit(headers, "passkey_login_complete", rl.passkeyLoginComplete);
+          const rlErr = await rateLimit(headers, "passkey_login_complete", rl.passkeyLoginComplete);
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -594,7 +655,7 @@ export function createAuthRoutes(
       .post(
         "/otp/begin",
         async ({ body, set, headers }) => {
-          const rlErr = rateLimit(headers, "otp_begin", rl.otpBegin);
+          const rlErr = await rateLimit(headers, "otp_begin", rl.otpBegin);
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -617,7 +678,7 @@ export function createAuthRoutes(
       .post(
         "/otp/complete",
         async ({ body, set, headers }) => {
-          const rlErr = rateLimit(headers, "otp_complete", rl.otpComplete);
+          const rlErr = await rateLimit(headers, "otp_complete", rl.otpComplete);
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -640,7 +701,7 @@ export function createAuthRoutes(
       .post(
         "/magic/begin",
         async ({ body, set, headers }) => {
-          const rlErr = rateLimit(headers, "magic_begin", rl.magicBegin);
+          const rlErr = await rateLimit(headers, "magic_begin", rl.magicBegin);
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -663,7 +724,7 @@ export function createAuthRoutes(
       .get(
         "/magic/verify",
         async ({ query, set, headers }) => {
-          const rlErr = rateLimit(headers, "magic_verify", rl.magicVerify);
+          const rlErr = await rateLimit(headers, "magic_verify", rl.magicVerify);
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -707,7 +768,7 @@ export function createAuthRoutes(
       .post(
         "/login/passkey/begin",
         async ({ body, set, headers }) => {
-          const rlErr = rateLimit(headers, "passkey_login_begin", rl.passkeyLoginBegin);
+          const rlErr = await rateLimit(headers, "passkey_login_begin", rl.passkeyLoginBegin);
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -727,7 +788,7 @@ export function createAuthRoutes(
       .post(
         "/login/passkey/complete",
         async ({ body, set, headers }) => {
-          const rlErr = rateLimit(headers, "passkey_login_complete", rl.passkeyLoginComplete);
+          const rlErr = await rateLimit(headers, "passkey_login_complete", rl.passkeyLoginComplete);
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -752,7 +813,7 @@ export function createAuthRoutes(
       .post(
         "/login/otp/begin",
         async ({ body, set, headers }) => {
-          const rlErr = rateLimit(headers, "otp_begin", rl.otpBegin);
+          const rlErr = await rateLimit(headers, "otp_begin", rl.otpBegin);
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -774,7 +835,7 @@ export function createAuthRoutes(
       .post(
         "/login/otp/complete",
         async ({ body, set, headers }) => {
-          const rlErr = rateLimit(headers, "otp_complete", rl.otpComplete);
+          const rlErr = await rateLimit(headers, "otp_complete", rl.otpComplete);
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -794,7 +855,7 @@ export function createAuthRoutes(
       .post(
         "/login/magic/begin",
         async ({ body, set, headers }) => {
-          const rlErr = rateLimit(headers, "magic_begin", rl.magicBegin);
+          const rlErr = await rateLimit(headers, "magic_begin", rl.magicBegin);
           if (rlErr) {
             set.status = 429;
             return rlErr;

@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createTestLayer } from "../helpers/db";
-import { createAuthRoutes } from "../../src/routes/auth";
+import { createAuthRoutes, createDefaultAuthRateLimiters } from "../../src/routes/auth";
 import { createAuthService } from "../../src/services/auth";
-import { Effect } from "effect";
+import type { RateLimiterBackend } from "../../src/lib/rate-limit";
+import { Effect, Layer } from "effect";
 
 const config = {
   rpId: "localhost",
@@ -1282,6 +1283,84 @@ describe("auth routes", () => {
       expect(res.status).toBe(400);
       const json = (await res.json()) as { error: string; message: string };
       expect(json.message).toBe("redirect_uri not allowed");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Rate limiter dependency injection (Phase 1 of Redis migration)
+  //
+  // Verifies the `RateLimiterBackend` abstraction: createAuthRoutes accepts
+  // an injected rate limiter bundle, sync and async backends both work, and
+  // the endpoint-to-limiter wiring inside the route factory is stable. This
+  // is the contract Phase 2 (Redis) relies on.
+  // -------------------------------------------------------------------------
+  describe("rate limiter dependency injection", () => {
+    it("uses the injected rate limiter bundle instead of the default", async () => {
+      // An "always reject" limiter — every check returns false.
+      const rejectAll: RateLimiterBackend = { check: () => false };
+      const limiters = { ...createDefaultAuthRateLimiters(), handleCheck: rejectAll };
+
+      const freshApp = createAuthRoutes(config, layer, Layer.empty, limiters);
+      const res = await freshApp.handle(
+        new Request("http://localhost/handle/alice", {
+          headers: { "x-forwarded-for": "9.9.9.9" },
+        }),
+      );
+      expect(res.status).toBe(429);
+      const json = (await res.json()) as { error: string };
+      expect(json.error).toBe("rate_limited");
+    });
+
+    it("supports async rate limiter backends (Promise<boolean>)", async () => {
+      // Simulates the future Redis backend's async check().
+      const asyncBackend: RateLimiterBackend = {
+        check: () => Promise.resolve(false),
+      };
+      const limiters = { ...createDefaultAuthRateLimiters(), registerBegin: asyncBackend };
+
+      const freshApp = createAuthRoutes(config, layer, Layer.empty, limiters);
+      const res = await freshApp.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-forwarded-for": "8.8.8.8" },
+          body: JSON.stringify({ email: "async@example.com", handle: "async" }),
+        }),
+      );
+      expect(res.status).toBe(429);
+    });
+
+    it("fails closed when the backend rejects (S-M1)", async () => {
+      // Simulates a Redis outage where check() throws.
+      const failing: RateLimiterBackend = {
+        check: () => Promise.reject(new Error("Redis connection refused")),
+      };
+      const limiters = { ...createDefaultAuthRateLimiters(), handleCheck: failing };
+
+      const freshApp = createAuthRoutes(config, layer, Layer.empty, limiters);
+      const res = await freshApp.handle(
+        new Request("http://localhost/handle/alice", {
+          headers: { "x-forwarded-for": "4.4.4.4" },
+        }),
+      );
+      // Must return 429 (fail-closed), not 500 (unhandled rejection).
+      expect(res.status).toBe(429);
+    });
+
+    it("passes when the injected limiter returns true", async () => {
+      const allowAll: RateLimiterBackend = { check: () => true };
+      const limiters = { ...createDefaultAuthRateLimiters(), handleCheck: allowAll };
+
+      const freshApp = createAuthRoutes(config, layer, Layer.empty, limiters);
+      // Fire a burst that would exceed the default 10/min cap; everything
+      // should pass because the injected limiter always says yes.
+      for (let i = 0; i < 20; i++) {
+        const res = await freshApp.handle(
+          new Request(`http://localhost/handle/user${i}`, {
+            headers: { "x-forwarded-for": "7.7.7.7" },
+          }),
+        );
+        expect(res.status).not.toBe(429);
+      }
     });
   });
 });
