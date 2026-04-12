@@ -1,5 +1,13 @@
 # @osn/osn
 
+## 0.3.1
+
+### Patch Changes
+
+- b48d68e: Add ARC token verification middleware and internal graph routes for S2S authentication on `/graph/internal/*` endpoints.
+- Updated dependencies [b48d68e]
+  - @osn/core@0.12.0
+
 ## 0.3.0
 
 ### Minor Changes
