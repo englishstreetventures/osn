@@ -43,6 +43,9 @@ export type GraphConnectionAction = "request" | "accept" | "reject" | "remove";
 /** Social graph block actions. */
 export type GraphBlockAction = "add" | "remove";
 
+/** Social graph close-friend actions. */
+export type GraphCloseFriendAction = "add" | "remove";
+
 /** Event lifecycle states (mirrors Pulse events schema). */
 export type EventStatus = "upcoming" | "ongoing" | "finished" | "cancelled";
 

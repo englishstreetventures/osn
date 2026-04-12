@@ -18,6 +18,7 @@ import type {
   AuthMethod,
   AuthRateLimitedEndpoint,
   GraphBlockAction,
+  GraphCloseFriendAction,
   GraphConnectionAction,
   RegisterStep,
   Result,
@@ -36,6 +37,7 @@ export const OSN_METRICS = {
   authRateLimited: "osn.auth.rate_limited",
   graphConnectionOps: "osn.graph.connection.operations",
   graphBlockOps: "osn.graph.block.operations",
+  graphCloseFriendOps: "osn.graph.close_friend.operations",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -51,6 +53,7 @@ type MagicLinkSentAttrs = { result: Result };
 type AuthRateLimitAttrs = { endpoint: AuthRateLimitedEndpoint };
 type GraphConnectionAttrs = { action: GraphConnectionAction; result: Result };
 type GraphBlockAttrs = { action: GraphBlockAction; result: Result };
+type GraphCloseFriendAttrs = { action: GraphCloseFriendAction; result: Result };
 
 // ---------------------------------------------------------------------------
 // Counters / histograms
@@ -124,9 +127,31 @@ const graphBlockOps = createCounter<GraphBlockAttrs>({
   unit: "{operation}",
 });
 
+const graphCloseFriendOps = createCounter<GraphCloseFriendAttrs>({
+  name: OSN_METRICS.graphCloseFriendOps,
+  description: "Social graph close-friend add/remove operations",
+  unit: "{operation}",
+});
+
 // ---------------------------------------------------------------------------
-// Error classification
+// Error classification + sanitisation
 // ---------------------------------------------------------------------------
+
+/**
+ * Extract a log-safe summary from an error. Avoids serialising raw `cause`
+ * payloads (which may contain internal schema details) into structured log
+ * annotations. Only `_tag` and `message` are kept — both are hardcoded
+ * strings in the codebase, never user input.
+ */
+const safeErrorSummary = (err: unknown): Record<string, unknown> => {
+  if (!err || typeof err !== "object") return { error: String(err) };
+  const tag = (err as { _tag?: unknown })._tag;
+  const msg = (err as { message?: unknown }).message;
+  return {
+    ...(typeof tag === "string" ? { _tag: tag } : {}),
+    ...(typeof msg === "string" ? { message: msg } : {}),
+  };
+};
 
 /**
  * Map any caught error (usually an Effect tagged error) into a bounded
@@ -237,7 +262,10 @@ export const withGraphConnectionOp =
       Effect.withSpan(`graph.connection.${action}`),
       Effect.tap(() => Effect.sync(() => graphConnectionOps.inc({ action, result: "ok" }))),
       Effect.tapError((e) =>
-        Effect.sync(() => graphConnectionOps.inc({ action, result: classifyError(e) })),
+        Effect.all([
+          Effect.sync(() => graphConnectionOps.inc({ action, result: classifyError(e) })),
+          Effect.logError("graph.connection operation failed", { action, ...safeErrorSummary(e) }),
+        ]),
       ),
     );
 
@@ -248,7 +276,27 @@ export const withGraphBlockOp =
       Effect.withSpan(`graph.block.${action}`),
       Effect.tap(() => Effect.sync(() => graphBlockOps.inc({ action, result: "ok" }))),
       Effect.tapError((e) =>
-        Effect.sync(() => graphBlockOps.inc({ action, result: classifyError(e) })),
+        Effect.all([
+          Effect.sync(() => graphBlockOps.inc({ action, result: classifyError(e) })),
+          Effect.logError("graph.block operation failed", { action, ...safeErrorSummary(e) }),
+        ]),
+      ),
+    );
+
+export const withGraphCloseFriendOp =
+  (action: GraphCloseFriendAction) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      Effect.withSpan(`graph.close_friend.${action}`),
+      Effect.tap(() => Effect.sync(() => graphCloseFriendOps.inc({ action, result: "ok" }))),
+      Effect.tapError((e) =>
+        Effect.all([
+          Effect.sync(() => graphCloseFriendOps.inc({ action, result: classifyError(e) })),
+          Effect.logError("graph.close_friend operation failed", {
+            action,
+            ...safeErrorSummary(e),
+          }),
+        ]),
       ),
     );
 

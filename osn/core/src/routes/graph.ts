@@ -334,6 +334,23 @@ export function createGraphRoutes(
         },
         { query: PaginationQuery },
       )
+      .get(
+        "/close-friends/:handle",
+        async ({ params, headers, set }) => {
+          const caller = await requireAuth(headers.authorization, set);
+          if (!caller) return { error: "Unauthorized" };
+          try {
+            const target = await resolveHandle(params.handle, set);
+            if (!target) return { error: "User not found" };
+            const isCloseFriend = await run(graph.isCloseFriendOf(caller.userId, target.id));
+            return { isCloseFriend };
+          } catch (e) {
+            set.status = 500;
+            return { error: safeError(e) };
+          }
+        },
+        { params: HandleParam },
+      )
       // -------------------------------------------------------------------------
       // Blocks
       // -------------------------------------------------------------------------

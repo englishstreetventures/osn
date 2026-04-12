@@ -51,6 +51,7 @@ export function createTestLayer() {
     )
   `);
   sqlite.run(`CREATE INDEX close_friends_user_idx ON close_friends (user_id)`);
+  sqlite.run(`CREATE INDEX close_friends_friend_idx ON close_friends (friend_id)`);
   sqlite.run(`
     CREATE TABLE blocks (
       id TEXT PRIMARY KEY,

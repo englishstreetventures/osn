@@ -268,6 +268,97 @@ describe("removeCloseFriend", () => {
   );
 });
 
+describe("isCloseFriendOf", () => {
+  it.effect("returns true when marked as close friend", () =>
+    Effect.gen(function* () {
+      const { alice, bob } = yield* setupConnected;
+      yield* graph.addCloseFriend(alice.id, bob.id);
+      const result = yield* graph.isCloseFriendOf(alice.id, bob.id);
+      expect(result).toBe(true);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("returns false when not a close friend", () =>
+    Effect.gen(function* () {
+      const { alice, bob } = yield* setupConnected;
+      const result = yield* graph.isCloseFriendOf(alice.id, bob.id);
+      expect(result).toBe(false);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("is directional — reverse is false", () =>
+    Effect.gen(function* () {
+      const { alice, bob } = yield* setupConnected;
+      yield* graph.addCloseFriend(alice.id, bob.id);
+      const result = yield* graph.isCloseFriendOf(bob.id, alice.id);
+      expect(result).toBe(false);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+describe("getCloseFriendsOfBatch", () => {
+  it.effect("returns users who marked viewer as close friend", () =>
+    Effect.gen(function* () {
+      const { alice, bob } = yield* setupConnected;
+      // Bob marks Alice as close friend
+      yield* graph.addCloseFriend(bob.id, alice.id);
+      const result = yield* graph.getCloseFriendsOfBatch(alice.id, [bob.id]);
+      expect(result.has(bob.id)).toBe(true);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("returns empty set when no one marked viewer", () =>
+    Effect.gen(function* () {
+      const { alice, bob } = yield* setupConnected;
+      const result = yield* graph.getCloseFriendsOfBatch(alice.id, [bob.id]);
+      expect(result.size).toBe(0);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("returns empty set for empty input", () =>
+    Effect.gen(function* () {
+      const alice = yield* auth.registerUser("alice@example.com", "alice");
+      const result = yield* graph.getCloseFriendsOfBatch(alice.id, []);
+      expect(result.size).toBe(0);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("returns multiple matches when several users marked viewer", () =>
+    Effect.gen(function* () {
+      const { alice, bob } = yield* setupConnected;
+      const carol = yield* auth.registerUser("carol@example.com", "carol");
+      yield* graph.sendConnectionRequest(alice.id, carol.id);
+      yield* graph.acceptConnection(carol.id, alice.id);
+
+      // Both Bob and Carol mark Alice as close friend
+      yield* graph.addCloseFriend(bob.id, alice.id);
+      yield* graph.addCloseFriend(carol.id, alice.id);
+
+      const result = yield* graph.getCloseFriendsOfBatch(alice.id, [bob.id, carol.id]);
+      expect(result.size).toBe(2);
+      expect(result.has(bob.id)).toBe(true);
+      expect(result.has(carol.id)).toBe(true);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+describe("removeConnection cleans up close friends", () => {
+  it.effect("removes close friend entries in both directions", () =>
+    Effect.gen(function* () {
+      const { alice, bob } = yield* setupConnected;
+      yield* graph.addCloseFriend(alice.id, bob.id);
+      yield* graph.addCloseFriend(bob.id, alice.id);
+
+      yield* graph.removeConnection(alice.id, bob.id);
+
+      const aliceList = yield* graph.listCloseFriends(alice.id);
+      const bobList = yield* graph.listCloseFriends(bob.id);
+      expect(aliceList).toHaveLength(0);
+      expect(bobList).toHaveLength(0);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Blocks
 // ---------------------------------------------------------------------------

@@ -80,6 +80,7 @@ export const closeFriends = sqliteTable(
   (t) => [
     unique("close_friends_pair_idx").on(t.userId, t.friendId),
     index("close_friends_user_idx").on(t.userId),
+    index("close_friends_friend_idx").on(t.friendId),
   ],
 );
 

@@ -1,8 +1,8 @@
 import { Data, Effect } from "effect";
 import type { Layer } from "effect";
-import { and, eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { createGraphService } from "@osn/core";
-import { closeFriends, users } from "@osn/db/schema";
+import { users } from "@osn/db/schema";
 import { Db as OsnDb, DbLive as OsnDbLive } from "@osn/db/service";
 import { MAX_EVENT_GUESTS } from "../lib/limits";
 
@@ -73,29 +73,16 @@ export const getCloseFriendIds = (
  * The query is keyed on the **attendee's** close-friends list so the
  * flag can't be unilaterally conjured by the viewer.
  *
- * Implementation: single batched SQL query against `close_friends` with
- * `WHERE friend_id = viewerId AND user_id IN (attendeeIds)`. Avoids N+1
- * regardless of guest count.
+ * Delegates to `graph.getCloseFriendsOfBatch` — the batched reverse
+ * lookup lives in the graph service, keeping raw SQL out of the bridge.
  */
 export const getCloseFriendsOf = (
   viewerId: string,
   attendeeIds: string[],
 ): Effect.Effect<Set<string>, GraphBridgeError, OsnDb> =>
-  Effect.gen(function* () {
-    if (attendeeIds.length === 0) return new Set<string>();
-    const { db } = yield* OsnDb;
-    const rows = yield* Effect.tryPromise({
-      try: () =>
-        db
-          .select({ userId: closeFriends.userId })
-          .from(closeFriends)
-          .where(
-            and(eq(closeFriends.friendId, viewerId), inArray(closeFriends.userId, attendeeIds)),
-          ),
-      catch: (cause) => new GraphBridgeError({ cause }),
-    });
-    return new Set(rows.map((r) => r.userId));
-  });
+  graph
+    .getCloseFriendsOfBatch(viewerId, attendeeIds)
+    .pipe(Effect.mapError((cause) => new GraphBridgeError({ cause })));
 
 export interface UserDisplay {
   id: string;
