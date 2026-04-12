@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { buildIcs } from "../../src/services/calendar";
 import type { Event } from "@pulse/db/schema";
+import { describe, it, expect } from "vitest";
+
+import { buildIcs } from "../../src/services/calendar";
 
 function makeEvent(overrides: Partial<Event> = {}): Event {
   return {

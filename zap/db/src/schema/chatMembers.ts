@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer, index, unique } from "drizzle-orm/sqlite-core";
+
 import { chats } from "./chats";
 
 export const chatMembers = sqliteTable(

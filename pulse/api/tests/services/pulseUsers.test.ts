@@ -1,6 +1,6 @@
 import { it, expect } from "@effect/vitest";
 import { Effect } from "effect";
-import { createTestLayer } from "../helpers/db";
+
 import {
   DEFAULT_ATTENDANCE_VISIBILITY,
   ensurePulseUser,
@@ -9,6 +9,7 @@ import {
   getPulseUser,
   updateSettings,
 } from "../../src/services/pulseUsers";
+import { createTestLayer } from "../helpers/db";
 
 const provide = <A, E>(effect: Effect.Effect<A, E, never>) => effect;
 

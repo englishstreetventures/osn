@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import { createMemoryClient, type RedisClient } from "../src/client";
 import { checkRedisHealth } from "../src/health";
 

@@ -1,8 +1,6 @@
-import { describe, expect } from "vitest";
-import { it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
 import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
+
+import { it } from "@effect/vitest";
 import * as pulseSchema from "@pulse/db/schema";
 import { events } from "@pulse/db/schema";
 import { Db as PulseDb } from "@pulse/db/service";
@@ -10,6 +8,10 @@ import * as zapSchema from "@zap/db/schema";
 import { chatMembers } from "@zap/db/schema";
 import { Db as ZapDb } from "@zap/db/service";
 import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { Effect, Layer } from "effect";
+import { describe, expect } from "vitest";
+
 import { provisionEventChat, addEventChatMember } from "../../src/services/zapBridge";
 
 function createDualTestLayer() {
@@ -144,7 +146,7 @@ describe("zapBridge", () => {
           zapDb.select().from(chatMembers).where(eq(chatMembers.chatId, chat.id)),
         );
         expect(members).toHaveLength(2);
-        const userIds = members.map((m) => m.userId).sort();
+        const userIds = members.map((m) => m.userId).toSorted();
         expect(userIds).toEqual(["usr_alice", "usr_bob"]);
       }).pipe(Effect.provide(layer));
     });

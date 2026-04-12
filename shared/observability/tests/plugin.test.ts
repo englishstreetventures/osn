@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import { describe, expect, it } from "vitest";
+
 import { observabilityPlugin } from "../src/elysia/plugin";
 
 /**
@@ -147,8 +148,10 @@ describe("observabilityPlugin", () => {
 
   it("survives many sequential requests without accumulating state", async () => {
     const app = makeApp();
-    for (let i = 0; i < 10; i++) {
-      const res = await app.handle(new Request(`http://localhost/ping?i=${i}`));
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, (_, i) => app.handle(new Request(`http://localhost/ping?i=${i}`))),
+    );
+    for (const res of responses) {
       expect(res.status).toBe(200);
       expect(res.headers.get("x-request-id")).toBeTruthy();
     }

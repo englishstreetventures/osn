@@ -1,10 +1,11 @@
-import { Elysia, t } from "elysia";
-import { Effect, Layer } from "effect";
-import { DbLive, type Db } from "@osn/db/service";
 import type { User } from "@osn/db/schema";
+import { DbLive, type Db } from "@osn/db/service";
+import { Effect, Layer } from "effect";
+import { Elysia, t } from "elysia";
+
+import { createRateLimiter, type RateLimiterBackend } from "../lib/rate-limit";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createGraphService } from "../services/graph";
-import { createRateLimiter, type RateLimiterBackend } from "../lib/rate-limit";
 
 // ---------------------------------------------------------------------------
 // Rate limiter — per-user fixed window (write operations only)
@@ -244,10 +245,11 @@ export function createGraphRoutes(
           try {
             const list = await run(graph.listConnections(caller.userId, parsePagination(query)));
             return {
-              connections: list.map((c) => ({
-                ...userProjection(c.user),
-                connectedAt: c.connectedAt.toISOString(),
-              })),
+              connections: list.map((c) =>
+                Object.assign({}, userProjection(c.user), {
+                  connectedAt: c.connectedAt.toISOString(),
+                }),
+              ),
             };
           } catch (e) {
             set.status = 500;
@@ -266,10 +268,11 @@ export function createGraphRoutes(
               graph.listPendingRequests(caller.userId, parsePagination(query)),
             );
             return {
-              pending: list.map((r) => ({
-                ...userProjection(r.user),
-                requestedAt: r.requestedAt.toISOString(),
-              })),
+              pending: list.map((r) =>
+                Object.assign({}, userProjection(r.user), {
+                  requestedAt: r.requestedAt.toISOString(),
+                }),
+              ),
             };
           } catch (e) {
             set.status = 500;

@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
 import { SignJWT } from "jose";
+import { describe, it, expect, beforeEach } from "vitest";
+
 import { createEventsRoutes, createSettingsRoutes } from "../../src/routes/events";
 import { createTestLayer } from "../helpers/db";
 import { createOsnTestContext, seedOsnUser } from "../helpers/osnDb";

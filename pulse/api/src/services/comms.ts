@@ -1,7 +1,8 @@
-import { Data, Effect, Schema } from "effect";
-import { desc, eq } from "drizzle-orm";
 import { eventComms, type EventComm, events, type Event } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { desc, eq } from "drizzle-orm";
+import { Data, Effect, Schema } from "effect";
+
 import { metricCommsBlastSent } from "../metrics";
 import { EventNotFound } from "./events";
 

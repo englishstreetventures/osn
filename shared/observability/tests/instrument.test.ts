@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { instrumentedFetch } from "../src/fetch/instrument";
 
 /**

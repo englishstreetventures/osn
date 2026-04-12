@@ -8,7 +8,6 @@
  * See `CLAUDE.md` "Observability" section for the full rules.
  */
 
-import { Effect } from "effect";
 import {
   createCounter,
   createHistogram,
@@ -23,6 +22,7 @@ import type {
   RegisterStep,
   Result,
 } from "@shared/observability/metrics";
+import { Effect } from "effect";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
 export const OSN_METRICS = {

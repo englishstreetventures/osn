@@ -1,7 +1,17 @@
-import { Elysia, t } from "elysia";
-import { Effect, Layer } from "effect";
-import { jwtVerify } from "jose";
 import { DbLive, type Db } from "@pulse/db/service";
+import { Effect, Layer } from "effect";
+import { Elysia, t } from "elysia";
+import { jwtVerify } from "jose";
+
+import { MAX_EVENT_GUESTS } from "../lib/limits";
+import {
+  metricCalendarIcsGenerated,
+  metricEventAccessDenied,
+  metricSettingsUpdated,
+} from "../metrics";
+import { buildIcs } from "../services/calendar";
+import { listBlasts, parseCommsChannels, sendBlast } from "../services/comms";
+import { loadVisibleEvent } from "../services/eventAccess";
 import {
   createEvent,
   deleteEvent,
@@ -9,6 +19,8 @@ import {
   listTodayEvents,
   updateEvent,
 } from "../services/events";
+import { OsnDb, OsnDbLayer } from "../services/graphBridge";
+import { updateSettings } from "../services/pulseUsers";
 import {
   inviteGuests,
   latestRsvps,
@@ -17,17 +29,6 @@ import {
   upsertRsvp,
   type RsvpWithUser,
 } from "../services/rsvps";
-import { listBlasts, parseCommsChannels, sendBlast } from "../services/comms";
-import { buildIcs } from "../services/calendar";
-import { updateSettings } from "../services/pulseUsers";
-import { OsnDb, OsnDbLayer } from "../services/graphBridge";
-import { loadVisibleEvent } from "../services/eventAccess";
-import { MAX_EVENT_GUESTS } from "../lib/limits";
-import {
-  metricCalendarIcsGenerated,
-  metricEventAccessDenied,
-  metricSettingsUpdated,
-} from "../metrics";
 
 const visibilityEnum = t.Optional(t.Union([t.Literal("public"), t.Literal("private")]));
 const guestListVisibilityEnum = t.Optional(

@@ -1,11 +1,6 @@
 import { it, expect } from "@effect/vitest";
 import { Effect } from "effect";
-import {
-  createOsnTestContext,
-  seedCloseFriend,
-  seedConnection,
-  seedOsnUser,
-} from "../helpers/osnDb";
+
 import {
   getCloseFriendIds,
   getCloseFriendsOf,
@@ -13,6 +8,12 @@ import {
   getUserDisplays,
   type OsnDb,
 } from "../../src/services/graphBridge";
+import {
+  createOsnTestContext,
+  seedCloseFriend,
+  seedConnection,
+  seedOsnUser,
+} from "../helpers/osnDb";
 
 // graphBridge is the single seam between Pulse and OSN identity. When the
 // S2S strategy migrates from direct package import to ARC-token HTTP (per

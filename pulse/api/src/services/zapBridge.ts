@@ -6,13 +6,13 @@
  * HTTP client — single-file change, no callers affected.
  */
 
-import { Data, Effect } from "effect";
-import { and, eq } from "drizzle-orm";
 import { events } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
-import { Db as ZapDb } from "@zap/db/service";
 import { chats, chatMembers } from "@zap/db/schema";
 import type { Chat, ChatMember } from "@zap/db/schema";
+import { Db as ZapDb } from "@zap/db/service";
+import { and, eq } from "drizzle-orm";
+import { Data, Effect } from "effect";
 
 // ---------------------------------------------------------------------------
 // Tagged errors

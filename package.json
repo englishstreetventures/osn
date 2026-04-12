@@ -18,8 +18,8 @@
     "check": "turbo check",
     "test": "turbo test --continue",
     "clean": "git clean -fdX",
-    "fmt": "bunx --bun oxfmt osn pulse shared '!**/*.{json,md,yml,yaml,css,html,astro}'",
-    "fmt:check": "bunx --bun oxfmt osn pulse shared '!**/*.{json,md,yml,yaml,css,html,astro}' --check",
+    "fmt": "bunx --bun oxfmt osn pulse zap shared '!**/*.{json,md,yml,yaml,css,html,astro}'",
+    "fmt:check": "bunx --bun oxfmt osn pulse zap shared '!**/*.{json,md,yml,yaml,css,html,astro}' --check",
     "reset": "bun run clean && bun i",
     "changeset": "changeset",
     "version": "changeset version",
@@ -30,8 +30,8 @@
     "@changesets/cli": "^2.29.8",
     "bun-types": "latest",
     "lefthook": "^2.0.12",
-    "oxfmt": "^0.20.0",
-    "oxlint": "^0.16.0",
+    "oxfmt": "^0.44.0",
+    "oxlint": "^1.59.0",
     "turbo": "^2.7.1",
     "typescript": "^5.7.0"
   }

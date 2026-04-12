@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { REDACT_KEYS, redact, REDACTION_PLACEHOLDER } from "../src/logger/redact";
 
 describe("redact", () => {
@@ -258,7 +259,7 @@ describe("redact", () => {
       "handle",
       "displayname",
       "display_name",
-    ].sort();
-    expect([...REDACT_KEYS].sort()).toEqual(expected);
+    ].toSorted();
+    expect([...REDACT_KEYS].toSorted()).toEqual(expected);
   });
 });

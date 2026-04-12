@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { healthRoutes } from "../src/elysia/health";
 
 describe("healthRoutes", () => {

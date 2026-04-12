@@ -1,7 +1,8 @@
+import { render as _baseRender, cleanup, fireEvent } from "@solidjs/testing-library";
 // @vitest-environment happy-dom
 import type { JSX } from "solid-js";
-import { render as _baseRender, cleanup, fireEvent } from "@solidjs/testing-library";
 import { vi, describe, it, expect, afterEach } from "vitest";
+
 import { EventCard } from "../../src/components/EventCard";
 import { wrapRouter } from "../helpers/router";
 

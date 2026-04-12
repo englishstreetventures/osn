@@ -1,6 +1,7 @@
 import { HashMap, Layer, Logger, LogLevel } from "effect";
-import { redact } from "./redact";
+
 import type { LogLevel as ConfigLogLevel, ObservabilityConfig } from "../config";
+import { redact } from "./redact";
 
 const LOG_LEVEL_MAP: Record<ConfigLogLevel, LogLevel.LogLevel> = {
   trace: LogLevel.Trace,

@@ -1,8 +1,9 @@
-import { describe, expect } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect, Either } from "effect";
-import { createTestLayer, seedChat, seedMember, seedMessage } from "../helpers/db";
+import { describe, expect } from "vitest";
+
 import { sendMessage, listMessages } from "../../src/services/messages";
+import { createTestLayer, seedChat, seedMember, seedMessage } from "../helpers/db";
 
 describe("messages service", () => {
   it.effect("sendMessage stores an encrypted message", () =>

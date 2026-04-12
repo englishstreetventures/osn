@@ -7,6 +7,7 @@
  */
 
 import { createHash } from "node:crypto";
+
 import IORedis from "ioredis";
 
 /**

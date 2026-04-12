@@ -1,7 +1,11 @@
-import { Elysia, t } from "elysia";
-import { Effect, Layer } from "effect";
-import { jwtVerify } from "jose";
+import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@osn/core";
 import { DbLive, type Db } from "@zap/db/service";
+import { Effect, Layer } from "effect";
+import { Elysia, t } from "elysia";
+import { jwtVerify } from "jose";
+
+import { MAX_CHAT_MEMBERS, MAX_CIPHERTEXT_LENGTH, MAX_NONCE_LENGTH } from "../lib/limits";
+import { metricAccessDenied } from "../metrics";
 import {
   createChat,
   getChat,
@@ -13,9 +17,6 @@ import {
   assertMember,
 } from "../services/chats";
 import { sendMessage, listMessages } from "../services/messages";
-import { metricAccessDenied } from "../metrics";
-import { MAX_CHAT_MEMBERS, MAX_CIPHERTEXT_LENGTH, MAX_NONCE_LENGTH } from "../lib/limits";
-import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@osn/core";
 
 const chatTypeEnum = t.Union([t.Literal("dm"), t.Literal("group"), t.Literal("event")]);
 

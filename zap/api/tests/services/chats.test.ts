@@ -1,7 +1,7 @@
-import { describe, expect } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect, Either } from "effect";
-import { createTestLayer, seedChat, seedMember } from "../helpers/db";
+import { describe, expect } from "vitest";
+
 import {
   createChat,
   getChat,
@@ -11,6 +11,7 @@ import {
   removeMember,
   getChatMembers,
 } from "../../src/services/chats";
+import { createTestLayer, seedChat, seedMember } from "../helpers/db";
 
 describe("chats service", () => {
   it.effect("createChat creates a group chat with creator as admin", () =>
@@ -56,7 +57,7 @@ describe("chats service", () => {
       );
       const members = yield* getChatMembers(chat.id);
       expect(members).toHaveLength(3); // alice (admin) + bob + charlie
-      const userIds = members.map((m) => m.userId).sort();
+      const userIds = members.map((m) => m.userId).toSorted();
       expect(userIds).toEqual(["usr_alice", "usr_bob", "usr_charlie"]);
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -91,8 +92,8 @@ describe("chats service", () => {
 
       const result = yield* listChats("usr_alice");
       expect(result).toHaveLength(2);
-      const ids = result.map((c) => c.id).sort();
-      expect(ids).toEqual([chat1.id, chat2.id].sort());
+      const ids = result.map((c) => c.id).toSorted();
+      expect(ids).toEqual([chat1.id, chat2.id].toSorted());
     }).pipe(Effect.provide(createTestLayer())),
   );
 

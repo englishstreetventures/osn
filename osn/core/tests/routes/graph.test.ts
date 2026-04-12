@@ -1,11 +1,12 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import type { Db } from "@osn/db/service";
 import { Effect, Layer } from "effect";
-import { createTestLayer } from "../helpers/db";
+import { describe, it, expect, beforeEach } from "vitest";
+
+import type { RateLimiterBackend } from "../../src/lib/rate-limit";
 import { createAuthRoutes } from "../../src/routes/auth";
 import { createGraphRoutes } from "../../src/routes/graph";
-import type { RateLimiterBackend } from "../../src/lib/rate-limit";
 import { createAuthService } from "../../src/services/auth";
-import type { Db } from "@osn/db/service";
+import { createTestLayer } from "../helpers/db";
 
 const config = {
   rpId: "localhost",

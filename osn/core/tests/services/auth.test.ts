@@ -1,7 +1,8 @@
 import { it, expect, describe } from "@effect/vitest";
 import { Effect, Logger, LogLevel } from "effect";
-import { createTestLayer } from "../helpers/db";
+
 import { createAuthService } from "../../src/services/auth";
+import { createTestLayer } from "../helpers/db";
 
 const config = {
   rpId: "localhost",

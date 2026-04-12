@@ -1,6 +1,5 @@
 import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { Effect, Layer } from "effect";
+
 import * as schema from "@zap/db/schema";
 import {
   chats,
@@ -11,6 +10,8 @@ import {
   type Message,
 } from "@zap/db/schema";
 import { Db } from "@zap/db/service";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { Effect, Layer } from "effect";
 
 export function createTestLayer() {
   const sqlite = new Database(":memory:");

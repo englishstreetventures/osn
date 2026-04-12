@@ -3,15 +3,16 @@
 // `@opentelemetry/sdk-trace-web` peer dep we don't install. Importing the
 // `NodeSdk` subpath directly avoids resolving the web modules.
 import * as NodeSdk from "@effect/opentelemetry/NodeSdk";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import {
   BatchSpanProcessor,
   ParentBasedSampler,
   TraceIdRatioBasedSampler,
 } from "@opentelemetry/sdk-trace-base";
-import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import type { Layer } from "effect";
+
 import type { ObservabilityConfig } from "../config";
 
 /**

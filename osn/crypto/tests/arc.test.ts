@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
 import { it as effectIt } from "@effect/vitest";
-import { Effect } from "effect";
 import { serviceAccounts } from "@osn/db";
 import { Db } from "@osn/db/service";
+import { Effect } from "effect";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
 import {
   generateArcKeyPair,
   exportKeyToJwk,

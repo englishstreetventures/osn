@@ -1,7 +1,7 @@
-import { Data, Effect, Schema } from "effect";
-import { eq, inArray } from "drizzle-orm";
 import { pulseUsers, type PulseUser } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { eq, inArray } from "drizzle-orm";
+import { Data, Effect, Schema } from "effect";
 
 export class DatabaseError extends Data.TaggedError("DatabaseError")<{
   readonly cause: unknown;

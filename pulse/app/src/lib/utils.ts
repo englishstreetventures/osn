@@ -8,8 +8,11 @@ export function formatTime(iso: string | Date): string {
   });
 }
 
+function pad(n: number) {
+  return String(n).padStart(2, "0");
+}
+
 export function toDatetimeLocal(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
   // Round up to next minute so the default start time is always slightly in the future
   const rounded = new Date(Math.ceil(date.getTime() / 60000) * 60000);
   return `${rounded.getFullYear()}-${pad(rounded.getMonth() + 1)}-${pad(rounded.getDate())}T${pad(rounded.getHours())}:${pad(rounded.getMinutes())}`;

@@ -1,8 +1,8 @@
+import type { Session } from "@osn/client";
+import { AuthProvider, useAuth } from "@osn/client/solid";
 // @vitest-environment happy-dom
 import { render, cleanup, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, describe, it, expect, beforeEach } from "vitest";
-import { AuthProvider, useAuth } from "@osn/client/solid";
-import type { Session } from "@osn/client";
 
 /**
  * T-M2: assert that AuthProvider.adoptSession persists a session via the

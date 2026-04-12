@@ -1,7 +1,7 @@
-import { createSignal, Show, onCleanup } from "solid-js";
-import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
-import { useAuth } from "@osn/client/solid";
 import type { RegistrationClient } from "@osn/client";
+import { useAuth } from "@osn/client/solid";
+import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
+import { createSignal, Show, onCleanup } from "solid-js";
 import { toast } from "solid-toast";
 
 type Step = "details" | "verify" | "passkey" | "done";
@@ -170,13 +170,13 @@ export function Register(props: RegisterProps) {
   }
 
   return (
-    <div class="max-w-sm mx-auto px-4 py-8">
-      <div class="flex items-center justify-between mb-6">
-        <h2 class="text-2xl font-bold text-foreground">Create your OSN account</h2>
+    <div class="mx-auto max-w-sm px-4 py-8">
+      <div class="mb-6 flex items-center justify-between">
+        <h2 class="text-foreground text-2xl font-bold">Create your OSN account</h2>
         <button
           type="button"
           onClick={props.onCancel}
-          class="text-sm text-muted-foreground hover:text-foreground"
+          class="text-muted-foreground hover:text-foreground text-sm"
         >
           Cancel
         </button>
@@ -192,7 +192,7 @@ export function Register(props: RegisterProps) {
               autocomplete="email"
               value={email()}
               onInput={(e) => setEmail(e.currentTarget.value)}
-              class="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              class="border-input bg-background rounded-md border px-3 py-2 text-sm"
             />
           </label>
 
@@ -207,25 +207,25 @@ export function Register(props: RegisterProps) {
                 value={handle()}
                 onInput={(e) => onHandleInput(e.currentTarget.value)}
                 placeholder="lowercase, numbers, _"
-                class="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                class="border-input bg-background flex-1 rounded-md border px-3 py-2 text-sm"
               />
             </div>
             <Show when={handleStatus() === "checking"}>
-              <span class="text-xs text-muted-foreground">Checking…</span>
+              <span class="text-muted-foreground text-xs">Checking…</span>
             </Show>
             <Show when={handleStatus() === "available"}>
               <span class="text-xs text-green-600">@{handle()} is available</span>
             </Show>
             <Show when={handleStatus() === "taken"}>
-              <span class="text-xs text-destructive">@{handle()} is taken</span>
+              <span class="text-destructive text-xs">@{handle()} is taken</span>
             </Show>
             <Show when={handleStatus() === "invalid"}>
-              <span class="text-xs text-destructive">
+              <span class="text-destructive text-xs">
                 1–30 chars: lowercase letters, numbers, underscores
               </span>
             </Show>
             <Show when={handleStatus() === "error"}>
-              <span class="text-xs text-destructive">
+              <span class="text-destructive text-xs">
                 Couldn&apos;t check availability — try again
               </span>
             </Show>
@@ -237,14 +237,14 @@ export function Register(props: RegisterProps) {
               type="text"
               value={displayName()}
               onInput={(e) => setDisplayName(e.currentTarget.value)}
-              class="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              class="border-input bg-background rounded-md border px-3 py-2 text-sm"
             />
           </label>
 
           <button
             type="submit"
             disabled={!detailsValid() || busy()}
-            class="rounded-md bg-primary text-primary-foreground py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+            class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md py-2 text-sm font-medium disabled:opacity-50"
           >
             {busy() ? "Sending…" : "Send verification code"}
           </button>
@@ -253,7 +253,7 @@ export function Register(props: RegisterProps) {
 
       <Show when={step() === "verify"}>
         <form onSubmit={submitOtp} class="flex flex-col gap-4">
-          <p class="text-sm text-muted-foreground">
+          <p class="text-muted-foreground text-sm">
             We sent a 6-digit code to <strong>{email()}</strong>. Enter it below to verify.
           </p>
           <label class="flex flex-col gap-1">
@@ -266,20 +266,20 @@ export function Register(props: RegisterProps) {
               required
               value={otp()}
               onInput={(e) => setOtp(e.currentTarget.value.replace(/\D/g, "").slice(0, 6))}
-              class="rounded-md border border-input bg-background px-3 py-2 text-sm tracking-[0.5em] text-center"
+              class="border-input bg-background rounded-md border px-3 py-2 text-center text-sm tracking-[0.5em]"
             />
           </label>
           <button
             type="submit"
             disabled={otp().length !== 6 || busy()}
-            class="rounded-md bg-primary text-primary-foreground py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+            class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md py-2 text-sm font-medium disabled:opacity-50"
           >
             {busy() ? "Verifying…" : "Verify email"}
           </button>
           <button
             type="button"
             onClick={() => setStep("details")}
-            class="text-xs text-muted-foreground hover:text-foreground"
+            class="text-muted-foreground hover:text-foreground text-xs"
           >
             ← Use a different email
           </button>
@@ -290,14 +290,14 @@ export function Register(props: RegisterProps) {
         <Show
           when={passkeySupported}
           fallback={
-            <p class="text-sm text-muted-foreground">
+            <p class="text-muted-foreground text-sm">
               Signing you in… (passkeys aren&apos;t supported in this environment — you can add one
               later once we ship the mobile app).
             </p>
           }
         >
           <div class="flex flex-col gap-4">
-            <p class="text-sm text-muted-foreground">
+            <p class="text-muted-foreground text-sm">
               Set up a passkey so you can sign back in with Face ID, Touch ID, or your device PIN —
               no password required.
             </p>
@@ -305,7 +305,7 @@ export function Register(props: RegisterProps) {
               type="button"
               onClick={enrollPasskey}
               disabled={busy()}
-              class="rounded-md bg-primary text-primary-foreground py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+              class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md py-2 text-sm font-medium disabled:opacity-50"
             >
               {busy() ? "Setting up…" : "Create passkey"}
             </button>
@@ -313,7 +313,7 @@ export function Register(props: RegisterProps) {
               type="button"
               onClick={skipPasskeyForNow}
               disabled={busy()}
-              class="text-xs text-muted-foreground hover:text-foreground"
+              class="text-muted-foreground hover:text-foreground text-xs"
             >
               Skip for now (you can add one later)
             </button>
@@ -322,7 +322,7 @@ export function Register(props: RegisterProps) {
       </Show>
 
       <Show when={step() === "done"}>
-        <p class="text-sm text-muted-foreground">You&apos;re all set. Loading Pulse…</p>
+        <p class="text-muted-foreground text-sm">You&apos;re all set. Loading Pulse…</p>
       </Show>
     </div>
   );

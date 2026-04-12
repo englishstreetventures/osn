@@ -1,6 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { createTestLayer, seedEvent } from "../helpers/db";
+
 import {
   createEvent,
   deleteEvent,
@@ -9,6 +9,7 @@ import {
   listTodayEvents,
   updateEvent,
 } from "../../src/services/events";
+import { createTestLayer, seedEvent } from "../helpers/db";
 
 const FUTURE = "2030-06-01T10:00:00.000Z";
 const PAST = "2020-01-01T10:00:00.000Z";
@@ -475,7 +476,7 @@ it.effect("listEvents shows private events to their own creator", () =>
       );
       const events = yield* listEvents({ viewerId: "usr_alice" });
       expect(events.length).toBe(2);
-      expect(events.map((e) => e.title).sort()).toEqual(["Alice's private", "Public"]);
+      expect(events.map((e) => e.title).toSorted()).toEqual(["Alice's private", "Public"]);
     }),
   ),
 );

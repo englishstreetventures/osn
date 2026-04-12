@@ -1,4 +1,5 @@
 import { Show } from "solid-js";
+
 import type { Rsvp } from "../lib/rsvps";
 import { avatarClasses } from "../lib/ui";
 

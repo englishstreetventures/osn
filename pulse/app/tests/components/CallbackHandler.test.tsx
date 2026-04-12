@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { render, cleanup } from "@solidjs/testing-library";
 import { vi, describe, it, expect, afterEach } from "vitest";
+
 import { CallbackHandler } from "../../src/components/CallbackHandler";
 
 const mockHandleCallback = vi.fn();

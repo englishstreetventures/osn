@@ -1,7 +1,8 @@
+import { cleanup, fireEvent, render as _baseRender, waitFor } from "@solidjs/testing-library";
 // @vitest-environment happy-dom
 import type { JSX } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render as _baseRender, waitFor } from "@solidjs/testing-library";
+
 import { wrapRouter } from "../helpers/router";
 
 vi.mock("solid-toast", async () => {

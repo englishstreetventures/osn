@@ -1,9 +1,10 @@
+import { cleanup, render } from "@solidjs/testing-library";
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render } from "@solidjs/testing-library";
+
 import { RsvpAvatar } from "../../src/components/RsvpAvatar";
-import { CLOSE_FRIEND_RING_CLASS } from "../../src/lib/ui";
 import type { Rsvp } from "../../src/lib/rsvps";
+import { CLOSE_FRIEND_RING_CLASS } from "../../src/lib/ui";
 
 const baseRsvp: Rsvp = {
   id: "rsvp_1",

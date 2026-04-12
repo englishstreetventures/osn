@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+
+import type { Result } from "../src/metrics/attrs";
 import {
   BYTE_BUCKETS,
   createCounter,
@@ -7,7 +9,6 @@ import {
   LATENCY_BUCKETS_SECONDS,
 } from "../src/metrics/factory";
 import { recordHttpRequest } from "../src/metrics/http";
-import type { Result } from "../src/metrics/attrs";
 
 describe("metrics factory", () => {
   it("createCounter returns a typed counter with add/inc", () => {

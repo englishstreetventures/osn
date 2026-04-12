@@ -1,7 +1,8 @@
-import { Data, Effect } from "effect";
-import { and, eq, inArray, or } from "drizzle-orm";
 import { users, connections, closeFriends, blocks } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { and, eq, inArray, or } from "drizzle-orm";
+import { Data, Effect } from "effect";
+
 import { withGraphBlockOp, withGraphCloseFriendOp, withGraphConnectionOp } from "../metrics";
 
 // ---------------------------------------------------------------------------

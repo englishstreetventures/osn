@@ -1,9 +1,10 @@
 import { Effect, Logger } from "effect";
 import { describe, expect, it } from "vitest";
+
 import { loadConfig } from "../src/config";
+import { initObservability, makeObservabilityLayer } from "../src/index";
 import { makeLoggerLayer } from "../src/logger/layer";
 import { makeTracingLayer } from "../src/tracing/layer";
-import { initObservability, makeObservabilityLayer } from "../src/index";
 
 /**
  * Layer-construction smoke tests. These don't spin up a real OTel

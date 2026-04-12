@@ -1,8 +1,9 @@
 import { it, expect } from "@effect/vitest";
 import { Effect } from "effect";
-import { createTestLayer, seedEvent } from "../helpers/db";
+
 import { canViewEvent, loadVisibleEvent } from "../../src/services/eventAccess";
 import { upsertRsvp } from "../../src/services/rsvps";
+import { createTestLayer, seedEvent } from "../helpers/db";
 
 // canViewEvent and loadVisibleEvent are the single source of truth for
 // "is this viewer allowed to see this event?". The discovery feed

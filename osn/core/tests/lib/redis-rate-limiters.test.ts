@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
 import { createMemoryClient } from "@shared/redis";
+import { describe, it, expect } from "vitest";
+
 import {
   createRedisAuthRateLimiters,
   createRedisGraphRateLimiter,
@@ -35,6 +36,7 @@ describe("createRedisAuthRateLimiters", () => {
     const limiters = createRedisAuthRateLimiters(client);
 
     for (let i = 0; i < 5; i++) {
+      // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
       expect(await limiters.registerBegin.check("ip1")).toBe(true);
     }
     expect(await limiters.registerBegin.check("ip1")).toBe(false);
@@ -45,6 +47,7 @@ describe("createRedisAuthRateLimiters", () => {
     const limiters = createRedisAuthRateLimiters(client);
 
     for (let i = 0; i < 10; i++) {
+      // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
       expect(await limiters.registerComplete.check("ip1")).toBe(true);
     }
     expect(await limiters.registerComplete.check("ip1")).toBe(false);
@@ -56,6 +59,7 @@ describe("createRedisAuthRateLimiters", () => {
 
     // Exhaust registerBegin (5 req)
     for (let i = 0; i < 5; i++) {
+      // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
       await limiters.registerBegin.check("ip1");
     }
     expect(await limiters.registerBegin.check("ip1")).toBe(false);
@@ -84,6 +88,7 @@ describe("createRedisGraphRateLimiter", () => {
     const limiter = createRedisGraphRateLimiter(client);
 
     for (let i = 0; i < 60; i++) {
+      // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
       expect(await limiter.check("user1")).toBe(true);
     }
     expect(await limiter.check("user1")).toBe(false);
@@ -104,6 +109,7 @@ describe("createRedisGraphRateLimiter", () => {
 
     // Exhaust graph limiter for a key
     for (let i = 0; i < 60; i++) {
+      // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
       await graphLimiter.check("shared_key");
     }
     expect(await graphLimiter.check("shared_key")).toBe(false);

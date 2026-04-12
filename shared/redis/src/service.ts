@@ -7,6 +7,7 @@
 
 import { Context, Effect, Layer } from "effect";
 import IORedis from "ioredis";
+
 import type { RedisClient } from "./client";
 import { wrapIoRedis, createMemoryClient } from "./client";
 import { RedisError } from "./errors";

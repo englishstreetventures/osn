@@ -23,9 +23,12 @@ function escape(value: string): string {
     .replace(/;/g, "\\;");
 }
 
+function pad(n: number) {
+  return String(n).padStart(2, "0");
+}
+
 function formatDate(date: Date): string {
   // ICS "DATE-TIME" in UTC: 20260415T180000Z
-  const pad = (n: number) => String(n).padStart(2, "0");
   return (
     date.getUTCFullYear().toString() +
     pad(date.getUTCMonth() + 1) +

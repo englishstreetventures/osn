@@ -1,6 +1,6 @@
-import { onCleanup, onMount, Show } from "solid-js";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type * as Leaflet from "leaflet";
+import { onCleanup, onMount, Show } from "solid-js";
 
 /**
  * Read-only map preview for the event detail page. Uses Leaflet + OSM tiles
@@ -71,23 +71,23 @@ export function MapPreview(props: {
       when={props.latitude != null && props.longitude != null}
       fallback={
         <Show when={props.label}>
-          <div class="rounded-xl border border-border bg-card p-4">
-            <p class="text-sm font-medium text-foreground">Location</p>
-            <p class="text-sm text-muted-foreground">{props.label}</p>
+          <div class="border-border bg-card rounded-xl border p-4">
+            <p class="text-foreground text-sm font-medium">Location</p>
+            <p class="text-muted-foreground text-sm">{props.label}</p>
           </div>
         </Show>
       }
     >
-      <div class="rounded-xl border border-border bg-card overflow-hidden">
-        <div ref={mapEl} class="w-full h-48" />
-        <div class="p-3 flex items-center justify-between gap-3">
+      <div class="border-border bg-card overflow-hidden rounded-xl border">
+        <div ref={mapEl} class="h-48 w-full" />
+        <div class="flex items-center justify-between gap-3 p-3">
           <Show when={props.label}>
-            <p class="text-xs text-muted-foreground truncate">{props.label}</p>
+            <p class="text-muted-foreground truncate text-xs">{props.label}</p>
           </Show>
           <button
             type="button"
             onClick={findDirections}
-            class="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+            class="bg-primary text-primary-foreground hover:bg-primary/90 shrink-0 rounded-md px-3 py-1.5 text-xs font-medium"
           >
             Find directions
           </button>

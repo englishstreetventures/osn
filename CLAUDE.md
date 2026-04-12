@@ -102,9 +102,10 @@ Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+RES
 - E2E encryption everywhere
 - All personalization data user-accessible + resettable
 - Priority: iOS > Web > Android (Android deferred)
-- Pre-commit: lefthook runs oxlint + oxfmt on staged files
+- Pre-commit: lefthook runs oxlint + oxfmt (auto-fix + re-stage) on staged files
 - Pre-push: lefthook runs type check
-- oxlint configured via `oxlintrc.json` (React plugin disabled for SolidJS)
+- oxlint configured via `oxlintrc.json` — plugins: typescript, unicorn, oxc, import, promise, vitest, node, jsx-a11y (React plugin intentionally disabled for SolidJS)
+- oxfmt configured via `.oxfmtrc.json` — import sorting and Tailwind class sorting enabled
 - Use `bunx --bun` flag for all tooling (bypasses Node.js)
 - PRs required to merge to main (no direct pushes)
 - Always work on a feature branch — never commit directly to main

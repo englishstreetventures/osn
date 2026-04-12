@@ -1,27 +1,58 @@
 {
   "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "unicorn", "oxc", "import", "promise"],
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "promise",
+    "vitest",
+    "node",
+    "jsx-a11y"
+  ],
   "categories": {
     "correctness": "error",
     "suspicious": "warn",
+    "perf": "warn",
     "pedantic": "off",
     "style": "off",
     "restriction": "off"
   },
   "rules": {
-    "no-console": "off",
+    "no-console": "warn",
     "no-unused-vars": "warn",
     "prefer-const": "warn",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "no-var": "error",
-    "unicorn/no-null": "off",
-    "unicorn/prefer-top-level-await": "off",
-    "unicorn/filename-case": "off",
-    "unicorn/prevent-abbreviations": "off",
+
     "import/no-cycle": "error",
     "import/no-self-import": "error",
     "import/no-unassigned-import": "off",
-    "promise/no-return-wrap": "error"
+    "import/no-duplicates": "warn",
+
+    "promise/no-return-wrap": "error",
+
+    "unicorn/no-null": "off",
+    "unicorn/prefer-top-level-await": "off",
+    "unicorn/filename-case": "off",
+    "unicorn/prefer-array-flat-map": "warn",
+
+    "vitest/no-focused-tests": "error",
+    "vitest/no-disabled-tests": "warn",
+    "vitest/require-mock-type-parameters": "off",
+
+    "jest/valid-expect": "off",
+    "jest/no-standalone-expect": "off",
+    "jest/require-to-throw-message": "off",
+
+    "jsx-a11y/autocomplete-valid": "off",
+    "jsx-a11y/label-has-associated-control": "off",
+    "jsx-a11y/click-events-have-key-events": "off",
+    "jsx-a11y/no-static-element-interactions": "off",
+
+    "no-unassigned-vars": "off",
+
+    "node/no-process-env": "off"
   },
   "ignorePatterns": [
     "node_modules",

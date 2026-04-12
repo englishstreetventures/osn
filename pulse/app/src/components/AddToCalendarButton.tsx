@@ -31,7 +31,7 @@ export function AddToCalendarButton(props: { eventId: string; apiBaseUrl: string
     <button
       type="button"
       onClick={addToCalendar}
-      class="rounded-md px-3 py-1.5 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 inline-flex items-center gap-1.5"
+      class="bg-secondary text-secondary-foreground hover:bg-secondary/80 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium"
     >
       Add to calendar
     </button>

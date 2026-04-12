@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import { CreateEventForm } from "../../src/components/CreateEventForm";
 
 vi.mock("solid-toast", async () => {

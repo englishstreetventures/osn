@@ -1,8 +1,9 @@
 import { it, expect, describe } from "@effect/vitest";
 import { Effect } from "effect";
-import { createTestLayer } from "../helpers/db";
+
 import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
+import { createTestLayer } from "../helpers/db";
 
 const config = {
   rpId: "localhost",
@@ -169,7 +170,7 @@ describe("listConnections", () => {
       yield* graph.acceptConnection(carol.id, alice.id);
 
       const list = yield* graph.listConnections(alice.id);
-      const handles = list.map((c) => c.user.handle).sort();
+      const handles = list.map((c) => c.user.handle).toSorted();
       expect(handles).toEqual(["bob", "carol"]);
       void bob;
     }).pipe(Effect.provide(createTestLayer())),

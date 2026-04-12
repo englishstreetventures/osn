@@ -1,8 +1,9 @@
-import { describe, it as vitestIt } from "vitest";
 import { it, expect } from "@effect/vitest";
 import { Effect } from "effect";
-import { createTestLayer, seedEvent } from "../helpers/db";
+import { describe, it as vitestIt } from "vitest";
+
 import { listBlasts, parseCommsChannels, sendBlast } from "../../src/services/comms";
+import { createTestLayer, seedEvent } from "../helpers/db";
 
 it.effect("sendBlast writes one row per channel", () =>
   Effect.gen(function* () {
@@ -12,7 +13,7 @@ it.effect("sendBlast writes one row per channel", () =>
       body: "Don't forget — tonight at 8!",
     });
     expect(result.blasts).toHaveLength(2);
-    expect(result.blasts.map((b) => b.channel).sort()).toEqual(["email", "sms"]);
+    expect(result.blasts.map((b) => b.channel).toSorted()).toEqual(["email", "sms"]);
     expect(result.blasts.every((b) => b.sentAt !== null)).toBe(true);
   }).pipe(Effect.provide(createTestLayer())),
 );
@@ -63,7 +64,7 @@ it.effect("listBlasts returns all blasts for the event", () =>
     yield* sendBlast(event.id, "usr_alice", { channels: ["email"], body: "second" });
     const blasts = yield* listBlasts(event.id);
     expect(blasts.length).toBe(2);
-    const bodies = blasts.map((b) => b.body).sort();
+    const bodies = blasts.map((b) => b.body).toSorted();
     expect(bodies).toEqual(["first", "second"]);
   }).pipe(Effect.provide(createTestLayer())),
 );

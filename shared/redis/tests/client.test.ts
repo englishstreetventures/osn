@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import type IORedis from "ioredis";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
 import { wrapIoRedis, createMemoryClient, createClientFromUrl } from "../src/client";
 
 function createMockIoRedis() {

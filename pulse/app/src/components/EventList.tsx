@@ -1,15 +1,16 @@
-import { createResource, createSignal, createMemo, For, Show } from "solid-js";
-import { A } from "@solidjs/router";
 import { useAuth } from "@osn/client/solid";
-import { toast } from "solid-toast";
-import { api } from "../lib/api";
-import type { EventItem } from "../lib/types";
-import { getUserIdFromToken, getDisplayNameFromToken } from "../lib/utils";
-import { EventCard } from "./EventCard";
-import { CreateEventForm } from "./CreateEventForm";
 import { Register } from "@osn/ui/auth/Register";
 import { SignIn } from "@osn/ui/auth/SignIn";
+import { A } from "@solidjs/router";
+import { createResource, createSignal, createMemo, For, Show } from "solid-js";
+import { toast } from "solid-toast";
+
+import { api } from "../lib/api";
 import { registrationClient, loginClient } from "../lib/authClients";
+import type { EventItem } from "../lib/types";
+import { getUserIdFromToken, getDisplayNameFromToken } from "../lib/utils";
+import { CreateEventForm } from "./CreateEventForm";
+import { EventCard } from "./EventCard";
 
 async function fetchEvents(accessToken: string | null): Promise<EventItem[]> {
   const headers: Record<string, string> = {};
@@ -46,8 +47,10 @@ export function EventList() {
       .then(() => {
         toast.success("Event deleted");
         refetch();
+        return undefined;
       })
       .catch((err) => {
+        // eslint-disable-next-line no-console -- DEV-only client-side debug logging
         if (import.meta.env.DEV) console.error("Failed to delete event:", err);
         toast.error("Failed to delete event");
       })
@@ -67,20 +70,20 @@ export function EventList() {
   }
 
   return (
-    <main class="max-w-xl mx-auto px-4 py-6">
-      <div class="flex items-center justify-between mb-6">
-        <h1 class="text-3xl font-bold text-foreground">Pulse</h1>
+    <main class="mx-auto max-w-xl px-4 py-6">
+      <div class="mb-6 flex items-center justify-between">
+        <h1 class="text-foreground text-3xl font-bold">Pulse</h1>
         <div class="flex gap-2">
           <Show when={!session()}>
             <button
               onClick={() => setShowRegister(true)}
-              class="rounded-md px-3 py-1.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+              class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1.5 text-sm font-medium"
             >
               Create account
             </button>
             <button
               onClick={() => setShowSignIn(true)}
-              class="rounded-md px-3 py-1.5 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              class="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-1.5 text-sm font-medium"
             >
               Sign in
             </button>
@@ -88,19 +91,19 @@ export function EventList() {
           <Show when={session()}>
             <button
               onClick={() => setShowForm((v) => !v)}
-              class="rounded-md px-3 py-1.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+              class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1.5 text-sm font-medium"
             >
               {showForm() ? "Cancel" : "New Event"}
             </button>
             <A
               href="/settings"
-              class="rounded-md px-3 py-1.5 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              class="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-1.5 text-sm font-medium"
             >
               Settings
             </A>
             <button
               onClick={logout}
-              class="rounded-md px-3 py-1.5 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              class="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-1.5 text-sm font-medium"
             >
               Sign out
             </button>
@@ -125,14 +128,14 @@ export function EventList() {
         />
       </Show>
       <Show when={events.loading}>
-        <p class="text-center text-muted-foreground py-16">Loading events…</p>
+        <p class="text-muted-foreground py-16 text-center">Loading events…</p>
       </Show>
       <Show when={events.error}>
-        <p class="text-center text-destructive py-16">Failed to load events.</p>
+        <p class="text-destructive py-16 text-center">Failed to load events.</p>
       </Show>
       <Show when={!events.error && events()}>
         <Show when={events()!.length === 0}>
-          <p class="text-center text-muted-foreground py-16">No upcoming events.</p>
+          <p class="text-muted-foreground py-16 text-center">No upcoming events.</p>
         </Show>
         <div class="flex flex-col gap-4">
           <For each={events()}>

@@ -10,8 +10,9 @@ vi.mock("@osn/client/solid", () => ({
   useAuth: () => ({ adoptSession: hoisted.adoptSession }),
 }));
 
-import { MagicLinkHandler } from "../../src/auth/MagicLinkHandler";
 import type { LoginClient } from "@osn/client";
+
+import { MagicLinkHandler } from "../../src/auth/MagicLinkHandler";
 
 interface Stub {
   magicVerify: ReturnType<typeof vi.fn>;

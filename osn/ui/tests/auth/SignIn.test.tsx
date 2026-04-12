@@ -28,8 +28,9 @@ vi.mock("solid-toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-import { SignIn } from "../../src/auth/SignIn";
 import type { LoginClient } from "@osn/client";
+
+import { SignIn } from "../../src/auth/SignIn";
 
 interface ClientStub {
   passkeyBegin: ReturnType<typeof vi.fn>;

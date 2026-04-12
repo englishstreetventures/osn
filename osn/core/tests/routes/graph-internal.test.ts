@@ -1,9 +1,3 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { Effect } from "effect";
-import { createTestLayer } from "../helpers/db";
-import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
-import { createAuthService } from "../../src/services/auth";
-import { createGraphService } from "../../src/services/graph";
 import {
   generateArcKeyPair,
   exportKeyToJwk,
@@ -13,6 +7,13 @@ import {
 import { serviceAccounts } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import type { Db as DbTag } from "@osn/db/service";
+import { Effect } from "effect";
+import { describe, it, expect, beforeEach } from "vitest";
+
+import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
+import { createAuthService } from "../../src/services/auth";
+import { createGraphService } from "../../src/services/graph";
+import { createTestLayer } from "../helpers/db";
 
 const config = {
   rpId: "localhost",
@@ -206,6 +207,7 @@ describe("internal graph routes (ARC-protected)", () => {
           init.headers = { "Content-Type": "application/json" };
           init.body = ep.body;
         }
+        // eslint-disable-next-line no-await-in-loop -- sequential endpoint verification
         const res = await app.handle(new Request(`http://localhost${ep.url}`, init));
         expect(res.status, `expected 401 on ${ep.method} ${ep.url}`).toBe(401);
       }

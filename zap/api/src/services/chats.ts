@@ -1,10 +1,11 @@
-import { Data, Effect, Schema } from "effect";
-import { and, eq, inArray } from "drizzle-orm";
 import { chats, chatMembers } from "@zap/db/schema";
 import type { Chat, ChatMember } from "@zap/db/schema";
 import { Db } from "@zap/db/service";
-import { metricChatCreated, metricMemberAdded, metricMemberRemoved } from "../metrics";
+import { and, eq, inArray } from "drizzle-orm";
+import { Data, Effect, Schema } from "effect";
+
 import { MAX_CHAT_MEMBERS, MAX_CHAT_TITLE_LENGTH } from "../lib/limits";
+import { metricChatCreated, metricMemberAdded, metricMemberRemoved } from "../metrics";
 
 // ---------------------------------------------------------------------------
 // Tagged errors

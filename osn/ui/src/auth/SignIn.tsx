@@ -1,7 +1,7 @@
-import { createSignal, Show, onMount } from "solid-js";
-import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
-import { useAuth } from "@osn/client/solid";
 import type { LoginClient } from "@osn/client";
+import { useAuth } from "@osn/client/solid";
+import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
+import { createSignal, Show, onMount } from "solid-js";
 import { toast } from "solid-toast";
 
 /**
@@ -142,14 +142,14 @@ export function SignIn(props: SignInProps) {
   }
 
   return (
-    <div class="max-w-sm mx-auto px-4 py-8">
-      <div class="flex items-center justify-between mb-6">
-        <h2 class="text-2xl font-bold text-foreground">Sign in to OSN</h2>
+    <div class="mx-auto max-w-sm px-4 py-8">
+      <div class="mb-6 flex items-center justify-between">
+        <h2 class="text-foreground text-2xl font-bold">Sign in to OSN</h2>
         <Show when={props.onCancel}>
           <button
             type="button"
             onClick={props.onCancel}
-            class="text-sm text-muted-foreground hover:text-foreground"
+            class="text-muted-foreground hover:text-foreground text-sm"
           >
             Cancel
           </button>
@@ -157,14 +157,14 @@ export function SignIn(props: SignInProps) {
       </div>
 
       <Show when={step() !== "done"}>
-        <div class="flex gap-2 mb-4" role="tablist" aria-label="Sign-in method">
+        <div class="mb-4 flex gap-2" role="tablist" aria-label="Sign-in method">
           <Show when={passkeySupported()}>
             <button
               type="button"
               role="tab"
               aria-selected={method() === "passkey"}
               onClick={() => switchMethod("passkey")}
-              class="px-3 py-1.5 rounded-md text-sm border"
+              class="rounded-md border px-3 py-1.5 text-sm"
               classList={{
                 "bg-primary text-primary-foreground": method() === "passkey",
                 "bg-background text-foreground": method() !== "passkey",
@@ -178,7 +178,7 @@ export function SignIn(props: SignInProps) {
             role="tab"
             aria-selected={method() === "otp"}
             onClick={() => switchMethod("otp")}
-            class="px-3 py-1.5 rounded-md text-sm border"
+            class="rounded-md border px-3 py-1.5 text-sm"
             classList={{
               "bg-primary text-primary-foreground": method() === "otp",
               "bg-background text-foreground": method() !== "otp",
@@ -191,7 +191,7 @@ export function SignIn(props: SignInProps) {
             role="tab"
             aria-selected={method() === "magic"}
             onClick={() => switchMethod("magic")}
-            class="px-3 py-1.5 rounded-md text-sm border"
+            class="rounded-md border px-3 py-1.5 text-sm"
             classList={{
               "bg-primary text-primary-foreground": method() === "magic",
               "bg-background text-foreground": method() !== "magic",
@@ -213,13 +213,13 @@ export function SignIn(props: SignInProps) {
               autocomplete="username webauthn"
               value={identifier()}
               onInput={(e) => setIdentifier(e.currentTarget.value)}
-              class="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              class="border-input bg-background rounded-md border px-3 py-2 text-sm"
             />
           </label>
           <button
             type="submit"
             disabled={busy() || !identifier().trim()}
-            class="rounded-md bg-primary text-primary-foreground py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+            class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md py-2 text-sm font-medium disabled:opacity-50"
           >
             {busy() ? "Verifying…" : "Continue with passkey"}
           </button>
@@ -237,13 +237,13 @@ export function SignIn(props: SignInProps) {
               autocomplete="username"
               value={identifier()}
               onInput={(e) => setIdentifier(e.currentTarget.value)}
-              class="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              class="border-input bg-background rounded-md border px-3 py-2 text-sm"
             />
           </label>
           <button
             type="submit"
             disabled={busy() || !identifier().trim()}
-            class="rounded-md bg-primary text-primary-foreground py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+            class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md py-2 text-sm font-medium disabled:opacity-50"
           >
             {busy() ? "Sending…" : "Send verification code"}
           </button>
@@ -253,7 +253,7 @@ export function SignIn(props: SignInProps) {
       {/* OTP — code step */}
       <Show when={method() === "otp" && step() === "otpCode"}>
         <form onSubmit={submitOtpCode} class="flex flex-col gap-4">
-          <p class="text-sm text-muted-foreground">
+          <p class="text-muted-foreground text-sm">
             If <strong>{identifier()}</strong> matches an account, we sent a 6-digit code. Enter it
             below.
           </p>
@@ -267,20 +267,20 @@ export function SignIn(props: SignInProps) {
               required
               value={otpCode()}
               onInput={(e) => setOtpCode(e.currentTarget.value.replace(/\D/g, "").slice(0, 6))}
-              class="rounded-md border border-input bg-background px-3 py-2 text-sm tracking-[0.5em] text-center"
+              class="border-input bg-background rounded-md border px-3 py-2 text-center text-sm tracking-[0.5em]"
             />
           </label>
           <button
             type="submit"
             disabled={busy() || otpCode().length !== 6}
-            class="rounded-md bg-primary text-primary-foreground py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+            class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md py-2 text-sm font-medium disabled:opacity-50"
           >
             {busy() ? "Verifying…" : "Sign in"}
           </button>
           <button
             type="button"
             onClick={() => setStep("identifier")}
-            class="text-xs text-muted-foreground hover:text-foreground"
+            class="text-muted-foreground hover:text-foreground text-xs"
           >
             ← Use a different identifier
           </button>
@@ -298,13 +298,13 @@ export function SignIn(props: SignInProps) {
               autocomplete="username"
               value={identifier()}
               onInput={(e) => setIdentifier(e.currentTarget.value)}
-              class="rounded-md border border-input bg-background px-3 py-2 text-sm"
+              class="border-input bg-background rounded-md border px-3 py-2 text-sm"
             />
           </label>
           <button
             type="submit"
             disabled={busy() || !identifier().trim()}
-            class="rounded-md bg-primary text-primary-foreground py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+            class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md py-2 text-sm font-medium disabled:opacity-50"
           >
             {busy() ? "Sending…" : "Send magic link"}
           </button>
@@ -313,7 +313,7 @@ export function SignIn(props: SignInProps) {
 
       {/* Magic link — sent state */}
       <Show when={method() === "magic" && step() === "magicSent"}>
-        <p class="text-sm text-muted-foreground">
+        <p class="text-muted-foreground text-sm">
           If <strong>{identifier()}</strong> matches an account, we just emailed a sign-in link.
           Click it to finish signing in.
         </p>
@@ -321,12 +321,12 @@ export function SignIn(props: SignInProps) {
 
       {/* Done state */}
       <Show when={step() === "done"}>
-        <p class="text-sm text-muted-foreground">You&apos;re all set.</p>
+        <p class="text-muted-foreground text-sm">You&apos;re all set.</p>
       </Show>
 
       {/* Error display */}
       <Show when={error()}>
-        <p class="mt-3 text-xs text-destructive">{error()}</p>
+        <p class="text-destructive mt-3 text-xs">{error()}</p>
       </Show>
     </div>
   );

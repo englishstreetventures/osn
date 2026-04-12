@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import { createLoginClient, LoginError } from "../src/login";
 
 const config = { issuerUrl: "https://osn.example.com" };

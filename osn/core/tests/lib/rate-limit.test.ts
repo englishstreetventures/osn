@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import { createRateLimiter, getClientIp } from "../../src/lib/rate-limit";
 
 describe("createRateLimiter", () => {

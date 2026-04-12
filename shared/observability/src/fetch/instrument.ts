@@ -1,4 +1,5 @@
 import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+
 import { injectTraceContext } from "../tracing/propagation";
 
 /**

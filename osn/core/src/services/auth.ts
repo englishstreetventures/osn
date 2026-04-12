@@ -1,6 +1,8 @@
-import { Data, Effect, Schema } from "effect";
-import { eq } from "drizzle-orm";
 import { timingSafeEqual } from "node:crypto";
+
+import { users, passkeys } from "@osn/db/schema";
+import type { User } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -14,10 +16,10 @@ import type {
   PublicKeyCredentialCreationOptionsJSON,
   PublicKeyCredentialRequestOptionsJSON,
 } from "@simplewebauthn/server";
+import { eq } from "drizzle-orm";
+import { Data, Effect, Schema } from "effect";
 import { SignJWT, jwtVerify } from "jose";
-import { users, passkeys } from "@osn/db/schema";
-import { Db } from "@osn/db/service";
-import type { User } from "@osn/db/schema";
+
 import {
   metricAuthHandleCheck,
   metricAuthMagicLinkSent,

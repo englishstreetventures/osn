@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
 import { SignJWT } from "jose";
+import { describe, it, expect, beforeEach } from "vitest";
+
 import { createChatsRoutes } from "../../src/routes/chats";
 import { createTestLayer } from "../helpers/db";
 

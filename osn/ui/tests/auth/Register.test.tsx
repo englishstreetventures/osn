@@ -38,9 +38,10 @@ vi.mock("solid-toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+import type { RegistrationClient } from "@osn/client";
+
 // Import after mocks so the component picks them up.
 import { Register } from "../../src/auth/Register";
-import type { RegistrationClient } from "@osn/client";
 
 interface ClientStub {
   checkHandle: ReturnType<typeof vi.fn>;

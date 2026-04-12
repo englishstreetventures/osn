@@ -1,6 +1,7 @@
 import { it, expect } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { vi } from "vitest";
+
 import { OsnAuth, createOsnAuthLive } from "../src/service";
 import { createMemoryStorage } from "../src/storage";
 

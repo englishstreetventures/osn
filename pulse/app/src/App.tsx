@@ -1,12 +1,14 @@
-import { lazy } from "solid-js";
-import { Router, Route } from "@solidjs/router";
 import { AuthProvider } from "@osn/client/solid";
-import { Toaster } from "solid-toast";
 import { MagicLinkHandler } from "@osn/ui/auth/MagicLinkHandler";
-import { OSN_ISSUER_URL, OSN_CLIENT_ID } from "./lib/auth";
-import { loginClient } from "./lib/authClients";
+import { Router, Route } from "@solidjs/router";
+import { lazy } from "solid-js";
+import { Toaster } from "solid-toast";
+
 import { CallbackHandler } from "./components/CallbackHandler";
 import { EventList } from "./components/EventList";
+import { OSN_ISSUER_URL, OSN_CLIENT_ID } from "./lib/auth";
+import { loginClient } from "./lib/authClients";
+
 import "./App.css";
 
 // P-W3: route-level code-splitting. EventDetailPage pulls in

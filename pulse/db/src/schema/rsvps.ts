@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer, index, unique } from "drizzle-orm/sqlite-core";
+
 import { events } from "./events";
 
 export const eventRsvps = sqliteTable(

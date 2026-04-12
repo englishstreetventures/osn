@@ -1,5 +1,6 @@
-import { onMount } from "solid-js";
 import { useAuth } from "@osn/client/solid";
+import { onMount } from "solid-js";
+
 import { REDIRECT_URI } from "../lib/auth";
 
 export function CallbackHandler() {
@@ -13,6 +14,7 @@ export function CallbackHandler() {
     if (code && state) {
       handleCallback({ code, state, redirectUri: REDIRECT_URI() }).then(() => {
         window.history.replaceState({}, "", window.location.pathname);
+        return undefined;
       });
     }
   });

@@ -1,7 +1,9 @@
-import { describe, it, expect } from "vitest";
 import { Database } from "bun:sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
+
 import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { describe, it, expect } from "vitest";
+
 import * as schema from "../src/schema";
 
 function createTestDb() {

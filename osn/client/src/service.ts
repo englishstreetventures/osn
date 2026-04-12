@@ -1,7 +1,5 @@
 import { Context, Effect, Layer } from "effect";
-import { generateCodeChallenge, generateCodeVerifier } from "./pkce";
-import { parseTokenResponse } from "./tokens";
-import { Storage } from "./storage";
+
 import {
   AuthorizationError,
   StateMismatchError,
@@ -9,6 +7,9 @@ import {
   TokenExchangeError,
   TokenRefreshError,
 } from "./errors";
+import { generateCodeChallenge, generateCodeVerifier } from "./pkce";
+import { Storage } from "./storage";
+import { parseTokenResponse } from "./tokens";
 import type { Session } from "./tokens";
 
 const SESSION_KEY = "@osn/client:session";

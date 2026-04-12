@@ -1,5 +1,6 @@
 import { createSignal, createMemo, Show } from "solid-js";
 import { toast } from "solid-toast";
+
 import { api } from "../lib/api";
 import { LocationInput } from "../lib/LocationInput";
 import { toDatetimeLocal, isEndBeforeOrAtStart } from "../lib/utils";
@@ -70,6 +71,7 @@ export function CreateEventForm(props: {
         { headers },
       );
       if (error) {
+        // eslint-disable-next-line no-console -- DEV-only client-side debug logging
         if (import.meta.env.DEV) console.error("Failed to create event:", error);
         toast.error("Failed to create event");
         return;
@@ -83,11 +85,11 @@ export function CreateEventForm(props: {
   return (
     <form
       onSubmit={handleSubmit}
-      class="rounded-xl border border-border bg-card p-4 flex flex-col gap-4 mb-4"
+      class="border-border bg-card mb-4 flex flex-col gap-4 rounded-xl border p-4"
     >
       {/* Title */}
       <div class="flex flex-col gap-1">
-        <label class="text-sm font-medium text-foreground" for="title">
+        <label class="text-foreground text-sm font-medium" for="title">
           Title
         </label>
         <input
@@ -96,14 +98,14 @@ export function CreateEventForm(props: {
           required
           value={title()}
           onInput={(e) => setTitle(e.currentTarget.value)}
-          class="rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+          class="border-input bg-background text-foreground focus:ring-ring rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2"
         />
       </div>
 
       {/* Time */}
       <div class="flex gap-3">
-        <div class="flex flex-col gap-1 flex-1">
-          <label class="text-sm font-medium text-foreground" for="startTime">
+        <div class="flex flex-1 flex-col gap-1">
+          <label class="text-foreground text-sm font-medium" for="startTime">
             Start time
           </label>
           <input
@@ -112,11 +114,11 @@ export function CreateEventForm(props: {
             required
             value={startTime()}
             onInput={(e) => setStartTime(e.currentTarget.value)}
-            class="rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+            class="border-input bg-background text-foreground focus:ring-ring rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2"
           />
         </div>
-        <div class="flex flex-col gap-1 flex-1">
-          <label class="text-sm font-medium text-foreground" for="endTime">
+        <div class="flex flex-1 flex-col gap-1">
+          <label class="text-foreground text-sm font-medium" for="endTime">
             End time
           </label>
           <input
@@ -125,17 +127,17 @@ export function CreateEventForm(props: {
             min={startTime()}
             value={endTime()}
             onInput={(e) => setEndTime(e.currentTarget.value)}
-            class={`rounded-md border px-3 py-1.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring bg-background ${endTimeError() ? "border-destructive" : "border-input"}`}
+            class={`text-foreground focus:ring-ring bg-background rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2 ${endTimeError() ? "border-destructive" : "border-input"}`}
           />
           <Show when={endTimeError()}>
-            {(err) => <p class="text-xs text-destructive">{err()}</p>}
+            {(err) => <p class="text-destructive text-xs">{err()}</p>}
           </Show>
         </div>
       </div>
 
       {/* Location */}
       <div class="flex flex-col gap-1">
-        <label class="text-sm font-medium text-foreground" for="location">
+        <label class="text-foreground text-sm font-medium" for="location">
           Location
         </label>
         <LocationInput
@@ -154,7 +156,7 @@ export function CreateEventForm(props: {
 
       {/* Description */}
       <div class="flex flex-col gap-1">
-        <label class="text-sm font-medium text-foreground" for="description">
+        <label class="text-foreground text-sm font-medium" for="description">
           Description
         </label>
         <textarea
@@ -162,21 +164,21 @@ export function CreateEventForm(props: {
           rows={3}
           value={description()}
           onInput={(e) => setDescription(e.currentTarget.value)}
-          class="rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring resize-none"
+          class="border-input bg-background text-foreground focus:ring-ring resize-none rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2"
         />
       </div>
 
       {/* Event visibility */}
       <div class="flex flex-col gap-1">
         <div class="flex items-center">
-          <label class="text-sm font-medium text-foreground">Event visibility</label>
+          <span class="text-foreground text-sm font-medium">Event visibility</span>
           <InfoPopover
             label="About event visibility"
             body="Public events can appear in Discover and the Pulse feed. Private events are only reachable by direct link or invite — they won't show up in anyone else's feed."
           />
         </div>
         <div class="flex gap-2 text-sm">
-          <label class="flex items-center gap-1 cursor-pointer">
+          <label class="flex cursor-pointer items-center gap-1">
             <input
               type="radio"
               name="visibility"
@@ -185,7 +187,7 @@ export function CreateEventForm(props: {
             />
             Public
           </label>
-          <label class="flex items-center gap-1 cursor-pointer">
+          <label class="flex cursor-pointer items-center gap-1">
             <input
               type="radio"
               name="visibility"
@@ -200,14 +202,14 @@ export function CreateEventForm(props: {
       {/* Guest list visibility */}
       <div class="flex flex-col gap-1">
         <div class="flex items-center">
-          <label class="text-sm font-medium text-foreground">Guest list visibility</label>
+          <span class="text-foreground text-sm font-medium">Guest list visibility</span>
           <InfoPopover
             label="About guest list visibility"
             body="Public = anyone who can see the event sees who's going. Connections = only your connections can see the list. Private = only you can see — others see counts only."
           />
         </div>
         <div class="flex gap-2 text-sm">
-          <label class="flex items-center gap-1 cursor-pointer">
+          <label class="flex cursor-pointer items-center gap-1">
             <input
               type="radio"
               name="guestListVisibility"
@@ -216,7 +218,7 @@ export function CreateEventForm(props: {
             />
             Public
           </label>
-          <label class="flex items-center gap-1 cursor-pointer">
+          <label class="flex cursor-pointer items-center gap-1">
             <input
               type="radio"
               name="guestListVisibility"
@@ -225,7 +227,7 @@ export function CreateEventForm(props: {
             />
             Connections only
           </label>
-          <label class="flex items-center gap-1 cursor-pointer">
+          <label class="flex cursor-pointer items-center gap-1">
             <input
               type="radio"
               name="guestListVisibility"
@@ -240,14 +242,14 @@ export function CreateEventForm(props: {
       {/* Join policy */}
       <div class="flex flex-col gap-1">
         <div class="flex items-center">
-          <label class="text-sm font-medium text-foreground">Who can RSVP?</label>
+          <span class="text-foreground text-sm font-medium">Who can RSVP?</span>
           <InfoPopover
             label="About join policy"
             body="Open = anyone with the link can RSVP going or maybe. Guest list = you invite specific people first, and only invited users can RSVP going."
           />
         </div>
         <div class="flex gap-2 text-sm">
-          <label class="flex items-center gap-1 cursor-pointer">
+          <label class="flex cursor-pointer items-center gap-1">
             <input
               type="radio"
               name="joinPolicy"
@@ -256,7 +258,7 @@ export function CreateEventForm(props: {
             />
             Anyone with the link
           </label>
-          <label class="flex items-center gap-1 cursor-pointer">
+          <label class="flex cursor-pointer items-center gap-1">
             <input
               type="radio"
               name="joinPolicy"
@@ -271,14 +273,14 @@ export function CreateEventForm(props: {
       {/* Allow interested */}
       <div class="flex flex-col gap-1">
         <div class="flex items-center">
-          <label class="text-sm font-medium text-foreground">Allow "Maybe" replies?</label>
+          <span class="text-foreground text-sm font-medium">Allow "Maybe" replies?</span>
           <InfoPopover
             label="About Maybe replies"
             body="When enabled, guests can RSVP Maybe in addition to Going / Can't make it. Turn off for strict Yes/No events."
           />
         </div>
         <div class="flex gap-2 text-sm">
-          <label class="flex items-center gap-1 cursor-pointer">
+          <label class="flex cursor-pointer items-center gap-1">
             <input
               type="radio"
               name="allowInterested"
@@ -287,7 +289,7 @@ export function CreateEventForm(props: {
             />
             Yes
           </label>
-          <label class="flex items-center gap-1 cursor-pointer">
+          <label class="flex cursor-pointer items-center gap-1">
             <input
               type="radio"
               name="allowInterested"
@@ -302,14 +304,14 @@ export function CreateEventForm(props: {
       {/* Comms channels */}
       <div class="flex flex-col gap-1">
         <div class="flex items-center">
-          <label class="text-sm font-medium text-foreground">How to reach guests</label>
+          <span class="text-foreground text-sm font-medium">How to reach guests</span>
           <InfoPopover
             label="About announcement channels"
             body="The channels you'll use to send reminders and announcements (blasts) to guests. Pick one or both — actual sending lands later; for now you can preview how blasts will appear on the event page."
           />
         </div>
         <div class="flex gap-3 text-sm">
-          <label class="flex items-center gap-1 cursor-pointer">
+          <label class="flex cursor-pointer items-center gap-1">
             <input
               type="checkbox"
               checked={commsChannels().has("email")}
@@ -317,7 +319,7 @@ export function CreateEventForm(props: {
             />
             Email
           </label>
-          <label class="flex items-center gap-1 cursor-pointer">
+          <label class="flex cursor-pointer items-center gap-1">
             <input
               type="checkbox"
               checked={commsChannels().has("sms")}
@@ -326,21 +328,21 @@ export function CreateEventForm(props: {
             SMS
           </label>
         </div>
-        <Show when={commsError()}>{(err) => <p class="text-xs text-destructive">{err()}</p>}</Show>
+        <Show when={commsError()}>{(err) => <p class="text-destructive text-xs">{err()}</p>}</Show>
       </div>
 
-      <div class="flex gap-2 justify-end">
+      <div class="flex justify-end gap-2">
         <button
           type="button"
           onClick={props.onCancel}
-          class="rounded-md px-3 py-1.5 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80"
+          class="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-1.5 text-sm font-medium"
         >
           Cancel
         </button>
         <button
           type="submit"
           disabled={submitting()}
-          class="rounded-md px-3 py-1.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50"
         >
           {submitting() ? "Creating…" : "Create"}
         </button>

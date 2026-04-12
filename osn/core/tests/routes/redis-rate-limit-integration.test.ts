@@ -7,18 +7,19 @@
  * as a real Redis backend, minus the network).
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
-import { Effect } from "effect";
-import { createTestLayer } from "../helpers/db";
-import { createAuthRoutes } from "../../src/routes/auth";
-import { createGraphRoutes } from "../../src/routes/graph";
-import { createAuthService } from "../../src/services/auth";
 import { type Db } from "@osn/db/service";
+import { createMemoryClient, createRedisRateLimiter } from "@shared/redis";
+import { Effect } from "effect";
+import { describe, it, expect, beforeEach } from "vitest";
+
 import {
   createRedisAuthRateLimiters,
   createRedisGraphRateLimiter,
 } from "../../src/lib/redis-rate-limiters";
-import { createMemoryClient, createRedisRateLimiter } from "@shared/redis";
+import { createAuthRoutes } from "../../src/routes/auth";
+import { createGraphRoutes } from "../../src/routes/graph";
+import { createAuthService } from "../../src/services/auth";
+import { createTestLayer } from "../helpers/db";
 
 const config = {
   rpId: "localhost",
@@ -65,6 +66,7 @@ describe("auth routes with Redis-backed rate limiters", () => {
     // First 5 requests should succeed (or return 400 due to validation,
     // but NOT 429)
     for (let i = 0; i < 5; i++) {
+      // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
       const res = await makeRequest();
       expect(res.status).not.toBe(429);
     }
@@ -89,6 +91,7 @@ describe("auth routes with Redis-backed rate limiters", () => {
       );
 
     for (let i = 0; i < 10; i++) {
+      // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
       const res = await makeRequest();
       expect(res.status).not.toBe(429);
     }
@@ -104,6 +107,7 @@ describe("auth routes with Redis-backed rate limiters", () => {
 
     // Exhaust IP1's register/begin quota
     for (let i = 0; i < 5; i++) {
+      // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
       await app.handle(
         new Request("http://localhost/register/begin", {
           method: "POST",
@@ -173,6 +177,7 @@ describe("graph routes with Redis-backed rate limiter", () => {
     // First 3 requests should not be rate-limited (may be 201 or 400 for
     // duplicate connection, but never 429)
     for (let i = 0; i < 3; i++) {
+      // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
       const res = await makeRequest();
       expect(res.status).not.toBe(429);
     }

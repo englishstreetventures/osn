@@ -1,6 +1,6 @@
+import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
 
 vi.mock("solid-toast", async () => {
   const { solidToastMock } = await import("../helpers/toast");

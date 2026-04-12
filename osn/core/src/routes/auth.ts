@@ -1,12 +1,13 @@
-import { Elysia, t } from "elysia";
-import { Effect, Layer } from "effect";
 import { DbLive, type Db } from "@osn/db/service";
-import { createAuthService, type AuthConfig } from "../services/auth";
-import { buildAuthorizeHtml } from "../lib/html";
+import type { AuthRateLimitedEndpoint } from "@shared/observability/metrics";
+import { Effect, Layer } from "effect";
+import { Elysia, t } from "elysia";
+
 import { verifyPkceChallenge } from "../lib/crypto";
+import { buildAuthorizeHtml } from "../lib/html";
 import { createRateLimiter, getClientIp, type RateLimiterBackend } from "../lib/rate-limit";
 import { metricAuthRateLimited } from "../metrics";
-import type { AuthRateLimitedEndpoint } from "@shared/observability/metrics";
+import { createAuthService, type AuthConfig } from "../services/auth";
 
 // In-memory PKCE challenge store (keyed by state)
 interface PkceEntry {
@@ -115,8 +116,8 @@ export function createAuthRoutes(
         const node = queue.shift();
         if (!node || typeof node !== "object" || seen.has(node)) continue;
         seen.add(node);
-        const t = (node as { _tag?: unknown })._tag;
-        if (typeof t === "string") return t;
+        const tag_value = (node as { _tag?: unknown })._tag;
+        if (typeof tag_value === "string") return tag_value;
         for (const v of Object.values(node)) queue.push(v);
       }
       return null;

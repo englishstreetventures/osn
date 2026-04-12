@@ -1,15 +1,16 @@
-import { Data, Effect, Schema } from "effect";
-import { and, desc, eq, lt } from "drizzle-orm";
 import { chats, chatMembers, messages } from "@zap/db/schema";
 import type { Chat, ChatMember, Message } from "@zap/db/schema";
 import { Db } from "@zap/db/service";
-import { metricMessageSent, metricMessagesListed } from "../metrics";
+import { and, desc, eq, lt } from "drizzle-orm";
+import { Data, Effect, Schema } from "effect";
+
 import {
   MAX_CIPHERTEXT_LENGTH,
   MAX_NONCE_LENGTH,
   DEFAULT_MESSAGE_LIMIT,
   MAX_MESSAGE_LIMIT,
 } from "../lib/limits";
+import { metricMessageSent, metricMessagesListed } from "../metrics";
 
 // ---------------------------------------------------------------------------
 // Tagged errors

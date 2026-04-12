@@ -1,5 +1,5 @@
-import type { JSX } from "solid-js";
 import { MemoryRouter, Route } from "@solidjs/router";
+import type { JSX } from "solid-js";
 
 /**
  * Wraps a component in a `MemoryRouter` so tests can exercise

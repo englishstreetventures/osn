@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { PULSE_METRICS } from "../src/metrics";
 
 /**

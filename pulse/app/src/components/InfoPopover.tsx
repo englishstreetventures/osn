@@ -34,14 +34,14 @@ export function InfoPopover(props: { label?: string; body: string }) {
         aria-label={props.label ?? "More info"}
         aria-expanded={open()}
         onClick={() => setOpen((v) => !v)}
-        class="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-muted text-muted-foreground text-[10px] font-semibold hover:bg-muted/80 focus:outline-none focus:ring-2 focus:ring-ring"
+        class="bg-muted text-muted-foreground hover:bg-muted/80 focus:ring-ring ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold focus:ring-2 focus:outline-none"
       >
         ?
       </button>
       <Show when={open()}>
         <span
           role="tooltip"
-          class="absolute left-0 top-6 z-20 w-60 rounded-md border border-border bg-popover p-2 text-xs text-popover-foreground shadow-md"
+          class="border-border bg-popover text-popover-foreground absolute top-6 left-0 z-20 w-60 rounded-md border p-2 text-xs shadow-md"
         >
           {props.body}
         </span>

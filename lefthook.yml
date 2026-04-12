@@ -6,7 +6,7 @@ pre-commit:
       run: bunx --bun oxlint -c oxlintrc.json {staged_files}
     format:
       glob: "*.{js,jsx,ts,tsx}"
-      run: bunx --bun oxfmt {staged_files} --check
+      run: bunx --bun oxfmt {staged_files}
       stage_fixed: true
 
 pre-push:

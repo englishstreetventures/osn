@@ -5,6 +5,7 @@
  */
 
 import { Layer } from "effect";
+
 import { loadConfig, type ConfigOverrides, type ObservabilityConfig } from "./config";
 import { makeLoggerLayer } from "./logger/layer";
 import { makeTracingLayer } from "./tracing/layer";

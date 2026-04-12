@@ -1,6 +1,6 @@
-import { Effect, type Layer } from "effect";
 import { verifyArcToken, resolvePublicKey, type ArcTokenPayload } from "@osn/crypto";
 import type { Db } from "@osn/db/service";
+import { Effect, type Layer } from "effect";
 
 /**
  * Verified ARC caller claims attached to the request context after

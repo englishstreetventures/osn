@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import { base64urlEncode, verifyPkceChallenge } from "../../src/lib/crypto";
 
 describe("base64urlEncode", () => {

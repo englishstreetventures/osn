@@ -9,13 +9,13 @@
  */
 export function EventChatPlaceholder(props: { eventId: string }) {
   return (
-    <div class="rounded-xl border border-dashed border-border bg-card/50 p-6 text-center">
-      <h3 class="text-sm font-semibold text-foreground mb-1">Event chat</h3>
-      <p class="text-xs text-muted-foreground">
+    <div class="border-border bg-card/50 rounded-xl border border-dashed p-6 text-center">
+      <h3 class="text-foreground mb-1 text-sm font-semibold">Event chat</h3>
+      <p class="text-muted-foreground text-xs">
         Chat for this event will live here — powered by <span class="font-semibold">Zap</span>,
         OSN's messaging app.
       </p>
-      <p class="text-[10px] text-muted-foreground/70 mt-1">
+      <p class="text-muted-foreground/70 mt-1 text-[10px]">
         Tracked under Zap M2 · event id <code class="font-mono">{props.eventId}</code>
       </p>
     </div>

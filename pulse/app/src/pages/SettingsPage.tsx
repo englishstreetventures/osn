@@ -1,7 +1,8 @@
+import { useAuth } from "@osn/client/solid";
 import { A } from "@solidjs/router";
 import { createSignal, Show } from "solid-js";
 import { toast } from "solid-toast";
-import { useAuth } from "@osn/client/solid";
+
 import { updateMySettings } from "../lib/rsvps";
 
 type Visibility = "connections" | "no_one";
@@ -46,33 +47,33 @@ export function SettingsPage() {
   }
 
   return (
-    <main class="max-w-xl mx-auto px-4 py-6">
+    <main class="mx-auto max-w-xl px-4 py-6">
       <div class="mb-4">
-        <A href="/" class="text-sm text-primary hover:underline">
+        <A href="/" class="text-primary text-sm hover:underline">
           ← Back to events
         </A>
       </div>
-      <h1 class="text-2xl font-bold text-foreground mb-2">Pulse settings</h1>
-      <p class="text-sm text-muted-foreground mb-6">
+      <h1 class="text-foreground mb-2 text-2xl font-bold">Pulse settings</h1>
+      <p class="text-muted-foreground mb-6 text-sm">
         Settings specific to Pulse. OSN identity settings (name, handle, email) live in your OSN
         profile.
       </p>
 
       <Show
         when={session()}
-        fallback={<p class="text-sm text-muted-foreground">Sign in to change your settings.</p>}
+        fallback={<p class="text-muted-foreground text-sm">Sign in to change your settings.</p>}
       >
-        <section class="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
-          <h2 class="text-base font-semibold text-foreground">
+        <section class="border-border bg-card flex flex-col gap-3 rounded-xl border p-4">
+          <h2 class="text-foreground text-base font-semibold">
             Who can see events you're attending?
           </h2>
-          <p class="text-xs text-muted-foreground">
+          <p class="text-muted-foreground text-xs">
             Note: if an event has a public guest list, attending it opts you in regardless of this
             setting. Choose your event visibility carefully when RSVPing.
           </p>
-          <div class="flex flex-col gap-2 mt-2">
+          <div class="mt-2 flex flex-col gap-2">
             {OPTIONS.map((opt) => (
-              <label class="flex items-start gap-2 cursor-pointer">
+              <label class="flex cursor-pointer items-start gap-2" aria-label={opt.label}>
                 <input
                   type="radio"
                   name="attendanceVisibility"
@@ -82,18 +83,18 @@ export function SettingsPage() {
                   class="mt-1"
                 />
                 <span>
-                  <span class="text-sm font-medium text-foreground">{opt.label}</span>
-                  <span class="block text-xs text-muted-foreground">{opt.description}</span>
+                  <span class="text-foreground text-sm font-medium">{opt.label}</span>
+                  <span class="text-muted-foreground block text-xs">{opt.description}</span>
                 </span>
               </label>
             ))}
           </div>
-          <div class="flex justify-end mt-2">
+          <div class="mt-2 flex justify-end">
             <button
               type="button"
               disabled={saving()}
               onClick={save}
-              class="rounded-md px-3 py-1.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50"
             >
               {saving() ? "Saving…" : "Save"}
             </button>

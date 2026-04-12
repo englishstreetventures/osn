@@ -1,6 +1,7 @@
-import { Effect, Layer, type Context } from "effect";
 import { Database } from "bun:sqlite";
+
 import { drizzle, type BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
+import { Effect, Layer, type Context } from "effect";
 
 export function createDrizzleClient<S extends Record<string, unknown>>(
   dbPath: string,

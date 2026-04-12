@@ -1,11 +1,11 @@
-import { Data, Effect, Schema } from "effect";
-import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { events, eventRsvps, type Event, type EventRsvp } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { Data, Effect, Schema } from "effect";
+
 import { MAX_EVENT_GUESTS } from "../lib/limits";
 import { metricRsvpInviteBatch, metricRsvpListed, metricRsvpUpserted } from "../metrics";
 import { EventNotFound, DatabaseError, ValidationError } from "./events";
-import { ensurePulseUser, getAttendanceVisibilityBatch } from "./pulseUsers";
 import {
   getCloseFriendsOf,
   getConnectionIds,
@@ -14,6 +14,7 @@ import {
   OsnDb,
   type UserDisplay,
 } from "./graphBridge";
+import { ensurePulseUser, getAttendanceVisibilityBatch } from "./pulseUsers";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -461,11 +462,12 @@ export const listRsvps = (
     // per-row filter is skipped.
     const userIds = Array.from(new Set(rsvpRows.map((r) => r.userId)));
     const userMap = yield* getUserDisplays(userIds);
-    const joined: RsvpWithUser[] = rsvpRows.map((row) => ({
-      ...row,
-      user: userMap.get(row.userId) ?? null,
-      isCloseFriend: false,
-    }));
+    const joined: RsvpWithUser[] = rsvpRows.map((row) =>
+      Object.assign({}, row, {
+        user: userMap.get(row.userId) ?? null,
+        isCloseFriend: false,
+      }),
+    );
 
     // Even when per-row filtering isn't required (organiser view), we
     // still want to stamp the close-friend flag — the organiser sees
@@ -475,7 +477,7 @@ export const listRsvps = (
     // Close friends first, createdAt DESC within each bucket (stable
     // sort preserves the DB ordering). This is how we "surface close
     // friends" without using them as an access gate.
-    const sorted = [...filtered].sort((a, b) => {
+    const sorted = filtered.toSorted((a: RsvpWithUser, b: RsvpWithUser) => {
       if (a.isCloseFriend === b.isCloseFriend) return 0;
       return a.isCloseFriend ? -1 : 1;
     });

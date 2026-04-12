@@ -1,4 +1,5 @@
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
+
 import { fetchRsvpsByStatus, type Rsvp, type RsvpStatus } from "../lib/rsvps";
 import { RsvpAvatar } from "./RsvpAvatar";
 
@@ -32,8 +33,8 @@ export function RsvpModal(props: {
     token: props.accessToken,
     tab: tab(),
   }));
-  const [rsvps] = createResource(source, ({ eventId, token, tab }) =>
-    fetchRsvpsByStatus(eventId, tab as RsvpStatus, token),
+  const [rsvps] = createResource(source, ({ eventId, token, tab: selectedTab }) =>
+    fetchRsvpsByStatus(eventId, selectedTab as RsvpStatus, token),
   );
 
   const isOrganiser = () => props.currentUserId === props.event.createdByUserId;
@@ -48,14 +49,18 @@ export function RsvpModal(props: {
 
   return (
     <div
-      class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50"
+      role="none"
+      class="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
       onClick={(e) => {
         if (e.target === e.currentTarget) props.onClose();
       }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") props.onClose();
+      }}
     >
-      <div class="w-full sm:max-w-lg bg-card rounded-t-xl sm:rounded-xl border border-border shadow-xl max-h-[85vh] flex flex-col">
-        <div class="flex items-center justify-between p-4 border-b border-border">
-          <h2 class="text-base font-semibold text-foreground">Guest list</h2>
+      <div class="bg-card border-border flex max-h-[85vh] w-full flex-col rounded-t-xl border shadow-xl sm:max-w-lg sm:rounded-xl">
+        <div class="border-border flex items-center justify-between border-b p-4">
+          <h2 class="text-foreground text-base font-semibold">Guest list</h2>
           <button
             type="button"
             onClick={props.onClose}
@@ -66,13 +71,13 @@ export function RsvpModal(props: {
           </button>
         </div>
 
-        <div class="flex gap-1 p-2 border-b border-border overflow-x-auto">
+        <div class="border-border flex gap-1 overflow-x-auto border-b p-2">
           <For each={tabs.filter((t) => t.show())}>
             {(t) => (
               <button
                 type="button"
                 onClick={() => setTab(t.id)}
-                class={`px-3 py-1.5 rounded-md text-xs font-medium ${
+                class={`rounded-md px-3 py-1.5 text-xs font-medium ${
                   tab() === t.id
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-muted"
@@ -88,31 +93,31 @@ export function RsvpModal(props: {
           <Show
             when={!locked()}
             fallback={
-              <div class="text-center py-8">
-                <p class="text-sm text-muted-foreground">This event's guest list is private.</p>
-                <p class="text-xs text-muted-foreground mt-1">
+              <div class="py-8 text-center">
+                <p class="text-muted-foreground text-sm">This event's guest list is private.</p>
+                <p class="text-muted-foreground mt-1 text-xs">
                   Only the organiser can see who's attending.
                 </p>
               </div>
             }
           >
             <Show when={rsvps.loading}>
-              <p class="text-sm text-muted-foreground text-center py-4">Loading…</p>
+              <p class="text-muted-foreground py-4 text-center text-sm">Loading…</p>
             </Show>
             <Show when={!rsvps.loading && (rsvps()?.length ?? 0) === 0}>
-              <p class="text-sm text-muted-foreground text-center py-4">No one here yet.</p>
+              <p class="text-muted-foreground py-4 text-center text-sm">No one here yet.</p>
             </Show>
             <ul class="flex flex-col gap-2">
               <For each={rsvps() ?? []}>
                 {(rsvp: Rsvp) => (
                   <li class="flex items-center gap-3">
                     <RsvpAvatar rsvp={rsvp} />
-                    <div class="flex-1 min-w-0">
-                      <p class="text-sm font-medium text-foreground truncate">
+                    <div class="min-w-0 flex-1">
+                      <p class="text-foreground truncate text-sm font-medium">
                         {rsvp.user?.displayName ?? `@${rsvp.user?.handle ?? "unknown"}`}
                       </p>
                       <Show when={rsvp.user?.handle && rsvp.user?.displayName}>
-                        <p class="text-xs text-muted-foreground">@{rsvp.user!.handle}</p>
+                        <p class="text-muted-foreground text-xs">@{rsvp.user!.handle}</p>
                       </Show>
                     </div>
                   </li>

@@ -1,6 +1,6 @@
-import { onMount } from "solid-js";
-import { useAuth } from "@osn/client/solid";
 import type { LoginClient } from "@osn/client";
+import { useAuth } from "@osn/client/solid";
+import { onMount } from "solid-js";
 
 /**
  * Invisible helper component: on mount, checks the current URL for a
@@ -47,6 +47,7 @@ export function MagicLinkHandler(props: MagicLinkHandlerProps) {
       .then(() => props.onSuccess?.())
       .catch((err) => {
         if (props.onError) props.onError(err);
+        // eslint-disable-next-line no-console -- client-side fallback when no onError handler
         else console.error("[MagicLinkHandler] verify failed", err);
       });
   });

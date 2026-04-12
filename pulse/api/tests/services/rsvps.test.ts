@@ -1,5 +1,14 @@
 import { it, expect } from "@effect/vitest";
 import { Effect, Layer } from "effect";
+
+import { updateSettings } from "../../src/services/pulseUsers";
+import {
+  inviteGuests,
+  latestRsvps,
+  listRsvps,
+  rsvpCounts,
+  upsertRsvp,
+} from "../../src/services/rsvps";
 import { createTestLayer, seedEvent } from "../helpers/db";
 import {
   createOsnTestContext,
@@ -8,14 +17,6 @@ import {
   seedOsnUser,
   type OsnTestContext,
 } from "../helpers/osnDb";
-import {
-  inviteGuests,
-  latestRsvps,
-  listRsvps,
-  rsvpCounts,
-  upsertRsvp,
-} from "../../src/services/rsvps";
-import { updateSettings } from "../../src/services/pulseUsers";
 
 function setup() {
   const pulse = createTestLayer();

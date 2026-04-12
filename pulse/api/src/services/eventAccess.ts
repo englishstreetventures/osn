@@ -1,7 +1,8 @@
-import { Effect } from "effect";
-import { and, eq } from "drizzle-orm";
 import { events, eventRsvps, type Event } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { and, eq } from "drizzle-orm";
+import { Effect } from "effect";
+
 import { DatabaseError, EventNotFound } from "./events";
 
 /**

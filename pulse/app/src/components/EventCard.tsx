@@ -1,5 +1,6 @@
-import { Show } from "solid-js";
 import { A } from "@solidjs/router";
+import { Show } from "solid-js";
+
 import type { EventItem } from "../lib/types";
 import { formatTime } from "../lib/utils";
 
@@ -32,47 +33,47 @@ export function EventCard(props: {
     !!props.currentUserId && props.event.createdByUserId === props.currentUserId;
 
   return (
-    <div class="rounded-xl border border-border bg-card overflow-hidden">
+    <div class="border-border bg-card overflow-hidden rounded-xl border">
       {/* The block above the action row is a single navigable link to the
           full event view. We exclude the bottom row (Maps link + Delete
           button) so nested interactive elements don't steal the click. */}
       <A href={`/events/${props.event.id}`} class="block hover:opacity-95">
         <Show when={props.event.imageUrl}>
           <img
-            class="w-full h-44 object-cover"
+            class="h-44 w-full object-cover"
             src={props.event.imageUrl!}
             alt={props.event.title}
           />
         </Show>
         <div class="p-4 pb-0">
-          <div class="flex items-center gap-2 mb-2">
+          <div class="mb-2 flex items-center gap-2">
             <Show when={props.event.category}>
-              <span class="text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+              <span class="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-semibold tracking-wide uppercase">
                 {props.event.category}
               </span>
             </Show>
             <span
-              class={`text-xs ${props.event.status === "ongoing" ? "text-green-600 font-semibold" : props.event.status === "cancelled" ? "text-destructive" : "text-muted-foreground"}`}
+              class={`text-xs ${props.event.status === "ongoing" ? "font-semibold text-green-600" : props.event.status === "cancelled" ? "text-destructive" : "text-muted-foreground"}`}
             >
               {props.event.status}
             </span>
           </div>
-          <h2 class="text-base font-semibold text-foreground mb-1">{props.event.title}</h2>
+          <h2 class="text-foreground mb-1 text-base font-semibold">{props.event.title}</h2>
         </div>
       </A>
       {/* Bottom half — NOT wrapped in the link so nested interactive
           elements (Maps link, Delete button) receive their own clicks. */}
       <div class="p-4 pt-2">
         <Show when={props.event.description}>
-          <p class="text-sm text-muted-foreground line-clamp-2 mb-3">{props.event.description}</p>
+          <p class="text-muted-foreground mb-3 line-clamp-2 text-sm">{props.event.description}</p>
         </Show>
         <Show when={props.event.createdByName}>
           {(name) => (
-            <div class="flex items-center gap-2 mb-3">
+            <div class="mb-3 flex items-center gap-2">
               <Show
                 when={props.event.createdByAvatar}
                 fallback={
-                  <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-muted text-muted-foreground text-[10px] font-semibold shrink-0">
+                  <span class="bg-muted text-muted-foreground inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold">
                     {initials(name())}
                   </span>
                 }
@@ -81,15 +82,15 @@ export function EventCard(props: {
                   <img
                     src={avatar()}
                     alt={name()}
-                    class="w-6 h-6 rounded-full object-cover shrink-0"
+                    class="h-6 w-6 shrink-0 rounded-full object-cover"
                   />
                 )}
               </Show>
-              <span class="text-xs text-muted-foreground">Hosted by {name()}</span>
+              <span class="text-muted-foreground text-xs">Hosted by {name()}</span>
             </div>
           )}
         </Show>
-        <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <div class="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 text-xs">
           <Show when={props.event.venue}>
             <span>{props.event.venue}</span>
           </Show>
@@ -100,7 +101,7 @@ export function EventCard(props: {
         </div>
         <div class="mt-3 flex items-center justify-between gap-3">
           <div class="flex items-center gap-3">
-            <A href={`/events/${props.event.id}`} class="text-xs text-primary hover:underline">
+            <A href={`/events/${props.event.id}`} class="text-primary text-xs hover:underline">
               View details
             </A>
             <Show when={mapsUrl(props.event)}>
@@ -109,7 +110,7 @@ export function EventCard(props: {
                   href={url()}
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-xs text-primary hover:underline"
+                  class="text-primary text-xs hover:underline"
                 >
                   Open in Maps
                 </a>
@@ -122,7 +123,7 @@ export function EventCard(props: {
                 if (confirm(`Delete "${props.event.title}"?`)) props.onDelete(props.event.id);
               }}
               disabled={props.deleting}
-              class="text-xs text-destructive hover:text-destructive/80 disabled:opacity-50 disabled:cursor-not-allowed"
+              class="text-destructive hover:text-destructive/80 text-xs disabled:cursor-not-allowed disabled:opacity-50"
             >
               {props.deleting ? "Deleting…" : "Delete"}
             </button>

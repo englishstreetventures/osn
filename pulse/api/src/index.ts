@@ -1,7 +1,8 @@
-import { Elysia } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { healthRoutes, initObservability, observabilityPlugin } from "@shared/observability";
 import { Effect, Logger } from "effect";
+import { Elysia } from "elysia";
+
 import { eventsRoutes, settingsRoutes } from "./routes/events";
 
 // Initialise observability (logger, tracing, metrics) before building the app.

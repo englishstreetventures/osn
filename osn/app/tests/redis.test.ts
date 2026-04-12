@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Layer } from "effect";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
 import { initRedisClient } from "../src/redis";
 
 // Mock @shared/redis to avoid real ioredis connections

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "@effect/vitest";
-import { it as vitestIt } from "vitest";
 import { Effect } from "effect";
+import { it as vitestIt } from "vitest";
+
 import { Redis, RedisMemoryLive, sanitizeCause } from "../src/service";
 
 describe("RedisMemoryLive", () => {

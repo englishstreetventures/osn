@@ -1,5 +1,6 @@
 import { context, type Context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { Elysia } from "elysia";
+
 import { redact } from "../logger/redact";
 import { httpServerActiveRequests, recordHttpRequest } from "../metrics/http";
 import { extractTraceContext } from "../tracing/propagation";

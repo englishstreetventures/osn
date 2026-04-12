@@ -1,6 +1,6 @@
+import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
 
 const mockFetch = vi.fn();
 vi.mock("../../src/lib/rsvps", () => ({

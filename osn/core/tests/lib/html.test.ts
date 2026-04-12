@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import { buildAuthorizeHtml } from "../../src/lib/html";
 
 const baseParams = {

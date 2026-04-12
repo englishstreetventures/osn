@@ -1,4 +1,5 @@
 import { createSignal, createEffect, onCleanup, For, Show } from "solid-js";
+
 import { composeLabel, type PhotonFeature } from "./utils";
 
 export function LocationInput(props: {
@@ -72,14 +73,14 @@ export function LocationInput(props: {
         onInput={handleInput}
         onBlur={handleBlur}
         onFocus={() => suggestions().length > 0 && setOpen(true)}
-        class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+        class="border-input bg-background text-foreground focus:ring-ring w-full rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2"
       />
       <Show when={open() && suggestions().length > 0}>
-        <ul class="absolute z-10 mt-1 w-full rounded-md border border-border bg-card shadow-lg">
+        <ul class="border-border bg-card absolute z-10 mt-1 w-full rounded-md border shadow-lg">
           <For each={suggestions()}>
             {(feature) => (
               <li
-                class="px-3 py-2 text-sm text-foreground cursor-pointer hover:bg-muted"
+                class="text-foreground hover:bg-muted cursor-pointer px-3 py-2 text-sm"
                 onMouseDown={() => {
                   selecting = true;
                   select(feature);

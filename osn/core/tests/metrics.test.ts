@@ -1,5 +1,6 @@
 import { Data } from "effect";
 import { describe, expect, it } from "vitest";
+
 import { classifyError, OSN_METRICS } from "../src/metrics";
 
 /**
