@@ -15,7 +15,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [x] S-H3 — Open redirect in `/magic/verify` fixed: `allowedRedirectUris` field on `AuthConfig`; validated at `/authorize`, `/magic/verify` (service-level), and `/token` (route-level origin match + S-M9 exact redirect_uri match against pkceStore)
 - [x] S-H4 — PKCE now mandatory at `/token`: `state` and `code_verifier` required for `authorization_code` grants; unknown/expired state returns 400; redirect_uri must match the value stored at `/authorize` (S-M9 RFC 6749 §4.1.3)
 - [x] S-H5 — Legacy unauth'd passkey path removed: `resolvePasskeyEnrollPrincipal` now returns 401 when `Authorization` header is absent. Hosted `/authorize` HTML passkey-enrollment prompt removed (passkey enrollment requires auth; users enrol through first-party apps). `console.warn` deprecation log removed. `SimpleWebAuthn` script tag removed from hosted HTML.
-- [ ] ARC token verification middleware on internal graph routes (`/graph/internal/*`) — see [[arc-tokens]], [[arc-token-debugging]]
+- [x] ARC token verification middleware on internal graph routes (`/graph/internal/*`) — see [[arc-tokens]], [[arc-token-debugging]]. Implemented `requireArc` middleware in `osn/core/src/lib/arc-middleware.ts` and seven `/graph/internal/*` read-only endpoints (either-blocked, connection-status, connections, close-friends, is-close-friend, close-friends-of, user-displays) in `osn/core/src/routes/graph-internal.ts`. 21 new tests.
 - [x] Redis migration — Phase 3 (wire up rate limiters) done: `createRedisAuthRateLimiters()` + `createRedisGraphRateLimiter()` factories in `osn/core`, env-driven backend selection in `osn/app` (`REDIS_URL` → Redis, unset → in-memory), 10 integration tests. Resolves S-M2 for production. Phase 4 (auth state migration) is next — see [[redis]]
 
 ---
@@ -72,7 +72,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [x] 50 tests: services, routes, lib/crypto, lib/html
 - [x] Social graph data model (connections, close friends, blocks) — 209 tests
 - [x] Handle system — registration, real-time availability check, email/handle sign-in toggle
-- [ ] ARC token verification middleware on internal graph routes (`/graph/internal/*`)
+- [x] ARC token verification middleware on internal graph routes (`/graph/internal/*`)
 - [ ] Per-app vs global blocking logic (deferred — global blocking across all OSN apps for now)
 - [ ] Interest profile selection (onboarding)
 - [ ] Third-party app authorization flow
@@ -340,6 +340,7 @@ Address **High** items before any non-local deployment.
 - [x] S-M31 — Redaction deny-list was missing user-chosen name fields — `displayName` (the only such field that exists in the schema today) was added so it gets scrubbed alongside `email` / `handle`. Originally also added speculative entries for `firstName`, `lastName`, `fullName`, `legalName`, `dob`, `address`, `streetAddress`, `postalCode`, `ssn`, `taxId`; these were removed in the S-H21 follow-up because none of them exist as real object keys in the codebase. The deny-list is now grown only when a sensitive field actually lands in the schema/types — see the file header in `shared/observability/src/logger/redact.ts` for the criteria and the lock-step assertion in `redact.test.ts` that pins the exact set.
 - [x] S-M32 — `span.recordException(error)` in the Elysia plugin wrote the error's enumerable own properties as span event attributes outside the log redactor's reach. Effect tagged errors embedding `email`, `handle`, `cause` etc. would leak to trace storage. Fixed: plugin wraps `recordException` to first scrub the error via `redact()` and only passes `name` + redacted `message` to OTel; `span.setStatus.message` is also routed through `redact()`.
 - [x] S-M33 — `enrollmentToken` (and snake-case `enrollment_token`) was missing from the trimmed redaction deny-list. It is a real single-use bearer credential returned by `/register/complete` (`osn/core/src/routes/auth.ts:225`) and sent back as `Authorization: Bearer <token>` for passkey enrollment (`osn/client/src/register.ts:131,142`) — same secrecy profile as `accessToken`. Defence-in-depth (no current log path emits the completeRegistration result), but the file header criterion in `redact.ts` explicitly requires real-bearer-credential fields to be on the list. Fixed by adding both spellings to `REDACT_KEYS` under the OAuth token block, updating the lock-step assertion + positive test, and pointing at the two call sites in the comment.
+- [ ] S-M43 — No rate limiting on `/graph/internal/*` S2S endpoints. ARC tokens are the primary gate, but a compromised service account could hammer graph queries without throttling. Add per-issuer rate limiter (keyed on `caller.iss`) via the existing `RateLimiterBackend` abstraction. — see [[arc-tokens]]
 - [ ] S-M34 — Rate limiter trusts `X-Forwarded-For` without reverse-proxy guarantee — any client can spoof the header to bypass IP-based rate limits. Add `trustProxy` config flag or fall back to socket IP when no proxy is configured. — see [[rate-limiting]]
 - [ ] S-M35 — Redirect URI allowlist matches origin only, not exact URI per OAuth 2.0 Security BCP (RFC 9700 §4.1.3). Upgrade to exact string comparison for stricter validation.
 - [x] S-M36 — Async `RateLimiterBackend.check()` rejection was fail-open: unhandled rejection propagated as 500 instead of 429, bypassing rate limit counter. Fixed: `rateLimit()` and `requireRateLimit()` wrap `await check()` in try/catch, defaulting to `false` (deny) on backend errors. Fail-closed posture established before Redis backend lands.
@@ -383,6 +384,8 @@ Address **High** items before any non-local deployment.
 - [x] S-L26 — No runtime validation on injected `RateLimiterBackend` shape — a misconfigured DI object would cause `TypeError: check is not a function` at request time. Fixed: `createAuthRoutes` and `createGraphRoutes` validate every limiter slot at construction time, failing fast at boot.
 - [x] S-L27 — `initRedisClient()` fail-open startup fallback weakens rate limiting in multi-replica production (each process gets independent in-memory counters). Fixed: `REDIS_REQUIRED=true` env var added — when set, process exits on Redis failure instead of falling back. Operators can choose availability vs rate-limit integrity. — see [[redis]]
 - [x] S-L28 — `createClientFromUrl()` used eager ioredis connection, allowing zombie connections on health-check failure. Fixed: `lazyConnect: true` + explicit `connect()` / `disconnect()` lifecycle via `ConnectableRedisClient` interface. — see [[redis]]
+- [ ] S-L29 — `/graph/internal/*` routes mounted under open CORS (`Access-Control-Allow-Origin: *`). S2S endpoints should not be browser-reachable. Restrict CORS or mount on an internal-only port. — see [[arc-tokens]]
+- [ ] S-L30 — `createInternalGraphRoutes` does not accept a `loggerLayer` — ARC auth failures and route errors produce no structured log entries. Add observability layer matching `createGraphRoutes` pattern. — see [[arc-tokens]], [[observability/overview]]
 
 ---
 
@@ -406,6 +409,9 @@ Address **High** items before any non-local deployment.
 - [x] P-W17 — `removeConnection` and `blockUser` multi-step mutations not wrapped in a transaction — fixed: both now use `db.transaction()`
 - [x] P-W18 — `@shared/redis` `wrapIoRedis` sent full Lua script body on every EVAL call. Fixed: transparent EVALSHA caching with NOSCRIPT fallback — see [[redis]]. Further improved: SHA now computed eagerly on first sight of each script (P-W2 follow-up) and EVALSHA tried first on every call.
 - [x] P-W19 — `@shared/redis` `createMemoryClient` had no expiry sweep (unbounded Map growth). Fixed: proactive sweep when store exceeds `maxEntries` cap, mirroring `osn/core` rate limiter pattern — see [[redis]]
+- [x] P-W20 — Double base64-decode in `requireArc` middleware (`peekIssuer` + `peekScopes` each parsed JWT payload independently). Fixed: merged into single `peekClaims()` function. — see [[arc-tokens]]
+- [x] P-W21 — Unbounded `userIds` array on `POST /graph/internal/user-displays` and `POST /graph/internal/close-friends-of` — could exceed SQLite variable limit (999). Fixed: `maxItems: 200` on both TypeBox schemas. — see [[arc-tokens]]
+- [ ] P-W22 — Two `Effect.runPromise` calls per internal graph request (one for ARC key resolution, one for graph query). Consolidate into single fiber when S2S throughput grows. — see [[arc-tokens]]
 - [ ] P-W5 — Batch status-transition `UPDATE`s in `listEvents`/`listTodayEvents` (N individual writes today)
 - [x] P-W6 — N+1 queries in graph list functions — replaced with `inArray` batch fetches
 - [x] P-W7 — `eitherBlocked` made two sequential `isBlocked` calls — collapsed to single OR query
@@ -425,6 +431,7 @@ Address **High** items before any non-local deployment.
 - [x] P-I14 — `@shared/redis` `checkRedisHealth` timeout timer leaked on success path. Fixed: `clearTimeout` in `.finally()` — see [[redis]]
 - [x] P-I15 — `@shared/redis` `RedisLive` startup ping had no timeout (indefinite hang on unresponsive Redis). Fixed: 5s timeout with `Promise.race` — see [[redis]]
 - [x] P-I16 — `void Effect.runPromise(...)` fire-and-forget log statements in `initRedisClient()` could swallow observability bootstrap errors. Fixed: warning-level logs are now `await`-ed; info-level remain fire-and-forget. — see [[redis]]
+- [ ] P-I5 — `/graph/internal/connections` and `/close-friends` do not expose `offset` parameter — callers cannot paginate beyond the first 100 results. Add `offset: t.Optional(t.String())` to query schema. — see [[arc-tokens]]
 - [ ] P-I3 — `new TextEncoder()` allocated per `verifyPkceChallenge` call — move to module scope
 - [ ] P-I4 — `AuthProvider` reconstructs Effect `Layer` on every render — wrap with `createMemo`
 - [ ] P-I5 — `completePasskeyLogin` calls `findUserByEmail` redundantly — `pk.userId` already on passkey row

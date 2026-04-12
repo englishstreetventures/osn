@@ -53,6 +53,7 @@
       "version": "0.10.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
+        "@osn/crypto": "workspace:*",
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
         "@shared/redis": "workspace:*",

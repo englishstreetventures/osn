@@ -3,6 +3,7 @@ import { cors } from "@elysiajs/cors";
 import {
   createAuthRoutes,
   createGraphRoutes,
+  createInternalGraphRoutes,
   createRedisAuthRateLimiters,
   createRedisGraphRateLimiter,
 } from "@osn/core";
@@ -50,7 +51,8 @@ const app = new Elysia()
   .use(healthRoutes({ serviceName: SERVICE_NAME }))
   .get("/", () => ({ status: "ok", service: "osn-auth" }))
   .use(createAuthRoutes(authConfig, DbLive, observabilityLayer, authRateLimiters))
-  .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter));
+  .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter))
+  .use(createInternalGraphRoutes(DbLive));
 
 if (process.env.NODE_ENV !== "test") {
   app.listen(port);

@@ -125,7 +125,7 @@ Steps:
 
 Pulse API imports `createGraphService()` from `@osn/core` directly (zero network overhead). ARC tokens guard HTTP-based S2S (`/graph/internal/*`) -- needed when scaling to multi-process, and immediately for any third-party app. See the "S2S scaling" deferred decision in TODO.md.
 
-**Next step:** ARC token verification middleware on internal graph routes (`/graph/internal/*`) is in the Up Next list.
+**Implemented:** ARC token verification middleware (`requireArc` in `osn/core/src/lib/arc-middleware.ts`) protects seven read-only `/graph/internal/*` endpoints (see `osn/core/src/routes/graph-internal.ts`). The graphBridge in Pulse API can migrate to HTTP calls against these endpoints when scaling to multi-process.
 
 ## Security Notes
 
@@ -144,5 +144,7 @@ ARC token metrics live in `osn/crypto/src/arc-metrics.ts`:
 
 - [osn/crypto/src/arc.ts](../osn/crypto/src/arc.ts) -- ARC token implementation
 - [osn/crypto/src/arc-metrics.ts](../osn/crypto/src/arc-metrics.ts) -- ARC metrics
+- [osn/core/src/lib/arc-middleware.ts](../osn/core/src/lib/arc-middleware.ts) -- `requireArc` Elysia middleware
+- [osn/core/src/routes/graph-internal.ts](../osn/core/src/routes/graph-internal.ts) -- Internal graph routes (ARC-protected)
 - [osn/db/src/schema.ts](../osn/db/src/schema.ts) -- `service_accounts` table definition
 - [CLAUDE.md](../CLAUDE.md) -- "ARC Tokens (S2S Auth)" section
