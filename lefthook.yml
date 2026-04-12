@@ -2,7 +2,7 @@ pre-push:
   parallel: false
   commands:
     lint:
-      run: bunx oxlint .
+      run: bunx oxlint --ignore-pattern '*.astro' .
     format:
       run: bunx oxfmt --check .
     test:

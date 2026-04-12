@@ -4,36 +4,52 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Current Status
 
-Monorepo built and functional. `packages/db` has Drizzle schema (guests, events, guestEvents, rsvps, sessions). `apps/api` has Hono + Effect service layer with Effect Schema validation, a claim code route backed by bun:sqlite in-memory DB seeded from JSON, an organiser dashboard route, and 11 passing Vitest tests. `apps/web` has Astro + SolidJS with a forest-green landing page, wax seal SVG, guest code entry → View Transition morph → personalised invite view with event cards, and an organiser dashboard. Local dev runs via `bun run dev`. No auth yet — D1, passkeys, and RSVP are next.
+Monorepo built and functional. `packages/db` has Drizzle schema (guests, events, guestEvents, rsvps, sessions). `apps/api` has Hono + Effect service layer with Effect Schema validation, a claim code route backed by bun:sqlite in-memory DB seeded from JSON, an organiser dashboard route, and 11 passing Vitest tests. `apps/web` has Astro + SolidJS with a mobile-first scrollable invite page — hero (photo + monogram), our story, guest login, conditional event sections, RSVP modal stub, and dress code section. Local dev runs via `bun run dev`. No auth yet — D1, passkeys, invite groups, and full RSVP are next.
 
 ---
 
 ## Up Next
 
-- [ ] Tailwind v4 — migrate from plain CSS (`@tailwindcss/vite`, CSS-first config)
-- [ ] "Open in Maps" button on event cards (Apple Maps / Google Maps, user-choosable)
-- [ ] Add-to-calendar links on event cards (Google Calendar, Apple Calendar, .ics)
+- [ ] Invite groups — schema + API: shared claim code for multiple people (couple, family)
+- [ ] Per-person per-event RSVP with dietary requirements
+- [ ] Update seed data: mehndi, sangeet, wedding (replace reception with sangeet)
 - [ ] Passkey (WebAuthn) registration + authentication endpoints
 - [ ] Auth middleware — validate passkey session token
-- [ ] RSVP route: `POST /api/rsvp` — accept/decline per event
+- [ ] Wire RSVP modal to `POST /api/rsvp` endpoint
 - [ ] Rate-limit claim code attempts
+- [ ] Tailwind v4 migration
 
 ---
 
 ## apps/web
 
+### Done
 - [x] Astro + SolidJS project init
 - [x] View Transitions setup (page-level)
 - [x] Motion One integration (`@motionone/solid`)
-- [x] Skeleton landing page + claim code entry flow
-- [x] Personalised invite view (guest name, events)
+- [x] Mobile-first scrollable page structure
+- [x] Hero section (photo placeholder + monogram overlay)
+- [x] Our Story section
+- [x] Guest login section (claim code entry, refactored from ClaimFlow)
+- [x] Conditional event sections (shown after auth, per invited events)
+- [x] Event cards with time, place, and RSVP button
+- [x] RSVP response modal (stub — invite group members + attendance + dietary)
+- [x] Dress code section (colour palette + Pinterest embed placeholder)
+
+### To Do
+- [ ] Replace hero photo placeholder with actual photo
+- [ ] Customise monogram with couple's initials
+- [ ] Write Our Story content
+- [ ] Populate dress code colour palette swatches
+- [ ] Embed actual Pinterest board URLs
+- [ ] Wire RSVP modal to API (pending invite group backend)
+- [ ] Show invite group members in RSVP modal (pending backend)
+- [ ] Per-person attendance toggle + dietary input in modal
 - [ ] Tailwind v4 migration
-- [ ] "Open in Maps" button on event cards
-- [ ] Add-to-calendar (Google, Apple, .ics download)
-- [ ] RSVP form per event
+- [ ] "Open in Maps" button on event cards (Apple Maps / Google Maps)
+- [ ] Add-to-calendar links (Google Calendar, Apple Calendar, .ics)
 - [ ] Passkey registration + login UI
 - [ ] Magic link email fallback UI
-- [ ] Refactor for final design (after receiving brief from friend)
 
 ---
 
@@ -43,9 +59,11 @@ Monorepo built and functional. `packages/db` has Drizzle schema (guests, events,
 - [x] Effect Schema validation on request bodies
 - [x] `POST /api/claim` — validate claim code, return guest + event data
 - [x] `GET /api/organiser/guests` — return guest list with RSVP status
+- [ ] Invite groups table + API (claim code → group → members)
+- [ ] Update seed data: mehndi / sangeet / wedding events, invite groups with per-person event assignments
+- [ ] `POST /api/rsvp` — per-person per-event RSVP with dietary requirements
+- [ ] `GET /api/events` — list events for the wedding
 - [ ] Drizzle D1 client setup + first migration
-- [ ] `POST /rsvp` — submit RSVP for one or more events
-- [ ] `GET /events` — list events for the wedding
 - [ ] Auth middleware — validate passkey session or magic link token
 - [ ] Passkey (WebAuthn) registration + authentication endpoints
 - [ ] Magic link email dispatch (Resend)
@@ -56,6 +74,9 @@ Monorepo built and functional. `packages/db` has Drizzle schema (guests, events,
 ## packages/db
 
 - [x] Drizzle schema: `guests`, `events`, `guestEvents`, `rsvps`, `sessions`
+- [ ] Add `invite_groups` table (id, claim_code, name)
+- [ ] Add `invite_group_members` table (group_id, guest_id)
+- [ ] Add `dietary_requirements` column to rsvps (or separate table for per-event dietary)
 - [ ] First D1 migration
 - [ ] Seed script for local development
 
@@ -84,6 +105,7 @@ Monorepo built and functional. `packages/db` has Drizzle schema (guests, events,
 ## Performance Backlog
 
 - [ ] Landing page animations must not block LCP — defer Motion One until after first paint
+- [ ] Hero photo must be optimised (WebP/AVIF, responsive srcset)
 - [ ] Add-to-calendar data should not require a round-trip if event data is already hydrated in the page
 - [ ] .ics generation can be client-side to avoid unnecessary Worker invocation
 
@@ -93,6 +115,9 @@ Monorepo built and functional. `packages/db` has Drizzle schema (guests, events,
 
 | Question | Options considered | Deadline / trigger |
 |---|---|---|
+| Invite group schema | Separate table vs. group_id on guests | Before RSVP endpoint |
+| Per-event dietary storage | Column on rsvps vs. separate table | Before RSVP endpoint |
+| Pinterest embed approach | oEmbed API vs. iframe vs. static images | Before dress code section is wired up |
 | Platformise Cire | Multi-tenant SaaS vs stay bespoke | After friend's wedding ships |
 | SMS OTP fallback | Twilio/similar vs email-only | If magic link proves insufficient |
 | Seating planner | D1 table arrangement feature | Post-MVP |

@@ -1,6 +1,6 @@
 import { Hono } from "hono"
 import { Effect, Schema } from "effect"
-import { claimService, InvalidCode } from "../services/claim"
+import { claimService } from "../services/claim"
 import { ClaimBody } from "../schemas/claim"
 import { DbService } from "../db"
 import type { Db } from "../db"

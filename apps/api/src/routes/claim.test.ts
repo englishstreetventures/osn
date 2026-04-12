@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "bun:test"
+import { describe, it, expect } from "bun:test"
 import { Effect } from "effect"
 import { createApp } from "../app"
 import { createDb, seedDb } from "../db/setup"

@@ -1,5 +1,7 @@
 ---
-import ClaimFlow from '../components/ClaimFlow'
+import Hero from '../components/Hero.astro'
+import OurStory from '../components/OurStory.astro'
+import InvitePage from '../components/InvitePage'
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -9,12 +11,20 @@ import ClaimFlow from '../components/ClaimFlow'
     <title>You're Invited</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
+    </noscript>
   </head>
   <body>
-    <main>
-      <ClaimFlow client:load apiUrl={import.meta.env.PUBLIC_API_URL} />
-    </main>
+    <Hero />
+    <OurStory />
+    <InvitePage client:visible apiUrl={import.meta.env.PUBLIC_API_URL} />
   </body>
 </html>
 
@@ -53,11 +63,43 @@ import ClaimFlow from '../components/ClaimFlow'
     min-height: 100vh;
   }
 
-  main {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem 1rem;
+  /* ── Shared section rhythm (used by .astro + SolidJS components) ── */
+  .section {
+    padding: 4rem 1.5rem;
+  }
+
+  .section-inner {
+    max-width: 540px;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  .section-eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    font-size: 0.72rem;
+    color: var(--color-gold);
+    font-family: var(--font-body);
+    margin: 0 0 0.75rem;
+  }
+
+  .section-heading {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 5vw, 3rem);
+    font-weight: 300;
+    font-style: italic;
+    color: var(--color-text);
+    margin: 0 0 1.25rem;
+    line-height: 1.15;
+  }
+
+  @media (min-width: 641px) {
+    .section {
+      padding: 5rem 2rem;
+    }
+
+    .section-inner {
+      max-width: 640px;
+    }
   }
 </style>
