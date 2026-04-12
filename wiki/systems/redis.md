@@ -9,7 +9,7 @@ tags:
   - infrastructure
   - scaling
   - planned
-status: planned
+status: in-progress
 related:
   - "[[rate-limiting]]"
   - "[[arc-tokens]]"
@@ -47,17 +47,17 @@ No Redis dependency -- just the interfaces and refactoring.
 - [x] Refactored graph route inline `rateLimitStore` + `checkRateLimit` (`osn/core/src/routes/graph.ts:10-30`) to use shared `createRateLimiter` from `rate-limit.ts` (fixes P-W1, S-L18)
 - [x] Updated `createAuthRoutes` and graph route factories to accept injected rate limiter instances (DI for testability)
 
-## Phase 2: @shared/redis Package
+## Phase 2: @shared/redis Package (DONE)
 
-Create the Redis package following the `@shared/db-utils` pattern.
+Created the `@shared/redis` package following the `@shared/db-utils` pattern.
 
-- [ ] Create `shared/redis` workspace (`@shared/redis`) -- mirrors `@shared/db-utils` pattern
-- [ ] Effect-based `Redis` service tag (`Context.Tag`) + `RedisLive` layer (connection from `REDIS_URL` env); `Layer.scoped` finalizer calls `redis.quit()`
-- [ ] `RedisError` tagged error (`Data.TaggedError`, `_tag: "RedisError"`)
-- [ ] `createRedisRateLimiter(config)` -- Lua script for atomic INCR + PEXPIRE (single round-trip fixed-window); key format `rl:{namespace}:{key}`
-- [ ] Redis health probe for `/ready` endpoint (simple `PING` with timeout)
-- [ ] Dev-mode: in-memory fallback when `REDIS_URL` is unset (local dev without Redis)
-- [ ] Tests: Lua script atomicity, window expiry, key independence, connection failure fallback
+- [x] Create `shared/redis` workspace (`@shared/redis`) -- mirrors `@shared/db-utils` pattern
+- [x] Effect-based `Redis` service tag (`Context.Tag`) + `RedisLive` layer (connection from `REDIS_URL` env); `Layer.scoped` finalizer calls `redis.quit()`
+- [x] `RedisError` tagged error (`Data.TaggedError`, `_tag: "RedisError"`)
+- [x] `createRedisRateLimiter(config)` -- Lua script for atomic INCR + PEXPIRE (single round-trip fixed-window); key format `rl:{namespace}:{key}`
+- [x] Redis health probe for `/ready` endpoint (simple `PING` with timeout via `checkRedisHealth()`)
+- [x] Dev-mode: in-memory fallback when `REDIS_URL` is unset -- `createMemoryClient()` + `RedisMemoryLive` layer
+- [x] Tests: 13 tests across 3 files (rate limiter, health probe, Effect service layer)
 
 ## Phase 3: Wire Up
 
@@ -133,6 +133,12 @@ Decision deferred until deploying beyond localhost.
 
 ## Source Files
 
+- [shared/redis/src/index.ts](../shared/redis/src/index.ts) -- `@shared/redis` public API (Phase 2)
+- [shared/redis/src/client.ts](../shared/redis/src/client.ts) -- `RedisClient` interface, `wrapIoRedis()`, `createMemoryClient()` (Phase 2)
+- [shared/redis/src/service.ts](../shared/redis/src/service.ts) -- `Redis` Context.Tag, `RedisLive`, `RedisMemoryLive` layers (Phase 2)
+- [shared/redis/src/rate-limiter.ts](../shared/redis/src/rate-limiter.ts) -- `createRedisRateLimiter()` with Lua script (Phase 2)
+- [shared/redis/src/health.ts](../shared/redis/src/health.ts) -- `checkRedisHealth()` probe (Phase 2)
+- [shared/redis/src/errors.ts](../shared/redis/src/errors.ts) -- `RedisError` tagged error (Phase 2)
 - [osn/core/src/lib/rate-limit.ts](../osn/core/src/lib/rate-limit.ts) -- `RateLimiterBackend` interface (Phase 1)
 - [osn/core/src/routes/auth.ts](../osn/core/src/routes/auth.ts) -- 11 auth rate limiter instances to migrate
 - [osn/core/src/routes/graph.ts](../osn/core/src/routes/graph.ts) -- graph rate limiter to migrate

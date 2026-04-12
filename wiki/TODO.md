@@ -16,7 +16,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [x] S-H4 — PKCE now mandatory at `/token`: `state` and `code_verifier` required for `authorization_code` grants; unknown/expired state returns 400; redirect_uri must match the value stored at `/authorize` (S-M9 RFC 6749 §4.1.3)
 - [x] S-H5 — Legacy unauth'd passkey path removed: `resolvePasskeyEnrollPrincipal` now returns 401 when `Authorization` header is absent. Hosted `/authorize` HTML passkey-enrollment prompt removed (passkey enrollment requires auth; users enrol through first-party apps). `console.warn` deprecation log removed. `SimpleWebAuthn` script tag removed from hosted HTML.
 - [ ] ARC token verification middleware on internal graph routes (`/graph/internal/*`) — see [[arc-tokens]], [[arc-token-debugging]]
-- [ ] Redis migration — `@shared/redis` package + migrate rate limiters to shared counter (S-M2, S-M8, P-W1, P-W4, S-L18, S-L23) — see [[redis]]
+- [ ] Redis migration — Phase 2 (`@shared/redis` package) done; Phase 3 (wire up rate limiters) is next — see [[redis]]
 
 ---
 
@@ -240,13 +240,13 @@ Subsumes: S-M2, S-M8, P-W1, P-W4, S-L18, S-L23. See [[rate-limiting]] for curren
 - [x] Update `createAuthRoutes` and graph route factories to accept injected rate limiter instances (DI for testability)
 
 **Phase 2 — `@shared/redis` package**
-- [ ] Create `shared/redis` workspace (`@shared/redis`) — mirrors `@shared/db-utils` pattern
-- [ ] Effect-based `Redis` service tag (`Context.Tag`) + `RedisLive` layer (connection from `REDIS_URL` env); `Layer.scoped` finalizer calls `redis.quit()`
-- [ ] `RedisError` tagged error (`Data.TaggedError`, `_tag: "RedisError"`)
-- [ ] `createRedisRateLimiter(config)` — Lua script for atomic INCR + PEXPIRE (single round-trip fixed-window); key format `rl:{namespace}:{key}`
-- [ ] Redis health probe for `/ready` endpoint (simple `PING` with timeout)
-- [ ] Dev-mode: in-memory fallback when `REDIS_URL` is unset (local dev without Redis)
-- [ ] Tests: Lua script atomicity, window expiry, key independence, connection failure fallback
+- [x] Create `shared/redis` workspace (`@shared/redis`) — mirrors `@shared/db-utils` pattern
+- [x] Effect-based `Redis` service tag (`Context.Tag`) + `RedisLive` layer (connection from `REDIS_URL` env); `Layer.scoped` finalizer calls `redis.quit()`
+- [x] `RedisError` tagged error (`Data.TaggedError`, `_tag: "RedisError"`)
+- [x] `createRedisRateLimiter(config)` — Lua script for atomic INCR + PEXPIRE (single round-trip fixed-window); key format `rl:{namespace}:{key}`
+- [x] Redis health probe for `/ready` endpoint (simple `PING` with timeout)
+- [x] Dev-mode: in-memory fallback when `REDIS_URL` is unset (local dev without Redis) — `createMemoryClient()` + `RedisMemoryLive` layer
+- [x] Tests: Lua script atomicity, window expiry, key independence, connection failure fallback — 13 tests across 3 files
 
 **Phase 3 — Wire up**
 - [ ] Add `@shared/redis` dependency to `osn/core/package.json`
@@ -342,6 +342,9 @@ Address **High** items before any non-local deployment.
 - [ ] S-M35 — Redirect URI allowlist matches origin only, not exact URI per OAuth 2.0 Security BCP (RFC 9700 §4.1.3). Upgrade to exact string comparison for stricter validation.
 - [x] S-M36 — Async `RateLimiterBackend.check()` rejection was fail-open: unhandled rejection propagated as 500 instead of 429, bypassing rate limit counter. Fixed: `rateLimit()` and `requireRateLimit()` wrap `await check()` in try/catch, defaulting to `false` (deny) on backend errors. Fail-closed posture established before Redis backend lands.
 - [x] S-M37 — `AuthRateLimiters` type was mutable, allowing post-construction limiter replacement via held reference. Fixed: type declared as `Readonly<{...}>`. Tests construct override objects via spread instead of mutation.
+- [x] S-M38 — `@shared/redis` `RedisLive` logs raw connection error cause which may contain credentials from `REDIS_URL`. Fixed: `sanitizeCause()` redacts `redis://user:pass@` patterns before logging. — see [[redis]]
+- [x] S-M39 — `@shared/redis` rate limiter key built from unsanitised input — namespace validated at construction (`/^[a-zA-Z0-9_:.-]+$/`), keys >256 bytes denied. — see [[redis]]
+- [x] S-M40 — `@shared/redis` `RedisLive` does not enforce TLS. Fixed: logs warning when `REDIS_URL` lacks `rediss://` and `NODE_ENV=production`. — see [[redis]]
 
 ### Low
 
@@ -395,6 +398,8 @@ Address **High** items before any non-local deployment.
 - [ ] P-W11 — `beginRegistration` and the legacy `registerUser` issue two parallel `findUserByEmail` + `findUserByHandle` queries instead of a single `WHERE email = ? OR handle = ?` — doubles the DB latency component on a hot signup path. Add a `findUserByEmailOrHandle` helper.
 - [x] P-W16 — Missing index on `close_friends.friend_id` caused table scan in `getCloseFriendsOfBatch` and `removeConnection` cleanup — fixed: added `close_friends_friend_idx`
 - [x] P-W17 — `removeConnection` and `blockUser` multi-step mutations not wrapped in a transaction — fixed: both now use `db.transaction()`
+- [x] P-W18 — `@shared/redis` `wrapIoRedis` sent full Lua script body on every EVAL call. Fixed: transparent EVALSHA caching with NOSCRIPT fallback — see [[redis]]
+- [x] P-W19 — `@shared/redis` `createMemoryClient` had no expiry sweep (unbounded Map growth). Fixed: proactive sweep when store exceeds `maxEntries` cap, mirroring `osn/core` rate limiter pattern — see [[redis]]
 - [ ] P-W5 — Batch status-transition `UPDATE`s in `listEvents`/`listTodayEvents` (N individual writes today)
 - [x] P-W6 — N+1 queries in graph list functions — replaced with `inArray` batch fetches
 - [x] P-W7 — `eitherBlocked` made two sequential `isBlocked` calls — collapsed to single OR query
@@ -411,6 +416,8 @@ Address **High** items before any non-local deployment.
 - [ ] P-I2 — `new TextEncoder()` allocated per JWT sign/verify call — cache encoded secret or import `CryptoKey` once
 - [x] P-I3 — `isCloseFriendOf` used `SELECT *` with `.limit(1)` for existence check — fixed: projects only PK
 - [x] P-I4 — `getCloseFriendsOfBatch` had no upper bound on `userIds` array size — fixed: clamped to `MAX_BATCH_SIZE` (1000)
+- [x] P-I14 — `@shared/redis` `checkRedisHealth` timeout timer leaked on success path. Fixed: `clearTimeout` in `.finally()` — see [[redis]]
+- [x] P-I15 — `@shared/redis` `RedisLive` startup ping had no timeout (indefinite hang on unresponsive Redis). Fixed: 5s timeout with `Promise.race` — see [[redis]]
 - [ ] P-I3 — `new TextEncoder()` allocated per `verifyPkceChallenge` call — move to module scope
 - [ ] P-I4 — `AuthProvider` reconstructs Effect `Layer` on every render — wrap with `createMemo`
 - [ ] P-I5 — `completePasskeyLogin` calls `findUserByEmail` redundantly — `pk.userId` already on passkey row

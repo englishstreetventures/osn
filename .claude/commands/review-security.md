@@ -31,8 +31,8 @@ Read all changed source files in the affected workspaces and examine them for th
 
 ## Dependency & Supply Chain (OWASP A06)
 
-- New dependencies added without pinned versions (prefer exact versions or locked ranges)
 - Dependencies that appear unusual or out of place for this codebase (flag for manual review)
+- **DO NOT flag caret (`^`) or tilde (`~`) version ranges** — this project uses caret ranges for normal dependencies and tilde ranges for dependencies that don't follow semver or are known to be unstable. The lockfile pins exact versions. This is an intentional convention, not a security concern.
 
 ## Configuration
 
