@@ -17,9 +17,9 @@ export default function InvitePage(props: InvitePageProps) {
     null,
   )
 
-  let loginFormRef!: HTMLDivElement
-  let welcomeRef!: HTMLDivElement
-  let eventsSectionRef!: HTMLElement
+  let loginFormRef: HTMLDivElement
+  let welcomeRef: HTMLDivElement
+  let eventsSectionRef: HTMLElement
 
   async function handleClaimed(result: ClaimResult) {
     setClaimResult(result)
@@ -49,8 +49,12 @@ export default function InvitePage(props: InvitePageProps) {
             class="border-y border-border bg-surface px-6 py-16 opacity-0 md:px-8 md:py-20"
           >
             <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
-              <p class="mb-3 font-body text-[0.72rem] uppercase tracking-[0.2em] text-gold">Celebrate With Us</p>
-              <h2 class="mb-5 font-display text-[clamp(2rem,5vw,3rem)] font-light italic leading-[1.15] text-text">Your Events</h2>
+              <p class="mb-3 font-body text-[0.72rem] uppercase tracking-[0.2em] text-gold">
+                Celebrate With Us
+              </p>
+              <h2 class="mb-5 font-display text-[clamp(2rem,5vw,3rem)] font-light italic leading-[1.15] text-text">
+                Your Events
+              </h2>
               <div class="flex flex-col gap-5 text-left">
                 <For each={data().events}>
                   {(event) => (

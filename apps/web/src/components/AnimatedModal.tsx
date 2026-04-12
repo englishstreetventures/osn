@@ -7,8 +7,8 @@ interface AnimatedModalProps {
 }
 
 export function AnimatedModal(props: AnimatedModalProps) {
-  let backdropRef!: HTMLDivElement
-  let panelRef!: HTMLDivElement
+  let backdropRef: HTMLDivElement
+  let panelRef: HTMLDivElement
 
   onMount(() => {
     modalEnter(backdropRef, panelRef)

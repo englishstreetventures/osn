@@ -31,11 +31,10 @@ export async function unlockRevealSequence(
   // Gold shimmer on the heading
   const heading = welcomeEl.querySelector("h2")
   if (heading) {
-    animate(
-      heading,
-      { opacity: [0.4, 1, 0.85, 1] },
-      { duration: 1.2, easing: "ease-in-out" },
-    )
+    animate(heading, { opacity: [0.4, 1, 0.85, 1] }, {
+      duration: 1.2,
+      easing: "ease-in-out",
+    })
   }
 
   // 3. Reveal events section with staggered cards
@@ -53,7 +52,11 @@ export async function unlockRevealSequence(
     animate(
       cards as NodeListOf<HTMLElement>,
       { opacity: [0, 1], transform: ["translateY(24px)", "translateY(0)"] },
-      { duration: 0.45, easing: [0.22, 1, 0.36, 1], delay: stagger(0.12, { start: 0.15 }) },
+      {
+        duration: 0.45,
+        easing: [0.22, 1, 0.36, 1],
+        delay: stagger(0.12, { start: 0.15 }),
+      },
     )
   }
 }
