@@ -93,12 +93,16 @@ Before pushing, update the relevant docs to reflect the changes made on this bra
 
 **Always check and update as needed:**
 
-- **`TODO.md` — Security/Performance backlogs**: add any new `S-*` / `P-*` findings from Step 6. Use the finding ID as the item label (e.g. `- [ ] S-M1 — No rate limit on /foo endpoint`). Mark findings resolved on this branch with `[x]` + short note.
-- **`TODO.md` — App/Platform sections**: check off items completed by this branch.
-- **`TODO.md` — Up Next**: prune completed items. Review the full TODO and surface 2–3 suggested next priorities to the user — items that are now unblocked, newly urgent, or logically follow from this branch's work. Let the user decide whether to add them.
+- **`wiki/TODO.md` — Security/Performance backlogs**: add any new `S-*` / `P-*` findings from Step 6. Use the finding ID as the item label (e.g. `- [ ] S-M1 — No rate limit on /foo endpoint`). Include `[[wiki links]]` to affected system pages (e.g., `[[rate-limiting]]`, `[[arc-tokens]]`). Mark findings resolved on this branch with `[x]` + short note.
+- **`wiki/TODO.md` — App/Platform sections**: check off items completed by this branch.
+- **`wiki/TODO.md` — Up Next**: prune completed items. Review the full TODO and surface 2–3 suggested next priorities to the user — items that are now unblocked, newly urgent, or logically follow from this branch's work. Let the user decide whether to add them.
 - **`CLAUDE.md`**: update if this branch introduces a new pattern, package, convention, or architectural decision that future AI sessions need to know about. Do not add noise — only update if the change is genuinely reusable context.
+- **`wiki/` pages**: if this branch introduces, modifies, or removes a system, pattern, or convention that has a corresponding wiki page, update that page:
+  - **New system/pattern** → create a wiki page with YAML frontmatter (title, tags, related, packages, last-reviewed). Link from ≥2 existing pages. Add to the CLAUDE.md Wiki Navigation table and `wiki/index.md`.
+  - **Modified system** → update the corresponding wiki page to reflect the changes.
+  - **Update `last-reviewed`** in frontmatter of any wiki page you touch.
 
-Commit any doc updates with the message: `docs: update TODO and CLAUDE for <branch-summary>`.
+Commit any doc updates with the message: `docs: update wiki and TODO for <branch-summary>`.
 
 ---
 

@@ -1,13 +1,13 @@
 # OSN Project TODO
 
-Progress tracking and deferred decisions. For full spec see README.md. For code patterns see CLAUDE.md.
+Progress tracking and deferred decisions. For full spec see README.md. For code patterns see CLAUDE.md. For detailed system docs see [[index]].
 
 ## Up Next
 
 - [x] S-H21 — Migrated the three dev-mode `console.log` calls in `osn/core/src/services/auth.ts` (registration OTP, login OTP, magic link) to `Effect.logDebug`. Values stay interpolated into the message string so the redacting logger doesn't scrub them — that's the whole point of the dev branch. The registration path keeps its `NODE_ENV !== "production"` gate; the login OTP / magic-link branches still rely on `config.sendEmail` being unset, which is the existing behaviour (S-M22 follow-up tracks tightening that to a `NODE_ENV` gate as well). Also threaded an optional `loggerLayer` parameter through `createAuthRoutes` / `createGraphRoutes` so `@osn/app` can provide its `observabilityLayer` to per-request Effect pipelines (S-L1 — without this the new `Effect.logDebug` calls would be silently dropped at Effect's default `Info` minimum level). Coverage locked with three `it.effect` tests (T-U1) using a `Logger.replace` capture sink that asserts the literal OTP/URL appears in the message and `[REDACTED]` never does.
-- [ ] Provision Grafana Cloud free tier + wire `OTEL_EXPORTER_OTLP_ENDPOINT` + headers into deploy env
-- [ ] Build first observability dashboards (HTTP RED, auth funnel, ARC verification, events CRUD)
-- [ ] Zap M0 scaffold — `@zap/app` (Tauri+Solid), `@zap/api` (Elysia), `@zap/db` (Drizzle)
+- [ ] Provision Grafana Cloud free tier + wire `OTEL_EXPORTER_OTLP_ENDPOINT` + headers into deploy env — see [[observability-setup]]
+- [ ] Build first observability dashboards (HTTP RED, auth funnel, ARC verification, events CRUD) — see [[observability/overview]]
+- [ ] Zap M0 scaffold — `@zap/app` (Tauri+Solid), `@zap/api` (Elysia), `@zap/db` (Drizzle) — see [[zap]]
 - [ ] Wire Pulse event chat to Zap once M2 lands (replace `EventChatPlaceholder`)
 - [ ] Pulse: "What's on today" default view
 - [ ] Landing page: design and content
@@ -15,8 +15,8 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [x] S-H3 — Open redirect in `/magic/verify` fixed: `allowedRedirectUris` field on `AuthConfig`; validated at `/authorize`, `/magic/verify` (service-level), and `/token` (route-level origin match + S-M9 exact redirect_uri match against pkceStore)
 - [x] S-H4 — PKCE now mandatory at `/token`: `state` and `code_verifier` required for `authorization_code` grants; unknown/expired state returns 400; redirect_uri must match the value stored at `/authorize` (S-M9 RFC 6749 §4.1.3)
 - [x] S-H5 — Legacy unauth'd passkey path removed: `resolvePasskeyEnrollPrincipal` now returns 401 when `Authorization` header is absent. Hosted `/authorize` HTML passkey-enrollment prompt removed (passkey enrollment requires auth; users enrol through first-party apps). `console.warn` deprecation log removed. `SimpleWebAuthn` script tag removed from hosted HTML.
-- [ ] ARC token verification middleware on internal graph routes (`/graph/internal/*`)
-- [ ] Redis migration — `@shared/redis` package + migrate rate limiters to shared counter (S-M2, S-M8, P-W1, P-W4, S-L18, S-L23)
+- [ ] ARC token verification middleware on internal graph routes (`/graph/internal/*`) — see [[arc-tokens]], [[arc-token-debugging]]
+- [ ] Redis migration — `@shared/redis` package + migrate rate limiters to shared counter (S-M2, S-M8, P-W1, P-W4, S-L18, S-L23) — see [[redis]]
 
 ---
 
@@ -229,10 +229,10 @@ Signal Protocol lives in `@osn/crypto`, not `zap/`.
 - [x] UserPromptSubmit hook for tone enforcement
 - [x] Changeset Check workflow runs `bunx changeset status` so a `.changeset/*.md` referencing a non-existent workspace name fails the PR — previously such typos blew up the Release workflow on main and blocked all subsequent versioning (e.g. `"pulse"` instead of `"@pulse/app"` in `fix-handle-regex-error-message.md`).
 
-### Redis Migration (S-M2 umbrella)
+### Redis Migration (S-M2 umbrella) — see [[redis]]
 
 Migrate in-memory rate limiters and auth state stores to Redis for horizontal scaling.
-Subsumes: S-M2, S-M8, P-W1, P-W4, S-L18, S-L23.
+Subsumes: S-M2, S-M8, P-W1, P-W4, S-L18, S-L23. See [[rate-limiting]] for current implementation.
 
 **Phase 1 — Abstraction layer (no Redis dependency)**
 - [x] Extract `RateLimiterBackend` interface from `osn/core/src/lib/rate-limit.ts` — backend-agnostic `check(key): boolean | Promise<boolean>`
@@ -306,13 +306,13 @@ Address **High** items before any non-local deployment.
 ### Medium
 
 - [ ] S-M1 — `verifyAccessToken` rejects tokens missing `handle` claim — old tokens 401 silently; treat missing `handle` as `null` during transition period
-- [ ] S-M2 — In-memory rate limiter resets on restart/deploy — migrate to Redis shared counter. See **Platform > Infrastructure > Redis Migration** for the full plan (phases 1–3). Cross-refs: S-M8, P-W1, P-W4, S-L18, S-L23
+- [ ] S-M2 — In-memory rate limiter resets on restart/deploy — migrate to Redis shared counter. See **Platform > Infrastructure > Redis Migration** for the full plan (phases 1–3). Cross-refs: S-M8, P-W1, P-W4, S-L18, S-L23 — see [[rate-limiting]], [[redis]]
 - [ ] S-M3 — No "resend code" button after registration OTP; if SMTP fails, handle/email are claimed with no recovery path. Partly mitigated by the new flow's "refuse to overwrite a non-expired pending entry" policy (the user retries via the existing pending entry, no new email is sent), but a true resend button is still needed.
 - [ ] S-M4 — Legacy `POST /register` (unverified email) returns raw `String(catch)` error — can expose Drizzle constraint internals. The new `/register/{begin,complete}` routes already use the `publicError()` mapper from `routes/auth.ts`; extend the same mapper to the legacy endpoint and to all other routes that still use `String(e)`.
 - [ ] S-M5 — `displayName` embedded in JWT (1h TTL) — stale after profile update; `createdByName` on events reflects old value until token expires
 - [ ] S-M6 — Wildcard CORS on auth server — restrict to known client origins before deployment
 - [x] S-M7 — Login OTP attempt limit added: `verifyOtpCode` now increments `entry.attempts` on wrong-code and wipes the entry after `MAX_OTP_ATTEMPTS` (5) wrong guesses, mirroring the registration flow.
-- [ ] S-M8 — All auth state in process memory (`otpStore`, `magicStore`, `pkceStore`) — lost on restart, unsafe for multi-process. Resolved by Redis Migration Phase 4
+- [ ] S-M8 — All auth state in process memory (`otpStore`, `magicStore`, `pkceStore`) — lost on restart, unsafe for multi-process. Resolved by Redis Migration Phase 4 — see [[redis]]
 - [x] S-M9 — `redirect_uri` at `/token` now matched against value stored in `pkceStore` (RFC 6749 §4.1.3); fixed as part of S-H4.
 - [x] S-M10 — `/passkey/register/begin` arbitrary `userId` fixed: Authorization header now required (fixed as part of S-H5).
 - [ ] S-M11 — Magic-link tokens use `crypto.randomUUID` without additional entropy hardening
@@ -338,7 +338,7 @@ Address **High** items before any non-local deployment.
 - [x] S-M31 — Redaction deny-list was missing user-chosen name fields — `displayName` (the only such field that exists in the schema today) was added so it gets scrubbed alongside `email` / `handle`. Originally also added speculative entries for `firstName`, `lastName`, `fullName`, `legalName`, `dob`, `address`, `streetAddress`, `postalCode`, `ssn`, `taxId`; these were removed in the S-H21 follow-up because none of them exist as real object keys in the codebase. The deny-list is now grown only when a sensitive field actually lands in the schema/types — see the file header in `shared/observability/src/logger/redact.ts` for the criteria and the lock-step assertion in `redact.test.ts` that pins the exact set.
 - [x] S-M32 — `span.recordException(error)` in the Elysia plugin wrote the error's enumerable own properties as span event attributes outside the log redactor's reach. Effect tagged errors embedding `email`, `handle`, `cause` etc. would leak to trace storage. Fixed: plugin wraps `recordException` to first scrub the error via `redact()` and only passes `name` + redacted `message` to OTel; `span.setStatus.message` is also routed through `redact()`.
 - [x] S-M33 — `enrollmentToken` (and snake-case `enrollment_token`) was missing from the trimmed redaction deny-list. It is a real single-use bearer credential returned by `/register/complete` (`osn/core/src/routes/auth.ts:225`) and sent back as `Authorization: Bearer <token>` for passkey enrollment (`osn/client/src/register.ts:131,142`) — same secrecy profile as `accessToken`. Defence-in-depth (no current log path emits the completeRegistration result), but the file header criterion in `redact.ts` explicitly requires real-bearer-credential fields to be on the list. Fixed by adding both spellings to `REDACT_KEYS` under the OAuth token block, updating the lock-step assertion + positive test, and pointing at the two call sites in the comment.
-- [ ] S-M34 — Rate limiter trusts `X-Forwarded-For` without reverse-proxy guarantee — any client can spoof the header to bypass IP-based rate limits. Add `trustProxy` config flag or fall back to socket IP when no proxy is configured.
+- [ ] S-M34 — Rate limiter trusts `X-Forwarded-For` without reverse-proxy guarantee — any client can spoof the header to bypass IP-based rate limits. Add `trustProxy` config flag or fall back to socket IP when no proxy is configured. — see [[rate-limiting]]
 - [ ] S-M35 — Redirect URI allowlist matches origin only, not exact URI per OAuth 2.0 Security BCP (RFC 9700 §4.1.3). Upgrade to exact string comparison for stricter validation.
 - [x] S-M36 — Async `RateLimiterBackend.check()` rejection was fail-open: unhandled rejection propagated as 500 instead of 429, bypassing rate limit counter. Fixed: `rateLimit()` and `requireRateLimit()` wrap `await check()` in try/catch, defaulting to `false` (deny) on backend errors. Fail-closed posture established before Redis backend lands.
 - [x] S-M37 — `AuthRateLimiters` type was mutable, allowing post-construction limiter replacement via held reference. Fixed: type declared as `Readonly<{...}>`. Tests construct override objects via spread instead of mutation.
@@ -388,9 +388,9 @@ Address **High** items before any non-local deployment.
 - [x] P-W1 — `rateLimitStore` in graph routes grows without bound — fixed: graph route refactored to use shared `createRateLimiter` from `osn/core/src/lib/rate-limit.ts` which handles proactive sweeping + maxEntries cap
 - [x] P-W16 — Auth rate limiter Maps swept proactively: sweep now runs on every `check()` when at least one window has elapsed since the last sweep, not just when `maxEntries` is exceeded. Deterministic memory profile in long-running processes.
 - [x] P-W17 — Redirect URI allowlist pre-computed: `allowedOrigins` Set built once at boot in both `createAuthRoutes` and `createAuthService`. Per-request check is a single `Set.has()` call.
-- [ ] P-W2 — `resolvePublicKey` hits DB on every scoped call despite warm cache — cache `CryptoKey` + `allowedScopes` together
+- [ ] P-W2 — `resolvePublicKey` hits DB on every scoped call despite warm cache — cache `CryptoKey` + `allowedScopes` together — see [[arc-tokens]]
 - [ ] P-W3 — `sendConnectionRequest` makes two sequential independent DB reads — use `Effect.all` with `concurrency: "unbounded"`
-- [ ] P-W4 — Auth Maps (`otpStore`, `magicStore`, `pkceStore`) never evict expired entries — add periodic sweep. The new `pendingRegistrations` map already uses `sweepExpired()` on insert; lift the helper into the other stores.
+- [ ] P-W4 — Auth Maps (`otpStore`, `magicStore`, `pkceStore`) never evict expired entries — add periodic sweep. The new `pendingRegistrations` map already uses `sweepExpired()` on insert; lift the helper into the other stores. — see [[redis]]
 - [ ] P-W10 — `RegistrationClient.checkHandle` has no `AbortController` — debounced bursts of typing can leave multiple in-flight `GET /handle/:handle` requests racing each other; results are guarded against display races but the network requests still hit the DB. Plumb an `AbortSignal` through and abort the previous request when a new one is scheduled.
 - [ ] P-W11 — `beginRegistration` and the legacy `registerUser` issue two parallel `findUserByEmail` + `findUserByHandle` queries instead of a single `WHERE email = ? OR handle = ?` — doubles the DB latency component on a hot signup path. Add a `findUserByEmailOrHandle` helper.
 - [x] P-W16 — Missing index on `close_friends.friend_id` caused table scan in `getCloseFriendsOfBatch` and `removeConnection` cleanup — fixed: added `close_friends_friend_idx`
@@ -435,7 +435,7 @@ Address **High** items before any non-local deployment.
 | Decision | Context | Revisit When |
 |----------|---------|--------------|
 | Social media platform name | Need a catchy name | Before starting Phase 3 |
-| Signal vs MLS for Zap group chats | Sender-keys is simpler; MLS scales past ~50 members | Before Zap M2 |
+| Signal vs MLS for Zap group chats — see [[zap]] | Sender-keys is simpler; MLS scales past ~50 members | Before Zap M2 |
 | Zap media storage (images / voice / video) | Needs E2E-friendly blob storage; SQLite-only won't cut it | When Zap M2 lands |
 | Effect.ts adoption | Trial underway in `pulse/api` | After more service coverage |
 | Supabase migration | Currently SQLite | When scaling needed |
@@ -445,9 +445,9 @@ Address **High** items before any non-local deployment.
 | Two-way calendar sync | Currently one-way (Pulse → external) | Phase 2 |
 | Community event-ended reporting | 15–20 attendees auto-finish; host notified | When attendee/messaging features land |
 | Max event duration | Prompt user when creating events without endTime | When Pulse event creation UI is built |
-| Redis provider (self-hosted vs managed) | Upstash (serverless, free tier) vs Redis Cloud vs self-hosted. Upstash aligns with serverless deploy model; Cloudflare Durable Objects reconsidered if deploying to Workers. | When deploying beyond localhost |
-| S2S scaling: HTTP graph API | Current: direct package import (`createGraphService()`). Migrate to HTTP `/graph/internal/*` + ARC tokens when scaling horizontally. | When multi-process or multi-machine deployment needed |
-| Per-app blocking | Blocks are global across all OSN apps. Per-app scope deferred. | When Messaging or a third-party app needs independent block lists |
+| Redis provider — see [[redis]] | Upstash (serverless, free tier) vs Redis Cloud vs self-hosted. Upstash aligns with serverless deploy model; Cloudflare Durable Objects reconsidered if deploying to Workers. | When deploying beyond localhost |
+| S2S scaling — see [[s2s-patterns]], [[arc-tokens]], [[s2s-migration]] | Current: direct package import (`createGraphService()`). Migrate to HTTP `/graph/internal/*` + ARC tokens when scaling horizontally. | When multi-process or multi-machine deployment needed |
+| Per-app blocking — see [[social-graph]] | Blocks are global across all OSN apps. Per-app scope deferred. | When Messaging or a third-party app needs independent block lists |
 | Tauri passkey support on iOS | Tauri webview does not expose WebAuthn natively — `pulse/app` registration flow (rendered by `@osn/ui/auth/Register`) feature-detects via `browserSupportsWebAuthn()` and auto-skips the passkey step on unsupported environments. Options when we ship mobile: (a) adopt [`tauri-plugin-webauthn`](https://github.com/Profiidev/tauri-plugin-webauthn) (third-party, audit first), (b) write our own thin Tauri plugin wrapping `ASAuthorizationPlatformPublicKeyCredentialProvider`, (c) wait for upstream — track [tauri#7926](https://github.com/tauri-apps/tauri/issues/7926). | When iOS build of Pulse is ready for sign-in |
 
 ---

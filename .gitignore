@@ -189,3 +189,6 @@ app.config.timestamp_*.js
 
 # Local data
 data/
+
+# Obsidian (wiki vault user state)
+wiki/.obsidian/
