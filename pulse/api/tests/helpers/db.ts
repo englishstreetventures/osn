@@ -26,6 +26,7 @@ export function createTestLayer() {
       join_policy TEXT NOT NULL DEFAULT 'open',
       allow_interested INTEGER NOT NULL DEFAULT 1,
       comms_channels TEXT NOT NULL DEFAULT '["email"]',
+      chat_id TEXT,
       created_by_user_id TEXT NOT NULL,
       created_by_name TEXT,
       created_by_avatar TEXT,
@@ -89,6 +90,7 @@ export interface SeedEventInput {
   joinPolicy?: "open" | "guest_list";
   allowInterested?: boolean;
   commsChannels?: ("sms" | "email")[];
+  chatId?: string;
 }
 
 export const seedEvent = (input: SeedEventInput): Effect.Effect<Event, never, Db> =>
@@ -114,6 +116,7 @@ export const seedEvent = (input: SeedEventInput): Effect.Effect<Event, never, Db
       joinPolicy: input.joinPolicy ?? "open",
       allowInterested: input.allowInterested ?? true,
       commsChannels: JSON.stringify(input.commsChannels ?? ["email"]),
+      chatId: input.chatId ?? null,
       createdByUserId: input.createdByUserId ?? "usr_alice",
       createdByName: input.createdByName ?? "Alice",
       createdByAvatar: input.createdByAvatar ?? null,

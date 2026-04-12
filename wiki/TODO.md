@@ -7,8 +7,9 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [x] S-H21 — Migrated the three dev-mode `console.log` calls in `osn/core/src/services/auth.ts` (registration OTP, login OTP, magic link) to `Effect.logDebug`. Values stay interpolated into the message string so the redacting logger doesn't scrub them — that's the whole point of the dev branch. The registration path keeps its `NODE_ENV !== "production"` gate; the login OTP / magic-link branches still rely on `config.sendEmail` being unset, which is the existing behaviour (S-M22 follow-up tracks tightening that to a `NODE_ENV` gate as well). Also threaded an optional `loggerLayer` parameter through `createAuthRoutes` / `createGraphRoutes` so `@osn/app` can provide its `observabilityLayer` to per-request Effect pipelines (S-L1 — without this the new `Effect.logDebug` calls would be silently dropped at Effect's default `Info` minimum level). Coverage locked with three `it.effect` tests (T-U1) using a `Logger.replace` capture sink that asserts the literal OTP/URL appears in the message and `[REDACTED]` never does.
 - [ ] Provision Grafana Cloud free tier + wire `OTEL_EXPORTER_OTLP_ENDPOINT` + headers into deploy env — see [[observability-setup]]
 - [ ] Build first observability dashboards (HTTP RED, auth funnel, ARC verification, events CRUD) — see [[observability/overview]]
-- [ ] Zap M0 scaffold — `@zap/app` (Tauri+Solid), `@zap/api` (Elysia), `@zap/db` (Drizzle) — see [[zap]]
-- [ ] Wire Pulse event chat to Zap once M2 lands (replace `EventChatPlaceholder`)
+- [x] Zap M0 scaffold (partial) — `@zap/api` (Elysia, port 3002), `@zap/db` (Drizzle) with chat/message schema, Effect services, 33 tests. `@zap/app` (Tauri+Solid) deferred. Pulse event-chat integration via `zapBridge` + `chatId` column on events.
+- [ ] Zap route-level tests + zapBridge tests (T-R1, T-M1 from review)
+- [ ] Zap rate limiting on write endpoints (S-M1) — see [[rate-limiting]]
 - [ ] Pulse: "What's on today" default view
 - [ ] Landing page: design and content
 - [x] S-H1 — Rate limit all auth endpoints (per-IP fixed-window via `osn/core/src/lib/rate-limit.ts`; 5 req/min on begin/send endpoints, 10 req/min on verify/complete; new `osn.auth.rate_limited` metric with bounded `AuthRateLimitedEndpoint` union)
@@ -90,18 +91,18 @@ Signal Protocol lives in `@osn/crypto`, not `zap/`.
 ### M0 — Scaffold (no behaviour, just the skeleton)
 
 - [ ] `bunx create-tauri-app` for `@zap/app` (iOS target enabled, Solid template)
-- [ ] `@zap/api` workspace (Elysia + Eden, mirror `@pulse/api` layout, port TBD)
-- [ ] `@zap/db` workspace (Drizzle + SQLite, mirror `@pulse/db` layout)
+- [x] `@zap/api` workspace (Elysia + Eden, port 3002, mirror `@pulse/api` layout)
+- [x] `@zap/db` workspace (Drizzle + SQLite, mirror `@pulse/db` layout)
 - [ ] `@zap/app` consumes `@osn/client` + `@osn/ui/auth` for sign-in (re-uses the same `<SignIn>` / `<Register>` from Pulse)
-- [ ] Initial test infra (`tests/helpers/db.ts`, `createTestLayer()`) for `@zap/api` and `@zap/db`
-- [ ] Add `@zap/app`, `@zap/api`, `@zap/db` to the turbo pipeline (build / check / test)
+- [x] Initial test infra (`tests/helpers/db.ts`, `createTestLayer()`) for `@zap/api` and `@zap/db`
+- [x] Add `@zap/api`, `@zap/db` to the turbo pipeline (build / check / test)
 - [ ] Register `zap-app` and `zap-api` in `service_accounts` (ARC token issuer rows)
 
 ### M1 — 1:1 DMs (E2E)
 
 - [ ] Signal Protocol primitives in `@osn/crypto/signal` (X3DH handshake, double ratchet)
-- [ ] `@zap/db` schema: `chats`, `chat_members`, `messages`, `device_keys`, `prekey_bundles`
-- [ ] `@zap/api` routes: `POST /chats` (create DM), `POST /chats/:id/messages`, `GET /chats/:id/messages`
+- [x] `@zap/db` schema: `chats`, `chat_members`, `messages` (device_keys, prekey_bundles deferred to E2E crypto work)
+- [x] `@zap/api` routes: chat CRUD, member management, message send/list with cursor pagination
 - [ ] WebSocket transport for live message delivery (`@zap/api`)
 - [ ] Push receipt + read receipt model (defer push notifications themselves to M4)
 - [ ] `@zap/app` Socials view: chat list + message thread UI
@@ -115,7 +116,7 @@ Signal Protocol lives in `@osn/crypto`, not `zap/`.
 - [ ] `@zap/db` schema: `chat_role` (admin/member), `chat_invites`
 - [ ] Add/remove members, role transitions, invite links
 - [ ] Group-level disappearing-message defaults
-- [ ] Event chat linking: when a `@pulse/api` event is created, optionally provision a Zap group chat and stash the chat ID on the event row
+- [x] Event chat linking: `chatId` column on events, `zapBridge` provisions Zap event chat and links it to the Pulse event
 - [ ] Show linked event overview inside the chat settings sheet (read from `@pulse/api` via Eden or ARC-gated S2S)
 - [ ] Test coverage: group rekeying on member removal, race conditions on simultaneous joins
 
@@ -189,7 +190,7 @@ Signal Protocol lives in `@osn/crypto`, not `zap/`.
 - [x] OSN Core: `service_accounts` table — `service_id`, `public_key_jwk`, `allowed_scopes` (for ARC token verification)
 - [ ] OSN Core: session schema (JWT-based for now; DB storage deferred)
 - [ ] Pulse: event series schema
-- [ ] Pulse: chat/message schema (via messaging backend)
+- [x] Pulse: `chatId` column on events (links to `@zap/db` chats); full chat/message schema in `@zap/db`
 - [ ] Add indexes on `status` and `category` columns in pulse-db events schema
 
 ### Auth Client (`osn/client`)
@@ -340,6 +341,18 @@ Address **High** items before any non-local deployment.
 - [x] S-M31 — Redaction deny-list was missing user-chosen name fields — `displayName` (the only such field that exists in the schema today) was added so it gets scrubbed alongside `email` / `handle`. Originally also added speculative entries for `firstName`, `lastName`, `fullName`, `legalName`, `dob`, `address`, `streetAddress`, `postalCode`, `ssn`, `taxId`; these were removed in the S-H21 follow-up because none of them exist as real object keys in the codebase. The deny-list is now grown only when a sensitive field actually lands in the schema/types — see the file header in `shared/observability/src/logger/redact.ts` for the criteria and the lock-step assertion in `redact.test.ts` that pins the exact set.
 - [x] S-M32 — `span.recordException(error)` in the Elysia plugin wrote the error's enumerable own properties as span event attributes outside the log redactor's reach. Effect tagged errors embedding `email`, `handle`, `cause` etc. would leak to trace storage. Fixed: plugin wraps `recordException` to first scrub the error via `redact()` and only passes `name` + redacted `message` to OTel; `span.setStatus.message` is also routed through `redact()`.
 - [x] S-M33 — `enrollmentToken` (and snake-case `enrollment_token`) was missing from the trimmed redaction deny-list. It is a real single-use bearer credential returned by `/register/complete` (`osn/core/src/routes/auth.ts:225`) and sent back as `Authorization: Bearer <token>` for passkey enrollment (`osn/client/src/register.ts:131,142`) — same secrecy profile as `accessToken`. Defence-in-depth (no current log path emits the completeRegistration result), but the file header criterion in `redact.ts` explicitly requires real-bearer-credential fields to be on the list. Fixed by adding both spellings to `REDACT_KEYS` under the OAuth token block, updating the lock-step assertion + positive test, and pointing at the two call sites in the comment.
+- [x] S-H2 (zap) — Missing membership check on `GET /chats/:id` allowed any authenticated user to read chat metadata. Fixed: `assertMember` gate added.
+- [x] S-H3 (zap) — Missing membership check on `GET /chats/:id/members` leaked member rosters. Fixed: `assertMember` gate added.
+- [x] S-H4 (zap) — `PATCH /chats/:id` differentiated 403/404 for non-members, leaking chat existence. Fixed: 404 for non-members.
+- [ ] S-M1 (zap) — No rate limiting on any Zap API endpoint. Add per-IP rate limiting on write endpoints (POST `/chats`, POST `/:id/messages`, POST `/:id/members`). — see [[rate-limiting]]
+- [ ] S-M2 (zap) — CORS wildcard (`cors()` with no config) on `@zap/api` allows any origin. Restrict to known client origins. — see S-M6 (same pattern on Pulse)
+- [ ] S-M3 (zap) — `zapBridge.provisionEventChat` does not verify caller owns the event. Add ownership check.
+- [ ] S-M4 (zap) — Non-atomic cross-DB writes in `zapBridge.provisionEventChat`. Wrap Zap-side ops in transaction + add compensating logic.
+- [ ] S-M5 (zap) — `addEventChatMember` does not verify chat is type "event". Add type guard.
+- [ ] S-M6 (zap) — Truncated UUIDs (12 hex chars = 48 bits) reduce ID entropy. Consider using 24+ hex chars.
+- [ ] S-L1 (zap) — `jwtVerify` does not restrict algorithms. Pass `{ algorithms: ['HS256'] }`. — see S-L7
+- [ ] S-L2 (zap) — DM chats have no member count enforcement. Validate exactly 2 participants.
+- [ ] S-L3 (zap) — Admin can remove themselves leaving chat with no admin. Check last-admin before self-removal.
 - [ ] S-M43 — No rate limiting on `/graph/internal/*` S2S endpoints. ARC tokens are the primary gate, but a compromised service account could hammer graph queries without throttling. Add per-issuer rate limiter (keyed on `caller.iss`) via the existing `RateLimiterBackend` abstraction. — see [[arc-tokens]]
 - [ ] S-M34 — Rate limiter trusts `X-Forwarded-For` without reverse-proxy guarantee — any client can spoof the header to bypass IP-based rate limits. Add `trustProxy` config flag or fall back to socket IP when no proxy is configured. — see [[rate-limiting]]
 - [ ] S-M35 — Redirect URI allowlist matches origin only, not exact URI per OAuth 2.0 Security BCP (RFC 9700 §4.1.3). Upgrade to exact string comparison for stricter validation.
@@ -394,9 +407,15 @@ Address **High** items before any non-local deployment.
 ### Critical
 
 - [x] P-C1 — `filterByAttendeePrivacy` in `pulse/api/src/services/rsvps.ts` had an N+1 lookup against `pulse_users` (the comment claimed "batch-fetch" but the implementation did `for (id of attendeeIds) yield* getAttendanceVisibility(id)`), firing up to 200 extra queries per `listRsvps` call on busy events. Fixed in the full-event-view PR by adding `getAttendanceVisibilityBatch(userIds[])` to `pulseUsers.ts` (single `WHERE userId IN (...)` query, defaults missing keys to `connections`) and replacing the for-loop with a single call.
+- [x] P-C1 (zap) — N+1 query in `listChats` fetched each chat individually in a loop. Fixed: replaced with `inArray` single query.
+- [x] P-C2 (zap) — `createChat` inserted initial members one-by-one. Fixed: batch `db.insert(chatMembers).values(memberRows)`.
 
 ### Warning
 
+- [ ] P-W1 (zap) — `listChats` returns unbounded results (no pagination). Add cursor-based pagination consistent with `listMessages`.
+- [ ] P-W2 (zap) — `addMember` fetches all members to check count/duplicates. Use `COUNT(*)` + existence check or catch unique constraint violation.
+- [ ] P-W3 (zap) — `provisionEventChat` non-atomic cross-DB writes — wrap Zap-side in transaction, add secondary idempotency check on `eventId`.
+- [ ] P-W4 (zap) — `getChatMembers` returns all members without pagination. Add optional `limit`/`offset`.
 - [x] P-W1 — `rateLimitStore` in graph routes grows without bound — fixed: graph route refactored to use shared `createRateLimiter` from `osn/core/src/lib/rate-limit.ts` which handles proactive sweeping + maxEntries cap
 - [x] P-W16 — Auth rate limiter Maps swept proactively: sweep now runs on every `check()` when at least one window has elapsed since the last sweep, not just when `maxEntries` is exceeded. Deterministic memory profile in long-running processes.
 - [x] P-W17 — Redirect URI allowlist pre-computed: `allowedOrigins` Set built once at boot in both `createAuthRoutes` and `createAuthService`. Per-request check is a single `Set.has()` call.

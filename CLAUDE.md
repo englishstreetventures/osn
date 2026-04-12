@@ -73,7 +73,7 @@ Monorepo organised by domain. Four directories, four prefixes — see `[[wiki/ar
 |-----|--------|-----------------|
 | `osn/` | `@osn/*` | Identity stack (auth, graph, SDK, crypto, landing) |
 | `pulse/` | `@pulse/*` | Events stack (app, API, DB) |
-| `zap/` | `@zap/*` | Messaging stack (placeholder) |
+| `zap/` | `@zap/*` | Messaging stack (API on port 3002, DB) |
 | `shared/` | `@shared/*` | Cross-cutting utilities |
 
 ## Tech (one-liner)
@@ -128,6 +128,8 @@ bun run --cwd osn/client test:run         # run OSN client SDK tests once
 bun run --cwd osn/ui test:run             # run shared auth component tests once
 bun run --cwd pulse/db test:run           # run Pulse DB schema tests once
 bun run --cwd pulse/api test              # watch mode
+bun run --cwd zap/db test:run             # run Zap DB schema tests once
+bun run --cwd zap/api test:run            # run Zap API service tests once
 
 # Code quality
 bun run lint             # oxlint

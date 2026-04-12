@@ -17,7 +17,7 @@ directory + workspace prefix:
 
 - `@zap/app` — Tauri + SolidJS frontend
 - `@zap/api` — Elysia + Eden messaging backend (port TBD)
-- `@zap/db`  — Drizzle + SQLite schema (chats, messages, group state)
+- `@zap/db` — Drizzle + SQLite schema (chats, messages, group state)
 
 The Signal Protocol implementation lives in `@osn/crypto` (next to ARC
 tokens), not in `zap/` — every OSN app that needs E2E messaging consumes
@@ -26,6 +26,7 @@ it from there.
 ## Planned features
 
 ### Core
+
 - DMs and group chats
 - Disappearing messages (optional)
 - Themes
@@ -36,6 +37,7 @@ it from there.
 - E2E security (Signal Protocol via `@osn/crypto`)
 
 ### Differentiator — Organisation chats
+
 Verified organisations (Twitter-blue-tick style) operating support and
 broadcast channels through a Zap handle instead of an email address.
 
@@ -68,19 +70,19 @@ broadcast channels through a Zap handle instead of an email address.
 
 Same as Pulse unless a real reason emerges:
 
-| Layer            | Tool |
-|------------------|------|
-| Runtime          | Bun |
-| Frontend         | Tauri + SolidJS (iOS first) |
-| Backend          | Elysia + Eden |
-| ORM / DB         | Drizzle + SQLite (→ Supabase later) |
-| Functional core  | Effect.ts |
-| Real-time        | WebSockets |
-| E2E              | Signal Protocol (`@osn/crypto`) |
-| S2S auth         | ARC tokens (`@osn/crypto/arc`) |
-| Identity         | OSN Core (`@osn/client`) |
-| Shared UI        | `@osn/ui` |
-| Validation       | TypeBox at HTTP boundary, Effect Schema in services |
+| Layer           | Tool                                                |
+| --------------- | --------------------------------------------------- |
+| Runtime         | Bun                                                 |
+| Frontend        | Tauri + SolidJS (iOS first)                         |
+| Backend         | Elysia + Eden                                       |
+| ORM / DB        | Drizzle + SQLite (→ Supabase later)                 |
+| Functional core | Effect.ts                                           |
+| Real-time       | WebSockets                                          |
+| E2E             | Signal Protocol (`@osn/crypto`)                     |
+| S2S auth        | ARC tokens (`@osn/crypto/arc`)                      |
+| Identity        | OSN Core (`@osn/client`)                            |
+| Shared UI       | `@osn/ui`                                           |
+| Validation      | TypeBox at HTTP boundary, Effect Schema in services |
 
 The DB layer may diverge later (messages have very different access
 patterns to events and users), but we'll cross that bridge when message

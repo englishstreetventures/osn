@@ -21,6 +21,7 @@ function makeEvent(overrides: Partial<Event> = {}): Event {
     joinPolicy: "open",
     allowInterested: true,
     commsChannels: '["email"]',
+    chatId: null,
     createdByUserId: "usr_alice",
     createdByName: "Alice",
     createdByAvatar: null,

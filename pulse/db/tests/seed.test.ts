@@ -25,6 +25,7 @@ function createTestDb() {
       join_policy TEXT NOT NULL DEFAULT 'open',
       allow_interested INTEGER NOT NULL DEFAULT 1,
       comms_channels TEXT NOT NULL DEFAULT '["email"]',
+      chat_id TEXT,
       created_by_user_id TEXT,
       created_by_name TEXT,
       created_by_avatar TEXT,

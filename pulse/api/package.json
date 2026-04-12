@@ -22,6 +22,7 @@
     "@osn/db": "workspace:*",
     "@pulse/db": "workspace:*",
     "@shared/observability": "workspace:*",
+    "@zap/db": "workspace:*",
     "drizzle-orm": "^0.38.0",
     "effect": "^3.19.19",
     "elysia": "^1.2.0",

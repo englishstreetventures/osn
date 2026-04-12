@@ -50,6 +50,11 @@ export const events = sqliteTable(
     // blasts. Must be at least one of "sms" | "email". Actual blast history
     // lives in the `event_comms` table (see rsvps/index.ts siblings).
     commsChannels: text("comms_channels").notNull().default('["email"]'),
+    // ── Chat ──────────────────────────────────────────────────────────────
+    // Opaque reference to a @zap/db chat. Populated when the organiser
+    // enables event chat (provisioned via zapBridge). NOT a foreign key —
+    // the chat lives in a different SQLite file.
+    chatId: text("chat_id"),
     createdByUserId: text("created_by_user_id").notNull(),
     createdByName: text("created_by_name"),
     createdByAvatar: text("created_by_avatar"),
