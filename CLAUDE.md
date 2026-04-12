@@ -86,7 +86,7 @@ Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+RES
 
 **Observability** — OpenTelemetry end-to-end, shipped to Grafana Cloud. Three golden rules: no `console.*`, no raw OTel constructors, no unbounded metric attributes. See `[[wiki/observability/overview]]`.
 
-**Rate Limiting** — Per-IP fixed-window on all auth endpoints. In-memory, migrating to Redis. See `[[wiki/systems/rate-limiting]]`.
+**Rate Limiting** — Per-IP fixed-window on all auth endpoints; per-user on graph writes. Two backends: Redis-backed when `REDIS_URL` is set (cross-process, survives restarts), in-memory fallback when unset (local dev). See `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]`.
 
 **Testing** — `it.effect` + `createTestLayer()` for service tests; `createXxxRoutes(createTestLayer())` for route tests. All in-memory SQLite. See `[[wiki/conventions/testing-patterns]]`.
 

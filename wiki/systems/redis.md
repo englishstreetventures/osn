@@ -59,15 +59,18 @@ Created the `@shared/redis` package following the `@shared/db-utils` pattern.
 - [x] Dev-mode: in-memory fallback when `REDIS_URL` is unset -- `createMemoryClient()` + `RedisMemoryLive` layer
 - [x] Tests: 13 tests across 3 files (rate limiter, health probe, Effect service layer)
 
-## Phase 3: Wire Up
+## Phase 3: Wire Up (DONE)
 
-Connect the Redis package to the existing rate limiting infrastructure.
+Connected the Redis package to the existing rate limiting infrastructure.
 
-- [ ] Add `@shared/redis` dependency to `osn/core/package.json`
-- [ ] Construct `RedisLive` layer in `osn/app/src/index.ts`; env-driven backend selection (Redis when `REDIS_URL` set, in-memory otherwise)
-- [ ] Migrate all 11 auth rate limiter instances (`osn/core/src/routes/auth.ts`) to Redis backend
-- [ ] Migrate graph rate limiter (`osn/core/src/routes/graph.ts`) to Redis backend
-- [ ] Update CLAUDE.md Rate Limiting section to document the two-backend model
+- [x] Add `@shared/redis` dependency to `osn/core/package.json` and `osn/app/package.json`
+- [x] `createClientFromUrl()` factory in `@shared/redis/client` — encapsulates ioredis constructor so consumers don't need ioredis as a direct dep
+- [x] `createRedisAuthRateLimiters(client)` in `osn/core/src/lib/redis-rate-limiters.ts` — builds all 11 auth rate limiters with `auth:{endpoint}` namespaces
+- [x] `createRedisGraphRateLimiter(client)` in same file — builds graph write limiter with `graph:write` namespace
+- [x] Env-driven backend selection in `osn/app/src/index.ts`: `REDIS_URL` set → Redis-backed limiters; unset → in-memory fallback; startup health check with graceful fallback + logging
+- [x] All 12 rate limiters (11 auth + 1 graph) now use Redis backends when available — fail-closed on individual check errors (S-M36), fail-open on infrastructure (startup fallback to in-memory)
+- [x] Integration tests: 10 new tests verifying Redis-backed limiters integrate with route factories
+- [x] Updated CLAUDE.md Rate Limiting section to document the two-backend model
 
 ## Phase 4: Auth State Migration (S-M8, follow-up)
 
@@ -124,7 +127,7 @@ Decision deferred until deploying beyond localhost.
 
 | ID | Phase | Description |
 |----|-------|-------------|
-| S-M2 | 3 | In-memory rate limiter resets on restart -- umbrella finding |
+| S-M2 | 3 (done) | In-memory rate limiter resets on restart -- umbrella finding (Redis-backed when REDIS_URL set) |
 | S-M8 | 4 | Auth state in process memory -- lost on restart |
 | P-W1 | 1 (done) | Graph rate-limit store grew without bound |
 | P-W4 | 4 | Auth Maps never evict expired entries |
@@ -134,12 +137,14 @@ Decision deferred until deploying beyond localhost.
 ## Source Files
 
 - [shared/redis/src/index.ts](../shared/redis/src/index.ts) -- `@shared/redis` public API (Phase 2)
-- [shared/redis/src/client.ts](../shared/redis/src/client.ts) -- `RedisClient` interface, `wrapIoRedis()`, `createMemoryClient()` (Phase 2)
+- [shared/redis/src/client.ts](../shared/redis/src/client.ts) -- `RedisClient` interface, `wrapIoRedis()`, `createMemoryClient()`, `createClientFromUrl()` (Phase 2+3)
 - [shared/redis/src/service.ts](../shared/redis/src/service.ts) -- `Redis` Context.Tag, `RedisLive`, `RedisMemoryLive` layers (Phase 2)
 - [shared/redis/src/rate-limiter.ts](../shared/redis/src/rate-limiter.ts) -- `createRedisRateLimiter()` with Lua script (Phase 2)
 - [shared/redis/src/health.ts](../shared/redis/src/health.ts) -- `checkRedisHealth()` probe (Phase 2)
 - [shared/redis/src/errors.ts](../shared/redis/src/errors.ts) -- `RedisError` tagged error (Phase 2)
 - [osn/core/src/lib/rate-limit.ts](../osn/core/src/lib/rate-limit.ts) -- `RateLimiterBackend` interface (Phase 1)
-- [osn/core/src/routes/auth.ts](../osn/core/src/routes/auth.ts) -- 11 auth rate limiter instances to migrate
-- [osn/core/src/routes/graph.ts](../osn/core/src/routes/graph.ts) -- graph rate limiter to migrate
+- [osn/core/src/lib/redis-rate-limiters.ts](../osn/core/src/lib/redis-rate-limiters.ts) -- `createRedisAuthRateLimiters()`, `createRedisGraphRateLimiter()` factories (Phase 3)
+- [osn/core/src/routes/auth.ts](../osn/core/src/routes/auth.ts) -- 11 auth rate limiter instances (wired to Redis in Phase 3)
+- [osn/core/src/routes/graph.ts](../osn/core/src/routes/graph.ts) -- graph rate limiter (wired to Redis in Phase 3)
+- [osn/app/src/index.ts](../osn/app/src/index.ts) -- composition root: env-driven Redis client + rate limiter wiring (Phase 3)
 - [TODO.md](../TODO.md) -- "Redis Migration" section

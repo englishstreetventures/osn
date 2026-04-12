@@ -23,4 +23,12 @@ describe("checkRedisHealth", () => {
     };
     expect(await checkRedisHealth(client, 50)).toBe(false);
   });
+
+  it("returns false when ping returns a non-PONG response", async () => {
+    const client: RedisClient = {
+      ...createMemoryClient(),
+      ping: () => Promise.resolve("NOT_PONG"),
+    };
+    expect(await checkRedisHealth(client)).toBe(false);
+  });
 });

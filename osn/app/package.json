@@ -16,6 +16,7 @@
     "@osn/core": "workspace:*",
     "@osn/db": "workspace:*",
     "@shared/observability": "workspace:*",
+    "@shared/redis": "workspace:*",
     "effect": "^3.19.19",
     "elysia": "^1.2.0"
   },

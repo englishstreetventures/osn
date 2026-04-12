@@ -16,7 +16,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [x] S-H4 — PKCE now mandatory at `/token`: `state` and `code_verifier` required for `authorization_code` grants; unknown/expired state returns 400; redirect_uri must match the value stored at `/authorize` (S-M9 RFC 6749 §4.1.3)
 - [x] S-H5 — Legacy unauth'd passkey path removed: `resolvePasskeyEnrollPrincipal` now returns 401 when `Authorization` header is absent. Hosted `/authorize` HTML passkey-enrollment prompt removed (passkey enrollment requires auth; users enrol through first-party apps). `console.warn` deprecation log removed. `SimpleWebAuthn` script tag removed from hosted HTML.
 - [ ] ARC token verification middleware on internal graph routes (`/graph/internal/*`) — see [[arc-tokens]], [[arc-token-debugging]]
-- [ ] Redis migration — Phase 2 (`@shared/redis` package) done; Phase 3 (wire up rate limiters) is next — see [[redis]]
+- [x] Redis migration — Phase 3 (wire up rate limiters) done: `createRedisAuthRateLimiters()` + `createRedisGraphRateLimiter()` factories in `osn/core`, env-driven backend selection in `osn/app` (`REDIS_URL` → Redis, unset → in-memory), 10 integration tests. Resolves S-M2 for production. Phase 4 (auth state migration) is next — see [[redis]]
 
 ---
 
@@ -249,11 +249,13 @@ Subsumes: S-M2, S-M8, P-W1, P-W4, S-L18, S-L23. See [[rate-limiting]] for curren
 - [x] Tests: Lua script atomicity, window expiry, key independence, connection failure fallback — 13 tests across 3 files
 
 **Phase 3 — Wire up**
-- [ ] Add `@shared/redis` dependency to `osn/core/package.json`
-- [ ] Construct `RedisLive` layer in `osn/app/src/index.ts`; env-driven backend selection (Redis when `REDIS_URL` set, in-memory otherwise)
-- [ ] Migrate all 11 auth rate limiter instances (`osn/core/src/routes/auth.ts`) to Redis backend
-- [ ] Migrate graph rate limiter (`osn/core/src/routes/graph.ts`) to Redis backend
-- [ ] Update CLAUDE.md Rate Limiting section to document the two-backend model
+- [x] Add `@shared/redis` dependency to `osn/core/package.json` and `osn/app/package.json`
+- [x] `createClientFromUrl()` factory in `@shared/redis/client` — encapsulates ioredis constructor
+- [x] `createRedisAuthRateLimiters(client)` + `createRedisGraphRateLimiter(client)` factories in `osn/core/src/lib/redis-rate-limiters.ts`
+- [x] Env-driven backend selection in `osn/app/src/index.ts`: `REDIS_URL` → Redis with startup health check; unset → in-memory fallback; graceful fallback on connection failure
+- [x] All 12 rate limiters (11 auth + 1 graph) now use Redis backends when available
+- [x] 10 new integration tests verifying Redis-backed limiters integrate with route factories
+- [x] Updated CLAUDE.md Rate Limiting section + [[rate-limiting]] wiki page to document the two-backend model
 
 **Phase 4 — Auth state migration (S-M8, follow-up)**
 - [ ] `otpStore` → Redis with TTL (resolves S-M8 partial, P-W4 partial)
@@ -306,7 +308,7 @@ Address **High** items before any non-local deployment.
 ### Medium
 
 - [ ] S-M1 — `verifyAccessToken` rejects tokens missing `handle` claim — old tokens 401 silently; treat missing `handle` as `null` during transition period
-- [ ] S-M2 — In-memory rate limiter resets on restart/deploy — migrate to Redis shared counter. See **Platform > Infrastructure > Redis Migration** for the full plan (phases 1–3). Cross-refs: S-M8, P-W1, P-W4, S-L18, S-L23 — see [[rate-limiting]], [[redis]]
+- [x] S-M2 — In-memory rate limiter resets on restart/deploy — migrated to Redis shared counter (Phase 3). All 12 rate limiters now use Redis when `REDIS_URL` is set, with in-memory fallback. Cross-refs: S-M8 (Phase 4), P-W1 (Phase 1), P-W4 (Phase 4), S-L18 (Phase 1), S-L23 (Phase 4) — see [[rate-limiting]], [[redis]]
 - [ ] S-M3 — No "resend code" button after registration OTP; if SMTP fails, handle/email are claimed with no recovery path. Partly mitigated by the new flow's "refuse to overwrite a non-expired pending entry" policy (the user retries via the existing pending entry, no new email is sent), but a true resend button is still needed.
 - [ ] S-M4 — Legacy `POST /register` (unverified email) returns raw `String(catch)` error — can expose Drizzle constraint internals. The new `/register/{begin,complete}` routes already use the `publicError()` mapper from `routes/auth.ts`; extend the same mapper to the legacy endpoint and to all other routes that still use `String(e)`.
 - [ ] S-M5 — `displayName` embedded in JWT (1h TTL) — stale after profile update; `createdByName` on events reflects old value until token expires
@@ -345,6 +347,8 @@ Address **High** items before any non-local deployment.
 - [x] S-M38 — `@shared/redis` `RedisLive` logs raw connection error cause which may contain credentials from `REDIS_URL`. Fixed: `sanitizeCause()` redacts `redis://user:pass@` patterns before logging. — see [[redis]]
 - [x] S-M39 — `@shared/redis` rate limiter key built from unsanitised input — namespace validated at construction (`/^[a-zA-Z0-9_:.-]+$/`), keys >256 bytes denied. — see [[redis]]
 - [x] S-M40 — `@shared/redis` `RedisLive` does not enforce TLS. Fixed: logs warning when `REDIS_URL` lacks `rediss://` and `NODE_ENV=production`. — see [[redis]]
+- [x] S-M41 — `createClientFromUrl()` bypassed the TLS warning established in `RedisLive` (S-M40). Fixed: `initRedisClient()` in `osn/app/src/redis.ts` checks `NODE_ENV=production` + `rediss://` and logs a warning, matching the `RedisLive` posture. — see [[redis]], [[rate-limiting]]
+- [x] S-M42 — `initRedisClient()` logged raw `cause.message` on Redis connection failure, potentially leaking `REDIS_URL` credentials. Fixed: error messages are passed through `sanitizeCause()` before logging, matching the redaction in `RedisLive`. — see [[redis]]
 
 ### Low
 
@@ -377,6 +381,8 @@ Address **High** items before any non-local deployment.
 - [x] S-L20 — `loadConfig` silently classified production deploys as `dev` if operators forgot to set `OSN_ENV=production` (Bun leaves `NODE_ENV` empty by default), enabling pretty-printing, 100% trace sampling, and any future dev-only code paths in prod. Fixed: `loadConfig` now throws when `OSN_ENV=production` in the environment but the resolved env differs, refusing to boot with a mismatched environment. Operators must be explicit about production classification.
 - [x] S-L25 — `createRateLimiter` was exported from the `@osn/core` barrel, letting downstream consumers construct limiters with arbitrary config (e.g. `maxRequests: Infinity`) and inject them to disable rate limiting. Fixed: removed from barrel; only `RateLimiterBackend` type + default factories are public.
 - [x] S-L26 — No runtime validation on injected `RateLimiterBackend` shape — a misconfigured DI object would cause `TypeError: check is not a function` at request time. Fixed: `createAuthRoutes` and `createGraphRoutes` validate every limiter slot at construction time, failing fast at boot.
+- [x] S-L27 — `initRedisClient()` fail-open startup fallback weakens rate limiting in multi-replica production (each process gets independent in-memory counters). Fixed: `REDIS_REQUIRED=true` env var added — when set, process exits on Redis failure instead of falling back. Operators can choose availability vs rate-limit integrity. — see [[redis]]
+- [x] S-L28 — `createClientFromUrl()` used eager ioredis connection, allowing zombie connections on health-check failure. Fixed: `lazyConnect: true` + explicit `connect()` / `disconnect()` lifecycle via `ConnectableRedisClient` interface. — see [[redis]]
 
 ---
 
@@ -398,7 +404,7 @@ Address **High** items before any non-local deployment.
 - [ ] P-W11 — `beginRegistration` and the legacy `registerUser` issue two parallel `findUserByEmail` + `findUserByHandle` queries instead of a single `WHERE email = ? OR handle = ?` — doubles the DB latency component on a hot signup path. Add a `findUserByEmailOrHandle` helper.
 - [x] P-W16 — Missing index on `close_friends.friend_id` caused table scan in `getCloseFriendsOfBatch` and `removeConnection` cleanup — fixed: added `close_friends_friend_idx`
 - [x] P-W17 — `removeConnection` and `blockUser` multi-step mutations not wrapped in a transaction — fixed: both now use `db.transaction()`
-- [x] P-W18 — `@shared/redis` `wrapIoRedis` sent full Lua script body on every EVAL call. Fixed: transparent EVALSHA caching with NOSCRIPT fallback — see [[redis]]
+- [x] P-W18 — `@shared/redis` `wrapIoRedis` sent full Lua script body on every EVAL call. Fixed: transparent EVALSHA caching with NOSCRIPT fallback — see [[redis]]. Further improved: SHA now computed eagerly on first sight of each script (P-W2 follow-up) and EVALSHA tried first on every call.
 - [x] P-W19 — `@shared/redis` `createMemoryClient` had no expiry sweep (unbounded Map growth). Fixed: proactive sweep when store exceeds `maxEntries` cap, mirroring `osn/core` rate limiter pattern — see [[redis]]
 - [ ] P-W5 — Batch status-transition `UPDATE`s in `listEvents`/`listTodayEvents` (N individual writes today)
 - [x] P-W6 — N+1 queries in graph list functions — replaced with `inArray` batch fetches
@@ -418,6 +424,7 @@ Address **High** items before any non-local deployment.
 - [x] P-I4 — `getCloseFriendsOfBatch` had no upper bound on `userIds` array size — fixed: clamped to `MAX_BATCH_SIZE` (1000)
 - [x] P-I14 — `@shared/redis` `checkRedisHealth` timeout timer leaked on success path. Fixed: `clearTimeout` in `.finally()` — see [[redis]]
 - [x] P-I15 — `@shared/redis` `RedisLive` startup ping had no timeout (indefinite hang on unresponsive Redis). Fixed: 5s timeout with `Promise.race` — see [[redis]]
+- [x] P-I16 — `void Effect.runPromise(...)` fire-and-forget log statements in `initRedisClient()` could swallow observability bootstrap errors. Fixed: warning-level logs are now `await`-ed; info-level remain fire-and-forget. — see [[redis]]
 - [ ] P-I3 — `new TextEncoder()` allocated per `verifyPkceChallenge` call — move to module scope
 - [ ] P-I4 — `AuthProvider` reconstructs Effect `Layer` on every render — wrap with `createMemo`
 - [ ] P-I5 — `completePasskeyLogin` calls `findUserByEmail` redundantly — `pk.userId` already on passkey row

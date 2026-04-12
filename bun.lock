@@ -22,6 +22,7 @@
         "@osn/core": "workspace:*",
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
+        "@shared/redis": "workspace:*",
         "effect": "^3.19.19",
         "elysia": "^1.2.0",
       },
@@ -54,6 +55,7 @@
         "@elysiajs/cors": "^1.4.0",
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
+        "@shared/redis": "workspace:*",
         "@simplewebauthn/server": "^13.1.1",
         "drizzle-orm": "^0.38.0",
         "effect": "^3.19.19",
@@ -242,7 +244,7 @@
     },
     "shared/redis": {
       "name": "@shared/redis",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "effect": "^3.19.19",
         "ioredis": "^5.6.0",

@@ -25,22 +25,39 @@ finding-ids:
   - P-W16
 packages:
   - "@osn/core"
+  - "@shared/redis"
+  - "@osn/app"
 last-reviewed: 2026-04-12
 ---
 
 # Rate Limiting
 
-OSN uses **per-IP fixed-window rate limiting** on all auth endpoints. The implementation lives in [rate-limit.ts](../osn/core/src/lib/rate-limit.ts) and is consumed by `createAuthRoutes` in [auth.ts](../osn/core/src/routes/auth.ts).
+OSN uses **per-IP fixed-window rate limiting** on all auth endpoints and **per-user** limiting on graph write endpoints. Two backends are supported: **Redis** (production, cross-process) and **in-memory** (local dev fallback).
 
 ## Architecture
 
 ```
-osn/core/src/lib/rate-limit.ts     # Generic createRateLimiter + getClientIp
-osn/core/src/routes/auth.ts        # 11 limiter instances, one per endpoint group
-osn/core/src/metrics.ts            # osn.auth.rate_limited counter
+osn/core/src/lib/rate-limit.ts         # RateLimiterBackend interface + in-memory createRateLimiter + getClientIp
+osn/core/src/lib/redis-rate-limiters.ts # createRedisAuthRateLimiters() + createRedisGraphRateLimiter()
+osn/core/src/routes/auth.ts            # 11 limiter instances, one per endpoint group
+osn/core/src/routes/graph.ts           # graph write rate limiter (60 req/user/min)
+osn/core/src/metrics.ts                # osn.auth.rate_limited counter
+osn/app/src/index.ts                   # Composition root: env-driven Redis/memory backend selection
+shared/redis/src/rate-limiter.ts       # createRedisRateLimiter() — Lua INCR+PEXPIRE
 shared/observability/src/metrics/
-  attrs.ts                          # AuthRateLimitedEndpoint bounded union
+  attrs.ts                              # AuthRateLimitedEndpoint bounded union
 ```
+
+## Backend Selection
+
+At startup, `osn/app/src/index.ts` selects the rate limiter backend:
+
+| `REDIS_URL` env var | Backend | Behaviour |
+|---------------------|---------|-----------|
+| Set | Redis via ioredis | Atomic Lua script (INCR+PEXPIRE), shared across processes, survives restarts |
+| Unset | In-memory `createMemoryClient()` | Same semantics, process-local, resets on restart |
+
+If `REDIS_URL` is set but Redis is unreachable at startup, the app falls back to in-memory with a warning log. Individual rate limit checks are always **fail-closed** (S-M36) — a Redis error during `check()` denies the request.
 
 ## When to Add Rate Limiting
 
@@ -127,10 +144,9 @@ Expired entries are evicted on every `check()` call when at least one window has
 
 ## Known Limitations
 
-- **In-memory only** -- resets on restart; not safe for multi-process. S-M2 tracks migration to a shared counter ([[redis|Redis]] / Cloudflare Durable Objects) for horizontal scaling.
 - **Trusts `X-Forwarded-For`** -- clients can spoof the header without a trusted reverse proxy. S-M34 tracks adding a `trustProxy` config flag.
 - **Fixed window** -- a burst at the window boundary can allow 2x the limit. Acceptable for auth endpoints; sliding window is overkill for current traffic.
-- **Proactive sweep** -- expired entries are evicted on every `check()` call when at least one window has elapsed since the last sweep. The `maxEntries` cap is a hard backstop; periodic sweeping keeps memory deterministic under normal load.
+- **In-memory fallback** -- when `REDIS_URL` is unset (or Redis unreachable at startup), rate limits are process-local and reset on restart. S-M2 is resolved for production (Redis-backed) but the dev fallback retains the limitation by design.
 
 ## Security Finding History
 
@@ -138,7 +154,7 @@ Expired entries are evicted on every `check()` call when at least one window has
 |----|--------|-------------|
 | S-H1 | Fixed | Rate limit all auth endpoints (per-IP fixed-window) |
 | S-H2 | Fixed | `/handle/:handle` rate limited at 10 req/IP/min |
-| S-M2 | Open | In-memory rate limiter resets on restart -- migrate to Redis |
+| S-M2 | Fixed | In-memory rate limiter resets on restart -- migrated to Redis (Phase 3) |
 | S-M34 | Open | Trusts `X-Forwarded-For` without reverse-proxy guarantee |
 | S-M36 | Fixed | Async backend rejection was fail-open (now fail-closed) |
 | P-W1 | Fixed | Graph rate-limit store grew without bound (now uses shared limiter) |
@@ -146,9 +162,12 @@ Expired entries are evicted on every `check()` call when at least one window has
 
 ## Source Files
 
-- [osn/core/src/lib/rate-limit.ts](../osn/core/src/lib/rate-limit.ts) -- rate limiter implementation
+- [osn/core/src/lib/rate-limit.ts](../osn/core/src/lib/rate-limit.ts) -- `RateLimiterBackend` interface + in-memory implementation
+- [osn/core/src/lib/redis-rate-limiters.ts](../osn/core/src/lib/redis-rate-limiters.ts) -- Redis-backed rate limiter factories
 - [osn/core/src/routes/auth.ts](../osn/core/src/routes/auth.ts) -- auth route limiter instances
 - [osn/core/src/routes/graph.ts](../osn/core/src/routes/graph.ts) -- graph route rate limiting
 - [osn/core/src/metrics.ts](../osn/core/src/metrics.ts) -- `osn.auth.rate_limited` metric
+- [osn/app/src/index.ts](../osn/app/src/index.ts) -- composition root with env-driven Redis/memory selection
+- [shared/redis/src/rate-limiter.ts](../shared/redis/src/rate-limiter.ts) -- `createRedisRateLimiter()` Lua script backend
 - [shared/observability/src/metrics/attrs.ts](../shared/observability/src/metrics/attrs.ts) -- `AuthRateLimitedEndpoint` type
 - [CLAUDE.md](../CLAUDE.md) -- "Rate Limiting" section

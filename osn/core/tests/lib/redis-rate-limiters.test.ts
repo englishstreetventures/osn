@@ -1,0 +1,114 @@
+import { describe, it, expect } from "vitest";
+import { createMemoryClient } from "@shared/redis";
+import {
+  createRedisAuthRateLimiters,
+  createRedisGraphRateLimiter,
+} from "../../src/lib/redis-rate-limiters";
+
+describe("createRedisAuthRateLimiters", () => {
+  it("returns all 11 rate limiter slots", () => {
+    const client = createMemoryClient();
+    const limiters = createRedisAuthRateLimiters(client);
+
+    const expectedKeys = [
+      "registerBegin",
+      "registerComplete",
+      "handleCheck",
+      "otpBegin",
+      "otpComplete",
+      "magicBegin",
+      "magicVerify",
+      "passkeyLoginBegin",
+      "passkeyLoginComplete",
+      "passkeyRegisterBegin",
+      "passkeyRegisterComplete",
+    ] as const;
+
+    for (const key of expectedKeys) {
+      expect(limiters[key]).toBeDefined();
+      expect(typeof limiters[key].check).toBe("function");
+    }
+  });
+
+  it("enforces begin-endpoint limits (5 req/min)", async () => {
+    const client = createMemoryClient();
+    const limiters = createRedisAuthRateLimiters(client);
+
+    for (let i = 0; i < 5; i++) {
+      expect(await limiters.registerBegin.check("ip1")).toBe(true);
+    }
+    expect(await limiters.registerBegin.check("ip1")).toBe(false);
+  });
+
+  it("enforces complete-endpoint limits (10 req/min)", async () => {
+    const client = createMemoryClient();
+    const limiters = createRedisAuthRateLimiters(client);
+
+    for (let i = 0; i < 10; i++) {
+      expect(await limiters.registerComplete.check("ip1")).toBe(true);
+    }
+    expect(await limiters.registerComplete.check("ip1")).toBe(false);
+  });
+
+  it("isolates namespaces between endpoints", async () => {
+    const client = createMemoryClient();
+    const limiters = createRedisAuthRateLimiters(client);
+
+    // Exhaust registerBegin (5 req)
+    for (let i = 0; i < 5; i++) {
+      await limiters.registerBegin.check("ip1");
+    }
+    expect(await limiters.registerBegin.check("ip1")).toBe(false);
+
+    // otpBegin should still have its own quota
+    expect(await limiters.otpBegin.check("ip1")).toBe(true);
+  });
+
+  it("check() returns a Promise (async-compatible)", () => {
+    const client = createMemoryClient();
+    const limiters = createRedisAuthRateLimiters(client);
+    const result = limiters.registerBegin.check("ip1");
+    expect(result).toBeInstanceOf(Promise);
+  });
+});
+
+describe("createRedisGraphRateLimiter", () => {
+  it("returns a valid rate limiter backend", () => {
+    const client = createMemoryClient();
+    const limiter = createRedisGraphRateLimiter(client);
+    expect(typeof limiter.check).toBe("function");
+  });
+
+  it("enforces 60 req/min limit", async () => {
+    const client = createMemoryClient();
+    const limiter = createRedisGraphRateLimiter(client);
+
+    for (let i = 0; i < 60; i++) {
+      expect(await limiter.check("user1")).toBe(true);
+    }
+    expect(await limiter.check("user1")).toBe(false);
+  });
+
+  it("tracks users independently", async () => {
+    const client = createMemoryClient();
+    const limiter = createRedisGraphRateLimiter(client);
+
+    expect(await limiter.check("user1")).toBe(true);
+    expect(await limiter.check("user2")).toBe(true);
+  });
+
+  it("uses a separate namespace from auth rate limiters", async () => {
+    const client = createMemoryClient();
+    const authLimiters = createRedisAuthRateLimiters(client);
+    const graphLimiter = createRedisGraphRateLimiter(client);
+
+    // Exhaust graph limiter for a key
+    for (let i = 0; i < 60; i++) {
+      await graphLimiter.check("shared_key");
+    }
+    expect(await graphLimiter.check("shared_key")).toBe(false);
+
+    // Auth limiter with the same key should be unaffected
+    expect(await authLimiters.handleCheck.check("shared_key")).toBe(true);
+  });
+});

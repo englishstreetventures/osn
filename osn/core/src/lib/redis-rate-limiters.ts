@@ -1,0 +1,55 @@
+/**
+ * Redis-backed rate limiter factories for auth and graph routes.
+ *
+ * These mirror the in-memory defaults in `createDefaultAuthRateLimiters()` and
+ * `createDefaultGraphRateLimiter()` but delegate to `createRedisRateLimiter`
+ * from `@shared/redis`, which uses an atomic Lua script (INCR + PEXPIRE) for
+ * correct fixed-window counting across processes.
+ *
+ * The returned objects satisfy `RateLimiterBackend` from `./rate-limit.ts` —
+ * `check(key)` returns `Promise<boolean>`, which the existing `await`-based
+ * call sites in auth.ts / graph.ts handle transparently.
+ */
+
+import { createRedisRateLimiter } from "@shared/redis";
+import type { RedisClient } from "@shared/redis";
+import type { AuthRateLimiters } from "../routes/auth";
+import type { RateLimiterBackend } from "./rate-limit";
+
+const ONE_MINUTE_MS = 60_000;
+
+/**
+ * Build all 11 auth rate limiters backed by a shared Redis client.
+ * Namespace convention: `auth:{endpoint_name}` — produces Redis keys like
+ * `rl:auth:register_begin:192.168.1.1`.
+ */
+export function createRedisAuthRateLimiters(client: RedisClient): AuthRateLimiters {
+  const rl = (namespace: string, maxRequests: number): RateLimiterBackend =>
+    createRedisRateLimiter(client, { namespace, maxRequests, windowMs: ONE_MINUTE_MS });
+
+  return {
+    registerBegin: rl("auth:register_begin", 5),
+    registerComplete: rl("auth:register_complete", 10),
+    handleCheck: rl("auth:handle_check", 10),
+    otpBegin: rl("auth:otp_begin", 5),
+    otpComplete: rl("auth:otp_complete", 10),
+    magicBegin: rl("auth:magic_begin", 5),
+    magicVerify: rl("auth:magic_verify", 10),
+    passkeyLoginBegin: rl("auth:passkey_login_begin", 10),
+    passkeyLoginComplete: rl("auth:passkey_login_complete", 10),
+    passkeyRegisterBegin: rl("auth:passkey_register_begin", 10),
+    passkeyRegisterComplete: rl("auth:passkey_register_complete", 10),
+  };
+}
+
+/**
+ * Build the graph write rate limiter backed by Redis.
+ * Namespace: `graph:write` — key is the authenticated user ID.
+ */
+export function createRedisGraphRateLimiter(client: RedisClient): RateLimiterBackend {
+  return createRedisRateLimiter(client, {
+    namespace: "graph:write",
+    maxRequests: 60,
+    windowMs: ONE_MINUTE_MS,
+  });
+}

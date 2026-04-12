@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type IORedis from "ioredis";
-import { wrapIoRedis, createMemoryClient } from "../src/client";
+import { wrapIoRedis, createMemoryClient, createClientFromUrl } from "../src/client";
 
 function createMockIoRedis() {
   return {
@@ -23,67 +23,74 @@ describe("wrapIoRedis", () => {
     client = wrapIoRedis(mock as unknown as IORedis);
   });
 
-  describe("eval — EVALSHA caching (P-W1)", () => {
-    it("uses EVAL on first call and EVALSHA on subsequent calls", async () => {
-      await client.eval("script", ["key1"], [1, 2]);
-      expect(mock.eval).toHaveBeenCalledOnce();
-      expect(mock.evalsha).not.toHaveBeenCalled();
+  describe("eval — EVALSHA-first with eager SHA caching (P-W2)", () => {
+    it("tries EVALSHA first, falls back to EVAL on NOSCRIPT (first call)", async () => {
+      // First call: EVALSHA fails with NOSCRIPT, falls back to EVAL
+      mock.evalsha.mockRejectedValueOnce(new Error("NOSCRIPT No matching script"));
 
-      await client.eval("script", ["key2"], [3, 4]);
-      expect(mock.eval).toHaveBeenCalledOnce(); // still only one EVAL
+      await client.eval("script", ["key1"], [1, 2]);
       expect(mock.evalsha).toHaveBeenCalledOnce();
+      expect(mock.eval).toHaveBeenCalledOnce();
     });
 
-    it("spreads keys and args correctly for EVAL", async () => {
+    it("uses EVALSHA successfully on subsequent calls (SHA cached by server)", async () => {
+      // First call: NOSCRIPT → EVAL loads the script
+      mock.evalsha.mockRejectedValueOnce(new Error("NOSCRIPT No matching script"));
+      await client.eval("script", ["key1"], [1, 2]);
+
+      // Second call: EVALSHA succeeds (script now loaded on server)
+      await client.eval("script", ["key2"], [3, 4]);
+      expect(mock.evalsha).toHaveBeenCalledTimes(2);
+      expect(mock.eval).toHaveBeenCalledOnce(); // no new EVAL
+    });
+
+    it("spreads keys and args correctly for EVALSHA", async () => {
+      await client.eval("script", ["k1", "k2"], [10, 20]);
+      // SHA is computed eagerly from "script"
+      expect(mock.evalsha).toHaveBeenCalledWith(expect.any(String), 2, "k1", "k2", 10, 20);
+    });
+
+    it("spreads keys and args correctly for EVAL fallback", async () => {
+      mock.evalsha.mockRejectedValueOnce(new Error("NOSCRIPT No matching script"));
       await client.eval("script", ["k1", "k2"], [10, 20]);
       expect(mock.eval).toHaveBeenCalledWith("script", 2, "k1", "k2", 10, 20);
     });
 
-    it("spreads keys and args correctly for EVALSHA", async () => {
-      await client.eval("script", ["k1"], [1]); // prime the cache
-      mock.evalsha.mockResolvedValue(42);
-
-      const result = await client.eval("script", ["k2", "k3"], [5, 6]);
-      expect(result).toBe(42);
-      // SHA is the sha1 of "script", numkeys=2, then keys, then args
-      expect(mock.evalsha).toHaveBeenCalledWith(expect.any(String), 2, "k2", "k3", 5, 6);
-    });
-
-    it("falls back to EVAL on NOSCRIPT error", async () => {
-      await client.eval("script", ["k1"], [1]); // prime cache
-      mock.evalsha.mockRejectedValueOnce(new Error("NOSCRIPT No matching script"));
-
-      await client.eval("script", ["k2"], [2]); // EVALSHA fails, falls back to EVAL
-      expect(mock.eval).toHaveBeenCalledTimes(2);
-    });
-
-    it("re-caches SHA after NOSCRIPT fallback", async () => {
-      await client.eval("script", ["k1"], [1]); // prime cache
-      mock.evalsha.mockRejectedValueOnce(new Error("NOSCRIPT No matching script"));
-
-      await client.eval("script", ["k2"], [2]); // fallback to EVAL, re-caches
-      expect(mock.eval).toHaveBeenCalledTimes(2);
-
-      await client.eval("script", ["k3"], [3]); // should use EVALSHA again
-      expect(mock.evalsha).toHaveBeenCalledTimes(2); // first failed + this one
-      expect(mock.eval).toHaveBeenCalledTimes(2); // no new EVAL
-    });
-
     it("rethrows non-NOSCRIPT errors from EVALSHA", async () => {
-      await client.eval("script", ["k1"], [1]); // prime cache
       mock.evalsha.mockRejectedValueOnce(new Error("OOM command not allowed"));
 
       await expect(client.eval("script", ["k2"], [2])).rejects.toThrow("OOM command not allowed");
     });
 
-    it("caches different scripts independently", async () => {
+    it("caches different scripts independently (P-W2)", async () => {
+      // Both scripts succeed on first EVALSHA (already loaded on server)
       await client.eval("script_a", ["k1"], [1]);
       await client.eval("script_b", ["k2"], [2]);
-      expect(mock.eval).toHaveBeenCalledTimes(2);
+      expect(mock.evalsha).toHaveBeenCalledTimes(2);
 
+      // Subsequent calls reuse cached SHAs
       await client.eval("script_a", ["k3"], [3]);
       await client.eval("script_b", ["k4"], [4]);
-      expect(mock.evalsha).toHaveBeenCalledTimes(2);
+      expect(mock.evalsha).toHaveBeenCalledTimes(4);
+      // No EVAL calls at all — EVALSHA succeeded every time
+      expect(mock.eval).not.toHaveBeenCalled();
+    });
+
+    it("computes SHA eagerly — no createHash per EVAL fallback (P-W2)", async () => {
+      // Two NOSCRIPT errors for the same script — SHA should only be computed once
+      mock.evalsha.mockRejectedValueOnce(new Error("NOSCRIPT No matching script"));
+      await client.eval("script", ["k1"], [1]);
+      expect(mock.eval).toHaveBeenCalledOnce();
+
+      // Simulate Redis restart: NOSCRIPT again on next call
+      mock.evalsha.mockRejectedValueOnce(new Error("NOSCRIPT No matching script"));
+      await client.eval("script", ["k2"], [2]);
+      expect(mock.eval).toHaveBeenCalledTimes(2);
+
+      // The same SHA should be used for both EVALSHA attempts
+      const sha1 = mock.evalsha.mock.calls[0][0];
+      const sha2 = mock.evalsha.mock.calls[1][0];
+      expect(sha1).toBe(sha2);
     });
   });
 
@@ -130,6 +137,24 @@ describe("wrapIoRedis", () => {
       await client.quit();
       expect(mock.quit).toHaveBeenCalledOnce();
     });
+  });
+});
+
+describe("createClientFromUrl", () => {
+  it("returns an object satisfying RedisClient", () => {
+    // We can't connect to a real server, but we can verify the shape
+    const client = createClientFromUrl("redis://localhost:6379");
+    expect(typeof client.eval).toBe("function");
+    expect(typeof client.ping).toBe("function");
+    expect(typeof client.get).toBe("function");
+    expect(typeof client.set).toBe("function");
+    expect(typeof client.del).toBe("function");
+    expect(typeof client.quit).toBe("function");
+    // ConnectableRedisClient extras
+    expect(typeof client.connect).toBe("function");
+    expect(typeof client.disconnect).toBe("function");
+    // Clean up the lazy connection (never opened)
+    client.disconnect();
   });
 });
 

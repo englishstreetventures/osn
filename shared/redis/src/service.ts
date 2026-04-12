@@ -90,4 +90,4 @@ export const RedisMemoryLive: Layer.Layer<Redis> = Layer.scoped(
   }),
 );
 
-export { sanitizeCause as _sanitizeCause };
+export { sanitizeCause };
