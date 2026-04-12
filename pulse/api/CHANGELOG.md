@@ -1,5 +1,12 @@
 # @osn/api
 
+## 0.7.5
+
+### Patch Changes
+
+- Updated dependencies [19c39ba]
+  - @osn/core@0.11.0
+
 ## 0.7.4
 
 ### Patch Changes
