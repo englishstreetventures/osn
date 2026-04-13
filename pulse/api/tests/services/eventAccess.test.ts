@@ -29,7 +29,7 @@ it.effect("canViewEvent hides private events from unauthenticated callers", () =
       title: "Hidden",
       startTime: FUTURE,
       visibility: "private",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     });
     expect(yield* canViewEvent(event, null)).toBe(false);
   }).pipe(Effect.provide(createTestLayer())),
@@ -41,7 +41,7 @@ it.effect("canViewEvent shows private events to their organiser", () =>
       title: "Hidden",
       startTime: FUTURE,
       visibility: "private",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     });
     expect(yield* canViewEvent(event, "usr_alice")).toBe(true);
   }).pipe(Effect.provide(createTestLayer())),
@@ -53,7 +53,7 @@ it.effect("canViewEvent hides private events from random authenticated viewers",
       title: "Hidden",
       startTime: FUTURE,
       visibility: "private",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     });
     expect(yield* canViewEvent(event, "usr_bob")).toBe(false);
   }).pipe(Effect.provide(createTestLayer())),
@@ -65,7 +65,7 @@ it.effect("canViewEvent shows private events to viewers who have an RSVP row", (
       title: "Hidden",
       startTime: FUTURE,
       visibility: "private",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     });
     // Bob has an RSVP for the event (e.g. organiser shared the link).
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
@@ -86,7 +86,7 @@ it.effect("loadVisibleEvent returns null for events the viewer can't see", () =>
       title: "Hidden",
       startTime: FUTURE,
       visibility: "private",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     });
     const result = yield* loadVisibleEvent(event.id, "usr_bob");
     expect(result).toBeNull();

@@ -59,7 +59,7 @@ describe("makeLoggerLayer", () => {
     await Effect.runPromise(
       Effect.logInfo("login attempt").pipe(
         Effect.annotateLogs({
-          userId: "u_123",
+          profileId: "u_123",
           email: "alice@example.com",
           accessToken: "eyJsecret",
           handle: "alice",
@@ -75,7 +75,7 @@ describe("makeLoggerLayer", () => {
     // capture logger observed the call.
     expect(captured.length).toBe(1);
     expect(captured[0]?.message).toEqual(["login attempt"]);
-    expect(captured[0]?.annotations.get("userId")).toBe("u_123");
+    expect(captured[0]?.annotations.get("profileId")).toBe("u_123");
   });
 });
 

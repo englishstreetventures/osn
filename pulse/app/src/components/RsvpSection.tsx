@@ -16,13 +16,13 @@ interface Event {
   guestListVisibility: "public" | "connections" | "private";
   allowInterested: boolean;
   joinPolicy: "open" | "guest_list";
-  createdByUserId: string;
+  createdByProfileId: string;
 }
 
 export function RsvpSection(props: {
   event: Event;
   accessToken: string | null;
-  currentUserId: string | null;
+  currentProfileId: string | null;
 }) {
   const tokenSource = () => ({
     eventId: props.event.id,
@@ -37,7 +37,7 @@ export function RsvpSection(props: {
   const [submitting, setSubmitting] = createSignal(false);
   const [modalOpen, setModalOpen] = createSignal(false);
 
-  const isOrganiser = () => props.currentUserId === props.event.createdByUserId;
+  const isOrganiser = () => props.currentProfileId === props.event.createdByProfileId;
   const isPrivateList = () => props.event.guestListVisibility === "private" && !isOrganiser();
 
   async function handleRsvp(status: "going" | "interested" | "not_going") {

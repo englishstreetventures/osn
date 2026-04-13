@@ -9,7 +9,7 @@ import { MapPreview } from "../components/MapPreview";
 import { RsvpSection } from "../components/RsvpSection";
 import { api } from "../lib/api";
 import { apiBaseUrl } from "../lib/rsvps";
-import { formatTime, getUserIdFromToken } from "../lib/utils";
+import { formatTime, getProfileIdFromToken } from "../lib/utils";
 
 interface EventDetail {
   id: string;
@@ -28,7 +28,7 @@ interface EventDetail {
   guestListVisibility: "public" | "connections" | "private";
   joinPolicy: "open" | "guest_list";
   allowInterested: boolean;
-  createdByUserId: string;
+  createdByProfileId: string;
   createdByName: string | null;
 }
 
@@ -46,7 +46,7 @@ export function EventDetailPage() {
   const params = useParams<{ id: string }>();
   const { session } = useAuth();
   const accessToken = () => session()?.accessToken ?? null;
-  const currentUserId = () => getUserIdFromToken(accessToken());
+  const currentProfileId = () => getProfileIdFromToken(accessToken());
 
   const source = () => ({ id: params.id, token: accessToken() });
   const [event] = createResource(source, ({ id, token }) => fetchEvent(id, token));
@@ -122,7 +122,11 @@ export function EventDetailPage() {
             />
 
             {/* RSVPs */}
-            <RsvpSection event={e()} accessToken={accessToken()} currentUserId={currentUserId()} />
+            <RsvpSection
+              event={e()}
+              accessToken={accessToken()}
+              currentProfileId={currentProfileId()}
+            />
 
             {/* Comms */}
             <CommsSummary eventId={e().id} />

@@ -253,7 +253,7 @@ export function createGraphService() {
    * Removes an accepted connection or cancels a pending request in either direction.
    */
   const removeConnection = (
-    userId: string,
+    profileId: string,
     otherId: string,
   ): Effect.Effect<void, NotFoundError | DatabaseError, Db> =>
     Effect.gen(function* () {
@@ -265,8 +265,8 @@ export function createGraphService() {
             .from(connections)
             .where(
               or(
-                and(eq(connections.requesterId, userId), eq(connections.addresseeId, otherId)),
-                and(eq(connections.requesterId, otherId), eq(connections.addresseeId, userId)),
+                and(eq(connections.requesterId, profileId), eq(connections.addresseeId, otherId)),
+                and(eq(connections.requesterId, otherId), eq(connections.addresseeId, profileId)),
               ),
             )
             .limit(1),
@@ -286,8 +286,8 @@ export function createGraphService() {
               .delete(closeFriends)
               .where(
                 or(
-                  and(eq(closeFriends.userId, userId), eq(closeFriends.friendId, otherId)),
-                  and(eq(closeFriends.userId, otherId), eq(closeFriends.friendId, userId)),
+                  and(eq(closeFriends.profileId, profileId), eq(closeFriends.friendId, otherId)),
+                  and(eq(closeFriends.profileId, otherId), eq(closeFriends.friendId, profileId)),
                 ),
               );
             await tx.delete(connections).where(eq(connections.id, connId));
@@ -297,7 +297,7 @@ export function createGraphService() {
     }).pipe(withGraphConnectionOp("remove"));
 
   const listConnections = (
-    userId: string,
+    profileId: string,
     options: ListOptions = {},
   ): Effect.Effect<{ user: typeof users.$inferSelect; connectedAt: Date }[], DatabaseError, Db> =>
     Effect.gen(function* () {
@@ -312,7 +312,7 @@ export function createGraphService() {
             .from(connections)
             .where(
               and(
-                or(eq(connections.requesterId, userId), eq(connections.addresseeId, userId)),
+                or(eq(connections.requesterId, profileId), eq(connections.addresseeId, profileId)),
                 eq(connections.status, "accepted"),
               ),
             )
@@ -323,9 +323,11 @@ export function createGraphService() {
 
       if (rows.length === 0) return [];
 
-      const peerIds = rows.map((r) => (r.requesterId === userId ? r.addresseeId : r.requesterId));
+      const peerIds = rows.map((r) =>
+        r.requesterId === profileId ? r.addresseeId : r.requesterId,
+      );
       const updatedAtMap = new Map(
-        rows.map((r) => [r.requesterId === userId ? r.addresseeId : r.requesterId, r.updatedAt]),
+        rows.map((r) => [r.requesterId === profileId ? r.addresseeId : r.requesterId, r.updatedAt]),
       );
 
       const peers = yield* Effect.tryPromise({
@@ -337,7 +339,7 @@ export function createGraphService() {
     });
 
   const listPendingRequests = (
-    userId: string,
+    profileId: string,
     options: ListOptions = {},
   ): Effect.Effect<{ user: typeof users.$inferSelect; requestedAt: Date }[], DatabaseError, Db> =>
     Effect.gen(function* () {
@@ -350,7 +352,7 @@ export function createGraphService() {
           db
             .select()
             .from(connections)
-            .where(and(eq(connections.addresseeId, userId), eq(connections.status, "pending")))
+            .where(and(eq(connections.addresseeId, profileId), eq(connections.status, "pending")))
             .limit(limit)
             .offset(offset),
         catch: (cause) => new DatabaseError({ cause }),
@@ -377,17 +379,17 @@ export function createGraphService() {
   // -------------------------------------------------------------------------
 
   const addCloseFriend = (
-    userId: string,
+    profileId: string,
     friendId: string,
   ): Effect.Effect<void, GraphError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      if (userId === friendId) {
+      if (profileId === friendId) {
         return yield* Effect.fail(
           new GraphError({ message: "Cannot add yourself as a close friend" }),
         );
       }
 
-      const status = yield* getConnectionStatus(userId, friendId);
+      const status = yield* getConnectionStatus(profileId, friendId);
       if (status !== "connected") {
         return yield* Effect.fail(
           new GraphError({ message: "Must be connected before adding as a close friend" }),
@@ -399,14 +401,14 @@ export function createGraphService() {
         try: () =>
           db
             .insert(closeFriends)
-            .values({ id: genId("clf_"), userId, friendId, createdAt: now() })
+            .values({ id: genId("clf_"), profileId, friendId, createdAt: now() })
             .onConflictDoNothing(),
         catch: (cause) => new DatabaseError({ cause }),
       });
     }).pipe(withGraphCloseFriendOp("add"));
 
   const removeCloseFriend = (
-    userId: string,
+    profileId: string,
     friendId: string,
   ): Effect.Effect<void, NotFoundError | DatabaseError, Db> =>
     Effect.gen(function* () {
@@ -416,7 +418,7 @@ export function createGraphService() {
           db
             .select()
             .from(closeFriends)
-            .where(and(eq(closeFriends.userId, userId), eq(closeFriends.friendId, friendId)))
+            .where(and(eq(closeFriends.profileId, profileId), eq(closeFriends.friendId, friendId)))
             .limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
@@ -432,7 +434,7 @@ export function createGraphService() {
     }).pipe(withGraphCloseFriendOp("remove"));
 
   const listCloseFriends = (
-    userId: string,
+    profileId: string,
     options: ListOptions = {},
   ): Effect.Effect<(typeof users.$inferSelect)[], DatabaseError, Db> =>
     Effect.gen(function* () {
@@ -445,7 +447,7 @@ export function createGraphService() {
           db
             .select()
             .from(closeFriends)
-            .where(eq(closeFriends.userId, userId))
+            .where(eq(closeFriends.profileId, profileId))
             .limit(limit)
             .offset(offset),
         catch: (cause) => new DatabaseError({ cause }),
@@ -464,10 +466,10 @@ export function createGraphService() {
     });
 
   /**
-   * Directional check: has `userId` marked `friendId` as a close friend?
+   * Directional check: has `profileId` marked `friendId` as a close friend?
    */
   const isCloseFriendOf = (
-    userId: string,
+    profileId: string,
     friendId: string,
   ): Effect.Effect<boolean, DatabaseError, Db> =>
     Effect.gen(function* () {
@@ -477,7 +479,7 @@ export function createGraphService() {
           db
             .select({ _: closeFriends.id })
             .from(closeFriends)
-            .where(and(eq(closeFriends.userId, userId), eq(closeFriends.friendId, friendId)))
+            .where(and(eq(closeFriends.profileId, profileId), eq(closeFriends.friendId, friendId)))
             .limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
@@ -485,26 +487,29 @@ export function createGraphService() {
     }).pipe(Effect.withSpan("graph.close_friend.check"));
 
   /**
-   * Batched reverse lookup: which of `userIds` have marked `viewerId` as a
-   * close friend? Returns the subset of `userIds` that have done so.
+   * Batched reverse lookup: which of `profileIds` have marked `viewerId` as a
+   * close friend? Returns the subset of `profileIds` that have done so.
    */
   const getCloseFriendsOfBatch = (
     viewerId: string,
-    userIds: string[],
+    profileIds: string[],
   ): Effect.Effect<Set<string>, DatabaseError, Db> =>
     Effect.gen(function* () {
-      if (userIds.length === 0) return new Set<string>();
-      const clamped = userIds.length > MAX_BATCH_SIZE ? userIds.slice(0, MAX_BATCH_SIZE) : userIds;
+      if (profileIds.length === 0) return new Set<string>();
+      const clamped =
+        profileIds.length > MAX_BATCH_SIZE ? profileIds.slice(0, MAX_BATCH_SIZE) : profileIds;
       const { db } = yield* Db;
       const rows = yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ userId: closeFriends.userId })
+            .select({ profileId: closeFriends.profileId })
             .from(closeFriends)
-            .where(and(eq(closeFriends.friendId, viewerId), inArray(closeFriends.userId, clamped))),
+            .where(
+              and(eq(closeFriends.friendId, viewerId), inArray(closeFriends.profileId, clamped)),
+            ),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      return new Set(rows.map((r) => r.userId));
+      return new Set(rows.map((r) => r.profileId));
     }).pipe(Effect.withSpan("graph.close_friend.batch_lookup"));
 
   // -------------------------------------------------------------------------
@@ -544,8 +549,8 @@ export function createGraphService() {
               .delete(closeFriends)
               .where(
                 or(
-                  and(eq(closeFriends.userId, blockerId), eq(closeFriends.friendId, blockedId)),
-                  and(eq(closeFriends.userId, blockedId), eq(closeFriends.friendId, blockerId)),
+                  and(eq(closeFriends.profileId, blockerId), eq(closeFriends.friendId, blockedId)),
+                  and(eq(closeFriends.profileId, blockedId), eq(closeFriends.friendId, blockerId)),
                 ),
               );
             await tx
@@ -584,7 +589,7 @@ export function createGraphService() {
     }).pipe(withGraphBlockOp("remove"));
 
   const listBlocks = (
-    userId: string,
+    profileId: string,
     options: ListOptions = {},
   ): Effect.Effect<(typeof users.$inferSelect)[], DatabaseError, Db> =>
     Effect.gen(function* () {
@@ -594,7 +599,12 @@ export function createGraphService() {
 
       const rows = yield* Effect.tryPromise({
         try: () =>
-          db.select().from(blocks).where(eq(blocks.blockerId, userId)).limit(limit).offset(offset),
+          db
+            .select()
+            .from(blocks)
+            .where(eq(blocks.blockerId, profileId))
+            .limit(limit)
+            .offset(offset),
         catch: (cause) => new DatabaseError({ cause }),
       });
 

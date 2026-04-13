@@ -13,7 +13,7 @@ describe("redact", () => {
 
   it("redacts OAuth / first-party token responses", () => {
     const input = {
-      userId: "u_123",
+      profileId: "u_123",
       accessToken: "eyJ...",
       refreshToken: "eyJ...",
       idToken: "eyJ...",
@@ -24,7 +24,7 @@ describe("redact", () => {
       enrollment_token: "enroll_xyz",
     };
     const out = redact(input) as Record<string, unknown>;
-    expect(out.userId).toBe("u_123");
+    expect(out.profileId).toBe("u_123");
     expect(out.accessToken).toBe(REDACTION_PLACEHOLDER);
     expect(out.refreshToken).toBe(REDACTION_PLACEHOLDER);
     expect(out.idToken).toBe(REDACTION_PLACEHOLDER);
@@ -67,9 +67,9 @@ describe("redact", () => {
     expect(out.private_key).toBe(REDACTION_PLACEHOLDER);
   });
 
-  it("redacts user PII (email, handle, displayName) but keeps userId", () => {
+  it("redacts user PII (email, handle, displayName) but keeps profileId", () => {
     const input = {
-      userId: "u_123",
+      profileId: "u_123",
       email: "alice@example.com",
       handle: "alice",
       displayName: "Alice Smith",
@@ -77,7 +77,7 @@ describe("redact", () => {
       createdAtTs: 1234567890,
     };
     const out = redact(input) as Record<string, unknown>;
-    expect(out.userId).toBe("u_123");
+    expect(out.profileId).toBe("u_123");
     expect(out.email).toBe(REDACTION_PLACEHOLDER);
     expect(out.handle).toBe(REDACTION_PLACEHOLDER);
     expect(out.displayName).toBe(REDACTION_PLACEHOLDER);
@@ -141,11 +141,11 @@ describe("redact", () => {
   it("redacts fields on Error instances", () => {
     class CustomError extends Error {
       public readonly email: string;
-      public readonly userId: string;
-      constructor(email: string, userId: string) {
+      public readonly profileId: string;
+      constructor(email: string, profileId: string) {
         super("something broke");
         this.email = email;
-        this.userId = userId;
+        this.profileId = profileId;
       }
     }
     const err = new CustomError("alice@example.com", "u_123");
@@ -153,12 +153,12 @@ describe("redact", () => {
       name: string;
       message: string;
       email: string;
-      userId: string;
+      profileId: string;
     };
     expect(out.name).toBe("Error");
     expect(out.message).toBe("something broke");
     expect(out.email).toBe(REDACTION_PLACEHOLDER);
-    expect(out.userId).toBe("u_123");
+    expect(out.profileId).toBe("u_123");
   });
 
   it("throws on cyclic input", () => {
@@ -168,7 +168,7 @@ describe("redact", () => {
   });
 
   it("does not mutate input", () => {
-    const input = { email: "alice@example.com", userId: "u_1" };
+    const input = { email: "alice@example.com", profileId: "u_1" };
     const snapshot = { ...input };
     redact(input);
     expect(input).toEqual(snapshot);

@@ -8,7 +8,7 @@ import { toast } from "solid-toast";
 import { api } from "../lib/api";
 import { registrationClient, loginClient } from "../lib/authClients";
 import type { EventItem } from "../lib/types";
-import { getUserIdFromToken, getDisplayNameFromToken } from "../lib/utils";
+import { getProfileIdFromToken, getDisplayNameFromToken } from "../lib/utils";
 import { CreateEventForm } from "./CreateEventForm";
 import { EventCard } from "./EventCard";
 
@@ -25,9 +25,9 @@ export function EventList() {
   const accessToken = () => session()?.accessToken ?? null;
   const authClaims = createMemo(() => {
     const token = accessToken();
-    return { userId: getUserIdFromToken(token), displayName: getDisplayNameFromToken(token) };
+    return { profileId: getProfileIdFromToken(token), displayName: getDisplayNameFromToken(token) };
   });
-  const currentUserId = () => authClaims().userId;
+  const currentProfileId = () => authClaims().profileId;
   const tokenSource = createMemo(() => ({ token: accessToken() }));
   const [events, { refetch }] = createResource(tokenSource, ({ token }) => fetchEvents(token));
   const [showForm, setShowForm] = createSignal(false);
@@ -144,7 +144,7 @@ export function EventList() {
                 event={event}
                 onDelete={handleDelete}
                 deleting={deletingIds().has(event.id)}
-                currentUserId={currentUserId()}
+                currentProfileId={currentProfileId()}
               />
             )}
           </For>

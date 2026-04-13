@@ -23,11 +23,11 @@
  *   2. Logging the value would be a security or privacy regression — auth
  *      credentials (tokens, passkey assertions), private keys, or PII that
  *      we have a policy commitment to keep out of operator-readable logs
- *      (per CLAUDE.md: `userId` is OK; `email` and `handle` are not).
+ *      (per CLAUDE.md: `profileId` is OK; `email` and `handle` are not).
  *
  *   3. There is no safer alternative on the call site. If the call site is
  *      `Effect.annotateLogs({ email })`, prefer fixing the call site to use
- *      `userId` instead. The deny-list is the *second* line of defence,
+ *      `profileId` instead. The deny-list is the *second* line of defence,
  *      not the first.
  *
  * Add **both** the camelCase and snake_case spelling if the field is reached
@@ -116,8 +116,9 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
 
     // --- PII (per CLAUDE.md observability rules) ---
     // The users table (osn/db/src/schema/index.ts) holds these as actual
-    // columns. Policy: log `userId`, never `email` / `handle` /
+    // columns. Policy: log `profileId`, never `email` / `handle` /
     // `displayName`. The deny-list backstops accidental annotations.
+    // (Previously `userId`; renamed to `profileId` for multi-account.)
     "email",
     "handle",
     "displayName",

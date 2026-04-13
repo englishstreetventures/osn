@@ -106,7 +106,7 @@ export const sendBlast = (
     );
 
     const event = yield* loadEvent(eventId);
-    if (event.createdByUserId !== organiserId) {
+    if (event.createdByProfileId !== organiserId) {
       return yield* Effect.fail(new NotEventOwner({ eventId }));
     }
 
@@ -117,7 +117,7 @@ export const sendBlast = (
       eventId,
       channel,
       body: validated.body,
-      sentByUserId: organiserId,
+      sentByProfileId: organiserId,
       sentAt: now,
       createdAt: now,
     }));

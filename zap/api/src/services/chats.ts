@@ -37,7 +37,7 @@ export class MemberLimitReached extends Data.TaggedError("MemberLimitReached")<{
 
 export class AlreadyMember extends Data.TaggedError("AlreadyMember")<{
   readonly chatId: string;
-  readonly userId: string;
+  readonly profileId: string;
 }> {}
 
 // ---------------------------------------------------------------------------
@@ -51,7 +51,7 @@ const CreateChatSchema = Schema.Struct({
   type: ChatTypeEnum,
   title: Schema.optional(TitleString),
   eventId: Schema.optional(Schema.String),
-  memberUserIds: Schema.optional(Schema.Array(Schema.String)),
+  memberProfileIds: Schema.optional(Schema.Array(Schema.String)),
 });
 
 const UpdateChatSchema = Schema.Struct({
@@ -76,13 +76,13 @@ export const getChat = (id: string): Effect.Effect<Chat, ChatNotFound | Database
     return result[0]!;
   }).pipe(Effect.withSpan("zap.chats.get"));
 
-export const listChats = (userId: string): Effect.Effect<Chat[], DatabaseError, Db> =>
+export const listChats = (profileId: string): Effect.Effect<Chat[], DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     // Find all chats the user is a member of.
     const memberRows = yield* Effect.tryPromise({
       try: (): Promise<ChatMember[]> =>
-        db.select().from(chatMembers).where(eq(chatMembers.userId, userId)) as Promise<
+        db.select().from(chatMembers).where(eq(chatMembers.profileId, profileId)) as Promise<
           ChatMember[]
         >,
       catch: (cause) => new DatabaseError({ cause }),
@@ -99,7 +99,7 @@ export const listChats = (userId: string): Effect.Effect<Chat[], DatabaseError, 
 
 export const createChat = (
   data: unknown,
-  creatorUserId: string,
+  creatorProfileId: string,
 ): Effect.Effect<Chat, ValidationError | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
@@ -118,7 +118,7 @@ export const createChat = (
           type: validated.type,
           title: validated.title ?? null,
           eventId: validated.eventId ?? null,
-          createdByUserId: creatorUserId,
+          createdByProfileId: creatorProfileId,
           createdAt: now,
           updatedAt: now,
         }),
@@ -132,7 +132,7 @@ export const createChat = (
         db.insert(chatMembers).values({
           id: memberId,
           chatId: id,
-          userId: creatorUserId,
+          profileId: creatorProfileId,
           role: "admin",
           joinedAt: now,
         }),
@@ -140,13 +140,13 @@ export const createChat = (
     });
 
     // Batch-insert initial members if provided.
-    if (validated.memberUserIds && validated.memberUserIds.length > 0) {
-      const memberRows = validated.memberUserIds
-        .filter((uid) => uid !== creatorUserId) // already added as admin
+    if (validated.memberProfileIds && validated.memberProfileIds.length > 0) {
+      const memberRows = validated.memberProfileIds
+        .filter((uid) => uid !== creatorProfileId) // already added as admin
         .map((uid) => ({
           id: "cmem_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
           chatId: id,
-          userId: uid,
+          profileId: uid,
           role: "member" as const,
           joinedAt: now,
         }));
@@ -167,14 +167,14 @@ export const createChat = (
 export const updateChat = (
   id: string,
   data: unknown,
-  requestingUserId: string,
+  requestingProfileId: string,
 ): Effect.Effect<Chat, ChatNotFound | NotChatAdmin | ValidationError | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     yield* getChat(id);
 
     // Check that the requesting user is an admin.
-    yield* assertAdmin(id, requestingUserId);
+    yield* assertAdmin(id, requestingProfileId);
 
     const validated = yield* Schema.decodeUnknown(UpdateChatSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
@@ -192,8 +192,8 @@ export const updateChat = (
 
 export const addMember = (
   chatId: string,
-  userId: string,
-  requestingUserId: string,
+  profileId: string,
+  requestingProfileId: string,
 ): Effect.Effect<
   ChatMember,
   ChatNotFound | NotChatAdmin | MemberLimitReached | AlreadyMember | DatabaseError,
@@ -202,7 +202,7 @@ export const addMember = (
   Effect.gen(function* () {
     const { db } = yield* Db;
     yield* getChat(chatId);
-    yield* assertAdmin(chatId, requestingUserId);
+    yield* assertAdmin(chatId, requestingProfileId);
 
     // Check member count.
     const existing = yield* Effect.tryPromise({
@@ -217,9 +217,9 @@ export const addMember = (
     }
 
     // Check if already a member.
-    const alreadyExists = existing.some((m) => m.userId === userId);
+    const alreadyExists = existing.some((m) => m.profileId === profileId);
     if (alreadyExists) {
-      return yield* Effect.fail(new AlreadyMember({ chatId, userId }));
+      return yield* Effect.fail(new AlreadyMember({ chatId, profileId }));
     }
 
     const id = "cmem_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
@@ -229,7 +229,7 @@ export const addMember = (
         db.insert(chatMembers).values({
           id,
           chatId,
-          userId,
+          profileId,
           role: "member",
           joinedAt: now,
         }),
@@ -247,16 +247,16 @@ export const addMember = (
 
 export const removeMember = (
   chatId: string,
-  userId: string,
-  requestingUserId: string,
+  profileId: string,
+  requestingProfileId: string,
 ): Effect.Effect<void, ChatNotFound | NotChatAdmin | NotChatMember | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     yield* getChat(chatId);
 
     // Allow self-removal (leaving) or admin removal of others.
-    if (userId !== requestingUserId) {
-      yield* assertAdmin(chatId, requestingUserId);
+    if (profileId !== requestingProfileId) {
+      yield* assertAdmin(chatId, requestingProfileId);
     }
 
     // Verify the target is a member.
@@ -265,9 +265,9 @@ export const removeMember = (
         db
           .select()
           .from(chatMembers)
-          .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, userId))) as Promise<
-          ChatMember[]
-        >,
+          .where(
+            and(eq(chatMembers.chatId, chatId), eq(chatMembers.profileId, profileId)),
+          ) as Promise<ChatMember[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
     if (memberRows.length === 0) {
@@ -278,7 +278,7 @@ export const removeMember = (
       try: () =>
         db
           .delete(chatMembers)
-          .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, userId))),
+          .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.profileId, profileId))),
       catch: (cause) => new DatabaseError({ cause }),
     });
     metricMemberRemoved("ok");
@@ -306,7 +306,7 @@ export const getChatMembers = (
 
 export const assertMember = (
   chatId: string,
-  userId: string,
+  profileId: string,
 ): Effect.Effect<void, NotChatMember | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
@@ -315,7 +315,7 @@ export const assertMember = (
         db
           .select()
           .from(chatMembers)
-          .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, userId)))
+          .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.profileId, profileId)))
           .limit(1) as Promise<ChatMember[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
@@ -330,7 +330,7 @@ export const assertMember = (
 
 const assertAdmin = (
   chatId: string,
-  userId: string,
+  profileId: string,
 ): Effect.Effect<void, NotChatAdmin | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
@@ -342,7 +342,7 @@ const assertAdmin = (
           .where(
             and(
               eq(chatMembers.chatId, chatId),
-              eq(chatMembers.userId, userId),
+              eq(chatMembers.profileId, profileId),
               eq(chatMembers.role, "admin"),
             ),
           ) as Promise<ChatMember[]>,

@@ -17,7 +17,7 @@ describe("messages service", () => {
       });
       expect(msg.id).toMatch(/^msg_/);
       expect(msg.chatId).toBe(chat.id);
-      expect(msg.senderUserId).toBe("usr_alice");
+      expect(msg.senderProfileId).toBe("usr_alice");
       expect(msg.ciphertext).toBe("dGVzdCBtZXNzYWdl");
       expect(msg.nonce).toBe("YWJjZGVmMTIzNDU2");
       expect(msg.createdAt).toBeInstanceOf(Date);

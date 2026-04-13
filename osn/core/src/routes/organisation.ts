@@ -55,7 +55,7 @@ const PaginationQuery = t.Object({
   offset: t.Optional(t.String()),
 });
 
-function userProjection(u: User) {
+function userProjection(u: { handle: string; displayName: string | null }) {
   return {
     handle: u.handle,
     displayName: u.displayName ?? null,
@@ -111,7 +111,7 @@ export function createOrganisationRoutes(
   async function requireAuth(
     authorization: string | undefined,
     set: { status?: number | string },
-  ): Promise<{ userId: string; handle: string } | null> {
+  ): Promise<{ profileId: string; handle: string } | null> {
     const token = extractToken(authorization);
     if (!token) {
       set.status = 401;
@@ -126,12 +126,12 @@ export function createOrganisationRoutes(
   }
 
   async function requireRateLimit(
-    userId: string,
+    profileId: string,
     set: { status?: number | string },
   ): Promise<boolean> {
     let allowed: boolean;
     try {
-      allowed = await rateLimiter.check(userId);
+      allowed = await rateLimiter.check(profileId);
     } catch {
       allowed = false;
     }
@@ -186,11 +186,12 @@ export function createOrganisationRoutes(
         async ({ body, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.userId, set))) return { error: "Too many requests" };
+          if (!(await requireRateLimit(caller.profileId, set)))
+            return { error: "Too many requests" };
 
           try {
             const organisation = await run(
-              org.createOrganisation(caller.userId, body.handle, body.name, body.description),
+              org.createOrganisation(caller.profileId, body.handle, body.name, body.description),
             );
             set.status = 201;
             return { ok: true, organisation: orgProjection(organisation) };
@@ -215,7 +216,7 @@ export function createOrganisationRoutes(
 
           try {
             const list = await run(
-              org.listUserOrganisations(caller.userId, parsePagination(query)),
+              org.listUserOrganisations(caller.profileId, parsePagination(query)),
             );
             return { organisations: list.map(orgProjection) };
           } catch (e) {
@@ -243,13 +244,16 @@ export function createOrganisationRoutes(
         async ({ params, body, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.userId, set))) return { error: "Too many requests" };
+          if (!(await requireRateLimit(caller.profileId, set)))
+            return { error: "Too many requests" };
 
           const organisation = await resolveOrg(params.handle, set);
           if (!organisation) return { error: "Organisation not found" };
 
           try {
-            const updated = await run(org.updateOrganisation(organisation.id, caller.userId, body));
+            const updated = await run(
+              org.updateOrganisation(organisation.id, caller.profileId, body),
+            );
             return { ok: true, organisation: orgProjection(updated) };
           } catch (e) {
             set.status = 400;
@@ -269,13 +273,14 @@ export function createOrganisationRoutes(
         async ({ params, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.userId, set))) return { error: "Too many requests" };
+          if (!(await requireRateLimit(caller.profileId, set)))
+            return { error: "Too many requests" };
 
           const organisation = await resolveOrg(params.handle, set);
           if (!organisation) return { error: "Organisation not found" };
 
           try {
-            await run(org.deleteOrganisation(organisation.id, caller.userId));
+            await run(org.deleteOrganisation(organisation.id, caller.profileId));
             return { ok: true };
           } catch (e) {
             set.status = 400;
@@ -292,7 +297,8 @@ export function createOrganisationRoutes(
         async ({ params, body, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.userId, set))) return { error: "Too many requests" };
+          if (!(await requireRateLimit(caller.profileId, set)))
+            return { error: "Too many requests" };
 
           const organisation = await resolveOrg(params.handle, set);
           if (!organisation) return { error: "Organisation not found" };
@@ -301,7 +307,7 @@ export function createOrganisationRoutes(
           if (!target) return { error: "User not found" };
 
           try {
-            await run(org.addMember(organisation.id, caller.userId, target.id, body.role));
+            await run(org.addMember(organisation.id, caller.profileId, target.id, body.role));
             set.status = 201;
             return { ok: true };
           } catch (e) {
@@ -321,7 +327,8 @@ export function createOrganisationRoutes(
         async ({ params, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.userId, set))) return { error: "Too many requests" };
+          if (!(await requireRateLimit(caller.profileId, set)))
+            return { error: "Too many requests" };
 
           const organisation = await resolveOrg(params.handle, set);
           if (!organisation) return { error: "Organisation not found" };
@@ -330,7 +337,7 @@ export function createOrganisationRoutes(
           if (!target) return { error: "User not found" };
 
           try {
-            await run(org.removeMember(organisation.id, caller.userId, target.id));
+            await run(org.removeMember(organisation.id, caller.profileId, target.id));
             return { ok: true };
           } catch (e) {
             set.status = 400;
@@ -344,7 +351,8 @@ export function createOrganisationRoutes(
         async ({ params, body, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.userId, set))) return { error: "Too many requests" };
+          if (!(await requireRateLimit(caller.profileId, set)))
+            return { error: "Too many requests" };
 
           const organisation = await resolveOrg(params.handle, set);
           if (!organisation) return { error: "Organisation not found" };
@@ -353,7 +361,9 @@ export function createOrganisationRoutes(
           if (!target) return { error: "User not found" };
 
           try {
-            await run(org.updateMemberRole(organisation.id, caller.userId, target.id, body.role));
+            await run(
+              org.updateMemberRole(organisation.id, caller.profileId, target.id, body.role),
+            );
             return { ok: true };
           } catch (e) {
             set.status = 400;

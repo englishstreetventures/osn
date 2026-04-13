@@ -4,7 +4,12 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Up Next
 
-- [x] S-H21 — Migrated the three dev-mode `console.log` calls in `osn/core/src/services/auth.ts` (registration OTP, login OTP, magic link) to `Effect.logDebug`. Values stay interpolated into the message string so the redacting logger doesn't scrub them — that's the whole point of the dev branch. The registration path keeps its `NODE_ENV !== "production"` gate; the login OTP / magic-link branches still rely on `config.sendEmail` being unset, which is the existing behaviour (S-M22 follow-up tracks tightening that to a `NODE_ENV` gate as well). Also threaded an optional `loggerLayer` parameter through `createAuthRoutes` / `createGraphRoutes` so `@osn/app` can provide its `observabilityLayer` to per-request Effect pipelines (S-L1 — without this the new `Effect.logDebug` calls would be silently dropped at Effect's default `Info` minimum level). Coverage locked with three `it.effect` tests (T-U1) using a `Logger.replace` capture sink that asserts the literal OTP/URL appears in the message and `[REDACTED]` never does.
+- [x] Multi-account P1 — Schema foundation: `accounts` table, `userId` → `profileId` rename across all packages, seed data with multi-profile user (21 accounts, 23 profiles, 2 orgs), registration creates account + profile atomically. 81 files, 700+ tests green.
+- [ ] Multi-account P2 — Auth refactor: two-tier token model (refresh = account, access = profile), move `email` exclusively to `accounts` table, profile switching endpoint (`POST /profiles/switch`), `findUserByEmail` → join via accounts
+- [ ] Multi-account P3 — Profile CRUD: `createProfileService()` (create, list, delete, set default), `/profiles` routes, handle validation against `maxProfiles`, cascade-delete profile data
+- [ ] Multi-account P4 — Client SDK: multi-session storage (`@osn/client:account_session`, `@osn/client:active_profile`, per-profile access tokens), `listProfiles()`, `switchProfile()`, `createProfile()`, `deleteProfile()` methods on `OsnAuthService`
+- [ ] Multi-account P5 — Profile UI: profile switcher component in `@osn/ui`, profile creation form, onboarding for additional profiles
+- [ ] Multi-account P6 — Privacy audit: verify `accountId` never leaks in API responses / tokens / logs, rate-limit per-profile (not per-account), pen-test correlation attacks between profiles
 - [ ] Provision Grafana Cloud free tier + wire `OTEL_EXPORTER_OTLP_ENDPOINT` + headers into deploy env — see [[observability-setup]]
 - [ ] Build first observability dashboards (HTTP RED, auth funnel, ARC verification, events CRUD) — see [[observability/overview]]
 - [x] Zap M0 scaffold (partial) — `@zap/api` (Elysia, port 3002), `@zap/db` (Drizzle) with chat/message schema, Effect services, 33 tests. `@zap/app` (Tauri+Solid) deferred. Pulse event-chat integration via `zapBridge` + `chatId` column on events.
@@ -75,6 +80,12 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [x] Handle system — registration, real-time availability check, email/handle sign-in toggle
 - [x] ARC token verification middleware on internal graph routes (`/graph/internal/*`)
 - [x] Organisation support — schema (`organisations`, `organisation_members`), Effect service, REST routes, ARC internal routes, observability metrics, 355 tests
+- [x] Multi-account schema foundation (P1) — `accounts` table, `userId` → `profileId` rename, seed data, 81 files changed
+- [ ] Multi-account auth refactor (P2) — two-tier tokens, email migration to accounts
+- [ ] Multi-account profile CRUD (P3) — create/list/delete profiles, maxProfiles enforcement
+- [ ] Multi-account client SDK (P4) — multi-session storage, profile switching
+- [ ] Multi-account UI (P5) — profile switcher component
+- [ ] Multi-account privacy audit (P6) — accountId leak verification, per-profile rate limits
 - [ ] Per-app vs global blocking logic (deferred — global blocking across all OSN apps for now)
 - [ ] Interest profile selection (onboarding)
 - [ ] Third-party app authorization flow
@@ -347,6 +358,13 @@ Address **High** items before any non-local deployment.
 - [x] S-H2 (zap) — Missing membership check on `GET /chats/:id` allowed any authenticated user to read chat metadata. Fixed: `assertMember` gate added.
 - [x] S-H3 (zap) — Missing membership check on `GET /chats/:id/members` leaked member rosters. Fixed: `assertMember` gate added.
 - [x] S-H4 (zap) — `PATCH /chats/:id` differentiated 403/404 for non-members, leaking chat existence. Fixed: 404 for non-members.
+- [x] S-H1 (multi) — Client/server field mismatch on passkey enrollment. Client sent `profileId`, server expected `accountId`. Fixed: route accepts `profileId` and resolves `accountId` internally via `findProfileById`. Enrollment token `sub` now carries real `accountId`.
+- [x] S-H2 (multi) — Profile ID stored in `passkeys.accountId` column. `completeRegistration` passed profile ID to `issueEnrollmentToken`. Fixed: now passes `accountId`. `beginPasskeyLogin` queries `passkeys.accountId = user.accountId`.
+- [x] S-H3 (multi) — Non-atomic account + profile creation. Two separate INSERTs without transaction. Fixed: both `registerUser` and `completeRegistration` wrap account+profile inserts in `db.transaction()`.
+- [x] S-M1 (multi) — Missing email index after UNIQUE removal from `users.email`. `findUserByEmail` hot path became full table scan. Fixed: re-added `users_email_idx`.
+- [x] S-M2 (multi) — `accountId` exposed in org `listMembers` service return type. Fixed: stripped `accountId` and `isDefault` from select projection and return type.
+- [ ] S-L1 (multi) — `maxProfiles` column set to 5 but never enforced. Deferred to multi-account P3 (profile CRUD).
+- [ ] S-L2 (multi) — Email duplication between `accounts.email` and `users.email`. Transitional for PR1 backward compat. Deferred to multi-account P2 (auth refactor).
 - [ ] S-M1 (zap) — No rate limiting on any Zap API endpoint. Add per-IP rate limiting on write endpoints (POST `/chats`, POST `/:id/messages`, POST `/:id/members`). — see [[rate-limiting]]
 - [ ] S-M2 (zap) — CORS wildcard (`cors()` with no config) on `@zap/api` allows any origin. Restrict to known client origins. — see S-M6 (same pattern on Pulse)
 - [ ] S-M3 (zap) — `zapBridge.provisionEventChat` does not verify caller owns the event. Add ownership check.
@@ -421,6 +439,8 @@ Address **High** items before any non-local deployment.
 - [x] P-C1 — `filterByAttendeePrivacy` in `pulse/api/src/services/rsvps.ts` had an N+1 lookup against `pulse_users` (the comment claimed "batch-fetch" but the implementation did `for (id of attendeeIds) yield* getAttendanceVisibility(id)`), firing up to 200 extra queries per `listRsvps` call on busy events. Fixed in the full-event-view PR by adding `getAttendanceVisibilityBatch(userIds[])` to `pulseUsers.ts` (single `WHERE userId IN (...)` query, defaults missing keys to `connections`) and replacing the for-loop with a single call.
 - [x] P-C1 (zap) — N+1 query in `listChats` fetched each chat individually in a loop. Fixed: replaced with `inArray` single query.
 - [x] P-C2 (zap) — `createChat` inserted initial members one-by-one. Fixed: batch `db.insert(chatMembers).values(memberRows)`.
+- [x] P-C1 (multi) — Passkey login query used profile ID against account-scoped `passkeys.accountId` column. `beginPasskeyLogin` queried `eq(passkeys.accountId, user.id)` instead of `eq(passkeys.accountId, user.accountId)`. Fixed.
+- [x] P-C2 (multi) — `users.email` index dropped during schema rewrite. Login hot path became full table scan. Fixed: re-added `users_email_idx`.
 
 ### Warning
 
@@ -507,6 +527,12 @@ Address **High** items before any non-local deployment.
 | Redis provider — see [[redis]] | Upstash (serverless, free tier) vs Redis Cloud vs self-hosted. Upstash aligns with serverless deploy model; Cloudflare Durable Objects reconsidered if deploying to Workers. | When deploying beyond localhost |
 | S2S scaling — see [[s2s-patterns]], [[arc-tokens]], [[s2s-migration]] | Current: direct package import (`createGraphService()`). Migrate to HTTP `/graph/internal/*` + ARC tokens when scaling horizontally. | When multi-process or multi-machine deployment needed |
 | Per-app blocking — see [[social-graph]] | Blocks are global across all OSN apps. Per-app scope deferred. | When Messaging or a third-party app needs independent block lists |
+| Profile transfer between accounts | Meta supports unlinking/relinking profiles to different accounts | After multi-account ships (P6) |
+| Per-profile notification email | Profiles might want separate contact emails (beyond the account login email) | When notification system is built |
+| Profile-level 2FA | Currently 2FA would be account-wide (passkeys on accounts) | When 2FA is implemented |
+| Cross-profile content sharing | Reposting between own profiles | Phase 2 social features |
+| Max profiles per account | Set to 5 (like Instagram) via `accounts.maxProfiles`; make configurable? | Before launch |
+| Self-interaction policy | Two profiles from same account CAN follow/message/interact (preventing it leaks the link). Meta allows this. | Multi-account P6 privacy audit |
 | Tauri passkey support on iOS | Tauri webview does not expose WebAuthn natively — `pulse/app` registration flow (rendered by `@osn/ui/auth/Register`) feature-detects via `browserSupportsWebAuthn()` and auto-skips the passkey step on unsupported environments. Options when we ship mobile: (a) adopt [`tauri-plugin-webauthn`](https://github.com/Profiidev/tauri-plugin-webauthn) (third-party, audit first), (b) write our own thin Tauri plugin wrapping `ASAuthorizationPlatformPublicKeyCredentialProvider`, (c) wait for upstream — track [tauri#7926](https://github.com/tauri-apps/tauri/issues/7926). | When iOS build of Pulse is ready for sign-in |
 
 ---

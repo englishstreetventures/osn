@@ -28,7 +28,7 @@ function createTestDb() {
       allow_interested INTEGER NOT NULL DEFAULT 1,
       comms_channels TEXT NOT NULL DEFAULT '["email"]',
       chat_id TEXT,
-      created_by_user_id TEXT,
+      created_by_profile_id TEXT,
       created_by_name TEXT,
       created_by_avatar TEXT,
       created_at INTEGER NOT NULL,
@@ -39,11 +39,11 @@ function createTestDb() {
     CREATE TABLE event_rsvps (
       id TEXT PRIMARY KEY,
       event_id TEXT NOT NULL REFERENCES events(id),
-      user_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'going',
-      invited_by_user_id TEXT,
+      invited_by_profile_id TEXT,
       created_at INTEGER NOT NULL,
-      UNIQUE (event_id, user_id)
+      UNIQUE (event_id, profile_id)
     )
   `);
   return drizzle(sqlite, { schema });
@@ -113,17 +113,17 @@ describe("buildSeedEvents", () => {
     expect(new Set(categories).size).toBeGreaterThanOrEqual(7);
   });
 
-  it("all events have a createdByUserId and createdByName", () => {
+  it("all events have a createdByProfileId and createdByName", () => {
     const rows = buildSeedEvents(new Date());
     for (const r of rows) {
-      expect(typeof r.createdByUserId).toBe("string");
+      expect(typeof r.createdByProfileId).toBe("string");
       expect(typeof r.createdByName).toBe("string");
     }
   });
 
   it("seed user IDs use stable usr_seed_* prefix", () => {
     const rows = buildSeedEvents(new Date());
-    const ids = rows.map((r) => r.createdByUserId).filter(Boolean);
+    const ids = rows.map((r) => r.createdByProfileId).filter(Boolean);
     for (const id of ids) {
       expect(id).toMatch(/^usr_seed_/);
     }
@@ -177,16 +177,16 @@ describe("buildSeedRsvps", () => {
     }
   });
 
-  it("all userIds use usr_seed_ prefix", () => {
+  it("all profileIds use usr_seed_ prefix", () => {
     for (const r of buildSeedRsvps()) {
-      expect(r.userId).toMatch(/^usr_seed_/);
+      expect(r.profileId).toMatch(/^usr_seed_/);
     }
   });
 
-  it("no duplicate (eventId, userId) pairs", () => {
+  it("no duplicate (eventId, profileId) pairs", () => {
     const pairs = new Set<string>();
     for (const r of buildSeedRsvps()) {
-      const pair = `${r.eventId}:${r.userId}`;
+      const pair = `${r.eventId}:${r.profileId}`;
       expect(pairs.has(pair)).toBe(false);
       pairs.add(pair);
     }

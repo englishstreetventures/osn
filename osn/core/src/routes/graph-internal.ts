@@ -13,8 +13,8 @@ import { createGraphService } from "../services/graph";
 
 const AUDIENCE = "osn-core";
 const SCOPE_GRAPH_READ = "graph:read";
-/** Max user IDs per batch request — stays well under SQLite's variable limit (999). */
-const MAX_BATCH_USER_IDS = 200;
+/** Max profile IDs per batch request — stays well under SQLite's variable limit (999). */
+const MAX_BATCH_PROFILE_IDS = 200;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -132,7 +132,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
 
           try {
             const list = await run(
-              graph.listConnections(query.userId, {
+              graph.listConnections(query.profileId, {
                 limit: Number.isFinite(limit) ? limit : undefined,
               }),
             );
@@ -144,7 +144,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
         },
         {
           query: t.Object({
-            userId: t.String({ minLength: 1 }),
+            profileId: t.String({ minLength: 1 }),
             limit: t.Optional(t.String()),
           }),
         },
@@ -168,7 +168,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
 
           try {
             const list = await run(
-              graph.listCloseFriends(query.userId, {
+              graph.listCloseFriends(query.profileId, {
                 limit: Number.isFinite(limit) ? limit : undefined,
               }),
             );
@@ -180,7 +180,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
         },
         {
           query: t.Object({
-            userId: t.String({ minLength: 1 }),
+            profileId: t.String({ minLength: 1 }),
             limit: t.Optional(t.String()),
           }),
         },
@@ -201,7 +201,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
           if (!caller) return { error: "Unauthorized" };
 
           try {
-            const isCloseFriend = await run(graph.isCloseFriendOf(query.userId, query.friendId));
+            const isCloseFriend = await run(graph.isCloseFriendOf(query.profileId, query.friendId));
             return { isCloseFriend };
           } catch (e) {
             set.status = 500;
@@ -210,7 +210,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
         },
         {
           query: t.Object({
-            userId: t.String({ minLength: 1 }),
+            profileId: t.String({ minLength: 1 }),
             friendId: t.String({ minLength: 1 }),
           }),
         },
@@ -231,7 +231,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
           if (!caller) return { error: "Unauthorized" };
 
           try {
-            const result = await run(graph.getCloseFriendsOfBatch(body.viewerId, body.userIds));
+            const result = await run(graph.getCloseFriendsOfBatch(body.viewerId, body.profileIds));
             return { closeFriendIds: [...result] };
           } catch (e) {
             set.status = 500;
@@ -241,7 +241,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
         {
           body: t.Object({
             viewerId: t.String({ minLength: 1 }),
-            userIds: t.Array(t.String({ minLength: 1 }), { maxItems: MAX_BATCH_USER_IDS }),
+            profileIds: t.Array(t.String({ minLength: 1 }), { maxItems: MAX_BATCH_PROFILE_IDS }),
           }),
         },
       )
@@ -261,7 +261,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
           if (!caller) return { error: "Unauthorized" };
 
           try {
-            if (body.userIds.length === 0) return { users: [] };
+            if (body.profileIds.length === 0) return { users: [] };
 
             const rows = await run(
               Effect.gen(function* () {
@@ -276,7 +276,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
                         avatarUrl: users.avatarUrl,
                       })
                       .from(users)
-                      .where(inArray(users.id, body.userIds)),
+                      .where(inArray(users.id, body.profileIds)),
                   catch: (cause) => new Error("DB query failed", { cause }),
                 });
               }),
@@ -290,7 +290,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
         },
         {
           body: t.Object({
-            userIds: t.Array(t.String({ minLength: 1 }), { maxItems: MAX_BATCH_USER_IDS }),
+            profileIds: t.Array(t.String({ minLength: 1 }), { maxItems: MAX_BATCH_PROFILE_IDS }),
           }),
         },
       )

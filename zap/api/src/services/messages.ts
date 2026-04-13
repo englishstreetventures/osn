@@ -50,7 +50,7 @@ const SendMessageSchema = Schema.Struct({
 
 export const sendMessage = (
   chatId: string,
-  senderUserId: string,
+  senderProfileId: string,
   data: unknown,
 ): Effect.Effect<Message, ChatNotFound | NotChatMember | ValidationError | DatabaseError, Db> =>
   Effect.gen(function* () {
@@ -68,7 +68,7 @@ export const sendMessage = (
     const chat = chatRows[0]!;
 
     // Verify sender is a member.
-    yield* assertMember(chatId, senderUserId);
+    yield* assertMember(chatId, senderProfileId);
 
     const validated = yield* Schema.decodeUnknown(SendMessageSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
@@ -82,7 +82,7 @@ export const sendMessage = (
         db.insert(messages).values({
           id,
           chatId,
-          senderUserId,
+          senderProfileId,
           ciphertext: validated.ciphertext,
           nonce: validated.nonce,
           createdAt: now,
@@ -102,7 +102,7 @@ export const sendMessage = (
 
 export const listMessages = (
   chatId: string,
-  userId: string,
+  profileId: string,
   opts: { limit?: number; cursor?: string } = {},
 ): Effect.Effect<Message[], ChatNotFound | NotChatMember | DatabaseError, Db> =>
   Effect.gen(function* () {
@@ -119,7 +119,7 @@ export const listMessages = (
     }
 
     // Verify user is a member.
-    yield* assertMember(chatId, userId);
+    yield* assertMember(chatId, profileId);
 
     const limit = Math.min(Math.max(1, opts.limit ?? DEFAULT_MESSAGE_LIMIT), MAX_MESSAGE_LIMIT);
 
@@ -160,7 +160,7 @@ export const listMessages = (
 
 const assertMember = (
   chatId: string,
-  userId: string,
+  profileId: string,
 ): Effect.Effect<void, NotChatMember | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
@@ -169,7 +169,7 @@ const assertMember = (
         db
           .select()
           .from(chatMembers)
-          .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, userId)))
+          .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.profileId, profileId)))
           .limit(1) as Promise<ChatMember[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });

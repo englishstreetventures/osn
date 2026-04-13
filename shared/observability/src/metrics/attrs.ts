@@ -3,7 +3,7 @@
  *
  * Rule: every metric attribute value MUST be a bounded union (closed set
  * of strings known at compile time). This is how we prevent cardinality
- * explosions — the type system rejects `userId: string`, `requestId: string`,
+ * explosions — the type system rejects `profileId: string`, `requestId: string`,
  * or any other unbounded field.
  *
  * If you need a new union, add it here and export it. Do NOT widen any

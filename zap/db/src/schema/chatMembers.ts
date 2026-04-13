@@ -9,7 +9,7 @@ export const chatMembers = sqliteTable(
     chatId: text("chat_id")
       .notNull()
       .references(() => chats.id),
-    userId: text("user_id").notNull(), // references osn-db users (cross-DB, no FK)
+    profileId: text("profile_id").notNull(), // references osn-db users (cross-DB, no FK)
     role: text("role", { enum: ["admin", "member"] })
       .notNull()
       .default("member"),
@@ -18,9 +18,9 @@ export const chatMembers = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   (t) => [
-    unique("chat_members_pair_idx").on(t.chatId, t.userId),
+    unique("chat_members_pair_idx").on(t.chatId, t.profileId),
     index("chat_members_chat_idx").on(t.chatId),
-    index("chat_members_user_idx").on(t.userId),
+    index("chat_members_profile_idx").on(t.profileId),
   ],
 );
 

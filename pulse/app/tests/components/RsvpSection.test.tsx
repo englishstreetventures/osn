@@ -34,7 +34,7 @@ const baseEvent = {
   guestListVisibility: "public" as const,
   allowInterested: true,
   joinPolicy: "open" as const,
-  createdByUserId: "usr_alice",
+  createdByProfileId: "usr_alice",
 };
 
 describe("RsvpSection", () => {
@@ -57,17 +57,17 @@ describe("RsvpSection", () => {
     mockFetchLatest.mockResolvedValueOnce([
       {
         id: "rsvp_1",
-        userId: "usr_bob",
+        profileId: "usr_bob",
         eventId: "evt_1",
         status: "going",
-        invitedByUserId: null,
+        invitedByProfileId: null,
         isCloseFriend: false,
         createdAt: "2030-01-01T00:00:00Z",
         user: { id: "usr_bob", handle: "bob", displayName: "Bob Smith", avatarUrl: null },
       },
     ]);
     const { container } = render(() => (
-      <RsvpSection event={baseEvent} accessToken="tok" currentUserId="usr_dan" />
+      <RsvpSection event={baseEvent} accessToken="tok" currentProfileId="usr_dan" />
     ));
     await waitFor(() => {
       const initials = container.querySelector("span.inline-flex");
@@ -79,17 +79,17 @@ describe("RsvpSection", () => {
     mockFetchLatest.mockResolvedValueOnce([
       {
         id: "rsvp_1",
-        userId: "usr_bob",
+        profileId: "usr_bob",
         eventId: "evt_1",
         status: "going",
-        invitedByUserId: null,
+        invitedByProfileId: null,
         isCloseFriend: true,
         createdAt: "2030-01-01T00:00:00Z",
         user: { id: "usr_bob", handle: "bob", displayName: "Bob Smith", avatarUrl: null },
       },
     ]);
     const { container } = render(() => (
-      <RsvpSection event={baseEvent} accessToken="tok" currentUserId="usr_dan" />
+      <RsvpSection event={baseEvent} accessToken="tok" currentProfileId="usr_dan" />
     ));
     await waitFor(() => {
       const avatar = container.querySelector("span.inline-flex") as HTMLElement;
@@ -100,7 +100,7 @@ describe("RsvpSection", () => {
 
   it("renders 'No one's RSVPed yet' when latest list is empty", async () => {
     const { findByText } = render(() => (
-      <RsvpSection event={baseEvent} accessToken={null} currentUserId={null} />
+      <RsvpSection event={baseEvent} accessToken={null} currentProfileId={null} />
     ));
     expect(await findByText("No one's RSVPed yet.")).toBeTruthy();
   });
@@ -110,7 +110,7 @@ describe("RsvpSection", () => {
       <RsvpSection
         event={{ ...baseEvent, allowInterested: false }}
         accessToken="tok"
-        currentUserId="usr_dan"
+        currentProfileId="usr_dan"
       />
     ));
     expect(queryByText("Maybe")).toBeNull();
@@ -129,7 +129,7 @@ describe("RsvpSection", () => {
       <RsvpSection
         event={{ ...baseEvent, joinPolicy: "guest_list" }}
         accessToken="tok"
-        currentUserId="usr_dan"
+        currentProfileId="usr_dan"
       />
     ));
     expect(await findByText("3 invited")).toBeTruthy();
@@ -143,7 +143,7 @@ describe("RsvpSection", () => {
       invited: 3,
     });
     const { queryByText: queryByText2 } = render(() => (
-      <RsvpSection event={baseEvent} accessToken="tok" currentUserId="usr_dan" />
+      <RsvpSection event={baseEvent} accessToken="tok" currentProfileId="usr_dan" />
     ));
     await waitFor(() => {
       expect(queryByText2("3 invited")).toBeNull();
@@ -156,7 +156,7 @@ describe("RsvpSection", () => {
       <RsvpSection
         event={{ ...baseEvent, guestListVisibility: "private" }}
         accessToken="tok"
-        currentUserId="usr_dan"
+        currentProfileId="usr_dan"
       />
     ));
     expect(
@@ -168,7 +168,7 @@ describe("RsvpSection", () => {
 
   it("clicking 'I'm going' calls upsertMyRsvp with the correct payload", async () => {
     const { getByText } = render(() => (
-      <RsvpSection event={baseEvent} accessToken="tok" currentUserId="usr_dan" />
+      <RsvpSection event={baseEvent} accessToken="tok" currentProfileId="usr_dan" />
     ));
     fireEvent.click(getByText("I'm going"));
     await waitFor(() => {
@@ -180,7 +180,7 @@ describe("RsvpSection", () => {
   it("toasts an error when upsertMyRsvp returns ok=false", async () => {
     mockUpsert.mockResolvedValueOnce({ ok: false, error: "Invitation required" });
     const { getByText } = render(() => (
-      <RsvpSection event={baseEvent} accessToken="tok" currentUserId="usr_dan" />
+      <RsvpSection event={baseEvent} accessToken="tok" currentProfileId="usr_dan" />
     ));
     fireEvent.click(getByText("I'm going"));
     await waitFor(() => {
@@ -190,7 +190,7 @@ describe("RsvpSection", () => {
 
   it("blocks RSVP attempts when no access token is present and toasts a sign-in prompt", () => {
     const { getByText } = render(() => (
-      <RsvpSection event={baseEvent} accessToken={null} currentUserId={null} />
+      <RsvpSection event={baseEvent} accessToken={null} currentProfileId={null} />
     ));
     fireEvent.click(getByText("I'm going"));
     expect(mockUpsert).not.toHaveBeenCalled();
@@ -199,7 +199,7 @@ describe("RsvpSection", () => {
 
   it("clicking 'See all' opens the RsvpModal stub", async () => {
     const { getByText, findByTestId } = render(() => (
-      <RsvpSection event={baseEvent} accessToken="tok" currentUserId="usr_dan" />
+      <RsvpSection event={baseEvent} accessToken="tok" currentProfileId="usr_dan" />
     ));
     fireEvent.click(getByText("See all"));
     expect(await findByTestId("rsvp-modal-stub")).toBeTruthy();

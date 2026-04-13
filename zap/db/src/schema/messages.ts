@@ -18,7 +18,7 @@ export const messages = sqliteTable(
     chatId: text("chat_id")
       .notNull()
       .references(() => chats.id),
-    senderUserId: text("sender_user_id").notNull(), // references osn-db users (cross-DB, no FK)
+    senderProfileId: text("sender_profile_id").notNull(), // references osn-db users (cross-DB, no FK)
     ciphertext: text("ciphertext").notNull(),
     nonce: text("nonce").notNull(),
     createdAt: integer("created_at", { mode: "timestamp" })
@@ -29,7 +29,7 @@ export const messages = sqliteTable(
   (t) => [
     index("messages_chat_idx").on(t.chatId),
     index("messages_chat_created_idx").on(t.chatId, t.createdAt),
-    index("messages_sender_idx").on(t.senderUserId),
+    index("messages_sender_idx").on(t.senderProfileId),
   ],
 );
 

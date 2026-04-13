@@ -109,7 +109,7 @@ export function createOrganisationService() {
             await tx.insert(organisationMembers).values({
               id: genId("orgm_"),
               organisationId: orgId,
-              userId: ownerId,
+              profileId: ownerId,
               role: "admin",
               createdAt: ts,
             });
@@ -191,7 +191,7 @@ export function createOrganisationService() {
             .where(
               and(
                 eq(organisationMembers.organisationId, orgId),
-                eq(organisationMembers.userId, callerId),
+                eq(organisationMembers.profileId, callerId),
                 eq(organisationMembers.role, "admin"),
               ),
             )
@@ -260,7 +260,7 @@ export function createOrganisationService() {
     }).pipe(withOrgOp("delete"));
 
   const listUserOrganisations = (
-    userId: string,
+    profileId: string,
     options: ListOptions = {},
   ): Effect.Effect<(typeof organisations.$inferSelect)[], DatabaseError, Db> =>
     Effect.gen(function* () {
@@ -284,7 +284,7 @@ export function createOrganisationService() {
             })
             .from(organisationMembers)
             .innerJoin(organisations, eq(organisationMembers.organisationId, organisations.id))
-            .where(eq(organisationMembers.userId, userId))
+            .where(eq(organisationMembers.profileId, profileId))
             .limit(limit)
             .offset(offset),
         catch: (cause) => new DatabaseError({ cause }),
@@ -300,7 +300,7 @@ export function createOrganisationService() {
   const addMember = (
     orgId: string,
     callerId: string,
-    targetUserId: string,
+    targetProfileId: string,
     role: "admin" | "member",
   ): Effect.Effect<void, OrgError | NotFoundError | DatabaseError, Db> =>
     Effect.gen(function* () {
@@ -317,19 +317,19 @@ export function createOrganisationService() {
               .where(
                 and(
                   eq(organisationMembers.organisationId, orgId),
-                  eq(organisationMembers.userId, callerId),
+                  eq(organisationMembers.profileId, callerId),
                   eq(organisationMembers.role, "admin"),
                 ),
               )
               .limit(1),
-            db.select({ id: users.id }).from(users).where(eq(users.id, targetUserId)).limit(1),
+            db.select({ id: users.id }).from(users).where(eq(users.id, targetProfileId)).limit(1),
             db
               .select()
               .from(organisationMembers)
               .where(
                 and(
                   eq(organisationMembers.organisationId, orgId),
-                  eq(organisationMembers.userId, targetUserId),
+                  eq(organisationMembers.profileId, targetProfileId),
                 ),
               )
               .limit(1),
@@ -355,7 +355,7 @@ export function createOrganisationService() {
           db.insert(organisationMembers).values({
             id: genId("orgm_"),
             organisationId: orgId,
-            userId: targetUserId,
+            profileId: targetProfileId,
             role,
             createdAt: now(),
           }),
@@ -366,7 +366,7 @@ export function createOrganisationService() {
   const removeMember = (
     orgId: string,
     callerId: string,
-    targetUserId: string,
+    targetProfileId: string,
   ): Effect.Effect<void, OrgError | NotFoundError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
@@ -382,7 +382,7 @@ export function createOrganisationService() {
       }
 
       // Cannot remove the owner
-      if (orgRows[0].ownerId === targetUserId) {
+      if (orgRows[0].ownerId === targetProfileId) {
         return yield* Effect.fail(new OrgError({ message: "Cannot remove the owner" }));
       }
 
@@ -395,7 +395,7 @@ export function createOrganisationService() {
             .where(
               and(
                 eq(organisationMembers.organisationId, orgId),
-                eq(organisationMembers.userId, callerId),
+                eq(organisationMembers.profileId, callerId),
                 eq(organisationMembers.role, "admin"),
               ),
             )
@@ -416,7 +416,7 @@ export function createOrganisationService() {
             .where(
               and(
                 eq(organisationMembers.organisationId, orgId),
-                eq(organisationMembers.userId, targetUserId),
+                eq(organisationMembers.profileId, targetProfileId),
               ),
             )
             .limit(1),
@@ -437,7 +437,7 @@ export function createOrganisationService() {
   const updateMemberRole = (
     orgId: string,
     callerId: string,
-    targetUserId: string,
+    targetProfileId: string,
     newRole: "admin" | "member",
   ): Effect.Effect<void, OrgError | NotFoundError | DatabaseError, Db> =>
     Effect.gen(function* () {
@@ -454,7 +454,7 @@ export function createOrganisationService() {
       }
 
       // Cannot change the owner's role
-      if (orgRows[0].ownerId === targetUserId) {
+      if (orgRows[0].ownerId === targetProfileId) {
         return yield* Effect.fail(new OrgError({ message: "Cannot change the owner's role" }));
       }
 
@@ -472,7 +472,7 @@ export function createOrganisationService() {
             .where(
               and(
                 eq(organisationMembers.organisationId, orgId),
-                eq(organisationMembers.userId, targetUserId),
+                eq(organisationMembers.profileId, targetProfileId),
               ),
             )
             .limit(1),
@@ -497,7 +497,18 @@ export function createOrganisationService() {
     orgId: string,
     options: ListOptions = {},
   ): Effect.Effect<
-    { user: typeof users.$inferSelect; role: string; joinedAt: Date }[],
+    {
+      user: {
+        id: string;
+        handle: string;
+        displayName: string | null;
+        avatarUrl: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+      };
+      role: string;
+      joinedAt: Date;
+    }[],
     NotFoundError | DatabaseError,
     Db
   > =>
@@ -528,7 +539,6 @@ export function createOrganisationService() {
             .select({
               id: users.id,
               handle: users.handle,
-              email: users.email,
               displayName: users.displayName,
               avatarUrl: users.avatarUrl,
               createdAt: users.createdAt,
@@ -537,7 +547,7 @@ export function createOrganisationService() {
               joinedAt: organisationMembers.createdAt,
             })
             .from(organisationMembers)
-            .innerJoin(users, eq(organisationMembers.userId, users.id))
+            .innerJoin(users, eq(organisationMembers.profileId, users.id))
             .where(eq(organisationMembers.organisationId, orgId))
             .limit(limit)
             .offset(offset),
@@ -548,7 +558,6 @@ export function createOrganisationService() {
         user: {
           id: r.id,
           handle: r.handle,
-          email: r.email,
           displayName: r.displayName,
           avatarUrl: r.avatarUrl,
           createdAt: r.createdAt,
@@ -561,7 +570,7 @@ export function createOrganisationService() {
 
   const getMemberRole = (
     orgId: string,
-    userId: string,
+    profileId: string,
   ): Effect.Effect<"admin" | "member" | null, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
@@ -573,7 +582,7 @@ export function createOrganisationService() {
             .where(
               and(
                 eq(organisationMembers.organisationId, orgId),
-                eq(organisationMembers.userId, userId),
+                eq(organisationMembers.profileId, profileId),
               ),
             )
             .limit(1),

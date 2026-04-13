@@ -22,7 +22,7 @@ import { metrics, type Attributes } from "@opentelemetry/api";
  *   authLoginAttempts.inc({ method: "passkey", result: "ok" });
  *
  * The `<LoginAttrs>` generic pins the allowed attribute keys at
- * declaration — TypeScript rejects `authLoginAttempts.inc({ userId: "u_123" })`
+ * declaration — TypeScript rejects `authLoginAttempts.inc({ profileId: "u_123" })`
  * at compile time.
  */
 

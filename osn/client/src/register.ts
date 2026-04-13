@@ -10,12 +10,12 @@ import { parseTokenResponse, type Session } from "./tokens";
  *  1. checkHandle(handle)             — front-end "is this @ free?" check
  *  2. beginRegistration(...)          — sends a 6-digit OTP to the email
  *  3. completeRegistration(...)       — verifies the OTP, creates the user,
- *                                       and returns { userId, session,
+ *                                       and returns { profileId, session,
  *                                       enrollmentToken } in a single
  *                                       response. The session is ready to
  *                                       hand to AuthProvider.adoptSession.
- *  4. passkeyRegisterBegin({userId,enrollmentToken})  — fetch WebAuthn options
- *  5. passkeyRegisterComplete({userId,enrollmentToken,attestation}) — submit
+ *  4. passkeyRegisterBegin({profileId,enrollmentToken})  — fetch WebAuthn options
+ *  5. passkeyRegisterComplete({profileId,enrollmentToken,attestation}) — submit
  *
  * The WebAuthn browser ceremony is intentionally not performed inside this
  * package — keeping it caller-side avoids adding @simplewebauthn/browser as a
@@ -28,7 +28,7 @@ import { parseTokenResponse, type Session } from "./tokens";
  *    out of the registration code path entirely.
  *  - Both passkey calls require an Authorization: Bearer header carrying the
  *    enrollment token returned from completeRegistration. The server compares
- *    the token's `sub` against the body `userId` and rejects mismatches.
+ *    the token's `sub` against the body `profileId` and rejects mismatches.
  */
 
 export interface RegistrationClientConfig {
@@ -63,7 +63,7 @@ async function postJson<T>(
 }
 
 export interface CompleteRegistrationResult {
-  userId: string;
+  profileId: string;
   handle: string;
   email: string;
   /** Ready to pass to AuthProvider.adoptSession. */
@@ -80,9 +80,9 @@ export interface RegistrationClient {
     displayName?: string;
   }): Promise<{ sent: boolean }>;
   completeRegistration(input: { email: string; code: string }): Promise<CompleteRegistrationResult>;
-  passkeyRegisterBegin(input: { userId: string; enrollmentToken: string }): Promise<unknown>;
+  passkeyRegisterBegin(input: { profileId: string; enrollmentToken: string }): Promise<unknown>;
   passkeyRegisterComplete(input: {
-    userId: string;
+    profileId: string;
     enrollmentToken: string;
     attestation: unknown;
   }): Promise<{ passkeyId: string }>;
@@ -108,7 +108,7 @@ export function createRegistrationClient(config: RegistrationClientConfig): Regi
     code: string;
   }): Promise<CompleteRegistrationResult> => {
     const raw = await postJson<{
-      userId: string;
+      profileId: string;
       handle: string;
       email: string;
       session: unknown;
@@ -116,7 +116,7 @@ export function createRegistrationClient(config: RegistrationClientConfig): Regi
     }>(`${base}/register/complete`, input);
     const session = parseTokenResponse(raw.session);
     return {
-      userId: raw.userId,
+      profileId: raw.profileId,
       handle: raw.handle,
       email: raw.email,
       session,
@@ -124,21 +124,21 @@ export function createRegistrationClient(config: RegistrationClientConfig): Regi
     };
   };
 
-  const passkeyRegisterBegin = (input: { userId: string; enrollmentToken: string }) =>
+  const passkeyRegisterBegin = (input: { profileId: string; enrollmentToken: string }) =>
     postJson<unknown>(
       `${base}/passkey/register/begin`,
-      { userId: input.userId },
+      { profileId: input.profileId },
       { bearer: input.enrollmentToken },
     );
 
   const passkeyRegisterComplete = (input: {
-    userId: string;
+    profileId: string;
     enrollmentToken: string;
     attestation: unknown;
   }) =>
     postJson<{ passkeyId: string }>(
       `${base}/passkey/register/complete`,
-      { userId: input.userId, attestation: input.attestation },
+      { profileId: input.profileId, attestation: input.attestation },
       { bearer: input.enrollmentToken },
     );
 

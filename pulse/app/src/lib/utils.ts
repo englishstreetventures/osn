@@ -52,13 +52,13 @@ function decodeJwtPayload(accessToken: string): Record<string, unknown> | null {
   }
 }
 
-/** Extracts the `sub` (user ID) claim from an access token. */
-export function getUserIdFromToken(accessToken: string | null): string | null {
-  return getTokenClaims(accessToken).userId;
+/** Extracts the `sub` (profile ID) claim from an access token. */
+export function getProfileIdFromToken(accessToken: string | null): string | null {
+  return getTokenClaims(accessToken).profileId;
 }
 
 export interface TokenClaims {
-  userId: string | null;
+  profileId: string | null;
   email: string | null;
   handle: string | null;
   displayName: string | null;
@@ -68,7 +68,7 @@ export interface TokenClaims {
 export function getTokenClaims(accessToken: string | null): TokenClaims {
   const payload = decodeJwtPayload(accessToken ?? "");
   return {
-    userId: typeof payload?.sub === "string" ? payload.sub : null,
+    profileId: typeof payload?.sub === "string" ? payload.sub : null,
     email: typeof payload?.email === "string" ? payload.email : null,
     handle: typeof payload?.handle === "string" ? payload.handle : null,
     displayName: typeof payload?.displayName === "string" ? payload.displayName : null,

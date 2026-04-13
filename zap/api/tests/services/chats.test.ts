@@ -20,12 +20,12 @@ describe("chats service", () => {
       expect(chat.id).toMatch(/^chat_/);
       expect(chat.type).toBe("group");
       expect(chat.title).toBe("Test Group");
-      expect(chat.createdByUserId).toBe("usr_alice");
+      expect(chat.createdByProfileId).toBe("usr_alice");
 
       // Creator should be an admin member.
       const members = yield* getChatMembers(chat.id);
       expect(members).toHaveLength(1);
-      expect(members[0]!.userId).toBe("usr_alice");
+      expect(members[0]!.profileId).toBe("usr_alice");
       expect(members[0]!.role).toBe("admin");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -52,12 +52,12 @@ describe("chats service", () => {
   it.effect("createChat adds initial members", () =>
     Effect.gen(function* () {
       const chat = yield* createChat(
-        { type: "group", title: "With Members", memberUserIds: ["usr_bob", "usr_charlie"] },
+        { type: "group", title: "With Members", memberProfileIds: ["usr_bob", "usr_charlie"] },
         "usr_alice",
       );
       const members = yield* getChatMembers(chat.id);
       expect(members).toHaveLength(3); // alice (admin) + bob + charlie
-      const userIds = members.map((m) => m.userId).toSorted();
+      const userIds = members.map((m) => m.profileId).toSorted();
       expect(userIds).toEqual(["usr_alice", "usr_bob", "usr_charlie"]);
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -109,7 +109,7 @@ describe("chats service", () => {
       const chat = yield* seedChat({
         type: "group",
         title: "Old Title",
-        createdByUserId: "usr_alice",
+        createdByProfileId: "usr_alice",
       });
       yield* seedMember(chat.id, "usr_alice", "admin");
       const updated = yield* updateChat(chat.id, { title: "New Title" }, "usr_alice");
@@ -134,7 +134,7 @@ describe("chats service", () => {
       const chat = yield* seedChat({ type: "group" });
       yield* seedMember(chat.id, "usr_alice", "admin");
       const member = yield* addMember(chat.id, "usr_bob", "usr_alice");
-      expect(member.userId).toBe("usr_bob");
+      expect(member.profileId).toBe("usr_bob");
       expect(member.role).toBe("member");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -160,7 +160,7 @@ describe("chats service", () => {
       yield* removeMember(chat.id, "usr_bob", "usr_alice");
       const members = yield* getChatMembers(chat.id);
       expect(members).toHaveLength(1);
-      expect(members[0]!.userId).toBe("usr_alice");
+      expect(members[0]!.profileId).toBe("usr_alice");
     }).pipe(Effect.provide(createTestLayer())),
   );
 

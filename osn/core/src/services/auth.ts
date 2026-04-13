@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 
-import { users, passkeys } from "@osn/db/schema";
+import { accounts, users, passkeys } from "@osn/db/schema";
 import type { User } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import {
@@ -90,14 +90,14 @@ interface ChallengeEntry {
 
 interface OtpEntry {
   code: string;
-  userId: string;
+  profileId: string;
   attempts: number;
   expiresAt: number;
 }
 
 interface MagicEntry {
   token: string;
-  userId: string;
+  profileId: string;
   expiresAt: number;
 }
 
@@ -115,7 +115,7 @@ const MAX_PENDING_REGISTRATIONS = 10_000;
 // Max OTP guesses against a single pending entry before it is wiped.
 const MAX_OTP_ATTEMPTS = 5;
 
-// keyed by userId for registration, by email for login
+// keyed by accountId for registration, by email for login
 const registrationChallenges = new Map<string, ChallengeEntry>();
 const loginChallenges = new Map<string, ChallengeEntry>();
 const otpStore = new Map<string, OtpEntry>();
@@ -232,6 +232,12 @@ export interface TokenSet {
 }
 
 /**
+ * A `User` row enriched with the `email` from the linked `accounts` row.
+ * Used throughout the auth service since `users` no longer carries email.
+ */
+export type UserWithEmail = User & { email: string };
+
+/**
  * The publicly-safe subset of `User` returned alongside a fresh session on
  * first-party login. Strips timestamps so clients don't accidentally depend
  * on them for anything display-related.
@@ -244,11 +250,11 @@ export interface PublicUser {
   avatarUrl: string | null;
 }
 
-function toPublicUser(u: User): PublicUser {
+function toPublicUser(u: User, email: string): PublicUser {
   return {
     id: u.id,
     handle: u.handle,
-    email: u.email,
+    email,
     displayName: u.displayName,
     avatarUrl: u.avatarUrl,
   };
@@ -317,31 +323,71 @@ export function createAuthService(config: AuthConfig) {
   // User helpers
   // -------------------------------------------------------------------------
 
-  const findUserByEmail = (email: string): Effect.Effect<User | null, DatabaseError, Db> =>
+  const findUserByEmail = (email: string): Effect.Effect<UserWithEmail | null, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const result = yield* Effect.tryPromise({
-        try: () => db.select().from(users).where(eq(users.email, email)).limit(1),
+        try: () =>
+          db
+            .select({ user: users, account: accounts })
+            .from(users)
+            .innerJoin(accounts, eq(users.accountId, accounts.id))
+            .where(eq(accounts.email, email))
+            .limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      return result[0] ?? null;
+      const row = result[0];
+      if (!row) return null;
+      return { ...row.user, email: row.account.email };
     });
 
-  const findUserByHandle = (handle: string): Effect.Effect<User | null, DatabaseError, Db> =>
+  const findUserByHandle = (
+    handle: string,
+  ): Effect.Effect<UserWithEmail | null, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const result = yield* Effect.tryPromise({
-        try: () => db.select().from(users).where(eq(users.handle, handle)).limit(1),
+        try: () =>
+          db
+            .select({ user: users, account: accounts })
+            .from(users)
+            .innerJoin(accounts, eq(users.accountId, accounts.id))
+            .where(eq(users.handle, handle))
+            .limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      return result[0] ?? null;
+      const row = result[0];
+      if (!row) return null;
+      return { ...row.user, email: row.account.email };
+    });
+
+  const findProfileById = (
+    profileId: string,
+  ): Effect.Effect<UserWithEmail | null, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ user: users, account: accounts })
+            .from(users)
+            .innerJoin(accounts, eq(users.accountId, accounts.id))
+            .where(eq(users.id, profileId))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const row = result[0];
+      if (!row) return null;
+      return { ...row.user, email: row.account.email };
     });
 
   /**
    * Resolves a (normalised) identifier to a user.
    * Identifiers containing "@" are treated as email addresses; all others as handles.
    */
-  const resolveIdentifier = (identifier: string): Effect.Effect<User | null, DatabaseError, Db> =>
+  const resolveIdentifier = (
+    identifier: string,
+  ): Effect.Effect<UserWithEmail | null, DatabaseError, Db> =>
     looksLikeEmail(identifier) ? findUserByEmail(identifier) : findUserByHandle(identifier);
 
   /**
@@ -352,7 +398,7 @@ export function createAuthService(config: AuthConfig) {
     email: string,
     handle: string,
     displayName?: string,
-  ): Effect.Effect<User, AuthError | ValidationError | DatabaseError, Db> =>
+  ): Effect.Effect<UserWithEmail, AuthError | ValidationError | DatabaseError, Db> =>
     Effect.gen(function* () {
       yield* Schema.decodeUnknown(EmailSchema)(email).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
@@ -377,19 +423,41 @@ export function createAuthService(config: AuthConfig) {
       }
 
       const { db } = yield* Db;
+      const accountId = genId("acc_");
       const id = genId("usr_");
       const ts = now();
       const dn = displayName ?? null;
 
       yield* Effect.tryPromise({
         try: () =>
-          db
-            .insert(users)
-            .values({ id, handle, email, displayName: dn, createdAt: ts, updatedAt: ts }),
+          db.transaction(async (tx) => {
+            await tx
+              .insert(accounts)
+              .values({ id: accountId, email, maxProfiles: 5, createdAt: ts, updatedAt: ts });
+            await tx.insert(users).values({
+              id,
+              accountId,
+              handle,
+              displayName: dn,
+              isDefault: true,
+              createdAt: ts,
+              updatedAt: ts,
+            });
+          }),
         catch: (cause) => new DatabaseError({ cause }),
       });
 
-      return { id, handle, email, displayName: dn, avatarUrl: null, createdAt: ts, updatedAt: ts };
+      return {
+        id,
+        accountId,
+        handle,
+        email,
+        displayName: dn,
+        avatarUrl: null,
+        isDefault: true,
+        createdAt: ts,
+        updatedAt: ts,
+      };
     });
 
   /**
@@ -524,7 +592,7 @@ export function createAuthService(config: AuthConfig) {
     code: string,
   ): Effect.Effect<
     {
-      userId: string;
+      profileId: string;
       handle: string;
       email: string;
       displayName: string | null;
@@ -553,24 +621,35 @@ export function createAuthService(config: AuthConfig) {
       }
 
       const { db } = yield* Db;
+      const accountId = genId("acc_");
       const id = genId("usr_");
       const ts = now();
 
-      // Insert directly. The DB-level UNIQUE constraints on `email` and
-      // `handle` are the source of truth for race-free uniqueness; a
+      // Insert account + profile. The DB-level UNIQUE constraints on `email`
+      // and `handle` are the source of truth for race-free uniqueness; a
       // constraint violation here means another registration won the race
       // (or the legacy `/register` endpoint was called concurrently). We
       // surface that as a clean AuthError without leaking driver text.
       const inserted = yield* Effect.tryPromise({
         try: async () => {
           try {
-            await db.insert(users).values({
-              id,
-              handle: pending.handle,
-              email: pending.email,
-              displayName: pending.displayName,
-              createdAt: ts,
-              updatedAt: ts,
+            await db.transaction(async (tx) => {
+              await tx.insert(accounts).values({
+                id: accountId,
+                email: pending.email,
+                maxProfiles: 5,
+                createdAt: ts,
+                updatedAt: ts,
+              });
+              await tx.insert(users).values({
+                id,
+                accountId,
+                handle: pending.handle,
+                displayName: pending.displayName,
+                isDefault: true,
+                createdAt: ts,
+                updatedAt: ts,
+              });
             });
             return { ok: true as const };
           } catch (e) {
@@ -595,10 +674,10 @@ export function createAuthService(config: AuthConfig) {
       pendingRegistrations.delete(key);
 
       const tokens = yield* issueTokens(id, pending.email, pending.handle, pending.displayName);
-      const enrollmentToken = yield* issueEnrollmentToken(id);
+      const enrollmentToken = yield* issueEnrollmentToken(accountId);
 
       return {
-        userId: id,
+        profileId: id,
         handle: pending.handle,
         email: pending.email,
         displayName: pending.displayName,
@@ -633,11 +712,16 @@ export function createAuthService(config: AuthConfig) {
   // Token issuance
   // -------------------------------------------------------------------------
 
-  const issueTokens = (userId: string, email: string, handle: string, displayName: string | null) =>
+  const issueTokens = (
+    profileId: string,
+    email: string,
+    handle: string,
+    displayName: string | null,
+  ) =>
     Effect.tryPromise({
       try: async () => {
         const payload: Record<string, unknown> = {
-          sub: userId,
+          sub: profileId,
           email,
           handle,
           scope: "openid profile",
@@ -646,7 +730,7 @@ export function createAuthService(config: AuthConfig) {
 
         const [accessToken, refreshToken] = await Promise.all([
           signJwt(payload, config.jwtSecret, accessTokenTtl),
-          signJwt({ sub: userId, type: "refresh" }, config.jwtSecret, refreshTokenTtl),
+          signJwt({ sub: profileId, type: "refresh" }, config.jwtSecret, refreshTokenTtl),
         ]);
         return { accessToken, refreshToken, expiresIn: accessTokenTtl };
       },
@@ -654,12 +738,12 @@ export function createAuthService(config: AuthConfig) {
     });
 
   // -------------------------------------------------------------------------
-  // Authorization code (short-lived JWT sub=userId, used for PKCE exchange)
+  // Authorization code (short-lived JWT sub=profileId, used for PKCE exchange)
   // -------------------------------------------------------------------------
 
-  const issueCode = (userId: string) =>
+  const issueCode = (profileId: string) =>
     Effect.tryPromise({
-      try: () => signJwt({ sub: userId, type: "code" }, config.jwtSecret, 120),
+      try: () => signJwt({ sub: profileId, type: "code" }, config.jwtSecret, 120),
       catch: (cause) => new AuthError({ message: String(cause) }),
     });
 
@@ -669,9 +753,9 @@ export function createAuthService(config: AuthConfig) {
   // Short-lived (5 min) single-use bearer tokens minted by completeRegistration
   // (and only by completeRegistration) so that the new user can prove the
   // server-side identity it just received over the same channel when it calls
-  // /passkey/register/{begin,complete}. The token's `sub` is the userId of the
-  // user being enrolled. Calls to /passkey/register/* compare the token's sub
-  // against the request body's userId; a mismatch is rejected.
+  // /passkey/register/{begin,complete}. The token's `sub` is the accountId of the
+  // account being enrolled. Calls to /passkey/register/* compare the token's sub
+  // against the request body's accountId; a mismatch is rejected.
   //
   // The "consumed" set tracks the JWT IDs (`jti`) of tokens that have already
   // been used by /passkey/register/complete. /passkey/register/begin does NOT
@@ -680,12 +764,12 @@ export function createAuthService(config: AuthConfig) {
 
   const enrollmentTokenTtl = 5 * 60; // seconds
 
-  const issueEnrollmentToken = (userId: string) =>
+  const issueEnrollmentToken = (accountId: string) =>
     Effect.tryPromise({
       try: () => {
         const jti = crypto.randomUUID();
         return signJwt(
-          { sub: userId, type: "passkey-enroll", jti },
+          { sub: accountId, type: "passkey-enroll", jti },
           config.jwtSecret,
           enrollmentTokenTtl,
         );
@@ -694,7 +778,7 @@ export function createAuthService(config: AuthConfig) {
     });
 
   /**
-   * Verifies an enrollment token. Returns the userId on success.
+   * Verifies an enrollment token. Returns the accountId on success.
    * If `consume` is true (used by /passkey/register/complete) the token's jti
    * is recorded in `consumedEnrollmentTokens` and any subsequent verification
    * with the same jti will fail.
@@ -702,7 +786,7 @@ export function createAuthService(config: AuthConfig) {
   const verifyEnrollmentToken = (
     token: string,
     options: { consume: boolean } = { consume: false },
-  ): Effect.Effect<{ userId: string }, AuthError> =>
+  ): Effect.Effect<{ accountId: string }, AuthError> =>
     Effect.gen(function* () {
       const payload = yield* Effect.tryPromise({
         try: () => verifyJwt(token, config.jwtSecret),
@@ -729,7 +813,7 @@ export function createAuthService(config: AuthConfig) {
       if (options.consume) {
         consumedEnrollmentTokens.set(jti, Date.now());
       }
-      return { userId: payload["sub"] as string };
+      return { accountId: payload["sub"] as string };
     });
 
   // -------------------------------------------------------------------------
@@ -751,17 +835,12 @@ export function createAuthService(config: AuthConfig) {
       if (payload["type"] !== "code" || typeof payload["sub"] !== "string") {
         return yield* Effect.fail(new AuthError({ message: "Invalid code type" }));
       }
-      const userId = payload["sub"];
-      const { db } = yield* Db;
-      const result = yield* Effect.tryPromise({
-        try: () => db.select().from(users).where(eq(users.id, userId)).limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      const user = result[0];
+      const profileId = payload["sub"];
+      const user = yield* findProfileById(profileId);
       if (!user) {
         return yield* Effect.fail(new AuthError({ message: "User not found" }));
       }
-      return yield* issueTokens(userId, user.email, user.handle, user.displayName);
+      return yield* issueTokens(profileId, user.email, user.handle, user.displayName);
     });
 
   // -------------------------------------------------------------------------
@@ -783,17 +862,12 @@ export function createAuthService(config: AuthConfig) {
       if (payload["type"] !== "refresh" || typeof payload["sub"] !== "string") {
         return yield* Effect.fail(new AuthError({ message: "Invalid token type" }));
       }
-      const userId = payload["sub"];
-      const { db } = yield* Db;
-      const result = yield* Effect.tryPromise({
-        try: () => db.select().from(users).where(eq(users.id, userId)).limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      const user = result[0];
+      const profileId = payload["sub"];
+      const user = yield* findProfileById(profileId);
       if (!user) {
         return yield* Effect.fail(new AuthError({ message: "User not found" }));
       }
-      return yield* issueTokens(userId, user.email, user.handle, user.displayName);
+      return yield* issueTokens(profileId, user.email, user.handle, user.displayName);
     }).pipe(withAuthTokenRefresh);
 
   // -------------------------------------------------------------------------
@@ -803,7 +877,7 @@ export function createAuthService(config: AuthConfig) {
   const verifyAccessToken = (
     token: string,
   ): Effect.Effect<
-    { userId: string; email: string; handle: string; displayName: string | null },
+    { profileId: string; email: string; handle: string; displayName: string | null },
     AuthError
   > =>
     Effect.gen(function* () {
@@ -819,7 +893,7 @@ export function createAuthService(config: AuthConfig) {
         return yield* Effect.fail(new AuthError({ message: "Invalid token claims" }));
       }
       return {
-        userId: payload["sub"],
+        profileId: payload["sub"],
         email: payload["email"],
         handle: payload["handle"],
         displayName: typeof payload["displayName"] === "string" ? payload["displayName"] : null,
@@ -831,7 +905,7 @@ export function createAuthService(config: AuthConfig) {
   // -------------------------------------------------------------------------
 
   const beginPasskeyRegistration = (
-    userId: string,
+    accountId: string,
   ): Effect.Effect<
     { options: PublicKeyCredentialCreationOptionsJSON },
     AuthError | DatabaseError,
@@ -839,17 +913,18 @@ export function createAuthService(config: AuthConfig) {
   > =>
     Effect.gen(function* () {
       const { db } = yield* Db;
-      const userResult = yield* Effect.tryPromise({
-        try: () => db.select().from(users).where(eq(users.id, userId)).limit(1),
+      // Look up the default profile for this account (for display name in WebAuthn)
+      const profileResult = yield* Effect.tryPromise({
+        try: () => db.select().from(users).where(eq(users.accountId, accountId)).limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      const user = userResult[0];
-      if (!user) {
-        return yield* Effect.fail(new AuthError({ message: "User not found" }));
+      const profile = profileResult[0];
+      if (!profile) {
+        return yield* Effect.fail(new AuthError({ message: "Account not found" }));
       }
 
       const existingPasskeys = yield* Effect.tryPromise({
-        try: () => db.select().from(passkeys).where(eq(passkeys.userId, userId)),
+        try: () => db.select().from(passkeys).where(eq(passkeys.accountId, accountId)),
         catch: (cause) => new DatabaseError({ cause }),
       });
 
@@ -858,9 +933,9 @@ export function createAuthService(config: AuthConfig) {
           generateRegistrationOptions({
             rpName: config.rpName,
             rpID: config.rpId,
-            userID: new TextEncoder().encode(userId),
-            userName: `@${user.handle}`,
-            userDisplayName: user.displayName ?? `@${user.handle}`,
+            userID: new TextEncoder().encode(accountId),
+            userName: `@${profile.handle}`,
+            userDisplayName: profile.displayName ?? `@${profile.handle}`,
             attestationType: "none",
             excludeCredentials: existingPasskeys.map((pk) => ({
               id: pk.credentialId,
@@ -876,7 +951,7 @@ export function createAuthService(config: AuthConfig) {
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
 
-      registrationChallenges.set(userId, {
+      registrationChallenges.set(accountId, {
         challenge: options.challenge,
         expiresAt: Date.now() + 120_000,
       });
@@ -889,15 +964,15 @@ export function createAuthService(config: AuthConfig) {
   // -------------------------------------------------------------------------
 
   const completePasskeyRegistration = (
-    userId: string,
+    accountId: string,
     attestation: RegistrationResponseJSON,
   ): Effect.Effect<{ passkeyId: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const entry = registrationChallenges.get(userId);
+      const entry = registrationChallenges.get(accountId);
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
       }
-      registrationChallenges.delete(userId);
+      registrationChallenges.delete(accountId);
 
       const verification = yield* Effect.tryPromise({
         try: () =>
@@ -923,7 +998,7 @@ export function createAuthService(config: AuthConfig) {
         try: () =>
           db.insert(passkeys).values({
             id,
-            userId,
+            accountId,
             credentialId: info.credential.id,
             publicKey: Buffer.from(info.credential.publicKey).toString("base64"),
             counter: info.credential.counter,
@@ -958,7 +1033,7 @@ export function createAuthService(config: AuthConfig) {
 
       const { db } = yield* Db;
       const userPasskeys = yield* Effect.tryPromise({
-        try: () => db.select().from(passkeys).where(eq(passkeys.userId, user.id)),
+        try: () => db.select().from(passkeys).where(eq(passkeys.accountId, user.accountId)),
         catch: (cause) => new DatabaseError({ cause }),
       });
 
@@ -1002,7 +1077,7 @@ export function createAuthService(config: AuthConfig) {
   const verifyPasskeyAssertion = (
     identifier: string,
     assertion: AuthenticationResponseJSON,
-  ): Effect.Effect<User, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<UserWithEmail, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       // Check in-memory challenge guard before any DB lookup.
       const normalised = normaliseIdentifier(identifier);
@@ -1071,11 +1146,11 @@ export function createAuthService(config: AuthConfig) {
   const completePasskeyLogin = (
     identifier: string,
     assertion: AuthenticationResponseJSON,
-  ): Effect.Effect<{ code: string; userId: string }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<{ code: string; profileId: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const user = yield* verifyPasskeyAssertion(identifier, assertion);
       const code = yield* issueCode(user.id);
-      return { code, userId: user.id };
+      return { code, profileId: user.id };
     }).pipe(withAuthLogin("passkey"));
 
   // -------------------------------------------------------------------------
@@ -1090,7 +1165,7 @@ export function createAuthService(config: AuthConfig) {
     Effect.gen(function* () {
       const user = yield* verifyPasskeyAssertion(identifier, assertion);
       const session = yield* issueTokens(user.id, user.email, user.handle, user.displayName);
-      return { session, user: toPublicUser(user) };
+      return { session, user: toPublicUser(user, user.email) };
     }).pipe(withAuthLogin("passkey"));
 
   // -------------------------------------------------------------------------
@@ -1122,7 +1197,7 @@ export function createAuthService(config: AuthConfig) {
       // Key by normalised identifier so completeOtp can check in-memory first.
       otpStore.set(normalised, {
         code,
-        userId: user.id,
+        profileId: user.id,
         attempts: 0,
         expiresAt: Date.now() + otpTtl * 1000,
       });
@@ -1157,7 +1232,7 @@ export function createAuthService(config: AuthConfig) {
   const verifyOtpCode = (
     identifier: string,
     code: string,
-  ): Effect.Effect<User, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<UserWithEmail, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       // Check in-memory store first — no DB hit on expired/invalid attempts.
       const normalised = normaliseIdentifier(identifier);
@@ -1174,12 +1249,7 @@ export function createAuthService(config: AuthConfig) {
       }
       otpStore.delete(normalised);
 
-      const { db } = yield* Db;
-      const result = yield* Effect.tryPromise({
-        try: () => db.select().from(users).where(eq(users.id, entry.userId)).limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      const user = result[0];
+      const user = yield* findProfileById(entry.profileId);
       if (!user) {
         return yield* Effect.fail(new AuthError({ message: "User not found" }));
       }
@@ -1193,11 +1263,11 @@ export function createAuthService(config: AuthConfig) {
   const completeOtp = (
     identifier: string,
     code: string,
-  ): Effect.Effect<{ code: string; userId: string }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<{ code: string; profileId: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const user = yield* verifyOtpCode(identifier, code);
       const authCode = yield* issueCode(user.id);
-      return { code: authCode, userId: user.id };
+      return { code: authCode, profileId: user.id };
     }).pipe(withAuthLogin("otp"));
 
   // -------------------------------------------------------------------------
@@ -1211,7 +1281,7 @@ export function createAuthService(config: AuthConfig) {
     Effect.gen(function* () {
       const user = yield* verifyOtpCode(identifier, code);
       const session = yield* issueTokens(user.id, user.email, user.handle, user.displayName);
-      return { session, user: toPublicUser(user) };
+      return { session, user: toPublicUser(user, user.email) };
     }).pipe(withAuthLogin("otp"));
 
   // -------------------------------------------------------------------------
@@ -1242,7 +1312,7 @@ export function createAuthService(config: AuthConfig) {
 
       magicStore.set(token, {
         token,
-        userId: user.id,
+        profileId: user.id,
         expiresAt: Date.now() + magicTtl * 1000,
       });
 
@@ -1275,7 +1345,9 @@ export function createAuthService(config: AuthConfig) {
   // party direct-session path.
   // -------------------------------------------------------------------------
 
-  const consumeMagicToken = (token: string): Effect.Effect<User, AuthError | DatabaseError, Db> =>
+  const consumeMagicToken = (
+    token: string,
+  ): Effect.Effect<UserWithEmail, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const entry = magicStore.get(token);
       if (!entry || Date.now() > entry.expiresAt) {
@@ -1283,12 +1355,7 @@ export function createAuthService(config: AuthConfig) {
       }
       magicStore.delete(token);
 
-      const { db } = yield* Db;
-      const result = yield* Effect.tryPromise({
-        try: () => db.select().from(users).where(eq(users.id, entry.userId)).limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      const user = result[0];
+      const user = yield* findProfileById(entry.profileId);
       if (!user) {
         return yield* Effect.fail(new AuthError({ message: "User not found" }));
       }
@@ -1324,12 +1391,13 @@ export function createAuthService(config: AuthConfig) {
     Effect.gen(function* () {
       const user = yield* consumeMagicToken(token);
       const session = yield* issueTokens(user.id, user.email, user.handle, user.displayName);
-      return { session, user: toPublicUser(user) };
+      return { session, user: toPublicUser(user, user.email) };
     }).pipe(withAuthLogin("magic_link"));
 
   return {
     findUserByEmail,
     findUserByHandle,
+    findProfileById,
     resolveIdentifier,
     registerUser,
     beginRegistration,

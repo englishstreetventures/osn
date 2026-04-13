@@ -27,10 +27,10 @@ export function EventCard(props: {
   event: EventItem;
   onDelete: (id: string) => void;
   deleting?: boolean;
-  currentUserId?: string | null;
+  currentProfileId?: string | null;
 }) {
   const canDelete = () =>
-    !!props.currentUserId && props.event.createdByUserId === props.currentUserId;
+    !!props.currentProfileId && props.event.createdByProfileId === props.currentProfileId;
 
   return (
     <div class="border-border bg-card overflow-hidden rounded-xl border">

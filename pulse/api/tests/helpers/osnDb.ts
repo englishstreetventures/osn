@@ -25,12 +25,22 @@ export interface OsnTestContext {
 export function createOsnTestContext(): OsnTestContext {
   const sqlite = new Database(":memory:");
   sqlite.run(`
+    CREATE TABLE accounts (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      max_profiles INTEGER NOT NULL DEFAULT 5,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+  sqlite.run(`
     CREATE TABLE users (
       id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
       handle TEXT NOT NULL UNIQUE,
-      email TEXT NOT NULL UNIQUE,
       display_name TEXT,
       avatar_url TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -49,10 +59,10 @@ export function createOsnTestContext(): OsnTestContext {
   sqlite.run(`
     CREATE TABLE close_friends (
       id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
       friend_id TEXT NOT NULL,
       created_at INTEGER NOT NULL,
-      UNIQUE (user_id, friend_id)
+      UNIQUE (profile_id, friend_id)
     )
   `);
   sqlite.run(`
@@ -68,18 +78,32 @@ export function createOsnTestContext(): OsnTestContext {
   return { layer: Layer.succeed(OsnDb, { db }), db };
 }
 
-/** Inserts a user row into the OSN test DB. */
+/** Inserts an account + user row into the OSN test DB. */
 export async function seedOsnUser(
   ctx: OsnTestContext,
   user: { id: string; handle?: string; email?: string; displayName?: string | null },
 ): Promise<void> {
   const now = new Date();
+  const accountId = user.id.replace(/^usr_/, "acc_");
+  // Create an account for this user (idempotent — ignore conflicts from
+  // multi-profile scenarios where two users share one account).
+  await ctx.db
+    .insert(osnSchema.accounts)
+    .values({
+      id: accountId,
+      email: user.email ?? `${user.id}@example.com`,
+      maxProfiles: 5,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing();
   await ctx.db.insert(osnSchema.users).values({
     id: user.id,
+    accountId,
     handle: user.handle ?? user.id.replace(/^usr_/, ""),
-    email: user.email ?? `${user.id}@example.com`,
     displayName: user.displayName ?? null,
     avatarUrl: null,
+    isDefault: true,
     createdAt: now,
     updatedAt: now,
   });
@@ -102,16 +126,16 @@ export async function seedConnection(
   });
 }
 
-/** Marks `friendId` as a close friend of `userId` (directional). */
+/** Marks `friendId` as a close friend of `profileId` (directional). */
 export async function seedCloseFriend(
   ctx: OsnTestContext,
-  userId: string,
+  profileId: string,
   friendId: string,
 ): Promise<void> {
   const now = new Date();
   await ctx.db.insert(osnSchema.closeFriends).values({
     id: "clf_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
-    userId,
+    profileId,
     friendId,
     createdAt: now,
   });

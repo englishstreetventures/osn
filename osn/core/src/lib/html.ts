@@ -238,7 +238,7 @@ export function buildAuthorizeHtml(params: AuthorizeHtmlParams): string {
   // Closure state for multi-step flows
   var otpIdentifier = '';
   var _regEmail = '';
-  var _regUserId = '';
+  var _regProfileId = '';
 
   // ---------------------------------------------------------------------------
   // Tab switching
@@ -517,7 +517,7 @@ export function buildAuthorizeHtml(params: AuthorizeHtmlParams): string {
 
       // Store for the OTP verify step (closure vars, not window globals)
       _regEmail = email;
-      _regUserId = res.userId;
+      _regProfileId = res.profileId;
     } catch(e) {
       showErr('reg-err', e.message || 'Registration failed.');
       document.getElementById('reg-btn').disabled = false;

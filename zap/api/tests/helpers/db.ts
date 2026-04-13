@@ -21,31 +21,31 @@ export function createTestLayer() {
       type TEXT NOT NULL,
       title TEXT,
       event_id TEXT,
-      created_by_user_id TEXT NOT NULL,
+      created_by_profile_id TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
   `);
   sqlite.run(`CREATE INDEX chats_type_idx ON chats (type)`);
   sqlite.run(`CREATE INDEX chats_event_id_idx ON chats (event_id)`);
-  sqlite.run(`CREATE INDEX chats_created_by_user_id_idx ON chats (created_by_user_id)`);
+  sqlite.run(`CREATE INDEX chats_created_by_profile_id_idx ON chats (created_by_profile_id)`);
   sqlite.run(`
     CREATE TABLE chat_members (
       id TEXT PRIMARY KEY,
       chat_id TEXT NOT NULL REFERENCES chats(id),
-      user_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'member',
       joined_at INTEGER NOT NULL,
-      UNIQUE (chat_id, user_id)
+      UNIQUE (chat_id, profile_id)
     )
   `);
   sqlite.run(`CREATE INDEX chat_members_chat_idx ON chat_members (chat_id)`);
-  sqlite.run(`CREATE INDEX chat_members_user_idx ON chat_members (user_id)`);
+  sqlite.run(`CREATE INDEX chat_members_profile_idx ON chat_members (profile_id)`);
   sqlite.run(`
     CREATE TABLE messages (
       id TEXT PRIMARY KEY,
       chat_id TEXT NOT NULL REFERENCES chats(id),
-      sender_user_id TEXT NOT NULL,
+      sender_profile_id TEXT NOT NULL,
       ciphertext TEXT NOT NULL,
       nonce TEXT NOT NULL,
       created_at INTEGER NOT NULL,
@@ -54,7 +54,7 @@ export function createTestLayer() {
   `);
   sqlite.run(`CREATE INDEX messages_chat_idx ON messages (chat_id)`);
   sqlite.run(`CREATE INDEX messages_chat_created_idx ON messages (chat_id, created_at)`);
-  sqlite.run(`CREATE INDEX messages_sender_idx ON messages (sender_user_id)`);
+  sqlite.run(`CREATE INDEX messages_sender_idx ON messages (sender_profile_id)`);
   const db = drizzle(sqlite, { schema });
   return Layer.succeed(Db, { db });
 }
@@ -66,7 +66,7 @@ export interface SeedChatInput {
   type: "dm" | "group" | "event";
   title?: string;
   eventId?: string;
-  createdByUserId?: string;
+  createdByProfileId?: string;
 }
 
 export const seedChat = (input: SeedChatInput): Effect.Effect<Chat, never, Db> =>
@@ -79,7 +79,7 @@ export const seedChat = (input: SeedChatInput): Effect.Effect<Chat, never, Db> =
       type: input.type,
       title: input.title ?? null,
       eventId: input.eventId ?? null,
-      createdByUserId: input.createdByUserId ?? "usr_alice",
+      createdByProfileId: input.createdByProfileId ?? "usr_alice",
       createdAt: now,
       updatedAt: now,
     };
@@ -92,14 +92,14 @@ export const seedChat = (input: SeedChatInput): Effect.Effect<Chat, never, Db> =
  */
 export const seedMember = (
   chatId: string,
-  userId: string,
+  profileId: string,
   role: "admin" | "member" = "member",
 ): Effect.Effect<ChatMember, never, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const id = "cmem_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
     const now = new Date();
-    const row: ChatMember = { id, chatId, userId, role, joinedAt: now };
+    const row: ChatMember = { id, chatId, profileId, role, joinedAt: now };
     yield* Effect.promise(() => db.insert(chatMembers).values(row));
     return row;
   });
@@ -109,7 +109,7 @@ export const seedMember = (
  */
 export const seedMessage = (
   chatId: string,
-  senderUserId: string,
+  senderProfileId: string,
   ciphertext: string,
   createdAt: Date,
 ): Effect.Effect<Message, never, Db> =>
@@ -119,7 +119,7 @@ export const seedMessage = (
     const row: Message = {
       id,
       chatId,
-      senderUserId,
+      senderProfileId,
       ciphertext,
       nonce: "test_nonce",
       createdAt,

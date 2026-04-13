@@ -14,7 +14,7 @@ const baseEvent = {
   guestListVisibility: "public" as const,
   allowInterested: true,
   joinPolicy: "open" as const,
-  createdByUserId: "usr_alice",
+  createdByProfileId: "usr_alice",
 };
 
 describe("RsvpModal", () => {
@@ -82,9 +82,9 @@ describe("RsvpModal", () => {
       {
         id: "rsvp_1",
         eventId: "evt_1",
-        userId: "usr_bob",
+        profileId: "usr_bob",
         status: "going",
-        invitedByUserId: null,
+        invitedByProfileId: null,
         isCloseFriend: false,
         createdAt: "2030-01-01T00:00:00Z",
         user: { id: "usr_bob", handle: "bob", displayName: "Bob Smith", avatarUrl: null },
@@ -102,7 +102,7 @@ describe("RsvpModal", () => {
       <RsvpModal
         event={{ ...baseEvent, guestListVisibility: "private" }}
         accessToken="tok"
-        currentUserId="usr_dan"
+        currentProfileId="usr_dan"
         onClose={() => {}}
       />
     ));
@@ -115,7 +115,7 @@ describe("RsvpModal", () => {
       <RsvpModal
         event={{ ...baseEvent, guestListVisibility: "private" }}
         accessToken="tok"
-        currentUserId="usr_alice"
+        currentProfileId="usr_alice"
         onClose={() => {}}
       />
     ));

@@ -6,8 +6,8 @@ import { createTestLayer } from "../helpers/db";
 
 const TEST_JWT_SECRET = "test-secret";
 
-async function makeToken(userId: string): Promise<string> {
-  return new SignJWT({ sub: userId })
+async function makeToken(profileId: string): Promise<string> {
+  return new SignJWT({ sub: profileId })
     .setProtectedHeader({ alg: "HS256" })
     .sign(new TextEncoder().encode(TEST_JWT_SECRET));
 }
@@ -217,23 +217,23 @@ describe("chats routes", () => {
 
     const res = await req(app, "POST", `/chats/${chatId}/members`, {
       token: aliceToken,
-      body: { userId: "usr_bob" },
+      body: { profileId: "usr_bob" },
     });
     expect(res.status).toBe(201);
     const data = await body(res);
-    expect(data.member.userId).toBe("usr_bob");
+    expect(data.member.profileId).toBe("usr_bob");
   });
 
   it("POST /chats/:id/members returns 403 for non-admin", async () => {
     const createRes = await req(app, "POST", "/chats", {
       token: aliceToken,
-      body: { type: "group", memberUserIds: ["usr_bob"] },
+      body: { type: "group", memberProfileIds: ["usr_bob"] },
     });
     const chatId = (await body(createRes)).chat.id;
 
     const res = await req(app, "POST", `/chats/${chatId}/members`, {
       token: bobToken,
-      body: { userId: "usr_charlie" },
+      body: { profileId: "usr_charlie" },
     });
     expect(res.status).toBe(403);
   });
@@ -241,21 +241,21 @@ describe("chats routes", () => {
   it("POST /chats/:id/members returns 409 for duplicate", async () => {
     const createRes = await req(app, "POST", "/chats", {
       token: aliceToken,
-      body: { type: "group", memberUserIds: ["usr_bob"] },
+      body: { type: "group", memberProfileIds: ["usr_bob"] },
     });
     const chatId = (await body(createRes)).chat.id;
 
     const res = await req(app, "POST", `/chats/${chatId}/members`, {
       token: aliceToken,
-      body: { userId: "usr_bob" },
+      body: { profileId: "usr_bob" },
     });
     expect(res.status).toBe(409);
   });
 
-  it("DELETE /chats/:id/members/:userId removes member and returns 204", async () => {
+  it("DELETE /chats/:id/members/:profileId removes member and returns 204", async () => {
     const createRes = await req(app, "POST", "/chats", {
       token: aliceToken,
-      body: { type: "group", memberUserIds: ["usr_bob"] },
+      body: { type: "group", memberProfileIds: ["usr_bob"] },
     });
     const chatId = (await body(createRes)).chat.id;
 

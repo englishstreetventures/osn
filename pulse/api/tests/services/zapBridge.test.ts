@@ -36,7 +36,7 @@ function createDualTestLayer() {
       allow_interested INTEGER NOT NULL DEFAULT 1,
       comms_channels TEXT NOT NULL DEFAULT '["email"]',
       chat_id TEXT,
-      created_by_user_id TEXT NOT NULL,
+      created_by_profile_id TEXT NOT NULL,
       created_by_name TEXT,
       created_by_avatar TEXT,
       created_at INTEGER NOT NULL,
@@ -49,20 +49,20 @@ function createDualTestLayer() {
   zapSqlite.run(`
     CREATE TABLE chats (
       id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT, event_id TEXT,
-      created_by_user_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      created_by_profile_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )
   `);
   zapSqlite.run(`
     CREATE TABLE chat_members (
       id TEXT PRIMARY KEY, chat_id TEXT NOT NULL REFERENCES chats(id),
-      user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member',
-      joined_at INTEGER NOT NULL, UNIQUE (chat_id, user_id)
+      profile_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member',
+      joined_at INTEGER NOT NULL, UNIQUE (chat_id, profile_id)
     )
   `);
   zapSqlite.run(`
     CREATE TABLE messages (
       id TEXT PRIMARY KEY, chat_id TEXT NOT NULL REFERENCES chats(id),
-      sender_user_id TEXT NOT NULL, ciphertext TEXT NOT NULL, nonce TEXT NOT NULL,
+      sender_profile_id TEXT NOT NULL, ciphertext TEXT NOT NULL, nonce TEXT NOT NULL,
       created_at INTEGER NOT NULL, expires_at INTEGER
     )
   `);
@@ -78,7 +78,7 @@ function createDualTestLayer() {
 const seedEvent = (
   pulseDb: ReturnType<typeof createDualTestLayer>["pulseDb"],
   id: string,
-  createdByUserId: string,
+  createdByProfileId: string,
 ): Effect.Effect<void> => {
   const now = new Date();
   return Effect.promise(() =>
@@ -86,7 +86,7 @@ const seedEvent = (
       id,
       title: "Test Event",
       startTime: new Date("2030-06-01T10:00:00.000Z"),
-      createdByUserId,
+      createdByProfileId,
       createdAt: now,
       updatedAt: now,
     }),
@@ -117,7 +117,7 @@ describe("zapBridge", () => {
           zapDb.select().from(chatMembers).where(eq(chatMembers.chatId, chat.id)),
         );
         expect(members).toHaveLength(1);
-        expect(members[0]!.userId).toBe("usr_alice");
+        expect(members[0]!.profileId).toBe("usr_alice");
         expect(members[0]!.role).toBe("admin");
       }).pipe(Effect.provide(layer));
     });
@@ -146,8 +146,8 @@ describe("zapBridge", () => {
           zapDb.select().from(chatMembers).where(eq(chatMembers.chatId, chat.id)),
         );
         expect(members).toHaveLength(2);
-        const userIds = members.map((m) => m.userId).toSorted();
-        expect(userIds).toEqual(["usr_alice", "usr_bob"]);
+        const profileIds = members.map((m) => m.profileId).toSorted();
+        expect(profileIds).toEqual(["usr_alice", "usr_bob"]);
       }).pipe(Effect.provide(layer));
     });
 

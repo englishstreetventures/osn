@@ -9,9 +9,9 @@ import { CLOSE_FRIEND_RING_CLASS } from "../../src/lib/ui";
 const baseRsvp: Rsvp = {
   id: "rsvp_1",
   eventId: "evt_1",
-  userId: "usr_bob",
+  profileId: "usr_bob",
   status: "going",
-  invitedByUserId: null,
+  invitedByProfileId: null,
   isCloseFriend: false,
   createdAt: "2030-01-01T00:00:00Z",
   user: { id: "usr_bob", handle: "bob", displayName: "Bob Smith", avatarUrl: null },

@@ -28,7 +28,7 @@ function createTestDb() {
       allow_interested INTEGER NOT NULL DEFAULT 1,
       comms_channels TEXT NOT NULL DEFAULT '["email"]',
       chat_id TEXT,
-      created_by_user_id TEXT NOT NULL,
+      created_by_profile_id TEXT NOT NULL,
       created_by_name TEXT,
       created_by_avatar TEXT,
       created_at INTEGER NOT NULL,
@@ -39,16 +39,16 @@ function createTestDb() {
     CREATE TABLE event_rsvps (
       id TEXT PRIMARY KEY,
       event_id TEXT NOT NULL REFERENCES events(id),
-      user_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'going',
-      invited_by_user_id TEXT,
+      invited_by_profile_id TEXT,
       created_at INTEGER NOT NULL,
-      UNIQUE (event_id, user_id)
+      UNIQUE (event_id, profile_id)
     )
   `);
   sqlite.run(`
     CREATE TABLE pulse_users (
-      user_id TEXT PRIMARY KEY,
+      profile_id TEXT PRIMARY KEY,
       attendance_visibility TEXT NOT NULL DEFAULT 'connections',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -60,7 +60,7 @@ function createTestDb() {
       event_id TEXT NOT NULL REFERENCES events(id),
       channel TEXT NOT NULL,
       body TEXT NOT NULL,
-      sent_by_user_id TEXT NOT NULL,
+      sent_by_profile_id TEXT NOT NULL,
       sent_at INTEGER,
       created_at INTEGER NOT NULL
     )
@@ -76,7 +76,7 @@ describe("events schema", () => {
       id: "evt_test",
       title: "Schema Test",
       startTime: now,
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
@@ -101,7 +101,7 @@ describe("events schema", () => {
       id: "evt_ts",
       title: "Timestamp Test",
       startTime: ts,
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
@@ -118,7 +118,7 @@ describe("events schema", () => {
       id: "evt_nulls",
       title: "Null Test",
       startTime: now,
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
@@ -143,7 +143,7 @@ describe("events schema", () => {
       id: "evt_cfg_defaults",
       title: "Defaults",
       startTime: now,
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
@@ -170,7 +170,7 @@ describe("events schema", () => {
       joinPolicy: "guest_list",
       allowInterested: false,
       commsChannels: '["sms","email"]',
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
@@ -197,7 +197,7 @@ describe("event_rsvps schema", () => {
       id: "evt_rsvp_test",
       title: "RSVP Test Event",
       startTime: now,
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
@@ -210,7 +210,7 @@ describe("event_rsvps schema", () => {
     await db.insert(schema.eventRsvps).values({
       id: "rsvp_test",
       eventId: "evt_rsvp_test",
-      userId: "usr_alice",
+      profileId: "usr_alice",
       status: "going",
       createdAt: now,
     });
@@ -222,7 +222,7 @@ describe("event_rsvps schema", () => {
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
     expect(row.eventId).toBe("evt_rsvp_test");
-    expect(row.userId).toBe("usr_alice");
+    expect(row.profileId).toBe("usr_alice");
     expect(row.status).toBe("going");
     expect(row.createdAt).toBeInstanceOf(Date);
   });
@@ -233,7 +233,7 @@ describe("event_rsvps schema", () => {
     await db.insert(schema.eventRsvps).values({
       id: "rsvp_default",
       eventId: "evt_rsvp_test",
-      userId: "usr_bob",
+      profileId: "usr_bob",
       createdAt: new Date(),
     });
 
@@ -244,16 +244,16 @@ describe("event_rsvps schema", () => {
     expect(row!.status).toBe("going");
   });
 
-  it("accepts invited status + invitedByUserId", async () => {
+  it("accepts invited status + invitedByProfileId", async () => {
     const db = createTestDb();
     await seedEvent(db);
     const now = new Date();
     await db.insert(schema.eventRsvps).values({
       id: "rsvp_invited",
       eventId: "evt_rsvp_test",
-      userId: "usr_bob",
+      profileId: "usr_bob",
       status: "invited",
-      invitedByUserId: "usr_alice",
+      invitedByProfileId: "usr_alice",
       createdAt: now,
     });
     const [row] = await db
@@ -261,24 +261,24 @@ describe("event_rsvps schema", () => {
       .from(schema.eventRsvps)
       .where(eq(schema.eventRsvps.id, "rsvp_invited"));
     expect(row!.status).toBe("invited");
-    expect(row!.invitedByUserId).toBe("usr_alice");
+    expect(row!.invitedByProfileId).toBe("usr_alice");
   });
 
-  it("enforces unique (event_id, user_id) constraint", async () => {
+  it("enforces unique (event_id, profile_id) constraint", async () => {
     const db = createTestDb();
     await seedEvent(db);
     const now = new Date();
     await db.insert(schema.eventRsvps).values({
       id: "rsvp_dup1",
       eventId: "evt_rsvp_test",
-      userId: "usr_alice",
+      profileId: "usr_alice",
       createdAt: now,
     });
     await expect(
       db.insert(schema.eventRsvps).values({
         id: "rsvp_dup2",
         eventId: "evt_rsvp_test",
-        userId: "usr_alice",
+        profileId: "usr_alice",
         createdAt: now,
       }),
     ).rejects.toThrow();
@@ -292,7 +292,7 @@ describe("event_rsvps schema", () => {
         id: "evt_a",
         title: "A",
         startTime: now,
-        createdByUserId: "usr_x",
+        createdByProfileId: "usr_x",
         createdAt: now,
         updatedAt: now,
       },
@@ -300,14 +300,14 @@ describe("event_rsvps schema", () => {
         id: "evt_b",
         title: "B",
         startTime: now,
-        createdByUserId: "usr_x",
+        createdByProfileId: "usr_x",
         createdAt: now,
         updatedAt: now,
       },
     ]);
     await db.insert(schema.eventRsvps).values([
-      { id: "rsvp_a", eventId: "evt_a", userId: "usr_alice", createdAt: now },
-      { id: "rsvp_b", eventId: "evt_b", userId: "usr_alice", createdAt: now },
+      { id: "rsvp_a", eventId: "evt_a", profileId: "usr_alice", createdAt: now },
+      { id: "rsvp_b", eventId: "evt_b", profileId: "usr_alice", createdAt: now },
     ]);
     const rows = await db.select().from(schema.eventRsvps);
     expect(rows).toHaveLength(2);
@@ -320,7 +320,7 @@ describe("event_rsvps schema", () => {
     await db.insert(schema.eventRsvps).values({
       id: "rsvp_ts",
       eventId: "evt_rsvp_test",
-      userId: "usr_ts",
+      profileId: "usr_ts",
       createdAt: ts,
     });
     const [row] = await db
@@ -341,15 +341,15 @@ describe("pulse_users schema", () => {
     const db = createTestDb();
     const now = new Date();
     await db.insert(schema.pulseUsers).values({
-      userId: "usr_alice",
+      profileId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
     const [row] = await db
       .select()
       .from(schema.pulseUsers)
-      .where(eq(schema.pulseUsers.userId, "usr_alice"));
-    expect(row!.userId).toBe("usr_alice");
+      .where(eq(schema.pulseUsers.profileId, "usr_alice"));
+    expect(row!.profileId).toBe("usr_alice");
     expect(row!.attendanceVisibility).toBe("connections");
   });
 
@@ -358,12 +358,12 @@ describe("pulse_users schema", () => {
     const now = new Date();
     await db.insert(schema.pulseUsers).values([
       {
-        userId: "usr_conn",
+        profileId: "usr_conn",
         attendanceVisibility: "connections",
         createdAt: now,
         updatedAt: now,
       },
-      { userId: "usr_none", attendanceVisibility: "no_one", createdAt: now, updatedAt: now },
+      { profileId: "usr_none", attendanceVisibility: "no_one", createdAt: now, updatedAt: now },
     ]);
     const rows = await db.select().from(schema.pulseUsers);
     expect(rows.map((r) => r.attendanceVisibility).toSorted()).toEqual(["connections", "no_one"]);
@@ -381,7 +381,7 @@ describe("event_comms schema", () => {
       id: "evt_comms",
       title: "Comms Event",
       startTime: now,
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
@@ -396,7 +396,7 @@ describe("event_comms schema", () => {
       eventId: "evt_comms",
       channel: "sms",
       body: "Hey everyone, see you tonight!",
-      sentByUserId: "usr_alice",
+      sentByProfileId: "usr_alice",
       sentAt: now,
       createdAt: now,
     });
@@ -418,7 +418,7 @@ describe("event_comms schema", () => {
       eventId: "evt_comms",
       channel: "email",
       body: "Queued blast",
-      sentByUserId: "usr_alice",
+      sentByProfileId: "usr_alice",
       createdAt: new Date(),
     });
     const [row] = await db

@@ -24,13 +24,13 @@ const chatTypeEnum = t.Union([t.Literal("dm"), t.Literal("group"), t.Literal("ev
 async function extractClaims(
   authHeader: string | undefined,
   secret: Uint8Array,
-): Promise<{ userId: string } | null> {
+): Promise<{ profileId: string } | null> {
   if (!authHeader?.startsWith("Bearer ")) return null;
   try {
     const { payload } = await jwtVerify(authHeader.slice(7), secret);
-    const userId = typeof payload.sub === "string" ? payload.sub : null;
-    if (!userId) return null;
-    return { userId };
+    const profileId = typeof payload.sub === "string" ? payload.sub : null;
+    if (!profileId) return null;
+    return { profileId };
   } catch {
     return null;
   }
@@ -73,7 +73,7 @@ export const createChatsRoutes = (
           return { message: "Unauthorized" } as const;
         }
         const result = await Effect.runPromise(
-          listChats(claims.userId).pipe(Effect.provide(dbLayer)),
+          listChats(claims.profileId).pipe(Effect.provide(dbLayer)),
         );
         return { chats: result };
       })
@@ -89,7 +89,7 @@ export const createChatsRoutes = (
           const result = await Effect.runPromise(
             Effect.gen(function* () {
               const chat = yield* getChat(params.id);
-              yield* assertMember(params.id, claims.userId);
+              yield* assertMember(params.id, claims.profileId);
               return chat;
             }).pipe(
               Effect.catchTag("ChatNotFound", () => Effect.succeed(null)),
@@ -121,7 +121,7 @@ export const createChatsRoutes = (
             return { message: "Unauthorized" } as const;
           }
           const result = await Effect.runPromise(
-            createChat(body, claims.userId).pipe(
+            createChat(body, claims.profileId).pipe(
               Effect.catchTag("ValidationError", (e) =>
                 Effect.sync(() => {
                   set.status = 422;
@@ -140,7 +140,7 @@ export const createChatsRoutes = (
             type: chatTypeEnum,
             title: t.Optional(t.String()),
             eventId: t.Optional(t.String()),
-            memberUserIds: t.Optional(t.Array(t.String(), { maxItems: MAX_CHAT_MEMBERS })),
+            memberProfileIds: t.Optional(t.Array(t.String(), { maxItems: MAX_CHAT_MEMBERS })),
           }),
         },
       )
@@ -155,8 +155,8 @@ export const createChatsRoutes = (
           }
           const result = await Effect.runPromise(
             Effect.gen(function* () {
-              yield* assertMember(params.id, claims.userId);
-              return yield* updateChat(params.id, body, claims.userId);
+              yield* assertMember(params.id, claims.profileId);
+              return yield* updateChat(params.id, body, claims.profileId);
             }).pipe(
               Effect.catchTag("ChatNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotChatMember", () => Effect.succeed(null)),
@@ -198,7 +198,7 @@ export const createChatsRoutes = (
           }
           const result = await Effect.runPromise(
             Effect.gen(function* () {
-              yield* assertMember(params.id, claims.userId);
+              yield* assertMember(params.id, claims.profileId);
               return yield* getChatMembers(params.id);
             }).pipe(
               Effect.catchTag("ChatNotFound", () => Effect.succeed(null)),
@@ -229,7 +229,7 @@ export const createChatsRoutes = (
             return { message: "Unauthorized" } as const;
           }
           const result = await Effect.runPromise(
-            addMember(params.id, body.userId, claims.userId).pipe(
+            addMember(params.id, body.profileId, claims.profileId).pipe(
               Effect.catchTag("ChatNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotChatAdmin", () =>
                 Effect.sync(() => {
@@ -262,12 +262,12 @@ export const createChatsRoutes = (
         },
         {
           params: t.Object({ id: t.String() }),
-          body: t.Object({ userId: t.String() }),
+          body: t.Object({ profileId: t.String() }),
         },
       )
       // ── Remove member ─────────────────────────────────────────────────
       .delete(
-        "/:id/members/:userId",
+        "/:id/members/:profileId",
         async ({ params, headers, set }) => {
           const claims = await extractClaims(headers["authorization"], secretBytes);
           if (!claims) {
@@ -275,7 +275,7 @@ export const createChatsRoutes = (
             return { message: "Unauthorized" } as const;
           }
           const result = await Effect.runPromise(
-            removeMember(params.id, params.userId, claims.userId).pipe(
+            removeMember(params.id, params.profileId, claims.profileId).pipe(
               Effect.map(() => ({ ok: true }) as const),
               Effect.catchTag("ChatNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotChatAdmin", () =>
@@ -301,7 +301,7 @@ export const createChatsRoutes = (
           set.status = 204;
           return null;
         },
-        { params: t.Object({ id: t.String(), userId: t.String() }) },
+        { params: t.Object({ id: t.String(), profileId: t.String() }) },
       )
       // ── Send message ──────────────────────────────────────────────────
       .post(
@@ -318,7 +318,7 @@ export const createChatsRoutes = (
             return { message: "Unauthorized" } as const;
           }
           const result = await Effect.runPromise(
-            sendMessage(params.id, claims.userId, body).pipe(
+            sendMessage(params.id, claims.profileId, body).pipe(
               Effect.catchTag("ChatNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotChatMember", () =>
                 Effect.sync(() => {
@@ -362,7 +362,7 @@ export const createChatsRoutes = (
             return { message: "Unauthorized" } as const;
           }
           const result = await Effect.runPromise(
-            listMessages(params.id, claims.userId, {
+            listMessages(params.id, claims.profileId, {
               limit: query.limit ? Number(query.limit) : undefined,
               cursor: query.cursor,
             }).pipe(

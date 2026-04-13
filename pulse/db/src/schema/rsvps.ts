@@ -9,7 +9,7 @@ export const eventRsvps = sqliteTable(
     eventId: text("event_id")
       .notNull()
       .references(() => events.id),
-    userId: text("user_id").notNull(), // references osn-db users (cross-DB, no FK)
+    profileId: text("profile_id").notNull(), // references osn-db users (cross-DB, no FK)
     // "invited" is the pre-RSVP state for events with joinPolicy = "guest_list".
     // Organisers invite users (status = "invited") and those users can then
     // transition to "going" / "interested" / "not_going".
@@ -18,15 +18,15 @@ export const eventRsvps = sqliteTable(
       .notNull()
       .default("going"),
     // Optional: who added the "invited" row (organiser). NULL on self-RSVPs.
-    invitedByUserId: text("invited_by_user_id"),
+    invitedByProfileId: text("invited_by_profile_id"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
   },
   (t) => [
-    unique("event_rsvps_pair_idx").on(t.eventId, t.userId),
+    unique("event_rsvps_pair_idx").on(t.eventId, t.profileId),
     index("event_rsvps_event_idx").on(t.eventId),
-    index("event_rsvps_user_idx").on(t.userId),
+    index("event_rsvps_profile_idx").on(t.profileId),
   ],
 );
 

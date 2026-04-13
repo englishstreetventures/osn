@@ -1,35 +1,55 @@
 import { sqliteTable, text, integer, index, unique } from "drizzle-orm/sqlite-core";
 
+// ---------------------------------------------------------------------------
+// Accounts (authentication principal — invisible externally)
+// ---------------------------------------------------------------------------
+
+export const accounts = sqliteTable("accounts", {
+  id: text("id").primaryKey(), // "acc_" prefix
+  email: text("email").notNull().unique(),
+  maxProfiles: integer("max_profiles").notNull().default(5),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export type Account = typeof accounts.$inferSelect;
+export type NewAccount = typeof accounts.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Users / Profiles (public-facing identity — the canonical entity everywhere)
+// ---------------------------------------------------------------------------
+
 export const users = sqliteTable(
   "users",
   {
     id: text("id").primaryKey(), // "usr_" prefix
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id),
     handle: text("handle").notNull().unique(), // @handle — immutable social identity
-    email: text("email").notNull().unique(),
     displayName: text("display_name"),
     avatarUrl: text("avatar_url"),
+    isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
-  // users_email_idx kept for explicit query planning; handle UNIQUE constraint
-  // already provides an implicit index so no separate handle index is needed.
-  (t) => [index("users_email_idx").on(t.email)],
+  (t) => [index("users_account_idx").on(t.accountId)],
 );
 
 export const passkeys = sqliteTable(
   "passkeys",
   {
     id: text("id").primaryKey(), // "pk_" prefix
-    userId: text("user_id")
+    accountId: text("account_id")
       .notNull()
-      .references(() => users.id),
+      .references(() => accounts.id),
     credentialId: text("credential_id").notNull().unique(), // Base64URL from WebAuthn
     publicKey: text("public_key").notNull(), // base64 of Uint8Array
     counter: integer("counter").notNull().default(0),
     transports: text("transports"), // JSON of AuthenticatorTransport[]
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
-  (t) => [index("passkeys_user_id_idx").on(t.userId)],
+  (t) => [index("passkeys_account_id_idx").on(t.accountId)],
 );
 
 export type User = typeof users.$inferSelect;
@@ -69,7 +89,7 @@ export const closeFriends = sqliteTable(
   "close_friends",
   {
     id: text("id").primaryKey(), // "clf_" prefix
-    userId: text("user_id")
+    profileId: text("profile_id")
       .notNull()
       .references(() => users.id),
     friendId: text("friend_id")
@@ -78,8 +98,8 @@ export const closeFriends = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [
-    unique("close_friends_pair_idx").on(t.userId, t.friendId),
-    index("close_friends_user_idx").on(t.userId),
+    unique("close_friends_pair_idx").on(t.profileId, t.friendId),
+    index("close_friends_profile_idx").on(t.profileId),
     index("close_friends_friend_idx").on(t.friendId),
   ],
 );
@@ -153,16 +173,16 @@ export const organisationMembers = sqliteTable(
     organisationId: text("organisation_id")
       .notNull()
       .references(() => organisations.id),
-    userId: text("user_id")
+    profileId: text("profile_id")
       .notNull()
       .references(() => users.id),
     role: text("role", { enum: ["admin", "member"] }).notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [
-    unique("org_members_pair_idx").on(t.organisationId, t.userId),
+    unique("org_members_pair_idx").on(t.organisationId, t.profileId),
     index("org_members_org_idx").on(t.organisationId),
-    index("org_members_user_idx").on(t.userId),
+    index("org_members_profile_idx").on(t.profileId),
   ],
 );
 

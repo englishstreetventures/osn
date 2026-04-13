@@ -35,7 +35,7 @@ export const canViewEvent = (
   Effect.gen(function* () {
     if (event.visibility === "public") return true;
     if (viewerId == null) return false;
-    if (viewerId === event.createdByUserId) return true;
+    if (viewerId === event.createdByProfileId) return true;
 
     // The viewer is authenticated but not the organiser. They're allowed
     // to see the event iff they have an RSVP row (any status — including
@@ -46,7 +46,7 @@ export const canViewEvent = (
         db
           .select({ id: eventRsvps.id })
           .from(eventRsvps)
-          .where(and(eq(eventRsvps.eventId, event.id), eq(eventRsvps.userId, viewerId)))
+          .where(and(eq(eventRsvps.eventId, event.id), eq(eventRsvps.profileId, viewerId)))
           .limit(1),
       catch: (cause) => new DatabaseError({ cause }),
     });

@@ -47,7 +47,7 @@ it.effect("upsertRsvp creates new row with rsvp_ prefix", () =>
     const rsvp = yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
     expect(rsvp.id).toMatch(/^rsvp_/);
     expect(rsvp.status).toBe("going");
-    expect(rsvp.userId).toBe("usr_bob");
+    expect(rsvp.profileId).toBe("usr_bob");
   }).pipe(Effect.provide(createTestLayer())),
 );
 
@@ -100,7 +100,7 @@ it.effect("upsertRsvp allows organiser to RSVP to own guest_list event without p
       title: "Guest list only",
       startTime: "2030-06-01T10:00:00.000Z",
       joinPolicy: "guest_list",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     });
     const rsvp = yield* upsertRsvp(event.id, "usr_alice", { status: "going" });
     expect(rsvp.status).toBe("going");
@@ -128,10 +128,10 @@ it.effect("inviteGuests adds invited rows for non-existing users", () =>
       title: "Guest list only",
       startTime: "2030-06-01T10:00:00.000Z",
       joinPolicy: "guest_list",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     });
     const result = yield* inviteGuests(event.id, "usr_alice", {
-      userIds: ["usr_bob", "usr_carol"],
+      profileIds: ["usr_bob", "usr_carol"],
     });
     expect(result.invited).toBe(2);
   }).pipe(Effect.provide(createTestLayer())),
@@ -142,11 +142,11 @@ it.effect("inviteGuests skips users with existing RSVPs", () =>
     const event = yield* seedEvent({
       title: "Party",
       startTime: "2030-06-01T10:00:00.000Z",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     });
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
     const result = yield* inviteGuests(event.id, "usr_alice", {
-      userIds: ["usr_bob", "usr_carol"],
+      profileIds: ["usr_bob", "usr_carol"],
     });
     // Only carol gets invited — bob is already going.
     expect(result.invited).toBe(1);
@@ -158,9 +158,11 @@ it.effect("inviteGuests rejects non-organiser caller", () =>
     const event = yield* seedEvent({
       title: "Party",
       startTime: "2030-06-01T10:00:00.000Z",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     });
-    const err = yield* Effect.flip(inviteGuests(event.id, "usr_bob", { userIds: ["usr_carol"] }));
+    const err = yield* Effect.flip(
+      inviteGuests(event.id, "usr_bob", { profileIds: ["usr_carol"] }),
+    );
     expect(err._tag).toBe("NotEventOwner");
   }).pipe(Effect.provide(createTestLayer())),
 );
@@ -170,11 +172,11 @@ it.effect("inviteGuests rejects batches over the platform MAX_EVENT_GUESTS cap",
     const event = yield* seedEvent({
       title: "Festival",
       startTime: "2030-06-01T10:00:00.000Z",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     });
     // 1001 ids — one over the cap. ValidationError, not DatabaseError.
-    const userIds = Array.from({ length: 1001 }, (_, i) => `usr_${i}`);
-    const err = yield* Effect.flip(inviteGuests(event.id, "usr_alice", { userIds }));
+    const profileIds = Array.from({ length: 1001 }, (_, i) => `usr_${i}`);
+    const err = yield* Effect.flip(inviteGuests(event.id, "usr_alice", { profileIds }));
     expect(err._tag).toBe("ValidationError");
   }).pipe(Effect.provide(createTestLayer())),
 );
@@ -185,9 +187,9 @@ it.effect("invited user can then RSVP 'going' on guest_list event", () =>
       title: "Guest list only",
       startTime: "2030-06-01T10:00:00.000Z",
       joinPolicy: "guest_list",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     });
-    yield* inviteGuests(event.id, "usr_alice", { userIds: ["usr_bob"] });
+    yield* inviteGuests(event.id, "usr_alice", { profileIds: ["usr_bob"] });
     const rsvp = yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
     expect(rsvp.status).toBe("going");
   }).pipe(Effect.provide(createTestLayer())),
@@ -226,7 +228,7 @@ it.effect("listRsvps returns all rows for public guest list event", () =>
       title: "Public",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "public",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     }).pipe(Effect.provide(pulse));
     // Seed some RSVPs (needs pulse layer only)
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
@@ -248,7 +250,7 @@ it.effect(
         title: "Connections",
         startTime: "2030-06-01T10:00:00.000Z",
         guestListVisibility: "connections",
-        createdByUserId: "usr_alice",
+        createdByProfileId: "usr_alice",
       }).pipe(Effect.provide(pulse));
       yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
       // Dan is NOT connected to Alice
@@ -271,14 +273,14 @@ it.effect("listRsvps returns rows for connections-only event when viewer IS a co
       title: "Connections",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "connections",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     }).pipe(Effect.provide(pulse));
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
     const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
       Effect.provide(layer),
     );
     expect(rows.length).toBe(1);
-    expect(rows[0]!.userId).toBe("usr_bob");
+    expect(rows[0]!.profileId).toBe("usr_bob");
   }),
 );
 
@@ -290,7 +292,7 @@ it.effect("listRsvps returns empty for private guest list when viewer is not org
       title: "Hidden",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "private",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     }).pipe(Effect.provide(pulse));
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
     const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
@@ -308,7 +310,7 @@ it.effect("listRsvps returns all rows for private guest list when viewer IS the 
       title: "Hidden",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "private",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     }).pipe(Effect.provide(pulse));
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
     yield* upsertRsvp(event.id, "usr_carol", { status: "going" }).pipe(Effect.provide(pulse));
@@ -330,7 +332,7 @@ it.effect("listRsvps hides attendee whose own setting is 'no_one'", () =>
       title: "Connections",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "connections",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     }).pipe(Effect.provide(pulse));
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
     yield* updateSettings("usr_bob", { attendanceVisibility: "no_one" }).pipe(
@@ -353,7 +355,7 @@ it.effect(
         title: "Public",
         startTime: "2030-06-01T10:00:00.000Z",
         guestListVisibility: "public",
-        createdByUserId: "usr_alice",
+        createdByProfileId: "usr_alice",
       }).pipe(Effect.provide(pulse));
       yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
       yield* updateSettings("usr_bob", { attendanceVisibility: "no_one" }).pipe(
@@ -377,7 +379,7 @@ it.effect("viewer always sees their own RSVP", () =>
       title: "Connections",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "connections",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     }).pipe(Effect.provide(pulse));
     yield* upsertRsvp(event.id, "usr_dan", { status: "going" }).pipe(Effect.provide(pulse));
     yield* updateSettings("usr_dan", { attendanceVisibility: "no_one" }).pipe(
@@ -388,7 +390,7 @@ it.effect("viewer always sees their own RSVP", () =>
     );
     // Dan sees himself even though his setting is no_one.
     expect(rows.length).toBe(1);
-    expect(rows[0]!.userId).toBe("usr_dan");
+    expect(rows[0]!.profileId).toBe("usr_dan");
   }),
 );
 
@@ -406,7 +408,7 @@ it.effect("isCloseFriend flag is stamped when the attendee has marked the viewer
       title: "Connections",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "connections",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     }).pipe(Effect.provide(pulse));
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
     const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
@@ -433,7 +435,7 @@ it.effect("isCloseFriend flag is NOT stamped when only the viewer marked the att
       title: "Connections",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "connections",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     }).pipe(Effect.provide(pulse));
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
     const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
@@ -464,7 +466,7 @@ it.effect("listRsvps surfaces close-friend rows first, newest-within-bucket afte
       title: "Connections",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "connections",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     }).pipe(Effect.provide(pulse));
     yield* upsertRsvp(event.id, "usr_eve", { status: "going" }).pipe(Effect.provide(pulse));
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
@@ -474,7 +476,7 @@ it.effect("listRsvps surfaces close-friend rows first, newest-within-bucket afte
     );
     expect(rows.length).toBe(3);
     // Eve first (close friend), then the non-CF rows in createdAt DESC order.
-    expect(rows[0]!.userId).toBe("usr_eve");
+    expect(rows[0]!.profileId).toBe("usr_eve");
     expect(rows[0]!.isCloseFriend).toBe(true);
     expect(rows[1]!.isCloseFriend).toBe(false);
     expect(rows[2]!.isCloseFriend).toBe(false);
@@ -494,7 +496,7 @@ it.effect("listRsvps joins user display metadata onto rows", () =>
       title: "Public",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "public",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     }).pipe(Effect.provide(pulse));
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
     const rows = yield* listRsvps(event.id, "usr_alice", { status: "going" }).pipe(
@@ -522,7 +524,7 @@ it.effect("latestRsvps defaults to 5 results when more exist", () =>
       title: "Popular",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "public",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     }).pipe(Effect.provide(pulse));
     for (const id of ["usr_b1", "usr_b2", "usr_b3", "usr_b4", "usr_b5", "usr_b6", "usr_b7"]) {
       yield* upsertRsvp(event.id, id, { status: "going" }).pipe(Effect.provide(pulse));
@@ -545,7 +547,7 @@ it.effect("latestRsvps respects an explicit limit", () =>
       title: "Small",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "public",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
     }).pipe(Effect.provide(pulse));
     for (const id of ["usr_b1", "usr_b2", "usr_b3"]) {
       yield* upsertRsvp(event.id, id, { status: "going" }).pipe(Effect.provide(pulse));

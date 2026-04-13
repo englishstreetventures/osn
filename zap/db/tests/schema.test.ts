@@ -14,7 +14,7 @@ function createTestDb() {
       type TEXT NOT NULL,
       title TEXT,
       event_id TEXT,
-      created_by_user_id TEXT NOT NULL,
+      created_by_profile_id TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -23,17 +23,17 @@ function createTestDb() {
     CREATE TABLE chat_members (
       id TEXT PRIMARY KEY,
       chat_id TEXT NOT NULL REFERENCES chats(id),
-      user_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'member',
       joined_at INTEGER NOT NULL,
-      UNIQUE (chat_id, user_id)
+      UNIQUE (chat_id, profile_id)
     )
   `);
   sqlite.run(`
     CREATE TABLE messages (
       id TEXT PRIMARY KEY,
       chat_id TEXT NOT NULL REFERENCES chats(id),
-      sender_user_id TEXT NOT NULL,
+      sender_profile_id TEXT NOT NULL,
       ciphertext TEXT NOT NULL,
       nonce TEXT NOT NULL,
       created_at INTEGER NOT NULL,
@@ -55,7 +55,7 @@ describe("chats schema", () => {
       id: "chat_test1",
       type: "group",
       title: "Test Group",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
@@ -68,7 +68,7 @@ describe("chats schema", () => {
     expect(row.type).toBe("group");
     expect(row.title).toBe("Test Group");
     expect(row.eventId).toBeNull();
-    expect(row.createdByUserId).toBe("usr_alice");
+    expect(row.createdByProfileId).toBe("usr_alice");
     expect(row.createdAt).toBeInstanceOf(Date);
   });
 
@@ -80,7 +80,7 @@ describe("chats schema", () => {
       type: "event",
       title: "Event Chat",
       eventId: "evt_abc123",
-      createdByUserId: "usr_bob",
+      createdByProfileId: "usr_bob",
       createdAt: now,
       updatedAt: now,
     });
@@ -96,7 +96,7 @@ describe("chats schema", () => {
     await db.insert(schema.chats).values({
       id: "chat_dm1",
       type: "dm",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
@@ -113,7 +113,7 @@ describe("chats schema", () => {
     await db.insert(schema.chats).values({
       id: "chat_ts",
       type: "group",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
       createdAt: ts,
       updatedAt: ts,
     });
@@ -134,7 +134,7 @@ describe("chat_members schema", () => {
       id: "chat_mem_test",
       type: "group",
       title: "Members Test",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
@@ -147,7 +147,7 @@ describe("chat_members schema", () => {
     await db.insert(schema.chatMembers).values({
       id: "cmem_1",
       chatId: "chat_mem_test",
-      userId: "usr_alice",
+      profileId: "usr_alice",
       role: "admin",
       joinedAt: now,
     });
@@ -159,7 +159,7 @@ describe("chat_members schema", () => {
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
     expect(row.chatId).toBe("chat_mem_test");
-    expect(row.userId).toBe("usr_alice");
+    expect(row.profileId).toBe("usr_alice");
     expect(row.role).toBe("admin");
     expect(row.joinedAt).toBeInstanceOf(Date);
   });
@@ -170,7 +170,7 @@ describe("chat_members schema", () => {
     await db.insert(schema.chatMembers).values({
       id: "cmem_default",
       chatId: "chat_mem_test",
-      userId: "usr_bob",
+      profileId: "usr_bob",
       joinedAt: new Date(),
     });
     const [row] = await db
@@ -180,21 +180,21 @@ describe("chat_members schema", () => {
     expect(row!.role).toBe("member");
   });
 
-  it("enforces unique (chatId, userId) constraint", async () => {
+  it("enforces unique (chatId, profileId) constraint", async () => {
     const db = createTestDb();
     await seedChat(db);
     const now = new Date();
     await db.insert(schema.chatMembers).values({
       id: "cmem_dup1",
       chatId: "chat_mem_test",
-      userId: "usr_alice",
+      profileId: "usr_alice",
       joinedAt: now,
     });
     await expect(
       db.insert(schema.chatMembers).values({
         id: "cmem_dup2",
         chatId: "chat_mem_test",
-        userId: "usr_alice",
+        profileId: "usr_alice",
         joinedAt: now,
       }),
     ).rejects.toThrow();
@@ -207,21 +207,21 @@ describe("chat_members schema", () => {
       {
         id: "chat_a",
         type: "group",
-        createdByUserId: "usr_x",
+        createdByProfileId: "usr_x",
         createdAt: now,
         updatedAt: now,
       },
       {
         id: "chat_b",
         type: "group",
-        createdByUserId: "usr_x",
+        createdByProfileId: "usr_x",
         createdAt: now,
         updatedAt: now,
       },
     ]);
     await db.insert(schema.chatMembers).values([
-      { id: "cmem_a", chatId: "chat_a", userId: "usr_alice", joinedAt: now },
-      { id: "cmem_b", chatId: "chat_b", userId: "usr_alice", joinedAt: now },
+      { id: "cmem_a", chatId: "chat_a", profileId: "usr_alice", joinedAt: now },
+      { id: "cmem_b", chatId: "chat_b", profileId: "usr_alice", joinedAt: now },
     ]);
     const rows = await db.select().from(schema.chatMembers);
     expect(rows).toHaveLength(2);
@@ -239,7 +239,7 @@ describe("messages schema", () => {
       id: "chat_msg_test",
       type: "group",
       title: "Message Test",
-      createdByUserId: "usr_alice",
+      createdByProfileId: "usr_alice",
       createdAt: now,
       updatedAt: now,
     });
@@ -252,7 +252,7 @@ describe("messages schema", () => {
     await db.insert(schema.messages).values({
       id: "msg_1",
       chatId: "chat_msg_test",
-      senderUserId: "usr_alice",
+      senderProfileId: "usr_alice",
       ciphertext: "dGVzdCBtZXNzYWdl",
       nonce: "YWJjZGVmMTIzNDU2",
       createdAt: now,
@@ -262,7 +262,7 @@ describe("messages schema", () => {
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
     expect(row.chatId).toBe("chat_msg_test");
-    expect(row.senderUserId).toBe("usr_alice");
+    expect(row.senderProfileId).toBe("usr_alice");
     expect(row.ciphertext).toBe("dGVzdCBtZXNzYWdl");
     expect(row.nonce).toBe("YWJjZGVmMTIzNDU2");
     expect(row.expiresAt).toBeNull();
@@ -277,7 +277,7 @@ describe("messages schema", () => {
     await db.insert(schema.messages).values({
       id: "msg_exp",
       chatId: "chat_msg_test",
-      senderUserId: "usr_alice",
+      senderProfileId: "usr_alice",
       ciphertext: "ZXhwaXJpbmc=",
       nonce: "bm9uY2UxMjM=",
       createdAt: now,
@@ -295,7 +295,7 @@ describe("messages schema", () => {
     await db.insert(schema.messages).values({
       id: "msg_ts",
       chatId: "chat_msg_test",
-      senderUserId: "usr_alice",
+      senderProfileId: "usr_alice",
       ciphertext: "dGVzdA==",
       nonce: "bm9uY2U=",
       createdAt: ts,

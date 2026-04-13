@@ -32,12 +32,12 @@ describe("organisation routes", () => {
   async function registerAndGetToken(
     email: string,
     handle: string,
-  ): Promise<{ userId: string; token: string }> {
+  ): Promise<{ profileId: string; token: string }> {
     const user = await runWithLayer(auth.registerUser(email, handle));
     const tokens = await runWithLayer(
       auth.issueTokens(user.id, user.email, user.handle, user.displayName),
     );
-    return { userId: user.id, token: tokens.accessToken };
+    return { profileId: user.id, token: tokens.accessToken };
   }
 
   // -------------------------------------------------------------------------

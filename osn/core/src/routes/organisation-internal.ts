@@ -52,7 +52,7 @@ export function createInternalOrganisationRoutes(dbLayer: Layer.Layer<Db> = DbLi
         if (!caller) return { error: "Unauthorized" };
 
         try {
-          const list = await run(org.listUserOrganisations(query.userId));
+          const list = await run(org.listUserOrganisations(query.profileId));
           return { organisationIds: list.map((o) => o.id) };
         } catch (e) {
           set.status = 500;
@@ -61,7 +61,7 @@ export function createInternalOrganisationRoutes(dbLayer: Layer.Layer<Db> = DbLi
       },
       {
         query: t.Object({
-          userId: t.String({ minLength: 1, maxLength: 50 }),
+          profileId: t.String({ minLength: 1, maxLength: 50 }),
         }),
       },
     )
@@ -78,7 +78,7 @@ export function createInternalOrganisationRoutes(dbLayer: Layer.Layer<Db> = DbLi
         if (!caller) return { error: "Unauthorized" };
 
         try {
-          const role = await run(org.getMemberRole(query.orgId, query.userId));
+          const role = await run(org.getMemberRole(query.orgId, query.profileId));
           return { role };
         } catch (e) {
           set.status = 500;
@@ -88,7 +88,7 @@ export function createInternalOrganisationRoutes(dbLayer: Layer.Layer<Db> = DbLi
       {
         query: t.Object({
           orgId: t.String({ minLength: 1, maxLength: 50 }),
-          userId: t.String({ minLength: 1, maxLength: 50 }),
+          profileId: t.String({ minLength: 1, maxLength: 50 }),
         }),
       },
     );

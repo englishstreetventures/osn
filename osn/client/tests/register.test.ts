@@ -97,7 +97,7 @@ describe("createRegistrationClient", () => {
       const { calls } = stubFetch(() =>
         jsonResponse(
           {
-            userId: "usr_abc",
+            profileId: "usr_abc",
             handle: "alice",
             email: "alice@example.com",
             session: {
@@ -116,7 +116,7 @@ describe("createRegistrationClient", () => {
         email: "alice@example.com",
         code: "123456",
       });
-      expect(result.userId).toBe("usr_abc");
+      expect(result.profileId).toBe("usr_abc");
       expect(result.handle).toBe("alice");
       expect(result.email).toBe("alice@example.com");
       expect(result.enrollmentToken).toBe("enroll_xyz");
@@ -148,21 +148,21 @@ describe("createRegistrationClient", () => {
       const options = { challenge: "ch_123", rp: { name: "OSN" } };
       const { calls } = stubFetch(() => jsonResponse(options));
       const result = await client.passkeyRegisterBegin({
-        userId: "usr_abc",
+        profileId: "usr_abc",
         enrollmentToken: "enroll_xyz",
       });
       expect(result).toEqual(options);
       expect(calls[0].url).toBe("https://osn.example.com/passkey/register/begin");
       const headers = new Headers(calls[0].init?.headers);
       expect(headers.get("Authorization")).toBe("Bearer enroll_xyz");
-      expect(JSON.parse(calls[0].init?.body as string)).toEqual({ userId: "usr_abc" });
+      expect(JSON.parse(calls[0].init?.body as string)).toEqual({ profileId: "usr_abc" });
     });
 
-    it("passkeyRegisterComplete sends Authorization header and userId+attestation body", async () => {
+    it("passkeyRegisterComplete sends Authorization header and profileId+attestation body", async () => {
       const { calls } = stubFetch(() => jsonResponse({ passkeyId: "pk_xyz" }));
       const attestation = { id: "cred_id", rawId: "raw" };
       const result = await client.passkeyRegisterComplete({
-        userId: "usr_abc",
+        profileId: "usr_abc",
         enrollmentToken: "enroll_xyz",
         attestation,
       });
@@ -171,7 +171,7 @@ describe("createRegistrationClient", () => {
       const headers = new Headers(calls[0].init?.headers);
       expect(headers.get("Authorization")).toBe("Bearer enroll_xyz");
       expect(JSON.parse(calls[0].init?.body as string)).toEqual({
-        userId: "usr_abc",
+        profileId: "usr_abc",
         attestation,
       });
     });
@@ -179,7 +179,7 @@ describe("createRegistrationClient", () => {
     it("propagates 401 from the server as a RegistrationError", async () => {
       stubFetch(() => jsonResponse({ error: "unauthorized" }, { status: 401 }));
       await expect(
-        client.passkeyRegisterBegin({ userId: "usr_abc", enrollmentToken: "bad" }),
+        client.passkeyRegisterBegin({ profileId: "usr_abc", enrollmentToken: "bad" }),
       ).rejects.toThrow("unauthorized");
     });
   });

@@ -55,7 +55,7 @@ const rsvpFilterStatusEnum = t.Union([
  * by `listRsvps` (per-row attendee privacy + coarse guest-list rules);
  * this function only shapes the response.
  *
- * `invitedByUserId` is gated to the organiser viewer — non-organiser
+ * `invitedByProfileId` is gated to the organiser viewer — non-organiser
  * viewers don't need (or want) to know which co-host invited each
  * attendee. The DB column stays populated; only the wire format hides
  * it from non-organisers.
@@ -63,9 +63,9 @@ const rsvpFilterStatusEnum = t.Union([
 const serializeRsvp = (row: RsvpWithUser, isOrganiser: boolean) => ({
   id: row.id,
   eventId: row.eventId,
-  userId: row.userId,
+  profileId: row.profileId,
   status: row.status,
-  invitedByUserId: isOrganiser ? row.invitedByUserId : null,
+  invitedByProfileId: isOrganiser ? row.invitedByProfileId : null,
   isCloseFriend: row.isCloseFriend,
   createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
   user: row.user
@@ -92,7 +92,7 @@ async function extractClaims(
   authHeader: string | undefined,
   secret: Uint8Array,
 ): Promise<{
-  userId: string;
+  profileId: string;
   email: string | null;
   handle: string | null;
   displayName: string | null;
@@ -100,12 +100,12 @@ async function extractClaims(
   if (!authHeader?.startsWith("Bearer ")) return null;
   try {
     const { payload } = await jwtVerify(authHeader.slice(7), secret);
-    const userId = typeof payload.sub === "string" ? payload.sub : null;
-    if (!userId) return null;
+    const profileId = typeof payload.sub === "string" ? payload.sub : null;
+    if (!profileId) return null;
     const email = typeof payload.email === "string" ? payload.email : null;
     const handle = typeof payload.handle === "string" ? payload.handle : null;
     const displayName = typeof payload.displayName === "string" ? payload.displayName : null;
-    return { userId, email, handle, displayName };
+    return { profileId, email, handle, displayName };
   } catch {
     return null;
   }
@@ -129,7 +129,7 @@ export const createEventsRoutes = (
         async ({ query, headers }) => {
           const claims = await extractClaims(headers["authorization"], secretBytes);
           const result = await Effect.runPromise(
-            listEvents({ ...query, viewerId: claims?.userId ?? null }).pipe(
+            listEvents({ ...query, viewerId: claims?.profileId ?? null }).pipe(
               Effect.provide(dbLayer),
             ),
           );
@@ -156,12 +156,12 @@ export const createEventsRoutes = (
           // existence.
           const claims = await extractClaims(headers["authorization"], secretBytes);
           const result = await Effect.runPromise(
-            loadVisibleEvent(params.id, claims?.userId ?? null).pipe(Effect.provide(dbLayer)),
+            loadVisibleEvent(params.id, claims?.profileId ?? null).pipe(Effect.provide(dbLayer)),
           );
           if (result === null) {
             metricEventAccessDenied(
               "get",
-              claims?.userId == null ? "private_anonymous" : "private_no_rsvp",
+              claims?.profileId == null ? "private_anonymous" : "private_no_rsvp",
             );
             set.status = 404;
             return { message: "Event not found" };
@@ -183,7 +183,7 @@ export const createEventsRoutes = (
             return { message: "Unauthorized" } as const;
           }
           const creator = {
-            createdByUserId: claims.userId,
+            createdByProfileId: claims.profileId,
             createdByName:
               claims.displayName ??
               (claims.handle ? `@${claims.handle}` : null) ??
@@ -234,9 +234,9 @@ export const createEventsRoutes = (
             set.status = 401;
             return { message: "Unauthorized" } as const;
           }
-          const userId = claims.userId;
+          const profileId = claims.profileId;
           const result = await Effect.runPromise(
-            updateEvent(params.id, body, userId).pipe(
+            updateEvent(params.id, body, profileId).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotEventOwner", () =>
                 Effect.sync(() => {
@@ -291,9 +291,9 @@ export const createEventsRoutes = (
             set.status = 401;
             return { message: "Unauthorized" } as const;
           }
-          const userId = claims.userId;
+          const profileId = claims.profileId;
           const result = await Effect.runPromise(
-            deleteEvent(params.id, userId).pipe(
+            deleteEvent(params.id, profileId).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotEventOwner", () =>
                 Effect.sync(() => {
@@ -321,7 +321,7 @@ export const createEventsRoutes = (
         "/:id/rsvps",
         async ({ params, query, headers, set }) => {
           const claims = await extractClaims(headers["authorization"], secretBytes);
-          const viewerId = claims?.userId ?? null;
+          const viewerId = claims?.profileId ?? null;
           // Visibility gate first — private events are 404 to non-viewers.
           const event = await Effect.runPromise(
             loadVisibleEvent(params.id, viewerId).pipe(Effect.provide(dbLayer)),
@@ -334,7 +334,7 @@ export const createEventsRoutes = (
             set.status = 404;
             return { message: "Event not found" } as const;
           }
-          const isOrganiser = viewerId != null && viewerId === event.createdByUserId;
+          const isOrganiser = viewerId != null && viewerId === event.createdByProfileId;
           const result = await Effect.runPromise(
             listRsvps(params.id, viewerId, {
               status: query.status,
@@ -381,12 +381,12 @@ export const createEventsRoutes = (
           // S-H5: gate counts by visibility — leaking the existence /
           // activity of a private event is its own information disclosure.
           const event = await Effect.runPromise(
-            loadVisibleEvent(params.id, claims?.userId ?? null).pipe(Effect.provide(dbLayer)),
+            loadVisibleEvent(params.id, claims?.profileId ?? null).pipe(Effect.provide(dbLayer)),
           );
           if (event === null) {
             metricEventAccessDenied(
               "rsvps_counts",
-              claims?.userId == null ? "private_anonymous" : "private_no_rsvp",
+              claims?.profileId == null ? "private_anonymous" : "private_no_rsvp",
             );
             set.status = 404;
             return { message: "Event not found" } as const;
@@ -409,7 +409,7 @@ export const createEventsRoutes = (
         "/:id/rsvps/latest",
         async ({ params, query, headers, set }) => {
           const claims = await extractClaims(headers["authorization"], secretBytes);
-          const viewerId = claims?.userId ?? null;
+          const viewerId = claims?.profileId ?? null;
           const event = await Effect.runPromise(
             loadVisibleEvent(params.id, viewerId).pipe(Effect.provide(dbLayer)),
           );
@@ -417,7 +417,7 @@ export const createEventsRoutes = (
             set.status = 404;
             return { message: "Event not found" } as const;
           }
-          const isOrganiser = viewerId != null && viewerId === event.createdByUserId;
+          const isOrganiser = viewerId != null && viewerId === event.createdByProfileId;
           const limit = query.limit ? Math.min(Math.max(1, Number(query.limit)), 20) : 5;
           const result = await Effect.runPromise(
             latestRsvps(params.id, viewerId, limit).pipe(
@@ -461,7 +461,7 @@ export const createEventsRoutes = (
             return { message: "Unauthorized" } as const;
           }
           const result = await Effect.runPromise(
-            upsertRsvp(params.id, claims.userId, body).pipe(
+            upsertRsvp(params.id, claims.profileId, body).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotInvited", () =>
                 Effect.sync(() => {
@@ -499,7 +499,7 @@ export const createEventsRoutes = (
             return { message: "Unauthorized" } as const;
           }
           const result = await Effect.runPromise(
-            inviteGuests(params.id, claims.userId, body).pipe(
+            inviteGuests(params.id, claims.profileId, body).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotEventOwner", () =>
                 Effect.sync(() => {
@@ -525,7 +525,7 @@ export const createEventsRoutes = (
         {
           params: t.Object({ id: t.String() }),
           body: t.Object({
-            userIds: t.Array(t.String(), { minItems: 1, maxItems: MAX_EVENT_GUESTS }),
+            profileIds: t.Array(t.String(), { minItems: 1, maxItems: MAX_EVENT_GUESTS }),
           }),
         },
       )
@@ -538,12 +538,12 @@ export const createEventsRoutes = (
           // private events to anyone with the URL.
           const claims = await extractClaims(headers["authorization"], secretBytes);
           const event = await Effect.runPromise(
-            loadVisibleEvent(params.id, claims?.userId ?? null).pipe(Effect.provide(dbLayer)),
+            loadVisibleEvent(params.id, claims?.profileId ?? null).pipe(Effect.provide(dbLayer)),
           );
           if (event === null) {
             metricEventAccessDenied(
               "ics",
-              claims?.userId == null ? "private_anonymous" : "private_no_rsvp",
+              claims?.profileId == null ? "private_anonymous" : "private_no_rsvp",
             );
             set.status = 404;
             return { message: "Event not found" } as const;
@@ -565,12 +565,12 @@ export const createEventsRoutes = (
           // visible to viewers who can't see the event.
           const claims = await extractClaims(headers["authorization"], secretBytes);
           const event = await Effect.runPromise(
-            loadVisibleEvent(params.id, claims?.userId ?? null).pipe(Effect.provide(dbLayer)),
+            loadVisibleEvent(params.id, claims?.profileId ?? null).pipe(Effect.provide(dbLayer)),
           );
           if (event === null) {
             metricEventAccessDenied(
               "comms",
-              claims?.userId == null ? "private_anonymous" : "private_no_rsvp",
+              claims?.profileId == null ? "private_anonymous" : "private_no_rsvp",
             );
             set.status = 404;
             return { message: "Event not found" } as const;
@@ -587,7 +587,7 @@ export const createEventsRoutes = (
               id: b.id,
               channel: b.channel,
               body: b.body,
-              sentByUserId: b.sentByUserId,
+              sentByProfileId: b.sentByProfileId,
               sentAt: b.sentAt instanceof Date ? b.sentAt.toISOString() : b.sentAt,
               createdAt: b.createdAt instanceof Date ? b.createdAt.toISOString() : b.createdAt,
             })),
@@ -604,7 +604,7 @@ export const createEventsRoutes = (
             return { message: "Unauthorized" } as const;
           }
           const result = await Effect.runPromise(
-            sendBlast(params.id, claims.userId, body).pipe(
+            sendBlast(params.id, claims.profileId, body).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotEventOwner", () =>
                 Effect.sync(() => {
@@ -669,7 +669,7 @@ export const createSettingsRoutes = (
         return { message: "Unauthorized" } as const;
       }
       const result = await Effect.runPromise(
-        updateSettings(claims.userId, body).pipe(
+        updateSettings(claims.profileId, body).pipe(
           Effect.catchTag("ValidationError", (e) =>
             Effect.sync(() => {
               set.status = 422;
@@ -686,7 +686,7 @@ export const createSettingsRoutes = (
       metricSettingsUpdated("attendance_visibility", "ok");
       return {
         settings: {
-          userId: result.userId,
+          profileId: result.profileId,
           attendanceVisibility: result.attendanceVisibility,
         },
       };

@@ -248,7 +248,7 @@ describe("Register component", () => {
       stub.checkHandle.mockResolvedValue({ available: true });
       stub.beginRegistration.mockResolvedValue({ sent: true });
       stub.completeRegistration.mockResolvedValue({
-        userId: "usr_abc",
+        profileId: "usr_abc",
         handle: "alice",
         email: "alice@example.com",
         session: sampleSession,
@@ -291,12 +291,12 @@ describe("Register component", () => {
       });
       // Both passkey calls must carry the enrollment token.
       expect(stub.passkeyRegisterBegin).toHaveBeenCalledWith({
-        userId: "usr_abc",
+        profileId: "usr_abc",
         enrollmentToken: "enroll_xyz",
       });
       expect(hoisted.startRegistration).toHaveBeenCalledWith({ optionsJSON: { challenge: "ch" } });
       expect(stub.passkeyRegisterComplete).toHaveBeenCalledWith({
-        userId: "usr_abc",
+        profileId: "usr_abc",
         enrollmentToken: "enroll_xyz",
         attestation: { id: "cred", rawId: "raw" },
       });
@@ -322,7 +322,7 @@ describe("Register component", () => {
       stub.checkHandle.mockResolvedValue({ available: true });
       stub.beginRegistration.mockResolvedValue({ sent: true });
       stub.completeRegistration.mockResolvedValue({
-        userId: "usr_abc",
+        profileId: "usr_abc",
         handle: "alice",
         email: "alice@example.com",
         session: sampleSession,

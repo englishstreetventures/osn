@@ -134,7 +134,7 @@ describe("beginRegistration + completeRegistration", () => {
         expect(captured.code).toMatch(/^\d{6}$/);
 
         const result = yield* svc.completeRegistration("verify@example.com", captured.code!);
-        expect(result.userId).toMatch(/^usr_/);
+        expect(result.profileId).toMatch(/^usr_/);
         expect(result.handle).toBe("verifyme");
         expect(result.email).toBe("verify@example.com");
         expect(result.displayName).toBe("Verify Me");
@@ -161,7 +161,7 @@ describe("beginRegistration + completeRegistration", () => {
 
       // Lookups by either casing find the same row.
       const a = yield* svc.findUserByEmail("mixedcase@example.com");
-      expect(a?.id).toBe(result.userId);
+      expect(a?.id).toBe(result.profileId);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -238,7 +238,7 @@ describe("beginRegistration + completeRegistration", () => {
       expect(captured.code).toBeUndefined();
       // The original code must still verify.
       const result = yield* svc.completeRegistration("dup@example.com", firstCode!);
-      expect(result.userId).toMatch(/^usr_/);
+      expect(result.profileId).toMatch(/^usr_/);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -312,20 +312,20 @@ describe("beginRegistration + completeRegistration", () => {
 });
 
 describe("issueEnrollmentToken + verifyEnrollmentToken", () => {
-  it.effect("issues a token whose sub matches the userId", () =>
+  it.effect("issues a token whose sub matches the accountId", () =>
     Effect.gen(function* () {
-      const token = yield* auth.issueEnrollmentToken("usr_abc");
+      const token = yield* auth.issueEnrollmentToken("acc_abc");
       expect(token.length).toBeGreaterThan(0);
       const result = yield* auth.verifyEnrollmentToken(token);
-      expect(result.userId).toBe("usr_abc");
+      expect(result.accountId).toBe("acc_abc");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
   it.effect("verify with consume:true marks the token as used; replay fails", () =>
     Effect.gen(function* () {
-      const token = yield* auth.issueEnrollmentToken("usr_consume");
+      const token = yield* auth.issueEnrollmentToken("acc_consume");
       const first = yield* auth.verifyEnrollmentToken(token, { consume: true });
-      expect(first.userId).toBe("usr_consume");
+      expect(first.accountId).toBe("acc_consume");
 
       const error = yield* Effect.flip(auth.verifyEnrollmentToken(token, { consume: true }));
       expect(error._tag).toBe("AuthError");
@@ -335,10 +335,10 @@ describe("issueEnrollmentToken + verifyEnrollmentToken", () => {
 
   it.effect("verify with consume:false can be called repeatedly", () =>
     Effect.gen(function* () {
-      const token = yield* auth.issueEnrollmentToken("usr_repeat");
+      const token = yield* auth.issueEnrollmentToken("acc_repeat");
       const first = yield* auth.verifyEnrollmentToken(token);
       const second = yield* auth.verifyEnrollmentToken(token);
-      expect(first.userId).toBe(second.userId);
+      expect(first.accountId).toBe(second.accountId);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -406,7 +406,7 @@ describe("issueTokens + exchangeCode", () => {
       const tokens = yield* auth.exchangeCode(code);
       expect(tokens.accessToken).toBeTruthy();
       const claims = yield* auth.verifyAccessToken(tokens.accessToken);
-      expect(claims.userId).toBe(user.id);
+      expect(claims.profileId).toBe(user.id);
       expect(claims.handle).toBe("judy");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -437,7 +437,7 @@ describe("OTP flow", () => {
 
       const result = yield* authWithSpy.completeOtp("kate@example.com", capturedCode!);
       expect(result.code).toBeTruthy();
-      expect(result.userId).toMatch(/^usr_/);
+      expect(result.profileId).toMatch(/^usr_/);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -518,16 +518,16 @@ describe("passkey registration", () => {
   it.effect("beginPasskeyRegistration returns options with @handle as userName", () =>
     Effect.gen(function* () {
       const user = yield* auth.registerUser("passkey@example.com", "passkeyuser");
-      const result = yield* auth.beginPasskeyRegistration(user.id);
+      const result = yield* auth.beginPasskeyRegistration(user.accountId);
       expect(result.options).toBeTruthy();
       expect(result.options.challenge).toBeTruthy();
       expect(result.options.user.name).toBe("@passkeyuser");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("beginPasskeyRegistration fails for an unknown userId", () =>
+  it.effect("beginPasskeyRegistration fails for an unknown accountId", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(auth.beginPasskeyRegistration("usr_nonexistent"));
+      const error = yield* Effect.flip(auth.beginPasskeyRegistration("acc_nonexistent"));
       expect(error._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -617,7 +617,7 @@ describe("verifyAccessToken", () => {
       const user = yield* auth.registerUser("rose@example.com", "rose", "Rose");
       const tokens = yield* auth.issueTokens(user.id, user.email, user.handle, user.displayName);
       const claims = yield* auth.verifyAccessToken(tokens.accessToken);
-      expect(claims.userId).toBe(user.id);
+      expect(claims.profileId).toBe(user.id);
       expect(claims.email).toBe("rose@example.com");
       expect(claims.handle).toBe("rose");
       expect(claims.displayName).toBe("Rose");

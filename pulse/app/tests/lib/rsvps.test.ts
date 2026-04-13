@@ -35,7 +35,7 @@ afterEach(() => {
 describe("fetchLatestRsvps", () => {
   it("returns the rsvps array on 200", async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { rsvps: [{ id: "rsvp_1", userId: "usr_bob", user: null }] }),
+      jsonResponse(200, { rsvps: [{ id: "rsvp_1", profileId: "usr_bob", user: null }] }),
     );
     const result = await fetchLatestRsvps("evt_1", null);
     expect(result).toHaveLength(1);
@@ -165,7 +165,7 @@ describe("upsertMyRsvp", () => {
 describe("updateMySettings", () => {
   it("PATCHes /me/settings with the JSON body and bearer token", async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { settings: { userId: "usr_alice", attendanceVisibility: "no_one" } }),
+      jsonResponse(200, { settings: { profileId: "usr_alice", attendanceVisibility: "no_one" } }),
     );
     const result = await updateMySettings({ attendanceVisibility: "no_one" }, "tok");
     expect(result.ok).toBe(true);

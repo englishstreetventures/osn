@@ -1,209 +1,152 @@
 import { Effect, Data } from "effect";
 
-import { users, connections, closeFriends } from "./schema";
-import type { NewUser, NewConnection, NewCloseFriend } from "./schema";
+import {
+  accounts,
+  users,
+  connections,
+  closeFriends,
+  organisations,
+  organisationMembers,
+} from "./schema";
+import type {
+  NewAccount,
+  NewUser,
+  NewConnection,
+  NewCloseFriend,
+  NewOrganisation,
+  NewOrganisationMember,
+} from "./schema";
 import { DbLive, Db } from "./service";
 
 class SeedError extends Data.TaggedError("SeedError")<{ cause: unknown }> {}
 
 // ---------------------------------------------------------------------------
-// Seed users (20 total)
+// Seed accounts (21 total — 20 single-profile + 1 multi-profile)
+// ---------------------------------------------------------------------------
+
+export function buildSeedAccounts(now: Date): NewAccount[] {
+  const acc = (name: string): NewAccount => ({
+    id: `acc_seed_${name}`,
+    email: `${name}@seed.osn.dev`,
+    maxProfiles: 5,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return [
+    acc("me"),
+    acc("alice"),
+    acc("bob"),
+    acc("charlie"),
+    acc("dana"),
+    acc("eli"),
+    acc("faye"),
+    acc("george"),
+    acc("hana"),
+    acc("ivan"),
+    acc("jess"),
+    acc("kai"),
+    acc("luna"),
+    acc("milo"),
+    acc("nina"),
+    acc("omar"),
+    acc("priya"),
+    acc("quinn"),
+    acc("rosa"),
+    acc("sam"),
+    // Multi-account user — exercises the many-profiles-per-account model
+    acc("multi"),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Seed users / profiles (23 total — 20 original 1:1 + 3 multi)
 // ---------------------------------------------------------------------------
 
 /**
- * Seed users for development and testing.
+ * Seed profiles for development and testing.
  *
  * usr_seed_me is the authenticated dev user placeholder.
- * All other users form a realistic social graph around "me".
+ * All other profiles form a realistic social graph around "me".
+ *
+ * acc_seed_multi owns 3 profiles to exercise multi-account features:
+ *   usr_seed_multi_main (default), usr_seed_multi_alt, usr_seed_multi_work
  */
 export function buildSeedUsers(now: Date): NewUser[] {
+  /** Shorthand: single-profile account (1:1 mapping) */
+  const solo = (name: string, displayName: string): NewUser => ({
+    id: `usr_seed_${name}`,
+    accountId: `acc_seed_${name}`,
+    handle: name,
+    displayName,
+    avatarUrl: null,
+    isDefault: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+
   return [
-    // ── Core trio (original) ──────────────────────────────────────────────
-    {
-      id: "usr_seed_me",
-      handle: "me",
-      email: "me@seed.osn.dev",
-      displayName: "You (seed)",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "usr_seed_alice",
-      handle: "alice",
-      email: "alice@seed.osn.dev",
-      displayName: "Alice Chen",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "usr_seed_bob",
-      handle: "bob",
-      email: "bob@seed.osn.dev",
-      displayName: "Bob Martinez",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
+    // ── Core trio ─────────────────────────────────────────────────────────
+    solo("me", "You (seed)"),
+    solo("alice", "Alice Chen"),
+    solo("bob", "Bob Martinez"),
 
     // ── Close friends of "me" ─────────────────────────────────────────────
-    {
-      id: "usr_seed_charlie",
-      handle: "charlie",
-      email: "charlie@seed.osn.dev",
-      displayName: "Charlie Park",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "usr_seed_dana",
-      handle: "dana",
-      email: "dana@seed.osn.dev",
-      displayName: "Dana Rivera",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "usr_seed_eli",
-      handle: "eli",
-      email: "eli@seed.osn.dev",
-      displayName: "Eli Nakamura",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
+    solo("charlie", "Charlie Park"),
+    solo("dana", "Dana Rivera"),
+    solo("eli", "Eli Nakamura"),
 
     // ── Extended friend circle ────────────────────────────────────────────
-    {
-      id: "usr_seed_faye",
-      handle: "faye",
-      email: "faye@seed.osn.dev",
-      displayName: "Faye Okonkwo",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "usr_seed_george",
-      handle: "george",
-      email: "george@seed.osn.dev",
-      displayName: "George Kim",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "usr_seed_hana",
-      handle: "hana",
-      email: "hana@seed.osn.dev",
-      displayName: "Hana Petrov",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "usr_seed_ivan",
-      handle: "ivan",
-      email: "ivan@seed.osn.dev",
-      displayName: "Ivan Torres",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "usr_seed_jess",
-      handle: "jess",
-      email: "jess@seed.osn.dev",
-      displayName: "Jess Albright",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
+    solo("faye", "Faye Okonkwo"),
+    solo("george", "George Kim"),
+    solo("hana", "Hana Petrov"),
+    solo("ivan", "Ivan Torres"),
+    solo("jess", "Jess Albright"),
 
     // ── Friends of friends (not directly connected to "me") ───────────────
-    {
-      id: "usr_seed_kai",
-      handle: "kai",
-      email: "kai@seed.osn.dev",
-      displayName: "Kai Sørensen",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "usr_seed_luna",
-      handle: "luna",
-      email: "luna@seed.osn.dev",
-      displayName: "Luna Vasquez",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "usr_seed_milo",
-      handle: "milo",
-      email: "milo@seed.osn.dev",
-      displayName: "Milo Zhang",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "usr_seed_nina",
-      handle: "nina",
-      email: "nina@seed.osn.dev",
-      displayName: "Nina Johansson",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
+    solo("kai", "Kai Sørensen"),
+    solo("luna", "Luna Vasquez"),
+    solo("milo", "Milo Zhang"),
+    solo("nina", "Nina Johansson"),
 
     // ── Strangers (no connection to "me") ─────────────────────────────────
+    solo("omar", "Omar Farouk"),
+    solo("priya", "Priya Sharma"),
+    solo("quinn", "Quinn O'Brien"),
+    solo("rosa", "Rosa Delgado"),
+    solo("sam", "Sam Oduya"),
+
+    // ── Multi-account profiles (acc_seed_multi owns all three) ────────────
     {
-      id: "usr_seed_omar",
-      handle: "omar",
-      email: "omar@seed.osn.dev",
-      displayName: "Omar Farouk",
+      id: "usr_seed_multi_main",
+      accountId: "acc_seed_multi",
+      handle: "multi_main",
+
+      displayName: "Multi Main",
       avatarUrl: null,
+      isDefault: true,
       createdAt: now,
       updatedAt: now,
     },
     {
-      id: "usr_seed_priya",
-      handle: "priya",
-      email: "priya@seed.osn.dev",
-      displayName: "Priya Sharma",
+      id: "usr_seed_multi_alt",
+      accountId: "acc_seed_multi",
+      handle: "multi_alt",
+
+      displayName: "Multi Alt",
       avatarUrl: null,
+      isDefault: false,
       createdAt: now,
       updatedAt: now,
     },
     {
-      id: "usr_seed_quinn",
-      handle: "quinn",
-      email: "quinn@seed.osn.dev",
-      displayName: "Quinn O'Brien",
+      id: "usr_seed_multi_work",
+      accountId: "acc_seed_multi",
+      handle: "multi_work",
+
+      displayName: "Multi Work",
       avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "usr_seed_rosa",
-      handle: "rosa",
-      email: "rosa@seed.osn.dev",
-      displayName: "Rosa Delgado",
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "usr_seed_sam",
-      handle: "sam",
-      email: "sam@seed.osn.dev",
-      displayName: "Sam Oduya",
-      avatarUrl: null,
+      isDefault: false,
       createdAt: now,
       updatedAt: now,
     },
@@ -222,6 +165,7 @@ export function buildSeedUsers(now: Date): NewUser[] {
  * A few pending requests exist too.
  * Friends-of-friends (kai, luna, milo, nina) connect to alice/bob but NOT to "me".
  * Strangers (omar, priya, quinn, rosa, sam) have no path to "me".
+ * Multi-account profiles have cross-profile and same-account connections.
  */
 export function buildSeedConnections(now: Date): NewConnection[] {
   let i = 0;
@@ -255,6 +199,8 @@ export function buildSeedConnections(now: Date): NewConnection[] {
   const NINA = "usr_seed_nina";
   const OMAR = "usr_seed_omar";
   const PRIYA = "usr_seed_priya";
+  const MULTI_MAIN = "usr_seed_multi_main";
+  const MULTI_ALT = "usr_seed_multi_alt";
 
   return [
     // ── "me" ↔ direct friends (accepted) ──────────────────────────────────
@@ -291,6 +237,11 @@ export function buildSeedConnections(now: Date): NewConnection[] {
     // ── Stranger connections (isolated from "me") ─────────────────────────
     conn(OMAR, PRIYA),
     conn(OMAR, NINA), // omar knows nina through bob's circle, but not me
+
+    // ── Multi-account cross-profile connections ───────────────────────────
+    conn(ALICE, MULTI_MAIN), // alice knows multi's main profile
+    conn(BOB, MULTI_ALT), // bob knows multi's alt profile
+    conn(MULTI_MAIN, MULTI_ALT), // two profiles of same account can interact
   ];
 }
 
@@ -301,9 +252,93 @@ export function buildSeedConnections(now: Date): NewConnection[] {
 export function buildSeedCloseFriends(now: Date): NewCloseFriend[] {
   const ME = "usr_seed_me";
   return [
-    { id: "clf_seed_1", userId: ME, friendId: "usr_seed_alice", createdAt: now },
-    { id: "clf_seed_2", userId: ME, friendId: "usr_seed_charlie", createdAt: now },
-    { id: "clf_seed_3", userId: ME, friendId: "usr_seed_dana", createdAt: now },
+    { id: "clf_seed_1", profileId: ME, friendId: "usr_seed_alice", createdAt: now },
+    { id: "clf_seed_2", profileId: ME, friendId: "usr_seed_charlie", createdAt: now },
+    { id: "clf_seed_3", profileId: ME, friendId: "usr_seed_dana", createdAt: now },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Seed organisations
+// ---------------------------------------------------------------------------
+
+export function buildSeedOrganisations(now: Date): NewOrganisation[] {
+  return [
+    {
+      id: "org_seed_club",
+      handle: "seedclub",
+      name: "Seed Club",
+      description: "A community org for seed data testing",
+      avatarUrl: null,
+      ownerId: "usr_seed_alice",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "org_seed_work",
+      handle: "seedwork",
+      name: "Seed Workplace",
+      description: "A workplace org owned by a multi-account profile",
+      avatarUrl: null,
+      ownerId: "usr_seed_multi_work",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Seed organisation members
+// ---------------------------------------------------------------------------
+
+export function buildSeedOrgMembers(now: Date): NewOrganisationMember[] {
+  return [
+    // ── Seed Club — owned by alice, bob + multi_main as members ───────────
+    {
+      id: "orgm_seed_1",
+      organisationId: "org_seed_club",
+      profileId: "usr_seed_alice",
+      role: "admin" as const,
+      createdAt: now,
+    },
+    {
+      id: "orgm_seed_2",
+      organisationId: "org_seed_club",
+      profileId: "usr_seed_bob",
+      role: "member" as const,
+      createdAt: now,
+    },
+    {
+      id: "orgm_seed_3",
+      organisationId: "org_seed_club",
+      profileId: "usr_seed_multi_main",
+      role: "member" as const,
+      createdAt: now,
+    },
+
+    // ── Seed Workplace — owned by multi_work, charlie + multi_alt as members
+    // Tests: multiple profiles from same account in same org
+    {
+      id: "orgm_seed_4",
+      organisationId: "org_seed_work",
+      profileId: "usr_seed_multi_work",
+      role: "admin" as const,
+      createdAt: now,
+    },
+    {
+      id: "orgm_seed_5",
+      organisationId: "org_seed_work",
+      profileId: "usr_seed_charlie",
+      role: "member" as const,
+      createdAt: now,
+    },
+    {
+      id: "orgm_seed_6",
+      organisationId: "org_seed_work",
+      profileId: "usr_seed_multi_alt",
+      role: "member" as const,
+      createdAt: now,
+    },
   ];
 }
 
@@ -314,6 +349,11 @@ export function buildSeedCloseFriends(now: Date): NewCloseFriend[] {
 const seed = Effect.gen(function* () {
   const { db } = yield* Db;
   const now = new Date();
+
+  yield* Effect.tryPromise({
+    try: () => db.insert(accounts).values(buildSeedAccounts(now)).onConflictDoNothing(),
+    catch: (cause) => new SeedError({ cause }),
+  });
 
   yield* Effect.tryPromise({
     try: () => db.insert(users).values(buildSeedUsers(now)).onConflictDoNothing(),
@@ -330,9 +370,20 @@ const seed = Effect.gen(function* () {
     catch: (cause) => new SeedError({ cause }),
   });
 
+  yield* Effect.tryPromise({
+    try: () => db.insert(organisations).values(buildSeedOrganisations(now)).onConflictDoNothing(),
+    catch: (cause) => new SeedError({ cause }),
+  });
+
+  yield* Effect.tryPromise({
+    try: () =>
+      db.insert(organisationMembers).values(buildSeedOrgMembers(now)).onConflictDoNothing(),
+    catch: (cause) => new SeedError({ cause }),
+  });
+
   // eslint-disable-next-line no-console -- CLI seed script output
   console.log(
-    "Seed complete — 20 users, 25 connections, 3 close friends inserted (existing rows skipped).",
+    "Seed complete — 21 accounts, 23 profiles, 28 connections, 3 close friends, 2 orgs, 6 org members inserted (existing rows skipped).",
   );
 }).pipe(Effect.provide(DbLive));
 

@@ -27,16 +27,18 @@ const UpdateSettingsSchema = Schema.Struct({
 });
 
 /**
- * Returns the Pulse user row for this userId, or null if none exists yet.
+ * Returns the Pulse user row for this profileId, or null if none exists yet.
  * Readers should fall back to the default when null is returned rather than
  * eagerly inserting — writes happen via upsertPulseUser.
  */
-export const getPulseUser = (userId: string): Effect.Effect<PulseUser | null, DatabaseError, Db> =>
+export const getPulseUser = (
+  profileId: string,
+): Effect.Effect<PulseUser | null, DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const rows = yield* Effect.tryPromise({
       try: (): Promise<PulseUser[]> =>
-        db.select().from(pulseUsers).where(eq(pulseUsers.userId, userId)).limit(1) as Promise<
+        db.select().from(pulseUsers).where(eq(pulseUsers.profileId, profileId)).limit(1) as Promise<
           PulseUser[]
         >,
       catch: (cause) => new DatabaseError({ cause }),
@@ -52,10 +54,10 @@ export const getPulseUser = (userId: string): Effect.Effect<PulseUser | null, Da
  * N queries into one and is what the RSVP filter uses on the hot path.
  */
 export const getAttendanceVisibility = (
-  userId: string,
+  profileId: string,
 ): Effect.Effect<AttendanceVisibility, DatabaseError, Db> =>
   Effect.gen(function* () {
-    const row = yield* getPulseUser(userId);
+    const row = yield* getPulseUser(profileId);
     return row?.attendanceVisibility ?? DEFAULT_ATTENDANCE_VISIBILITY;
   });
 
@@ -70,23 +72,23 @@ export const getAttendanceVisibility = (
  * limit clause can return up to 200 rows per request.
  */
 export const getAttendanceVisibilityBatch = (
-  userIds: string[],
+  profileIds: string[],
 ): Effect.Effect<Map<string, AttendanceVisibility>, DatabaseError, Db> =>
   Effect.gen(function* () {
     const result = new Map<string, AttendanceVisibility>();
-    if (userIds.length === 0) return result;
+    if (profileIds.length === 0) return result;
 
     const { db } = yield* Db;
     const rows = yield* Effect.tryPromise({
-      try: (): Promise<Pick<PulseUser, "userId" | "attendanceVisibility">[]> =>
+      try: (): Promise<Pick<PulseUser, "profileId" | "attendanceVisibility">[]> =>
         db
           .select({
-            userId: pulseUsers.userId,
+            profileId: pulseUsers.profileId,
             attendanceVisibility: pulseUsers.attendanceVisibility,
           })
           .from(pulseUsers)
-          .where(inArray(pulseUsers.userId, userIds)) as Promise<
-          Pick<PulseUser, "userId" | "attendanceVisibility">[]
+          .where(inArray(pulseUsers.profileId, profileIds)) as Promise<
+          Pick<PulseUser, "profileId" | "attendanceVisibility">[]
         >,
       catch: (cause) => new DatabaseError({ cause }),
     });
@@ -94,16 +96,16 @@ export const getAttendanceVisibilityBatch = (
     // Seed defaults for every requested id so callers never need to
     // check for missing entries — ids without a row fall back to the
     // default visibility.
-    for (const id of userIds) result.set(id, DEFAULT_ATTENDANCE_VISIBILITY);
-    for (const row of rows) result.set(row.userId, row.attendanceVisibility);
+    for (const id of profileIds) result.set(id, DEFAULT_ATTENDANCE_VISIBILITY);
+    for (const row of rows) result.set(row.profileId, row.attendanceVisibility);
     return result;
   });
 
 /**
- * Ensures a pulse_users row exists for this userId. Idempotent — uses
+ * Ensures a pulse_users row exists for this profileId. Idempotent — uses
  * INSERT ... ON CONFLICT DO NOTHING. Safe to call on every write.
  */
-export const ensurePulseUser = (userId: string): Effect.Effect<void, DatabaseError, Db> =>
+export const ensurePulseUser = (profileId: string): Effect.Effect<void, DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const now = new Date();
@@ -111,7 +113,7 @@ export const ensurePulseUser = (userId: string): Effect.Effect<void, DatabaseErr
       try: () =>
         db
           .insert(pulseUsers)
-          .values({ userId, createdAt: now, updatedAt: now })
+          .values({ profileId, createdAt: now, updatedAt: now })
           .onConflictDoNothing(),
       catch: (cause) => new DatabaseError({ cause }),
     });
@@ -121,7 +123,7 @@ export const ensurePulseUser = (userId: string): Effect.Effect<void, DatabaseErr
  * Updates the caller's Pulse-side settings. Creates the row if missing.
  */
 export const updateSettings = (
-  userId: string,
+  profileId: string,
   data: unknown,
 ): Effect.Effect<PulseUser, ValidationError | DatabaseError, Db> =>
   Effect.gen(function* () {
@@ -129,7 +131,7 @@ export const updateSettings = (
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 
-    yield* ensurePulseUser(userId);
+    yield* ensurePulseUser(profileId);
 
     const { db } = yield* Db;
     const now = new Date();
@@ -138,13 +140,13 @@ export const updateSettings = (
         db
           .update(pulseUsers)
           .set({ ...validated, updatedAt: now })
-          .where(eq(pulseUsers.userId, userId)),
+          .where(eq(pulseUsers.profileId, profileId)),
       catch: (cause) => new DatabaseError({ cause }),
     });
 
     const rows = yield* Effect.tryPromise({
       try: (): Promise<PulseUser[]> =>
-        db.select().from(pulseUsers).where(eq(pulseUsers.userId, userId)).limit(1) as Promise<
+        db.select().from(pulseUsers).where(eq(pulseUsers.profileId, profileId)).limit(1) as Promise<
           PulseUser[]
         >,
       catch: (cause) => new DatabaseError({ cause }),

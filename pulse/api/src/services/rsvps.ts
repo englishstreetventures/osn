@@ -22,12 +22,12 @@ import { ensurePulseUser, getAttendanceVisibilityBatch } from "./pulseUsers";
 
 export class RsvpNotFound extends Data.TaggedError("RsvpNotFound")<{
   readonly eventId: string;
-  readonly userId: string;
+  readonly profileId: string;
 }> {}
 
 export class NotInvited extends Data.TaggedError("NotInvited")<{
   readonly eventId: string;
-  readonly userId: string;
+  readonly profileId: string;
 }> {}
 
 export class GuestListHidden extends Data.TaggedError("GuestListHidden")<{
@@ -57,7 +57,7 @@ const InviteGuestsSchema = Schema.Struct({
   // Bulk-invite batch is capped at the same MAX_EVENT_GUESTS platform
   // limit — an organiser can't invite more people than the event itself
   // can hold. See `lib/limits.ts` for the rationale.
-  userIds: Schema.Array(Schema.NonEmptyString).pipe(
+  profileIds: Schema.Array(Schema.NonEmptyString).pipe(
     Schema.minItems(1),
     Schema.maxItems(MAX_EVENT_GUESTS),
   ),
@@ -115,7 +115,7 @@ const loadEvent = (eventId: string): Effect.Effect<Event, EventNotFound | Databa
 
 const loadRsvp = (
   eventId: string,
-  userId: string,
+  profileId: string,
 ): Effect.Effect<EventRsvp | null, DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
@@ -124,7 +124,7 @@ const loadRsvp = (
         db
           .select()
           .from(eventRsvps)
-          .where(and(eq(eventRsvps.eventId, eventId), eq(eventRsvps.userId, userId)))
+          .where(and(eq(eventRsvps.eventId, eventId), eq(eventRsvps.profileId, profileId)))
           .limit(1) as Promise<EventRsvp[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
@@ -154,13 +154,13 @@ const computeCanSeeAnyRsvps = (
   viewerId: string | null,
 ): Effect.Effect<boolean, DatabaseError | GraphBridgeError, Db | OsnDb> =>
   Effect.gen(function* () {
-    if (viewerId && viewerId === event.createdByUserId) return true;
+    if (viewerId && viewerId === event.createdByProfileId) return true;
     switch (event.guestListVisibility) {
       case "public":
         return true;
       case "connections": {
         if (!viewerId) return false;
-        const connectionSet = yield* getConnectionIds(event.createdByUserId);
+        const connectionSet = yield* getConnectionIds(event.createdByProfileId);
         return connectionSet.has(viewerId);
       }
       case "private":
@@ -195,7 +195,7 @@ const filterByAttendeePrivacy = (
   viewerId: string | null,
 ): Effect.Effect<RsvpWithUser[], DatabaseError | GraphBridgeError, Db | OsnDb> =>
   Effect.gen(function* () {
-    const attendeeIds = Array.from(new Set(rows.map((r) => r.userId)));
+    const attendeeIds = Array.from(new Set(rows.map((r) => r.profileId)));
 
     // Set of attendee ids who have marked the viewer as a close friend,
     // used to stamp the display flag and drive the sort.
@@ -205,14 +205,14 @@ const filterByAttendeePrivacy = (
 
     const stampCloseFriend = (row: RsvpWithUser): RsvpWithUser => ({
       ...row,
-      isCloseFriend: closeFriendsOfViewer.has(row.userId),
+      isCloseFriend: closeFriendsOfViewer.has(row.profileId),
     });
 
     // Organiser bypass: the event organiser sees every row regardless
     // of guest-list visibility or per-attendee privacy settings. We
     // still stamp the close-friend flag so the organiser's UI can
     // surface the same affordance.
-    if (viewerId && viewerId === event.createdByUserId) {
+    if (viewerId && viewerId === event.createdByProfileId) {
       return rows.map(stampCloseFriend);
     }
 
@@ -231,14 +231,14 @@ const filterByAttendeePrivacy = (
     return rows
       .filter((row) => {
         // Always allow the viewer to see their own RSVP.
-        if (viewerId && row.userId === viewerId) return true;
+        if (viewerId && row.profileId === viewerId) return true;
 
-        const visibility = visibilityMap.get(row.userId) ?? "connections";
+        const visibility = visibilityMap.get(row.profileId) ?? "connections";
         switch (visibility) {
           case "no_one":
             return false;
           case "connections":
-            return viewerId != null && viewerConnections.has(row.userId);
+            return viewerId != null && viewerConnections.has(row.profileId);
         }
       })
       .map(stampCloseFriend);
@@ -263,7 +263,7 @@ const filterByAttendeePrivacy = (
  */
 export const upsertRsvp = (
   eventId: string,
-  userId: string,
+  profileId: string,
   data: unknown,
 ): Effect.Effect<EventRsvp, EventNotFound | ValidationError | NotInvited | DatabaseError, Db> =>
   Effect.gen(function* () {
@@ -279,12 +279,12 @@ export const upsertRsvp = (
       );
     }
 
-    const existing = yield* loadRsvp(eventId, userId);
+    const existing = yield* loadRsvp(eventId, profileId);
 
     // Guest-list events require a prior invite row for the user.
-    if (event.joinPolicy === "guest_list" && event.createdByUserId !== userId) {
+    if (event.joinPolicy === "guest_list" && event.createdByProfileId !== profileId) {
       if (existing === null) {
-        return yield* Effect.fail(new NotInvited({ eventId, userId }));
+        return yield* Effect.fail(new NotInvited({ eventId, profileId }));
       }
       // existing row must be an invite or a prior RSVP; either way the
       // user is allowed to update their status.
@@ -296,14 +296,14 @@ export const upsertRsvp = (
     if (existing === null) {
       // Only lazy-create the pulse_users row on first RSVP insert. On
       // update the row must already exist, so skip the extra round-trip.
-      yield* ensurePulseUser(userId);
+      yield* ensurePulseUser(profileId);
       const id = genRsvpId();
       yield* Effect.tryPromise({
         try: () =>
           db.insert(eventRsvps).values({
             id,
             eventId,
-            userId,
+            profileId,
             status: validated.status,
             createdAt: now,
           }),
@@ -313,9 +313,9 @@ export const upsertRsvp = (
       return {
         id,
         eventId,
-        userId,
+        profileId,
         status: validated.status,
-        invitedByUserId: null,
+        invitedByProfileId: null,
         createdAt: now,
       };
     }
@@ -352,7 +352,7 @@ export const inviteGuests = (
     );
 
     const event = yield* loadEvent(eventId);
-    if (event.createdByUserId !== organiserId) {
+    if (event.createdByProfileId !== organiserId) {
       return yield* Effect.fail(new NotEventOwner({ eventId }));
     }
 
@@ -362,18 +362,18 @@ export const inviteGuests = (
     const existing = yield* Effect.tryPromise({
       try: () =>
         db
-          .select({ userId: eventRsvps.userId })
+          .select({ profileId: eventRsvps.profileId })
           .from(eventRsvps)
           .where(
             and(
               eq(eventRsvps.eventId, eventId),
-              inArray(eventRsvps.userId, [...validated.userIds]),
+              inArray(eventRsvps.profileId, [...validated.profileIds]),
             ),
           ),
       catch: (cause) => new DatabaseError({ cause }),
     });
-    const existingIds = new Set(existing.map((r) => r.userId));
-    const toInvite = validated.userIds.filter((id) => !existingIds.has(id));
+    const existingIds = new Set(existing.map((r) => r.profileId));
+    const toInvite = validated.profileIds.filter((id) => !existingIds.has(id));
     if (toInvite.length === 0) {
       metricRsvpInviteBatch(0, "ok");
       return { invited: 0 };
@@ -383,9 +383,9 @@ export const inviteGuests = (
     const rows = toInvite.map((uid) => ({
       id: genRsvpId(),
       eventId,
-      userId: uid,
+      profileId: uid,
       status: "invited" as const,
-      invitedByUserId: organiserId,
+      invitedByProfileId: organiserId,
       createdAt: now,
     }));
     yield* Effect.tryPromise({
@@ -421,7 +421,7 @@ export const listRsvps = (
     // an error so the route can render the same 200-empty response as
     // any other "no visible rows" state — the existence of the event
     // is already gated upstream by the route's canViewEvent check.
-    if (options.status === "invited" && viewerId !== event.createdByUserId) {
+    if (options.status === "invited" && viewerId !== event.createdByProfileId) {
       metricRsvpListed("invited", 0);
       return [];
     }
@@ -460,11 +460,11 @@ export const listRsvps = (
     // false here and then (potentially) overridden by the per-row
     // filter below. This way rows always carry the flag, even when the
     // per-row filter is skipped.
-    const userIds = Array.from(new Set(rsvpRows.map((r) => r.userId)));
-    const userMap = yield* getUserDisplays(userIds);
+    const profileIds = Array.from(new Set(rsvpRows.map((r) => r.profileId)));
+    const userMap = yield* getUserDisplays(profileIds);
     const joined: RsvpWithUser[] = rsvpRows.map((row) =>
       Object.assign({}, row, {
-        user: userMap.get(row.userId) ?? null,
+        user: userMap.get(row.profileId) ?? null,
         isCloseFriend: false,
       }),
     );

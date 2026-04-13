@@ -23,7 +23,7 @@ function makeEvent(overrides: Partial<Event> = {}): Event {
     allowInterested: true,
     commsChannels: '["email"]',
     chatId: null,
-    createdByUserId: "usr_alice",
+    createdByProfileId: "usr_alice",
     createdByName: "Alice",
     createdByAvatar: null,
     createdAt: new Date(),

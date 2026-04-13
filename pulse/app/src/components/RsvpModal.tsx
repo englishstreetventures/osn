@@ -8,7 +8,7 @@ interface Event {
   guestListVisibility: "public" | "connections" | "private";
   allowInterested: boolean;
   joinPolicy: "open" | "guest_list";
-  createdByUserId: string;
+  createdByProfileId: string;
 }
 
 type Tab = "going" | "interested" | "not_going" | "invited";
@@ -24,7 +24,7 @@ type Tab = "going" | "interested" | "not_going" | "invited";
 export function RsvpModal(props: {
   event: Event;
   accessToken: string | null;
-  currentUserId?: string | null;
+  currentProfileId?: string | null;
   onClose: () => void;
 }) {
   const [tab, setTab] = createSignal<Tab>("going");
@@ -37,7 +37,7 @@ export function RsvpModal(props: {
     fetchRsvpsByStatus(eventId, selectedTab as RsvpStatus, token),
   );
 
-  const isOrganiser = () => props.currentUserId === props.event.createdByUserId;
+  const isOrganiser = () => props.currentProfileId === props.event.createdByProfileId;
   const locked = () => props.event.guestListVisibility === "private" && !isOrganiser();
 
   const tabs: { id: Tab; label: string; show: () => boolean }[] = [

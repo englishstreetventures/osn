@@ -1,18 +1,18 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
 /**
- * Pulse-specific user configuration, keyed by the OSN user id.
+ * Pulse-specific user configuration, keyed by the OSN profile id.
  *
- * Kept in `pulse/db` (not `osn/db`) so that identity data (name, email, etc.)
+ * Kept in `pulse/db` (not `osn/db`) so that identity data (name, etc.)
  * stays owned by OSN and app-specific preferences live alongside the app's
- * own data. No foreign key — the `userId` references `osn_db.users.id`
+ * own data. No foreign key — the `profileId` references `osn_db.users.id`
  * across a cross-DB boundary.
  *
  * Rows are created lazily on first Pulse write (RSVP, event creation, or
  * explicit settings update). Readers fall back to defaults when no row exists.
  */
 export const pulseUsers = sqliteTable("pulse_users", {
-  userId: text("user_id").primaryKey(),
+  profileId: text("profile_id").primaryKey(),
   // "connections" → visible to the user's connections (default)
   // "no_one"      → hidden from everyone on Pulse
   //

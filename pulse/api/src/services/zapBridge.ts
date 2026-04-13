@@ -33,7 +33,7 @@ export class ZapBridgeError extends Data.TaggedError("ZapBridgeError")<{
  */
 export const provisionEventChat = (
   eventId: string,
-  creatorUserId: string,
+  creatorProfileId: string,
   title: string,
 ): Effect.Effect<Chat, ZapBridgeError, Db | ZapDb> =>
   Effect.gen(function* () {
@@ -71,7 +71,7 @@ export const provisionEventChat = (
           type: "event",
           title,
           eventId,
-          createdByUserId: creatorUserId,
+          createdByProfileId: creatorProfileId,
           createdAt: now,
           updatedAt: now,
         }),
@@ -85,7 +85,7 @@ export const provisionEventChat = (
         zapDb.insert(chatMembers).values({
           id: memberId,
           chatId,
-          userId: creatorUserId,
+          profileId: creatorProfileId,
           role: "admin",
           joinedAt: now,
         }),
@@ -110,7 +110,7 @@ export const provisionEventChat = (
  */
 export const addEventChatMember = (
   chatId: string,
-  userId: string,
+  profileId: string,
 ): Effect.Effect<void, ZapBridgeError, ZapDb> =>
   Effect.gen(function* () {
     const zapDb = (yield* ZapDb).db;
@@ -121,9 +121,9 @@ export const addEventChatMember = (
         zapDb
           .select()
           .from(chatMembers)
-          .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, userId))) as Promise<
-          ChatMember[]
-        >,
+          .where(
+            and(eq(chatMembers.chatId, chatId), eq(chatMembers.profileId, profileId)),
+          ) as Promise<ChatMember[]>,
       catch: (cause) => new ZapBridgeError({ cause }),
     });
     if (existing.length > 0) return;
@@ -134,7 +134,7 @@ export const addEventChatMember = (
         zapDb.insert(chatMembers).values({
           id: memberId,
           chatId,
-          userId,
+          profileId: profileId,
           role: "member",
           joinedAt: new Date(),
         }),

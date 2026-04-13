@@ -74,7 +74,7 @@ describe("EventCard", () => {
   it("renders 'Hosted by' with initials avatar when createdByName set, no avatar", () => {
     const { getByText, container } = render(() => (
       <EventCard
-        event={{ ...mockEvent, createdByUserId: "usr_1", createdByName: "Alice Chen" }}
+        event={{ ...mockEvent, createdByProfileId: "usr_1", createdByName: "Alice Chen" }}
         onDelete={() => {}}
       />
     ));
@@ -91,7 +91,7 @@ describe("EventCard", () => {
       <EventCard
         event={{
           ...mockEvent,
-          createdByUserId: "usr_1",
+          createdByProfileId: "usr_1",
           createdByName: "Bob",
           createdByAvatar: "https://example.com/bob.jpg",
         }}
@@ -106,7 +106,7 @@ describe("EventCard", () => {
 
   it("omits 'Hosted by' section when createdByName is absent", () => {
     const { queryByText } = render(() => (
-      <EventCard event={{ ...mockEvent, createdByUserId: "usr_1" }} onDelete={() => {}} />
+      <EventCard event={{ ...mockEvent, createdByProfileId: "usr_1" }} onDelete={() => {}} />
     ));
     expect(queryByText(/Hosted by/)).toBeNull();
   });
@@ -133,9 +133,9 @@ describe("EventCard", () => {
     const onDelete = vi.fn();
     const { getByText } = render(() => (
       <EventCard
-        event={{ ...mockEvent, createdByUserId: "usr_test" }}
+        event={{ ...mockEvent, createdByProfileId: "usr_test" }}
         onDelete={onDelete}
-        currentUserId="usr_test"
+        currentProfileId="usr_test"
       />
     ));
     fireEvent.click(getByText("Delete"));
@@ -150,16 +150,16 @@ describe("EventCard", () => {
     const onDelete = vi.fn();
     const { getByText } = render(() => (
       <EventCard
-        event={{ ...mockEvent, createdByUserId: "usr_test" }}
+        event={{ ...mockEvent, createdByProfileId: "usr_test" }}
         onDelete={onDelete}
-        currentUserId="usr_test"
+        currentProfileId="usr_test"
       />
     ));
     fireEvent.click(getByText("Delete"));
     expect(onDelete).not.toHaveBeenCalled();
   });
 
-  it("delete button hidden when currentUserId not provided", () => {
+  it("delete button hidden when currentProfileId not provided", () => {
     const { queryByText } = render(() => <EventCard event={mockEvent} onDelete={() => {}} />);
     expect(queryByText("Delete")).toBeNull();
   });
@@ -167,9 +167,9 @@ describe("EventCard", () => {
   it("delete button hidden when event is owned by another user", () => {
     const { queryByText } = render(() => (
       <EventCard
-        event={{ ...mockEvent, createdByUserId: "usr_alice" }}
+        event={{ ...mockEvent, createdByProfileId: "usr_alice" }}
         onDelete={() => {}}
-        currentUserId="usr_bob"
+        currentProfileId="usr_bob"
       />
     ));
     expect(queryByText("Delete")).toBeNull();
@@ -192,10 +192,10 @@ describe("EventCard", () => {
   it("deleting=true → button shows 'Deleting…' and is disabled", () => {
     const { getByText } = render(() => (
       <EventCard
-        event={{ ...mockEvent, createdByUserId: "usr_test" }}
+        event={{ ...mockEvent, createdByProfileId: "usr_test" }}
         onDelete={() => {}}
         deleting={true}
-        currentUserId="usr_test"
+        currentProfileId="usr_test"
       />
     ));
     const btn = getByText("Deleting…") as HTMLButtonElement;
@@ -239,10 +239,10 @@ describe("EventCard", () => {
     const onDelete = vi.fn();
     const { getByText } = render(() => (
       <EventCard
-        event={{ ...mockEvent, createdByUserId: "usr_test" }}
+        event={{ ...mockEvent, createdByProfileId: "usr_test" }}
         onDelete={onDelete}
         deleting={true}
-        currentUserId="usr_test"
+        currentProfileId="usr_test"
       />
     ));
     fireEvent.click(getByText("Deleting…"));

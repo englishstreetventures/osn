@@ -55,7 +55,7 @@ export const events = sqliteTable(
     // enables event chat (provisioned via zapBridge). NOT a foreign key —
     // the chat lives in a different SQLite file.
     chatId: text("chat_id"),
-    createdByUserId: text("created_by_user_id").notNull(),
+    createdByProfileId: text("created_by_profile_id").notNull(),
     createdByName: text("created_by_name"),
     createdByAvatar: text("created_by_avatar"),
     createdAt: integer("created_at", { mode: "timestamp" })
@@ -67,7 +67,7 @@ export const events = sqliteTable(
   },
   (t) => [
     index("events_start_time_idx").on(t.startTime),
-    index("events_created_by_user_id_idx").on(t.createdByUserId),
+    index("events_created_by_profile_id_idx").on(t.createdByProfileId),
     index("events_visibility_idx").on(t.visibility),
   ],
 );

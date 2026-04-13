@@ -33,7 +33,7 @@ it.effect("ensurePulseUser is idempotent", () =>
     yield* ensurePulseUser("usr_alice");
     const row = yield* getPulseUser("usr_alice");
     expect(row).not.toBeNull();
-    expect(row!.userId).toBe("usr_alice");
+    expect(row!.profileId).toBe("usr_alice");
     expect(row!.attendanceVisibility).toBe("connections");
   }).pipe(Effect.provide(createTestLayer())),
 );

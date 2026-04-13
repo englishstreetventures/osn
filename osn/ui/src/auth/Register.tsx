@@ -33,7 +33,7 @@ export function Register(props: RegisterProps) {
   const [displayName, setDisplayName] = createSignal("");
   const [otp, setOtp] = createSignal("");
   const [busy, setBusy] = createSignal(false);
-  const [userId, setUserId] = createSignal<string | null>(null);
+  const [profileId, setProfileId] = createSignal<string | null>(null);
   const [enrollmentToken, setEnrollmentToken] = createSignal<string | null>(null);
 
   // Live handle availability check (debounced).
@@ -119,7 +119,7 @@ export function Register(props: RegisterProps) {
     setBusy(true);
     try {
       const result = await client.completeRegistration({ email: email(), code: otp() });
-      setUserId(result.userId);
+      setProfileId(result.profileId);
       setEnrollmentToken(result.enrollmentToken);
       // Sign them in *now* — passkey enrolment is an upsell, not a gate.
       await adoptSession(result.session);
@@ -138,18 +138,18 @@ export function Register(props: RegisterProps) {
   }
 
   async function enrollPasskey() {
-    const id = userId();
+    const id = profileId();
     const token = enrollmentToken();
     if (!id || !token || busy()) return;
     setBusy(true);
     try {
       const options = (await client.passkeyRegisterBegin({
-        userId: id,
+        profileId: id,
         enrollmentToken: token,
       })) as Parameters<typeof startRegistration>[0]["optionsJSON"];
       const attestation = await startRegistration({ optionsJSON: options });
       await client.passkeyRegisterComplete({
-        userId: id,
+        profileId: id,
         enrollmentToken: token,
         attestation,
       });

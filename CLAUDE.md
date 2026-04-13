@@ -45,6 +45,7 @@ The `wiki/` directory contains detailed reference pages. Use this index to find 
 |---|---|
 | Understand the monorepo layout | `[[wiki/architecture/monorepo-structure]]` |
 | Write a new Effect service or Elysia route | `[[wiki/architecture/backend-patterns]]`, `[[wiki/architecture/schema-layers]]` |
+| Understand accounts, profiles, and orgs | `[[wiki/systems/identity-model]]` |
 | Add or verify ARC S2S tokens | `[[wiki/systems/arc-tokens]]` |
 | Add rate limiting to an endpoint | `[[wiki/systems/rate-limiting]]` |
 | Instrument logging, tracing, or metrics | `[[wiki/observability/overview]]`, then the specific page |

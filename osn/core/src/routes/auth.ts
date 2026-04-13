@@ -195,11 +195,17 @@ export function createAuthRoutes(
    * Resolves the authenticated principal for /passkey/register/* calls (S-H5).
    * Authorization header is REQUIRED — the legacy unauth'd path has been removed.
    * The caller must present either a normal access token or an enrollment token.
+   *
+   * Body sends `profileId` (the client's known identity). The principal resolves
+   * to `accountId` (what passkeys are keyed on) via:
+   * - Enrollment token path: token sub = accountId. We verify the profile belongs
+   *   to that account by looking it up in the DB.
+   * - Access token path: token sub = profileId. We look up accountId from the DB.
    */
-  type Principal = { unauthorized: true } | { unauthorized: false; userId: string };
+  type Principal = { unauthorized: true } | { unauthorized: false; accountId: string };
   async function resolvePasskeyEnrollPrincipal(
     authHeader: string | undefined,
-    bodyUserId: string,
+    bodyProfileId: string,
     options: { consume: boolean } = { consume: false },
   ): Promise<Principal> {
     if (!authHeader || !/^Bearer\s+/i.test(authHeader)) {
@@ -208,20 +214,27 @@ export function createAuthRoutes(
 
     const token = authHeader.replace(/^Bearer\s+/i, "");
 
-    // Try as a normal access token first.
+    // Try as a normal access token first (existing user adding passkey from settings).
     const accessResult = await Effect.runPromise(Effect.either(auth.verifyAccessToken(token)));
     if (accessResult._tag === "Right") {
-      if (accessResult.right.userId !== bodyUserId) return { unauthorized: true };
-      return { unauthorized: false, userId: accessResult.right.userId };
+      if (accessResult.right.profileId !== bodyProfileId) return { unauthorized: true };
+      // Resolve profileId → accountId via DB
+      const profile = await run(auth.findProfileById(bodyProfileId));
+      if (!profile) return { unauthorized: true };
+      return { unauthorized: false, accountId: profile.accountId };
     }
 
-    // Otherwise try as an enrollment token (and consume on /complete).
+    // Otherwise try as an enrollment token (new user from registration flow).
     const enrollResult = await Effect.runPromise(
       Effect.either(auth.verifyEnrollmentToken(token, options)),
     );
     if (enrollResult._tag === "Right") {
-      if (enrollResult.right.userId !== bodyUserId) return { unauthorized: true };
-      return { unauthorized: false, userId: enrollResult.right.userId };
+      // Enrollment token sub = accountId. Verify the profile belongs to this account.
+      const profile = await run(auth.findProfileById(bodyProfileId));
+      if (!profile || profile.accountId !== enrollResult.right.accountId) {
+        return { unauthorized: true };
+      }
+      return { unauthorized: false, accountId: enrollResult.right.accountId };
     }
 
     return { unauthorized: true };
@@ -261,7 +274,7 @@ export function createAuthRoutes(
           try {
             const user = await run(auth.registerUser(body.email, body.handle, body.displayName));
             set.status = 201;
-            return { userId: user.id, handle: user.handle, email: user.email };
+            return { profileId: user.id, handle: user.handle, email: user.email };
           } catch (e) {
             set.status = 400;
             return { error: String(e) };
@@ -325,7 +338,7 @@ export function createAuthRoutes(
             const result = await run(auth.completeRegistration(body.email, body.code));
             set.status = 201;
             return {
-              userId: result.userId,
+              profileId: result.profileId,
               handle: result.handle,
               email: result.email,
               session: {
@@ -527,8 +540,8 @@ export function createAuthRoutes(
       // Client sends `Authorization: Bearer <token>`. Token is either a
       // normal access token (existing user adding a passkey from a settings
       // screen) or an enrollment token (new user from the registration flow).
-      // The principal's userId is taken from the token and the request body's
-      // `userId` MUST match. Unauthenticated requests return 401.
+      // The principal's accountId is resolved from the token + body profileId.
+      // Unauthenticated requests return 401.
       // -------------------------------------------------------------------------
       .post(
         "/passkey/register/begin",
@@ -541,13 +554,13 @@ export function createAuthRoutes(
           try {
             const principal = await resolvePasskeyEnrollPrincipal(
               headers.authorization,
-              body.userId,
+              body.profileId,
             );
             if (principal.unauthorized) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const result = await run(auth.beginPasskeyRegistration(principal.userId));
+            const result = await run(auth.beginPasskeyRegistration(principal.accountId));
             return result.options;
           } catch (e) {
             const { status, body: errBody } = publicError(e);
@@ -556,7 +569,7 @@ export function createAuthRoutes(
           }
         },
         {
-          body: t.Object({ userId: t.String() }),
+          body: t.Object({ profileId: t.String() }),
         },
       )
       // -------------------------------------------------------------------------
@@ -577,7 +590,7 @@ export function createAuthRoutes(
           try {
             const principal = await resolvePasskeyEnrollPrincipal(
               headers.authorization,
-              body.userId,
+              body.profileId,
               { consume: true },
             );
             if (principal.unauthorized) {
@@ -585,7 +598,7 @@ export function createAuthRoutes(
               return { error: "unauthorized" };
             }
             const result = await run(
-              auth.completePasskeyRegistration(principal.userId, body.attestation),
+              auth.completePasskeyRegistration(principal.accountId, body.attestation),
             );
             return result;
           } catch (e) {
@@ -596,7 +609,7 @@ export function createAuthRoutes(
         },
         {
           body: t.Object({
-            userId: t.String(),
+            profileId: t.String(),
             attestation: t.Any(),
           }),
         },

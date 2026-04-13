@@ -166,7 +166,7 @@ export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], Dat
     // them. A future enhancement will also include events the viewer
     // has been invited to (requires a join with event_rsvps).
     const visibilityFilter = params.viewerId
-      ? or(eq(events.visibility, "public"), eq(events.createdByUserId, params.viewerId))
+      ? or(eq(events.visibility, "public"), eq(events.createdByProfileId, params.viewerId))
       : eq(events.visibility, "public");
     if (visibilityFilter) filters.push(visibilityFilter);
 
@@ -235,7 +235,7 @@ export const getEvent = (id: string): Effect.Effect<Event, EventNotFound | Datab
   }).pipe(Effect.withSpan("events.get"));
 
 interface CreatorInfo {
-  createdByUserId: string;
+  createdByProfileId: string;
   createdByName: string | null;
   createdByAvatar: string | null;
 }
@@ -288,13 +288,13 @@ export const createEvent = (
 export const updateEvent = (
   id: string,
   data: unknown,
-  requestingUserId: string | null = null,
+  requestingProfileId: string | null = null,
 ): Effect.Effect<Event, EventNotFound | NotEventOwner | ValidationError | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
 
     const existing = yield* getEvent(id);
-    if (existing.createdByUserId !== requestingUserId) {
+    if (existing.createdByProfileId !== requestingProfileId) {
       metricEventUpdated("forbidden");
       return yield* Effect.fail(new NotEventOwner({ id }));
     }
@@ -328,13 +328,13 @@ export const updateEvent = (
 
 export const deleteEvent = (
   id: string,
-  requestingUserId: string | null = null,
+  requestingProfileId: string | null = null,
 ): Effect.Effect<void, EventNotFound | NotEventOwner | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
 
     const existing = yield* getEvent(id);
-    if (existing.createdByUserId !== requestingUserId) {
+    if (existing.createdByProfileId !== requestingProfileId) {
       metricEventDeleted("forbidden");
       return yield* Effect.fail(new NotEventOwner({ id }));
     }

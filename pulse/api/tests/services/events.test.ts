@@ -16,7 +16,7 @@ const PAST = "2020-01-01T10:00:00.000Z";
 const STARTED = new Date(Date.now() - 60_000).toISOString();
 const ENDED = new Date(Date.now() - 30_000).toISOString();
 
-const ALICE = { createdByUserId: "usr_alice", createdByName: "Alice", createdByAvatar: null };
+const ALICE = { createdByProfileId: "usr_alice", createdByName: "Alice", createdByAvatar: null };
 
 const provide = <A, E>(effect: Effect.Effect<A, E, any>) =>
   effect.pipe(Effect.provide(createTestLayer()));
@@ -247,26 +247,26 @@ it.effect("deleteEvent fails with EventNotFound for unknown id", () =>
 
 // ── Ownership ────────────────────────────────────────────────────────────────
 
-it.effect("createEvent stores createdByUserId, createdByName, createdByAvatar", () =>
+it.effect("createEvent stores createdByProfileId, createdByName, createdByAvatar", () =>
   provide(
     Effect.gen(function* () {
       const event = yield* createEvent(
         { title: "Owned", startTime: FUTURE },
-        { createdByUserId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
+        { createdByProfileId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
       );
-      expect(event.createdByUserId).toBe("usr_alice");
+      expect(event.createdByProfileId).toBe("usr_alice");
       expect(event.createdByName).toBe("Alice");
       expect(event.createdByAvatar).toBeNull();
     }),
   ),
 );
 
-it.effect("deleteEvent succeeds when requestingUserId matches createdByUserId", () =>
+it.effect("deleteEvent succeeds when requestingProfileId matches createdByProfileId", () =>
   provide(
     Effect.gen(function* () {
       const event = yield* createEvent(
         { title: "Mine", startTime: FUTURE },
-        { createdByUserId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
+        { createdByProfileId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
       );
       yield* deleteEvent(event.id, "usr_alice");
       const error = yield* Effect.flip(getEvent(event.id));
@@ -275,12 +275,12 @@ it.effect("deleteEvent succeeds when requestingUserId matches createdByUserId", 
   ),
 );
 
-it.effect("deleteEvent fails with NotEventOwner when requestingUserId does not match", () =>
+it.effect("deleteEvent fails with NotEventOwner when requestingProfileId does not match", () =>
   provide(
     Effect.gen(function* () {
       const event = yield* createEvent(
         { title: "Not Mine", startTime: FUTURE },
-        { createdByUserId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
+        { createdByProfileId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
       );
       const error = yield* Effect.flip(deleteEvent(event.id, "usr_bob"));
       expect(error._tag).toBe("NotEventOwner");
@@ -288,7 +288,7 @@ it.effect("deleteEvent fails with NotEventOwner when requestingUserId does not m
   ),
 );
 
-it.effect("deleteEvent fails with NotEventOwner when no requestingUserId provided", () =>
+it.effect("deleteEvent fails with NotEventOwner when no requestingProfileId provided", () =>
   provide(
     Effect.gen(function* () {
       const event = yield* createEvent({ title: "Mine", startTime: FUTURE }, ALICE);
@@ -298,12 +298,12 @@ it.effect("deleteEvent fails with NotEventOwner when no requestingUserId provide
   ),
 );
 
-it.effect("updateEvent fails with NotEventOwner when requestingUserId does not match", () =>
+it.effect("updateEvent fails with NotEventOwner when requestingProfileId does not match", () =>
   provide(
     Effect.gen(function* () {
       const event = yield* createEvent(
         { title: "Not Mine", startTime: FUTURE },
-        { createdByUserId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
+        { createdByProfileId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
       );
       const error = yield* Effect.flip(updateEvent(event.id, { title: "Hijacked" }, "usr_bob"));
       expect(error._tag).toBe("NotEventOwner");
@@ -311,12 +311,12 @@ it.effect("updateEvent fails with NotEventOwner when requestingUserId does not m
   ),
 );
 
-it.effect("updateEvent succeeds when requestingUserId matches createdByUserId", () =>
+it.effect("updateEvent succeeds when requestingProfileId matches createdByProfileId", () =>
   provide(
     Effect.gen(function* () {
       const event = yield* createEvent(
         { title: "Mine", startTime: FUTURE },
-        { createdByUserId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
+        { createdByProfileId: "usr_alice", createdByName: "Alice", createdByAvatar: null },
       );
       const updated = yield* updateEvent(event.id, { title: "Updated" }, "usr_alice");
       expect(updated.title).toBe("Updated");

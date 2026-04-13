@@ -28,7 +28,7 @@ export function createTestLayer() {
       allow_interested INTEGER NOT NULL DEFAULT 1,
       comms_channels TEXT NOT NULL DEFAULT '["email"]',
       chat_id TEXT,
-      created_by_user_id TEXT NOT NULL,
+      created_by_profile_id TEXT NOT NULL,
       created_by_name TEXT,
       created_by_avatar TEXT,
       created_at INTEGER NOT NULL,
@@ -40,18 +40,18 @@ export function createTestLayer() {
     CREATE TABLE event_rsvps (
       id TEXT PRIMARY KEY,
       event_id TEXT NOT NULL REFERENCES events(id),
-      user_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'going',
-      invited_by_user_id TEXT,
+      invited_by_profile_id TEXT,
       created_at INTEGER NOT NULL,
-      UNIQUE (event_id, user_id)
+      UNIQUE (event_id, profile_id)
     )
   `);
   sqlite.run(`CREATE INDEX event_rsvps_event_idx ON event_rsvps (event_id)`);
-  sqlite.run(`CREATE INDEX event_rsvps_user_idx ON event_rsvps (user_id)`);
+  sqlite.run(`CREATE INDEX event_rsvps_profile_idx ON event_rsvps (profile_id)`);
   sqlite.run(`
     CREATE TABLE pulse_users (
-      user_id TEXT PRIMARY KEY,
+      profile_id TEXT PRIMARY KEY,
       attendance_visibility TEXT NOT NULL DEFAULT 'connections',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -63,7 +63,7 @@ export function createTestLayer() {
       event_id TEXT NOT NULL REFERENCES events(id),
       channel TEXT NOT NULL,
       body TEXT NOT NULL,
-      sent_by_user_id TEXT NOT NULL,
+      sent_by_profile_id TEXT NOT NULL,
       sent_at INTEGER,
       created_at INTEGER NOT NULL
     )
@@ -83,7 +83,7 @@ export interface SeedEventInput {
   endTime?: string | Date;
   status?: "upcoming" | "ongoing" | "finished" | "cancelled";
   category?: string;
-  createdByUserId?: string;
+  createdByProfileId?: string;
   createdByName?: string | null;
   createdByAvatar?: string | null;
   visibility?: "public" | "private";
@@ -118,7 +118,7 @@ export const seedEvent = (input: SeedEventInput): Effect.Effect<Event, never, Db
       allowInterested: input.allowInterested ?? true,
       commsChannels: JSON.stringify(input.commsChannels ?? ["email"]),
       chatId: input.chatId ?? null,
-      createdByUserId: input.createdByUserId ?? "usr_alice",
+      createdByProfileId: input.createdByProfileId ?? "usr_alice",
       createdByName: input.createdByName ?? "Alice",
       createdByAvatar: input.createdByAvatar ?? null,
       createdAt: now,

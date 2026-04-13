@@ -5,7 +5,7 @@ import {
   toDatetimeLocal,
   composeLabel,
   isEndBeforeOrAtStart,
-  getUserIdFromToken,
+  getProfileIdFromToken,
   getDisplayNameFromToken,
   type PhotonFeature,
 } from "../src/lib/utils";
@@ -78,29 +78,29 @@ function fakeJwt(payload: Record<string, unknown>): string {
   return `header.${btoa(JSON.stringify(payload))}.sig`;
 }
 
-describe("getUserIdFromToken", () => {
+describe("getProfileIdFromToken", () => {
   it("returns null for null input", () => {
-    expect(getUserIdFromToken(null)).toBeNull();
+    expect(getProfileIdFromToken(null)).toBeNull();
   });
 
   it("returns null for a malformed token (no dots)", () => {
-    expect(getUserIdFromToken("notajwt")).toBeNull();
+    expect(getProfileIdFromToken("notajwt")).toBeNull();
   });
 
   it("returns null for a token with invalid base64 payload", () => {
-    expect(getUserIdFromToken("header.!!!.sig")).toBeNull();
+    expect(getProfileIdFromToken("header.!!!.sig")).toBeNull();
   });
 
   it("returns null when payload has no sub claim", () => {
-    expect(getUserIdFromToken(fakeJwt({ email: "alice@example.com" }))).toBeNull();
+    expect(getProfileIdFromToken(fakeJwt({ email: "alice@example.com" }))).toBeNull();
   });
 
   it("returns null when sub claim is not a string", () => {
-    expect(getUserIdFromToken(fakeJwt({ sub: 42 }))).toBeNull();
+    expect(getProfileIdFromToken(fakeJwt({ sub: 42 }))).toBeNull();
   });
 
   it("returns the sub claim when present", () => {
-    expect(getUserIdFromToken(fakeJwt({ sub: "usr_test" }))).toBe("usr_test");
+    expect(getProfileIdFromToken(fakeJwt({ sub: "usr_test" }))).toBe("usr_test");
   });
 });
 

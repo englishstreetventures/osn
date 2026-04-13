@@ -9,12 +9,22 @@ import * as schema from "../src/schema";
 function createTestDb() {
   const sqlite = new Database(":memory:");
   sqlite.run(`
+    CREATE TABLE accounts (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      max_profiles INTEGER NOT NULL DEFAULT 5,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+  sqlite.run(`
     CREATE TABLE users (
       id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
       handle TEXT NOT NULL UNIQUE,
-      email TEXT NOT NULL UNIQUE,
       display_name TEXT,
       avatar_url TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -22,7 +32,7 @@ function createTestDb() {
   sqlite.run(`
     CREATE TABLE passkeys (
       id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id),
+      account_id TEXT NOT NULL REFERENCES accounts(id),
       credential_id TEXT NOT NULL UNIQUE,
       public_key TEXT NOT NULL,
       counter INTEGER NOT NULL DEFAULT 0,
@@ -42,14 +52,65 @@ function createTestDb() {
   return drizzle(sqlite, { schema });
 }
 
+describe("accounts schema", () => {
+  it("inserts and retrieves an account", async () => {
+    const db = createTestDb();
+    const now = new Date("2030-06-01T10:00:00.000Z");
+    await db.insert(schema.accounts).values({
+      id: "acc_test",
+      email: "test@example.com",
+      maxProfiles: 5,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const rows = await db.select().from(schema.accounts).where(eq(schema.accounts.id, "acc_test"));
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    expect(row.id).toBe("acc_test");
+    expect(row.email).toBe("test@example.com");
+    expect(row.maxProfiles).toBe(5);
+    expect(row.createdAt).toBeInstanceOf(Date);
+  });
+
+  it("enforces unique email constraint", async () => {
+    const db = createTestDb();
+    const now = new Date();
+    await db.insert(schema.accounts).values({
+      id: "acc_a",
+      email: "dup@example.com",
+      maxProfiles: 5,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await expect(
+      db.insert(schema.accounts).values({
+        id: "acc_b",
+        email: "dup@example.com",
+        maxProfiles: 5,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    ).rejects.toThrow();
+  });
+});
+
 describe("users schema", () => {
   it("inserts and retrieves a row", async () => {
     const db = createTestDb();
     const now = new Date("2030-06-01T10:00:00.000Z");
+    await db.insert(schema.accounts).values({
+      id: "acc_test",
+      email: "test@example.com",
+      maxProfiles: 5,
+      createdAt: now,
+      updatedAt: now,
+    });
     await db.insert(schema.users).values({
       id: "usr_test",
+      accountId: "acc_test",
       handle: "testuser",
-      email: "test@example.com",
+      isDefault: true,
       createdAt: now,
       updatedAt: now,
     });
@@ -58,47 +119,43 @@ describe("users schema", () => {
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
     expect(row.id).toBe("usr_test");
+    expect(row.accountId).toBe("acc_test");
     expect(row.handle).toBe("testuser");
-    expect(row.email).toBe("test@example.com");
+    expect(row.isDefault).toBe(true);
     expect(row.createdAt).toBeInstanceOf(Date);
-  });
-
-  it("enforces unique email constraint", async () => {
-    const db = createTestDb();
-    const now = new Date();
-    await db.insert(schema.users).values({
-      id: "usr_a",
-      handle: "usera",
-      email: "dup@example.com",
-      createdAt: now,
-      updatedAt: now,
-    });
-    await expect(
-      db.insert(schema.users).values({
-        id: "usr_b",
-        handle: "userb",
-        email: "dup@example.com",
-        createdAt: now,
-        updatedAt: now,
-      }),
-    ).rejects.toThrow();
   });
 
   it("enforces unique handle constraint", async () => {
     const db = createTestDb();
     const now = new Date();
+    await db.insert(schema.accounts).values({
+      id: "acc_h1",
+      email: "h1@example.com",
+      maxProfiles: 5,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.accounts).values({
+      id: "acc_h2",
+      email: "h2@example.com",
+      maxProfiles: 5,
+      createdAt: now,
+      updatedAt: now,
+    });
     await db.insert(schema.users).values({
       id: "usr_h1",
+      accountId: "acc_h1",
       handle: "duphandle",
-      email: "h1@example.com",
+      isDefault: true,
       createdAt: now,
       updatedAt: now,
     });
     await expect(
       db.insert(schema.users).values({
         id: "usr_h2",
+        accountId: "acc_h2",
         handle: "duphandle",
-        email: "h2@example.com",
+        isDefault: true,
         createdAt: now,
         updatedAt: now,
       }),
@@ -108,12 +165,20 @@ describe("users schema", () => {
   it("displayName and avatarUrl round-trip correctly", async () => {
     const db = createTestDb();
     const now = new Date();
+    await db.insert(schema.accounts).values({
+      id: "acc_display",
+      email: "display@example.com",
+      maxProfiles: 5,
+      createdAt: now,
+      updatedAt: now,
+    });
     await db.insert(schema.users).values({
       id: "usr_display",
+      accountId: "acc_display",
       handle: "alice",
-      email: "display@example.com",
       displayName: "Alice Chen",
       avatarUrl: "https://example.com/avatar.jpg",
+      isDefault: true,
       createdAt: now,
       updatedAt: now,
     });
@@ -125,10 +190,18 @@ describe("users schema", () => {
   it("displayName and avatarUrl default to null", async () => {
     const db = createTestDb();
     const now = new Date();
+    await db.insert(schema.accounts).values({
+      id: "acc_nodisplay",
+      email: "nodisplay@example.com",
+      maxProfiles: 5,
+      createdAt: now,
+      updatedAt: now,
+    });
     await db.insert(schema.users).values({
       id: "usr_nodisplay",
+      accountId: "acc_nodisplay",
       handle: "nodisplay",
-      email: "nodisplay@example.com",
+      isDefault: true,
       createdAt: now,
       updatedAt: now,
     });
@@ -140,10 +213,18 @@ describe("users schema", () => {
   it("createdAt round-trips as Date via timestamp mode", async () => {
     const db = createTestDb();
     const ts = new Date("2030-01-15T08:00:00.000Z");
+    await db.insert(schema.accounts).values({
+      id: "acc_ts",
+      email: "ts@example.com",
+      maxProfiles: 5,
+      createdAt: ts,
+      updatedAt: ts,
+    });
     await db.insert(schema.users).values({
       id: "usr_ts",
+      accountId: "acc_ts",
       handle: "tsuser",
-      email: "ts@example.com",
+      isDefault: true,
       createdAt: ts,
       updatedAt: ts,
     });
@@ -154,19 +235,19 @@ describe("users schema", () => {
 });
 
 describe("passkeys schema", () => {
-  it("inserts and retrieves a passkey linked to a user", async () => {
+  it("inserts and retrieves a passkey linked to an account", async () => {
     const db = createTestDb();
     const now = new Date("2030-06-01T10:00:00.000Z");
-    await db.insert(schema.users).values({
-      id: "usr_pk",
-      handle: "pkuser",
+    await db.insert(schema.accounts).values({
+      id: "acc_pk",
       email: "pk@example.com",
+      maxProfiles: 5,
       createdAt: now,
       updatedAt: now,
     });
     await db.insert(schema.passkeys).values({
       id: "pk_test",
-      userId: "usr_pk",
+      accountId: "acc_pk",
       credentialId: "cred-abc",
       publicKey: "base64-encoded-key",
       counter: 0,
@@ -177,7 +258,7 @@ describe("passkeys schema", () => {
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
     expect(row.id).toBe("pk_test");
-    expect(row.userId).toBe("usr_pk");
+    expect(row.accountId).toBe("acc_pk");
     expect(row.credentialId).toBe("cred-abc");
     expect(row.counter).toBe(0);
     expect(row.transports).toBeNull();
@@ -186,16 +267,16 @@ describe("passkeys schema", () => {
   it("optional transports field defaults to null", async () => {
     const db = createTestDb();
     const now = new Date();
-    await db.insert(schema.users).values({
-      id: "usr_notransport",
-      handle: "notransport",
+    await db.insert(schema.accounts).values({
+      id: "acc_notransport",
       email: "notransport@example.com",
+      maxProfiles: 5,
       createdAt: now,
       updatedAt: now,
     });
     await db.insert(schema.passkeys).values({
       id: "pk_notransport",
-      userId: "usr_notransport",
+      accountId: "acc_notransport",
       credentialId: "cred-notransport",
       publicKey: "key",
       counter: 0,
@@ -211,16 +292,16 @@ describe("passkeys schema", () => {
   it("enforces unique credentialId constraint", async () => {
     const db = createTestDb();
     const now = new Date();
-    await db.insert(schema.users).values({
-      id: "usr_cred",
-      handle: "creduser",
+    await db.insert(schema.accounts).values({
+      id: "acc_cred",
       email: "cred@example.com",
+      maxProfiles: 5,
       createdAt: now,
       updatedAt: now,
     });
     await db.insert(schema.passkeys).values({
       id: "pk_c1",
-      userId: "usr_cred",
+      accountId: "acc_cred",
       credentialId: "dup-cred",
       publicKey: "key",
       counter: 0,
@@ -229,7 +310,7 @@ describe("passkeys schema", () => {
     await expect(
       db.insert(schema.passkeys).values({
         id: "pk_c2",
-        userId: "usr_cred",
+        accountId: "acc_cred",
         credentialId: "dup-cred",
         publicKey: "key",
         counter: 0,

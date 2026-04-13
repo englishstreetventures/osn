@@ -21,7 +21,7 @@ export const eventComms = sqliteTable(
     channel: text("channel", { enum: ["sms", "email"] }).notNull(),
     body: text("body").notNull(),
     // Who triggered the blast (organiser). References osn-db users cross-DB.
-    sentByUserId: text("sent_by_user_id").notNull(),
+    sentByProfileId: text("sent_by_profile_id").notNull(),
     // Null while queued; filled once the provider stub records dispatch.
     sentAt: integer("sent_at", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" })

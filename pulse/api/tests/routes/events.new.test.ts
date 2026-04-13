@@ -8,8 +8,8 @@ import { createOsnTestContext, seedOsnUser } from "../helpers/osnDb";
 const FUTURE = "2030-06-01T10:00:00.000Z";
 const TEST_JWT_SECRET = "test-secret";
 
-async function makeToken(userId: string): Promise<string> {
-  return new SignJWT({ sub: userId })
+async function makeToken(profileId: string): Promise<string> {
+  return new SignJWT({ sub: profileId })
     .setProtectedHeader({ alg: "HS256" })
     .sign(new TextEncoder().encode(TEST_JWT_SECRET));
 }
@@ -173,9 +173,9 @@ describe("RSVP routes", () => {
   it("POST /events/:id/rsvps creates RSVP and returns 200", async () => {
     const res = await post(app, `/events/${eventId}/rsvps`, { status: "going" }, bobToken);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { rsvp: { status: string; userId: string } };
+    const body = (await res.json()) as { rsvp: { status: string; profileId: string } };
     expect(body.rsvp.status).toBe("going");
-    expect(body.rsvp.userId).toBe("usr_bob");
+    expect(body.rsvp.profileId).toBe("usr_bob");
   });
 
   it("POST /events/:id/rsvps returns 401 when unauthenticated", async () => {
@@ -214,21 +214,31 @@ describe("RSVP routes", () => {
     const res = await get(app, `/events/${eventId}/rsvps?status=going`, aliceToken);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      rsvps: { userId: string; user: { displayName: string | null } | null }[];
+      rsvps: { profileId: string; user: { displayName: string | null } | null }[];
     };
     expect(body.rsvps.length).toBe(1);
     expect(body.rsvps[0]!.user?.displayName).toBe("Bob");
   });
 
   it("POST /events/:id/invite as organiser creates invited rows", async () => {
-    const res = await post(app, `/events/${eventId}/invite`, { userIds: ["usr_bob"] }, aliceToken);
+    const res = await post(
+      app,
+      `/events/${eventId}/invite`,
+      { profileIds: ["usr_bob"] },
+      aliceToken,
+    );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { invited: number };
     expect(body.invited).toBe(1);
   });
 
   it("POST /events/:id/invite returns 403 for non-organiser", async () => {
-    const res = await post(app, `/events/${eventId}/invite`, { userIds: ["usr_carol"] }, bobToken);
+    const res = await post(
+      app,
+      `/events/${eventId}/invite`,
+      { profileIds: ["usr_carol"] },
+      bobToken,
+    );
     expect(res.status).toBe(403);
   });
 
@@ -413,7 +423,7 @@ describe("Private event visibility gate", () => {
 
   it("GET /events/:id returns 200 for private events to viewers with an RSVP row", async () => {
     // Alice invites Bob to the private event.
-    await post(app, `/events/${privateEventId}/invite`, { userIds: ["usr_bob"] }, aliceToken);
+    await post(app, `/events/${privateEventId}/invite`, { profileIds: ["usr_bob"] }, aliceToken);
     const res = await get(app, `/events/${privateEventId}`, bobToken);
     expect(res.status).toBe(200);
   });
@@ -464,7 +474,7 @@ describe("Private event visibility gate", () => {
 
   // S-H4: invited list is organiser-only even on visible events
   it("GET /events/:id/rsvps?status=invited returns empty for non-organisers", async () => {
-    await post(app, `/events/${publicEventId}/invite`, { userIds: ["usr_bob"] }, aliceToken);
+    await post(app, `/events/${publicEventId}/invite`, { profileIds: ["usr_bob"] }, aliceToken);
     const res = await get(app, `/events/${publicEventId}/rsvps?status=invited`, bobToken);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { rsvps: unknown[] };
@@ -472,17 +482,17 @@ describe("Private event visibility gate", () => {
   });
 
   it("GET /events/:id/rsvps?status=invited returns the list for the organiser", async () => {
-    await post(app, `/events/${publicEventId}/invite`, { userIds: ["usr_bob"] }, aliceToken);
+    await post(app, `/events/${publicEventId}/invite`, { profileIds: ["usr_bob"] }, aliceToken);
     const res = await get(app, `/events/${publicEventId}/rsvps?status=invited`, aliceToken);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { rsvps: { userId: string }[] };
+    const body = (await res.json()) as { rsvps: { profileId: string }[] };
     expect(body.rsvps).toHaveLength(1);
-    expect(body.rsvps[0]!.userId).toBe("usr_bob");
+    expect(body.rsvps[0]!.profileId).toBe("usr_bob");
   });
 
-  // S-L3: invitedByUserId is gated to organiser viewers
-  it("GET /events/:id/rsvps hides invitedByUserId from non-organiser viewers", async () => {
-    await post(app, `/events/${publicEventId}/invite`, { userIds: ["usr_bob"] }, aliceToken);
+  // S-L3: invitedByProfileId is gated to organiser viewers
+  it("GET /events/:id/rsvps hides invitedByProfileId from non-organiser viewers", async () => {
+    await post(app, `/events/${publicEventId}/invite`, { profileIds: ["usr_bob"] }, aliceToken);
     // Bob accepts the invite — now appears as "going" for everyone.
     const upsertRes = await post(
       app,
@@ -491,18 +501,18 @@ describe("Private event visibility gate", () => {
       bobToken,
     );
     expect(upsertRes.status).toBe(200);
-    // Random viewer (no token) sees the row but invitedByUserId is null.
+    // Random viewer (no token) sees the row but invitedByProfileId is null.
     const res = await get(app, `/events/${publicEventId}/rsvps?status=going`);
-    const body = (await res.json()) as { rsvps: { invitedByUserId: string | null }[] };
-    expect(body.rsvps[0]!.invitedByUserId).toBeNull();
+    const body = (await res.json()) as { rsvps: { invitedByProfileId: string | null }[] };
+    expect(body.rsvps[0]!.invitedByProfileId).toBeNull();
   });
 
-  it("GET /events/:id/rsvps shows invitedByUserId to the organiser viewer", async () => {
-    await post(app, `/events/${publicEventId}/invite`, { userIds: ["usr_bob"] }, aliceToken);
+  it("GET /events/:id/rsvps shows invitedByProfileId to the organiser viewer", async () => {
+    await post(app, `/events/${publicEventId}/invite`, { profileIds: ["usr_bob"] }, aliceToken);
     await post(app, `/events/${publicEventId}/rsvps`, { status: "going" }, bobToken);
     const res = await get(app, `/events/${publicEventId}/rsvps?status=going`, aliceToken);
-    const body = (await res.json()) as { rsvps: { invitedByUserId: string | null }[] };
-    expect(body.rsvps[0]!.invitedByUserId).toBe("usr_alice");
+    const body = (await res.json()) as { rsvps: { invitedByProfileId: string | null }[] };
+    expect(body.rsvps[0]!.invitedByProfileId).toBe("usr_alice");
   });
 
   // isCloseFriend stamp
@@ -599,9 +609,9 @@ describe("PATCH /me/settings", () => {
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      settings: { userId: string; attendanceVisibility: string };
+      settings: { profileId: string; attendanceVisibility: string };
     };
-    expect(body.settings.userId).toBe("usr_alice");
+    expect(body.settings.profileId).toBe("usr_alice");
     expect(body.settings.attendanceVisibility).toBe("no_one");
   });
 

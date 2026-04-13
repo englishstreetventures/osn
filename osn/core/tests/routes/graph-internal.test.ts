@@ -186,18 +186,18 @@ describe("internal graph routes (ARC-protected)", () => {
       const endpoints = [
         { url: "/graph/internal/either-blocked?userA=a&userB=b", method: "GET" },
         { url: "/graph/internal/connection-status?viewerId=a&targetId=b", method: "GET" },
-        { url: "/graph/internal/connections?userId=a", method: "GET" },
-        { url: "/graph/internal/close-friends?userId=a", method: "GET" },
-        { url: "/graph/internal/is-close-friend?userId=a&friendId=b", method: "GET" },
+        { url: "/graph/internal/connections?profileId=a", method: "GET" },
+        { url: "/graph/internal/close-friends?profileId=a", method: "GET" },
+        { url: "/graph/internal/is-close-friend?profileId=a&friendId=b", method: "GET" },
         {
           url: "/graph/internal/close-friends-of",
           method: "POST",
-          body: JSON.stringify({ viewerId: "a", userIds: ["b"] }),
+          body: JSON.stringify({ viewerId: "a", profileIds: ["b"] }),
         },
         {
           url: "/graph/internal/user-displays",
           method: "POST",
-          body: JSON.stringify({ userIds: ["a"] }),
+          body: JSON.stringify({ profileIds: ["a"] }),
         },
       ];
 
@@ -334,7 +334,7 @@ describe("internal graph routes (ARC-protected)", () => {
       const alice = await registerUser("alice@example.com", "alice");
 
       const res = await app.handle(
-        new Request(`http://localhost/graph/internal/connections?userId=${alice}`, {
+        new Request(`http://localhost/graph/internal/connections?profileId=${alice}`, {
           headers: { Authorization: `ARC ${token}` },
         }),
       );
@@ -352,7 +352,7 @@ describe("internal graph routes (ARC-protected)", () => {
       await runWithLayer(graph.acceptConnection(bob, alice));
 
       const res = await app.handle(
-        new Request(`http://localhost/graph/internal/connections?userId=${alice}`, {
+        new Request(`http://localhost/graph/internal/connections?profileId=${alice}`, {
           headers: { Authorization: `ARC ${token}` },
         }),
       );
@@ -378,7 +378,7 @@ describe("internal graph routes (ARC-protected)", () => {
       await runWithLayer(graph.addCloseFriend(alice, bob));
 
       const res = await app.handle(
-        new Request(`http://localhost/graph/internal/close-friends?userId=${alice}`, {
+        new Request(`http://localhost/graph/internal/close-friends?profileId=${alice}`, {
           headers: { Authorization: `ARC ${token}` },
         }),
       );
@@ -400,7 +400,7 @@ describe("internal graph routes (ARC-protected)", () => {
 
       const res = await app.handle(
         new Request(
-          `http://localhost/graph/internal/is-close-friend?userId=${alice}&friendId=${bob}`,
+          `http://localhost/graph/internal/is-close-friend?profileId=${alice}&friendId=${bob}`,
           { headers: { Authorization: `ARC ${token}` } },
         ),
       );
@@ -420,7 +420,7 @@ describe("internal graph routes (ARC-protected)", () => {
 
       const res = await app.handle(
         new Request(
-          `http://localhost/graph/internal/is-close-friend?userId=${alice}&friendId=${bob}`,
+          `http://localhost/graph/internal/is-close-friend?profileId=${alice}&friendId=${bob}`,
           { headers: { Authorization: `ARC ${token}` } },
         ),
       );
@@ -447,7 +447,7 @@ describe("internal graph routes (ARC-protected)", () => {
             Authorization: `ARC ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ viewerId: alice, userIds: [bob] }),
+          body: JSON.stringify({ viewerId: alice, profileIds: [bob] }),
         }),
       );
       expect(res.status).toBe(200);
@@ -473,7 +473,7 @@ describe("internal graph routes (ARC-protected)", () => {
             Authorization: `ARC ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ viewerId: alice, userIds: [bob] }),
+          body: JSON.stringify({ viewerId: alice, profileIds: [bob] }),
         }),
       );
       expect(res.status).toBe(200);
@@ -497,7 +497,7 @@ describe("internal graph routes (ARC-protected)", () => {
             Authorization: `ARC ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ userIds: [] }),
+          body: JSON.stringify({ profileIds: [] }),
         }),
       );
       expect(res.status).toBe(200);
@@ -516,7 +516,7 @@ describe("internal graph routes (ARC-protected)", () => {
             Authorization: `ARC ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ userIds: [alice] }),
+          body: JSON.stringify({ profileIds: [alice] }),
         }),
       );
       expect(res.status).toBe(200);

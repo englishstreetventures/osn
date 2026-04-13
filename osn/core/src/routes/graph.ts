@@ -112,7 +112,7 @@ export function createGraphRoutes(
   async function requireAuth(
     authorization: string | undefined,
     set: { status?: number | string },
-  ): Promise<{ userId: string; handle: string } | null> {
+  ): Promise<{ profileId: string; handle: string } | null> {
     const token = extractToken(authorization);
     if (!token) {
       set.status = 401;
@@ -130,12 +130,12 @@ export function createGraphRoutes(
   // Redis backend where `check()` returns a Promise.
   // Fail-closed (S-M1): if the backend rejects, treat as rate-limited.
   async function requireRateLimit(
-    userId: string,
+    profileId: string,
     set: { status?: number | string },
   ): Promise<boolean> {
     let allowed: boolean;
     try {
-      allowed = await rateLimiter.check(userId);
+      allowed = await rateLimiter.check(profileId);
     } catch {
       allowed = false;
     }
@@ -174,13 +174,14 @@ export function createGraphRoutes(
         async ({ params, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.userId, set))) return { error: "Too many requests" };
+          if (!(await requireRateLimit(caller.profileId, set)))
+            return { error: "Too many requests" };
 
           const target = await resolveHandle(params.handle, set);
           if (!target) return { error: "User not found" };
 
           try {
-            await run(graph.sendConnectionRequest(caller.userId, target.id));
+            await run(graph.sendConnectionRequest(caller.profileId, target.id));
             set.status = 201;
             return { ok: true };
           } catch (e) {
@@ -195,16 +196,17 @@ export function createGraphRoutes(
         async ({ params, body, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.userId, set))) return { error: "Too many requests" };
+          if (!(await requireRateLimit(caller.profileId, set)))
+            return { error: "Too many requests" };
 
           const requester = await resolveHandle(params.handle, set);
           if (!requester) return { error: "User not found" };
 
           try {
             if (body.action === "accept") {
-              await run(graph.acceptConnection(caller.userId, requester.id));
+              await run(graph.acceptConnection(caller.profileId, requester.id));
             } else {
-              await run(graph.rejectConnection(caller.userId, requester.id));
+              await run(graph.rejectConnection(caller.profileId, requester.id));
             }
             return { ok: true };
           } catch (e) {
@@ -222,13 +224,14 @@ export function createGraphRoutes(
         async ({ params, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.userId, set))) return { error: "Too many requests" };
+          if (!(await requireRateLimit(caller.profileId, set)))
+            return { error: "Too many requests" };
 
           const other = await resolveHandle(params.handle, set);
           if (!other) return { error: "User not found" };
 
           try {
-            await run(graph.removeConnection(caller.userId, other.id));
+            await run(graph.removeConnection(caller.profileId, other.id));
             return { ok: true };
           } catch (e) {
             set.status = 400;
@@ -243,7 +246,7 @@ export function createGraphRoutes(
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
           try {
-            const list = await run(graph.listConnections(caller.userId, parsePagination(query)));
+            const list = await run(graph.listConnections(caller.profileId, parsePagination(query)));
             return {
               connections: list.map((c) =>
                 Object.assign({}, userProjection(c.user), {
@@ -265,7 +268,7 @@ export function createGraphRoutes(
           if (!caller) return { error: "Unauthorized" };
           try {
             const list = await run(
-              graph.listPendingRequests(caller.userId, parsePagination(query)),
+              graph.listPendingRequests(caller.profileId, parsePagination(query)),
             );
             return {
               pending: list.map((r) =>
@@ -289,7 +292,7 @@ export function createGraphRoutes(
           try {
             const target = await resolveHandle(params.handle, set);
             if (!target) return { error: "User not found" };
-            const status = await run(graph.getConnectionStatus(caller.userId, target.id));
+            const status = await run(graph.getConnectionStatus(caller.profileId, target.id));
             return { status };
           } catch (e) {
             set.status = 500;
@@ -306,13 +309,14 @@ export function createGraphRoutes(
         async ({ params, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.userId, set))) return { error: "Too many requests" };
+          if (!(await requireRateLimit(caller.profileId, set)))
+            return { error: "Too many requests" };
 
           const friend = await resolveHandle(params.handle, set);
           if (!friend) return { error: "User not found" };
 
           try {
-            await run(graph.addCloseFriend(caller.userId, friend.id));
+            await run(graph.addCloseFriend(caller.profileId, friend.id));
             set.status = 201;
             return { ok: true };
           } catch (e) {
@@ -327,13 +331,14 @@ export function createGraphRoutes(
         async ({ params, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.userId, set))) return { error: "Too many requests" };
+          if (!(await requireRateLimit(caller.profileId, set)))
+            return { error: "Too many requests" };
 
           const friend = await resolveHandle(params.handle, set);
           if (!friend) return { error: "User not found" };
 
           try {
-            await run(graph.removeCloseFriend(caller.userId, friend.id));
+            await run(graph.removeCloseFriend(caller.profileId, friend.id));
             return { ok: true };
           } catch (e) {
             set.status = 400;
@@ -348,7 +353,9 @@ export function createGraphRoutes(
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
           try {
-            const list = await run(graph.listCloseFriends(caller.userId, parsePagination(query)));
+            const list = await run(
+              graph.listCloseFriends(caller.profileId, parsePagination(query)),
+            );
             return { closeFriends: list.map(userProjection) };
           } catch (e) {
             set.status = 500;
@@ -365,7 +372,7 @@ export function createGraphRoutes(
           try {
             const target = await resolveHandle(params.handle, set);
             if (!target) return { error: "User not found" };
-            const isCloseFriend = await run(graph.isCloseFriendOf(caller.userId, target.id));
+            const isCloseFriend = await run(graph.isCloseFriendOf(caller.profileId, target.id));
             return { isCloseFriend };
           } catch (e) {
             set.status = 500;
@@ -382,13 +389,14 @@ export function createGraphRoutes(
         async ({ params, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.userId, set))) return { error: "Too many requests" };
+          if (!(await requireRateLimit(caller.profileId, set)))
+            return { error: "Too many requests" };
 
           const blocked = await resolveHandle(params.handle, set);
           if (!blocked) return { error: "User not found" };
 
           try {
-            await run(graph.blockUser(caller.userId, blocked.id));
+            await run(graph.blockUser(caller.profileId, blocked.id));
             set.status = 201;
             return { ok: true };
           } catch (e) {
@@ -403,13 +411,14 @@ export function createGraphRoutes(
         async ({ params, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.userId, set))) return { error: "Too many requests" };
+          if (!(await requireRateLimit(caller.profileId, set)))
+            return { error: "Too many requests" };
 
           const blocked = await resolveHandle(params.handle, set);
           if (!blocked) return { error: "User not found" };
 
           try {
-            await run(graph.unblockUser(caller.userId, blocked.id));
+            await run(graph.unblockUser(caller.profileId, blocked.id));
             return { ok: true };
           } catch (e) {
             set.status = 400;
@@ -424,7 +433,7 @@ export function createGraphRoutes(
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
           try {
-            const list = await run(graph.listBlocks(caller.userId, parsePagination(query)));
+            const list = await run(graph.listBlocks(caller.profileId, parsePagination(query)));
             return { blocks: list.map(userProjection) };
           } catch (e) {
             set.status = 500;
@@ -446,7 +455,7 @@ export function createGraphRoutes(
           try {
             const target = await resolveHandle(params.handle, set);
             if (!target) return { error: "User not found" };
-            const blocked = await run(graph.isBlocked(caller.userId, target.id));
+            const blocked = await run(graph.isBlocked(caller.profileId, target.id));
             return { blocked };
           } catch (e) {
             set.status = 500;

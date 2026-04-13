@@ -5,12 +5,12 @@ import type { NewEvent, NewEventRsvp } from "./schema";
 import { DbLive, Db } from "./service";
 
 /**
- * Seed user references matching osn-db seed.
+ * Seed profile references matching osn-db seed.
  *
  * usr_seed_me is a stable sentinel — the Pulse frontend compares
- * event.createdByUserId against the real JWT sub at runtime, so
+ * event.createdByProfileId against the real JWT sub at runtime, so
  * events owned by usr_seed_me will only show delete controls when
- * the signed-in user's ID actually matches.
+ * the signed-in profile's ID actually matches.
  */
 const U = {
   me: { id: "usr_seed_me", name: "You (seed)" },
@@ -57,11 +57,11 @@ export function buildSeedEvents(now: Date): NewEvent[] {
     user: (typeof U)[keyof typeof U],
     overrides: Omit<
       NewEvent,
-      "id" | "createdByUserId" | "createdByName" | "createdByAvatar" | "createdAt" | "updatedAt"
+      "id" | "createdByProfileId" | "createdByName" | "createdByAvatar" | "createdAt" | "updatedAt"
     >,
   ): NewEvent => ({
     id,
-    createdByUserId: user.id,
+    createdByProfileId: user.id,
     createdByName: user.name,
     createdByAvatar: null,
     createdAt: now,
@@ -278,12 +278,12 @@ export function buildSeedRsvps(): NewEventRsvp[] {
   let i = 0;
   const rsvp = (
     eventId: string,
-    userId: string,
+    profileId: string,
     status: "going" | "interested" = "going",
   ): NewEventRsvp => ({
     id: `rsvp_seed_${++i}`,
     eventId,
-    userId,
+    profileId,
     status,
     createdAt: new Date(),
   });

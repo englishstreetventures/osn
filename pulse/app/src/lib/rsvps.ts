@@ -19,10 +19,10 @@ export type RsvpStatus = "going" | "interested" | "not_going" | "invited";
 export interface Rsvp {
   id: string;
   eventId: string;
-  userId: string;
+  profileId: string;
   status: RsvpStatus;
   /** Server returns null to non-organiser viewers; only the organiser sees who invited whom. */
-  invitedByUserId: string | null;
+  invitedByProfileId: string | null;
   /**
    * True when this attendee has marked the current viewer as a close
    * friend. Server-computed against the OSN graph; the client renders
@@ -117,7 +117,7 @@ export interface CommsSummary {
     id: string;
     channel: "sms" | "email";
     body: string;
-    sentByUserId: string;
+    sentByProfileId: string;
     sentAt: string | null;
     createdAt: string;
   }[];

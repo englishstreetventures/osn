@@ -34,7 +34,7 @@ export class GraphBridgeError extends Data.TaggedError("GraphBridgeError")<{
 const graph = createGraphService();
 
 /**
- * The set of user IDs `userId` is connected to (accepted connections only).
+ * The set of user IDs `profileId` is connected to (accepted connections only).
  * Returns a `Set` for O(1) membership checks in the RSVP visibility filter.
  *
  * Bounded by `MAX_EVENT_GUESTS` — the platform's hard cap on event guest
@@ -43,21 +43,21 @@ const graph = createGraphService();
  * larger sets belong to the future verified-organisation tier.
  */
 export const getConnectionIds = (
-  userId: string,
+  profileId: string,
 ): Effect.Effect<Set<string>, GraphBridgeError, OsnDb> =>
-  graph.listConnections(userId, { limit: MAX_EVENT_GUESTS }).pipe(
+  graph.listConnections(profileId, { limit: MAX_EVENT_GUESTS }).pipe(
     Effect.map((rows) => new Set(rows.map((r) => r.user.id))),
     Effect.mapError((cause) => new GraphBridgeError({ cause })),
   );
 
 /**
- * The set of user IDs `userId` has marked as close friends. Bounded by
+ * The set of user IDs `profileId` has marked as close friends. Bounded by
  * `MAX_EVENT_GUESTS` for the same reason as `getConnectionIds`.
  */
 export const getCloseFriendIds = (
-  userId: string,
+  profileId: string,
 ): Effect.Effect<Set<string>, GraphBridgeError, OsnDb> =>
-  graph.listCloseFriends(userId, { limit: MAX_EVENT_GUESTS }).pipe(
+  graph.listCloseFriends(profileId, { limit: MAX_EVENT_GUESTS }).pipe(
     Effect.map((rows) => new Set(rows.map((u) => u.id))),
     Effect.mapError((cause) => new GraphBridgeError({ cause })),
   );
@@ -100,10 +100,10 @@ export interface UserDisplay {
  * Returns a Map keyed by user ID for efficient lookup during join.
  */
 export const getUserDisplays = (
-  userIds: string[],
+  profileIds: string[],
 ): Effect.Effect<Map<string, UserDisplay>, GraphBridgeError, OsnDb> =>
   Effect.gen(function* () {
-    if (userIds.length === 0) return new Map();
+    if (profileIds.length === 0) return new Map();
     const { db } = yield* OsnDb;
     const rows = yield* Effect.tryPromise({
       try: () =>
@@ -115,7 +115,7 @@ export const getUserDisplays = (
             avatarUrl: users.avatarUrl,
           })
           .from(users)
-          .where(inArray(users.id, userIds)),
+          .where(inArray(users.id, profileIds)),
       catch: (cause) => new GraphBridgeError({ cause }),
     });
     return new Map(rows.map((r) => [r.id, r]));

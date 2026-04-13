@@ -8,8 +8,8 @@ import { createTestLayer, seedEvent } from "../helpers/db";
 const FUTURE = "2030-06-01T10:00:00.000Z";
 const TEST_JWT_SECRET = "test-secret";
 
-async function makeToken(userId: string, email?: string): Promise<string> {
-  const payload: Record<string, string> = { sub: userId };
+async function makeToken(profileId: string, email?: string): Promise<string> {
+  const payload: Record<string, string> = { sub: profileId };
   if (email) payload.email = email;
   return new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
@@ -276,14 +276,14 @@ describe("events routes", () => {
 
   // ── Ownership ──────────────────────────────────────────────────────────────
 
-  it("POST /events stores createdByUserId from JWT; derives createdByName from email claim", async () => {
+  it("POST /events stores createdByProfileId from JWT; derives createdByName from email claim", async () => {
     const token = await makeToken("usr_alice", "alice@example.com");
     const res = await post(app, "/events", { title: "My Event", startTime: FUTURE }, token);
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
-      event: { createdByUserId: string; createdByName: string };
+      event: { createdByProfileId: string; createdByName: string };
     };
-    expect(body.event.createdByUserId).toBe("usr_alice");
+    expect(body.event.createdByProfileId).toBe("usr_alice");
     expect(body.event.createdByName).toBe("alice");
   });
 
