@@ -1,4 +1,5 @@
 import tailwindcss from "@tailwindcss/vite";
+import { DevTools } from "@vitejs/devtools";
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 
@@ -6,8 +7,8 @@ import solid from "vite-plugin-solid";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
-  plugins: [tailwindcss(), solid()],
+export default defineConfig(async ({ command }) => ({
+  plugins: [...(command === "serve" ? [DevTools()] : []), tailwindcss(), solid()],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

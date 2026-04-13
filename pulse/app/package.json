@@ -36,9 +36,10 @@
     "@tauri-apps/cli": "^2",
     "@types/leaflet": "^1.9.12",
     "@vitest/coverage-istanbul": "^4.1.0",
+    "@vitejs/devtools": "^0.1.13",
     "happy-dom": "^20.8.4",
     "typescript": "^5.9.3",
-    "vite": "^6.0.3",
+    "vite": "^8.0.8",
     "vite-plugin-solid": "^2.11.0",
     "vitest": "^4.1.2"
   }
