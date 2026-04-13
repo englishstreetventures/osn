@@ -1,5 +1,11 @@
 # @osn/db
 
+## 0.6.0
+
+### Minor Changes
+
+- e2ef57b: Add organisation support with membership and role management
+
 ## 0.5.3
 
 ### Patch Changes

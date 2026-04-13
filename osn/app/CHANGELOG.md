@@ -1,5 +1,15 @@
 # @osn/osn
 
+## 0.3.3
+
+### Patch Changes
+
+- e2ef57b: Add organisation support with membership and role management
+- Updated dependencies [e2ef57b]
+  - @osn/db@0.6.0
+  - @osn/core@0.13.0
+  - @shared/observability@0.2.5
+
 ## 0.3.2
 
 ### Patch Changes

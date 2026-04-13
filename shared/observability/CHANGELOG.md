@@ -1,5 +1,11 @@
 # @shared/observability
 
+## 0.2.5
+
+### Patch Changes
+
+- e2ef57b: Add organisation support with membership and role management
+
 ## 0.2.4
 
 ### Patch Changes
