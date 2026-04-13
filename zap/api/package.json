@@ -21,14 +21,14 @@
     "@osn/core": "workspace:*",
     "@shared/observability": "workspace:*",
     "@zap/db": "workspace:*",
-    "drizzle-orm": "^0.38.0",
+    "drizzle-orm": "^0.45.0",
     "effect": "^3.19.19",
     "elysia": "^1.2.0",
     "jose": "^6.2.2"
   },
   "devDependencies": {
-    "@effect/vitest": "^0.27.0",
+    "@effect/vitest": "^0.29.0",
     "@shared/typescript-config": "workspace:*",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.2"
   }
 }

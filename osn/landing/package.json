@@ -10,12 +10,12 @@
     "check": "bunx --bun astro check"
   },
   "dependencies": {
-    "@astrojs/solid-js": "6.0.0",
+    "@astrojs/solid-js": "6.0.1",
     "astro": "6.0.3",
-    "solid-js": "^1.9.0"
+    "solid-js": "^1.9.3"
   },
   "devDependencies": {
-    "@astrojs/check": "0.9.7",
+    "@astrojs/check": "0.9.8",
     "@shared/typescript-config": "workspace:*",
     "typescript": "^5.9.3"
   }
