@@ -1,5 +1,11 @@
 # @osn/landing
 
+## 0.0.4
+
+### Patch Changes
+
+- 098fd01: Upgrade vite from v6 to v8 with devtools, bump astro to 6.1.5
+
 ## 0.0.3
 
 ### Patch Changes

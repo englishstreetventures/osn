@@ -1,5 +1,11 @@
 # @osn/ui
 
+## 0.2.2
+
+### Patch Changes
+
+- 098fd01: Upgrade vite from v6 to v8 with devtools, bump astro to 6.1.5
+
 ## 0.2.1
 
 ### Patch Changes

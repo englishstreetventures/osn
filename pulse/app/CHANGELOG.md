@@ -1,5 +1,13 @@
 # @osn/pulse
 
+## 0.6.11
+
+### Patch Changes
+
+- 098fd01: Upgrade vite from v6 to v8 with devtools, bump astro to 6.1.5
+- Updated dependencies [098fd01]
+  - @osn/ui@0.2.2
+
 ## 0.6.10
 
 ### Patch Changes
