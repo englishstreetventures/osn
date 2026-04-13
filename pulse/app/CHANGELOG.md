@@ -1,5 +1,30 @@
 # @osn/pulse
 
+## 0.7.0
+
+### Minor Changes
+
+- f5c1780: feat: add multi-account schema foundation (accounts table, userId → profileId rename)
+
+  Introduces the `accounts` table as the authentication principal (login entity) and renames
+  `userId` to `profileId` across all packages to establish the many-profiles-per-account model.
+
+  Key changes:
+
+  - New `accounts` table with `id`, `email`, `maxProfiles`
+  - `users` table gains `accountId` (FK → accounts) and `isDefault` fields
+  - `passkeys` re-parented from users to accounts (`accountId` FK)
+  - All `userId` columns/fields renamed to `profileId` across schemas, services, routes, and tests
+  - Seed data expanded: 21 accounts, 23 profiles (including 3 multi-account profiles), 2 orgs
+  - Registration flow creates account + first profile atomically
+
+### Patch Changes
+
+- Updated dependencies [f5c1780]
+  - @osn/client@0.3.0
+  - @osn/ui@0.3.0
+  - @pulse/api@0.9.0
+
 ## 0.6.11
 
 ### Patch Changes
