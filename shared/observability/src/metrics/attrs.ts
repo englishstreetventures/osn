@@ -49,6 +49,12 @@ export type GraphCloseFriendAction = "add" | "remove";
 /** Event lifecycle states (mirrors Pulse events schema). */
 export type EventStatus = "upcoming" | "ongoing" | "finished" | "cancelled";
 
+/** Organisation CRUD actions. */
+export type OrgAction = "create" | "update" | "delete";
+
+/** Organisation membership state-changing actions. */
+export type OrgMemberAction = "add" | "remove" | "update_role";
+
 /** Auth endpoints subject to IP-based rate limiting (S-H1). */
 export type AuthRateLimitedEndpoint =
   | "register_begin"

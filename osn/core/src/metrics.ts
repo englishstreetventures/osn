@@ -19,6 +19,8 @@ import type {
   GraphBlockAction,
   GraphCloseFriendAction,
   GraphConnectionAction,
+  OrgAction,
+  OrgMemberAction,
   RegisterStep,
   Result,
 } from "@shared/observability/metrics";
@@ -38,6 +40,8 @@ export const OSN_METRICS = {
   graphConnectionOps: "osn.graph.connection.operations",
   graphBlockOps: "osn.graph.block.operations",
   graphCloseFriendOps: "osn.graph.close_friend.operations",
+  orgOps: "osn.org.operations",
+  orgMemberOps: "osn.org.member.operations",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -54,6 +58,8 @@ type AuthRateLimitAttrs = { endpoint: AuthRateLimitedEndpoint };
 type GraphConnectionAttrs = { action: GraphConnectionAction; result: Result };
 type GraphBlockAttrs = { action: GraphBlockAction; result: Result };
 type GraphCloseFriendAttrs = { action: GraphCloseFriendAction; result: Result };
+type OrgAttrs = { action: OrgAction; result: Result };
+type OrgMemberAttrs = { action: OrgMemberAction; result: Result };
 
 // ---------------------------------------------------------------------------
 // Counters / histograms
@@ -130,6 +136,18 @@ const graphBlockOps = createCounter<GraphBlockAttrs>({
 const graphCloseFriendOps = createCounter<GraphCloseFriendAttrs>({
   name: OSN_METRICS.graphCloseFriendOps,
   description: "Social graph close-friend add/remove operations",
+  unit: "{operation}",
+});
+
+const orgOps = createCounter<OrgAttrs>({
+  name: OSN_METRICS.orgOps,
+  description: "Organisation CRUD operations",
+  unit: "{operation}",
+});
+
+const orgMemberOps = createCounter<OrgMemberAttrs>({
+  name: OSN_METRICS.orgMemberOps,
+  description: "Organisation membership state changes",
   unit: "{operation}",
 });
 
@@ -313,6 +331,34 @@ export const metricAuthOtpSent = (purpose: "registration" | "login"): void =>
   authOtpSent.inc({ purpose });
 
 export const metricAuthMagicLinkSent = (result: Result): void => authMagicLinkSent.inc({ result });
+
+export const withOrgOp =
+  (action: OrgAction) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      Effect.withSpan(`org.${action}`),
+      Effect.tap(() => Effect.sync(() => orgOps.inc({ action, result: "ok" }))),
+      Effect.tapError((e) =>
+        Effect.all([
+          Effect.sync(() => orgOps.inc({ action, result: classifyError(e) })),
+          Effect.logError("org operation failed", { action, ...safeErrorSummary(e) }),
+        ]),
+      ),
+    );
+
+export const withOrgMemberOp =
+  (action: OrgMemberAction) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      Effect.withSpan(`org.member.${action}`),
+      Effect.tap(() => Effect.sync(() => orgMemberOps.inc({ action, result: "ok" }))),
+      Effect.tapError((e) =>
+        Effect.all([
+          Effect.sync(() => orgMemberOps.inc({ action, result: classifyError(e) })),
+          Effect.logError("org.member operation failed", { action, ...safeErrorSummary(e) }),
+        ]),
+      ),
+    );
 
 export const metricAuthRateLimited = (endpoint: AuthRateLimitedEndpoint): void =>
   authRateLimited.inc({ endpoint });

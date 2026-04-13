@@ -71,7 +71,7 @@ Monorepo organised by domain. Four directories, four prefixes — see `[[wiki/ar
 
 | Dir | Prefix | What lives here |
 |-----|--------|-----------------|
-| `osn/` | `@osn/*` | Identity stack (auth, graph, SDK, crypto, landing) |
+| `osn/` | `@osn/*` | Identity stack (auth, graph, organisations, SDK, crypto, landing) |
 | `pulse/` | `@pulse/*` | Events stack (app, API, DB) |
 | `zap/` | `@zap/*` | Messaging stack (API on port 3002, DB) |
 | `shared/` | `@shared/*` | Cross-cutting utilities |

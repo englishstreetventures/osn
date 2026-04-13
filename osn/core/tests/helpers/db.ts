@@ -73,6 +73,31 @@ export function createTestLayer() {
       updated_at INTEGER NOT NULL
     )
   `);
+  sqlite.run(`
+    CREATE TABLE organisations (
+      id TEXT PRIMARY KEY,
+      handle TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT,
+      avatar_url TEXT,
+      owner_id TEXT NOT NULL REFERENCES users(id),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+  sqlite.run(`CREATE INDEX organisations_owner_idx ON organisations (owner_id)`);
+  sqlite.run(`
+    CREATE TABLE organisation_members (
+      id TEXT PRIMARY KEY,
+      organisation_id TEXT NOT NULL REFERENCES organisations(id),
+      user_id TEXT NOT NULL REFERENCES users(id),
+      role TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE (organisation_id, user_id)
+    )
+  `);
+  sqlite.run(`CREATE INDEX org_members_org_idx ON organisation_members (organisation_id)`);
+  sqlite.run(`CREATE INDEX org_members_user_idx ON organisation_members (user_id)`);
   const db = drizzle(sqlite, { schema });
   return Layer.succeed(Db, { db });
 }

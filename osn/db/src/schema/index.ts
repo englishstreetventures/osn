@@ -124,3 +124,49 @@ export const serviceAccounts = sqliteTable("service_accounts", {
 
 export type ServiceAccount = typeof serviceAccounts.$inferSelect;
 export type NewServiceAccount = typeof serviceAccounts.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Organisations
+// ---------------------------------------------------------------------------
+
+export const organisations = sqliteTable(
+  "organisations",
+  {
+    id: text("id").primaryKey(), // "org_" prefix
+    handle: text("handle").notNull().unique(), // shared namespace with user handles
+    name: text("name").notNull(),
+    description: text("description"),
+    avatarUrl: text("avatar_url"),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [index("organisations_owner_idx").on(t.ownerId)],
+);
+
+export const organisationMembers = sqliteTable(
+  "organisation_members",
+  {
+    id: text("id").primaryKey(), // "orgm_" prefix
+    organisationId: text("organisation_id")
+      .notNull()
+      .references(() => organisations.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    role: text("role", { enum: ["admin", "member"] }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    unique("org_members_pair_idx").on(t.organisationId, t.userId),
+    index("org_members_org_idx").on(t.organisationId),
+    index("org_members_user_idx").on(t.userId),
+  ],
+);
+
+export type Organisation = typeof organisations.$inferSelect;
+export type NewOrganisation = typeof organisations.$inferInsert;
+export type OrganisationMember = typeof organisationMembers.$inferSelect;
+export type NewOrganisationMember = typeof organisationMembers.$inferInsert;

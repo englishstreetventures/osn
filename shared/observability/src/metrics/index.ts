@@ -29,5 +29,7 @@ export {
   type GraphConnectionAction,
   type GraphBlockAction,
   type GraphCloseFriendAction,
+  type OrgAction,
+  type OrgMemberAction,
   type EventStatus,
 } from "./attrs";

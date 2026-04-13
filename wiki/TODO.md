@@ -74,9 +74,12 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [x] Social graph data model (connections, close friends, blocks) — 209 tests
 - [x] Handle system — registration, real-time availability check, email/handle sign-in toggle
 - [x] ARC token verification middleware on internal graph routes (`/graph/internal/*`)
+- [x] Organisation support — schema (`organisations`, `organisation_members`), Effect service, REST routes, ARC internal routes, observability metrics, 355 tests
 - [ ] Per-app vs global blocking logic (deferred — global blocking across all OSN apps for now)
 - [ ] Interest profile selection (onboarding)
 - [ ] Third-party app authorization flow
+- [ ] Organisation frontend — management UI in Pulse or standalone `@osn/social` Tauri app
+- [ ] Unified `handles` reservation table (user + org handles share namespace; currently enforced at service layer — see Deferred Decisions)
 
 ---
 
@@ -122,7 +125,7 @@ Signal Protocol lives in `@osn/crypto`, not `zap/`.
 
 ### M3 — Organisation chats (the differentiator)
 
-- [ ] `organisations` table in `@osn/db` (verified flag, owner user, allowed scopes, public profile)
+- [x] `organisations` + `organisation_members` tables in `@osn/db` (owner, handle, admin/member roles; verified flag deferred)
 - [ ] Verification flow (manual review for now; document the criteria)
 - [ ] `org_chats` and `org_agents` schemas in `@zap/db` — assignment, queue, status (open/pending/resolved), SLA timestamps
 - [ ] Organisation-side dashboard (separate `@zap/app` view, role-gated): inbox, agent assignment, transcript export, analytics
@@ -400,6 +403,14 @@ Address **High** items before any non-local deployment.
 - [x] S-L28 — `createClientFromUrl()` used eager ioredis connection, allowing zombie connections on health-check failure. Fixed: `lazyConnect: true` + explicit `connect()` / `disconnect()` lifecycle via `ConnectableRedisClient` interface. — see [[redis]]
 - [ ] S-L29 — `/graph/internal/*` routes mounted under open CORS (`Access-Control-Allow-Origin: *`). S2S endpoints should not be browser-reachable. Restrict CORS or mount on an internal-only port. — see [[arc-tokens]]
 - [ ] S-L30 — `createInternalGraphRoutes` does not accept a `loggerLayer` — ARC auth failures and route errors produce no structured log entries. Add observability layer matching `createGraphRoutes` pattern. — see [[arc-tokens]], [[observability/overview]]
+- [x] S-H2 (org) — Handle enumeration via "Handle already taken" message — fixed: changed to "Handle unavailable"
+- [ ] S-H1 (org) — `listMembers` service returns full `User` rows (including `email`, `id`). Route layer correctly applies `userProjection`, but service contract should restrict fields for defence-in-depth.
+- [ ] S-M1 (org) — `GET /organisations/:handle/members` has no membership gate — any authenticated user can list any org's members. Add membership check or document as intentional public access.
+- [x] S-M2 (org) — No `org:write` scope constant for future internal mutation endpoints — fixed: `_SCOPE_ORG_WRITE` constant added
+- [ ] S-M3 (org) — `getOrganisation` service returns `ownerId` internal ID. User-facing routes project it away but future consumers may leak it.
+- [x] S-L4 (org) — No `maxLength` on internal route query params — fixed: added `maxLength: 50`
+- [ ] S-L1 (org) — Org creation rate limit (60/min) shared with member ops; consider tighter limit for creation specifically
+- [ ] S-L3 (org) — TOCTOU gap in handle uniqueness check (DB UNIQUE constraint catches duplicates; user sees generic `DatabaseError` in race case instead of clean `OrgError`)
 
 ---
 
@@ -441,6 +452,13 @@ Address **High** items before any non-local deployment.
 - [x] P-W13 — Same root cause as S-M28: `getConnectionIds` / `getCloseFriendIds` capped at 100, silently truncating membership sets. Fixed jointly with S-M28 by raising the bound to `MAX_EVENT_GUESTS`.
 - [x] P-W14 — `MapPreview` and Leaflet (~150KB + CSS) shipped on every Pulse cold start because the route, the page component, and Leaflet itself were all static imports from `App.tsx`. Fixed in the full-event-view PR with two complementary changes: (1) `EventDetailPage` and `SettingsPage` are now route-level `lazy()`-loaded in `App.tsx`, and (2) `MapPreview` itself dynamic-imports Leaflet inside `onMount` so events without coordinates never pay for the chunk at all.
 - [x] P-W15 — Observability plugin had a no-op `context.with(ctxWithSpan, () => {})` call in `onRequest` that tore the activated OTel context back down immediately — the broken line made service-level `Effect.withSpan` calls root spans instead of children of the HTTP request span, breaking parent-based sampling and trace correlation. Fixed: line removed, OTel `Context` with the server span is now stashed on `REQUEST_STATE` and exposed via `getRequestContext(request)` as an explicit escape hatch for callers that want parent linkage. Documented in code why Elysia hooks cannot wrap the handler invocation via `context.with(...)` directly (separate hook invocations, not a single enclosing scope).
+- [x] P-W1 (org) — Sequential queries in `createOrganisation` — fixed: parallelised handle + owner checks in single `Promise.all`
+- [x] P-W2 (org) — Sequential queries in `addMember` — fixed: parallelised all four pre-insert checks
+- [ ] P-W3 (org) — Sequential queries in `removeMember`/`updateMemberRole` could be parallelised (org exists + caller/target checks)
+- [x] P-W4 (org) — `listUserOrganisations` two-step query — fixed: replaced with single `innerJoin` query
+- [x] P-W5 (org) — `listMembers` two-step query — fixed: replaced with single `innerJoin` query
+- [x] P-W6 (org) — `updateOrganisation` re-fetched org after update — fixed: constructs return from known state
+- [x] P-I1 (org) — `createOrganisation` re-fetched inserted org — fixed: constructs return from known inputs
 
 ### Info
 

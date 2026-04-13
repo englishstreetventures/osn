@@ -54,3 +54,15 @@ export function createRedisGraphRateLimiter(client: RedisClient): RateLimiterBac
     windowMs: ONE_MINUTE_MS,
   });
 }
+
+/**
+ * Build the organisation write rate limiter backed by Redis.
+ * Namespace: `org:write` — key is the authenticated user ID.
+ */
+export function createRedisOrgRateLimiter(client: RedisClient): RateLimiterBackend {
+  return createRedisRateLimiter(client, {
+    namespace: "org:write",
+    maxRequests: 60,
+    windowMs: ONE_MINUTE_MS,
+  });
+}
