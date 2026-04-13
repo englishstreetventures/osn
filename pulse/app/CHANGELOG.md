@@ -1,5 +1,15 @@
 # @osn/pulse
 
+## 0.6.9
+
+### Patch Changes
+
+- 8732b5a: Audit and update dependencies across all workspaces: align version drift (typescript, vitest, solid-js), bump minor versions (drizzle-orm, drizzle-kit, @effect/vitest, @effect/opentelemetry, OTel exporters, @solidjs/router), and apply patches (@astrojs/solid-js, @astrojs/check).
+- Updated dependencies [8732b5a]
+  - @osn/client@0.2.1
+  - @osn/ui@0.2.1
+  - @pulse/api@0.8.1
+
 ## 0.6.8
 
 ### Patch Changes

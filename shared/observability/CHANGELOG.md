@@ -1,5 +1,11 @@
 # @shared/observability
 
+## 0.2.4
+
+### Patch Changes
+
+- 8732b5a: Audit and update dependencies across all workspaces: align version drift (typescript, vitest, solid-js), bump minor versions (drizzle-orm, drizzle-kit, @effect/vitest, @effect/opentelemetry, OTel exporters, @solidjs/router), and apply patches (@astrojs/solid-js, @astrojs/check).
+
 ## 0.2.3
 
 ### Patch Changes
