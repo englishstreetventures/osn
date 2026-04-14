@@ -9,13 +9,9 @@
       "cache": false,
       "persistent": true
     },
-    "lint": {
-      "dependsOn": ["^build"]
-    },
+    "lint": {},
     "fmt": {},
-    "check": {
-      "dependsOn": ["^build"]
-    },
+    "check": {},
     "test": {
       "dependsOn": ["^build"]
     },
