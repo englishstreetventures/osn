@@ -1,5 +1,12 @@
 # @zap/api
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [5520d90]
+  - @osn/core@0.14.1
+
 ## 0.3.0
 
 ### Minor Changes

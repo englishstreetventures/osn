@@ -1,5 +1,13 @@
 # @osn/ui
 
+## 0.3.1
+
+### Patch Changes
+
+- 5520d90: Rename all "user" data structure references to "profile" terminology — User→Profile, PublicUser→PublicProfile, LoginUser→LoginProfile, PulseUser→PulseProfile. Login wire format key renamed from `user` to `profile`. "User" now exclusively means the actual person, never a data structure.
+- Updated dependencies [5520d90]
+  - @osn/client@0.3.1
+
 ## 0.3.0
 
 ### Minor Changes
