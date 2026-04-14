@@ -1,3 +1,4 @@
+import { Card } from "@osn/ui/ui/card";
 import { createResource, For, Show } from "solid-js";
 
 import { fetchCommsSummary } from "../lib/rsvps";
@@ -18,7 +19,7 @@ export function CommsSummary(props: { eventId: string }) {
   const [data] = createResource(() => props.eventId, fetchCommsSummary);
 
   return (
-    <div class="border-border bg-card rounded-xl border p-4">
+    <Card class="p-4">
       <div class="mb-2 flex items-center justify-between">
         <h3 class="text-foreground text-sm font-semibold">Announcements</h3>
         <Show when={data()?.channels}>
@@ -48,6 +49,6 @@ export function CommsSummary(props: { eventId: string }) {
           </For>
         </ul>
       </Show>
-    </div>
+    </Card>
   );
 }

@@ -493,6 +493,8 @@ Address **High** items before any non-local deployment.
 - [ ] P-I5 — `/graph/internal/connections` and `/close-friends` do not expose `offset` parameter — callers cannot paginate beyond the first 100 results. Add `offset: t.Optional(t.String())` to query schema. — see [[arc-tokens]]
 - [ ] P-I3 — `new TextEncoder()` allocated per `verifyPkceChallenge` call — move to module scope
 - [ ] P-I4 — `AuthProvider` reconstructs Effect `Layer` on every render — wrap with `createMemo`
+- [ ] P-W23 — `tailwind-merge` (~12-14 KB min+gzip) added to initial bundle via `cn()` — every render invokes `twMerge(clsx(...))` at runtime. Acceptable for design-system ergonomics; consider build-time evaluation (Vite plugin) or dropping to `clsx`-only if bundle size becomes a concern. — see [[component-library]]
+- [ ] P-W24 — `cn()` with signal reads replaces SolidJS `classList` in `SignIn.tsx` tab buttons — recomputes full `className` on every signal change instead of fine-grained class toggles. Negligible at current scale (3 buttons); avoid the pattern inside `<For>` loops. — see [[component-library]]
 - [ ] P-I5 — `completePasskeyLogin` calls `findProfileByEmail` redundantly — `pk.userId` already on passkey row
 - [ ] P-I6 — Duplicate index on `users.email` — `unique()` already creates one implicitly in SQLite
 - [ ] P-I7 — Eliminate extra `getEvent` round-trip in `createEvent` via `RETURNING *`
@@ -529,12 +531,14 @@ Address **High** items before any non-local deployment.
 | DB table rename `users` → `profiles` | The table is called `users` but represents profiles. Renaming is a migration-heavy change for minimal runtime benefit. Code already uses profile terminology everywhere. | Only if it causes genuine confusion |
 | S2S scaling — see [[s2s-patterns]], [[arc-tokens]], [[s2s-migration]] | Current: direct package import (`createGraphService()`). Migrate to HTTP `/graph/internal/*` + ARC tokens when scaling horizontally. | When multi-process or multi-machine deployment needed |
 | Per-app blocking — see [[social-graph]] | Blocks are global across all OSN apps. Per-app scope deferred. | When Messaging or a third-party app needs independent block lists |
+<<<<<<< HEAD
 | Profile transfer between accounts | Meta supports unlinking/relinking profiles to different accounts | After multi-account ships (P6) |
 | Per-profile notification email | Profiles might want separate contact emails (beyond the account login email) | When notification system is built |
 | Profile-level 2FA | Currently 2FA would be account-wide (passkeys on accounts) | When 2FA is implemented |
 | Cross-profile content sharing | Reposting between own profiles | Phase 2 social features |
 | Max profiles per account | Set to 5 (like Instagram) via `accounts.maxProfiles`; make configurable? | Before launch |
 | Self-interaction policy | Two profiles from same account CAN follow/message/interact (preventing it leaks the link). Meta allows this. | Multi-account P6 privacy audit |
+| Build-time `cn()` evaluation — see [[component-library]] | `tailwind-merge` (~12-14 KB) runs at runtime. Options: Vite plugin for static evaluation, drop to `clsx`-only, or `tw-merge-plugin`. | When bundle size becomes a concern or Lighthouse audits flag it |
 | Tauri passkey support on iOS | Tauri webview does not expose WebAuthn natively — `pulse/app` registration flow (rendered by `@osn/ui/auth/Register`) feature-detects via `browserSupportsWebAuthn()` and auto-skips the passkey step on unsupported environments. Options when we ship mobile: (a) adopt [`tauri-plugin-webauthn`](https://github.com/Profiidev/tauri-plugin-webauthn) (third-party, audit first), (b) write our own thin Tauri plugin wrapping `ASAuthorizationPlatformPublicKeyCredentialProvider`, (c) wait for upstream — track [tauri#7926](https://github.com/tauri-apps/tauri/issues/7926). | When iOS build of Pulse is ready for sign-in |
 
 ---

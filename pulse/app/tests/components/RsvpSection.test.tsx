@@ -70,8 +70,9 @@ describe("RsvpSection", () => {
       <RsvpSection event={baseEvent} accessToken="tok" currentProfileId="usr_dan" />
     ));
     await waitFor(() => {
-      const initials = container.querySelector("span.inline-flex");
-      expect(initials?.textContent).toBe("BS");
+      // Avatar wrapper is span.base\\:relative; fallback initials are inside a nested span.
+      const wrapper = container.querySelector("span.base\\:relative");
+      expect(wrapper?.textContent).toBe("BS");
     });
   });
 
@@ -92,7 +93,8 @@ describe("RsvpSection", () => {
       <RsvpSection event={baseEvent} accessToken="tok" currentProfileId="usr_dan" />
     ));
     await waitFor(() => {
-      const avatar = container.querySelector("span.inline-flex") as HTMLElement;
+      // Close-friend ring is on the outer Avatar wrapper (span.base\\:relative).
+      const avatar = container.querySelector("span.base\\:relative") as HTMLElement;
       // ring-green-500 is the centralised marker — see lib/ui.ts.
       expect(avatar?.classList.contains("ring-green-500")).toBe(true);
     });

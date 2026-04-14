@@ -1,3 +1,10 @@
+import { Button } from "@osn/ui/ui/button";
+import { Card } from "@osn/ui/ui/card";
+import { Checkbox } from "@osn/ui/ui/checkbox";
+import { Input } from "@osn/ui/ui/input";
+import { Label } from "@osn/ui/ui/label";
+import { RadioGroup, RadioGroupItem } from "@osn/ui/ui/radio-group";
+import { Textarea } from "@osn/ui/ui/textarea";
 import { createSignal, createMemo, Show } from "solid-js";
 import { toast } from "solid-toast";
 
@@ -83,270 +90,189 @@ export function CreateEventForm(props: {
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      class="border-border bg-card mb-4 flex flex-col gap-4 rounded-xl border p-4"
-    >
-      {/* Title */}
-      <div class="flex flex-col gap-1">
-        <label class="text-foreground text-sm font-medium" for="title">
-          Title
-        </label>
-        <input
-          id="title"
-          type="text"
-          required
-          value={title()}
-          onInput={(e) => setTitle(e.currentTarget.value)}
-          class="border-input bg-background text-foreground focus:ring-ring rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2"
-        />
-      </div>
-
-      {/* Time */}
-      <div class="flex gap-3">
-        <div class="flex flex-1 flex-col gap-1">
-          <label class="text-foreground text-sm font-medium" for="startTime">
-            Start time
-          </label>
-          <input
-            id="startTime"
-            type="datetime-local"
+    <Card class="mb-4 p-4">
+      <form onSubmit={handleSubmit} class="flex flex-col gap-4">
+        {/* Title */}
+        <div class="flex flex-col gap-1">
+          <Label for="title">Title</Label>
+          <Input
+            id="title"
+            type="text"
             required
-            value={startTime()}
-            onInput={(e) => setStartTime(e.currentTarget.value)}
-            class="border-input bg-background text-foreground focus:ring-ring rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2"
+            value={title()}
+            onInput={(e) => setTitle(e.currentTarget.value)}
           />
         </div>
-        <div class="flex flex-1 flex-col gap-1">
-          <label class="text-foreground text-sm font-medium" for="endTime">
-            End time
-          </label>
-          <input
-            id="endTime"
-            type="datetime-local"
-            min={startTime()}
-            value={endTime()}
-            onInput={(e) => setEndTime(e.currentTarget.value)}
-            class={`text-foreground focus:ring-ring bg-background rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2 ${endTimeError() ? "border-destructive" : "border-input"}`}
+
+        {/* Time */}
+        <div class="flex gap-3">
+          <div class="flex flex-1 flex-col gap-1">
+            <Label for="startTime">Start time</Label>
+            <Input
+              id="startTime"
+              type="datetime-local"
+              required
+              value={startTime()}
+              onInput={(e) => setStartTime(e.currentTarget.value)}
+            />
+          </div>
+          <div class="flex flex-1 flex-col gap-1">
+            <Label for="endTime">End time</Label>
+            <Input
+              id="endTime"
+              type="datetime-local"
+              min={startTime()}
+              value={endTime()}
+              onInput={(e) => setEndTime(e.currentTarget.value)}
+              class={endTimeError() ? "border-destructive" : ""}
+            />
+            <Show when={endTimeError()}>
+              {(err) => <p class="text-destructive text-xs">{err()}</p>}
+            </Show>
+          </div>
+        </div>
+
+        {/* Location */}
+        <div class="flex flex-col gap-1">
+          <Label for="location">Location</Label>
+          <LocationInput
+            value={location()}
+            onValue={(v) => {
+              setLocation(v);
+              setLatitude(undefined);
+              setLongitude(undefined);
+            }}
+            onCoords={(lat, lng) => {
+              setLatitude(lat);
+              setLongitude(lng);
+            }}
           />
-          <Show when={endTimeError()}>
+        </div>
+
+        {/* Description */}
+        <div class="flex flex-col gap-1">
+          <Label for="description">Description</Label>
+          <Textarea
+            id="description"
+            rows={3}
+            value={description()}
+            onInput={(e) => setDescription(e.currentTarget.value)}
+            class="resize-none"
+          />
+        </div>
+
+        {/* Event visibility */}
+        <div class="flex flex-col gap-1">
+          <div class="flex items-center">
+            <Label>Event visibility</Label>
+            <InfoPopover
+              label="About event visibility"
+              body="Public events can appear in Discover and the Pulse feed. Private events are only reachable by direct link or invite — they won't show up in anyone else's feed."
+            />
+          </div>
+          <RadioGroup
+            value={visibility()}
+            onChange={(v) => setVisibility(v as Visibility)}
+            name="visibility"
+          >
+            <RadioGroupItem value="public" label="Public" />
+            <RadioGroupItem value="private" label="Private (link only)" />
+          </RadioGroup>
+        </div>
+
+        {/* Guest list visibility */}
+        <div class="flex flex-col gap-1">
+          <div class="flex items-center">
+            <Label>Guest list visibility</Label>
+            <InfoPopover
+              label="About guest list visibility"
+              body="Public = anyone who can see the event sees who's going. Connections = only your connections can see the list. Private = only you can see — others see counts only."
+            />
+          </div>
+          <RadioGroup
+            value={guestListVisibility()}
+            onChange={(v) => setGuestListVisibility(v as GuestListVisibility)}
+            name="guestListVisibility"
+          >
+            <RadioGroupItem value="public" label="Public" />
+            <RadioGroupItem value="connections" label="Connections only" />
+            <RadioGroupItem value="private" label="Hidden" />
+          </RadioGroup>
+        </div>
+
+        {/* Join policy */}
+        <div class="flex flex-col gap-1">
+          <div class="flex items-center">
+            <Label>Who can RSVP?</Label>
+            <InfoPopover
+              label="About join policy"
+              body="Open = anyone with the link can RSVP going or maybe. Guest list = you invite specific people first, and only invited users can RSVP going."
+            />
+          </div>
+          <RadioGroup
+            value={joinPolicy()}
+            onChange={(v) => setJoinPolicy(v as JoinPolicy)}
+            name="joinPolicy"
+          >
+            <RadioGroupItem value="open" label="Anyone with the link" />
+            <RadioGroupItem value="guest_list" label="Guest list only" />
+          </RadioGroup>
+        </div>
+
+        {/* Allow interested */}
+        <div class="flex flex-col gap-1">
+          <div class="flex items-center">
+            <Label>Allow "Maybe" replies?</Label>
+            <InfoPopover
+              label="About Maybe replies"
+              body="When enabled, guests can RSVP Maybe in addition to Going / Can't make it. Turn off for strict Yes/No events."
+            />
+          </div>
+          <RadioGroup
+            value={allowInterested() ? "yes" : "no"}
+            onChange={(v) => setAllowInterested(v === "yes")}
+            name="allowInterested"
+          >
+            <RadioGroupItem value="yes" label="Yes" />
+            <RadioGroupItem value="no" label="No" />
+          </RadioGroup>
+        </div>
+
+        {/* Comms channels */}
+        <div class="flex flex-col gap-1">
+          <div class="flex items-center">
+            <Label>How to reach guests</Label>
+            <InfoPopover
+              label="About announcement channels"
+              body="The channels you'll use to send reminders and announcements (blasts) to guests. Pick one or both — actual sending lands later; for now you can preview how blasts will appear on the event page."
+            />
+          </div>
+          <div class="flex gap-3 text-sm">
+            <Checkbox
+              checked={commsChannels().has("email")}
+              onChange={() => toggleChannel("email")}
+              label="Email"
+            />
+            <Checkbox
+              checked={commsChannels().has("sms")}
+              onChange={() => toggleChannel("sms")}
+              label="SMS"
+            />
+          </div>
+          <Show when={commsError()}>
             {(err) => <p class="text-destructive text-xs">{err()}</p>}
           </Show>
         </div>
-      </div>
 
-      {/* Location */}
-      <div class="flex flex-col gap-1">
-        <label class="text-foreground text-sm font-medium" for="location">
-          Location
-        </label>
-        <LocationInput
-          value={location()}
-          onValue={(v) => {
-            setLocation(v);
-            setLatitude(undefined);
-            setLongitude(undefined);
-          }}
-          onCoords={(lat, lng) => {
-            setLatitude(lat);
-            setLongitude(lng);
-          }}
-        />
-      </div>
-
-      {/* Description */}
-      <div class="flex flex-col gap-1">
-        <label class="text-foreground text-sm font-medium" for="description">
-          Description
-        </label>
-        <textarea
-          id="description"
-          rows={3}
-          value={description()}
-          onInput={(e) => setDescription(e.currentTarget.value)}
-          class="border-input bg-background text-foreground focus:ring-ring resize-none rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2"
-        />
-      </div>
-
-      {/* Event visibility */}
-      <div class="flex flex-col gap-1">
-        <div class="flex items-center">
-          <span class="text-foreground text-sm font-medium">Event visibility</span>
-          <InfoPopover
-            label="About event visibility"
-            body="Public events can appear in Discover and the Pulse feed. Private events are only reachable by direct link or invite — they won't show up in anyone else's feed."
-          />
+        <div class="flex justify-end gap-2">
+          <Button type="button" variant="secondary" size="sm" onClick={props.onCancel}>
+            Cancel
+          </Button>
+          <Button type="submit" size="sm" disabled={submitting()}>
+            {submitting() ? "Creating…" : "Create"}
+          </Button>
         </div>
-        <div class="flex gap-2 text-sm">
-          <label class="flex cursor-pointer items-center gap-1">
-            <input
-              type="radio"
-              name="visibility"
-              checked={visibility() === "public"}
-              onChange={() => setVisibility("public")}
-            />
-            Public
-          </label>
-          <label class="flex cursor-pointer items-center gap-1">
-            <input
-              type="radio"
-              name="visibility"
-              checked={visibility() === "private"}
-              onChange={() => setVisibility("private")}
-            />
-            Private (link only)
-          </label>
-        </div>
-      </div>
-
-      {/* Guest list visibility */}
-      <div class="flex flex-col gap-1">
-        <div class="flex items-center">
-          <span class="text-foreground text-sm font-medium">Guest list visibility</span>
-          <InfoPopover
-            label="About guest list visibility"
-            body="Public = anyone who can see the event sees who's going. Connections = only your connections can see the list. Private = only you can see — others see counts only."
-          />
-        </div>
-        <div class="flex gap-2 text-sm">
-          <label class="flex cursor-pointer items-center gap-1">
-            <input
-              type="radio"
-              name="guestListVisibility"
-              checked={guestListVisibility() === "public"}
-              onChange={() => setGuestListVisibility("public")}
-            />
-            Public
-          </label>
-          <label class="flex cursor-pointer items-center gap-1">
-            <input
-              type="radio"
-              name="guestListVisibility"
-              checked={guestListVisibility() === "connections"}
-              onChange={() => setGuestListVisibility("connections")}
-            />
-            Connections only
-          </label>
-          <label class="flex cursor-pointer items-center gap-1">
-            <input
-              type="radio"
-              name="guestListVisibility"
-              checked={guestListVisibility() === "private"}
-              onChange={() => setGuestListVisibility("private")}
-            />
-            Hidden
-          </label>
-        </div>
-      </div>
-
-      {/* Join policy */}
-      <div class="flex flex-col gap-1">
-        <div class="flex items-center">
-          <span class="text-foreground text-sm font-medium">Who can RSVP?</span>
-          <InfoPopover
-            label="About join policy"
-            body="Open = anyone with the link can RSVP going or maybe. Guest list = you invite specific people first, and only invited users can RSVP going."
-          />
-        </div>
-        <div class="flex gap-2 text-sm">
-          <label class="flex cursor-pointer items-center gap-1">
-            <input
-              type="radio"
-              name="joinPolicy"
-              checked={joinPolicy() === "open"}
-              onChange={() => setJoinPolicy("open")}
-            />
-            Anyone with the link
-          </label>
-          <label class="flex cursor-pointer items-center gap-1">
-            <input
-              type="radio"
-              name="joinPolicy"
-              checked={joinPolicy() === "guest_list"}
-              onChange={() => setJoinPolicy("guest_list")}
-            />
-            Guest list only
-          </label>
-        </div>
-      </div>
-
-      {/* Allow interested */}
-      <div class="flex flex-col gap-1">
-        <div class="flex items-center">
-          <span class="text-foreground text-sm font-medium">Allow "Maybe" replies?</span>
-          <InfoPopover
-            label="About Maybe replies"
-            body="When enabled, guests can RSVP Maybe in addition to Going / Can't make it. Turn off for strict Yes/No events."
-          />
-        </div>
-        <div class="flex gap-2 text-sm">
-          <label class="flex cursor-pointer items-center gap-1">
-            <input
-              type="radio"
-              name="allowInterested"
-              checked={allowInterested() === true}
-              onChange={() => setAllowInterested(true)}
-            />
-            Yes
-          </label>
-          <label class="flex cursor-pointer items-center gap-1">
-            <input
-              type="radio"
-              name="allowInterested"
-              checked={allowInterested() === false}
-              onChange={() => setAllowInterested(false)}
-            />
-            No
-          </label>
-        </div>
-      </div>
-
-      {/* Comms channels */}
-      <div class="flex flex-col gap-1">
-        <div class="flex items-center">
-          <span class="text-foreground text-sm font-medium">How to reach guests</span>
-          <InfoPopover
-            label="About announcement channels"
-            body="The channels you'll use to send reminders and announcements (blasts) to guests. Pick one or both — actual sending lands later; for now you can preview how blasts will appear on the event page."
-          />
-        </div>
-        <div class="flex gap-3 text-sm">
-          <label class="flex cursor-pointer items-center gap-1">
-            <input
-              type="checkbox"
-              checked={commsChannels().has("email")}
-              onChange={() => toggleChannel("email")}
-            />
-            Email
-          </label>
-          <label class="flex cursor-pointer items-center gap-1">
-            <input
-              type="checkbox"
-              checked={commsChannels().has("sms")}
-              onChange={() => toggleChannel("sms")}
-            />
-            SMS
-          </label>
-        </div>
-        <Show when={commsError()}>{(err) => <p class="text-destructive text-xs">{err()}</p>}</Show>
-      </div>
-
-      <div class="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={props.onCancel}
-          class="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-1.5 text-sm font-medium"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={submitting()}
-          class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-        >
-          {submitting() ? "Creating…" : "Create"}
-        </button>
-      </div>
-    </form>
+      </form>
+    </Card>
   );
 }

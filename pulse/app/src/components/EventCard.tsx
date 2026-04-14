@@ -1,3 +1,6 @@
+import { Avatar, AvatarImage, AvatarFallback } from "@osn/ui/ui/avatar";
+import { Badge } from "@osn/ui/ui/badge";
+import { Card } from "@osn/ui/ui/card";
 import { A } from "@solidjs/router";
 import { Show } from "solid-js";
 
@@ -33,7 +36,7 @@ export function EventCard(props: {
     !!props.currentProfileId && props.event.createdByProfileId === props.currentProfileId;
 
   return (
-    <div class="border-border bg-card overflow-hidden rounded-xl border">
+    <Card class="overflow-hidden">
       {/* The block above the action row is a single navigable link to the
           full event view. We exclude the bottom row (Maps link + Delete
           button) so nested interactive elements don't steal the click. */}
@@ -48,9 +51,9 @@ export function EventCard(props: {
         <div class="p-4 pb-0">
           <div class="mb-2 flex items-center gap-2">
             <Show when={props.event.category}>
-              <span class="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-semibold tracking-wide uppercase">
+              <Badge variant="secondary" class="tracking-wide uppercase">
                 {props.event.category}
-              </span>
+              </Badge>
             </Show>
             <span
               class={`text-xs ${props.event.status === "ongoing" ? "font-semibold text-green-600" : props.event.status === "cancelled" ? "text-destructive" : "text-muted-foreground"}`}
@@ -70,22 +73,12 @@ export function EventCard(props: {
         <Show when={props.event.createdByName}>
           {(name) => (
             <div class="mb-3 flex items-center gap-2">
-              <Show
-                when={props.event.createdByAvatar}
-                fallback={
-                  <span class="bg-muted text-muted-foreground inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold">
-                    {initials(name())}
-                  </span>
-                }
-              >
-                {(avatar) => (
-                  <img
-                    src={avatar()}
-                    alt={name()}
-                    class="h-6 w-6 shrink-0 rounded-full object-cover"
-                  />
-                )}
-              </Show>
+              <Avatar class="h-6 w-6">
+                <Show when={props.event.createdByAvatar}>
+                  {(avatar) => <AvatarImage src={avatar()} alt={name()} />}
+                </Show>
+                <AvatarFallback>{initials(name())}</AvatarFallback>
+              </Avatar>
               <span class="text-muted-foreground text-xs">Hosted by {name()}</span>
             </div>
           )}
@@ -130,6 +123,6 @@ export function EventCard(props: {
           </Show>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

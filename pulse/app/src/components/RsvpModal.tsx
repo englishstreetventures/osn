@@ -1,3 +1,5 @@
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from "@osn/ui/ui/dialog";
+import { Tabs, TabsList, TabsTrigger } from "@osn/ui/ui/tabs";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { fetchRsvpsByStatus, type Rsvp, type RsvpStatus } from "../lib/rsvps";
@@ -48,45 +50,35 @@ export function RsvpModal(props: {
   ];
 
   return (
-    <div
-      role="none"
-      class="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) props.onClose();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") props.onClose();
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onClose();
       }}
     >
-      <div class="bg-card border-border flex max-h-[85vh] w-full flex-col rounded-t-xl border shadow-xl sm:max-w-lg sm:rounded-xl">
-        <div class="border-border flex items-center justify-between border-b p-4">
-          <h2 class="text-foreground text-base font-semibold">Guest list</h2>
-          <button
-            type="button"
-            onClick={props.onClose}
+      <DialogContent class="flex max-h-[85vh] flex-col">
+        <DialogHeader>
+          <DialogTitle>Guest list</DialogTitle>
+          <DialogClose
             aria-label="Close"
             class="text-muted-foreground hover:text-foreground text-xl leading-none"
           >
             ×
-          </button>
-        </div>
+          </DialogClose>
+        </DialogHeader>
 
-        <div class="border-border flex gap-1 overflow-x-auto border-b p-2">
-          <For each={tabs.filter((t) => t.show())}>
-            {(t) => (
-              <button
-                type="button"
-                onClick={() => setTab(t.id)}
-                class={`rounded-md px-3 py-1.5 text-xs font-medium ${
-                  tab() === t.id
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                {t.label}
-              </button>
-            )}
-          </For>
+        <div class="border-border overflow-x-auto border-b p-2">
+          <Tabs value={tab()} onChange={(v) => setTab(v as Tab)}>
+            <TabsList>
+              <For each={tabs.filter((t) => t.show())}>
+                {(t) => (
+                  <TabsTrigger value={t.id} class="text-xs">
+                    {t.label}
+                  </TabsTrigger>
+                )}
+              </For>
+            </TabsList>
+          </Tabs>
         </div>
 
         <div class="flex-1 overflow-y-auto p-4">
@@ -126,7 +118,7 @@ export function RsvpModal(props: {
             </ul>
           </Show>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

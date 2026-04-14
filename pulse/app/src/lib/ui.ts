@@ -9,19 +9,11 @@
 
 /**
  * Ring classes applied to an avatar (img or initials span) to mark the
- * author as a close friend of the current viewer. Used by `RsvpSection`
- * and `RsvpModal` — when those render a row whose `isCloseFriend` flag
- * is true, they append these classes to the avatar element.
+ * author as a close friend of the current viewer. Used by `RsvpAvatar`
+ * — when it renders a row whose `isCloseFriend` flag is true, it appends
+ * these classes via `cn()`.
  *
  * Change the colour here and every close-friend affordance in the app
  * updates automatically.
  */
 export const CLOSE_FRIEND_RING_CLASS = "ring-2 ring-green-500 ring-offset-2 ring-offset-card";
-
-/**
- * Build the full set of avatar classes for a close-friend-aware avatar.
- * Call with `isCloseFriend: true` to append the close-friend ring.
- */
-export function avatarClasses(base: string, isCloseFriend: boolean | undefined): string {
-  return isCloseFriend ? `${base} ${CLOSE_FRIEND_RING_CLASS}` : base;
-}

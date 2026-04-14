@@ -1,3 +1,4 @@
+import { Button } from "@osn/ui/ui/button";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 /**
@@ -28,12 +29,8 @@ export function AddToCalendarButton(props: { eventId: string; apiBaseUrl: string
   }
 
   return (
-    <button
-      type="button"
-      onClick={addToCalendar}
-      class="bg-secondary text-secondary-foreground hover:bg-secondary/80 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium"
-    >
+    <Button variant="secondary" size="sm" onClick={addToCalendar}>
       Add to calendar
-    </button>
+    </Button>
   );
 }

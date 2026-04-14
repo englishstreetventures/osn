@@ -1,3 +1,5 @@
+import { Button } from "@osn/ui/ui/button";
+import { Card } from "@osn/ui/ui/card";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type * as Leaflet from "leaflet";
 import { onCleanup, onMount, Show } from "solid-js";
@@ -71,28 +73,24 @@ export function MapPreview(props: {
       when={props.latitude != null && props.longitude != null}
       fallback={
         <Show when={props.label}>
-          <div class="border-border bg-card rounded-xl border p-4">
+          <Card class="p-4">
             <p class="text-foreground text-sm font-medium">Location</p>
             <p class="text-muted-foreground text-sm">{props.label}</p>
-          </div>
+          </Card>
         </Show>
       }
     >
-      <div class="border-border bg-card overflow-hidden rounded-xl border">
+      <Card class="overflow-hidden">
         <div ref={mapEl} class="h-48 w-full" />
         <div class="flex items-center justify-between gap-3 p-3">
           <Show when={props.label}>
             <p class="text-muted-foreground truncate text-xs">{props.label}</p>
           </Show>
-          <button
-            type="button"
-            onClick={findDirections}
-            class="bg-primary text-primary-foreground hover:bg-primary/90 shrink-0 rounded-md px-3 py-1.5 text-xs font-medium"
-          >
+          <Button size="sm" onClick={findDirections} class="shrink-0 text-xs">
             Find directions
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
     </Show>
   );
 }

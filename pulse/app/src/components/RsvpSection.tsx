@@ -1,3 +1,5 @@
+import { Button } from "@osn/ui/ui/button";
+import { Card } from "@osn/ui/ui/card";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
@@ -61,7 +63,7 @@ export function RsvpSection(props: {
   }
 
   return (
-    <div class="border-border bg-card rounded-xl border p-4">
+    <Card class="p-4">
       <div class="mb-3 flex items-center justify-between">
         <h3 class="text-foreground text-sm font-semibold">Who's going</h3>
         <button
@@ -103,32 +105,27 @@ export function RsvpSection(props: {
       </div>
 
       <div class="flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={submitting()}
-          onClick={() => handleRsvp("going")}
-          class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-        >
+        <Button size="sm" disabled={submitting()} onClick={() => handleRsvp("going")}>
           I'm going
-        </button>
+        </Button>
         <Show when={props.event.allowInterested}>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
             disabled={submitting()}
             onClick={() => handleRsvp("interested")}
-            class="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50"
           >
             Maybe
-          </button>
+          </Button>
         </Show>
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          size="sm"
           disabled={submitting()}
           onClick={() => handleRsvp("not_going")}
-          class="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50"
         >
           Can't make it
-        </button>
+        </Button>
       </div>
 
       <Show when={modalOpen()}>
@@ -138,6 +135,6 @@ export function RsvpSection(props: {
           onClose={() => setModalOpen(false)}
         />
       </Show>
-    </div>
+    </Card>
   );
 }

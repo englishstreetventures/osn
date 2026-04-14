@@ -80,8 +80,9 @@ describe("EventCard", () => {
     ));
     expect(getByText("Hosted by Alice Chen")).toBeTruthy();
     // Initials span should contain "AC" (first two letters of each word, uppercased)
-    const initialsSpan = container.querySelector("span.inline-flex");
-    expect(initialsSpan?.textContent).toBe("AC");
+    // Avatar wrapper is span.base\\:relative; the fallback text is in a nested span.
+    const avatarWrapper = container.querySelector("span.base\\:relative");
+    expect(avatarWrapper?.textContent).toBe("AC");
     // No avatar img inside the hosted-by section (only the event imageUrl img, which is absent)
     expect(container.querySelector("img")).toBeNull();
   });

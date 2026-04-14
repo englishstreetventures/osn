@@ -4,6 +4,10 @@ import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/brow
 import { createSignal, Show, onCleanup } from "solid-js";
 import { toast } from "solid-toast";
 
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+
 type Step = "details" | "verify" | "passkey" | "done";
 
 const HANDLE_RE = /^[a-z0-9_]{1,30}$/;
@@ -173,41 +177,38 @@ export function Register(props: RegisterProps) {
     <div class="mx-auto max-w-sm px-4 py-8">
       <div class="mb-6 flex items-center justify-between">
         <h2 class="text-foreground text-2xl font-bold">Create your OSN account</h2>
-        <button
-          type="button"
-          onClick={props.onCancel}
-          class="text-muted-foreground hover:text-foreground text-sm"
-        >
+        <Button variant="ghost" size="sm" onClick={props.onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
 
       <Show when={step() === "details"}>
         <form onSubmit={submitDetails} class="flex flex-col gap-4">
-          <label class="flex flex-col gap-1">
-            <span class="text-sm font-medium">Email</span>
-            <input
+          <div class="flex flex-col gap-1">
+            <Label for="reg-email">Email</Label>
+            <Input
+              id="reg-email"
               type="email"
               required
               autocomplete="email"
               value={email()}
               onInput={(e) => setEmail(e.currentTarget.value)}
-              class="border-input bg-background rounded-md border px-3 py-2 text-sm"
             />
-          </label>
+          </div>
 
-          <label class="flex flex-col gap-1">
-            <span class="text-sm font-medium">Handle</span>
+          <div class="flex flex-col gap-1">
+            <Label for="reg-handle">Handle</Label>
             <div class="flex items-center gap-2">
               <span class="text-muted-foreground">@</span>
-              <input
+              <Input
+                id="reg-handle"
                 type="text"
                 required
                 autocomplete="username"
                 value={handle()}
                 onInput={(e) => onHandleInput(e.currentTarget.value)}
                 placeholder="lowercase, numbers, _"
-                class="border-input bg-background flex-1 rounded-md border px-3 py-2 text-sm"
+                class="flex-1"
               />
             </div>
             <Show when={handleStatus() === "checking"}>
@@ -229,25 +230,21 @@ export function Register(props: RegisterProps) {
                 Couldn&apos;t check availability — try again
               </span>
             </Show>
-          </label>
+          </div>
 
-          <label class="flex flex-col gap-1">
-            <span class="text-sm font-medium">Display name (optional)</span>
-            <input
+          <div class="flex flex-col gap-1">
+            <Label for="reg-display-name">Display name (optional)</Label>
+            <Input
+              id="reg-display-name"
               type="text"
               value={displayName()}
               onInput={(e) => setDisplayName(e.currentTarget.value)}
-              class="border-input bg-background rounded-md border px-3 py-2 text-sm"
             />
-          </label>
+          </div>
 
-          <button
-            type="submit"
-            disabled={!detailsValid() || busy()}
-            class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md py-2 text-sm font-medium disabled:opacity-50"
-          >
+          <Button type="submit" disabled={!detailsValid() || busy()}>
             {busy() ? "Sending…" : "Send verification code"}
-          </button>
+          </Button>
         </form>
       </Show>
 
@@ -256,9 +253,10 @@ export function Register(props: RegisterProps) {
           <p class="text-muted-foreground text-sm">
             We sent a 6-digit code to <strong>{email()}</strong>. Enter it below to verify.
           </p>
-          <label class="flex flex-col gap-1">
-            <span class="text-sm font-medium">Verification code</span>
-            <input
+          <div class="flex flex-col gap-1">
+            <Label for="reg-otp">Verification code</Label>
+            <Input
+              id="reg-otp"
               type="text"
               inputmode="numeric"
               autocomplete="one-time-code"
@@ -266,23 +264,15 @@ export function Register(props: RegisterProps) {
               required
               value={otp()}
               onInput={(e) => setOtp(e.currentTarget.value.replace(/\D/g, "").slice(0, 6))}
-              class="border-input bg-background rounded-md border px-3 py-2 text-center text-sm tracking-[0.5em]"
+              class="text-center tracking-[0.5em]"
             />
-          </label>
-          <button
-            type="submit"
-            disabled={otp().length !== 6 || busy()}
-            class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md py-2 text-sm font-medium disabled:opacity-50"
-          >
+          </div>
+          <Button type="submit" disabled={otp().length !== 6 || busy()}>
             {busy() ? "Verifying…" : "Verify email"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setStep("details")}
-            class="text-muted-foreground hover:text-foreground text-xs"
-          >
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setStep("details")}>
             ← Use a different email
-          </button>
+          </Button>
         </form>
       </Show>
 
@@ -301,22 +291,12 @@ export function Register(props: RegisterProps) {
               Set up a passkey so you can sign back in with Face ID, Touch ID, or your device PIN —
               no password required.
             </p>
-            <button
-              type="button"
-              onClick={enrollPasskey}
-              disabled={busy()}
-              class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md py-2 text-sm font-medium disabled:opacity-50"
-            >
+            <Button onClick={enrollPasskey} disabled={busy()}>
               {busy() ? "Setting up…" : "Create passkey"}
-            </button>
-            <button
-              type="button"
-              onClick={skipPasskeyForNow}
-              disabled={busy()}
-              class="text-muted-foreground hover:text-foreground text-xs"
-            >
+            </Button>
+            <Button variant="ghost" size="sm" onClick={skipPasskeyForNow} disabled={busy()}>
               Skip for now (you can add one later)
-            </button>
+            </Button>
           </div>
         </Show>
       </Show>

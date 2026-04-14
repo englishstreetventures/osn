@@ -1,3 +1,5 @@
+import { Card } from "@osn/ui/ui/card";
+
 /**
  * Placeholder for the event chat. Zap — OSN's messaging app — has its
  * name and workspace layout pinned (`@zap/app` / `@zap/api` / `@zap/db`)
@@ -9,7 +11,7 @@
  */
 export function EventChatPlaceholder(props: { eventId: string }) {
   return (
-    <div class="border-border bg-card/50 rounded-xl border border-dashed p-6 text-center">
+    <Card class="bg-card/50 border-dashed p-6 text-center">
       <h3 class="text-foreground mb-1 text-sm font-semibold">Event chat</h3>
       <p class="text-muted-foreground text-xs">
         Chat for this event will live here — powered by <span class="font-semibold">Zap</span>,
@@ -18,6 +20,6 @@ export function EventChatPlaceholder(props: { eventId: string }) {
       <p class="text-muted-foreground/70 mt-1 text-[10px]">
         Tracked under Zap M2 · event id <code class="font-mono">{props.eventId}</code>
       </p>
-    </div>
+    </Card>
   );
 }

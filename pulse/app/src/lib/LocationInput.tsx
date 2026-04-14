@@ -1,3 +1,5 @@
+import { Card } from "@osn/ui/ui/card";
+import { Input } from "@osn/ui/ui/input";
 import { createSignal, createEffect, onCleanup, For, Show } from "solid-js";
 
 import { composeLabel, type PhotonFeature } from "./utils";
@@ -66,34 +68,35 @@ export function LocationInput(props: {
 
   return (
     <div class="relative">
-      <input
+      <Input
         id="location"
         type="text"
         value={inputValue()}
         onInput={handleInput}
         onBlur={handleBlur}
         onFocus={() => suggestions().length > 0 && setOpen(true)}
-        class="border-input bg-background text-foreground focus:ring-ring w-full rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2"
       />
       <Show when={open() && suggestions().length > 0}>
-        <ul class="border-border bg-card absolute z-10 mt-1 w-full rounded-md border shadow-lg">
-          <For each={suggestions()}>
-            {(feature) => (
-              <li
-                class="text-foreground hover:bg-muted cursor-pointer px-3 py-2 text-sm"
-                onMouseDown={() => {
-                  selecting = true;
-                  select(feature);
-                }}
-                onMouseUp={() => {
-                  selecting = false;
-                }}
-              >
-                {composeLabel(feature.properties)}
-              </li>
-            )}
-          </For>
-        </ul>
+        <Card class="absolute z-10 mt-1 w-full rounded-md shadow-lg">
+          <ul>
+            <For each={suggestions()}>
+              {(feature) => (
+                <li
+                  class="text-foreground hover:bg-muted cursor-pointer px-3 py-2 text-sm"
+                  onMouseDown={() => {
+                    selecting = true;
+                    select(feature);
+                  }}
+                  onMouseUp={() => {
+                    selecting = false;
+                  }}
+                >
+                  {composeLabel(feature.properties)}
+                </li>
+              )}
+            </For>
+          </ul>
+        </Card>
       </Show>
     </div>
   );

@@ -4,6 +4,11 @@ import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/br
 import { createSignal, Show, onMount } from "solid-js";
 import { toast } from "solid-toast";
 
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { clsx } from "../lib/utils";
+
 /**
  * Shared first-party sign-in component. Drives the new `/login/*` endpoints
  * through an injected `LoginClient`, talks to `AuthProvider.adoptSession`
@@ -146,13 +151,9 @@ export function SignIn(props: SignInProps) {
       <div class="mb-6 flex items-center justify-between">
         <h2 class="text-foreground text-2xl font-bold">Sign in to OSN</h2>
         <Show when={props.onCancel}>
-          <button
-            type="button"
-            onClick={props.onCancel}
-            class="text-muted-foreground hover:text-foreground text-sm"
-          >
+          <Button variant="ghost" size="sm" onClick={props.onCancel}>
             Cancel
-          </button>
+          </Button>
         </Show>
       </div>
 
@@ -164,11 +165,12 @@ export function SignIn(props: SignInProps) {
               role="tab"
               aria-selected={method() === "passkey"}
               onClick={() => switchMethod("passkey")}
-              class="rounded-md border px-3 py-1.5 text-sm"
-              classList={{
-                "bg-primary text-primary-foreground": method() === "passkey",
-                "bg-background text-foreground": method() !== "passkey",
-              }}
+              class={clsx(
+                "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                method() === "passkey"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-background text-foreground hover:bg-muted",
+              )}
             >
               Passkey
             </button>
@@ -178,11 +180,12 @@ export function SignIn(props: SignInProps) {
             role="tab"
             aria-selected={method() === "otp"}
             onClick={() => switchMethod("otp")}
-            class="rounded-md border px-3 py-1.5 text-sm"
-            classList={{
-              "bg-primary text-primary-foreground": method() === "otp",
-              "bg-background text-foreground": method() !== "otp",
-            }}
+            class={clsx(
+              "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+              method() === "otp"
+                ? "bg-primary text-primary-foreground"
+                : "bg-background text-foreground hover:bg-muted",
+            )}
           >
             Code
           </button>
@@ -191,11 +194,12 @@ export function SignIn(props: SignInProps) {
             role="tab"
             aria-selected={method() === "magic"}
             onClick={() => switchMethod("magic")}
-            class="rounded-md border px-3 py-1.5 text-sm"
-            classList={{
-              "bg-primary text-primary-foreground": method() === "magic",
-              "bg-background text-foreground": method() !== "magic",
-            }}
+            class={clsx(
+              "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+              method() === "magic"
+                ? "bg-primary text-primary-foreground"
+                : "bg-background text-foreground hover:bg-muted",
+            )}
           >
             Magic link
           </button>
@@ -205,48 +209,40 @@ export function SignIn(props: SignInProps) {
       {/* Passkey */}
       <Show when={method() === "passkey" && step() === "identifier"}>
         <form onSubmit={submitPasskey} class="flex flex-col gap-4">
-          <label class="flex flex-col gap-1">
-            <span class="text-sm font-medium">Email or @handle</span>
-            <input
+          <div class="flex flex-col gap-1">
+            <Label for="si-passkey-id">Email or @handle</Label>
+            <Input
+              id="si-passkey-id"
               type="text"
               required
               autocomplete="username webauthn"
               value={identifier()}
               onInput={(e) => setIdentifier(e.currentTarget.value)}
-              class="border-input bg-background rounded-md border px-3 py-2 text-sm"
             />
-          </label>
-          <button
-            type="submit"
-            disabled={busy() || !identifier().trim()}
-            class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md py-2 text-sm font-medium disabled:opacity-50"
-          >
+          </div>
+          <Button type="submit" disabled={busy() || !identifier().trim()}>
             {busy() ? "Verifying…" : "Continue with passkey"}
-          </button>
+          </Button>
         </form>
       </Show>
 
       {/* OTP — identifier step */}
       <Show when={method() === "otp" && step() === "identifier"}>
         <form onSubmit={submitOtpIdentifier} class="flex flex-col gap-4">
-          <label class="flex flex-col gap-1">
-            <span class="text-sm font-medium">Email or @handle</span>
-            <input
+          <div class="flex flex-col gap-1">
+            <Label for="si-otp-id">Email or @handle</Label>
+            <Input
+              id="si-otp-id"
               type="text"
               required
               autocomplete="username"
               value={identifier()}
               onInput={(e) => setIdentifier(e.currentTarget.value)}
-              class="border-input bg-background rounded-md border px-3 py-2 text-sm"
             />
-          </label>
-          <button
-            type="submit"
-            disabled={busy() || !identifier().trim()}
-            class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md py-2 text-sm font-medium disabled:opacity-50"
-          >
+          </div>
+          <Button type="submit" disabled={busy() || !identifier().trim()}>
             {busy() ? "Sending…" : "Send verification code"}
-          </button>
+          </Button>
         </form>
       </Show>
 
@@ -257,9 +253,10 @@ export function SignIn(props: SignInProps) {
             If <strong>{identifier()}</strong> matches an account, we sent a 6-digit code. Enter it
             below.
           </p>
-          <label class="flex flex-col gap-1">
-            <span class="text-sm font-medium">Verification code</span>
-            <input
+          <div class="flex flex-col gap-1">
+            <Label for="si-otp-code">Verification code</Label>
+            <Input
+              id="si-otp-code"
               type="text"
               inputmode="numeric"
               autocomplete="one-time-code"
@@ -267,47 +264,35 @@ export function SignIn(props: SignInProps) {
               required
               value={otpCode()}
               onInput={(e) => setOtpCode(e.currentTarget.value.replace(/\D/g, "").slice(0, 6))}
-              class="border-input bg-background rounded-md border px-3 py-2 text-center text-sm tracking-[0.5em]"
+              class="text-center tracking-[0.5em]"
             />
-          </label>
-          <button
-            type="submit"
-            disabled={busy() || otpCode().length !== 6}
-            class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md py-2 text-sm font-medium disabled:opacity-50"
-          >
+          </div>
+          <Button type="submit" disabled={busy() || otpCode().length !== 6}>
             {busy() ? "Verifying…" : "Sign in"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setStep("identifier")}
-            class="text-muted-foreground hover:text-foreground text-xs"
-          >
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setStep("identifier")}>
             ← Use a different identifier
-          </button>
+          </Button>
         </form>
       </Show>
 
       {/* Magic link — identifier step */}
       <Show when={method() === "magic" && step() === "identifier"}>
         <form onSubmit={submitMagic} class="flex flex-col gap-4">
-          <label class="flex flex-col gap-1">
-            <span class="text-sm font-medium">Email or @handle</span>
-            <input
+          <div class="flex flex-col gap-1">
+            <Label for="si-magic-id">Email or @handle</Label>
+            <Input
+              id="si-magic-id"
               type="text"
               required
               autocomplete="username"
               value={identifier()}
               onInput={(e) => setIdentifier(e.currentTarget.value)}
-              class="border-input bg-background rounded-md border px-3 py-2 text-sm"
             />
-          </label>
-          <button
-            type="submit"
-            disabled={busy() || !identifier().trim()}
-            class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md py-2 text-sm font-medium disabled:opacity-50"
-          >
+          </div>
+          <Button type="submit" disabled={busy() || !identifier().trim()}>
             {busy() ? "Sending…" : "Send magic link"}
-          </button>
+          </Button>
         </form>
       </Show>
 

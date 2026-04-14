@@ -1,6 +1,7 @@
 import { useAuth } from "@osn/client/solid";
 import { Register } from "@osn/ui/auth/Register";
 import { SignIn } from "@osn/ui/auth/SignIn";
+import { Button, buttonVariants } from "@osn/ui/ui/button";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-toast";
@@ -75,38 +76,23 @@ export function EventList() {
         <h1 class="text-foreground text-3xl font-bold">Pulse</h1>
         <div class="flex gap-2">
           <Show when={!session()}>
-            <button
-              onClick={() => setShowRegister(true)}
-              class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1.5 text-sm font-medium"
-            >
+            <Button size="sm" onClick={() => setShowRegister(true)}>
               Create account
-            </button>
-            <button
-              onClick={() => setShowSignIn(true)}
-              class="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-1.5 text-sm font-medium"
-            >
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setShowSignIn(true)}>
               Sign in
-            </button>
+            </Button>
           </Show>
           <Show when={session()}>
-            <button
-              onClick={() => setShowForm((v) => !v)}
-              class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1.5 text-sm font-medium"
-            >
+            <Button size="sm" onClick={() => setShowForm((v) => !v)}>
               {showForm() ? "Cancel" : "New Event"}
-            </button>
-            <A
-              href="/settings"
-              class="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-1.5 text-sm font-medium"
-            >
+            </Button>
+            <A href="/settings" class={buttonVariants({ variant: "secondary", size: "sm" })}>
               Settings
             </A>
-            <button
-              onClick={logout}
-              class="bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-1.5 text-sm font-medium"
-            >
+            <Button variant="secondary" size="sm" onClick={logout}>
               Sign out
-            </button>
+            </Button>
           </Show>
         </div>
       </div>

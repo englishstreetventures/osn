@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -35,43 +35,40 @@ describe("RsvpModal", () => {
   });
 
   it("includes Maybe / Not going / Going tabs but omits Invited for open events", () => {
-    const { queryByText } = render(() => (
-      <RsvpModal event={baseEvent} accessToken={null} onClose={() => {}} />
-    ));
-    expect(queryByText("Going")).toBeTruthy();
-    expect(queryByText("Maybe")).toBeTruthy();
-    expect(queryByText("Not going")).toBeTruthy();
-    expect(queryByText("Invited")).toBeNull();
+    render(() => <RsvpModal event={baseEvent} accessToken={null} onClose={() => {}} />);
+    // Kobalte Dialog portals content — use screen to search the whole document.
+    expect(screen.queryByText("Going")).toBeTruthy();
+    expect(screen.queryByText("Maybe")).toBeTruthy();
+    expect(screen.queryByText("Not going")).toBeTruthy();
+    expect(screen.queryByText("Invited")).toBeNull();
   });
 
   it("shows the Invited tab on guest_list events", () => {
-    const { queryByText } = render(() => (
+    render(() => (
       <RsvpModal
         event={{ ...baseEvent, joinPolicy: "guest_list" }}
         accessToken={null}
         onClose={() => {}}
       />
     ));
-    expect(queryByText("Invited")).toBeTruthy();
+    expect(screen.queryByText("Invited")).toBeTruthy();
   });
 
   it("hides the Maybe tab when allowInterested is false", () => {
-    const { queryByText } = render(() => (
+    render(() => (
       <RsvpModal
         event={{ ...baseEvent, allowInterested: false }}
         accessToken={null}
         onClose={() => {}}
       />
     ));
-    expect(queryByText("Maybe")).toBeNull();
+    expect(screen.queryByText("Maybe")).toBeNull();
   });
 
   it("re-fetches when the user switches tabs", async () => {
-    const { getByText } = render(() => (
-      <RsvpModal event={baseEvent} accessToken="tok" onClose={() => {}} />
-    ));
+    render(() => <RsvpModal event={baseEvent} accessToken="tok" onClose={() => {}} />);
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("evt_1", "going", "tok"));
-    fireEvent.click(getByText("Not going"));
+    fireEvent.click(screen.getByText("Not going"));
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith("evt_1", "not_going", "tok");
     });
@@ -90,15 +87,13 @@ describe("RsvpModal", () => {
         profile: { id: "usr_bob", handle: "bob", displayName: "Bob Smith", avatarUrl: null },
       },
     ]);
-    const { findByText } = render(() => (
-      <RsvpModal event={baseEvent} accessToken="tok" onClose={() => {}} />
-    ));
-    expect(await findByText("Bob Smith")).toBeTruthy();
-    expect(await findByText("@bob")).toBeTruthy();
+    render(() => <RsvpModal event={baseEvent} accessToken="tok" onClose={() => {}} />);
+    expect(await screen.findByText("Bob Smith")).toBeTruthy();
+    expect(await screen.findByText("@bob")).toBeTruthy();
   });
 
   it("shows the locked state for private guest lists when viewer isn't organiser", () => {
-    const { queryByText } = render(() => (
+    render(() => (
       <RsvpModal
         event={{ ...baseEvent, guestListVisibility: "private" }}
         accessToken="tok"
@@ -106,12 +101,12 @@ describe("RsvpModal", () => {
         onClose={() => {}}
       />
     ));
-    expect(queryByText("This event's guest list is private.")).toBeTruthy();
-    expect(queryByText("Only the organiser can see who's attending.")).toBeTruthy();
+    expect(screen.queryByText("This event's guest list is private.")).toBeTruthy();
+    expect(screen.queryByText("Only the organiser can see who's attending.")).toBeTruthy();
   });
 
   it("does NOT show the locked state when viewer is the organiser", async () => {
-    const { queryByText } = render(() => (
+    render(() => (
       <RsvpModal
         event={{ ...baseEvent, guestListVisibility: "private" }}
         accessToken="tok"
@@ -119,27 +114,22 @@ describe("RsvpModal", () => {
         onClose={() => {}}
       />
     ));
-    expect(queryByText("This event's guest list is private.")).toBeNull();
+    expect(screen.queryByText("This event's guest list is private.")).toBeNull();
     await waitFor(() => expect(mockFetch).toHaveBeenCalled());
   });
 
   it("calls onClose when the close button is clicked", () => {
     const onClose = vi.fn();
-    const { getByLabelText } = render(() => (
-      <RsvpModal event={baseEvent} accessToken={null} onClose={onClose} />
-    ));
-    fireEvent.click(getByLabelText("Close"));
+    render(() => <RsvpModal event={baseEvent} accessToken={null} onClose={onClose} />);
+    fireEvent.click(screen.getByLabelText("Close"));
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("calls onClose when the backdrop is clicked", () => {
+  it("calls onClose when the dialog is dismissed via Escape", () => {
     const onClose = vi.fn();
-    const { container } = render(() => (
-      <RsvpModal event={baseEvent} accessToken={null} onClose={onClose} />
-    ));
-    // The backdrop is the outermost fixed div with bg-black/50.
-    const backdrop = container.querySelector(".fixed.inset-0") as HTMLElement;
-    fireEvent.click(backdrop);
+    render(() => <RsvpModal event={baseEvent} accessToken={null} onClose={onClose} />);
+    // Kobalte Dialog handles Escape natively to dismiss the dialog.
+    fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
   });
 });

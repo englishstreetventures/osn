@@ -8,7 +8,20 @@
     "./auth": "./src/auth/index.ts",
     "./auth/Register": "./src/auth/Register.tsx",
     "./auth/SignIn": "./src/auth/SignIn.tsx",
-    "./auth/MagicLinkHandler": "./src/auth/MagicLinkHandler.tsx"
+    "./auth/MagicLinkHandler": "./src/auth/MagicLinkHandler.tsx",
+    "./lib/utils": "./src/lib/utils.ts",
+    "./ui/avatar": "./src/components/ui/avatar.tsx",
+    "./ui/badge": "./src/components/ui/badge.tsx",
+    "./ui/button": "./src/components/ui/button.tsx",
+    "./ui/card": "./src/components/ui/card.tsx",
+    "./ui/checkbox": "./src/components/ui/checkbox.tsx",
+    "./ui/dialog": "./src/components/ui/dialog.tsx",
+    "./ui/input": "./src/components/ui/input.tsx",
+    "./ui/label": "./src/components/ui/label.tsx",
+    "./ui/popover": "./src/components/ui/popover.tsx",
+    "./ui/radio-group": "./src/components/ui/radio-group.tsx",
+    "./ui/tabs": "./src/components/ui/tabs.tsx",
+    "./ui/textarea": "./src/components/ui/textarea.tsx"
   },
   "scripts": {
     "check": "tsc --noEmit",
@@ -16,8 +29,12 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
+    "@kobalte/core": "^0.13.11",
     "@osn/client": "workspace:*",
-    "@simplewebauthn/browser": "^13.3.0"
+    "@simplewebauthn/browser": "^13.3.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.5.0"
   },
   "peerDependencies": {
     "solid-js": ">=1.9",

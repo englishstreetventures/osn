@@ -1,4 +1,6 @@
 import { useAuth } from "@osn/client/solid";
+import { Badge } from "@osn/ui/ui/badge";
+import { Card } from "@osn/ui/ui/card";
 import { A, useParams } from "@solidjs/router";
 import { createResource, Show } from "solid-js";
 
@@ -71,16 +73,16 @@ export function EventDetailPage() {
         {(e) => (
           <article class="flex flex-col gap-4">
             {/* Header card */}
-            <div class="border-border bg-card overflow-hidden rounded-xl border">
+            <Card class="overflow-hidden">
               <Show when={e().imageUrl}>
                 <img class="h-56 w-full object-cover" src={e().imageUrl!} alt={e().title} />
               </Show>
               <div class="p-4">
                 <div class="mb-2 flex items-center gap-2">
                   <Show when={e().category}>
-                    <span class="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-semibold tracking-wide uppercase">
+                    <Badge variant="secondary" class="tracking-wide uppercase">
                       {e().category}
-                    </span>
+                    </Badge>
                   </Show>
                   <span
                     class={`text-xs ${
@@ -112,7 +114,7 @@ export function EventDetailPage() {
                   <AddToCalendarButton eventId={e().id} apiBaseUrl={apiBaseUrl} />
                 </div>
               </div>
-            </div>
+            </Card>
 
             {/* Map */}
             <MapPreview

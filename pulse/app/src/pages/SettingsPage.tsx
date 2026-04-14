@@ -1,4 +1,8 @@
 import { useAuth } from "@osn/client/solid";
+import { Button } from "@osn/ui/ui/button";
+import { Card } from "@osn/ui/ui/card";
+import { Label } from "@osn/ui/ui/label";
+import { RadioGroup, RadioGroupItem } from "@osn/ui/ui/radio-group";
 import { A } from "@solidjs/router";
 import { createSignal, Show } from "solid-js";
 import { toast } from "solid-toast";
@@ -63,43 +67,31 @@ export function SettingsPage() {
         when={session()}
         fallback={<p class="text-muted-foreground text-sm">Sign in to change your settings.</p>}
       >
-        <section class="border-border bg-card flex flex-col gap-3 rounded-xl border p-4">
-          <h2 class="text-foreground text-base font-semibold">
-            Who can see events you're attending?
-          </h2>
+        <Card class="flex flex-col gap-3 p-4">
+          <Label class="text-base font-semibold">Who can see events you're attending?</Label>
           <p class="text-muted-foreground text-xs">
             Note: if an event has a public guest list, attending it opts you in regardless of this
             setting. Choose your event visibility carefully when RSVPing.
           </p>
-          <div class="mt-2 flex flex-col gap-2">
+          <RadioGroup
+            class="mt-2 flex flex-col gap-2"
+            value={selected()}
+            onChange={(v) => setSelected(v as Visibility)}
+            name="attendanceVisibility"
+          >
             {OPTIONS.map((opt) => (
-              <label class="flex cursor-pointer items-start gap-2" aria-label={opt.label}>
-                <input
-                  type="radio"
-                  name="attendanceVisibility"
-                  value={opt.value}
-                  checked={selected() === opt.value}
-                  onChange={() => setSelected(opt.value)}
-                  class="mt-1"
-                />
-                <span>
-                  <span class="text-foreground text-sm font-medium">{opt.label}</span>
-                  <span class="text-muted-foreground block text-xs">{opt.description}</span>
-                </span>
-              </label>
+              <div class="flex items-start gap-2">
+                <RadioGroupItem value={opt.value} label={opt.label} />
+                <span class="text-muted-foreground block text-xs">{opt.description}</span>
+              </div>
             ))}
-          </div>
+          </RadioGroup>
           <div class="mt-2 flex justify-end">
-            <button
-              type="button"
-              disabled={saving()}
-              onClick={save}
-              class="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-            >
+            <Button size="sm" disabled={saving()} onClick={save}>
               {saving() ? "Saving…" : "Save"}
-            </button>
+            </Button>
           </div>
-        </section>
+        </Card>
       </Show>
     </main>
   );

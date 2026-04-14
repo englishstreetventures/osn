@@ -20,6 +20,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[schema-layers]] — Elysia TypeBox (HTTP) vs Effect Schema (domain)
 - [[s2s-patterns]] — graphBridge, cross-package calls, ARC token flow
 - [[frontend-patterns]] — SolidJS, Tauri, shared UI tokens, lazy loading
+- [[component-library]] — Zaidan/shadcn-style components, Kobalte primitives, CVA variants
 
 ## Systems
 

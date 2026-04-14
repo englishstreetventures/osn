@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, cleanup, fireEvent } from "@solidjs/testing-library";
+import { render, cleanup, fireEvent, screen } from "@solidjs/testing-library";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { CreateEventForm } from "../../src/components/CreateEventForm";
@@ -179,6 +179,65 @@ describe("CreateEventForm", () => {
 
     expect(onSuccess).not.toHaveBeenCalled();
     expect(mockToastError).toHaveBeenCalledWith("Failed to create event");
+  });
+
+  it("RadioGroup: clicking 'Private (link only)' changes visibility in submit payload", async () => {
+    mockPost.mockResolvedValue({ error: null });
+    const { getByLabelText, getByText } = render(() => (
+      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+    ));
+
+    fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
+    fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
+
+    // Click the "Private (link only)" radio option — Kobalte RadioGroupItem renders a label
+    fireEvent.click(screen.getByText("Private (link only)"));
+
+    fireEvent.submit(getByText("Create").closest("form")!);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const [body] = mockPost.mock.calls[0] as [Record<string, unknown>];
+    expect(body.visibility).toBe("private");
+  });
+
+  it("RadioGroup: clicking 'Guest list only' changes joinPolicy in submit payload", async () => {
+    mockPost.mockResolvedValue({ error: null });
+    const { getByLabelText, getByText } = render(() => (
+      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+    ));
+
+    fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
+    fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
+
+    fireEvent.click(screen.getByText("Guest list only"));
+
+    fireEvent.submit(getByText("Create").closest("form")!);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const [body] = mockPost.mock.calls[0] as [Record<string, unknown>];
+    expect(body.joinPolicy).toBe("guest_list");
+  });
+
+  it("Checkbox: toggling SMS channel includes it in submit payload", async () => {
+    mockPost.mockResolvedValue({ error: null });
+    const { getByLabelText, getByText } = render(() => (
+      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+    ));
+
+    fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
+    fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
+
+    // Click "SMS" checkbox label to toggle it on
+    fireEvent.click(screen.getByText("SMS"));
+
+    fireEvent.submit(getByText("Create").closest("form")!);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const [body] = mockPost.mock.calls[0] as [Record<string, unknown>];
+    expect(body.commsChannels).toEqual(expect.arrayContaining(["email", "sms"]));
   });
 
   it("button shows 'Creating…' while mockPost is pending", async () => {

@@ -51,6 +51,7 @@ The `wiki/` directory contains detailed reference pages. Use this index to find 
 | Instrument logging, tracing, or metrics | `[[wiki/observability/overview]]`, then the specific page |
 | Write or review tests | `[[wiki/conventions/testing-patterns]]` |
 | Understand event visibility rules | `[[wiki/systems/event-access]]` |
+| Add or use a UI component (Button, Card, Dialog…) | `[[wiki/architecture/component-library]]` |
 | Work on the social graph or close friends | `[[wiki/systems/social-graph]]`, `[[wiki/systems/close-friends]]` |
 | Understand cross-service calls | `[[wiki/architecture/s2s-patterns]]` |
 | Debug a production issue | Browse `wiki/runbooks/` |
@@ -94,6 +95,8 @@ Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+RES
 **Schema Layers** — Elysia TypeBox at HTTP boundary, Effect Schema in service layer. Never mix. See `[[wiki/architecture/schema-layers]]`.
 
 **Review Finding IDs** — S-C/H/M/L (security), P-C/W/I (performance), T-M/U/E/R/S (tests). Four-field format. See `[[wiki/conventions/review-findings]]`.
+
+**Component Library** — Zaidan-style (shadcn for SolidJS) components in `@osn/ui`, backed by Kobalte. Three class utilities: `bx()` for component defaults (zero-specificity `base:` variant), `clsx()` for conditional joining, `cn()` (with `tailwind-merge`) only when arbitrary conflicts exist. See `[[wiki/architecture/component-library]]`.
 
 ## Conventions
 
