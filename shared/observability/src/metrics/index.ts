@@ -33,4 +33,6 @@ export {
   type OrgMemberAction,
   type EventStatus,
   type ProfileSwitchAction,
+  type ProfileCrudAction,
+  type ProfileDeleteCascadeTable,
 } from "./attrs";

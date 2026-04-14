@@ -5,9 +5,11 @@ import {
   createInternalGraphRoutes,
   createOrganisationRoutes,
   createInternalOrganisationRoutes,
+  createProfileRoutes,
   createRedisAuthRateLimiters,
   createRedisGraphRateLimiter,
   createRedisOrgRateLimiter,
+  createRedisProfileRateLimiters,
 } from "@osn/core";
 import { DbLive } from "@osn/db/service";
 import { healthRoutes, initObservability, observabilityPlugin } from "@shared/observability";
@@ -49,6 +51,7 @@ const redisClient = await initRedisClient({
 const authRateLimiters = createRedisAuthRateLimiters(redisClient);
 const graphRateLimiter = createRedisGraphRateLimiter(redisClient);
 const orgRateLimiter = createRedisOrgRateLimiter(redisClient);
+const profileRateLimiters = createRedisProfileRateLimiters(redisClient);
 
 const app = new Elysia()
   .use(cors())
@@ -59,7 +62,8 @@ const app = new Elysia()
   .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter))
   .use(createInternalGraphRoutes(DbLive))
   .use(createOrganisationRoutes(authConfig, DbLive, observabilityLayer, orgRateLimiter))
-  .use(createInternalOrganisationRoutes(DbLive));
+  .use(createInternalOrganisationRoutes(DbLive))
+  .use(createProfileRoutes(authConfig, DbLive, observabilityLayer, profileRateLimiters));
 
 if (process.env.NODE_ENV !== "test") {
   app.listen(port);

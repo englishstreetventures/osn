@@ -11,6 +11,7 @@ packages:
   - "@osn/core"
 last-reviewed: 2026-04-14
 p2-completed: 2026-04-14
+p3-completed: 2026-04-14
 ---
 
 # Identity Model
@@ -56,7 +57,7 @@ The `accounts` table is the **authentication principal** — the entity that log
 |--------|------|-------|
 | `id` | `text PK` | `acc_` prefix + 12 hex chars |
 | `email` | `text UNIQUE` | Login credential — the only place email lives |
-| `maxProfiles` | `integer` | Default 5; enforcement lands in P3 |
+| `maxProfiles` | `integer` | Default 5; enforced by `createProfile` in P3 |
 | `createdAt` | `timestamp` | |
 | `updatedAt` | `timestamp` | |
 
@@ -108,7 +109,7 @@ Organisations are independent entities that are **composed of profiles, not acco
 
 **Key invariants:**
 - Multiple profiles from the same account **can be in the same org** — one might be admin, another a member. This is by design.
-- Org ownership is per-profile. Deleting a profile that owns an org requires ownership transfer (enforcement deferred to P3).
+- Org ownership is per-profile. Deleting a profile that owns an org requires ownership transfer first (enforced in P3).
 - The `listMembers` service return **never includes `accountId`** — defence in depth against correlation leakage.
 
 ## Token Model
@@ -160,7 +161,7 @@ POST /register/complete → OTP →
 |-------|--------|-------|
 | P1: Schema + terminology | ✅ Done | `accounts` table, `userId` → `profileId`, seed data, email dedup, service/route/test rename from "user" → "profile" terminology |
 | P2: Auth refactor | ✅ Done | Two-tier tokens (refresh=account, access=profile), `POST /profiles/switch`, `POST /profiles/list`, `verifyRefreshToken`, `findDefaultProfile`, scope claim validation, per-account rate limiting |
-| P3: Profile CRUD | Planned | Create/list/delete profiles, maxProfiles enforcement |
+| P3: Profile CRUD | ✅ Done | `createProfile` (maxProfiles enforcement, S-L1), `deleteProfile` (cascade delete graph+org data), `setDefaultProfile`, three REST routes, `withProfileCrud` observability wrapper, S-L2 resolved |
 | P4: Client SDK | Planned | Multi-session storage, profile switcher methods |
 | P5: UI | Planned | Profile switcher component |
 | P6: Privacy audit | Planned | Verify accountId never leaks, pen-test correlation attacks |

@@ -58,6 +58,12 @@ export type OrgMemberAction = "add" | "remove" | "update_role";
 /** Profile switching actions (P2 multi-account). */
 export type ProfileSwitchAction = "switch" | "list";
 
+/** Profile CRUD actions (P3 multi-account). */
+export type ProfileCrudAction = "create" | "delete" | "set_default";
+
+/** Tables affected by cascade profile delete (P3). */
+export type ProfileDeleteCascadeTable = "connections" | "close_friends" | "blocks" | "org_members";
+
 /** Auth endpoints subject to IP-based rate limiting (S-H1). */
 export type AuthRateLimitedEndpoint =
   | "register_begin"
@@ -72,4 +78,7 @@ export type AuthRateLimitedEndpoint =
   | "passkey_register_begin"
   | "passkey_register_complete"
   | "profile_switch"
-  | "profile_list";
+  | "profile_list"
+  | "profile_create"
+  | "profile_delete"
+  | "profile_set_default";

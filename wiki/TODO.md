@@ -4,7 +4,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 
 ## Up Next
 
-- [ ] Multi-account P3 — Profile CRUD: `createProfileService()` (create, list, delete, set default), `/profiles` routes, handle validation against `maxProfiles`, cascade-delete profile data
+- [x] Multi-account P3 — Profile CRUD: `createProfileService()` (create, delete, set default), `/profiles` routes, `maxProfiles` enforcement (S-L1), cascade-delete profile data, observability (counter + histogram + spans)
 - [ ] Multi-account P4 — Client SDK: multi-session storage (`@osn/client:account_session`, `@osn/client:active_profile`, per-profile access tokens), `listProfiles()`, `switchProfile()`, `createProfile()`, `deleteProfile()` methods on `OsnAuthService`
 - [ ] Multi-account P5 — Profile UI: profile switcher component in `@osn/ui`, profile creation form, onboarding for additional profiles
 - [ ] Multi-account P6 — Privacy audit: verify `accountId` never leaks in API responses / tokens / logs, rate-limit per-profile (not per-account), pen-test correlation attacks between profiles
@@ -33,7 +33,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 
 ## OSN Core (`osn/app` + `osn/core`)
 
-- [ ] Multi-account profile CRUD (P3) — create/list/delete profiles, maxProfiles enforcement
+- [x] Multi-account profile CRUD (P3) — create/delete/set-default profiles, maxProfiles enforcement, cascade delete, observability
 - [ ] Multi-account client SDK (P4) — multi-session storage, profile switching
 - [ ] Multi-account UI (P5) — profile switcher component
 - [ ] Multi-account privacy audit (P6) — accountId leak verification, per-profile rate limits
@@ -196,8 +196,8 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-M4 (zap) — Non-atomic cross-DB writes in `zapBridge.provisionEventChat`
 - [ ] S-M5 (zap) — `addEventChatMember` does not verify chat is type "event"
 - [ ] S-M6 (zap) — Truncated UUIDs (12 hex chars = 48 bits)
-- [ ] S-L1 (multi) — `maxProfiles` column set to 5 but never enforced. Deferred to P3
-- [ ] S-L2 (multi) — Email duplication between `accounts.email` and `users.email`. Transitional
+- [x] S-L1 (multi) — `maxProfiles` column set to 5 but never enforced. **Fixed in P3** — `createProfile` checks count vs `accounts.maxProfiles`
+- [x] S-L2 (multi) — Email duplication between `accounts.email` and `users.email`. **Resolved** — `users` table has no `email` column; all email access via JOIN to `accounts`
 - [ ] S-H1 (org) — `listMembers` service returns full profile rows; route projects, but service should restrict
 - [ ] S-M1 (org) — `GET /organisations/:handle/members` has no membership gate
 - [ ] S-M3 (org) — `getOrganisation` returns `ownerId` internal ID

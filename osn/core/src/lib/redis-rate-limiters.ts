@@ -15,6 +15,7 @@ import { createRedisRateLimiter } from "@shared/redis";
 import type { RedisClient } from "@shared/redis";
 
 import type { AuthRateLimiters } from "../routes/auth";
+import type { ProfileRateLimiters } from "../routes/profile";
 import type { RateLimiterBackend } from "./rate-limit";
 
 const ONE_MINUTE_MS = 60_000;
@@ -67,4 +68,19 @@ export function createRedisOrgRateLimiter(client: RedisClient): RateLimiterBacke
     maxRequests: 60,
     windowMs: ONE_MINUTE_MS,
   });
+}
+
+/**
+ * Build all 3 profile CRUD rate limiters backed by a shared Redis client.
+ * Namespace convention: `profile:{action}`.
+ */
+export function createRedisProfileRateLimiters(client: RedisClient): ProfileRateLimiters {
+  const rl = (namespace: string, maxRequests: number): RateLimiterBackend =>
+    createRedisRateLimiter(client, { namespace, maxRequests, windowMs: ONE_MINUTE_MS });
+
+  return {
+    profileCreate: rl("profile:create", 5),
+    profileDelete: rl("profile:delete", 5),
+    profileSetDefault: rl("profile:set_default", 10),
+  };
 }

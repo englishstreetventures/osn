@@ -21,6 +21,7 @@ import type {
   GraphConnectionAction,
   OrgAction,
   OrgMemberAction,
+  ProfileCrudAction,
   ProfileSwitchAction,
   RegisterStep,
   Result,
@@ -44,6 +45,8 @@ export const OSN_METRICS = {
   orgOps: "osn.org.operations",
   orgMemberOps: "osn.org.member.operations",
   profileSwitchAttempts: "osn.auth.profile_switch.attempts",
+  profileCrudOps: "osn.profile.crud.operations",
+  profileCrudDuration: "osn.profile.crud.duration",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -63,6 +66,7 @@ type GraphCloseFriendAttrs = { action: GraphCloseFriendAction; result: Result };
 type OrgAttrs = { action: OrgAction; result: Result };
 type OrgMemberAttrs = { action: OrgMemberAction; result: Result };
 type ProfileSwitchAttrs = { action: ProfileSwitchAction; result: Result };
+type ProfileCrudAttrs = { action: ProfileCrudAction; result: Result };
 
 // ---------------------------------------------------------------------------
 // Counters / histograms
@@ -158,6 +162,19 @@ const profileSwitchAttempts = createCounter<ProfileSwitchAttrs>({
   name: OSN_METRICS.profileSwitchAttempts,
   description: "Profile switch/list attempts by action and outcome",
   unit: "{attempt}",
+});
+
+const profileCrudOps = createCounter<ProfileCrudAttrs>({
+  name: OSN_METRICS.profileCrudOps,
+  description: "Profile CRUD operations by action and outcome",
+  unit: "{operation}",
+});
+
+const profileCrudDuration = createHistogram<ProfileCrudAttrs>({
+  name: OSN_METRICS.profileCrudDuration,
+  description: "Profile CRUD operation duration by action",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
 });
 
 // ---------------------------------------------------------------------------
@@ -379,6 +396,26 @@ export const withProfileSwitch =
         Effect.all([
           Effect.sync(() => profileSwitchAttempts.inc({ action, result: classifyError(e) })),
           Effect.logError("auth.profile operation failed", { action, ...safeErrorSummary(e) }),
+        ]),
+      ),
+    );
+
+export const withProfileCrud =
+  (action: ProfileCrudAction) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      measureSeconds((seconds, outcome) => {
+        profileCrudDuration.record(seconds, {
+          action,
+          result: outcome === "ok" ? "ok" : "error",
+        });
+      }),
+      Effect.withSpan(`profile.${action}`),
+      Effect.tap(() => Effect.sync(() => profileCrudOps.inc({ action, result: "ok" }))),
+      Effect.tapError((e) =>
+        Effect.all([
+          Effect.sync(() => profileCrudOps.inc({ action, result: classifyError(e) })),
+          Effect.logError("profile.crud operation failed", { action, ...safeErrorSummary(e) }),
         ]),
       ),
     );
