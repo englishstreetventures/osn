@@ -345,7 +345,13 @@ describe("issueEnrollmentToken + verifyEnrollmentToken", () => {
   it.effect("rejects a normal access token (wrong type claim)", () =>
     Effect.gen(function* () {
       yield* auth.registerProfile("typecheck@example.com", "typecheck");
-      const tokens = yield* auth.issueTokens("usr_x", "typecheck@example.com", "typecheck", null);
+      const tokens = yield* auth.issueTokens(
+        "usr_x",
+        "acc_x",
+        "typecheck@example.com",
+        "typecheck",
+        null,
+      );
       const error = yield* Effect.flip(auth.verifyEnrollmentToken(tokens.accessToken));
       expect(error._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
@@ -380,6 +386,7 @@ describe("issueTokens + exchangeCode", () => {
       const profile = yield* auth.registerProfile("ivan@example.com", "ivan", "Ivan");
       const tokens = yield* auth.issueTokens(
         profile.id,
+        profile.accountId,
         profile.email,
         profile.handle,
         profile.displayName,
@@ -603,6 +610,7 @@ describe("token refresh", () => {
       const profile = yield* auth.registerProfile("quinn@example.com", "quinn");
       const tokens = yield* auth.issueTokens(
         profile.id,
+        profile.accountId,
         profile.email,
         profile.handle,
         profile.displayName,
@@ -627,6 +635,7 @@ describe("verifyAccessToken", () => {
       const profile = yield* auth.registerProfile("rose@example.com", "rose", "Rose");
       const tokens = yield* auth.issueTokens(
         profile.id,
+        profile.accountId,
         profile.email,
         profile.handle,
         profile.displayName,
@@ -644,6 +653,7 @@ describe("verifyAccessToken", () => {
       const profile = yield* auth.registerProfile("sam@example.com", "sam");
       const tokens = yield* auth.issueTokens(
         profile.id,
+        profile.accountId,
         profile.email,
         profile.handle,
         profile.displayName,
@@ -911,6 +921,187 @@ describe("login OTP attempt limit", () => {
 
       // Correct code fails (entry wiped)
       const error = yield* Effect.flip(svc.completeOtpDirect("direct@example.com", capturedCode!));
+      expect(error._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// P2: Two-tier token model
+// ---------------------------------------------------------------------------
+
+describe("two-tier token model (P2)", () => {
+  it.effect("refresh token sub claim is the accountId, not the profileId", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("tier@example.com", "tier", "Tier");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      // Verify the refresh token — its sub should be the accountId
+      const { accountId } = yield* auth.verifyRefreshToken(tokens.refreshToken);
+      expect(accountId).toBe(profile.accountId);
+      // Access token sub should still be profileId
+      const claims = yield* auth.verifyAccessToken(tokens.accessToken);
+      expect(claims.profileId).toBe(profile.id);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("refreshTokens resolves the default profile from account-scoped refresh token", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("refresh2@example.com", "refresh2");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const refreshed = yield* auth.refreshTokens(tokens.refreshToken);
+      const claims = yield* auth.verifyAccessToken(refreshed.accessToken);
+      expect(claims.profileId).toBe(profile.id);
+      expect(claims.handle).toBe("refresh2");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("findDefaultProfile returns the default profile for an account", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("default@example.com", "defaultp");
+      const found = yield* auth.findDefaultProfile(profile.accountId);
+      expect(found).not.toBeNull();
+      expect(found!.id).toBe(profile.id);
+      expect(found!.isDefault).toBe(true);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("findDefaultProfile returns null for a nonexistent account", () =>
+    Effect.gen(function* () {
+      const found = yield* auth.findDefaultProfile("acc_nonexistent");
+      expect(found).toBeNull();
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("rejects an access token used as a refresh token (type mismatch)", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("typemix@example.com", "typemix");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      // Access token has no type: "refresh" claim — must be rejected
+      const switchErr = yield* Effect.flip(auth.switchProfile(tokens.accessToken, profile.id));
+      expect(switchErr._tag).toBe("AuthError");
+      expect(switchErr.message).toContain("Invalid token type");
+
+      const listErr = yield* Effect.flip(auth.listAccountProfiles(tokens.accessToken));
+      expect(listErr._tag).toBe("AuthError");
+      expect(listErr.message).toContain("Invalid token type");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// P2: Profile switching
+// ---------------------------------------------------------------------------
+
+describe("switchProfile (P2)", () => {
+  it.effect("issues new access token for target profile", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("switch@example.com", "switchme");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      // Switch to self (same profile) — should work fine
+      const result = yield* auth.switchProfile(tokens.refreshToken, profile.id);
+      expect(result.accessToken).toBeTruthy();
+      expect(result.expiresIn).toBe(3600);
+      expect(result.profile.id).toBe(profile.id);
+      expect(result.profile.handle).toBe("switchme");
+
+      // Verify the new access token is valid
+      const claims = yield* auth.verifyAccessToken(result.accessToken);
+      expect(claims.profileId).toBe(profile.id);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("fails when target profile does not exist", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("switch2@example.com", "switch2");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const error = yield* Effect.flip(auth.switchProfile(tokens.refreshToken, "usr_nonexistent"));
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toContain("Profile not found");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("fails when target profile belongs to a different account", () =>
+    Effect.gen(function* () {
+      const alice = yield* auth.registerProfile("alice_switch@example.com", "alice_switch");
+      const bob = yield* auth.registerProfile("bob_switch@example.com", "bob_switch");
+      const aliceTokens = yield* auth.issueTokens(
+        alice.id,
+        alice.accountId,
+        alice.email,
+        alice.handle,
+        alice.displayName,
+      );
+      // Try to switch to Bob's profile using Alice's refresh token
+      const error = yield* Effect.flip(auth.switchProfile(aliceTokens.refreshToken, bob.id));
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toContain("does not belong to this account");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("fails with invalid refresh token", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(auth.switchProfile("not.a.token", "usr_any"));
+      expect(error._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// P2: listAccountProfiles
+// ---------------------------------------------------------------------------
+
+describe("listAccountProfiles (P2)", () => {
+  it.effect("returns all profiles for the account", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("listme@example.com", "listme", "List Me");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const result = yield* auth.listAccountProfiles(tokens.refreshToken);
+      expect(result.profiles).toHaveLength(1);
+      expect(result.profiles[0]!.id).toBe(profile.id);
+      expect(result.profiles[0]!.handle).toBe("listme");
+      expect(result.profiles[0]!.displayName).toBe("List Me");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("fails with invalid refresh token", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(auth.listAccountProfiles("not.a.token"));
       expect(error._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );

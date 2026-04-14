@@ -32,4 +32,5 @@ export {
   type OrgAction,
   type OrgMemberAction,
   type EventStatus,
+  type ProfileSwitchAction,
 } from "./attrs";

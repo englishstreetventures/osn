@@ -913,7 +913,13 @@ describe("auth routes", () => {
         svc.registerProfile("quinn@example.com", "quinn").pipe(Effect.provide(layer)),
       );
       const tokens = await Effect.runPromise(
-        svc.issueTokens(profile.id, profile.email, profile.handle, profile.displayName),
+        svc.issueTokens(
+          profile.id,
+          profile.accountId,
+          profile.email,
+          profile.handle,
+          profile.displayName,
+        ),
       );
       const res = await app.handle(
         new Request("http://localhost/passkey/register/begin", {
@@ -1372,6 +1378,202 @@ describe("auth routes", () => {
         );
         expect(res.status).not.toBe(429);
       }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Profile switching (P2)
+  // -------------------------------------------------------------------------
+
+  describe("POST /profiles/list", () => {
+    async function getRefreshToken(): Promise<{ refreshToken: string; profileId: string }> {
+      let captured: string | undefined;
+      const verifiedConfig = {
+        ...config,
+        sendEmail: async (_to: string, _subject: string, body: string) => {
+          const m = body.match(/code is: (\d{6})/);
+          if (m) captured = m[1];
+        },
+      };
+      const verifiedApp = createAuthRoutes(verifiedConfig, layer);
+      await verifiedApp.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: "profiles@example.com",
+            handle: "profilelist",
+            displayName: "Profile List",
+          }),
+        }),
+      );
+      const completeRes = await verifiedApp.handle(
+        new Request("http://localhost/register/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "profiles@example.com", code: captured }),
+        }),
+      );
+      const json = (await completeRes.json()) as {
+        profileId: string;
+        session: { refresh_token: string };
+      };
+      return { refreshToken: json.session.refresh_token, profileId: json.profileId };
+    }
+
+    it("returns the list of profiles for a valid refresh token", async () => {
+      const { refreshToken } = await getRefreshToken();
+      const res = await app.handle(
+        new Request("http://localhost/profiles/list", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { profiles: { id: string; handle: string }[] };
+      expect(json.profiles).toHaveLength(1);
+      expect(json.profiles[0]!.handle).toBe("profilelist");
+    });
+
+    it("returns error with an invalid token", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/profiles/list", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: "not.a.valid.token" }),
+        }),
+      );
+      expect(res.status).toBeGreaterThanOrEqual(400);
+    });
+
+    it("rate limits profile list requests", async () => {
+      const denyAll: RateLimiterBackend = { check: () => false };
+      const limiters = { ...createDefaultAuthRateLimiters(), profileList: denyAll };
+      const freshApp = createAuthRoutes(config, layer, Layer.empty, limiters);
+      const res = await freshApp.handle(
+        new Request("http://localhost/profiles/list", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-for": "10.10.10.10",
+          },
+          body: JSON.stringify({ refresh_token: "any" }),
+        }),
+      );
+      expect(res.status).toBe(429);
+    });
+  });
+
+  describe("POST /profiles/switch", () => {
+    async function registerAndGetTokens(): Promise<{
+      refreshToken: string;
+      profileId: string;
+    }> {
+      let captured: string | undefined;
+      const verifiedConfig = {
+        ...config,
+        sendEmail: async (_to: string, _subject: string, body: string) => {
+          const m = body.match(/code is: (\d{6})/);
+          if (m) captured = m[1];
+        },
+      };
+      const verifiedApp = createAuthRoutes(verifiedConfig, layer);
+      await verifiedApp.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: "switch@example.com",
+            handle: "switchrt",
+            displayName: "Switch Test",
+          }),
+        }),
+      );
+      const completeRes = await verifiedApp.handle(
+        new Request("http://localhost/register/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "switch@example.com", code: captured }),
+        }),
+      );
+      const json = (await completeRes.json()) as {
+        profileId: string;
+        session: { refresh_token: string };
+      };
+      return { refreshToken: json.session.refresh_token, profileId: json.profileId };
+    }
+
+    it("switches to an owned profile and returns a new access token", async () => {
+      const { refreshToken, profileId } = await registerAndGetTokens();
+      const res = await app.handle(
+        new Request("http://localhost/profiles/switch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            refresh_token: refreshToken,
+            profile_id: profileId,
+          }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as {
+        access_token: string;
+        expires_in: number;
+        profile: { id: string; handle: string };
+      };
+      expect(json.access_token).toBeTruthy();
+      expect(json.expires_in).toBe(3600);
+      expect(json.profile.handle).toBe("switchrt");
+    });
+
+    it("returns error for non-existent profile", async () => {
+      const { refreshToken } = await registerAndGetTokens();
+      const res = await app.handle(
+        new Request("http://localhost/profiles/switch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            refresh_token: refreshToken,
+            profile_id: "usr_aabbccddeeff",
+          }),
+        }),
+      );
+      expect(res.status).toBeGreaterThanOrEqual(400);
+    });
+
+    it("returns error for invalid refresh token", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/profiles/switch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            refresh_token: "not.a.token",
+            profile_id: "usr_aabbccddeeff",
+          }),
+        }),
+      );
+      expect(res.status).toBeGreaterThanOrEqual(400);
+    });
+
+    it("rate limits profile switch requests", async () => {
+      const denyAll: RateLimiterBackend = { check: () => false };
+      const limiters = { ...createDefaultAuthRateLimiters(), profileSwitch: denyAll };
+      const freshApp = createAuthRoutes(config, layer, Layer.empty, limiters);
+      const res = await freshApp.handle(
+        new Request("http://localhost/profiles/switch", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-for": "10.10.10.10",
+          },
+          body: JSON.stringify({
+            refresh_token: "any",
+            profile_id: "usr_aabbccddeeff",
+          }),
+        }),
+      );
+      expect(res.status).toBe(429);
     });
   });
 });

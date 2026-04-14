@@ -6,7 +6,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 - [x] Multi-account P1 — Schema foundation: `accounts` table, `userId` → `profileId` rename across all packages, seed data with multi-profile user (21 accounts, 23 profiles, 2 orgs), registration creates account + profile atomically. 81 files, 700+ tests green.
 - [x] Multi-account P1b — Terminology audit: "user" now only means "the person". All data structures use account/profile/organisation. Renames: `User` → `Profile`, `PublicUser` → `PublicProfile`, `UserWithEmail` → `ProfileWithEmail`, `LoginUser` → `LoginProfile`, `PulseUser` → `PulseProfile`, `UserRsvpStatus` → `RsvpStatus`. All service functions, route params, error messages, wire format keys (`{ session, user }` → `{ session, profile }`), and internal route paths updated. [[identity-model]]
-- [ ] Multi-account P2 — Auth refactor: two-tier token model (refresh = account, access = profile), move `email` exclusively to `accounts` table, profile switching endpoint (`POST /profiles/switch`)
+- [x] Multi-account P2 — Auth refactor: two-tier token model (refresh = account, access = profile), `email` exclusively on `accounts` table (confirmed), `POST /profiles/switch`, `POST /profiles/list`, `verifyRefreshToken`, `findDefaultProfile`. Scope claim validation on refresh tokens. Per-account rate limiting (20 switches/hr). New metrics: `osn.auth.profile_switch.attempts`. 373 core tests green. [[identity-model]]
 - [ ] Multi-account P3 — Profile CRUD: `createProfileService()` (create, list, delete, set default), `/profiles` routes, handle validation against `maxProfiles`, cascade-delete profile data
 - [ ] Multi-account P4 — Client SDK: multi-session storage (`@osn/client:account_session`, `@osn/client:active_profile`, per-profile access tokens), `listProfiles()`, `switchProfile()`, `createProfile()`, `deleteProfile()` methods on `OsnAuthService`
 - [ ] Multi-account P5 — Profile UI: profile switcher component in `@osn/ui`, profile creation form, onboarding for additional profiles
@@ -82,7 +82,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [x] ARC token verification middleware on internal graph routes (`/graph/internal/*`)
 - [x] Organisation support — schema (`organisations`, `organisation_members`), Effect service, REST routes, ARC internal routes, observability metrics, 355 tests
 - [x] Multi-account schema foundation (P1) — `accounts` table, `userId` → `profileId` rename, seed data, 81 files changed
-- [ ] Multi-account auth refactor (P2) — two-tier tokens, email migration to accounts
+- [x] Multi-account auth refactor (P2) — two-tier tokens (refresh=account, access=profile), `POST /profiles/switch`, `POST /profiles/list`, `verifyRefreshToken`, `findDefaultProfile`, scope claim validation, per-account rate limiting
 - [ ] Multi-account profile CRUD (P3) — create/list/delete profiles, maxProfiles enforcement
 - [ ] Multi-account client SDK (P4) — multi-session storage, profile switching
 - [ ] Multi-account UI (P5) — profile switcher component
@@ -385,6 +385,9 @@ Address **High** items before any non-local deployment.
 - [x] S-M40 — `@shared/redis` `RedisLive` does not enforce TLS. Fixed: logs warning when `REDIS_URL` lacks `rediss://` and `NODE_ENV=production`. — see [[redis]]
 - [x] S-M41 — `createClientFromUrl()` bypassed the TLS warning established in `RedisLive` (S-M40). Fixed: `initRedisClient()` in `osn/app/src/redis.ts` checks `NODE_ENV=production` + `rediss://` and logs a warning, matching the `RedisLive` posture. — see [[redis]], [[rate-limiting]]
 - [x] S-M42 — `initRedisClient()` logged raw `cause.message` on Redis connection failure, potentially leaking `REDIS_URL` credentials. Fixed: error messages are passed through `sanitizeCause()` before logging, matching the redaction in `RedisLive`. — see [[redis]]
+- [x] S-M44 — `verifyRefreshToken` did not check `scope: "account"` claim — old pre-P2 refresh tokens passed type check by accident. Fixed: guard now requires `scope === "account"`. — see [[identity-model]]
+- [x] S-M45 — `GET /profiles` sent long-lived refresh token in `Authorization: Bearer` header, overloading it with access token semantics. Fixed: changed to `POST /profiles/list` with refresh token in request body. — see [[identity-model]]
+- [x] S-M46 — `POST /profiles/switch` lacked per-account rate limiting; a stolen refresh token could be used from rotating IPs. Fixed: in-memory per-account rate limit (20 switches/hr) via `checkProfileSwitchLimit()`. — see [[identity-model]], [[rate-limiting]]
 
 ### Low
 
@@ -422,6 +425,8 @@ Address **High** items before any non-local deployment.
 - [x] S-L28 — `createClientFromUrl()` used eager ioredis connection, allowing zombie connections on health-check failure. Fixed: `lazyConnect: true` + explicit `connect()` / `disconnect()` lifecycle via `ConnectableRedisClient` interface. — see [[redis]]
 - [ ] S-L29 — `/graph/internal/*` routes mounted under open CORS (`Access-Control-Allow-Origin: *`). S2S endpoints should not be browser-reachable. Restrict CORS or mount on an internal-only port. — see [[arc-tokens]]
 - [ ] S-L30 — `createInternalGraphRoutes` does not accept a `loggerLayer` — ARC auth failures and route errors produce no structured log entries. Add observability layer matching `createGraphRoutes` pattern. — see [[arc-tokens]], [[observability/overview]]
+- [x] S-L31 — No input format validation on `profile_id` in `POST /profiles/switch` — accepted any string. Fixed: TypeBox pattern `^usr_[a-f0-9]{12}$` rejects malformed IDs before DB query. — see [[identity-model]]
+- [x] S-L32 — `findDefaultProfile` ORDER BY relied on SQLite boolean-as-integer storage semantics. Fixed: explicit `desc(users.isDefault)` + `limit(1)` for intent-clear ordering. — see [[identity-model]]
 - [x] S-H2 (org) — Handle enumeration via "Handle already taken" message — fixed: changed to "Handle unavailable"
 - [ ] S-H1 (org) — `listMembers` service returns full profile rows (including `email`, `id`). Route layer correctly applies `profileProjection`, but service contract should restrict fields for defence-in-depth.
 - [ ] S-M1 (org) — `GET /organisations/:handle/members` has no membership gate — any authenticated user can list any org's members. Add membership check or document as intentional public access.

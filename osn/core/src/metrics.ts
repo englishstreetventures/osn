@@ -21,6 +21,7 @@ import type {
   GraphConnectionAction,
   OrgAction,
   OrgMemberAction,
+  ProfileSwitchAction,
   RegisterStep,
   Result,
 } from "@shared/observability/metrics";
@@ -42,6 +43,7 @@ export const OSN_METRICS = {
   graphCloseFriendOps: "osn.graph.close_friend.operations",
   orgOps: "osn.org.operations",
   orgMemberOps: "osn.org.member.operations",
+  profileSwitchAttempts: "osn.auth.profile_switch.attempts",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -60,6 +62,7 @@ type GraphBlockAttrs = { action: GraphBlockAction; result: Result };
 type GraphCloseFriendAttrs = { action: GraphCloseFriendAction; result: Result };
 type OrgAttrs = { action: OrgAction; result: Result };
 type OrgMemberAttrs = { action: OrgMemberAction; result: Result };
+type ProfileSwitchAttrs = { action: ProfileSwitchAction; result: Result };
 
 // ---------------------------------------------------------------------------
 // Counters / histograms
@@ -149,6 +152,12 @@ const orgMemberOps = createCounter<OrgMemberAttrs>({
   name: OSN_METRICS.orgMemberOps,
   description: "Organisation membership state changes",
   unit: "{operation}",
+});
+
+const profileSwitchAttempts = createCounter<ProfileSwitchAttrs>({
+  name: OSN_METRICS.profileSwitchAttempts,
+  description: "Profile switch/list attempts by action and outcome",
+  unit: "{attempt}",
 });
 
 // ---------------------------------------------------------------------------
@@ -356,6 +365,20 @@ export const withOrgMemberOp =
         Effect.all([
           Effect.sync(() => orgMemberOps.inc({ action, result: classifyError(e) })),
           Effect.logError("org.member operation failed", { action, ...safeErrorSummary(e) }),
+        ]),
+      ),
+    );
+
+export const withProfileSwitch =
+  (action: ProfileSwitchAction) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      Effect.withSpan(`auth.profile.${action}`),
+      Effect.tap(() => Effect.sync(() => profileSwitchAttempts.inc({ action, result: "ok" }))),
+      Effect.tapError((e) =>
+        Effect.all([
+          Effect.sync(() => profileSwitchAttempts.inc({ action, result: classifyError(e) })),
+          Effect.logError("auth.profile operation failed", { action, ...safeErrorSummary(e) }),
         ]),
       ),
     );

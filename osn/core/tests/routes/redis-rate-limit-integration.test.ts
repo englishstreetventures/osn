@@ -163,7 +163,7 @@ describe("graph routes with Redis-backed rate limiter", () => {
     const alice = await run(auth.registerProfile("alice@test.com", "alice"));
     await run(auth.registerProfile("bob@test.com", "bob"));
     const tokens = await run(
-      auth.issueTokens(alice.id, alice.email, alice.handle, alice.displayName),
+      auth.issueTokens(alice.id, alice.accountId, alice.email, alice.handle, alice.displayName),
     );
 
     const makeRequest = () =>

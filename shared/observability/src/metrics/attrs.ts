@@ -55,6 +55,9 @@ export type OrgAction = "create" | "update" | "delete";
 /** Organisation membership state-changing actions. */
 export type OrgMemberAction = "add" | "remove" | "update_role";
 
+/** Profile switching actions (P2 multi-account). */
+export type ProfileSwitchAction = "switch" | "list";
+
 /** Auth endpoints subject to IP-based rate limiting (S-H1). */
 export type AuthRateLimitedEndpoint =
   | "register_begin"
@@ -67,4 +70,6 @@ export type AuthRateLimitedEndpoint =
   | "passkey_login_begin"
   | "passkey_login_complete"
   | "passkey_register_begin"
-  | "passkey_register_complete";
+  | "passkey_register_complete"
+  | "profile_switch"
+  | "profile_list";

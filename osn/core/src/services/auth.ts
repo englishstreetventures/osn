@@ -16,7 +16,7 @@ import type {
   PublicKeyCredentialCreationOptionsJSON,
   PublicKeyCredentialRequestOptionsJSON,
 } from "@simplewebauthn/server";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 import { SignJWT, jwtVerify } from "jose";
 
@@ -27,6 +27,7 @@ import {
   withAuthLogin,
   withAuthRegister,
   withAuthTokenRefresh,
+  withProfileSwitch,
 } from "../metrics";
 
 // ---------------------------------------------------------------------------
@@ -114,6 +115,28 @@ interface PendingRegistration {
 const MAX_PENDING_REGISTRATIONS = 10_000;
 // Max OTP guesses against a single pending entry before it is wiped.
 const MAX_OTP_ATTEMPTS = 5;
+
+// Per-account profile-switch rate limiting (S-M3). Fixed window:
+// max 20 switches per hour per account. Module-level so it survives
+// across request boundaries (same as OTP / challenge stores).
+const PROFILE_SWITCH_MAX = 20;
+const PROFILE_SWITCH_WINDOW_MS = 3_600_000; // 1 hour
+const profileSwitchCounts = new Map<string, { count: number; resetAt: number }>();
+
+function checkProfileSwitchLimit(accountId: string): boolean {
+  const currentMs = Date.now();
+  const entry = profileSwitchCounts.get(accountId);
+  if (!entry || currentMs >= entry.resetAt) {
+    profileSwitchCounts.set(accountId, {
+      count: 1,
+      resetAt: currentMs + PROFILE_SWITCH_WINDOW_MS,
+    });
+    return true;
+  }
+  if (entry.count >= PROFILE_SWITCH_MAX) return false;
+  entry.count++;
+  return true;
+}
 
 // keyed by accountId for registration, by email for login
 const registrationChallenges = new Map<string, ChallengeEntry>();
@@ -675,7 +698,13 @@ export function createAuthService(config: AuthConfig) {
       // Success: only NOW delete the pending entry.
       pendingRegistrations.delete(key);
 
-      const tokens = yield* issueTokens(id, pending.email, pending.handle, pending.displayName);
+      const tokens = yield* issueTokens(
+        id,
+        accountId,
+        pending.email,
+        pending.handle,
+        pending.displayName,
+      );
       const enrollmentToken = yield* issueEnrollmentToken(accountId);
 
       return {
@@ -716,6 +745,7 @@ export function createAuthService(config: AuthConfig) {
 
   const issueTokens = (
     profileId: string,
+    accountId: string,
     email: string,
     handle: string,
     displayName: string | null,
@@ -732,7 +762,11 @@ export function createAuthService(config: AuthConfig) {
 
         const [accessToken, refreshToken] = await Promise.all([
           signJwt(payload, config.jwtSecret, accessTokenTtl),
-          signJwt({ sub: profileId, type: "refresh" }, config.jwtSecret, refreshTokenTtl),
+          signJwt(
+            { sub: accountId, type: "refresh", scope: "account" },
+            config.jwtSecret,
+            refreshTokenTtl,
+          ),
         ]);
         return { accessToken, refreshToken, expiresIn: accessTokenTtl };
       },
@@ -842,12 +876,64 @@ export function createAuthService(config: AuthConfig) {
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
-      return yield* issueTokens(profileId, profile.email, profile.handle, profile.displayName);
+      return yield* issueTokens(
+        profileId,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
     });
 
   // -------------------------------------------------------------------------
   // Token refresh
   // -------------------------------------------------------------------------
+
+  /**
+   * Verifies a refresh token and extracts the accountId. Shared by
+   * `refreshTokens`, `switchProfile`, and `listAccountProfiles`.
+   */
+  const verifyRefreshToken = (token: string): Effect.Effect<{ accountId: string }, AuthError> =>
+    Effect.gen(function* () {
+      const payload = yield* Effect.tryPromise({
+        try: () => verifyJwt(token, config.jwtSecret),
+        catch: () => new AuthError({ message: "Invalid or expired refresh token" }),
+      });
+      if (
+        payload["type"] !== "refresh" ||
+        payload["scope"] !== "account" ||
+        typeof payload["sub"] !== "string"
+      ) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid token type" }));
+      }
+      return { accountId: payload["sub"] };
+    });
+
+  /**
+   * Finds the default profile for an account. Uses DESC ordering on isDefault
+   * so the default profile sorts first (true=1 before false=0), then takes
+   * limit(1). Falls back to the first profile if none has isDefault=true.
+   */
+  const findDefaultProfile = (
+    accountId: string,
+  ): Effect.Effect<ProfileWithEmail | null, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ profile: users, account: accounts })
+            .from(users)
+            .innerJoin(accounts, eq(users.accountId, accounts.id))
+            .where(eq(users.accountId, accountId))
+            .orderBy(desc(users.isDefault))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const row = result[0];
+      if (!row) return null;
+      return { ...row.profile, email: row.account.email };
+    });
 
   const refreshTokens = (
     refreshToken: string,
@@ -857,19 +943,18 @@ export function createAuthService(config: AuthConfig) {
     Db
   > =>
     Effect.gen(function* () {
-      const payload = yield* Effect.tryPromise({
-        try: () => verifyJwt(refreshToken, config.jwtSecret),
-        catch: () => new AuthError({ message: "Invalid or expired refresh token" }),
-      });
-      if (payload["type"] !== "refresh" || typeof payload["sub"] !== "string") {
-        return yield* Effect.fail(new AuthError({ message: "Invalid token type" }));
-      }
-      const profileId = payload["sub"];
-      const profile = yield* findProfileById(profileId);
+      const { accountId } = yield* verifyRefreshToken(refreshToken);
+      const profile = yield* findDefaultProfile(accountId);
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
-      return yield* issueTokens(profileId, profile.email, profile.handle, profile.displayName);
+      return yield* issueTokens(
+        profile.id,
+        accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
     }).pipe(withAuthTokenRefresh);
 
   // -------------------------------------------------------------------------
@@ -1168,6 +1253,7 @@ export function createAuthService(config: AuthConfig) {
       const profile = yield* verifyPasskeyAssertion(identifier, assertion);
       const session = yield* issueTokens(
         profile.id,
+        profile.accountId,
         profile.email,
         profile.handle,
         profile.displayName,
@@ -1289,6 +1375,7 @@ export function createAuthService(config: AuthConfig) {
       const profile = yield* verifyOtpCode(identifier, code);
       const session = yield* issueTokens(
         profile.id,
+        profile.accountId,
         profile.email,
         profile.handle,
         profile.displayName,
@@ -1404,6 +1491,7 @@ export function createAuthService(config: AuthConfig) {
       const profile = yield* consumeMagicToken(token);
       const session = yield* issueTokens(
         profile.id,
+        profile.accountId,
         profile.email,
         profile.handle,
         profile.displayName,
@@ -1411,10 +1499,91 @@ export function createAuthService(config: AuthConfig) {
       return { session, profile: toPublicProfile(profile, profile.email) };
     }).pipe(withAuthLogin("magic_link"));
 
+  // -------------------------------------------------------------------------
+  // Profile switching (P2 — multi-account)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Lists all profiles belonging to the account identified by the refresh token.
+   * Returns `PublicProfile[]` — accountId is never exposed in the response.
+   */
+  const listAccountProfiles = (
+    refreshToken: string,
+  ): Effect.Effect<{ profiles: PublicProfile[] }, AuthError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { accountId } = yield* verifyRefreshToken(refreshToken);
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ profile: users, account: accounts })
+            .from(users)
+            .innerJoin(accounts, eq(users.accountId, accounts.id))
+            .where(eq(users.accountId, accountId)),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      if (rows.length === 0) {
+        return yield* Effect.fail(new AuthError({ message: "Account not found" }));
+      }
+      const email = rows[0]!.account.email;
+      return {
+        profiles: rows.map((r) => toPublicProfile(r.profile, email)),
+      };
+    }).pipe(withProfileSwitch("list"));
+
+  /**
+   * Switches to a different profile under the same account. Verifies the
+   * refresh token, confirms the target profile belongs to the same account,
+   * then issues a new access token scoped to that profile. The refresh token
+   * itself is unchanged (it's account-scoped and still valid).
+   */
+  const switchProfile = (
+    refreshToken: string,
+    targetProfileId: string,
+  ): Effect.Effect<
+    { accessToken: string; expiresIn: number; profile: PublicProfile },
+    AuthError | DatabaseError,
+    Db
+  > =>
+    Effect.gen(function* () {
+      const { accountId } = yield* verifyRefreshToken(refreshToken);
+      // Per-account rate limit (S-M3): bounds damage from a stolen refresh token.
+      if (!checkProfileSwitchLimit(accountId)) {
+        return yield* Effect.fail(new AuthError({ message: "Too many profile switches" }));
+      }
+      const profile = yield* findProfileById(targetProfileId);
+      if (!profile) {
+        return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
+      }
+      if (profile.accountId !== accountId) {
+        return yield* Effect.fail(
+          new AuthError({ message: "Profile does not belong to this account" }),
+        );
+      }
+      // Issue only a new access token — the refresh token is account-scoped and unchanged.
+      const payload: Record<string, unknown> = {
+        sub: profile.id,
+        email: profile.email,
+        handle: profile.handle,
+        scope: "openid profile",
+      };
+      if (profile.displayName !== null) payload["displayName"] = profile.displayName;
+      const accessToken = yield* Effect.tryPromise({
+        try: () => signJwt(payload, config.jwtSecret, accessTokenTtl),
+        catch: (cause) => new AuthError({ message: String(cause) }),
+      });
+      return {
+        accessToken,
+        expiresIn: accessTokenTtl,
+        profile: toPublicProfile(profile, profile.email),
+      };
+    }).pipe(withProfileSwitch("switch"));
+
   return {
     findProfileByEmail,
     findProfileByHandle,
     findProfileById,
+    findDefaultProfile,
     resolveIdentifier,
     registerProfile,
     beginRegistration,
@@ -1425,7 +1594,10 @@ export function createAuthService(config: AuthConfig) {
     issueTokens,
     exchangeCode,
     refreshTokens,
+    verifyRefreshToken,
     verifyAccessToken,
+    switchProfile,
+    listAccountProfiles,
     beginPasskeyRegistration,
     completePasskeyRegistration,
     beginPasskeyLogin,

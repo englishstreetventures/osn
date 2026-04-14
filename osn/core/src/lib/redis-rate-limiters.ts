@@ -20,7 +20,7 @@ import type { RateLimiterBackend } from "./rate-limit";
 const ONE_MINUTE_MS = 60_000;
 
 /**
- * Build all 11 auth rate limiters backed by a shared Redis client.
+ * Build all 13 auth rate limiters backed by a shared Redis client.
  * Namespace convention: `auth:{endpoint_name}` — produces Redis keys like
  * `rl:auth:register_begin:192.168.1.1`.
  */
@@ -40,6 +40,8 @@ export function createRedisAuthRateLimiters(client: RedisClient): AuthRateLimite
     passkeyLoginComplete: rl("auth:passkey_login_complete", 10),
     passkeyRegisterBegin: rl("auth:passkey_register_begin", 10),
     passkeyRegisterComplete: rl("auth:passkey_register_complete", 10),
+    profileSwitch: rl("auth:profile_switch", 10),
+    profileList: rl("auth:profile_list", 10),
   };
 }
 
