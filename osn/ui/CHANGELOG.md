@@ -1,5 +1,12 @@
 # @osn/ui
 
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [fcd8e8f]
+  - @osn/client@0.4.0
+
 ## 0.4.1
 
 ### Patch Changes

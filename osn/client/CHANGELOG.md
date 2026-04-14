@@ -1,5 +1,11 @@
 # @osn/client
 
+## 0.4.0
+
+### Minor Changes
+
+- fcd8e8f: Multi-account P4: Client SDK profile management — multi-session storage model with per-profile access tokens, profile list/switch/create/delete methods, SolidJS context integration, and legacy session migration.
+
 ## 0.3.2
 
 ### Patch Changes
