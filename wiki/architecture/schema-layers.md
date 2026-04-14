@@ -16,7 +16,8 @@ related:
 packages:
   - "@pulse/api"
   - "@osn/core"
-last-reviewed: 2026-04-12
+  - "@osn/client"
+last-reviewed: 2026-04-14
 ---
 
 # Schema Layers
@@ -121,9 +122,12 @@ export const createEvent = (data: unknown) =>
 - **Never use TypeBox in service functions.** Effect Schema is the domain boundary schema.
 - **Never transform in the route layer.** Strings stay strings at the HTTP boundary.
 - **Always map `ParseError` to a domain error.** Callers should catch `ValidationError`, not `ParseError`.
+- **Client SDK packages use Effect Schema.** `@osn/client` is not an Elysia route layer, so it has no TypeBox. Any runtime validation of external data (e.g. token responses from OAuth endpoints) uses Effect Schema, consistent with the service-layer pattern. Use `Schema.decodeUnknownSync` when the call site is synchronous or non-Effect.
+- **No third-party validation libraries.** Valibot, zod, and similar libraries must not be introduced. All validation is handled by TypeBox (HTTP boundary) or Effect Schema (everywhere else).
 
 ## Source Files
 
 - [CLAUDE.md](../CLAUDE.md) -- "Schema Layers" section
 - [pulse/api/src/routes/events.ts](../pulse/api/src/routes/events.ts) -- TypeBox usage
 - [pulse/api/src/services/events.ts](../pulse/api/src/services/events.ts) -- Effect Schema usage
+- [osn/client/src/tokens.ts](../osn/client/src/tokens.ts) -- Effect Schema in client SDK (decodeUnknownSync)

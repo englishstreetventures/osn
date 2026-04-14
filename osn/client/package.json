@@ -13,8 +13,7 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "effect": "^3.19.19",
-    "valibot": "^1.0.0"
+    "effect": "^3.19.19"
   },
   "peerDependencies": {
     "solid-js": ">=1.0.0"

@@ -1,13 +1,15 @@
-import { object, string, number, optional, parse } from "valibot";
+import { Schema } from "effect";
 
-const tokenResponseSchema = object({
-  access_token: string(),
-  refresh_token: optional(string()),
-  id_token: optional(string()),
-  expires_in: number(),
-  token_type: string(),
-  scope: optional(string()),
+const TokenResponseSchema = Schema.Struct({
+  access_token: Schema.String,
+  refresh_token: Schema.optional(Schema.String),
+  id_token: Schema.optional(Schema.String),
+  expires_in: Schema.Number,
+  token_type: Schema.String,
+  scope: Schema.optional(Schema.String),
 });
+
+const decodeTokenResponse = Schema.decodeUnknownSync(TokenResponseSchema);
 
 export interface Session {
   accessToken: string;
@@ -19,7 +21,7 @@ export interface Session {
 }
 
 export function parseTokenResponse(raw: unknown): Session {
-  const t = parse(tokenResponseSchema, raw);
+  const t = decodeTokenResponse(raw);
   return {
     accessToken: t.access_token,
     refreshToken: t.refresh_token ?? null,
