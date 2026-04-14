@@ -1,5 +1,16 @@
 # @osn/pulse
 
+## 0.7.2
+
+### Patch Changes
+
+- 7030545: Migrate UI components to Zaidan (shadcn-style component library for SolidJS)
+
+  Adds Kobalte-backed headless UI primitives (Button, Input, Label, Card, Badge, Dialog, Popover, Tabs, RadioGroup, Checkbox, Textarea, Avatar) to @osn/ui as the shared design system. Replaces inline Tailwind class patterns across both @osn/ui auth components and @pulse/app with these reusable primitives.
+
+- Updated dependencies [7030545]
+  - @osn/ui@0.4.0
+
 ## 0.7.1
 
 ### Patch Changes
