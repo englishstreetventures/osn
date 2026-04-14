@@ -1,5 +1,13 @@
 # @zap/api
 
+## 0.3.3
+
+### Patch Changes
+
+- Updated dependencies [8137051]
+  - @osn/core@0.16.0
+  - @shared/observability@0.2.8
+
 ## 0.3.2
 
 ### Patch Changes
