@@ -1,5 +1,14 @@
 # @osn/api
 
+## 0.9.4
+
+### Patch Changes
+
+- Updated dependencies [a723923]
+  - @osn/core@0.16.1
+  - @osn/db@0.7.2
+  - @shared/observability@0.2.9
+
 ## 0.9.3
 
 ### Patch Changes
