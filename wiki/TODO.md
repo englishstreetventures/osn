@@ -6,7 +6,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 
 - [x] Multi-account P3 — Profile CRUD: `createProfileService()` (create, delete, set default), `/profiles` routes, `maxProfiles` enforcement (S-L1), cascade-delete profile data, observability (counter + histogram + spans)
 - [x] Multi-account P4 — Client SDK: multi-session storage (`@osn/client:account_session`), `listProfiles()`, `switchProfile()`, `createProfile()`, `deleteProfile()`, `getActiveProfile()` methods on `OsnAuthService`, SolidJS `AuthContext` integration, legacy session migration, schema validation
-- [ ] Multi-account P5 — Profile UI: profile switcher component in `@osn/ui`, profile creation form, onboarding for additional profiles
+- [x] Multi-account P5 — Profile UI: profile switcher component in `@osn/ui`, profile creation form, onboarding for additional profiles
 - [ ] Multi-account P6 — Privacy audit: verify `accountId` never leaks in API responses / tokens / logs, rate-limit per-profile (not per-account), pen-test correlation attacks between profiles
 - [ ] Provision Grafana Cloud free tier + wire `OTEL_EXPORTER_OTLP_ENDPOINT` + headers into deploy env — see [[observability-setup]]
 - [ ] Build first observability dashboards (HTTP RED, auth funnel, ARC verification, events CRUD) — see [[observability/overview]]
@@ -35,7 +35,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 
 - [x] Multi-account profile CRUD (P3) — create/delete/set-default profiles, maxProfiles enforcement, cascade delete, observability
 - [x] Multi-account client SDK (P4) — multi-session storage, profile switching, schema validation, security hardening
-- [ ] Multi-account UI (P5) — profile switcher component
+- [x] Multi-account UI (P5) — profile switcher component, create form, onboarding
 - [ ] Multi-account privacy audit (P6) — accountId leak verification, per-profile rate limits
 - [ ] Per-app vs global blocking logic (deferred — global blocking across all OSN apps for now)
 - [ ] Interest profile selection (onboarding)

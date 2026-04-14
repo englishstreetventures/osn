@@ -27,6 +27,19 @@ vi.mock("@osn/client/solid", () => ({
     session: () => mockSession(),
     login: mockLogin,
     logout: mockLogout,
+    profiles: () => [
+      {
+        id: "usr_test",
+        handle: "test",
+        email: "test@example.com",
+        displayName: null,
+        avatarUrl: null,
+      },
+    ],
+    activeProfileId: () => "usr_test",
+    switchProfile: vi.fn(),
+    deleteProfile: vi.fn(),
+    createProfile: vi.fn(),
   }),
 }));
 

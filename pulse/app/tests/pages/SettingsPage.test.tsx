@@ -14,7 +14,18 @@ import { mockToastError, mockToastSuccess } from "../helpers/toast";
 // Mock the auth context — settingsPage reads `session()` for the access token.
 let mockSession: () => { accessToken: string } | null = () => ({ accessToken: "tok" });
 vi.mock("@osn/client/solid", () => ({
-  useAuth: () => ({ session: () => mockSession() }),
+  useAuth: () => ({
+    session: () => mockSession(),
+    profiles: () =>
+      mockSession()
+        ? [{ id: "usr_test", handle: "test", email: "t@t.com", displayName: null, avatarUrl: null }]
+        : null,
+    createProfile: vi.fn(),
+  }),
+}));
+
+vi.mock("../../src/lib/authClients", () => ({
+  registrationClient: { checkHandle: vi.fn() },
 }));
 
 // Mock the rsvps lib so we can assert updateMySettings is called and stub
