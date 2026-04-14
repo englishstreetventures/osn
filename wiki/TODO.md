@@ -536,7 +536,7 @@ Address **High** items before any non-local deployment.
 | DB table rename `users` → `profiles` | The table is called `users` but represents profiles. Renaming is a migration-heavy change for minimal runtime benefit. Code already uses profile terminology everywhere. | Only if it causes genuine confusion |
 | S2S scaling — see [[s2s-patterns]], [[arc-tokens]], [[s2s-migration]] | Current: direct package import (`createGraphService()`). Migrate to HTTP `/graph/internal/*` + ARC tokens when scaling horizontally. | When multi-process or multi-machine deployment needed |
 | Per-app blocking — see [[social-graph]] | Blocks are global across all OSN apps. Per-app scope deferred. | When Messaging or a third-party app needs independent block lists |
-<<<<<<< HEAD
+| `@chenglou/pretext` for Zap virtual scroll — see [[zap]] | Pure-JS text measurement/layout without DOM reflow (43k+ stars). Enables virtualized message lists by pre-calculating message heights. Also supports rich inline (mentions, chips). | When Zap UI is built and message list needs virtualisation |
 | Profile transfer between accounts | Meta supports unlinking/relinking profiles to different accounts | After multi-account ships (P6) |
 | Per-profile notification email | Profiles might want separate contact emails (beyond the account login email) | When notification system is built |
 | Profile-level 2FA | Currently 2FA would be account-wide (passkeys on accounts) | When 2FA is implemented |
