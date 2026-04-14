@@ -14,29 +14,29 @@ const config = {
 
 const auth = createAuthService(config);
 
-describe("registerUser", () => {
+describe("registerProfile", () => {
   it.effect("creates a new user with usr_ prefix and correct fields", () =>
     Effect.gen(function* () {
-      const user = yield* auth.registerUser("alice@example.com", "alice", "Alice");
-      expect(user.id).toMatch(/^usr_/);
-      expect(user.email).toBe("alice@example.com");
-      expect(user.handle).toBe("alice");
-      expect(user.displayName).toBe("Alice");
+      const profile = yield* auth.registerProfile("alice@example.com", "alice", "Alice");
+      expect(profile.id).toMatch(/^usr_/);
+      expect(profile.email).toBe("alice@example.com");
+      expect(profile.handle).toBe("alice");
+      expect(profile.displayName).toBe("Alice");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
   it.effect("creates user without displayName", () =>
     Effect.gen(function* () {
-      const user = yield* auth.registerUser("bob@example.com", "bob");
-      expect(user.handle).toBe("bob");
-      expect(user.displayName).toBeNull();
+      const profile = yield* auth.registerProfile("bob@example.com", "bob");
+      expect(profile.handle).toBe("bob");
+      expect(profile.displayName).toBeNull();
     }).pipe(Effect.provide(createTestLayer())),
   );
 
   it.effect("fails if email already registered", () =>
     Effect.gen(function* () {
-      yield* auth.registerUser("carol@example.com", "carol");
-      const error = yield* Effect.flip(auth.registerUser("carol@example.com", "carol2"));
+      yield* auth.registerProfile("carol@example.com", "carol");
+      const error = yield* Effect.flip(auth.registerProfile("carol@example.com", "carol2"));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Email already registered");
     }).pipe(Effect.provide(createTestLayer())),
@@ -44,8 +44,8 @@ describe("registerUser", () => {
 
   it.effect("fails if handle already taken", () =>
     Effect.gen(function* () {
-      yield* auth.registerUser("dan@example.com", "dan");
-      const error = yield* Effect.flip(auth.registerUser("dan2@example.com", "dan"));
+      yield* auth.registerProfile("dan@example.com", "dan");
+      const error = yield* Effect.flip(auth.registerProfile("dan2@example.com", "dan"));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Handle already taken");
     }).pipe(Effect.provide(createTestLayer())),
@@ -53,21 +53,21 @@ describe("registerUser", () => {
 
   it.effect("fails with invalid email format", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(auth.registerUser("not-an-email", "myhandle"));
+      const error = yield* Effect.flip(auth.registerProfile("not-an-email", "myhandle"));
       expect(error._tag).toBe("ValidationError");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
   it.effect("fails with invalid handle format (uppercase)", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(auth.registerUser("eve@example.com", "Eve"));
+      const error = yield* Effect.flip(auth.registerProfile("eve@example.com", "Eve"));
       expect(error._tag).toBe("ValidationError");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
   it.effect("fails with invalid handle format (too long)", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(auth.registerUser("frank@example.com", "a".repeat(31)));
+      const error = yield* Effect.flip(auth.registerProfile("frank@example.com", "a".repeat(31)));
       expect(error._tag).toBe("ValidationError");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -83,7 +83,7 @@ describe("checkHandle", () => {
 
   it.effect("returns available:false for a taken handle", () =>
     Effect.gen(function* () {
-      yield* auth.registerUser("grace@example.com", "grace");
+      yield* auth.registerProfile("grace@example.com", "grace");
       const result = yield* auth.checkHandle("grace");
       expect(result.available).toBe(false);
     }).pipe(Effect.provide(createTestLayer())),
@@ -144,7 +144,7 @@ describe("beginRegistration + completeRegistration", () => {
         expect(result.enrollmentToken.length).toBeGreaterThan(0);
 
         // The user row must now exist.
-        const found = yield* svc.findUserByEmail("verify@example.com");
+        const found = yield* svc.findProfileByEmail("verify@example.com");
         expect(found?.handle).toBe("verifyme");
         expect(found?.displayName).toBe("Verify Me");
       }).pipe(Effect.provide(createTestLayer())),
@@ -160,7 +160,7 @@ describe("beginRegistration + completeRegistration", () => {
       expect(result.email).toBe("mixedcase@example.com");
 
       // Lookups by either casing find the same row.
-      const a = yield* svc.findUserByEmail("mixedcase@example.com");
+      const a = yield* svc.findProfileByEmail("mixedcase@example.com");
       expect(a?.id).toBe(result.profileId);
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -171,7 +171,7 @@ describe("beginRegistration + completeRegistration", () => {
       yield* svc.beginRegistration("pending@example.com", "pendinguser");
 
       // No DB row yet.
-      const found = yield* svc.findUserByEmail("pending@example.com");
+      const found = yield* svc.findProfileByEmail("pending@example.com");
       expect(found).toBeNull();
       // Handle still free.
       const status = yield* svc.checkHandle("pendinguser");
@@ -207,7 +207,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("S-M1: begin returns sent:true silently when email is already taken", () =>
     Effect.gen(function* () {
       const { svc, captured } = makeAuth();
-      yield* svc.registerUser("taken@example.com", "takenuser");
+      yield* svc.registerProfile("taken@example.com", "takenuser");
       // No throw — and crucially, no email sent (otherwise enumeration is
       // possible via timing or via observing outbound mail).
       const result = yield* svc.beginRegistration("taken@example.com", "newhandle");
@@ -219,7 +219,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("S-M1: begin returns sent:true silently when handle is already taken", () =>
     Effect.gen(function* () {
       const { svc, captured } = makeAuth();
-      yield* svc.registerUser("first@example.com", "duphandle");
+      yield* svc.registerProfile("first@example.com", "duphandle");
       const result = yield* svc.beginRegistration("second@example.com", "duphandle");
       expect(result.sent).toBe(true);
       expect(captured.code).toBeUndefined();
@@ -297,8 +297,8 @@ describe("beginRegistration + completeRegistration", () => {
     Effect.gen(function* () {
       const { svc, captured } = makeAuth();
       yield* svc.beginRegistration("toctou@example.com", "toctouuser");
-      // Simulate someone winning the race via the legacy registerUser path.
-      yield* svc.registerUser("toctou@example.com", "toctouuser");
+      // Simulate someone winning the race via the legacy registerProfile path.
+      yield* svc.registerProfile("toctou@example.com", "toctouuser");
       // Our complete fails (handle/email taken) but the pending entry must
       // not have been deleted — though in practice the user would now be
       // told to log in instead.
@@ -344,7 +344,7 @@ describe("issueEnrollmentToken + verifyEnrollmentToken", () => {
 
   it.effect("rejects a normal access token (wrong type claim)", () =>
     Effect.gen(function* () {
-      yield* auth.registerUser("typecheck@example.com", "typecheck");
+      yield* auth.registerProfile("typecheck@example.com", "typecheck");
       const tokens = yield* auth.issueTokens("usr_x", "typecheck@example.com", "typecheck", null);
       const error = yield* Effect.flip(auth.verifyEnrollmentToken(tokens.accessToken));
       expect(error._tag).toBe("AuthError");
@@ -352,11 +352,11 @@ describe("issueEnrollmentToken + verifyEnrollmentToken", () => {
   );
 });
 
-describe("findUserByEmail + findUserByHandle", () => {
+describe("findProfileByEmail + findProfileByHandle", () => {
   it.effect("returns null when user does not exist", () =>
     Effect.gen(function* () {
-      const byEmail = yield* auth.findUserByEmail("nobody@example.com");
-      const byHandle = yield* auth.findUserByHandle("nobody");
+      const byEmail = yield* auth.findProfileByEmail("nobody@example.com");
+      const byHandle = yield* auth.findProfileByHandle("nobody");
       expect(byEmail).toBeNull();
       expect(byHandle).toBeNull();
     }).pipe(Effect.provide(createTestLayer())),
@@ -364,9 +364,9 @@ describe("findUserByEmail + findUserByHandle", () => {
 
   it.effect("finds user by email and by handle", () =>
     Effect.gen(function* () {
-      yield* auth.registerUser("heidi@example.com", "heidi");
-      const byEmail = yield* auth.findUserByEmail("heidi@example.com");
-      const byHandle = yield* auth.findUserByHandle("heidi");
+      yield* auth.registerProfile("heidi@example.com", "heidi");
+      const byEmail = yield* auth.findProfileByEmail("heidi@example.com");
+      const byHandle = yield* auth.findProfileByHandle("heidi");
       expect(byEmail).not.toBeNull();
       expect(byHandle).not.toBeNull();
       expect(byEmail!.id).toBe(byHandle!.id);
@@ -377,8 +377,13 @@ describe("findUserByEmail + findUserByHandle", () => {
 describe("issueTokens + exchangeCode", () => {
   it.effect("issueTokens returns access + refresh tokens with handle in payload", () =>
     Effect.gen(function* () {
-      const user = yield* auth.registerUser("ivan@example.com", "ivan", "Ivan");
-      const tokens = yield* auth.issueTokens(user.id, user.email, user.handle, user.displayName);
+      const profile = yield* auth.registerProfile("ivan@example.com", "ivan", "Ivan");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
       expect(tokens.accessToken).toBeTruthy();
       expect(tokens.refreshToken).toBeTruthy();
       expect(tokens.expiresIn).toBe(3600);
@@ -392,7 +397,7 @@ describe("issueTokens + exchangeCode", () => {
 
   it.effect("exchangeCode returns tokens for a valid auth code", () =>
     Effect.gen(function* () {
-      const user = yield* auth.registerUser("judy@example.com", "judy");
+      const profile = yield* auth.registerProfile("judy@example.com", "judy");
       let capturedCode: string | undefined;
       const authSpy = createAuthService({
         ...config,
@@ -406,7 +411,7 @@ describe("issueTokens + exchangeCode", () => {
       const tokens = yield* auth.exchangeCode(code);
       expect(tokens.accessToken).toBeTruthy();
       const claims = yield* auth.verifyAccessToken(tokens.accessToken);
-      expect(claims.profileId).toBe(user.id);
+      expect(claims.profileId).toBe(profile.id);
       expect(claims.handle).toBe("judy");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -422,7 +427,7 @@ describe("issueTokens + exchangeCode", () => {
 describe("OTP flow", () => {
   it.effect("beginOtp + completeOtp via email identifier issues a code", () =>
     Effect.gen(function* () {
-      yield* auth.registerUser("kate@example.com", "kate");
+      yield* auth.registerProfile("kate@example.com", "kate");
       let capturedCode: string | undefined;
       const authWithSpy = createAuthService({
         ...config,
@@ -443,7 +448,7 @@ describe("OTP flow", () => {
 
   it.effect("beginOtp + completeOtp via handle identifier issues a code", () =>
     Effect.gen(function* () {
-      yield* auth.registerUser("liam@example.com", "liam");
+      yield* auth.registerProfile("liam@example.com", "liam");
       let capturedCode: string | undefined;
       const authWithSpy = createAuthService({
         ...config,
@@ -470,7 +475,7 @@ describe("OTP flow", () => {
 
   it.effect("completeOtp fails with wrong code", () =>
     Effect.gen(function* () {
-      yield* auth.registerUser("mia@example.com", "mia");
+      yield* auth.registerProfile("mia@example.com", "mia");
       yield* auth.beginOtp("mia@example.com");
       const error = yield* Effect.flip(auth.completeOtp("mia@example.com", "000000"));
       expect(error._tag).toBe("AuthError");
@@ -493,7 +498,7 @@ describe("OTP flow", () => {
 
   it.effect("second beginOtp overwrites the first code", () =>
     Effect.gen(function* () {
-      yield* auth.registerUser("noah@example.com", "noah");
+      yield* auth.registerProfile("noah@example.com", "noah");
       let firstCode: string | undefined;
       let callCount = 0;
       const authSpy = createAuthService({
@@ -517,8 +522,8 @@ describe("OTP flow", () => {
 describe("passkey registration", () => {
   it.effect("beginPasskeyRegistration returns options with @handle as userName", () =>
     Effect.gen(function* () {
-      const user = yield* auth.registerUser("passkey@example.com", "passkeyuser");
-      const result = yield* auth.beginPasskeyRegistration(user.accountId);
+      const profile = yield* auth.registerProfile("passkey@example.com", "passkeyuser");
+      const result = yield* auth.beginPasskeyRegistration(profile.accountId);
       expect(result.options).toBeTruthy();
       expect(result.options.challenge).toBeTruthy();
       expect(result.options.user.name).toBe("@passkeyuser");
@@ -536,7 +541,7 @@ describe("passkey registration", () => {
 describe("magic link flow", () => {
   it.effect("beginMagic + verifyMagic via email redirects correctly", () =>
     Effect.gen(function* () {
-      yield* auth.registerUser("oliver@example.com", "oliver");
+      yield* auth.registerProfile("oliver@example.com", "oliver");
       let capturedToken: string | undefined;
       const authWithSpy = createAuthService({
         ...config,
@@ -561,7 +566,7 @@ describe("magic link flow", () => {
 
   it.effect("beginMagic via handle finds and emails the user", () =>
     Effect.gen(function* () {
-      yield* auth.registerUser("petra@example.com", "petra");
+      yield* auth.registerProfile("petra@example.com", "petra");
       let emailedTo: string | undefined;
       const authWithSpy = createAuthService({
         ...config,
@@ -595,8 +600,13 @@ describe("magic link flow", () => {
 describe("token refresh", () => {
   it.effect("refreshTokens issues new tokens from a valid refresh token", () =>
     Effect.gen(function* () {
-      const user = yield* auth.registerUser("quinn@example.com", "quinn");
-      const tokens = yield* auth.issueTokens(user.id, user.email, user.handle, user.displayName);
+      const profile = yield* auth.registerProfile("quinn@example.com", "quinn");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
       const refreshed = yield* auth.refreshTokens(tokens.refreshToken);
       expect(refreshed.accessToken).toBeTruthy();
       expect(refreshed.expiresIn).toBe(3600);
@@ -614,10 +624,15 @@ describe("token refresh", () => {
 describe("verifyAccessToken", () => {
   it.effect("verifies a valid access token and returns all claims", () =>
     Effect.gen(function* () {
-      const user = yield* auth.registerUser("rose@example.com", "rose", "Rose");
-      const tokens = yield* auth.issueTokens(user.id, user.email, user.handle, user.displayName);
+      const profile = yield* auth.registerProfile("rose@example.com", "rose", "Rose");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
       const claims = yield* auth.verifyAccessToken(tokens.accessToken);
-      expect(claims.profileId).toBe(user.id);
+      expect(claims.profileId).toBe(profile.id);
       expect(claims.email).toBe("rose@example.com");
       expect(claims.handle).toBe("rose");
       expect(claims.displayName).toBe("Rose");
@@ -626,8 +641,13 @@ describe("verifyAccessToken", () => {
 
   it.effect("displayName is null when not set", () =>
     Effect.gen(function* () {
-      const user = yield* auth.registerUser("sam@example.com", "sam");
-      const tokens = yield* auth.issueTokens(user.id, user.email, user.handle, user.displayName);
+      const profile = yield* auth.registerProfile("sam@example.com", "sam");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
       const claims = yield* auth.verifyAccessToken(tokens.accessToken);
       expect(claims.displayName).toBeNull();
     }).pipe(Effect.provide(createTestLayer())),
@@ -694,7 +714,7 @@ describe("dev-mode Effect.logDebug fallback", () => {
   it.effect("beginOtp logs the login code via Effect.logDebug when sendEmail is unset", () =>
     Effect.gen(function* () {
       // beginOtp requires the user to exist already — register first.
-      yield* auth.registerUser("dev-login@example.com", "devlogin");
+      yield* auth.registerProfile("dev-login@example.com", "devlogin");
 
       const { captured, loggerLayer } = captureLogs();
       const svc = createAuthService(config);
@@ -711,7 +731,7 @@ describe("dev-mode Effect.logDebug fallback", () => {
 
   it.effect("beginMagic logs the magic-link URL via Effect.logDebug when sendEmail is unset", () =>
     Effect.gen(function* () {
-      yield* auth.registerUser("dev-magic@example.com", "devmagic");
+      yield* auth.registerProfile("dev-magic@example.com", "devmagic");
 
       const { captured, loggerLayer } = captureLogs();
       const svc = createAuthService(config);
@@ -828,7 +848,7 @@ describe("login OTP attempt limit", () => {
         },
       });
 
-      yield* svc.registerUser("brute@example.com", "brute");
+      yield* svc.registerProfile("brute@example.com", "brute");
       yield* svc.beginOtp("brute@example.com");
       expect(capturedCode).toBeTruthy();
 
@@ -855,7 +875,7 @@ describe("login OTP attempt limit", () => {
         },
       });
 
-      yield* svc.registerUser("careful@example.com", "careful");
+      yield* svc.registerProfile("careful@example.com", "careful");
       yield* svc.beginOtp("careful@example.com");
 
       // 4 wrong guesses (under the limit)
@@ -880,7 +900,7 @@ describe("login OTP attempt limit", () => {
         },
       });
 
-      yield* svc.registerUser("direct@example.com", "direct");
+      yield* svc.registerProfile("direct@example.com", "direct");
       yield* svc.beginOtp("direct@example.com");
       expect(capturedCode).toBeTruthy();
 

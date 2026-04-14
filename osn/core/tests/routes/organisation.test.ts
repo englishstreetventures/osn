@@ -33,7 +33,7 @@ describe("organisation routes", () => {
     email: string,
     handle: string,
   ): Promise<{ profileId: string; token: string }> {
-    const user = await runWithLayer(auth.registerUser(email, handle));
+    const user = await runWithLayer(auth.registerProfile(email, handle));
     const tokens = await runWithLayer(
       auth.issueTokens(user.id, user.email, user.handle, user.displayName),
     );
@@ -308,7 +308,7 @@ describe("organisation routes", () => {
   // Member management
   // -------------------------------------------------------------------------
 
-  it("POST /organisations/:handle/members/:userHandle → 201 adds a member", async () => {
+  it("POST /organisations/:handle/members/:profileHandle → 201 adds a member", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
     await registerAndGetToken("bob@example.com", "bob");
 
@@ -336,7 +336,7 @@ describe("organisation routes", () => {
     expect(res.status).toBe(201);
   });
 
-  it("DELETE /organisations/:handle/members/:userHandle removes a member", async () => {
+  it("DELETE /organisations/:handle/members/:profileHandle removes a member", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
     await registerAndGetToken("bob@example.com", "bob");
 
@@ -371,7 +371,7 @@ describe("organisation routes", () => {
     expect(res.status).toBe(200);
   });
 
-  it("PATCH /organisations/:handle/members/:userHandle updates role", async () => {
+  it("PATCH /organisations/:handle/members/:profileHandle updates role", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
     await registerAndGetToken("bob@example.com", "bob");
 
@@ -450,7 +450,7 @@ describe("organisation routes", () => {
     expect(bobMember?.role).toBe("member");
   });
 
-  it("POST /organisations/:handle/members/:userHandle → 404 for unknown user", async () => {
+  it("POST /organisations/:handle/members/:profileHandle → 404 for unknown profile", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
 
     await orgApp.handle(

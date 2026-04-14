@@ -52,8 +52,12 @@ export const passkeys = sqliteTable(
   (t) => [index("passkeys_account_id_idx").on(t.accountId)],
 );
 
-export type User = typeof users.$inferSelect;
-export type NewUser = typeof users.$inferInsert;
+export type Profile = typeof users.$inferSelect;
+export type NewProfile = typeof users.$inferInsert;
+/** @deprecated Use `Profile` — kept for migration compatibility. */
+export type User = Profile;
+/** @deprecated Use `NewProfile` — kept for migration compatibility. */
+export type NewUser = NewProfile;
 export type Passkey = typeof passkeys.$inferSelect;
 export type NewPasskey = typeof passkeys.$inferInsert;
 

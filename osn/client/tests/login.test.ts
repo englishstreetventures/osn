@@ -35,7 +35,7 @@ const sampleSessionPayload = {
   expires_in: 3600,
 };
 
-const sampleUser = {
+const sampleProfile = {
   id: "usr_1",
   handle: "alice",
   email: "alice@example.com",
@@ -70,10 +70,10 @@ describe("createLoginClient", () => {
   });
 
   describe("passkeyComplete", () => {
-    it("returns a parsed session + user", async () => {
-      stubFetch(() => jsonResponse({ session: sampleSessionPayload, user: sampleUser }));
+    it("returns a parsed session + profile", async () => {
+      stubFetch(() => jsonResponse({ session: sampleSessionPayload, profile: sampleProfile }));
       const result = await client.passkeyComplete("alice", { id: "cred" });
-      expect(result.user).toEqual(sampleUser);
+      expect(result.profile).toEqual(sampleProfile);
       expect(result.session.accessToken).toBe("acc_abc");
       expect(result.session.refreshToken).toBe("ref_xyz");
     });
@@ -89,10 +89,10 @@ describe("createLoginClient", () => {
   });
 
   describe("otpComplete", () => {
-    it("returns a parsed session + user", async () => {
-      stubFetch(() => jsonResponse({ session: sampleSessionPayload, user: sampleUser }));
+    it("returns a parsed session + profile", async () => {
+      stubFetch(() => jsonResponse({ session: sampleSessionPayload, profile: sampleProfile }));
       const result = await client.otpComplete("alice@example.com", "123456");
-      expect(result.user).toEqual(sampleUser);
+      expect(result.profile).toEqual(sampleProfile);
       expect(result.session.accessToken).toBe("acc_abc");
     });
 
@@ -118,11 +118,11 @@ describe("createLoginClient", () => {
   describe("magicVerify", () => {
     it("GETs /login/magic/verify with url-encoded token", async () => {
       const { calls } = stubFetch(() =>
-        jsonResponse({ session: sampleSessionPayload, user: sampleUser }),
+        jsonResponse({ session: sampleSessionPayload, profile: sampleProfile }),
       );
       const result = await client.magicVerify("mlnk_abc+def");
       expect(calls[0].url).toBe("https://osn.example.com/login/magic/verify?token=mlnk_abc%2Bdef");
-      expect(result.user.handle).toBe("alice");
+      expect(result.profile.handle).toBe("alice");
     });
 
     it("throws LoginError on bad token", async () => {

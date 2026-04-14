@@ -67,8 +67,8 @@ describe("internal organisation routes (ARC-protected)", () => {
     return { token, keyPair: kp };
   }
 
-  async function registerUser(email: string, handle: string): Promise<string> {
-    const user = await runWithLayer(auth.registerUser(email, handle));
+  async function registerProfile(email: string, handle: string): Promise<string> {
+    const user = await runWithLayer(auth.registerProfile(email, handle));
     return user.id;
   }
 
@@ -87,14 +87,14 @@ describe("internal organisation routes (ARC-protected)", () => {
   describe("ARC auth guard", () => {
     it("returns 401 without authorization header", async () => {
       const res = await app.handle(
-        new Request("http://localhost/organisations/internal/user-orgs?profileId=test"),
+        new Request("http://localhost/organisations/internal/profile-orgs?profileId=test"),
       );
       expect(res.status).toBe(401);
     });
 
     it("returns 401 with Bearer token instead of ARC token", async () => {
       const res = await app.handle(
-        new Request("http://localhost/organisations/internal/user-orgs?profileId=test", {
+        new Request("http://localhost/organisations/internal/profile-orgs?profileId=test", {
           headers: { Authorization: "Bearer some-jwt" },
         }),
       );
@@ -103,7 +103,7 @@ describe("internal organisation routes (ARC-protected)", () => {
 
     it("returns 401 with invalid ARC token", async () => {
       const res = await app.handle(
-        new Request("http://localhost/organisations/internal/user-orgs?profileId=test", {
+        new Request("http://localhost/organisations/internal/profile-orgs?profileId=test", {
           headers: { Authorization: "ARC not-a-valid-token" },
         }),
       );
@@ -119,7 +119,7 @@ describe("internal organisation routes (ARC-protected)", () => {
       });
 
       const res = await app.handle(
-        new Request("http://localhost/organisations/internal/user-orgs?profileId=test", {
+        new Request("http://localhost/organisations/internal/profile-orgs?profileId=test", {
           headers: { Authorization: `ARC ${badToken}` },
         }),
       );
@@ -135,7 +135,7 @@ describe("internal organisation routes (ARC-protected)", () => {
       });
 
       const res = await app.handle(
-        new Request("http://localhost/organisations/internal/user-orgs?profileId=test", {
+        new Request("http://localhost/organisations/internal/profile-orgs?profileId=test", {
           headers: { Authorization: `ARC ${badToken}` },
         }),
       );
@@ -144,18 +144,18 @@ describe("internal organisation routes (ARC-protected)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // GET /organisations/internal/user-orgs
+  // GET /organisations/internal/profile-orgs
   // -------------------------------------------------------------------------
 
-  describe("GET /organisations/internal/user-orgs", () => {
+  describe("GET /organisations/internal/profile-orgs", () => {
     it("returns org IDs for a user with orgs", async () => {
       const { token } = await setupArcService();
-      const profileId = await registerUser("alice@example.com", "alice");
+      const profileId = await registerProfile("alice@example.com", "alice");
       await runWithLayer(org.createOrganisation(profileId, "acme", "Acme Corp"));
       await runWithLayer(org.createOrganisation(profileId, "globex", "Globex Corp"));
 
       const res = await app.handle(
-        new Request(`http://localhost/organisations/internal/user-orgs?profileId=${profileId}`, {
+        new Request(`http://localhost/organisations/internal/profile-orgs?profileId=${profileId}`, {
           headers: { Authorization: `ARC ${token}` },
         }),
       );
@@ -166,10 +166,10 @@ describe("internal organisation routes (ARC-protected)", () => {
 
     it("returns empty list for user with no orgs", async () => {
       const { token } = await setupArcService();
-      const profileId = await registerUser("alice@example.com", "alice");
+      const profileId = await registerProfile("alice@example.com", "alice");
 
       const res = await app.handle(
-        new Request(`http://localhost/organisations/internal/user-orgs?profileId=${profileId}`, {
+        new Request(`http://localhost/organisations/internal/profile-orgs?profileId=${profileId}`, {
           headers: { Authorization: `ARC ${token}` },
         }),
       );
@@ -186,7 +186,7 @@ describe("internal organisation routes (ARC-protected)", () => {
   describe("GET /organisations/internal/membership", () => {
     it("returns role for an org member", async () => {
       const { token } = await setupArcService();
-      const profileId = await registerUser("alice@example.com", "alice");
+      const profileId = await registerProfile("alice@example.com", "alice");
       const organisation = await runWithLayer(
         org.createOrganisation(profileId, "acme", "Acme Corp"),
       );
@@ -204,8 +204,8 @@ describe("internal organisation routes (ARC-protected)", () => {
 
     it("returns null for a non-member", async () => {
       const { token } = await setupArcService();
-      const alice = await registerUser("alice@example.com", "alice");
-      const bob = await registerUser("bob@example.com", "bob");
+      const alice = await registerProfile("alice@example.com", "alice");
+      const bob = await registerProfile("bob@example.com", "bob");
       const organisation = await runWithLayer(org.createOrganisation(alice, "acme", "Acme Corp"));
 
       const res = await app.handle(

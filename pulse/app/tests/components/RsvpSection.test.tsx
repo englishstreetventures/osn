@@ -63,7 +63,7 @@ describe("RsvpSection", () => {
         invitedByProfileId: null,
         isCloseFriend: false,
         createdAt: "2030-01-01T00:00:00Z",
-        user: { id: "usr_bob", handle: "bob", displayName: "Bob Smith", avatarUrl: null },
+        profile: { id: "usr_bob", handle: "bob", displayName: "Bob Smith", avatarUrl: null },
       },
     ]);
     const { container } = render(() => (
@@ -85,7 +85,7 @@ describe("RsvpSection", () => {
         invitedByProfileId: null,
         isCloseFriend: true,
         createdAt: "2030-01-01T00:00:00Z",
-        user: { id: "usr_bob", handle: "bob", displayName: "Bob Smith", avatarUrl: null },
+        profile: { id: "usr_bob", handle: "bob", displayName: "Bob Smith", avatarUrl: null },
       },
     ]);
     const { container } = render(() => (

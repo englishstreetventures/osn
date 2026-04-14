@@ -69,8 +69,8 @@ describe("internal graph routes (ARC-protected)", () => {
   }
 
   /** Register a user in the OSN DB. */
-  async function registerUser(email: string, handle: string): Promise<string> {
-    const user = await runWithLayer(auth.registerUser(email, handle));
+  async function registerProfile(email: string, handle: string): Promise<string> {
+    const user = await runWithLayer(auth.registerProfile(email, handle));
     return user.id;
   }
 
@@ -89,14 +89,14 @@ describe("internal graph routes (ARC-protected)", () => {
   describe("ARC auth guard", () => {
     it("returns 401 without authorization header", async () => {
       const res = await app.handle(
-        new Request("http://localhost/graph/internal/either-blocked?userA=a&userB=b"),
+        new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b"),
       );
       expect(res.status).toBe(401);
     });
 
     it("returns 401 with Bearer token instead of ARC token", async () => {
       const res = await app.handle(
-        new Request("http://localhost/graph/internal/either-blocked?userA=a&userB=b", {
+        new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b", {
           headers: { Authorization: "Bearer some-jwt" },
         }),
       );
@@ -105,7 +105,7 @@ describe("internal graph routes (ARC-protected)", () => {
 
     it("returns 401 with invalid ARC token", async () => {
       const res = await app.handle(
-        new Request("http://localhost/graph/internal/either-blocked?userA=a&userB=b", {
+        new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b", {
           headers: { Authorization: "ARC not-a-valid-token" },
         }),
       );
@@ -121,7 +121,7 @@ describe("internal graph routes (ARC-protected)", () => {
       });
 
       const res = await app.handle(
-        new Request("http://localhost/graph/internal/either-blocked?userA=a&userB=b", {
+        new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b", {
           headers: { Authorization: `ARC ${token}` },
         }),
       );
@@ -138,7 +138,7 @@ describe("internal graph routes (ARC-protected)", () => {
       });
 
       const res = await app.handle(
-        new Request("http://localhost/graph/internal/either-blocked?userA=a&userB=b", {
+        new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b", {
           headers: { Authorization: `ARC ${badToken}` },
         }),
       );
@@ -155,7 +155,7 @@ describe("internal graph routes (ARC-protected)", () => {
       });
 
       const res = await app.handle(
-        new Request("http://localhost/graph/internal/either-blocked?userA=a&userB=b", {
+        new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b", {
           headers: { Authorization: `ARC ${badToken}` },
         }),
       );
@@ -175,7 +175,7 @@ describe("internal graph routes (ARC-protected)", () => {
       await new Promise((r) => setTimeout(r, 1100));
 
       const res = await app.handle(
-        new Request("http://localhost/graph/internal/either-blocked?userA=a&userB=b", {
+        new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b", {
           headers: { Authorization: `ARC ${expiredToken}` },
         }),
       );
@@ -184,7 +184,7 @@ describe("internal graph routes (ARC-protected)", () => {
 
     it("rejects missing ARC token on all endpoints", async () => {
       const endpoints = [
-        { url: "/graph/internal/either-blocked?userA=a&userB=b", method: "GET" },
+        { url: "/graph/internal/either-blocked?profileA=a&profileB=b", method: "GET" },
         { url: "/graph/internal/connection-status?viewerId=a&targetId=b", method: "GET" },
         { url: "/graph/internal/connections?profileId=a", method: "GET" },
         { url: "/graph/internal/close-friends?profileId=a", method: "GET" },
@@ -195,7 +195,7 @@ describe("internal graph routes (ARC-protected)", () => {
           body: JSON.stringify({ viewerId: "a", profileIds: ["b"] }),
         },
         {
-          url: "/graph/internal/user-displays",
+          url: "/graph/internal/profile-displays",
           method: "POST",
           body: JSON.stringify({ profileIds: ["a"] }),
         },
@@ -217,7 +217,7 @@ describe("internal graph routes (ARC-protected)", () => {
       const { token } = await setupArcService();
 
       const res = await app.handle(
-        new Request("http://localhost/graph/internal/either-blocked?userA=a&userB=b", {
+        new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b", {
           headers: { Authorization: `ARC ${token}` },
         }),
       );
@@ -234,13 +234,16 @@ describe("internal graph routes (ARC-protected)", () => {
   describe("GET /graph/internal/either-blocked", () => {
     it("returns false when neither user has blocked the other", async () => {
       const { token } = await setupArcService();
-      const alice = await registerUser("alice@example.com", "alice");
-      const bob = await registerUser("bob@example.com", "bob");
+      const alice = await registerProfile("alice@example.com", "alice");
+      const bob = await registerProfile("bob@example.com", "bob");
 
       const res = await app.handle(
-        new Request(`http://localhost/graph/internal/either-blocked?userA=${alice}&userB=${bob}`, {
-          headers: { Authorization: `ARC ${token}` },
-        }),
+        new Request(
+          `http://localhost/graph/internal/either-blocked?profileA=${alice}&profileB=${bob}`,
+          {
+            headers: { Authorization: `ARC ${token}` },
+          },
+        ),
       );
       expect(res.status).toBe(200);
       const body = (await res.json()) as { blocked: boolean };
@@ -249,15 +252,18 @@ describe("internal graph routes (ARC-protected)", () => {
 
     it("returns true when one user has blocked the other", async () => {
       const { token } = await setupArcService();
-      const alice = await registerUser("alice@example.com", "alice");
-      const bob = await registerUser("bob@example.com", "bob");
+      const alice = await registerProfile("alice@example.com", "alice");
+      const bob = await registerProfile("bob@example.com", "bob");
 
-      await runWithLayer(graph.blockUser(alice, bob));
+      await runWithLayer(graph.blockProfile(alice, bob));
 
       const res = await app.handle(
-        new Request(`http://localhost/graph/internal/either-blocked?userA=${alice}&userB=${bob}`, {
-          headers: { Authorization: `ARC ${token}` },
-        }),
+        new Request(
+          `http://localhost/graph/internal/either-blocked?profileA=${alice}&profileB=${bob}`,
+          {
+            headers: { Authorization: `ARC ${token}` },
+          },
+        ),
       );
       expect(res.status).toBe(200);
       const body = (await res.json()) as { blocked: boolean };
@@ -266,16 +272,19 @@ describe("internal graph routes (ARC-protected)", () => {
 
     it("detects reverse block direction", async () => {
       const { token } = await setupArcService();
-      const alice = await registerUser("alice@example.com", "alice");
-      const bob = await registerUser("bob@example.com", "bob");
+      const alice = await registerProfile("alice@example.com", "alice");
+      const bob = await registerProfile("bob@example.com", "bob");
 
-      await runWithLayer(graph.blockUser(bob, alice));
+      await runWithLayer(graph.blockProfile(bob, alice));
 
       // Query with alice as userA, bob as userB — should still detect the block
       const res = await app.handle(
-        new Request(`http://localhost/graph/internal/either-blocked?userA=${alice}&userB=${bob}`, {
-          headers: { Authorization: `ARC ${token}` },
-        }),
+        new Request(
+          `http://localhost/graph/internal/either-blocked?profileA=${alice}&profileB=${bob}`,
+          {
+            headers: { Authorization: `ARC ${token}` },
+          },
+        ),
       );
       expect(res.status).toBe(200);
       const body = (await res.json()) as { blocked: boolean };
@@ -290,8 +299,8 @@ describe("internal graph routes (ARC-protected)", () => {
   describe("GET /graph/internal/connection-status", () => {
     it("returns 'none' for unrelated users", async () => {
       const { token } = await setupArcService();
-      const alice = await registerUser("alice@example.com", "alice");
-      const bob = await registerUser("bob@example.com", "bob");
+      const alice = await registerProfile("alice@example.com", "alice");
+      const bob = await registerProfile("bob@example.com", "bob");
 
       const res = await app.handle(
         new Request(
@@ -306,8 +315,8 @@ describe("internal graph routes (ARC-protected)", () => {
 
     it("returns 'connected' for connected users", async () => {
       const { token } = await setupArcService();
-      const alice = await registerUser("alice@example.com", "alice");
-      const bob = await registerUser("bob@example.com", "bob");
+      const alice = await registerProfile("alice@example.com", "alice");
+      const bob = await registerProfile("bob@example.com", "bob");
 
       await runWithLayer(graph.sendConnectionRequest(alice, bob));
       await runWithLayer(graph.acceptConnection(bob, alice));
@@ -331,7 +340,7 @@ describe("internal graph routes (ARC-protected)", () => {
   describe("GET /graph/internal/connections", () => {
     it("returns empty list for user with no connections", async () => {
       const { token } = await setupArcService();
-      const alice = await registerUser("alice@example.com", "alice");
+      const alice = await registerProfile("alice@example.com", "alice");
 
       const res = await app.handle(
         new Request(`http://localhost/graph/internal/connections?profileId=${alice}`, {
@@ -345,8 +354,8 @@ describe("internal graph routes (ARC-protected)", () => {
 
     it("returns connection IDs", async () => {
       const { token } = await setupArcService();
-      const alice = await registerUser("alice@example.com", "alice");
-      const bob = await registerUser("bob@example.com", "bob");
+      const alice = await registerProfile("alice@example.com", "alice");
+      const bob = await registerProfile("bob@example.com", "bob");
 
       await runWithLayer(graph.sendConnectionRequest(alice, bob));
       await runWithLayer(graph.acceptConnection(bob, alice));
@@ -369,8 +378,8 @@ describe("internal graph routes (ARC-protected)", () => {
   describe("GET /graph/internal/close-friends", () => {
     it("returns close friend IDs", async () => {
       const { token } = await setupArcService();
-      const alice = await registerUser("alice@example.com", "alice");
-      const bob = await registerUser("bob@example.com", "bob");
+      const alice = await registerProfile("alice@example.com", "alice");
+      const bob = await registerProfile("bob@example.com", "bob");
 
       // Must be connected before adding as close friend
       await runWithLayer(graph.sendConnectionRequest(alice, bob));
@@ -395,8 +404,8 @@ describe("internal graph routes (ARC-protected)", () => {
   describe("GET /graph/internal/is-close-friend", () => {
     it("returns false when not close friends", async () => {
       const { token } = await setupArcService();
-      const alice = await registerUser("alice@example.com", "alice");
-      const bob = await registerUser("bob@example.com", "bob");
+      const alice = await registerProfile("alice@example.com", "alice");
+      const bob = await registerProfile("bob@example.com", "bob");
 
       const res = await app.handle(
         new Request(
@@ -411,8 +420,8 @@ describe("internal graph routes (ARC-protected)", () => {
 
     it("returns true when close friends", async () => {
       const { token } = await setupArcService();
-      const alice = await registerUser("alice@example.com", "alice");
-      const bob = await registerUser("bob@example.com", "bob");
+      const alice = await registerProfile("alice@example.com", "alice");
+      const bob = await registerProfile("bob@example.com", "bob");
 
       await runWithLayer(graph.sendConnectionRequest(alice, bob));
       await runWithLayer(graph.acceptConnection(bob, alice));
@@ -437,8 +446,8 @@ describe("internal graph routes (ARC-protected)", () => {
   describe("POST /graph/internal/close-friends-of", () => {
     it("returns empty set when no one has marked viewer as close friend", async () => {
       const { token } = await setupArcService();
-      const alice = await registerUser("alice@example.com", "alice");
-      const bob = await registerUser("bob@example.com", "bob");
+      const alice = await registerProfile("alice@example.com", "alice");
+      const bob = await registerProfile("bob@example.com", "bob");
 
       const res = await app.handle(
         new Request("http://localhost/graph/internal/close-friends-of", {
@@ -457,8 +466,8 @@ describe("internal graph routes (ARC-protected)", () => {
 
     it("returns IDs of users who marked viewer as close friend", async () => {
       const { token } = await setupArcService();
-      const alice = await registerUser("alice@example.com", "alice");
-      const bob = await registerUser("bob@example.com", "bob");
+      const alice = await registerProfile("alice@example.com", "alice");
+      const bob = await registerProfile("bob@example.com", "bob");
 
       // Bob adds Alice as close friend (bob → alice)
       await runWithLayer(graph.sendConnectionRequest(bob, alice));
@@ -483,15 +492,15 @@ describe("internal graph routes (ARC-protected)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // POST /graph/internal/user-displays
+  // POST /graph/internal/profile-displays
   // -------------------------------------------------------------------------
 
-  describe("POST /graph/internal/user-displays", () => {
+  describe("POST /graph/internal/profile-displays", () => {
     it("returns empty array for empty input", async () => {
       const { token } = await setupArcService();
 
       const res = await app.handle(
-        new Request("http://localhost/graph/internal/user-displays", {
+        new Request("http://localhost/graph/internal/profile-displays", {
           method: "POST",
           headers: {
             Authorization: `ARC ${token}`,
@@ -501,16 +510,16 @@ describe("internal graph routes (ARC-protected)", () => {
         }),
       );
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { users: unknown[] };
-      expect(body.users).toEqual([]);
+      const body = (await res.json()) as { profiles: unknown[] };
+      expect(body.profiles).toEqual([]);
     });
 
     it("returns user display metadata", async () => {
       const { token } = await setupArcService();
-      const alice = await registerUser("alice@example.com", "alice");
+      const alice = await registerProfile("alice@example.com", "alice");
 
       const res = await app.handle(
-        new Request("http://localhost/graph/internal/user-displays", {
+        new Request("http://localhost/graph/internal/profile-displays", {
           method: "POST",
           headers: {
             Authorization: `ARC ${token}`,
@@ -521,16 +530,16 @@ describe("internal graph routes (ARC-protected)", () => {
       );
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        users: {
+        profiles: {
           id: string;
           handle: string;
           displayName: string | null;
           avatarUrl: string | null;
         }[];
       };
-      expect(body.users).toHaveLength(1);
-      expect(body.users[0].id).toBe(alice);
-      expect(body.users[0].handle).toBe("alice");
+      expect(body.profiles).toHaveLength(1);
+      expect(body.profiles[0].id).toBe(alice);
+      expect(body.profiles[0].handle).toBe("alice");
     });
   });
 });

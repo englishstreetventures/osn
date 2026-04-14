@@ -53,7 +53,13 @@ describe("MagicLinkHandler", () => {
   it("verifies the token, adopts the session, and clears the URL", async () => {
     stub.magicVerify.mockResolvedValue({
       session: sampleSession,
-      user: { id: "usr_1", handle: "alice", email: "a@e.com", displayName: null, avatarUrl: null },
+      profile: {
+        id: "usr_1",
+        handle: "alice",
+        email: "a@e.com",
+        displayName: null,
+        avatarUrl: null,
+      },
     });
     const onSuccess = vi.fn();
     hoisted.adoptSession.mockResolvedValue(undefined);

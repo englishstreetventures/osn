@@ -27,10 +27,10 @@ export class LoginError extends Error {
 }
 
 /**
- * The publicly-safe User subset returned alongside a fresh session by the
- * `/login/*` endpoints. Matches `PublicUser` in `@osn/core`.
+ * The publicly-safe profile subset returned alongside a fresh session by the
+ * `/login/*` endpoints. Matches `PublicProfile` in `@osn/core`.
  */
-export interface LoginUser {
+export interface LoginProfile {
   id: string;
   handle: string;
   email: string;
@@ -40,7 +40,7 @@ export interface LoginUser {
 
 export interface LoginResult {
   session: Session;
-  user: LoginUser;
+  profile: LoginProfile;
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
@@ -83,9 +83,9 @@ export interface LoginClient {
 export function createLoginClient(config: LoginClientConfig): LoginClient {
   const base = config.issuerUrl.replace(/\/$/, "");
 
-  const toLoginResult = (raw: { session: unknown; user: LoginUser }): LoginResult => ({
+  const toLoginResult = (raw: { session: unknown; profile: LoginProfile }): LoginResult => ({
     session: parseTokenResponse(raw.session),
-    user: raw.user,
+    profile: raw.profile,
   });
 
   return {
@@ -93,7 +93,7 @@ export function createLoginClient(config: LoginClientConfig): LoginClient {
       postJson<{ options: unknown }>(`${base}/login/passkey/begin`, { identifier }),
 
     passkeyComplete: async (identifier, assertion) => {
-      const raw = await postJson<{ session: unknown; user: LoginUser }>(
+      const raw = await postJson<{ session: unknown; profile: LoginProfile }>(
         `${base}/login/passkey/complete`,
         { identifier, assertion },
       );
@@ -103,7 +103,7 @@ export function createLoginClient(config: LoginClientConfig): LoginClient {
     otpBegin: (identifier) => postJson<{ sent: true }>(`${base}/login/otp/begin`, { identifier }),
 
     otpComplete: async (identifier, code) => {
-      const raw = await postJson<{ session: unknown; user: LoginUser }>(
+      const raw = await postJson<{ session: unknown; profile: LoginProfile }>(
         `${base}/login/otp/complete`,
         { identifier, code },
       );
@@ -114,7 +114,7 @@ export function createLoginClient(config: LoginClientConfig): LoginClient {
       postJson<{ sent: true }>(`${base}/login/magic/begin`, { identifier }),
 
     magicVerify: async (token) => {
-      const raw = await getJson<{ session: unknown; user: LoginUser }>(
+      const raw = await getJson<{ session: unknown; profile: LoginProfile }>(
         `${base}/login/magic/verify?token=${encodeURIComponent(token)}`,
       );
       return toLoginResult(raw);

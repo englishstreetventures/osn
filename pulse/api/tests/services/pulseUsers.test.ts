@@ -3,19 +3,19 @@ import { Effect } from "effect";
 
 import {
   DEFAULT_ATTENDANCE_VISIBILITY,
-  ensurePulseUser,
+  ensurePulseProfile,
   getAttendanceVisibility,
   getAttendanceVisibilityBatch,
-  getPulseUser,
+  getPulseProfile,
   updateSettings,
 } from "../../src/services/pulseUsers";
 import { createTestLayer } from "../helpers/db";
 
 const provide = <A, E>(effect: Effect.Effect<A, E, never>) => effect;
 
-it.effect("getPulseUser returns null when no row exists", () =>
+it.effect("getPulseProfile returns null when no row exists", () =>
   Effect.gen(function* () {
-    const row = yield* getPulseUser("usr_nobody");
+    const row = yield* getPulseProfile("usr_nobody");
     expect(row).toBeNull();
   }).pipe(Effect.provide(createTestLayer()), provide),
 );
@@ -27,11 +27,11 @@ it.effect("getAttendanceVisibility falls back to the default when no row exists"
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-it.effect("ensurePulseUser is idempotent", () =>
+it.effect("ensurePulseProfile is idempotent", () =>
   Effect.gen(function* () {
-    yield* ensurePulseUser("usr_alice");
-    yield* ensurePulseUser("usr_alice");
-    const row = yield* getPulseUser("usr_alice");
+    yield* ensurePulseProfile("usr_alice");
+    yield* ensurePulseProfile("usr_alice");
+    const row = yield* getPulseProfile("usr_alice");
     expect(row).not.toBeNull();
     expect(row!.profileId).toBe("usr_alice");
     expect(row!.attendanceVisibility).toBe("connections");

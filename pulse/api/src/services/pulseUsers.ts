@@ -1,4 +1,4 @@
-import { pulseUsers, type PulseUser } from "@pulse/db/schema";
+import { pulseUsers, type PulseProfile } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { eq, inArray } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
@@ -18,7 +18,7 @@ export class ValidationError extends Data.TaggedError("ValidationError")<{
  */
 export const DEFAULT_ATTENDANCE_VISIBILITY = "connections" as const;
 
-export type AttendanceVisibility = PulseUser["attendanceVisibility"];
+export type AttendanceVisibility = PulseProfile["attendanceVisibility"];
 
 const AttendanceVisibilitySchema = Schema.Literal("connections", "no_one");
 
@@ -29,17 +29,17 @@ const UpdateSettingsSchema = Schema.Struct({
 /**
  * Returns the Pulse user row for this profileId, or null if none exists yet.
  * Readers should fall back to the default when null is returned rather than
- * eagerly inserting — writes happen via upsertPulseUser.
+ * eagerly inserting — writes happen via upsertPulseProfile.
  */
-export const getPulseUser = (
+export const getPulseProfile = (
   profileId: string,
-): Effect.Effect<PulseUser | null, DatabaseError, Db> =>
+): Effect.Effect<PulseProfile | null, DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const rows = yield* Effect.tryPromise({
-      try: (): Promise<PulseUser[]> =>
+      try: (): Promise<PulseProfile[]> =>
         db.select().from(pulseUsers).where(eq(pulseUsers.profileId, profileId)).limit(1) as Promise<
-          PulseUser[]
+          PulseProfile[]
         >,
       catch: (cause) => new DatabaseError({ cause }),
     });
@@ -57,7 +57,7 @@ export const getAttendanceVisibility = (
   profileId: string,
 ): Effect.Effect<AttendanceVisibility, DatabaseError, Db> =>
   Effect.gen(function* () {
-    const row = yield* getPulseUser(profileId);
+    const row = yield* getPulseProfile(profileId);
     return row?.attendanceVisibility ?? DEFAULT_ATTENDANCE_VISIBILITY;
   });
 
@@ -80,7 +80,7 @@ export const getAttendanceVisibilityBatch = (
 
     const { db } = yield* Db;
     const rows = yield* Effect.tryPromise({
-      try: (): Promise<Pick<PulseUser, "profileId" | "attendanceVisibility">[]> =>
+      try: (): Promise<Pick<PulseProfile, "profileId" | "attendanceVisibility">[]> =>
         db
           .select({
             profileId: pulseUsers.profileId,
@@ -88,7 +88,7 @@ export const getAttendanceVisibilityBatch = (
           })
           .from(pulseUsers)
           .where(inArray(pulseUsers.profileId, profileIds)) as Promise<
-          Pick<PulseUser, "profileId" | "attendanceVisibility">[]
+          Pick<PulseProfile, "profileId" | "attendanceVisibility">[]
         >,
       catch: (cause) => new DatabaseError({ cause }),
     });
@@ -105,7 +105,7 @@ export const getAttendanceVisibilityBatch = (
  * Ensures a pulse_users row exists for this profileId. Idempotent — uses
  * INSERT ... ON CONFLICT DO NOTHING. Safe to call on every write.
  */
-export const ensurePulseUser = (profileId: string): Effect.Effect<void, DatabaseError, Db> =>
+export const ensurePulseProfile = (profileId: string): Effect.Effect<void, DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const now = new Date();
@@ -125,13 +125,13 @@ export const ensurePulseUser = (profileId: string): Effect.Effect<void, Database
 export const updateSettings = (
   profileId: string,
   data: unknown,
-): Effect.Effect<PulseUser, ValidationError | DatabaseError, Db> =>
+): Effect.Effect<PulseProfile, ValidationError | DatabaseError, Db> =>
   Effect.gen(function* () {
     const validated = yield* Schema.decodeUnknown(UpdateSettingsSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 
-    yield* ensurePulseUser(profileId);
+    yield* ensurePulseProfile(profileId);
 
     const { db } = yield* Db;
     const now = new Date();
@@ -145,12 +145,12 @@ export const updateSettings = (
     });
 
     const rows = yield* Effect.tryPromise({
-      try: (): Promise<PulseUser[]> =>
+      try: (): Promise<PulseProfile[]> =>
         db.select().from(pulseUsers).where(eq(pulseUsers.profileId, profileId)).limit(1) as Promise<
-          PulseUser[]
+          PulseProfile[]
         >,
       catch: (cause) => new DatabaseError({ cause }),
     });
-    // ensurePulseUser just ran, so the row must exist.
+    // ensurePulseProfile just ran, so the row must exist.
     return rows[0]!;
   }).pipe(Effect.withSpan("pulse.settings.update"));

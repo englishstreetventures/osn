@@ -30,7 +30,7 @@ export interface Rsvp {
    */
   isCloseFriend: boolean;
   createdAt: string;
-  user: {
+  profile: {
     id: string;
     handle: string;
     displayName: string | null;

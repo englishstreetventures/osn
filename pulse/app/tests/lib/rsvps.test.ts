@@ -35,7 +35,7 @@ afterEach(() => {
 describe("fetchLatestRsvps", () => {
   it("returns the rsvps array on 200", async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { rsvps: [{ id: "rsvp_1", profileId: "usr_bob", user: null }] }),
+      jsonResponse(200, { rsvps: [{ id: "rsvp_1", profileId: "usr_bob", profile: null }] }),
     );
     const result = await fetchLatestRsvps("evt_1", null);
     expect(result).toHaveLength(1);

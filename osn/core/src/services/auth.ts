@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
 import { accounts, users, passkeys } from "@osn/db/schema";
-import type { User } from "@osn/db/schema";
+import type { Profile } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import {
   generateRegistrationOptions,
@@ -232,17 +232,17 @@ export interface TokenSet {
 }
 
 /**
- * A `User` row enriched with the `email` from the linked `accounts` row.
- * Used throughout the auth service since `users` no longer carries email.
+ * A profile row enriched with the `email` from the linked `accounts` row.
+ * Used throughout the auth service since the profiles table no longer carries email.
  */
-export type UserWithEmail = User & { email: string };
+export type ProfileWithEmail = Profile & { email: string };
 
 /**
- * The publicly-safe subset of `User` returned alongside a fresh session on
+ * The publicly-safe subset of a profile returned alongside a fresh session on
  * first-party login. Strips timestamps so clients don't accidentally depend
  * on them for anything display-related.
  */
-export interface PublicUser {
+export interface PublicProfile {
   id: string;
   handle: string;
   email: string;
@@ -250,7 +250,7 @@ export interface PublicUser {
   avatarUrl: string | null;
 }
 
-function toPublicUser(u: User, email: string): PublicUser {
+function toPublicProfile(u: Profile, email: string): PublicProfile {
   return {
     id: u.id,
     handle: u.handle,
@@ -320,16 +320,18 @@ export function createAuthService(config: AuthConfig) {
   };
 
   // -------------------------------------------------------------------------
-  // User helpers
+  // Profile helpers
   // -------------------------------------------------------------------------
 
-  const findUserByEmail = (email: string): Effect.Effect<UserWithEmail | null, DatabaseError, Db> =>
+  const findProfileByEmail = (
+    email: string,
+  ): Effect.Effect<ProfileWithEmail | null, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const result = yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ user: users, account: accounts })
+            .select({ profile: users, account: accounts })
             .from(users)
             .innerJoin(accounts, eq(users.accountId, accounts.id))
             .where(eq(accounts.email, email))
@@ -338,18 +340,18 @@ export function createAuthService(config: AuthConfig) {
       });
       const row = result[0];
       if (!row) return null;
-      return { ...row.user, email: row.account.email };
+      return { ...row.profile, email: row.account.email };
     });
 
-  const findUserByHandle = (
+  const findProfileByHandle = (
     handle: string,
-  ): Effect.Effect<UserWithEmail | null, DatabaseError, Db> =>
+  ): Effect.Effect<ProfileWithEmail | null, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const result = yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ user: users, account: accounts })
+            .select({ profile: users, account: accounts })
             .from(users)
             .innerJoin(accounts, eq(users.accountId, accounts.id))
             .where(eq(users.handle, handle))
@@ -358,18 +360,18 @@ export function createAuthService(config: AuthConfig) {
       });
       const row = result[0];
       if (!row) return null;
-      return { ...row.user, email: row.account.email };
+      return { ...row.profile, email: row.account.email };
     });
 
   const findProfileById = (
     profileId: string,
-  ): Effect.Effect<UserWithEmail | null, DatabaseError, Db> =>
+  ): Effect.Effect<ProfileWithEmail | null, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const result = yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ user: users, account: accounts })
+            .select({ profile: users, account: accounts })
             .from(users)
             .innerJoin(accounts, eq(users.accountId, accounts.id))
             .where(eq(users.id, profileId))
@@ -378,27 +380,27 @@ export function createAuthService(config: AuthConfig) {
       });
       const row = result[0];
       if (!row) return null;
-      return { ...row.user, email: row.account.email };
+      return { ...row.profile, email: row.account.email };
     });
 
   /**
-   * Resolves a (normalised) identifier to a user.
+   * Resolves a (normalised) identifier to a profile.
    * Identifiers containing "@" are treated as email addresses; all others as handles.
    */
   const resolveIdentifier = (
     identifier: string,
-  ): Effect.Effect<UserWithEmail | null, DatabaseError, Db> =>
-    looksLikeEmail(identifier) ? findUserByEmail(identifier) : findUserByHandle(identifier);
+  ): Effect.Effect<ProfileWithEmail | null, DatabaseError, Db> =>
+    looksLikeEmail(identifier) ? findProfileByEmail(identifier) : findProfileByHandle(identifier);
 
   /**
-   * Registers a new user. Fails if the email or handle is already taken.
-   * This is the only way to create a user — OTP/magic/passkey flows are login-only.
+   * Registers a new profile (and its owning account). Fails if the email or handle is already taken.
+   * This is the only way to create a profile — OTP/magic/passkey flows are login-only.
    */
-  const registerUser = (
+  const registerProfile = (
     email: string,
     handle: string,
     displayName?: string,
-  ): Effect.Effect<UserWithEmail, AuthError | ValidationError | DatabaseError, Db> =>
+  ): Effect.Effect<ProfileWithEmail, AuthError | ValidationError | DatabaseError, Db> =>
     Effect.gen(function* () {
       yield* Schema.decodeUnknown(EmailSchema)(email).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
@@ -412,7 +414,7 @@ export function createAuthService(config: AuthConfig) {
       }
 
       const [existingEmail, existingHandle] = yield* Effect.all(
-        [findUserByEmail(email), findUserByHandle(handle)],
+        [findProfileByEmail(email), findProfileByHandle(handle)],
         { concurrency: "unbounded" },
       );
       if (existingEmail) {
@@ -515,7 +517,7 @@ export function createAuthService(config: AuthConfig) {
       }
 
       const [existingEmail, existingHandle] = yield* Effect.all(
-        [findUserByEmail(normalisedEmail), findUserByHandle(handle)],
+        [findProfileByEmail(normalisedEmail), findProfileByHandle(handle)],
         { concurrency: "unbounded" },
       );
 
@@ -567,7 +569,7 @@ export function createAuthService(config: AuthConfig) {
 
   /**
    * Step 2 of email-verified registration. Verifies the OTP against the
-   * pending registration and, if valid, creates the user row, then returns a
+   * pending registration and, if valid, creates the account + profile rows, then returns a
    * full Session (access + refresh tokens) AND a short-lived single-use
    * enrollment token the client can use to add a passkey via the
    * Authorization-gated `/passkey/register/*` routes.
@@ -703,7 +705,7 @@ export function createAuthService(config: AuthConfig) {
         metricAuthHandleCheck("taken");
         return { available: false };
       }
-      const existing = yield* findUserByHandle(handle);
+      const existing = yield* findProfileByHandle(handle);
       metricAuthHandleCheck(existing === null ? "available" : "taken");
       return { available: existing === null };
     }).pipe(Effect.withSpan("auth.handle.check"));
@@ -836,11 +838,11 @@ export function createAuthService(config: AuthConfig) {
         return yield* Effect.fail(new AuthError({ message: "Invalid code type" }));
       }
       const profileId = payload["sub"];
-      const user = yield* findProfileById(profileId);
-      if (!user) {
-        return yield* Effect.fail(new AuthError({ message: "User not found" }));
+      const profile = yield* findProfileById(profileId);
+      if (!profile) {
+        return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
-      return yield* issueTokens(profileId, user.email, user.handle, user.displayName);
+      return yield* issueTokens(profileId, profile.email, profile.handle, profile.displayName);
     });
 
   // -------------------------------------------------------------------------
@@ -863,11 +865,11 @@ export function createAuthService(config: AuthConfig) {
         return yield* Effect.fail(new AuthError({ message: "Invalid token type" }));
       }
       const profileId = payload["sub"];
-      const user = yield* findProfileById(profileId);
-      if (!user) {
-        return yield* Effect.fail(new AuthError({ message: "User not found" }));
+      const profile = yield* findProfileById(profileId);
+      if (!profile) {
+        return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
-      return yield* issueTokens(profileId, user.email, user.handle, user.displayName);
+      return yield* issueTokens(profileId, profile.email, profile.handle, profile.displayName);
     }).pipe(withAuthTokenRefresh);
 
   // -------------------------------------------------------------------------
@@ -1026,18 +1028,18 @@ export function createAuthService(config: AuthConfig) {
   > =>
     Effect.gen(function* () {
       const normalised = normaliseIdentifier(identifier);
-      const user = yield* resolveIdentifier(normalised);
-      if (!user) {
+      const profile = yield* resolveIdentifier(normalised);
+      if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
 
       const { db } = yield* Db;
-      const userPasskeys = yield* Effect.tryPromise({
-        try: () => db.select().from(passkeys).where(eq(passkeys.accountId, user.accountId)),
+      const profilePasskeys = yield* Effect.tryPromise({
+        try: () => db.select().from(passkeys).where(eq(passkeys.accountId, profile.accountId)),
         catch: (cause) => new DatabaseError({ cause }),
       });
 
-      if (userPasskeys.length === 0) {
+      if (profilePasskeys.length === 0) {
         return yield* Effect.fail(
           new AuthError({ message: "No passkeys registered for this account" }),
         );
@@ -1047,7 +1049,7 @@ export function createAuthService(config: AuthConfig) {
         try: () =>
           generateAuthenticationOptions({
             rpID: config.rpId,
-            allowCredentials: userPasskeys.map((pk) => ({
+            allowCredentials: profilePasskeys.map((pk) => ({
               id: pk.credentialId,
               transports: pk.transports
                 ? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
@@ -1077,7 +1079,7 @@ export function createAuthService(config: AuthConfig) {
   const verifyPasskeyAssertion = (
     identifier: string,
     assertion: AuthenticationResponseJSON,
-  ): Effect.Effect<UserWithEmail, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<ProfileWithEmail, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       // Check in-memory challenge guard before any DB lookup.
       const normalised = normaliseIdentifier(identifier);
@@ -1087,8 +1089,8 @@ export function createAuthService(config: AuthConfig) {
       }
       loginChallenges.delete(normalised);
 
-      const user = yield* resolveIdentifier(normalised);
-      if (!user) {
+      const profile = yield* resolveIdentifier(normalised);
+      if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
 
@@ -1135,7 +1137,7 @@ export function createAuthService(config: AuthConfig) {
         catch: (cause) => new DatabaseError({ cause }),
       });
 
-      return user;
+      return profile;
     });
 
   // -------------------------------------------------------------------------
@@ -1148,24 +1150,29 @@ export function createAuthService(config: AuthConfig) {
     assertion: AuthenticationResponseJSON,
   ): Effect.Effect<{ code: string; profileId: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const user = yield* verifyPasskeyAssertion(identifier, assertion);
-      const code = yield* issueCode(user.id);
-      return { code, profileId: user.id };
+      const profile = yield* verifyPasskeyAssertion(identifier, assertion);
+      const code = yield* issueCode(profile.id);
+      return { code, profileId: profile.id };
     }).pipe(withAuthLogin("passkey"));
 
   // -------------------------------------------------------------------------
   // Passkey: complete login — direct session (first-party path, bypasses
-  // PKCE and returns a Session + PublicUser directly).
+  // PKCE and returns a Session + PublicProfile directly).
   // -------------------------------------------------------------------------
 
   const completePasskeyLoginDirect = (
     identifier: string,
     assertion: AuthenticationResponseJSON,
-  ): Effect.Effect<{ session: TokenSet; user: PublicUser }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<{ session: TokenSet; profile: PublicProfile }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const user = yield* verifyPasskeyAssertion(identifier, assertion);
-      const session = yield* issueTokens(user.id, user.email, user.handle, user.displayName);
-      return { session, user: toPublicUser(user, user.email) };
+      const profile = yield* verifyPasskeyAssertion(identifier, assertion);
+      const session = yield* issueTokens(
+        profile.id,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      return { session, profile: toPublicProfile(profile, profile.email) };
     }).pipe(withAuthLogin("passkey"));
 
   // -------------------------------------------------------------------------
@@ -1187,8 +1194,8 @@ export function createAuthService(config: AuthConfig) {
         );
       }
 
-      const user = yield* resolveIdentifier(normalised);
-      if (!user) {
+      const profile = yield* resolveIdentifier(normalised);
+      if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
 
@@ -1197,7 +1204,7 @@ export function createAuthService(config: AuthConfig) {
       // Key by normalised identifier so completeOtp can check in-memory first.
       otpStore.set(normalised, {
         code,
-        profileId: user.id,
+        profileId: profile.id,
         attempts: 0,
         expiresAt: Date.now() + otpTtl * 1000,
       });
@@ -1206,7 +1213,7 @@ export function createAuthService(config: AuthConfig) {
         yield* Effect.tryPromise({
           try: () =>
             config.sendEmail!(
-              user.email,
+              profile.email,
               "Your OSN sign-in code",
               `Your one-time sign-in code is: ${code}\n\nThis code expires in ${otpTtl / 60} minutes.`,
             ),
@@ -1216,7 +1223,7 @@ export function createAuthService(config: AuthConfig) {
         // Dev-only fallback when no email sender is configured. See the
         // matching block in beginRegistration for why values are interpolated
         // into the message string instead of using log annotations.
-        yield* Effect.logDebug(`[OSN dev] OTP for ${user.email}: ${code}`);
+        yield* Effect.logDebug(`[OSN dev] OTP for ${profile.email}: ${code}`);
       }
 
       metricAuthOtpSent("login");
@@ -1224,7 +1231,7 @@ export function createAuthService(config: AuthConfig) {
     }).pipe(Effect.withSpan("auth.otp.begin"));
 
   // -------------------------------------------------------------------------
-  // OTP: verify code (extracted). Returns the full User row so both the
+  // OTP: verify code (extracted). Returns the full profile row so both the
   // code-issuing and direct-session completion paths can read email/handle/
   // displayName off it.
   // -------------------------------------------------------------------------
@@ -1232,7 +1239,7 @@ export function createAuthService(config: AuthConfig) {
   const verifyOtpCode = (
     identifier: string,
     code: string,
-  ): Effect.Effect<UserWithEmail, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<ProfileWithEmail, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       // Check in-memory store first — no DB hit on expired/invalid attempts.
       const normalised = normaliseIdentifier(identifier);
@@ -1249,11 +1256,11 @@ export function createAuthService(config: AuthConfig) {
       }
       otpStore.delete(normalised);
 
-      const user = yield* findProfileById(entry.profileId);
-      if (!user) {
-        return yield* Effect.fail(new AuthError({ message: "User not found" }));
+      const profile = yield* findProfileById(entry.profileId);
+      if (!profile) {
+        return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
-      return user;
+      return profile;
     });
 
   // -------------------------------------------------------------------------
@@ -1265,23 +1272,28 @@ export function createAuthService(config: AuthConfig) {
     code: string,
   ): Effect.Effect<{ code: string; profileId: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const user = yield* verifyOtpCode(identifier, code);
-      const authCode = yield* issueCode(user.id);
-      return { code: authCode, profileId: user.id };
+      const profile = yield* verifyOtpCode(identifier, code);
+      const authCode = yield* issueCode(profile.id);
+      return { code: authCode, profileId: profile.id };
     }).pipe(withAuthLogin("otp"));
 
   // -------------------------------------------------------------------------
-  // OTP: complete direct (first-party — returns a Session + PublicUser)
+  // OTP: complete direct (first-party — returns a Session + PublicProfile)
   // -------------------------------------------------------------------------
 
   const completeOtpDirect = (
     identifier: string,
     code: string,
-  ): Effect.Effect<{ session: TokenSet; user: PublicUser }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<{ session: TokenSet; profile: PublicProfile }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const user = yield* verifyOtpCode(identifier, code);
-      const session = yield* issueTokens(user.id, user.email, user.handle, user.displayName);
-      return { session, user: toPublicUser(user, user.email) };
+      const profile = yield* verifyOtpCode(identifier, code);
+      const session = yield* issueTokens(
+        profile.id,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      return { session, profile: toPublicProfile(profile, profile.email) };
     }).pipe(withAuthLogin("otp"));
 
   // -------------------------------------------------------------------------
@@ -1303,8 +1315,8 @@ export function createAuthService(config: AuthConfig) {
         );
       }
 
-      const user = yield* resolveIdentifier(normalised);
-      if (!user) {
+      const profile = yield* resolveIdentifier(normalised);
+      if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
 
@@ -1312,7 +1324,7 @@ export function createAuthService(config: AuthConfig) {
 
       magicStore.set(token, {
         token,
-        profileId: user.id,
+        profileId: profile.id,
         expiresAt: Date.now() + magicTtl * 1000,
       });
 
@@ -1322,7 +1334,7 @@ export function createAuthService(config: AuthConfig) {
         yield* Effect.tryPromise({
           try: () =>
             config.sendEmail!(
-              user.email,
+              profile.email,
               "Your OSN magic sign-in link",
               `Click this link to sign in: ${magicUrl}\n\nThis link expires in ${magicTtl / 60} minutes.`,
             ),
@@ -1332,7 +1344,7 @@ export function createAuthService(config: AuthConfig) {
         // Dev-only fallback when no email sender is configured. See the
         // matching block in beginRegistration for why values are interpolated
         // into the message string instead of using log annotations.
-        yield* Effect.logDebug(`[OSN dev] Magic link for ${user.email}: ${magicUrl}`);
+        yield* Effect.logDebug(`[OSN dev] Magic link for ${profile.email}: ${magicUrl}`);
       }
 
       metricAuthMagicLinkSent("ok");
@@ -1341,13 +1353,13 @@ export function createAuthService(config: AuthConfig) {
 
   // -------------------------------------------------------------------------
   // Magic link: consume token (extracted). Atomically removes the entry and
-  // returns the User. Shared by both the PKCE redirect path and the first-
+  // returns the profile. Shared by both the PKCE redirect path and the first-
   // party direct-session path.
   // -------------------------------------------------------------------------
 
   const consumeMagicToken = (
     token: string,
-  ): Effect.Effect<UserWithEmail, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<ProfileWithEmail, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const entry = magicStore.get(token);
       if (!entry || Date.now() > entry.expiresAt) {
@@ -1355,11 +1367,11 @@ export function createAuthService(config: AuthConfig) {
       }
       magicStore.delete(token);
 
-      const user = yield* findProfileById(entry.profileId);
-      if (!user) {
-        return yield* Effect.fail(new AuthError({ message: "User not found" }));
+      const profile = yield* findProfileById(entry.profileId);
+      if (!profile) {
+        return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
-      return user;
+      return profile;
     });
 
   // -------------------------------------------------------------------------
@@ -1373,8 +1385,8 @@ export function createAuthService(config: AuthConfig) {
   ): Effect.Effect<{ redirectUrl: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       yield* validateRedirectUri(redirectUri);
-      const user = yield* consumeMagicToken(token);
-      const code = yield* issueCode(user.id);
+      const profile = yield* consumeMagicToken(token);
+      const code = yield* issueCode(profile.id);
       const url = new URL(redirectUri);
       url.searchParams.set("code", code);
       url.searchParams.set("state", state);
@@ -1382,24 +1394,29 @@ export function createAuthService(config: AuthConfig) {
     }).pipe(withAuthLogin("magic_link"));
 
   // -------------------------------------------------------------------------
-  // Magic link: verify direct (first-party — returns a Session + PublicUser)
+  // Magic link: verify direct (first-party — returns a Session + PublicProfile)
   // -------------------------------------------------------------------------
 
   const verifyMagicDirect = (
     token: string,
-  ): Effect.Effect<{ session: TokenSet; user: PublicUser }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<{ session: TokenSet; profile: PublicProfile }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const user = yield* consumeMagicToken(token);
-      const session = yield* issueTokens(user.id, user.email, user.handle, user.displayName);
-      return { session, user: toPublicUser(user, user.email) };
+      const profile = yield* consumeMagicToken(token);
+      const session = yield* issueTokens(
+        profile.id,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      return { session, profile: toPublicProfile(profile, profile.email) };
     }).pipe(withAuthLogin("magic_link"));
 
   return {
-    findUserByEmail,
-    findUserByHandle,
+    findProfileByEmail,
+    findProfileByHandle,
     findProfileById,
     resolveIdentifier,
-    registerUser,
+    registerProfile,
     beginRegistration,
     completeRegistration,
     issueEnrollmentToken,

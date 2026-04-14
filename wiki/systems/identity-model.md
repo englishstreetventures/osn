@@ -9,10 +9,21 @@ related:
 packages:
   - "@osn/db"
   - "@osn/core"
-last-reviewed: 2026-04-13
+last-reviewed: 2026-04-14
 ---
 
 # Identity Model
+
+## Terminology
+
+| Term | Meaning | Code entity |
+|------|---------|-------------|
+| **User** | The actual human person. Not a data structure — never a type name, column, or variable. | — |
+| **Account** | Login identity — email, passkeys, auth tokens. A user owns one account. | `accounts` table, `acc_` prefix |
+| **Profile** | Public-facing identity — handle, display name, avatar. An account can have multiple profiles. | `users` table (legacy name), `Profile` type, `usr_` prefix |
+| **Organisation** | Group identity composed of profiles. | `organisations` table, `org_` prefix |
+
+A user owns an account, which owns one or more profiles. The relationship is: **User (person) → Account (login) → Profiles (public identities)**.
 
 OSN uses a two-tier identity model inspired by Meta's Accounts Center. A single **account** (the login entity) can own multiple **profiles** (the public-facing handles). **Organisations** are separate entities composed of individual profiles.
 
@@ -26,7 +37,7 @@ OSN uses a two-tier identity model inspired by Meta's Accounts Center. A single 
                │ 1:N (private link)
                │
 ┌──────────────▼──────────────────────┐
-│        users (profiles)             │  ← Public-facing identity / handle
+│     users table (= profiles)        │  ← Public-facing identity / handle
 │  usr_xxxx | accountId | handle | …  │
 └──────────────┬──────────────────────┘
                │ (canonical entity everywhere)
@@ -51,11 +62,11 @@ The `accounts` table is the **authentication principal** — the entity that log
 **Key invariants:**
 - `accountId` is **never exposed** in any API response, token claim, or log entry. It is the multi-account correlation identifier — leaking it reveals which profiles belong to the same person.
 - Email is **only on accounts**, not duplicated on profiles.
-- Passkeys reference `accounts.id` (not `users.id`), because authentication is account-level.
+- Passkeys reference `accounts.id` (not profile IDs), because authentication is account-level.
 
-## Users (Profiles)
+## Profiles (DB table: `users`)
 
-The `users` table is the **public-facing identity**. This is what other users see — a handle, display name, and avatar. Every reference across Pulse, Zap, and the social graph points to `users.id` (the `profileId`).
+The `users` table is the **public-facing identity**. This is what other profiles see — a handle, display name, and avatar. Every reference across Pulse, Zap, and the social graph points to `users.id` (the `profileId`). Code-level functions and API parameters use `profile` terminology (e.g. `findProfileByHandle`, `registerProfile`, `blockProfile`); the DB table retains the name `users` for migration stability.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -69,7 +80,7 @@ The `users` table is the **public-facing identity**. This is what other users se
 | `updatedAt` | `timestamp` | |
 
 **Key invariants:**
-- `profileId` (previously `userId`) is the canonical identifier throughout all services. Pulse events, Zap chats, RSVPs, connections, blocks — everything keys on `profileId`.
+- `profileId` (previously `userId`) is the canonical identifier throughout all services. Pulse events, Zap chats, RSVPs, connections, blocks — everything keys on `profileId`. All service functions, route parameters, and error messages use "profile" terminology (not "user").
 - Each profile has a **fully independent social graph**. If profile A blocks someone, profile B (same account) is NOT affected.
 - Two profiles from the same account **can interact** — they can connect, message, RSVP to the same event. Preventing this would reveal the account link.
 - Handle namespace is **shared with organisations** — no user handle can collide with an org handle.
@@ -128,7 +139,8 @@ POST /register/complete → OTP →
 | Pulse RSVPs | `profileId` | Profile that RSVP'd |
 | Zap chats | `createdByProfileId`, member `profileId` | Profiles in the chat |
 | Social graph | `requesterId`, `addresseeId` (both profile IDs) | Independent per profile |
-| ARC S2S | No user context | Service-to-service only |
+| ARC S2S | No profile context | Service-to-service only |
+| Login response | `{ session, profile: PublicProfile }` | Wire format + SDK types renamed to match identity model |
 
 ## Privacy Rules
 
@@ -141,7 +153,7 @@ POST /register/complete → OTP →
 
 | Phase | Status | Scope |
 |-------|--------|-------|
-| P1: Schema | ✅ Done | `accounts` table, `userId` → `profileId`, seed data, email dedup |
+| P1: Schema + terminology | ✅ Done | `accounts` table, `userId` → `profileId`, seed data, email dedup, service/route/test rename from "user" → "profile" terminology |
 | P2: Auth refactor | Planned | Two-tier tokens (refresh=account, access=profile), profile switching |
 | P3: Profile CRUD | Planned | Create/list/delete profiles, maxProfiles enforcement |
 | P4: Client SDK | Planned | Multi-session storage, profile switcher methods |

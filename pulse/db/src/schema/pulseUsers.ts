@@ -32,5 +32,5 @@ export const pulseUsers = sqliteTable("pulse_users", {
     .$defaultFn(() => new Date()),
 });
 
-export type PulseUser = typeof pulseUsers.$inferSelect;
-export type NewPulseUser = typeof pulseUsers.$inferInsert;
+export type PulseProfile = typeof pulseUsers.$inferSelect;
+export type NewPulseProfile = typeof pulseUsers.$inferInsert;

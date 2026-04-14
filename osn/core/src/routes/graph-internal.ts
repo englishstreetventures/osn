@@ -69,7 +69,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
           if (!caller) return { error: "Unauthorized" };
 
           try {
-            const blocked = await run(graph.eitherBlocked(query.userA, query.userB));
+            const blocked = await run(graph.eitherBlocked(query.profileA, query.profileB));
             return { blocked };
           } catch (e) {
             set.status = 500;
@@ -78,13 +78,13 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
         },
         {
           query: t.Object({
-            userA: t.String({ minLength: 1 }),
-            userB: t.String({ minLength: 1 }),
+            profileA: t.String({ minLength: 1 }),
+            profileB: t.String({ minLength: 1 }),
           }),
         },
       )
       // -----------------------------------------------------------------------
-      // Connection status between two users
+      // Connection status between two profiles
       // -----------------------------------------------------------------------
       .get(
         "/connection-status",
@@ -114,7 +114,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
         },
       )
       // -----------------------------------------------------------------------
-      // List connection IDs for a user (returns IDs only for bridge efficiency)
+      // List connection IDs for a profile (returns IDs only for bridge efficiency)
       // -----------------------------------------------------------------------
       .get(
         "/connections",
@@ -136,7 +136,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
                 limit: Number.isFinite(limit) ? limit : undefined,
               }),
             );
-            return { connectionIds: list.map((c) => c.user.id) };
+            return { connectionIds: list.map((c) => c.profile.id) };
           } catch (e) {
             set.status = 500;
             return { error: safeError(e) };
@@ -150,7 +150,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
         },
       )
       // -----------------------------------------------------------------------
-      // List close friend IDs for a user
+      // List close friend IDs for a profile
       // -----------------------------------------------------------------------
       .get(
         "/close-friends",
@@ -246,10 +246,10 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
         },
       )
       // -----------------------------------------------------------------------
-      // Batch user display metadata
+      // Batch profile display metadata
       // -----------------------------------------------------------------------
       .post(
-        "/user-displays",
+        "/profile-displays",
         async ({ body, headers, set }) => {
           const caller = await requireArc(
             headers.authorization,
@@ -261,7 +261,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
           if (!caller) return { error: "Unauthorized" };
 
           try {
-            if (body.profileIds.length === 0) return { users: [] };
+            if (body.profileIds.length === 0) return { profiles: [] };
 
             const rows = await run(
               Effect.gen(function* () {
@@ -282,7 +282,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
               }),
             );
 
-            return { users: rows };
+            return { profiles: rows };
           } catch (e) {
             set.status = 500;
             return { error: safeError(e) };

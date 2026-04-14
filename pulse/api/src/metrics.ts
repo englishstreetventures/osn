@@ -113,7 +113,7 @@ type EventsValidationFailureAttrs = {
 
 // --- RSVP ---
 
-/** Bounded RSVP status union — matches `UserRsvpStatus` + the organiser-side `"invited"` row. */
+/** Bounded RSVP status union — matches `RsvpStatus` + the organiser-side `"invited"` row. */
 type RsvpStatus = "going" | "interested" | "not_going" | "invited";
 
 type RsvpUpsertedAttrs = {

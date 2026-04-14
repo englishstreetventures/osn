@@ -40,7 +40,7 @@ export function createInternalOrganisationRoutes(dbLayer: Layer.Layer<Db> = DbLi
 
   return new Elysia({ prefix: "/organisations/internal" })
     .get(
-      "/user-orgs",
+      "/profile-orgs",
       async ({ query, headers, set }) => {
         const caller = await requireArc(
           headers.authorization,
@@ -52,7 +52,7 @@ export function createInternalOrganisationRoutes(dbLayer: Layer.Layer<Db> = DbLi
         if (!caller) return { error: "Unauthorized" };
 
         try {
-          const list = await run(org.listUserOrganisations(query.profileId));
+          const list = await run(org.listProfileOrganisations(query.profileId));
           return { organisationIds: list.map((o) => o.id) };
         } catch (e) {
           set.status = 500;

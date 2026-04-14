@@ -4,7 +4,7 @@ import type { Rsvp } from "../lib/rsvps";
 import { avatarClasses } from "../lib/ui";
 
 /**
- * Shared avatar renderer for RSVP rows. Renders the user's avatar image
+ * Shared avatar renderer for RSVP rows. Renders the profile's avatar image
  * if present, falls back to initials, and applies the close-friend ring
  * (centralised in `lib/ui.ts`) when `rsvp.isCloseFriend` is true.
  *
@@ -18,11 +18,11 @@ export function RsvpAvatar(props: { rsvp: Rsvp; size?: "sm" | "md" }) {
   const baseInitials = () =>
     `inline-flex items-center justify-center ${sizeClass()} rounded-full bg-muted text-muted-foreground text-[10px] font-semibold border-2 border-card`;
   const label = () =>
-    props.rsvp.user?.displayName ?? props.rsvp.user?.handle ?? "Anonymous attendee";
+    props.rsvp.profile?.displayName ?? props.rsvp.profile?.handle ?? "Anonymous attendee";
 
   return (
     <Show
-      when={props.rsvp.user?.avatarUrl}
+      when={props.rsvp.profile?.avatarUrl}
       fallback={
         <span
           class={avatarClasses(baseInitials(), props.rsvp.isCloseFriend)}

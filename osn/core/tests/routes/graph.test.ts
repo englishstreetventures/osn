@@ -37,7 +37,7 @@ describe("graph routes", () => {
     email: string,
     handle: string,
   ): Promise<{ profileId: string; token: string }> {
-    const user = await runWithLayer(auth.registerUser(email, handle));
+    const user = await runWithLayer(auth.registerProfile(email, handle));
     const tokens = await runWithLayer(
       auth.issueTokens(user.id, user.email, user.handle, user.displayName),
     );

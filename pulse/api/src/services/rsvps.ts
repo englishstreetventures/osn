@@ -9,12 +9,12 @@ import { EventNotFound, DatabaseError, ValidationError } from "./events";
 import {
   getCloseFriendsOf,
   getConnectionIds,
-  getUserDisplays,
+  getProfileDisplays,
   GraphBridgeError,
   OsnDb,
-  type UserDisplay,
+  type ProfileDisplay,
 } from "./graphBridge";
-import { ensurePulseUser, getAttendanceVisibilityBatch } from "./pulseUsers";
+import { ensurePulseProfile, getAttendanceVisibilityBatch } from "./pulseUsers";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -46,11 +46,11 @@ export class NotEventOwner extends Data.TaggedError("NotEventOwner")<{
  * Wire-level statuses accepted from clients. "invited" is reserved for the
  * organiser invite flow and is rejected on upsertRsvp.
  */
-const UserRsvpStatusSchema = Schema.Literal("going", "interested", "not_going");
-export type UserRsvpStatus = Schema.Schema.Type<typeof UserRsvpStatusSchema>;
+const RsvpStatusSchema = Schema.Literal("going", "interested", "not_going");
+export type RsvpStatus = Schema.Schema.Type<typeof RsvpStatusSchema>;
 
 const UpsertRsvpSchema = Schema.Struct({
-  status: UserRsvpStatusSchema,
+  status: RsvpStatusSchema,
 });
 
 const InviteGuestsSchema = Schema.Struct({
@@ -67,8 +67,8 @@ const InviteGuestsSchema = Schema.Struct({
 // Types
 // ---------------------------------------------------------------------------
 
-export interface RsvpWithUser extends EventRsvp {
-  user: UserDisplay | null;
+export interface RsvpWithProfile extends EventRsvp {
+  profile: ProfileDisplay | null;
   /**
    * True when this attendee has marked the current viewer as a close
    * friend. Computed server-side against the OSN graph so the client
@@ -191,9 +191,9 @@ const computeCanSeeAnyRsvps = (
  */
 const filterByAttendeePrivacy = (
   event: Event,
-  rows: RsvpWithUser[],
+  rows: RsvpWithProfile[],
   viewerId: string | null,
-): Effect.Effect<RsvpWithUser[], DatabaseError | GraphBridgeError, Db | OsnDb> =>
+): Effect.Effect<RsvpWithProfile[], DatabaseError | GraphBridgeError, Db | OsnDb> =>
   Effect.gen(function* () {
     const attendeeIds = Array.from(new Set(rows.map((r) => r.profileId)));
 
@@ -203,7 +203,7 @@ const filterByAttendeePrivacy = (
       ? yield* getCloseFriendsOf(viewerId, attendeeIds)
       : new Set<string>();
 
-    const stampCloseFriend = (row: RsvpWithUser): RsvpWithUser => ({
+    const stampCloseFriend = (row: RsvpWithProfile): RsvpWithProfile => ({
       ...row,
       isCloseFriend: closeFriendsOfViewer.has(row.profileId),
     });
@@ -296,7 +296,7 @@ export const upsertRsvp = (
     if (existing === null) {
       // Only lazy-create the pulse_users row on first RSVP insert. On
       // update the row must already exist, so skip the extra round-trip.
-      yield* ensurePulseUser(profileId);
+      yield* ensurePulseProfile(profileId);
       const id = genRsvpId();
       yield* Effect.tryPromise({
         try: () =>
@@ -413,7 +413,7 @@ export const listRsvps = (
     status?: EventRsvp["status"];
     limit?: number;
   } = {},
-): Effect.Effect<RsvpWithUser[], EventNotFound | DatabaseError | GraphBridgeError, Db | OsnDb> =>
+): Effect.Effect<RsvpWithProfile[], EventNotFound | DatabaseError | GraphBridgeError, Db | OsnDb> =>
   Effect.gen(function* () {
     const event = yield* loadEvent(eventId);
 
@@ -456,15 +456,15 @@ export const listRsvps = (
       catch: (cause) => new DatabaseError({ cause }),
     });
 
-    // Join with user displays from osn/db. `isCloseFriend` is set to
+    // Join with profile displays from osn/db. `isCloseFriend` is set to
     // false here and then (potentially) overridden by the per-row
     // filter below. This way rows always carry the flag, even when the
     // per-row filter is skipped.
     const profileIds = Array.from(new Set(rsvpRows.map((r) => r.profileId)));
-    const userMap = yield* getUserDisplays(profileIds);
-    const joined: RsvpWithUser[] = rsvpRows.map((row) =>
+    const profileMap = yield* getProfileDisplays(profileIds);
+    const joined: RsvpWithProfile[] = rsvpRows.map((row) =>
       Object.assign({}, row, {
-        user: userMap.get(row.profileId) ?? null,
+        profile: profileMap.get(row.profileId) ?? null,
         isCloseFriend: false,
       }),
     );
@@ -477,7 +477,7 @@ export const listRsvps = (
     // Close friends first, createdAt DESC within each bucket (stable
     // sort preserves the DB ordering). This is how we "surface close
     // friends" without using them as an access gate.
-    const sorted = filtered.toSorted((a: RsvpWithUser, b: RsvpWithUser) => {
+    const sorted = filtered.toSorted((a: RsvpWithProfile, b: RsvpWithProfile) => {
       if (a.isCloseFriend === b.isCloseFriend) return 0;
       return a.isCloseFriend ? -1 : 1;
     });
@@ -494,7 +494,7 @@ export const latestRsvps = (
   eventId: string,
   viewerId: string | null,
   limit = 5,
-): Effect.Effect<RsvpWithUser[], EventNotFound | DatabaseError | GraphBridgeError, Db | OsnDb> =>
+): Effect.Effect<RsvpWithProfile[], EventNotFound | DatabaseError | GraphBridgeError, Db | OsnDb> =>
   listRsvps(eventId, viewerId, { status: "going", limit });
 
 /**

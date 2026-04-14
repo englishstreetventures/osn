@@ -5,7 +5,8 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 ## Up Next
 
 - [x] Multi-account P1 — Schema foundation: `accounts` table, `userId` → `profileId` rename across all packages, seed data with multi-profile user (21 accounts, 23 profiles, 2 orgs), registration creates account + profile atomically. 81 files, 700+ tests green.
-- [ ] Multi-account P2 — Auth refactor: two-tier token model (refresh = account, access = profile), move `email` exclusively to `accounts` table, profile switching endpoint (`POST /profiles/switch`), `findUserByEmail` → join via accounts
+- [x] Multi-account P1b — Terminology audit: "user" now only means "the person". All data structures use account/profile/organisation. Renames: `User` → `Profile`, `PublicUser` → `PublicProfile`, `UserWithEmail` → `ProfileWithEmail`, `LoginUser` → `LoginProfile`, `PulseUser` → `PulseProfile`, `UserRsvpStatus` → `RsvpStatus`. All service functions, route params, error messages, wire format keys (`{ session, user }` → `{ session, profile }`), and internal route paths updated. [[identity-model]]
+- [ ] Multi-account P2 — Auth refactor: two-tier token model (refresh = account, access = profile), move `email` exclusively to `accounts` table, profile switching endpoint (`POST /profiles/switch`)
 - [ ] Multi-account P3 — Profile CRUD: `createProfileService()` (create, list, delete, set default), `/profiles` routes, handle validation against `maxProfiles`, cascade-delete profile data
 - [ ] Multi-account P4 — Client SDK: multi-session storage (`@osn/client:account_session`, `@osn/client:active_profile`, per-profile access tokens), `listProfiles()`, `switchProfile()`, `createProfile()`, `deleteProfile()` methods on `OsnAuthService`
 - [ ] Multi-account P5 — Profile UI: profile switcher component in `@osn/ui`, profile creation form, onboarding for additional profiles
@@ -21,7 +22,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 - [x] S-H3 — Open redirect in `/magic/verify` fixed: `allowedRedirectUris` field on `AuthConfig`; validated at `/authorize`, `/magic/verify` (service-level), and `/token` (route-level origin match + S-M9 exact redirect_uri match against pkceStore)
 - [x] S-H4 — PKCE now mandatory at `/token`: `state` and `code_verifier` required for `authorization_code` grants; unknown/expired state returns 400; redirect_uri must match the value stored at `/authorize` (S-M9 RFC 6749 §4.1.3)
 - [x] S-H5 — Legacy unauth'd passkey path removed: `resolvePasskeyEnrollPrincipal` now returns 401 when `Authorization` header is absent. Hosted `/authorize` HTML passkey-enrollment prompt removed (passkey enrollment requires auth; users enrol through first-party apps). `console.warn` deprecation log removed. `SimpleWebAuthn` script tag removed from hosted HTML.
-- [x] ARC token verification middleware on internal graph routes (`/graph/internal/*`) — see [[arc-tokens]], [[arc-token-debugging]]. Implemented `requireArc` middleware in `osn/core/src/lib/arc-middleware.ts` and seven `/graph/internal/*` read-only endpoints (either-blocked, connection-status, connections, close-friends, is-close-friend, close-friends-of, user-displays) in `osn/core/src/routes/graph-internal.ts`. 21 new tests.
+- [x] ARC token verification middleware on internal graph routes (`/graph/internal/*`) — see [[arc-tokens]], [[arc-token-debugging]]. Implemented `requireArc` middleware in `osn/core/src/lib/arc-middleware.ts` and seven `/graph/internal/*` read-only endpoints (either-blocked, connection-status, connections, close-friends, is-close-friend, close-friends-of, profile-displays) in `osn/core/src/routes/graph-internal.ts`. 21 new tests.
 - [x] Redis migration — Phase 3 (wire up rate limiters) done: `createRedisAuthRateLimiters()` + `createRedisGraphRateLimiter()` factories in `osn/core`, env-driven backend selection in `osn/app` (`REDIS_URL` → Redis, unset → in-memory), 10 integration tests. Resolves S-M2 for production. Phase 4 (auth state migration) is next — see [[redis]]
 
 ---
@@ -340,7 +341,7 @@ Address **High** items before any non-local deployment.
 - [x] S-M16 — No rate limiting on graph write endpoints — module-level fixed-window limiter added (60/user/min)
 - [x] S-M17 — Raw DB/Effect errors surfaced in graph responses — `safeError()` helper; only `GraphError`/`NotFoundError` messages exposed
 - [x] S-M18 — No input validation on `:handle` route param in graph routes — TypeBox `HandleParam` with regex + length bounds added
-- [ ] S-M19 — Legacy `/register` does not lowercase emails — two users can register `Alice@example.com` and `alice@example.com` as distinct accounts. New email-verified path normalises; lift the same normalisation into `registerUser`, `findUserByEmail`, OTP login, and magic-link login. Add a DB-level unique index on `lower(email)` to enforce.
+- [ ] S-M19 — Legacy `/register` does not lowercase emails — two profiles can register `Alice@example.com` and `alice@example.com` as distinct accounts. New email-verified path normalises; lift the same normalisation into `registerProfile`, `findProfileByEmail`, OTP login, and magic-link login. Add a DB-level unique index on `lower(email)` to enforce.
 - [ ] S-M20 — Refresh tokens stored in `localStorage` via `OsnAuth.setSession` (default `Storage` adapter is `localStorage`). XSS in the Pulse webview = permanent account takeover. For Tauri, swap in a keychain-backed adapter (`tauri-plugin-stronghold` or an OS-encrypted store); for web targets, prefer HttpOnly cookies issued by the auth server.
 - [ ] S-M21 — `/register/begin` differential timing oracle on the silent no-op branch — when an email is already taken, the route skips the `sendEmail` call, so the response is consistently faster than the legitimate path. Add a synthetic delay or perform a dummy hash to flatten timing if/when this becomes exploitable.
 - [x] S-M22 — `console.log` of OTP in dev fallback unconditionally exposed credentials in any environment without `sendEmail` set — fixed in the new registration flow: gated on `NODE_ENV !== "production"`. Login OTP and magic-link dev-log branches now also gated on `NODE_ENV !== "production"`.
@@ -360,8 +361,8 @@ Address **High** items before any non-local deployment.
 - [x] S-H4 (zap) — `PATCH /chats/:id` differentiated 403/404 for non-members, leaking chat existence. Fixed: 404 for non-members.
 - [x] S-H1 (multi) — Client/server field mismatch on passkey enrollment. Client sent `profileId`, server expected `accountId`. Fixed: route accepts `profileId` and resolves `accountId` internally via `findProfileById`. Enrollment token `sub` now carries real `accountId`.
 - [x] S-H2 (multi) — Profile ID stored in `passkeys.accountId` column. `completeRegistration` passed profile ID to `issueEnrollmentToken`. Fixed: now passes `accountId`. `beginPasskeyLogin` queries `passkeys.accountId = user.accountId`.
-- [x] S-H3 (multi) — Non-atomic account + profile creation. Two separate INSERTs without transaction. Fixed: both `registerUser` and `completeRegistration` wrap account+profile inserts in `db.transaction()`.
-- [x] S-M1 (multi) — Missing email index after UNIQUE removal from `users.email`. `findUserByEmail` hot path became full table scan. Fixed: re-added `users_email_idx`.
+- [x] S-H3 (multi) — Non-atomic account + profile creation. Two separate INSERTs without transaction. Fixed: both `registerProfile` and `completeRegistration` wrap account+profile inserts in `db.transaction()`.
+- [x] S-M1 (multi) — Missing email index after UNIQUE removal from `users.email`. `findProfileByEmail` hot path became full table scan. Fixed: re-added `users_email_idx`.
 - [x] S-M2 (multi) — `accountId` exposed in org `listMembers` service return type. Fixed: stripped `accountId` and `isDefault` from select projection and return type.
 - [ ] S-L1 (multi) — `maxProfiles` column set to 5 but never enforced. Deferred to multi-account P3 (profile CRUD).
 - [ ] S-L2 (multi) — Email duplication between `accounts.email` and `users.email`. Transitional for PR1 backward compat. Deferred to multi-account P2 (auth refactor).
@@ -409,7 +410,7 @@ Address **High** items before any non-local deployment.
 - [ ] S-L14 — `assertion: t.Any()` on passkey register/login routes — add TypeBox shape validation for top-level WebAuthn fields
 - [ ] S-L15 — No reserved-handle blocklist in DB — enforced in app layer only; consider DB-level check constraint
 - [x] S-L16 — `EventList` `console.error` logs raw server error objects — guarded with `import.meta.env.DEV`
-- [x] S-L17 — `displayName` returned as `undefined` in graph list responses — normalised to `null` via `userProjection()`
+- [x] S-L17 — `displayName` returned as `undefined` in graph list responses — normalised to `null` via `profileProjection()`
 - [x] S-L18 — Graph rate-limit store (`rateLimitStore`) never evicts expired windows — fixed: graph route now uses shared `createRateLimiter` with proactive sweep (Redis migration Phase 1)
 - [ ] S-L23 — `pkceStore` has no size bound or eviction sweep — unauthenticated `/authorize` can fill memory. Add maxEntries cap + sweepExpired.
 - [ ] S-L24 — `/token` and legacy `POST /register` have no rate limiting — add per-IP limiters for consistency
@@ -422,7 +423,7 @@ Address **High** items before any non-local deployment.
 - [ ] S-L29 — `/graph/internal/*` routes mounted under open CORS (`Access-Control-Allow-Origin: *`). S2S endpoints should not be browser-reachable. Restrict CORS or mount on an internal-only port. — see [[arc-tokens]]
 - [ ] S-L30 — `createInternalGraphRoutes` does not accept a `loggerLayer` — ARC auth failures and route errors produce no structured log entries. Add observability layer matching `createGraphRoutes` pattern. — see [[arc-tokens]], [[observability/overview]]
 - [x] S-H2 (org) — Handle enumeration via "Handle already taken" message — fixed: changed to "Handle unavailable"
-- [ ] S-H1 (org) — `listMembers` service returns full `User` rows (including `email`, `id`). Route layer correctly applies `userProjection`, but service contract should restrict fields for defence-in-depth.
+- [ ] S-H1 (org) — `listMembers` service returns full profile rows (including `email`, `id`). Route layer correctly applies `profileProjection`, but service contract should restrict fields for defence-in-depth.
 - [ ] S-M1 (org) — `GET /organisations/:handle/members` has no membership gate — any authenticated user can list any org's members. Add membership check or document as intentional public access.
 - [x] S-M2 (org) — No `org:write` scope constant for future internal mutation endpoints — fixed: `_SCOPE_ORG_WRITE` constant added
 - [ ] S-M3 (org) — `getOrganisation` service returns `ownerId` internal ID. User-facing routes project it away but future consumers may leak it.
@@ -455,18 +456,18 @@ Address **High** items before any non-local deployment.
 - [ ] P-W3 — `sendConnectionRequest` makes two sequential independent DB reads — use `Effect.all` with `concurrency: "unbounded"`
 - [ ] P-W4 — Auth Maps (`otpStore`, `magicStore`, `pkceStore`) never evict expired entries — add periodic sweep. The new `pendingRegistrations` map already uses `sweepExpired()` on insert; lift the helper into the other stores. — see [[redis]]
 - [ ] P-W10 — `RegistrationClient.checkHandle` has no `AbortController` — debounced bursts of typing can leave multiple in-flight `GET /handle/:handle` requests racing each other; results are guarded against display races but the network requests still hit the DB. Plumb an `AbortSignal` through and abort the previous request when a new one is scheduled.
-- [ ] P-W11 — `beginRegistration` and the legacy `registerUser` issue two parallel `findUserByEmail` + `findUserByHandle` queries instead of a single `WHERE email = ? OR handle = ?` — doubles the DB latency component on a hot signup path. Add a `findUserByEmailOrHandle` helper.
+- [ ] P-W11 — `beginRegistration` and the legacy `registerProfile` issue two parallel `findProfileByEmail` + `findProfileByHandle` queries instead of a single `WHERE email = ? OR handle = ?` — doubles the DB latency component on a hot signup path. Add a `findProfileByEmailOrHandle` helper.
 - [x] P-W16 — Missing index on `close_friends.friend_id` caused table scan in `getCloseFriendsOfBatch` and `removeConnection` cleanup — fixed: added `close_friends_friend_idx`
-- [x] P-W17 — `removeConnection` and `blockUser` multi-step mutations not wrapped in a transaction — fixed: both now use `db.transaction()`
+- [x] P-W17 — `removeConnection` and `blockProfile` multi-step mutations not wrapped in a transaction — fixed: both now use `db.transaction()`
 - [x] P-W18 — `@shared/redis` `wrapIoRedis` sent full Lua script body on every EVAL call. Fixed: transparent EVALSHA caching with NOSCRIPT fallback — see [[redis]]. Further improved: SHA now computed eagerly on first sight of each script (P-W2 follow-up) and EVALSHA tried first on every call.
 - [x] P-W19 — `@shared/redis` `createMemoryClient` had no expiry sweep (unbounded Map growth). Fixed: proactive sweep when store exceeds `maxEntries` cap, mirroring `osn/core` rate limiter pattern — see [[redis]]
 - [x] P-W20 — Double base64-decode in `requireArc` middleware (`peekIssuer` + `peekScopes` each parsed JWT payload independently). Fixed: merged into single `peekClaims()` function. — see [[arc-tokens]]
-- [x] P-W21 — Unbounded `userIds` array on `POST /graph/internal/user-displays` and `POST /graph/internal/close-friends-of` — could exceed SQLite variable limit (999). Fixed: `maxItems: 200` on both TypeBox schemas. — see [[arc-tokens]]
+- [x] P-W21 — Unbounded `profileIds` array on `POST /graph/internal/profile-displays` and `POST /graph/internal/close-friends-of` — could exceed SQLite variable limit (999). Fixed: `maxItems: 200` on both TypeBox schemas. — see [[arc-tokens]]
 - [ ] P-W22 — Two `Effect.runPromise` calls per internal graph request (one for ARC key resolution, one for graph query). Consolidate into single fiber when S2S throughput grows. — see [[arc-tokens]]
 - [ ] P-W5 — Batch status-transition `UPDATE`s in `listEvents`/`listTodayEvents` (N individual writes today)
 - [x] P-W6 — N+1 queries in graph list functions — replaced with `inArray` batch fetches
 - [x] P-W7 — `eitherBlocked` made two sequential `isBlocked` calls — collapsed to single OR query
-- [x] P-W8 — `blockUser` used SELECT-then-DELETE pattern — replaced with direct `DELETE WHERE OR`
+- [x] P-W8 — `blockProfile` used SELECT-then-DELETE pattern — replaced with direct `DELETE WHERE OR`
 - [x] P-W9 — Eliminate extra `getEvent` round-trips in `updateEvent` — returns in-memory merged result
 - [x] P-W12 — `listEvents` in `pulse/api/src/services/events.ts` clamped with `LIMIT` *before* the in-JS visibility filter, yielding unstable page sizes (the DB returned 20 rows but the JS filter could drop several private ones, leaving the client with fewer than requested) AND defeating the `events_visibility_idx` index. Fixed in the full-event-view PR by pushing the visibility filter into the SQL `WHERE` clause via `or(eq(events.visibility, "public"), eq(events.createdByUserId, viewerId))`.
 - [x] P-W13 — Same root cause as S-M28: `getConnectionIds` / `getCloseFriendIds` capped at 100, silently truncating membership sets. Fixed jointly with S-M28 by raising the bound to `MAX_EVENT_GUESTS`.
@@ -475,7 +476,7 @@ Address **High** items before any non-local deployment.
 - [x] P-W1 (org) — Sequential queries in `createOrganisation` — fixed: parallelised handle + owner checks in single `Promise.all`
 - [x] P-W2 (org) — Sequential queries in `addMember` — fixed: parallelised all four pre-insert checks
 - [ ] P-W3 (org) — Sequential queries in `removeMember`/`updateMemberRole` could be parallelised (org exists + caller/target checks)
-- [x] P-W4 (org) — `listUserOrganisations` two-step query — fixed: replaced with single `innerJoin` query
+- [x] P-W4 (org) — `listProfileOrganisations` two-step query — fixed: replaced with single `innerJoin` query
 - [x] P-W5 (org) — `listMembers` two-step query — fixed: replaced with single `innerJoin` query
 - [x] P-W6 (org) — `updateOrganisation` re-fetched org after update — fixed: constructs return from known state
 - [x] P-I1 (org) — `createOrganisation` re-fetched inserted org — fixed: constructs return from known inputs
@@ -492,7 +493,7 @@ Address **High** items before any non-local deployment.
 - [ ] P-I5 — `/graph/internal/connections` and `/close-friends` do not expose `offset` parameter — callers cannot paginate beyond the first 100 results. Add `offset: t.Optional(t.String())` to query schema. — see [[arc-tokens]]
 - [ ] P-I3 — `new TextEncoder()` allocated per `verifyPkceChallenge` call — move to module scope
 - [ ] P-I4 — `AuthProvider` reconstructs Effect `Layer` on every render — wrap with `createMemo`
-- [ ] P-I5 — `completePasskeyLogin` calls `findUserByEmail` redundantly — `pk.userId` already on passkey row
+- [ ] P-I5 — `completePasskeyLogin` calls `findProfileByEmail` redundantly — `pk.userId` already on passkey row
 - [ ] P-I6 — Duplicate index on `users.email` — `unique()` already creates one implicitly in SQLite
 - [ ] P-I7 — Eliminate extra `getEvent` round-trip in `createEvent` via `RETURNING *`
 - [ ] P-I8 — `resolveHandle` re-fetches user from DB when handler already has the User row
@@ -525,6 +526,7 @@ Address **High** items before any non-local deployment.
 | Community event-ended reporting | 15–20 attendees auto-finish; host notified | When attendee/messaging features land |
 | Max event duration | Prompt user when creating events without endTime | When Pulse event creation UI is built |
 | Redis provider — see [[redis]] | Upstash (serverless, free tier) vs Redis Cloud vs self-hosted. Upstash aligns with serverless deploy model; Cloudflare Durable Objects reconsidered if deploying to Workers. | When deploying beyond localhost |
+| DB table rename `users` → `profiles` | The table is called `users` but represents profiles. Renaming is a migration-heavy change for minimal runtime benefit. Code already uses profile terminology everywhere. | Only if it causes genuine confusion |
 | S2S scaling — see [[s2s-patterns]], [[arc-tokens]], [[s2s-migration]] | Current: direct package import (`createGraphService()`). Migrate to HTTP `/graph/internal/*` + ARC tokens when scaling horizontally. | When multi-process or multi-machine deployment needed |
 | Per-app blocking — see [[social-graph]] | Blocks are global across all OSN apps. Per-app scope deferred. | When Messaging or a third-party app needs independent block lists |
 | Profile transfer between accounts | Meta supports unlinking/relinking profiles to different accounts | After multi-account ships (P6) |

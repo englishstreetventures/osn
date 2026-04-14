@@ -27,7 +27,7 @@ import {
   listRsvps,
   rsvpCounts,
   upsertRsvp,
-  type RsvpWithUser,
+  type RsvpWithProfile,
 } from "../services/rsvps";
 
 const visibilityEnum = t.Optional(t.Union([t.Literal("public"), t.Literal("private")]));
@@ -60,7 +60,7 @@ const rsvpFilterStatusEnum = t.Union([
  * attendee. The DB column stays populated; only the wire format hides
  * it from non-organisers.
  */
-const serializeRsvp = (row: RsvpWithUser, isOrganiser: boolean) => ({
+const serializeRsvp = (row: RsvpWithProfile, isOrganiser: boolean) => ({
   id: row.id,
   eventId: row.eventId,
   profileId: row.profileId,
@@ -68,12 +68,12 @@ const serializeRsvp = (row: RsvpWithUser, isOrganiser: boolean) => ({
   invitedByProfileId: isOrganiser ? row.invitedByProfileId : null,
   isCloseFriend: row.isCloseFriend,
   createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
-  user: row.user
+  profile: row.profile
     ? {
-        id: row.user.id,
-        handle: row.user.handle,
-        displayName: row.user.displayName,
-        avatarUrl: row.user.avatarUrl,
+        id: row.profile.id,
+        handle: row.profile.handle,
+        displayName: row.profile.displayName,
+        avatarUrl: row.profile.avatarUrl,
       }
     : null,
 });
@@ -363,7 +363,7 @@ export const createEventsRoutes = (
             return result;
           }
           return {
-            rsvps: (result as RsvpWithUser[]).map((row) => serializeRsvp(row, isOrganiser)),
+            rsvps: (result as RsvpWithProfile[]).map((row) => serializeRsvp(row, isOrganiser)),
           };
         },
         {
@@ -444,7 +444,7 @@ export const createEventsRoutes = (
             return result;
           }
           return {
-            rsvps: (result as RsvpWithUser[]).map((row) => serializeRsvp(row, isOrganiser)),
+            rsvps: (result as RsvpWithProfile[]).map((row) => serializeRsvp(row, isOrganiser)),
           };
         },
         {

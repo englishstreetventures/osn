@@ -214,10 +214,10 @@ describe("RSVP routes", () => {
     const res = await get(app, `/events/${eventId}/rsvps?status=going`, aliceToken);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      rsvps: { profileId: string; user: { displayName: string | null } | null }[];
+      rsvps: { profileId: string; profile: { displayName: string | null } | null }[];
     };
     expect(body.rsvps.length).toBe(1);
-    expect(body.rsvps[0]!.user?.displayName).toBe("Bob");
+    expect(body.rsvps[0]!.profile?.displayName).toBe("Bob");
   });
 
   it("POST /events/:id/invite as organiser creates invited rows", async () => {

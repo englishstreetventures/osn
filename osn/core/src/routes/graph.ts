@@ -1,4 +1,4 @@
-import type { User } from "@osn/db/schema";
+import type { Profile } from "@osn/db/schema";
 import { DbLive, type Db } from "@osn/db/service";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
@@ -60,8 +60,8 @@ const PaginationQuery = t.Object({
   offset: t.Optional(t.String()),
 });
 
-// Shared projection for user fields in list responses (L3: displayName typed as nullable)
-function userProjection(u: User) {
+// Shared projection for profile fields in list responses (L3: displayName typed as nullable)
+function profileProjection(u: Profile) {
   return {
     handle: u.handle,
     displayName: u.displayName ?? null,
@@ -146,18 +146,18 @@ export function createGraphRoutes(
     return true;
   }
 
-  // Resolve a handle to a full User row, or set 404
+  // Resolve a handle to a full profile row, or set 404
   async function resolveHandle(
     handle: string,
     set: { status?: number | string },
-  ): Promise<User | null> {
+  ): Promise<Profile | null> {
     try {
-      const user = await run(auth.findUserByHandle(handle));
-      if (!user) {
+      const profile = await run(auth.findProfileByHandle(handle));
+      if (!profile) {
         set.status = 404;
         return null;
       }
-      return user;
+      return profile;
     } catch {
       set.status = 500;
       return null;
@@ -178,7 +178,7 @@ export function createGraphRoutes(
             return { error: "Too many requests" };
 
           const target = await resolveHandle(params.handle, set);
-          if (!target) return { error: "User not found" };
+          if (!target) return { error: "Profile not found" };
 
           try {
             await run(graph.sendConnectionRequest(caller.profileId, target.id));
@@ -200,7 +200,7 @@ export function createGraphRoutes(
             return { error: "Too many requests" };
 
           const requester = await resolveHandle(params.handle, set);
-          if (!requester) return { error: "User not found" };
+          if (!requester) return { error: "Profile not found" };
 
           try {
             if (body.action === "accept") {
@@ -228,7 +228,7 @@ export function createGraphRoutes(
             return { error: "Too many requests" };
 
           const other = await resolveHandle(params.handle, set);
-          if (!other) return { error: "User not found" };
+          if (!other) return { error: "Profile not found" };
 
           try {
             await run(graph.removeConnection(caller.profileId, other.id));
@@ -249,7 +249,7 @@ export function createGraphRoutes(
             const list = await run(graph.listConnections(caller.profileId, parsePagination(query)));
             return {
               connections: list.map((c) =>
-                Object.assign({}, userProjection(c.user), {
+                Object.assign({}, profileProjection(c.profile), {
                   connectedAt: c.connectedAt.toISOString(),
                 }),
               ),
@@ -272,7 +272,7 @@ export function createGraphRoutes(
             );
             return {
               pending: list.map((r) =>
-                Object.assign({}, userProjection(r.user), {
+                Object.assign({}, profileProjection(r.profile), {
                   requestedAt: r.requestedAt.toISOString(),
                 }),
               ),
@@ -291,7 +291,7 @@ export function createGraphRoutes(
           if (!caller) return { error: "Unauthorized" };
           try {
             const target = await resolveHandle(params.handle, set);
-            if (!target) return { error: "User not found" };
+            if (!target) return { error: "Profile not found" };
             const status = await run(graph.getConnectionStatus(caller.profileId, target.id));
             return { status };
           } catch (e) {
@@ -313,7 +313,7 @@ export function createGraphRoutes(
             return { error: "Too many requests" };
 
           const friend = await resolveHandle(params.handle, set);
-          if (!friend) return { error: "User not found" };
+          if (!friend) return { error: "Profile not found" };
 
           try {
             await run(graph.addCloseFriend(caller.profileId, friend.id));
@@ -335,7 +335,7 @@ export function createGraphRoutes(
             return { error: "Too many requests" };
 
           const friend = await resolveHandle(params.handle, set);
-          if (!friend) return { error: "User not found" };
+          if (!friend) return { error: "Profile not found" };
 
           try {
             await run(graph.removeCloseFriend(caller.profileId, friend.id));
@@ -356,7 +356,7 @@ export function createGraphRoutes(
             const list = await run(
               graph.listCloseFriends(caller.profileId, parsePagination(query)),
             );
-            return { closeFriends: list.map(userProjection) };
+            return { closeFriends: list.map(profileProjection) };
           } catch (e) {
             set.status = 500;
             return { error: safeError(e) };
@@ -371,7 +371,7 @@ export function createGraphRoutes(
           if (!caller) return { error: "Unauthorized" };
           try {
             const target = await resolveHandle(params.handle, set);
-            if (!target) return { error: "User not found" };
+            if (!target) return { error: "Profile not found" };
             const isCloseFriend = await run(graph.isCloseFriendOf(caller.profileId, target.id));
             return { isCloseFriend };
           } catch (e) {
@@ -393,10 +393,10 @@ export function createGraphRoutes(
             return { error: "Too many requests" };
 
           const blocked = await resolveHandle(params.handle, set);
-          if (!blocked) return { error: "User not found" };
+          if (!blocked) return { error: "Profile not found" };
 
           try {
-            await run(graph.blockUser(caller.profileId, blocked.id));
+            await run(graph.blockProfile(caller.profileId, blocked.id));
             set.status = 201;
             return { ok: true };
           } catch (e) {
@@ -415,10 +415,10 @@ export function createGraphRoutes(
             return { error: "Too many requests" };
 
           const blocked = await resolveHandle(params.handle, set);
-          if (!blocked) return { error: "User not found" };
+          if (!blocked) return { error: "Profile not found" };
 
           try {
-            await run(graph.unblockUser(caller.profileId, blocked.id));
+            await run(graph.unblockProfile(caller.profileId, blocked.id));
             return { ok: true };
           } catch (e) {
             set.status = 400;
@@ -434,7 +434,7 @@ export function createGraphRoutes(
           if (!caller) return { error: "Unauthorized" };
           try {
             const list = await run(graph.listBlocks(caller.profileId, parsePagination(query)));
-            return { blocks: list.map(userProjection) };
+            return { blocks: list.map(profileProjection) };
           } catch (e) {
             set.status = 500;
             return { error: safeError(e) };
@@ -454,7 +454,7 @@ export function createGraphRoutes(
           if (!caller) return { error: "Unauthorized" };
           try {
             const target = await resolveHandle(params.handle, set);
-            if (!target) return { error: "User not found" };
+            if (!target) return { error: "Profile not found" };
             const blocked = await run(graph.isBlocked(caller.profileId, target.id));
             return { blocked };
           } catch (e) {

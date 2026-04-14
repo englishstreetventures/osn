@@ -114,10 +114,10 @@ export function RsvpModal(props: {
                     <RsvpAvatar rsvp={rsvp} />
                     <div class="min-w-0 flex-1">
                       <p class="text-foreground truncate text-sm font-medium">
-                        {rsvp.user?.displayName ?? `@${rsvp.user?.handle ?? "unknown"}`}
+                        {rsvp.profile?.displayName ?? `@${rsvp.profile?.handle ?? "unknown"}`}
                       </p>
-                      <Show when={rsvp.user?.handle && rsvp.user?.displayName}>
-                        <p class="text-muted-foreground text-xs">@{rsvp.user!.handle}</p>
+                      <Show when={rsvp.profile?.handle && rsvp.profile?.displayName}>
+                        <p class="text-muted-foreground text-xs">@{rsvp.profile!.handle}</p>
                       </Show>
                     </div>
                   </li>

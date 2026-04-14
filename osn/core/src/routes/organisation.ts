@@ -1,4 +1,4 @@
-import type { Organisation, User } from "@osn/db/schema";
+import type { Organisation, Profile } from "@osn/db/schema";
 import { DbLive, type Db } from "@osn/db/service";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
@@ -47,7 +47,7 @@ const HandleParam = t.Object({
 
 const MemberHandleParams = t.Object({
   handle: t.String({ minLength: 1, maxLength: 30, pattern: "^[a-z0-9_]+$" }),
-  userHandle: t.String({ minLength: 1, maxLength: 30, pattern: "^[a-z0-9_]+$" }),
+  profileHandle: t.String({ minLength: 1, maxLength: 30, pattern: "^[a-z0-9_]+$" }),
 });
 
 const PaginationQuery = t.Object({
@@ -55,7 +55,7 @@ const PaginationQuery = t.Object({
   offset: t.Optional(t.String()),
 });
 
-function userProjection(u: { handle: string; displayName: string | null }) {
+function profileProjection(u: { handle: string; displayName: string | null }) {
   return {
     handle: u.handle,
     displayName: u.displayName ?? null,
@@ -145,14 +145,14 @@ export function createOrganisationRoutes(
   async function resolveHandle(
     handle: string,
     set: { status?: number | string },
-  ): Promise<User | null> {
+  ): Promise<Profile | null> {
     try {
-      const user = await run(auth.findUserByHandle(handle));
-      if (!user) {
+      const profile = await run(auth.findProfileByHandle(handle));
+      if (!profile) {
         set.status = 404;
         return null;
       }
-      return user;
+      return profile;
     } catch {
       set.status = 500;
       return null;
@@ -216,7 +216,7 @@ export function createOrganisationRoutes(
 
           try {
             const list = await run(
-              org.listUserOrganisations(caller.profileId, parsePagination(query)),
+              org.listProfileOrganisations(caller.profileId, parsePagination(query)),
             );
             return { organisations: list.map(orgProjection) };
           } catch (e) {
@@ -293,7 +293,7 @@ export function createOrganisationRoutes(
       // Member management
       // -----------------------------------------------------------------------
       .post(
-        "/:handle/members/:userHandle",
+        "/:handle/members/:profileHandle",
         async ({ params, body, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
@@ -303,8 +303,8 @@ export function createOrganisationRoutes(
           const organisation = await resolveOrg(params.handle, set);
           if (!organisation) return { error: "Organisation not found" };
 
-          const target = await resolveHandle(params.userHandle, set);
-          if (!target) return { error: "User not found" };
+          const target = await resolveHandle(params.profileHandle, set);
+          if (!target) return { error: "Profile not found" };
 
           try {
             await run(org.addMember(organisation.id, caller.profileId, target.id, body.role));
@@ -323,7 +323,7 @@ export function createOrganisationRoutes(
         },
       )
       .delete(
-        "/:handle/members/:userHandle",
+        "/:handle/members/:profileHandle",
         async ({ params, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
@@ -333,8 +333,8 @@ export function createOrganisationRoutes(
           const organisation = await resolveOrg(params.handle, set);
           if (!organisation) return { error: "Organisation not found" };
 
-          const target = await resolveHandle(params.userHandle, set);
-          if (!target) return { error: "User not found" };
+          const target = await resolveHandle(params.profileHandle, set);
+          if (!target) return { error: "Profile not found" };
 
           try {
             await run(org.removeMember(organisation.id, caller.profileId, target.id));
@@ -347,7 +347,7 @@ export function createOrganisationRoutes(
         { params: MemberHandleParams },
       )
       .patch(
-        "/:handle/members/:userHandle",
+        "/:handle/members/:profileHandle",
         async ({ params, body, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
@@ -357,8 +357,8 @@ export function createOrganisationRoutes(
           const organisation = await resolveOrg(params.handle, set);
           if (!organisation) return { error: "Organisation not found" };
 
-          const target = await resolveHandle(params.userHandle, set);
-          if (!target) return { error: "User not found" };
+          const target = await resolveHandle(params.profileHandle, set);
+          if (!target) return { error: "Profile not found" };
 
           try {
             await run(
@@ -390,7 +390,7 @@ export function createOrganisationRoutes(
             const list = await run(org.listMembers(organisation.id, parsePagination(query)));
             return {
               members: list.map((m) =>
-                Object.assign({}, userProjection(m.user), {
+                Object.assign({}, profileProjection(m.profile), {
                   role: m.role,
                   joinedAt: m.joinedAt.toISOString(),
                 }),

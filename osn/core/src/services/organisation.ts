@@ -64,8 +64,8 @@ export function createOrganisationService() {
     Effect.gen(function* () {
       const { db } = yield* Db;
 
-      // P-W1: parallelise all pre-insert checks (handle user, handle org, owner exists)
-      const [existingUser, existingOrg, ownerRows] = yield* Effect.tryPromise({
+      // P-W1: parallelise all pre-insert checks (handle profile, handle org, owner exists)
+      const [existingProfile, existingOrg, ownerRows] = yield* Effect.tryPromise({
         try: () =>
           Promise.all([
             db.select({ id: users.id }).from(users).where(eq(users.handle, handle)).limit(1),
@@ -80,7 +80,7 @@ export function createOrganisationService() {
       });
 
       // S-H2: use generic message to avoid confirming handle existence
-      if (existingUser.length > 0 || existingOrg.length > 0) {
+      if (existingProfile.length > 0 || existingOrg.length > 0) {
         return yield* Effect.fail(new OrgError({ message: "Handle unavailable" }));
       }
 
@@ -259,7 +259,7 @@ export function createOrganisationService() {
       });
     }).pipe(withOrgOp("delete"));
 
-  const listUserOrganisations = (
+  const listProfileOrganisations = (
     profileId: string,
     options: ListOptions = {},
   ): Effect.Effect<(typeof organisations.$inferSelect)[], DatabaseError, Db> =>
@@ -291,7 +291,7 @@ export function createOrganisationService() {
       });
 
       return rows;
-    }).pipe(Effect.withSpan("org.list_by_user"));
+    }).pipe(Effect.withSpan("org.list_by_profile"));
 
   // -------------------------------------------------------------------------
   // Membership management
@@ -344,10 +344,10 @@ export function createOrganisationService() {
         return yield* Effect.fail(new OrgError({ message: "Only admins can add members" }));
       }
       if (targetRows.length === 0) {
-        return yield* Effect.fail(new OrgError({ message: "Target user not found" }));
+        return yield* Effect.fail(new OrgError({ message: "Target profile not found" }));
       }
       if (existing.length > 0) {
-        return yield* Effect.fail(new OrgError({ message: "User is already a member" }));
+        return yield* Effect.fail(new OrgError({ message: "Profile is already a member" }));
       }
 
       yield* Effect.tryPromise({
@@ -498,7 +498,7 @@ export function createOrganisationService() {
     options: ListOptions = {},
   ): Effect.Effect<
     {
-      user: {
+      profile: {
         id: string;
         handle: string;
         displayName: string | null;
@@ -555,7 +555,7 @@ export function createOrganisationService() {
       });
 
       return rows.map((r) => ({
-        user: {
+        profile: {
           id: r.id,
           handle: r.handle,
           displayName: r.displayName,
@@ -599,7 +599,7 @@ export function createOrganisationService() {
     getOrganisationByHandle,
     updateOrganisation,
     deleteOrganisation,
-    listUserOrganisations,
+    listProfileOrganisations,
     addMember,
     removeMember,
     updateMemberRole,

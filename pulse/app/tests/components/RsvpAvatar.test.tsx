@@ -14,7 +14,7 @@ const baseRsvp: Rsvp = {
   invitedByProfileId: null,
   isCloseFriend: false,
   createdAt: "2030-01-01T00:00:00Z",
-  user: { id: "usr_bob", handle: "bob", displayName: "Bob Smith", avatarUrl: null },
+  profile: { id: "usr_bob", handle: "bob", displayName: "Bob Smith", avatarUrl: null },
 };
 
 describe("RsvpAvatar", () => {
@@ -30,7 +30,7 @@ describe("RsvpAvatar", () => {
   it("renders an <img> when user has an avatar URL", () => {
     const { container } = render(() => (
       <RsvpAvatar
-        rsvp={{ ...baseRsvp, user: { ...baseRsvp.user!, avatarUrl: "https://x/y.jpg" } }}
+        rsvp={{ ...baseRsvp, profile: { ...baseRsvp.profile!, avatarUrl: "https://x/y.jpg" } }}
       />
     ));
     const img = container.querySelector("img") as HTMLImageElement;
@@ -65,7 +65,7 @@ describe("RsvpAvatar", () => {
         rsvp={{
           ...baseRsvp,
           isCloseFriend: true,
-          user: { ...baseRsvp.user!, avatarUrl: "https://x/y.jpg" },
+          profile: { ...baseRsvp.profile!, avatarUrl: "https://x/y.jpg" },
         }}
       />
     ));

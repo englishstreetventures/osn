@@ -34,11 +34,11 @@ export class GraphBridgeError extends Data.TaggedError("GraphBridgeError")<{
 const graph = createGraphService();
 
 /**
- * The set of user IDs `profileId` is connected to (accepted connections only).
+ * The set of profile IDs `profileId` is connected to (accepted connections only).
  * Returns a `Set` for O(1) membership checks in the RSVP visibility filter.
  *
  * Bounded by `MAX_EVENT_GUESTS` — the platform's hard cap on event guest
- * count (see `lib/limits.ts`). No user on the free tier can have more
+ * count (see `lib/limits.ts`). No profile on the free tier can have more
  * connections relevant to an event than this limit. Accounts that need
  * larger sets belong to the future verified-organisation tier.
  */
@@ -46,12 +46,12 @@ export const getConnectionIds = (
   profileId: string,
 ): Effect.Effect<Set<string>, GraphBridgeError, OsnDb> =>
   graph.listConnections(profileId, { limit: MAX_EVENT_GUESTS }).pipe(
-    Effect.map((rows) => new Set(rows.map((r) => r.user.id))),
+    Effect.map((rows) => new Set(rows.map((r) => r.profile.id))),
     Effect.mapError((cause) => new GraphBridgeError({ cause })),
   );
 
 /**
- * The set of user IDs `profileId` has marked as close friends. Bounded by
+ * The set of profile IDs `profileId` has marked as close friends. Bounded by
  * `MAX_EVENT_GUESTS` for the same reason as `getConnectionIds`.
  */
 export const getCloseFriendIds = (
@@ -85,7 +85,7 @@ export const getCloseFriendsOf = (
     .getCloseFriendsOfBatch(viewerId, attendeeIds)
     .pipe(Effect.mapError((cause) => new GraphBridgeError({ cause })));
 
-export interface UserDisplay {
+export interface ProfileDisplay {
   id: string;
   handle: string;
   displayName: string | null;
@@ -93,15 +93,15 @@ export interface UserDisplay {
 }
 
 /**
- * Fetches display metadata for a batch of OSN user IDs. Used by the RSVP
+ * Fetches display metadata for a batch of OSN profile IDs. Used by the RSVP
  * service to join names/avatars onto RSVP rows before returning them to
  * the client (names NEVER come from the JWT — always fresh from DB).
  *
- * Returns a Map keyed by user ID for efficient lookup during join.
+ * Returns a Map keyed by profile ID for efficient lookup during join.
  */
-export const getUserDisplays = (
+export const getProfileDisplays = (
   profileIds: string[],
-): Effect.Effect<Map<string, UserDisplay>, GraphBridgeError, OsnDb> =>
+): Effect.Effect<Map<string, ProfileDisplay>, GraphBridgeError, OsnDb> =>
   Effect.gen(function* () {
     if (profileIds.length === 0) return new Map();
     const { db } = yield* OsnDb;

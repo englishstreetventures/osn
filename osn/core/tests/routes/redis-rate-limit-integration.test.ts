@@ -160,8 +160,8 @@ describe("graph routes with Redis-backed rate limiter", () => {
     const run = <A, E>(eff: Effect.Effect<A, E, Db>) =>
       Effect.runPromise(eff.pipe(Effect.provide(layer)) as Effect.Effect<A, never, never>);
 
-    const alice = await run(auth.registerUser("alice@test.com", "alice"));
-    await run(auth.registerUser("bob@test.com", "bob"));
+    const alice = await run(auth.registerProfile("alice@test.com", "alice"));
+    await run(auth.registerProfile("bob@test.com", "bob"));
     const tokens = await run(
       auth.issueTokens(alice.id, alice.email, alice.handle, alice.displayName),
     );

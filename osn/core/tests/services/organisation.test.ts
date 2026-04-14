@@ -17,19 +17,19 @@ const auth = createAuthService(config);
 const org = createOrganisationService();
 
 /** Register a user and return them. */
-const registerUser = (email: string, handle: string, displayName?: string) =>
-  auth.registerUser(email, handle, displayName);
+const registerProfile = (email: string, handle: string, displayName?: string) =>
+  auth.registerProfile(email, handle, displayName);
 
 /** Register two users. */
 const setupTwoUsers = Effect.gen(function* () {
-  const alice = yield* registerUser("alice@example.com", "alice", "Alice");
-  const bob = yield* registerUser("bob@example.com", "bob", "Bob");
+  const alice = yield* registerProfile("alice@example.com", "alice", "Alice");
+  const bob = yield* registerProfile("bob@example.com", "bob", "Bob");
   return { alice, bob };
 });
 
 /** Register a user and create an org owned by them. */
 const setupOrgWithOwner = Effect.gen(function* () {
-  const alice = yield* registerUser("alice@example.com", "alice", "Alice");
+  const alice = yield* registerProfile("alice@example.com", "alice", "Alice");
   const organisation = yield* org.createOrganisation(alice.id, "acme", "Acme Corp");
   return { alice, organisation };
 });
@@ -41,7 +41,7 @@ const setupOrgWithOwner = Effect.gen(function* () {
 describe("createOrganisation", () => {
   it.effect("creates an organisation and adds owner as admin", () =>
     Effect.gen(function* () {
-      const alice = yield* registerUser("alice@example.com", "alice");
+      const alice = yield* registerProfile("alice@example.com", "alice");
       const organisation = yield* org.createOrganisation(
         alice.id,
         "acme",
@@ -62,7 +62,7 @@ describe("createOrganisation", () => {
 
   it.effect("fails when handle is already taken by a user", () =>
     Effect.gen(function* () {
-      const alice = yield* registerUser("alice@example.com", "alice");
+      const alice = yield* registerProfile("alice@example.com", "alice");
       const error = yield* Effect.flip(org.createOrganisation(alice.id, "alice", "Alice Org"));
       expect(error._tag).toBe("OrgError");
       expect(error.message).toContain("Handle unavailable");
@@ -71,7 +71,7 @@ describe("createOrganisation", () => {
 
   it.effect("fails when handle is already taken by another org", () =>
     Effect.gen(function* () {
-      const alice = yield* registerUser("alice@example.com", "alice");
+      const alice = yield* registerProfile("alice@example.com", "alice");
       yield* org.createOrganisation(alice.id, "acme", "Acme Corp");
       const error = yield* Effect.flip(org.createOrganisation(alice.id, "acme", "Another Acme"));
       expect(error._tag).toBe("OrgError");
@@ -141,7 +141,7 @@ describe("updateOrganisation", () => {
   it.effect("fails when caller is not an admin", () =>
     Effect.gen(function* () {
       const { organisation } = yield* setupOrgWithOwner;
-      const bob = yield* registerUser("bob@example.com", "bob");
+      const bob = yield* registerProfile("bob@example.com", "bob");
       // Add bob as regular member
       yield* org.addMember(organisation.id, organisation.ownerId, bob.id, "member");
       const error = yield* Effect.flip(
@@ -154,7 +154,7 @@ describe("updateOrganisation", () => {
 
   it.effect("fails when org does not exist", () =>
     Effect.gen(function* () {
-      const alice = yield* registerUser("alice@example.com", "alice");
+      const alice = yield* registerProfile("alice@example.com", "alice");
       const error = yield* Effect.flip(
         org.updateOrganisation("org_nonexistent", alice.id, { name: "X" }),
       );
@@ -176,7 +176,7 @@ describe("deleteOrganisation", () => {
   it.effect("fails when caller is admin but not owner", () =>
     Effect.gen(function* () {
       const { organisation } = yield* setupOrgWithOwner;
-      const bob = yield* registerUser("bob@example.com", "bob");
+      const bob = yield* registerProfile("bob@example.com", "bob");
       yield* org.addMember(organisation.id, organisation.ownerId, bob.id, "admin");
       const error = yield* Effect.flip(org.deleteOrganisation(organisation.id, bob.id));
       expect(error._tag).toBe("OrgError");
@@ -186,21 +186,21 @@ describe("deleteOrganisation", () => {
 
   it.effect("fails when org does not exist", () =>
     Effect.gen(function* () {
-      const alice = yield* registerUser("alice@example.com", "alice");
+      const alice = yield* registerProfile("alice@example.com", "alice");
       const error = yield* Effect.flip(org.deleteOrganisation("org_nonexistent", alice.id));
       expect(error._tag).toBe("NotFoundError");
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
 
-describe("listUserOrganisations", () => {
+describe("listProfileOrganisations", () => {
   it.effect("returns all orgs the user belongs to", () =>
     Effect.gen(function* () {
-      const alice = yield* registerUser("alice@example.com", "alice");
+      const alice = yield* registerProfile("alice@example.com", "alice");
       yield* org.createOrganisation(alice.id, "acme", "Acme Corp");
       yield* org.createOrganisation(alice.id, "globex", "Globex Corp");
 
-      const list = yield* org.listUserOrganisations(alice.id);
+      const list = yield* org.listProfileOrganisations(alice.id);
       const handles = list.map((o) => o.handle).toSorted();
       expect(handles).toEqual(["acme", "globex"]);
     }).pipe(Effect.provide(createTestLayer())),
@@ -208,8 +208,8 @@ describe("listUserOrganisations", () => {
 
   it.effect("returns empty when user has no orgs", () =>
     Effect.gen(function* () {
-      const alice = yield* registerUser("alice@example.com", "alice");
-      const list = yield* org.listUserOrganisations(alice.id);
+      const alice = yield* registerProfile("alice@example.com", "alice");
+      const list = yield* org.listProfileOrganisations(alice.id);
       expect(list).toHaveLength(0);
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -223,7 +223,7 @@ describe("addMember", () => {
   it.effect("adds a user as a member", () =>
     Effect.gen(function* () {
       const { alice, organisation } = yield* setupOrgWithOwner;
-      const bob = yield* registerUser("bob@example.com", "bob");
+      const bob = yield* registerProfile("bob@example.com", "bob");
       yield* org.addMember(organisation.id, alice.id, bob.id, "member");
 
       const role = yield* org.getMemberRole(organisation.id, bob.id);
@@ -234,8 +234,8 @@ describe("addMember", () => {
   it.effect("fails when caller is not admin", () =>
     Effect.gen(function* () {
       const { organisation } = yield* setupOrgWithOwner;
-      const bob = yield* registerUser("bob@example.com", "bob");
-      const carol = yield* registerUser("carol@example.com", "carol");
+      const bob = yield* registerProfile("bob@example.com", "bob");
+      const carol = yield* registerProfile("carol@example.com", "carol");
       yield* org.addMember(organisation.id, organisation.ownerId, bob.id, "member");
 
       const error = yield* Effect.flip(org.addMember(organisation.id, bob.id, carol.id, "member"));
@@ -247,7 +247,7 @@ describe("addMember", () => {
   it.effect("fails when user is already a member", () =>
     Effect.gen(function* () {
       const { alice, organisation } = yield* setupOrgWithOwner;
-      const bob = yield* registerUser("bob@example.com", "bob");
+      const bob = yield* registerProfile("bob@example.com", "bob");
       yield* org.addMember(organisation.id, alice.id, bob.id, "member");
 
       const error = yield* Effect.flip(org.addMember(organisation.id, alice.id, bob.id, "member"));
@@ -263,13 +263,13 @@ describe("addMember", () => {
         org.addMember(organisation.id, alice.id, "usr_nonexistent", "member"),
       );
       expect(error._tag).toBe("OrgError");
-      expect(error.message).toContain("Target user not found");
+      expect(error.message).toContain("Target profile not found");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
   it.effect("fails when org does not exist", () =>
     Effect.gen(function* () {
-      const alice = yield* registerUser("alice@example.com", "alice");
+      const alice = yield* registerProfile("alice@example.com", "alice");
       const error = yield* Effect.flip(
         org.addMember("org_nonexistent", alice.id, alice.id, "member"),
       );
@@ -282,7 +282,7 @@ describe("removeMember", () => {
   it.effect("removes a member", () =>
     Effect.gen(function* () {
       const { alice, organisation } = yield* setupOrgWithOwner;
-      const bob = yield* registerUser("bob@example.com", "bob");
+      const bob = yield* registerProfile("bob@example.com", "bob");
       yield* org.addMember(organisation.id, alice.id, bob.id, "member");
       yield* org.removeMember(organisation.id, alice.id, bob.id);
 
@@ -303,8 +303,8 @@ describe("removeMember", () => {
   it.effect("fails when caller is not admin", () =>
     Effect.gen(function* () {
       const { organisation } = yield* setupOrgWithOwner;
-      const bob = yield* registerUser("bob@example.com", "bob");
-      const carol = yield* registerUser("carol@example.com", "carol");
+      const bob = yield* registerProfile("bob@example.com", "bob");
+      const carol = yield* registerProfile("carol@example.com", "carol");
       yield* org.addMember(organisation.id, organisation.ownerId, bob.id, "member");
       yield* org.addMember(organisation.id, organisation.ownerId, carol.id, "member");
 
@@ -317,7 +317,7 @@ describe("removeMember", () => {
   it.effect("fails when member not found", () =>
     Effect.gen(function* () {
       const { alice, organisation } = yield* setupOrgWithOwner;
-      const bob = yield* registerUser("bob@example.com", "bob");
+      const bob = yield* registerProfile("bob@example.com", "bob");
       const error = yield* Effect.flip(org.removeMember(organisation.id, alice.id, bob.id));
       expect(error._tag).toBe("NotFoundError");
     }).pipe(Effect.provide(createTestLayer())),
@@ -325,7 +325,7 @@ describe("removeMember", () => {
 
   it.effect("fails when org does not exist", () =>
     Effect.gen(function* () {
-      const alice = yield* registerUser("alice@example.com", "alice");
+      const alice = yield* registerProfile("alice@example.com", "alice");
       const error = yield* Effect.flip(org.removeMember("org_nonexistent", alice.id, alice.id));
       expect(error._tag).toBe("NotFoundError");
     }).pipe(Effect.provide(createTestLayer())),
@@ -336,7 +336,7 @@ describe("updateMemberRole", () => {
   it.effect("owner can promote member to admin", () =>
     Effect.gen(function* () {
       const { alice, organisation } = yield* setupOrgWithOwner;
-      const bob = yield* registerUser("bob@example.com", "bob");
+      const bob = yield* registerProfile("bob@example.com", "bob");
       yield* org.addMember(organisation.id, alice.id, bob.id, "member");
       yield* org.updateMemberRole(organisation.id, alice.id, bob.id, "admin");
 
@@ -348,7 +348,7 @@ describe("updateMemberRole", () => {
   it.effect("owner can demote admin to member", () =>
     Effect.gen(function* () {
       const { alice, organisation } = yield* setupOrgWithOwner;
-      const bob = yield* registerUser("bob@example.com", "bob");
+      const bob = yield* registerProfile("bob@example.com", "bob");
       yield* org.addMember(organisation.id, alice.id, bob.id, "admin");
       yield* org.updateMemberRole(organisation.id, alice.id, bob.id, "member");
 
@@ -360,8 +360,8 @@ describe("updateMemberRole", () => {
   it.effect("fails when non-owner tries to change roles", () =>
     Effect.gen(function* () {
       const { organisation } = yield* setupOrgWithOwner;
-      const bob = yield* registerUser("bob@example.com", "bob");
-      const carol = yield* registerUser("carol@example.com", "carol");
+      const bob = yield* registerProfile("bob@example.com", "bob");
+      const carol = yield* registerProfile("carol@example.com", "carol");
       yield* org.addMember(organisation.id, organisation.ownerId, bob.id, "admin");
       yield* org.addMember(organisation.id, organisation.ownerId, carol.id, "member");
 
@@ -386,7 +386,7 @@ describe("updateMemberRole", () => {
 
   it.effect("fails when org does not exist", () =>
     Effect.gen(function* () {
-      const alice = yield* registerUser("alice@example.com", "alice");
+      const alice = yield* registerProfile("alice@example.com", "alice");
       const error = yield* Effect.flip(
         org.updateMemberRole("org_nonexistent", alice.id, alice.id, "admin"),
       );
@@ -397,7 +397,7 @@ describe("updateMemberRole", () => {
   it.effect("fails when target member not found", () =>
     Effect.gen(function* () {
       const { alice, organisation } = yield* setupOrgWithOwner;
-      const bob = yield* registerUser("bob@example.com", "bob");
+      const bob = yield* registerProfile("bob@example.com", "bob");
       const error = yield* Effect.flip(
         org.updateMemberRole(organisation.id, alice.id, bob.id, "admin"),
       );
@@ -410,16 +410,16 @@ describe("listMembers", () => {
   it.effect("returns all members with roles", () =>
     Effect.gen(function* () {
       const { alice, organisation } = yield* setupOrgWithOwner;
-      const bob = yield* registerUser("bob@example.com", "bob");
+      const bob = yield* registerProfile("bob@example.com", "bob");
       yield* org.addMember(organisation.id, alice.id, bob.id, "member");
 
       const members = yield* org.listMembers(organisation.id);
       expect(members).toHaveLength(2);
-      const handles = members.map((m) => m.user.handle).toSorted();
+      const handles = members.map((m) => m.profile.handle).toSorted();
       expect(handles).toEqual(["alice", "bob"]);
-      const aliceMember = members.find((m) => m.user.handle === "alice");
+      const aliceMember = members.find((m) => m.profile.handle === "alice");
       expect(aliceMember?.role).toBe("admin");
-      const bobMember = members.find((m) => m.user.handle === "bob");
+      const bobMember = members.find((m) => m.profile.handle === "bob");
       expect(bobMember?.role).toBe("member");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -436,7 +436,7 @@ describe("getMemberRole", () => {
   it.effect("returns null for non-members", () =>
     Effect.gen(function* () {
       const { organisation } = yield* setupOrgWithOwner;
-      const bob = yield* registerUser("bob@example.com", "bob");
+      const bob = yield* registerProfile("bob@example.com", "bob");
       const role = yield* org.getMemberRole(organisation.id, bob.id);
       expect(role).toBeNull();
     }).pipe(Effect.provide(createTestLayer())),
@@ -456,7 +456,7 @@ describe("multi-org membership", () => {
       yield* org.addMember(org1.id, alice.id, bob.id, "member");
       yield* org.addMember(org2.id, alice.id, bob.id, "admin");
 
-      const bobOrgs = yield* org.listUserOrganisations(bob.id);
+      const bobOrgs = yield* org.listProfileOrganisations(bob.id);
       expect(bobOrgs).toHaveLength(2);
 
       const role1 = yield* org.getMemberRole(org1.id, bob.id);

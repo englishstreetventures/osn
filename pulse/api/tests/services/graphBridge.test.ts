@@ -5,7 +5,7 @@ import {
   getCloseFriendIds,
   getCloseFriendsOf,
   getConnectionIds,
-  getUserDisplays,
+  getProfileDisplays,
   type OsnDb,
 } from "../../src/services/graphBridge";
 import {
@@ -101,19 +101,19 @@ it.effect("getCloseFriendIds returns the user's close-friend ids (directional)",
   ),
 );
 
-// ── getUserDisplays ──────────────────────────────────────────────────────────
+// ── getProfileDisplays ──────────────────────────────────────────────────────────
 
-it.effect("getUserDisplays short-circuits on empty input", () =>
+it.effect("getProfileDisplays short-circuits on empty input", () =>
   withOsn((_osn) =>
     Effect.gen(function* () {
-      const map = yield* getUserDisplays([]);
+      const map = yield* getProfileDisplays([]);
       expect(map).toBeInstanceOf(Map);
       expect(map.size).toBe(0);
     }),
   ),
 );
 
-it.effect("getUserDisplays returns a Map keyed by user id", () =>
+it.effect("getProfileDisplays returns a Map keyed by user id", () =>
   withOsn((osn) =>
     Effect.gen(function* () {
       yield* Effect.promise(() =>
@@ -122,7 +122,7 @@ it.effect("getUserDisplays returns a Map keyed by user id", () =>
       yield* Effect.promise(() =>
         seedOsnUser(osn, { id: "usr_bob", handle: "bob", displayName: "Bob Smith" }),
       );
-      const map = yield* getUserDisplays(["usr_alice", "usr_bob"]);
+      const map = yield* getProfileDisplays(["usr_alice", "usr_bob"]);
       expect(map.size).toBe(2);
       expect(map.get("usr_alice")?.displayName).toBe("Alice");
       expect(map.get("usr_bob")?.displayName).toBe("Bob Smith");
@@ -131,13 +131,13 @@ it.effect("getUserDisplays returns a Map keyed by user id", () =>
   ),
 );
 
-it.effect("getUserDisplays omits ids that don't exist in the users table", () =>
+it.effect("getProfileDisplays omits ids that don't exist in the users table", () =>
   withOsn((osn) =>
     Effect.gen(function* () {
       yield* Effect.promise(() =>
         seedOsnUser(osn, { id: "usr_alice", handle: "alice", displayName: "Alice" }),
       );
-      const map = yield* getUserDisplays(["usr_alice", "usr_ghost"]);
+      const map = yield* getProfileDisplays(["usr_alice", "usr_ghost"]);
       // Ghost user is silently dropped — caller decides how to render the gap.
       expect(map.size).toBe(1);
       expect(map.has("usr_alice")).toBe(true);

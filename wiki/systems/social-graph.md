@@ -17,7 +17,7 @@ related:
 packages:
   - "@osn/core"
   - "@osn/db"
-last-reviewed: 2026-04-12
+last-reviewed: 2026-04-13
 ---
 
 # Social Graph
@@ -61,7 +61,7 @@ osn/db/src/schema.ts               # connections, close_friends, blocks tables
 The graph service exports functions like:
 - `sendConnectionRequest`, `acceptConnection`, `declineConnection`, `cancelConnection`, `removeConnection`
 - `addCloseFriend`, `removeCloseFriend`, `isCloseFriendOf`, `getCloseFriendsOfBatch`
-- `blockUser`, `unblockUser`, `isBlocked`, `eitherBlocked`
+- `blockProfile`, `unblockProfile`, `isBlocked`, `eitherBlocked`
 - `getConnections`, `getPendingRequests`, `getBlocks`
 
 ## Test Coverage
@@ -99,9 +99,9 @@ The `:handle` route parameter uses TypeBox `HandleParam` with regex + length bou
 
 - N+1 queries in graph list functions replaced with `inArray` batch fetches (P-W6)
 - `eitherBlocked` collapsed from two sequential `isBlocked` calls to a single OR query (P-W7)
-- `blockUser` replaced SELECT-then-DELETE with direct `DELETE WHERE OR` (P-W8)
+- `blockProfile` replaced SELECT-then-DELETE with direct `DELETE WHERE OR` (P-W8)
 - Missing index on `close_friends.friend_id` added as `close_friends_friend_idx` (P-W16)
-- `removeConnection` and `blockUser` wrapped in DB transactions (P-W17)
+- `removeConnection` and `blockProfile` wrapped in DB transactions (P-W17)
 
 ## Source Files
 

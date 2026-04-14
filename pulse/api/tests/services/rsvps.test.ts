@@ -502,8 +502,8 @@ it.effect("listRsvps joins user display metadata onto rows", () =>
     const rows = yield* listRsvps(event.id, "usr_alice", { status: "going" }).pipe(
       Effect.provide(layer),
     );
-    expect(rows[0]!.user?.displayName).toBe("Bob Smith");
-    expect(rows[0]!.user?.handle).toBe("bob");
+    expect(rows[0]!.profile?.displayName).toBe("Bob Smith");
+    expect(rows[0]!.profile?.handle).toBe("bob");
   }),
 );
 

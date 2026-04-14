@@ -18,8 +18,8 @@ const graph = createGraphService();
 
 /** Register two users and return their IDs. */
 const setupTwoUsers = Effect.gen(function* () {
-  const alice = yield* auth.registerUser("alice@example.com", "alice", "Alice");
-  const bob = yield* auth.registerUser("bob@example.com", "bob", "Bob");
+  const alice = yield* auth.registerProfile("alice@example.com", "alice", "Alice");
+  const bob = yield* auth.registerProfile("bob@example.com", "bob", "Bob");
   return { alice, bob };
 });
 
@@ -56,7 +56,7 @@ describe("sendConnectionRequest", () => {
 
   it.effect("fails when connecting to yourself", () =>
     Effect.gen(function* () {
-      const alice = yield* auth.registerUser("alice@example.com", "alice");
+      const alice = yield* auth.registerProfile("alice@example.com", "alice");
       const error = yield* Effect.flip(graph.sendConnectionRequest(alice.id, alice.id));
       expect(error._tag).toBe("GraphError");
       expect(error.message).toContain("yourself");
@@ -76,7 +76,7 @@ describe("sendConnectionRequest", () => {
   it.effect("fails when blocked by target", () =>
     Effect.gen(function* () {
       const { alice, bob } = yield* setupTwoUsers;
-      yield* graph.blockUser(bob.id, alice.id);
+      yield* graph.blockProfile(bob.id, alice.id);
       const error = yield* Effect.flip(graph.sendConnectionRequest(alice.id, bob.id));
       expect(error._tag).toBe("GraphError");
       expect(error.message).toContain("Cannot send");
@@ -86,7 +86,7 @@ describe("sendConnectionRequest", () => {
   it.effect("fails when requester has blocked target", () =>
     Effect.gen(function* () {
       const { alice, bob } = yield* setupTwoUsers;
-      yield* graph.blockUser(alice.id, bob.id);
+      yield* graph.blockProfile(alice.id, bob.id);
       const error = yield* Effect.flip(graph.sendConnectionRequest(alice.id, bob.id));
       expect(error._tag).toBe("GraphError");
     }).pipe(Effect.provide(createTestLayer())),
@@ -165,12 +165,12 @@ describe("listConnections", () => {
   it.effect("returns all connected peers", () =>
     Effect.gen(function* () {
       const { alice, bob } = yield* setupConnected;
-      const carol = yield* auth.registerUser("carol@example.com", "carol");
+      const carol = yield* auth.registerProfile("carol@example.com", "carol");
       yield* graph.sendConnectionRequest(alice.id, carol.id);
       yield* graph.acceptConnection(carol.id, alice.id);
 
       const list = yield* graph.listConnections(alice.id);
-      const handles = list.map((c) => c.user.handle).toSorted();
+      const handles = list.map((c) => c.profile.handle).toSorted();
       expect(handles).toEqual(["bob", "carol"]);
       void bob;
     }).pipe(Effect.provide(createTestLayer())),
@@ -178,7 +178,7 @@ describe("listConnections", () => {
 
   it.effect("returns empty when no connections", () =>
     Effect.gen(function* () {
-      const alice = yield* auth.registerUser("alice@example.com", "alice");
+      const alice = yield* auth.registerProfile("alice@example.com", "alice");
       const list = yield* graph.listConnections(alice.id);
       expect(list).toHaveLength(0);
     }).pipe(Effect.provide(createTestLayer())),
@@ -192,7 +192,7 @@ describe("listPendingRequests", () => {
       yield* graph.sendConnectionRequest(alice.id, bob.id);
       const list = yield* graph.listPendingRequests(bob.id);
       expect(list).toHaveLength(1);
-      expect(list[0].user.handle).toBe("alice");
+      expect(list[0].profile.handle).toBe("alice");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -232,7 +232,7 @@ describe("addCloseFriend", () => {
 
   it.effect("fails when adding yourself", () =>
     Effect.gen(function* () {
-      const alice = yield* auth.registerUser("alice@example.com", "alice");
+      const alice = yield* auth.registerProfile("alice@example.com", "alice");
       const error = yield* Effect.flip(graph.addCloseFriend(alice.id, alice.id));
       expect(error._tag).toBe("GraphError");
     }).pipe(Effect.provide(createTestLayer())),
@@ -318,7 +318,7 @@ describe("getCloseFriendsOfBatch", () => {
 
   it.effect("returns empty set for empty input", () =>
     Effect.gen(function* () {
-      const alice = yield* auth.registerUser("alice@example.com", "alice");
+      const alice = yield* auth.registerProfile("alice@example.com", "alice");
       const result = yield* graph.getCloseFriendsOfBatch(alice.id, []);
       expect(result.size).toBe(0);
     }).pipe(Effect.provide(createTestLayer())),
@@ -327,7 +327,7 @@ describe("getCloseFriendsOfBatch", () => {
   it.effect("returns multiple matches when several users marked viewer", () =>
     Effect.gen(function* () {
       const { alice, bob } = yield* setupConnected;
-      const carol = yield* auth.registerUser("carol@example.com", "carol");
+      const carol = yield* auth.registerProfile("carol@example.com", "carol");
       yield* graph.sendConnectionRequest(alice.id, carol.id);
       yield* graph.acceptConnection(carol.id, alice.id);
 
@@ -364,11 +364,11 @@ describe("removeConnection cleans up close friends", () => {
 // Blocks
 // ---------------------------------------------------------------------------
 
-describe("blockUser", () => {
+describe("blockProfile", () => {
   it.effect("adds a block", () =>
     Effect.gen(function* () {
       const { alice, bob } = yield* setupTwoUsers;
-      yield* graph.blockUser(alice.id, bob.id);
+      yield* graph.blockProfile(alice.id, bob.id);
       const list = yield* graph.listBlocks(alice.id);
       expect(list).toHaveLength(1);
       expect(list[0].handle).toBe("bob");
@@ -378,7 +378,7 @@ describe("blockUser", () => {
   it.effect("removes existing connection when blocking", () =>
     Effect.gen(function* () {
       const { alice, bob } = yield* setupConnected;
-      yield* graph.blockUser(alice.id, bob.id);
+      yield* graph.blockProfile(alice.id, bob.id);
       const status = yield* graph.getConnectionStatus(alice.id, bob.id);
       expect(status).toBe("none");
     }).pipe(Effect.provide(createTestLayer())),
@@ -388,7 +388,7 @@ describe("blockUser", () => {
     Effect.gen(function* () {
       const { alice, bob } = yield* setupConnected;
       yield* graph.addCloseFriend(alice.id, bob.id);
-      yield* graph.blockUser(alice.id, bob.id);
+      yield* graph.blockProfile(alice.id, bob.id);
       const list = yield* graph.listCloseFriends(alice.id);
       expect(list).toHaveLength(0);
     }).pipe(Effect.provide(createTestLayer())),
@@ -400,7 +400,7 @@ describe("blockUser", () => {
       // Bob has alice as a close friend
       yield* graph.addCloseFriend(bob.id, alice.id);
       // Alice blocks bob — should clear bob's list too
-      yield* graph.blockUser(alice.id, bob.id);
+      yield* graph.blockProfile(alice.id, bob.id);
       const list = yield* graph.listCloseFriends(bob.id);
       expect(list).toHaveLength(0);
     }).pipe(Effect.provide(createTestLayer())),
@@ -409,7 +409,7 @@ describe("blockUser", () => {
   it.effect("eitherBlocked is true when either party blocks", () =>
     Effect.gen(function* () {
       const { alice, bob } = yield* setupTwoUsers;
-      yield* graph.blockUser(bob.id, alice.id); // bob blocks alice
+      yield* graph.blockProfile(bob.id, alice.id); // bob blocks alice
       const either = yield* graph.eitherBlocked(alice.id, bob.id);
       expect(either).toBe(true);
     }).pipe(Effect.provide(createTestLayer())),
@@ -417,8 +417,8 @@ describe("blockUser", () => {
 
   it.effect("fails when blocking yourself", () =>
     Effect.gen(function* () {
-      const alice = yield* auth.registerUser("alice@example.com", "alice");
-      const error = yield* Effect.flip(graph.blockUser(alice.id, alice.id));
+      const alice = yield* auth.registerProfile("alice@example.com", "alice");
+      const error = yield* Effect.flip(graph.blockProfile(alice.id, alice.id));
       expect(error._tag).toBe("GraphError");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -426,19 +426,19 @@ describe("blockUser", () => {
   it.effect("isBlocked returns true after blocking", () =>
     Effect.gen(function* () {
       const { alice, bob } = yield* setupTwoUsers;
-      yield* graph.blockUser(alice.id, bob.id);
+      yield* graph.blockProfile(alice.id, bob.id);
       const blocked = yield* graph.isBlocked(alice.id, bob.id);
       expect(blocked).toBe(true);
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
 
-describe("unblockUser", () => {
+describe("unblockProfile", () => {
   it.effect("removes the block", () =>
     Effect.gen(function* () {
       const { alice, bob } = yield* setupTwoUsers;
-      yield* graph.blockUser(alice.id, bob.id);
-      yield* graph.unblockUser(alice.id, bob.id);
+      yield* graph.blockProfile(alice.id, bob.id);
+      yield* graph.unblockProfile(alice.id, bob.id);
       const blocked = yield* graph.isBlocked(alice.id, bob.id);
       expect(blocked).toBe(false);
     }).pipe(Effect.provide(createTestLayer())),
@@ -447,7 +447,7 @@ describe("unblockUser", () => {
   it.effect("fails if not blocked", () =>
     Effect.gen(function* () {
       const { alice, bob } = yield* setupTwoUsers;
-      const error = yield* Effect.flip(graph.unblockUser(alice.id, bob.id));
+      const error = yield* Effect.flip(graph.unblockProfile(alice.id, bob.id));
       expect(error._tag).toBe("NotFoundError");
     }).pipe(Effect.provide(createTestLayer())),
   );

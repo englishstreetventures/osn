@@ -82,7 +82,10 @@ export function createGraphService() {
    * Returns true if either party has blocked the other.
    * Single query via OR — O(1) round-trips regardless of direction.
    */
-  const eitherBlocked = (userA: string, userB: string): Effect.Effect<boolean, DatabaseError, Db> =>
+  const eitherBlocked = (
+    profileA: string,
+    profileB: string,
+  ): Effect.Effect<boolean, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const result = yield* Effect.tryPromise({
@@ -92,8 +95,8 @@ export function createGraphService() {
             .from(blocks)
             .where(
               or(
-                and(eq(blocks.blockerId, userA), eq(blocks.blockedId, userB)),
-                and(eq(blocks.blockerId, userB), eq(blocks.blockedId, userA)),
+                and(eq(blocks.blockerId, profileA), eq(blocks.blockedId, profileB)),
+                and(eq(blocks.blockerId, profileB), eq(blocks.blockedId, profileA)),
               ),
             )
             .limit(1),
@@ -299,7 +302,11 @@ export function createGraphService() {
   const listConnections = (
     profileId: string,
     options: ListOptions = {},
-  ): Effect.Effect<{ user: typeof users.$inferSelect; connectedAt: Date }[], DatabaseError, Db> =>
+  ): Effect.Effect<
+    { profile: typeof users.$inferSelect; connectedAt: Date }[],
+    DatabaseError,
+    Db
+  > =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const limit = clampLimit(options.limit);
@@ -335,13 +342,17 @@ export function createGraphService() {
         catch: (cause) => new DatabaseError({ cause }),
       });
 
-      return peers.map((u) => ({ user: u, connectedAt: updatedAtMap.get(u.id) ?? new Date() }));
+      return peers.map((u) => ({ profile: u, connectedAt: updatedAtMap.get(u.id) ?? new Date() }));
     });
 
   const listPendingRequests = (
     profileId: string,
     options: ListOptions = {},
-  ): Effect.Effect<{ user: typeof users.$inferSelect; requestedAt: Date }[], DatabaseError, Db> =>
+  ): Effect.Effect<
+    { profile: typeof users.$inferSelect; requestedAt: Date }[],
+    DatabaseError,
+    Db
+  > =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const limit = clampLimit(options.limit);
@@ -369,7 +380,7 @@ export function createGraphService() {
       });
 
       return requesters.map((u) => ({
-        user: u,
+        profile: u,
         requestedAt: requestedAtMap.get(u.id) ?? new Date(),
       }));
     });
@@ -516,7 +527,7 @@ export function createGraphService() {
   // Blocks
   // -------------------------------------------------------------------------
 
-  const blockUser = (
+  const blockProfile = (
     blockerId: string,
     blockedId: string,
   ): Effect.Effect<void, GraphError | DatabaseError, Db> =>
@@ -562,7 +573,7 @@ export function createGraphService() {
       });
     }).pipe(withGraphBlockOp("add"));
 
-  const unblockUser = (
+  const unblockProfile = (
     blockerId: string,
     blockedId: string,
   ): Effect.Effect<void, NotFoundError | DatabaseError, Db> =>
@@ -635,8 +646,8 @@ export function createGraphService() {
     listCloseFriends,
     isCloseFriendOf,
     getCloseFriendsOfBatch,
-    blockUser,
-    unblockUser,
+    blockProfile,
+    unblockProfile,
     listBlocks,
   };
 }

@@ -272,9 +272,11 @@ export function createAuthRoutes(
         "/register",
         async ({ body, set }) => {
           try {
-            const user = await run(auth.registerUser(body.email, body.handle, body.displayName));
+            const profile = await run(
+              auth.registerProfile(body.email, body.handle, body.displayName),
+            );
             set.status = 201;
-            return { profileId: user.id, handle: user.handle, email: user.email };
+            return { profileId: profile.id, handle: profile.handle, email: profile.email };
           } catch (e) {
             set.status = 400;
             return { error: String(e) };
@@ -289,7 +291,7 @@ export function createAuthRoutes(
         },
       )
       // -------------------------------------------------------------------------
-      // Email-verified registration: begin (sends OTP, does not create user)
+      // Email-verified registration: begin (sends OTP, does not create profile)
       //
       // Always returns `{ sent: true }` (or a public error code on validation
       // failure) regardless of whether the email/handle is already taken —
@@ -320,7 +322,7 @@ export function createAuthRoutes(
         },
       )
       // -------------------------------------------------------------------------
-      // Email-verified registration: complete (verifies OTP, creates user)
+      // Email-verified registration: complete (verifies OTP, creates account + profile)
       //
       // Returns access + refresh tokens directly (no `/token` round-trip) plus
       // a single-use enrollment_token the client uses to authenticate the
@@ -769,7 +771,7 @@ export function createAuthRoutes(
       // =========================================================================
       // First-party direct-session login endpoints
       //
-      // These mirror the /register/* flow: they return a Session + PublicUser
+      // These mirror the /register/* flow: they return a Session + PublicProfile
       // directly, skipping the PKCE authorization-code round-trip. The hosted
       // HTML flow at /authorize continues to use the code-returning variants
       // above for third-party OAuth clients.
