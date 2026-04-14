@@ -63,10 +63,12 @@ describe("AuthProvider.adoptSession", () => {
     });
 
     // And the session must have been written through to localStorage so a
-    // page reload would still see it.
-    const stored = localStorage.getItem("@osn/client:session");
+    // page reload would still see it. P4 stores under the account_session key.
+    const stored = localStorage.getItem("@osn/client:account_session");
     expect(stored).not.toBeNull();
-    expect(JSON.parse(stored!).accessToken).toBe("acc_adopt");
+    const account = JSON.parse(stored!);
+    const activeToken = account.profileTokens[account.activeProfileId];
+    expect(activeToken.accessToken).toBe("acc_adopt");
   });
 
   it("overwrites a previously adopted session", async () => {

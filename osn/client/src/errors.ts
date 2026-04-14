@@ -20,3 +20,7 @@ export class StateMismatchError extends Data.TaggedError("StateMismatchError")<{
   readonly expected: string;
   readonly received: string;
 }> {}
+
+export class ProfileManagementError extends Data.TaggedError("ProfileManagementError")<{
+  readonly cause: unknown;
+}> {}

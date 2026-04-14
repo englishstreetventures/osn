@@ -1,18 +1,23 @@
 import { Effect, Layer } from "effect";
 import {
   createContext,
+  createEffect,
   createResource,
+  createSignal,
   useContext,
+  type Accessor,
   type ParentProps,
   type Resource,
 } from "solid-js";
 
 import { OsnAuth, createOsnAuthLive, type OsnAuthConfig } from "../service";
 import { StorageLive } from "../storage";
-import type { Session } from "../tokens";
+import type { PublicProfile, Session } from "../tokens";
 
 interface AuthContextValue {
   session: Resource<Session | null>;
+  profiles: Resource<PublicProfile[] | null>;
+  activeProfileId: Accessor<string | null>;
   login: (redirectUri: string, scopes?: string[]) => void;
   logout: () => Promise<void>;
   handleCallback: (params: { code: string; state: string; redirectUri: string }) => Promise<void>;
@@ -21,6 +26,9 @@ interface AuthContextValue {
    * out-of-band source) and refetches the session resource so the UI updates.
    */
   adoptSession: (session: Session) => Promise<void>;
+  switchProfile: (profileId: string) => Promise<{ session: Session; profile: PublicProfile }>;
+  createProfile: (handle: string, displayName?: string) => Promise<PublicProfile>;
+  deleteProfile: (profileId: string) => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue>();
@@ -37,9 +45,38 @@ export function AuthProvider(props: AuthProviderProps) {
       Effect.provide(eff, layer).pipe(Effect.orDie) as Effect.Effect<A, never, never>,
     );
 
-  const [session, { refetch }] = createResource<Session | null>(() =>
+  const [session, { refetch: refetchSession }] = createResource<Session | null>(() =>
     run(Effect.flatMap(OsnAuth, (auth) => auth.getSession())),
   );
+
+  // P-W2: Gate profiles on session — only fetch when a session exists.
+  // SolidJS createResource with a source signal only fires the fetcher when
+  // the source is truthy, preventing wasted requests for unauthenticated users.
+  const [profiles, { mutate: mutateProfiles, refetch: refetchProfiles }] = createResource<
+    PublicProfile[] | null,
+    Session | null
+  >(
+    () => session() ?? null,
+    (sess) => {
+      if (!sess) return Promise.resolve(null);
+      return run(Effect.flatMap(OsnAuth, (auth) => auth.listProfiles()));
+    },
+  );
+
+  const [activeProfileId, setActiveProfileId] = createSignal<string | null>(null);
+
+  // S-L2: Derive activeProfileId reactively from session state instead of
+  // a fire-and-forget initialisation call.
+  createEffect(() => {
+    const sess = session();
+    if (sess) {
+      run(Effect.flatMap(OsnAuth, (auth) => auth.getActiveProfile())).then(setActiveProfileId, () =>
+        setActiveProfileId(null),
+      );
+    } else if (sess === null) {
+      setActiveProfileId(null);
+    }
+  });
 
   const login = (redirectUri: string, scopes?: string[]) => {
     run(
@@ -55,21 +92,60 @@ export function AuthProvider(props: AuthProviderProps) {
 
   const logout = async () => {
     await run(Effect.flatMap(OsnAuth, (auth) => auth.logout()));
-    refetch();
+    await refetchSession();
+    mutateProfiles(null);
+    setActiveProfileId(null);
   };
 
+  // P-I2: Await refetches for consistent state before returning
   const handleCallback = async (params: { code: string; state: string; redirectUri: string }) => {
     await run(Effect.flatMap(OsnAuth, (auth) => auth.handleCallback(params)));
-    refetch();
+    await refetchSession();
+    await refetchProfiles();
   };
 
   const adoptSession = async (next: Session) => {
     await run(Effect.flatMap(OsnAuth, (auth) => auth.setSession(next)));
-    refetch();
+    await refetchSession();
+    await refetchProfiles();
+  };
+
+  const switchProfile = async (profileId: string) => {
+    const result = await run(Effect.flatMap(OsnAuth, (auth) => auth.switchProfile(profileId)));
+    await refetchSession();
+    setActiveProfileId(result.profile.id);
+    return result;
+  };
+
+  const createProfile = async (handle: string, displayName?: string) => {
+    const profile = await run(
+      Effect.flatMap(OsnAuth, (auth) => auth.createProfile(handle, displayName)),
+    );
+    await refetchProfiles();
+    return profile;
+  };
+
+  const deleteProfile = async (profileId: string) => {
+    await run(Effect.flatMap(OsnAuth, (auth) => auth.deleteProfile(profileId)));
+    await refetchSession();
+    await refetchProfiles();
   };
 
   return (
-    <AuthContext.Provider value={{ session, login, logout, handleCallback, adoptSession }}>
+    <AuthContext.Provider
+      value={{
+        session,
+        profiles,
+        activeProfileId,
+        login,
+        logout,
+        handleCallback,
+        adoptSession,
+        switchProfile,
+        createProfile,
+        deleteProfile,
+      }}
+    >
       {props.children}
     </AuthContext.Provider>
   );

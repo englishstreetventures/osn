@@ -9,7 +9,9 @@ related:
 packages:
   - "@osn/db"
   - "@osn/core"
+  - "@osn/client"
 last-reviewed: 2026-04-14
+p4-completed: 2026-04-14
 p2-completed: 2026-04-14
 p3-completed: 2026-04-14
 ---
@@ -126,6 +128,33 @@ Two profile management endpoints:
 - `POST /profiles/switch` — present the account-scoped refresh token + target `profileId` in the request body; receive a new access token for that profile. Per-account rate limited (20 switches/hr).
 - `POST /profiles/list` — present the refresh token in the request body; receive all profiles for the account. Refresh tokens are never sent via `Authorization` headers to avoid conflation with access tokens.
 
+## Client Storage Model (P4)
+
+`@osn/client` stores the multi-profile session under a single `localStorage` key:
+
+| Key | Shape | Purpose |
+|-----|-------|---------|
+| `@osn/client:account_session` | `AccountSession` JSON | Refresh token, active profile ID, per-profile access tokens, scopes, ID token |
+
+The `AccountSession` structure:
+
+```typescript
+interface AccountSession {
+  refreshToken: string;           // Account-scoped (shared across profiles)
+  activeProfileId: string;        // Currently active profile
+  profileTokens: Record<string, ProfileToken>;  // Per-profile access tokens
+  scopes: string[];
+  idToken: string | null;
+}
+```
+
+**Design decisions:**
+- Single-key storage (not multi-key) avoids the need for `keys()` enumeration on logout and simplifies atomic writes.
+- Expired profile tokens are pruned on every `saveAccountSession` call (except the active profile's token, which is kept for identity tracking).
+- An in-memory cache avoids redundant `localStorage.getItem` + `JSON.parse` round-trips within the same service instance.
+- All storage reads are validated against Effect Schema (`decodeAccountSession`) — malformed data is discarded rather than consumed.
+- Legacy sessions (pre-P4, stored under `@osn/client:session`) are migrated transparently on the first `getSession()` call.
+
 ## Registration Flow
 
 ```
@@ -162,6 +191,6 @@ POST /register/complete → OTP →
 | P1: Schema + terminology | ✅ Done | `accounts` table, `userId` → `profileId`, seed data, email dedup, service/route/test rename from "user" → "profile" terminology |
 | P2: Auth refactor | ✅ Done | Two-tier tokens (refresh=account, access=profile), `POST /profiles/switch`, `POST /profiles/list`, `verifyRefreshToken`, `findDefaultProfile`, scope claim validation, per-account rate limiting |
 | P3: Profile CRUD | ✅ Done | `createProfile` (maxProfiles enforcement, S-L1), `deleteProfile` (cascade delete graph+org data), `setDefaultProfile`, three REST routes, `withProfileCrud` observability wrapper, S-L2 resolved |
-| P4: Client SDK | Planned | Multi-session storage, profile switcher methods |
+| P4: Client SDK | ✅ Done | Multi-session `AccountSession` storage in `@osn/client`, `listProfiles` / `switchProfile` / `createProfile` / `deleteProfile` / `getActiveProfile` methods, SolidJS `AuthContext` integration (`profiles` resource, `activeProfileId` signal), legacy session migration, Effect Schema validation on storage reads + API responses, Base64URL JWT parsing, expired token pruning |
 | P5: UI | Planned | Profile switcher component |
 | P6: Privacy audit | Planned | Verify accountId never leaks, pen-test correlation attacks |
