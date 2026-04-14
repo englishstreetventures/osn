@@ -2,29 +2,24 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { clsx } from "clsx";
 import { splitProps, type Component, type ComponentProps } from "solid-js";
 
-import { bx } from "../../lib/utils";
-
 const buttonVariants = cva(
-  bx(
-    "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
-  ),
+  "base:inline-flex base:cursor-pointer base:items-center base:justify-center base:gap-2 base:whitespace-nowrap base:rounded-md base:text-sm base:font-medium base:transition-colors base:focus-visible:outline-none base:focus-visible:ring-2 base:focus-visible:ring-ring base:disabled:pointer-events-none base:disabled:opacity-50",
   {
     variants: {
       variant: {
-        default: bx("bg-primary text-primary-foreground hover:bg-primary/90"),
-        destructive: bx("bg-destructive text-white hover:bg-destructive/90"),
-        outline: bx(
-          "border border-input bg-background hover:bg-secondary hover:text-secondary-foreground",
-        ),
-        secondary: bx("bg-secondary text-secondary-foreground hover:bg-secondary/80"),
-        ghost: bx("hover:bg-secondary hover:text-secondary-foreground"),
-        link: bx("text-primary underline-offset-4 hover:underline"),
+        default: "base:bg-primary base:text-primary-foreground base:hover:bg-primary/90",
+        destructive: "base:bg-destructive base:text-white base:hover:bg-destructive/90",
+        outline:
+          "base:border base:border-input base:bg-background base:hover:bg-secondary base:hover:text-secondary-foreground",
+        secondary: "base:bg-secondary base:text-secondary-foreground base:hover:bg-secondary/80",
+        ghost: "base:hover:bg-secondary base:hover:text-secondary-foreground",
+        link: "base:text-primary base:underline-offset-4 base:hover:underline",
       },
       size: {
-        default: bx("h-9 px-4 py-2"),
-        sm: bx("h-8 rounded-md px-3 text-xs"),
-        lg: bx("h-10 rounded-md px-8"),
-        icon: bx("h-9 w-9"),
+        default: "base:h-9 base:px-4 base:py-2",
+        sm: "base:h-8 base:rounded-md base:px-3 base:text-xs",
+        lg: "base:h-10 base:rounded-md base:px-8",
+        icon: "base:h-9 base:w-9",
       },
     },
     defaultVariants: {

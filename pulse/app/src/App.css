@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "../../../osn/ui/src";
 
 @custom-variant base (:where(&));
 

@@ -2,8 +2,6 @@ import { Popover as KobaltePopover } from "@kobalte/core/popover";
 import { clsx } from "clsx";
 import { splitProps, type ComponentProps, type ParentComponent } from "solid-js";
 
-import { bx } from "../../lib/utils";
-
 const Popover = KobaltePopover;
 const PopoverTrigger = KobaltePopover.Trigger;
 const PopoverAnchor = KobaltePopover.Anchor;
@@ -17,12 +15,8 @@ const PopoverContent: ParentComponent<
     <KobaltePopover.Portal>
       <KobaltePopover.Content
         class={clsx(
-          bx(
-            "bg-popover text-popover-foreground border-border z-50 w-60 rounded-md border p-2 text-xs shadow-md outline-none",
-          ),
-          bx(
-            "data-[expanded]:animate-in data-[closed]:animate-out data-[closed]:fade-out-0 data-[expanded]:fade-in-0 data-[closed]:zoom-out-95 data-[expanded]:zoom-in-95",
-          ),
+          "base:bg-popover base:text-popover-foreground base:border-border base:z-50 base:w-60 base:rounded-md base:border base:p-2 base:text-xs base:shadow-md base:outline-none",
+          "base:data-[expanded]:animate-in base:data-[closed]:animate-out base:data-[closed]:fade-out-0 base:data-[expanded]:fade-in-0 base:data-[closed]:zoom-out-95 base:data-[expanded]:zoom-in-95",
           local.class,
         )}
         onOpenAutoFocus={local.onOpenAutoFocus}

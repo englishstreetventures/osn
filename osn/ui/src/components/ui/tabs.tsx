@@ -2,13 +2,11 @@ import { Tabs as KobalteTabs } from "@kobalte/core/tabs";
 import { clsx } from "clsx";
 import { splitProps, type Component, type JSX } from "solid-js";
 
-import { bx } from "../../lib/utils";
-
 const Tabs = KobalteTabs;
 
 const TabsList: Component<{ class?: string; children?: JSX.Element }> = (props) => {
   const [local, others] = splitProps(props, ["class"]);
-  return <KobalteTabs.List class={clsx(bx("flex gap-1"), local.class)} {...others} />;
+  return <KobalteTabs.List class={clsx("base:flex base:gap-1", local.class)} {...others} />;
 };
 
 const TabsTrigger: Component<{
@@ -22,9 +20,9 @@ const TabsTrigger: Component<{
     <KobalteTabs.Trigger
       value={local.value}
       class={clsx(
-        bx("rounded-md px-3 py-1.5 text-sm font-medium transition-colors"),
-        bx("text-muted-foreground hover:bg-muted"),
-        bx("data-[selected]:bg-primary data-[selected]:text-primary-foreground"),
+        "base:rounded-md base:px-3 base:py-1.5 base:text-sm base:font-medium base:transition-colors",
+        "base:text-muted-foreground base:hover:bg-muted",
+        "base:data-[selected]:bg-primary base:data-[selected]:text-primary-foreground",
         local.class,
       )}
       {...others}
@@ -39,7 +37,7 @@ const TabsContent: Component<{ value: string; class?: string; children?: JSX.Ele
   return (
     <KobalteTabs.Content
       value={local.value}
-      class={clsx(bx("mt-2 focus-visible:outline-none"), local.class)}
+      class={clsx("base:mt-2 base:focus-visible:outline-none", local.class)}
       {...others}
     />
   );

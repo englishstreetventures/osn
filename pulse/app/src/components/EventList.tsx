@@ -3,6 +3,7 @@ import { ProfileSwitcher } from "@osn/ui/auth/ProfileSwitcher";
 import { Register } from "@osn/ui/auth/Register";
 import { SignIn } from "@osn/ui/auth/SignIn";
 import { Button, buttonVariants } from "@osn/ui/ui/button";
+import { Dialog, DialogContent } from "@osn/ui/ui/dialog";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-toast";
@@ -77,10 +78,23 @@ export function EventList() {
         <h1 class="text-foreground text-3xl font-bold">Pulse</h1>
         <div class="flex gap-2">
           <Show when={!session()}>
-            <Button size="sm" onClick={() => setShowRegister(true)}>
+            <Button
+              size="sm"
+              onClick={() => {
+                setShowSignIn(false);
+                setShowRegister(true);
+              }}
+            >
               Create account
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => setShowSignIn(true)}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setShowRegister(false);
+                setShowSignIn(true);
+              }}
+            >
               Sign in
             </Button>
           </Show>
@@ -101,16 +115,20 @@ export function EventList() {
           </Show>
         </div>
       </div>
-      <Show when={showRegister() && !session()}>
-        <Register client={registrationClient} onCancel={() => setShowRegister(false)} />
-      </Show>
-      <Show when={showSignIn() && !session()}>
-        <SignIn
-          client={loginClient}
-          onCancel={() => setShowSignIn(false)}
-          onSuccess={() => setShowSignIn(false)}
-        />
-      </Show>
+      <Dialog open={showRegister() && !session()} onOpenChange={setShowRegister}>
+        <DialogContent class="max-w-sm p-0">
+          <Register client={registrationClient} onCancel={() => setShowRegister(false)} />
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showSignIn() && !session()} onOpenChange={setShowSignIn}>
+        <DialogContent class="max-w-sm p-0">
+          <SignIn
+            client={loginClient}
+            onCancel={() => setShowSignIn(false)}
+            onSuccess={() => setShowSignIn(false)}
+          />
+        </DialogContent>
+      </Dialog>
       <Show when={showForm()}>
         <CreateEventForm
           accessToken={accessToken()}

@@ -20,7 +20,7 @@ related:
 packages:
   - "@osn/ui"
   - "@pulse/app"
-last-reviewed: 2026-04-14
+last-reviewed: 2026-04-15
 ---
 
 # Component Library (Zaidan)
@@ -85,20 +85,21 @@ These are dependencies of `@osn/ui`. Consuming apps get them transitively — no
 
 Three utilities handle class composition at different levels:
 
-### `bx()` — component defaults (zero-specificity via CSS)
+### `base:` prefix — component defaults (zero-specificity via CSS)
 
-Component files use `bx()` to prefix default styles with the `base:` custom variant. These compile to `:where()` selectors with zero CSS specificity, so any consumer class automatically wins via cascade — no runtime JS needed:
+Component files write `base:` prefixed classes directly in source strings. These compile to `:where()` selectors with zero CSS specificity, so any consumer class automatically wins via cascade — no runtime JS needed:
 
 ```typescript
-import { bx } from "@osn/ui/lib/utils";
 import { clsx } from "clsx";
 
 // In a component file:
-<div class={clsx(bx("bg-card rounded-xl border"), local.class)} />
+<div class={clsx("base:bg-card base:rounded-xl base:border", local.class)} />
 
-// bx("bg-card rounded-xl border") → "base:bg-card base:rounded-xl base:border"
+// base:bg-card compiles to :where(.base\:bg-card) { ... } — zero specificity
 // Consumer passes class="bg-card/50 rounded-md" → wins via CSS cascade
 ```
+
+> **Note:** The `base:` prefix must be written literally in source strings. Tailwind v4's scanner does static analysis and cannot resolve runtime transforms. The legacy `bx()` function is deprecated.
 
 ### `clsx()` — conditional class joining (no conflict resolution)
 
@@ -121,7 +122,7 @@ import { cn } from "@osn/ui/lib/utils";
 cn(dynamicClassesFromSignalA(), dynamicClassesFromSignalB())
 ```
 
-**Rule of thumb**: component files use `bx()` + `clsx()`. Consumer code uses `clsx()`. Use `cn()` only when you'd otherwise get broken styles from conflicting classes.
+**Rule of thumb**: component files use `base:` prefixed strings + `clsx()`. Consumer code uses `clsx()`. Use `cn()` only when you'd otherwise get broken styles from conflicting classes.
 
 ## Performance Guidelines
 
@@ -160,11 +161,23 @@ const visibleTabs = createMemo(() => tabs.filter((t) => t.show()));
 
 ### Bundle size: `tailwind-merge` and the `base:` variant
 
-Component files use `bx()` + `clsx()` for all default-vs-override class composition, which resolves conflicts via CSS cascade at zero runtime cost. `tailwind-merge` (~12-14 KB) is still bundled for the exported `cn()` function but is NOT called in the component render hot path.
+Component files write `base:` prefixed classes directly in source strings (e.g. `"base:bg-card base:rounded-xl"`) and compose with `clsx()`. The `base:` custom variant compiles to `:where()` selectors with zero specificity, so any unprefixed consumer class wins via CSS cascade — no runtime `twMerge` needed. `tailwind-merge` (~12-14 KB) is still bundled for the exported `cn()` function but is NOT called in the component render hot path.
 
 If `tailwind-merge` is tree-shaken (i.e. no consumer imports `cn()`), the bundle drops by ~14 KB. If bundle size is a concern and `cn()` is still imported somewhere, consider refactoring the consumer to use `clsx()` instead — most conditional class composition doesn't involve Tailwind conflicts.
 
-The `@custom-variant base (:where(&))` declaration in `App.css` is what makes this work. **Any new app** that uses `@osn/ui` components must include this variant declaration in its CSS.
+> **Important:** `base:` prefixes must be written directly in source strings, not generated at runtime via a function. Tailwind v4's JIT scanner does static analysis of source files — it cannot see classes produced by runtime transforms like `bx("bg-card")`. The legacy `bx()` function is deprecated and is now an identity function.
+
+**Any new app** that uses `@osn/ui` components must include two things in its CSS:
+
+1. `@source` pointing to `osn/ui/src/` (relative to the CSS file) so Tailwind scans the library's source for `base:*` class names. Without this, Tailwind v4's auto-detection ignores workspace packages in `node_modules`.
+2. `@custom-variant base (:where(&));` to define the zero-specificity variant.
+
+Example `App.css`:
+```css
+@import "tailwindcss";
+@source "../../../osn/ui/src";
+@custom-variant base (:where(&));
+```
 
 ## Component Patterns
 

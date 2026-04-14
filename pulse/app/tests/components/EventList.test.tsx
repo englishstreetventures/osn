@@ -1,4 +1,10 @@
-import { render as _baseRender, cleanup, fireEvent } from "@solidjs/testing-library";
+import {
+  render as _baseRender,
+  cleanup,
+  fireEvent,
+  screen,
+  waitFor,
+} from "@solidjs/testing-library";
 // @vitest-environment happy-dom
 import type { JSX } from "solid-js";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -58,8 +64,25 @@ vi.mock("../../src/lib/api", () => ({
   },
 }));
 
-// auth.ts references window.location.origin — happy-dom provides it, but the
-// module is imported at top level, so we just need the env to be ready.
+vi.mock("../../src/lib/authClients", () => ({
+  registrationClient: {
+    checkHandle: vi.fn(),
+    beginRegistration: vi.fn(),
+    completeRegistration: vi.fn(),
+  },
+  loginClient: {
+    otpBegin: vi.fn(),
+    otpComplete: vi.fn(),
+    passkeyBegin: vi.fn(),
+    magicBegin: vi.fn(),
+  },
+}));
+
+vi.mock("@simplewebauthn/browser", () => ({
+  browserSupportsWebAuthn: () => false,
+  startAuthentication: vi.fn(),
+  startRegistration: vi.fn(),
+}));
 
 describe("EventList — unauthenticated", () => {
   beforeEach(() => {
@@ -125,6 +148,42 @@ describe("EventList — unauthenticated", () => {
     expect(getByText("Sign in")).toBeTruthy();
     expect(queryByText("New Event")).toBeNull();
     expect(queryByText("Sign out")).toBeNull();
+  });
+
+  it("clicking 'Create account' opens register dialog", () => {
+    mockGet.mockReturnValue(new Promise(() => {}));
+    const { getByText } = render(() => <EventList />);
+    expect(screen.queryByText("Create your OSN account")).toBeNull();
+    fireEvent.click(getByText("Create account"));
+    expect(screen.getByText("Create your OSN account")).toBeTruthy();
+  });
+
+  it("clicking 'Sign in' opens sign-in dialog", () => {
+    mockGet.mockReturnValue(new Promise(() => {}));
+    const { getByText } = render(() => <EventList />);
+    expect(screen.queryByText("Sign in to OSN")).toBeNull();
+    fireEvent.click(getByText("Sign in"));
+    expect(screen.getByText("Sign in to OSN")).toBeTruthy();
+  });
+
+  it("opening one auth dialog closes the other (mutual exclusion)", async () => {
+    mockGet.mockReturnValue(new Promise(() => {}));
+    const { getByText } = render(() => <EventList />);
+
+    // Open register dialog
+    fireEvent.click(getByText("Create account"));
+    const registerDialog = screen.getByText("Create your OSN account").closest("[data-expanded]");
+    expect(registerDialog).toBeTruthy();
+
+    // Click sign in — register should close, sign in should open
+    fireEvent.click(getByText("Sign in"));
+    await waitFor(() => expect(registerDialog!.hasAttribute("data-expanded")).toBe(false));
+    const signInDialog = screen.getByText("Sign in to OSN").closest("[data-expanded]");
+    expect(signInDialog).toBeTruthy();
+
+    // Click create account again — sign in should close, register should re-open
+    fireEvent.click(getByText("Create account"));
+    await waitFor(() => expect(signInDialog!.hasAttribute("data-expanded")).toBe(false));
   });
 });
 

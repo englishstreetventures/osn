@@ -2,19 +2,15 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { clsx } from "clsx";
 import { splitProps, type Component, type ComponentProps } from "solid-js";
 
-import { bx } from "../../lib/utils";
-
 const badgeVariants = cva(
-  bx(
-    "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-  ),
+  "base:inline-flex base:items-center base:rounded-full base:px-2.5 base:py-0.5 base:text-xs base:font-semibold base:transition-colors base:focus:outline-none base:focus:ring-2 base:focus:ring-ring base:focus:ring-offset-2",
   {
     variants: {
       variant: {
-        default: bx("bg-primary text-primary-foreground"),
-        secondary: bx("bg-muted text-muted-foreground"),
-        destructive: bx("bg-destructive text-white"),
-        outline: bx("text-foreground border border-border"),
+        default: "base:bg-primary base:text-primary-foreground",
+        secondary: "base:bg-muted base:text-muted-foreground",
+        destructive: "base:bg-destructive base:text-white",
+        outline: "base:text-foreground base:border base:border-border",
       },
     },
     defaultVariants: {

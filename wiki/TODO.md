@@ -257,6 +257,8 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [ ] P-I1 — `evictExpiredTokens` iterates full cache on every `getOrCreateArcToken` call — throttle or remove
 - [ ] P-I2 — `new TextEncoder()` allocated per JWT sign/verify call — cache or import `CryptoKey` once
 - [ ] P-I3 — `new TextEncoder()` per `verifyPkceChallenge` call — move to module scope
+- [ ] P-I4 — Deprecated `bx()` still exported from `@osn/ui` — remove once no external consumers remain — see [[component-library]]
+- [ ] P-I5 — Auth Dialog components always mounted in EventList (vs conditional `<Show>`) — negligible for two forms but revisit if dialogs grow heavier
 - [ ] P-I4 — `AuthProvider` reconstructs Effect `Layer` on every render — wrap with `createMemo`
 - [ ] P-I5 — `/graph/internal/connections` and `/close-friends` no `offset` parameter — see [[arc-tokens]]
 - [ ] P-I5b — `completePasskeyLogin` calls `findProfileByEmail` redundantly — `pk.userId` already on passkey row

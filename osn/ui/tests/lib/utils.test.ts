@@ -34,25 +34,17 @@ describe("cn()", () => {
   });
 });
 
-describe("bx()", () => {
-  it("prefixes each utility class with base:", () => {
-    expect(bx("bg-card rounded-xl border")).toBe("base:bg-card base:rounded-xl base:border");
+describe("bx() — deprecated identity function", () => {
+  it("returns input unchanged (identity)", () => {
+    expect(bx("bg-card rounded-xl border")).toBe("bg-card rounded-xl border");
   });
 
-  it("handles variant-prefixed classes correctly", () => {
-    expect(bx("hover:bg-muted focus:ring-2")).toBe("base:hover:bg-muted base:focus:ring-2");
+  it("passes through variant-prefixed classes", () => {
+    expect(bx("hover:bg-muted focus:ring-2")).toBe("hover:bg-muted focus:ring-2");
   });
 
-  it("handles data-attribute selectors", () => {
-    expect(bx("data-[selected]:bg-primary")).toBe("base:data-[selected]:bg-primary");
-  });
-
-  it("handles arbitrary value classes", () => {
-    expect(bx("text-[10px] min-h-[60px]")).toBe("base:text-[10px] base:min-h-[60px]");
-  });
-
-  it("handles single class", () => {
-    expect(bx("flex")).toBe("base:flex");
+  it("passes through base:-prefixed classes", () => {
+    expect(bx("base:bg-card base:rounded-xl")).toBe("base:bg-card base:rounded-xl");
   });
 
   it("handles empty string", () => {
