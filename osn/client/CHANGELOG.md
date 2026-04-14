@@ -1,5 +1,11 @@
 # @osn/client
 
+## 0.3.2
+
+### Patch Changes
+
+- f2fbc2a: Replace valibot with Effect Schema for token response validation, consolidating all non-HTTP-boundary validation on Effect Schema
+
 ## 0.3.1
 
 ### Patch Changes
