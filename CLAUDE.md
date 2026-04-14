@@ -24,15 +24,15 @@ Phase 1 apps: OSN Core (auth), Pulse (events), Zap (messaging), Landing (marketi
 | Section | What goes here |
 |---------|---------------|
 | **Up Next** | ≤8 highest-priority items across all areas. Keep it short — if everything is a priority, nothing is. Prune when items are done or promoted to a feature section. |
-| **App sections** (Pulse, OSN Core, Zap, Landing) | Feature work specific to that app. Check items off when done; don't delete them. |
+| **App sections** (Pulse, OSN Core, Zap, Landing) | Feature work specific to that app. When done, move to `[[changelog/completed-features]]`. |
 | **Platform** (API, DB, Client, UI, Infra) | Shared package work and infrastructure. Same check-off rule. |
-| **Security Backlog** | All security findings, sorted H → M → L. Add new findings from PR reviews here. Mark done with `[x]` + short note. Never delete — the history matters. |
-| **Performance Backlog** | All perf findings. Same rules as Security. |
+| **Security Backlog** | Open security findings only, sorted H → M → L. When a finding is fixed, move it to `[[changelog/security-fixes]]`. |
+| **Performance Backlog** | Open perf findings only. When fixed, move to `[[changelog/performance-fixes]]`. |
 | **Deferred Decisions** | Questions we're not answering yet. Add a row; remove it when the decision is made. |
 | **Future** | Phase 2/3 items. Vague is fine here — detail gets added when the phase starts. |
 
 **When to update TODO.md:**
-- After a PR merges → check off completed items; add any new findings; update Up Next
+- After a PR merges → move completed items to `[[changelog/]]`; add any new findings; update Up Next
 - When a security/performance review surfaces findings → add to the relevant backlog section with `[[wiki links]]` to affected system pages
 - When a new deferred decision comes up → add a row to the table
 - Keep Up Next pruned to the real next things — it should be actionable at a glance

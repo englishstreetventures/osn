@@ -2,7 +2,7 @@
 title: OSN Wiki
 aliases: [home, map of content, MOC]
 tags: [index]
-last-reviewed: 2026-04-13
+last-reviewed: 2026-04-14
 ---
 
 # OSN Wiki
@@ -54,6 +54,12 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[commands]] — CLI commands reference
 - [[review-findings]] — finding ID format (S-H1, P-W2, T-M1)
 - [[contributing]] — PR workflow, changesets, branching
+
+## Changelog
+
+- [[changelog/completed-features]] — archived completed feature work
+- [[changelog/security-fixes]] — archived completed security findings
+- [[changelog/performance-fixes]] — archived completed performance findings
 
 ## Runbooks
 
