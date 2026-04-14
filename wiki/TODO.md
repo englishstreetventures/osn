@@ -531,7 +531,6 @@ Address **High** items before any non-local deployment.
 | DB table rename `users` → `profiles` | The table is called `users` but represents profiles. Renaming is a migration-heavy change for minimal runtime benefit. Code already uses profile terminology everywhere. | Only if it causes genuine confusion |
 | S2S scaling — see [[s2s-patterns]], [[arc-tokens]], [[s2s-migration]] | Current: direct package import (`createGraphService()`). Migrate to HTTP `/graph/internal/*` + ARC tokens when scaling horizontally. | When multi-process or multi-machine deployment needed |
 | Per-app blocking — see [[social-graph]] | Blocks are global across all OSN apps. Per-app scope deferred. | When Messaging or a third-party app needs independent block lists |
-<<<<<<< HEAD
 | Profile transfer between accounts | Meta supports unlinking/relinking profiles to different accounts | After multi-account ships (P6) |
 | Per-profile notification email | Profiles might want separate contact emails (beyond the account login email) | When notification system is built |
 | Profile-level 2FA | Currently 2FA would be account-wide (passkeys on accounts) | When 2FA is implemented |
@@ -539,6 +538,7 @@ Address **High** items before any non-local deployment.
 | Max profiles per account | Set to 5 (like Instagram) via `accounts.maxProfiles`; make configurable? | Before launch |
 | Self-interaction policy | Two profiles from same account CAN follow/message/interact (preventing it leaks the link). Meta allows this. | Multi-account P6 privacy audit |
 | Build-time `cn()` evaluation — see [[component-library]] | `tailwind-merge` (~12-14 KB) runs at runtime. Options: Vite plugin for static evaluation, drop to `clsx`-only, or `tw-merge-plugin`. | When bundle size becomes a concern or Lighthouse audits flag it |
+| Pretext for Zap chat virtual scrolling — see [[zap]] | [`@chenglou/pretext`](https://github.com/chenglou/pretext) measures multiline text height without DOM reflow (canvas-based). Could enable variable-height virtual scrolling for long chat histories without layout thrashing. Not useful until Zap has a rendered message UI. | When Zap messaging UI is built and message lists need virtualization |
 | Tauri passkey support on iOS | Tauri webview does not expose WebAuthn natively — `pulse/app` registration flow (rendered by `@osn/ui/auth/Register`) feature-detects via `browserSupportsWebAuthn()` and auto-skips the passkey step on unsupported environments. Options when we ship mobile: (a) adopt [`tauri-plugin-webauthn`](https://github.com/Profiidev/tauri-plugin-webauthn) (third-party, audit first), (b) write our own thin Tauri plugin wrapping `ASAuthorizationPlatformPublicKeyCredentialProvider`, (c) wait for upstream — track [tauri#7926](https://github.com/tauri-apps/tauri/issues/7926). | When iOS build of Pulse is ready for sign-in |
 
 ---
