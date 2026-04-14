@@ -1,5 +1,11 @@
 # @osn/ui
 
+## 0.5.1
+
+### Patch Changes
+
+- aa256af: Inline base: variant prefixes for Tailwind v4 JIT compatibility; add cursor-pointer to Button; deprecate bx(). Add @source directive for UI library scanning; wrap auth forms in Dialog modals with mutual exclusion.
+
 ## 0.5.0
 
 ### Minor Changes
