@@ -14,6 +14,11 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
+    "dev:pulse": "turbo dev --filter=@pulse/api --filter=@pulse/app --filter=@osn/core --filter=@zap/api",
+    "dev:zap": "turbo dev --filter=@zap/api --filter=@osn/core",
+    "dev:osn": "turbo dev --filter=@osn/core --filter=@osn/app",
+    "dev:apis": "turbo dev --filter=@osn/core --filter=@pulse/api --filter=@zap/api",
+    "dev:landing": "turbo dev --filter=@osn/landing",
     "lint": "oxlint -c oxlintrc.json .",
     "check": "turbo check",
     "test": "turbo test --continue",

@@ -122,6 +122,11 @@ Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+RES
 ```bash
 # Development
 bun run dev              # Start all dev servers (turbo)
+bun run dev:pulse        # Pulse work: pulse API + app, osn core, zap API
+bun run dev:zap          # Zap work: zap API, osn core
+bun run dev:osn          # OSN work: osn core + app
+bun run dev:apis         # All backends only: osn core, pulse API, zap API
+bun run dev:landing      # Landing site only
 bun run build            # Build all packages (turbo)
 bun run check            # Type-check all packages (turbo)
 
