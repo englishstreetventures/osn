@@ -7,6 +7,7 @@ import { sqliteTable, text, integer, index, unique } from "drizzle-orm/sqlite-co
 export const accounts = sqliteTable("accounts", {
   id: text("id").primaryKey(), // "acc_" prefix
   email: text("email").notNull().unique(),
+  passkeyUserId: text("passkey_user_id").notNull().unique(), // random UUID, opaque WebAuthn user.id (never correlates to accountId)
   maxProfiles: integer("max_profiles").notNull().default(5),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),

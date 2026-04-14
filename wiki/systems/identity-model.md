@@ -10,7 +10,7 @@ packages:
   - "@osn/db"
   - "@osn/core"
   - "@osn/client"
-last-reviewed: 2026-04-14
+last-reviewed: 2026-04-15
 p4-completed: 2026-04-14
 p2-completed: 2026-04-14
 p3-completed: 2026-04-14
@@ -36,7 +36,7 @@ OSN uses a two-tier identity model inspired by Meta's Accounts Center. A single 
 ```
 ┌─────────────────────────────────────┐
 │           accounts                  │  ← Login identity (invisible externally)
-│  acc_xxxx | email | maxProfiles     │
+│  acc_xxxx | email | passkeyUserId   │
 └──────────────┬──────────────────────┘
                │ 1:N (private link)
                │
@@ -59,12 +59,14 @@ The `accounts` table is the **authentication principal** — the entity that log
 |--------|------|-------|
 | `id` | `text PK` | `acc_` prefix + 12 hex chars |
 | `email` | `text UNIQUE` | Login credential — the only place email lives |
+| `passkeyUserId` | `text NOT NULL UNIQUE` | Random UUID used as WebAuthn `user.id` — opaque, non-correlating (P6) |
 | `maxProfiles` | `integer` | Default 5; enforced by `createProfile` in P3 |
 | `createdAt` | `timestamp` | |
 | `updatedAt` | `timestamp` | |
 
 **Key invariants:**
-- `accountId` is **never exposed** in any API response, token claim, or log entry. It is the multi-account correlation identifier — leaking it reveals which profiles belong to the same person.
+- `accountId` is **never exposed** in any API response, token claim, or log entry. It is the multi-account correlation identifier — leaking it reveals which profiles belong to the same person. Added to the log redaction deny-list in P6.
+- `passkeyUserId` is a random UUID generated at account creation, used as the WebAuthn `user.id` in passkey registration. This prevents two profiles on the same account from being correlated via matching WebAuthn credential `user.id` fields. Lazy-filled for accounts created before P6.
 - Email is **only on accounts**, not duplicated on profiles.
 - Passkeys reference `accounts.id` (not profile IDs), because authentication is account-level.
 
@@ -179,10 +181,12 @@ POST /register/complete → OTP →
 
 ## Privacy Rules
 
-1. **`accountId` never appears in**: API responses, JWT claims (except enrollment tokens), log entries, metric attributes, or any data sent to other services.
-2. **Rate limiting is per-profile** for API calls, **per-IP for auth** — per-account rate limits would correlate profiles.
-3. **Block independence** — blocking on one profile does NOT affect other profiles on the same account.
-4. **Self-interaction allowed** — two profiles from the same account can follow, message, and interact. Preventing this would reveal the link.
+1. **`accountId` never appears in**: API responses, JWT claims (except refresh/enrollment tokens, which are only seen by the account holder), log entries (enforced via redaction deny-list), metric attributes, span attributes, or any data sent to other services.
+2. **`passkeyUserId` (not `accountId`)** is used as the WebAuthn `user.id` to prevent passkey-based profile correlation.
+3. **Rate limiting is per-profile** for API calls, **per-IP for auth** — per-account rate limits would correlate profiles. Exception: profile-switch rate limiting is per-account (acceptable because the endpoint inherently requires the account-scoped refresh token).
+4. **Block independence** — blocking on one profile does NOT affect other profiles on the same account.
+5. **Self-interaction allowed** — two profiles from the same account can follow, message, and interact. Preventing this would reveal the link.
+6. **Log redaction** — `accountId` and `account_id` are in the observability deny-list (`shared/observability/src/logger/redact.ts`) as defence in depth.
 
 ## Multi-Account Roadmap
 
@@ -192,5 +196,5 @@ POST /register/complete → OTP →
 | P2: Auth refactor | ✅ Done | Two-tier tokens (refresh=account, access=profile), `POST /profiles/switch`, `POST /profiles/list`, `verifyRefreshToken`, `findDefaultProfile`, scope claim validation, per-account rate limiting |
 | P3: Profile CRUD | ✅ Done | `createProfile` (maxProfiles enforcement, S-L1), `deleteProfile` (cascade delete graph+org data), `setDefaultProfile`, three REST routes, `withProfileCrud` observability wrapper, S-L2 resolved |
 | P4: Client SDK | ✅ Done | Multi-session `AccountSession` storage in `@osn/client`, `listProfiles` / `switchProfile` / `createProfile` / `deleteProfile` / `getActiveProfile` methods, SolidJS `AuthContext` integration (`profiles` resource, `activeProfileId` signal), legacy session migration, Effect Schema validation on storage reads + API responses, Base64URL JWT parsing, expired token pruning |
-| P5: UI | Planned | Profile switcher component |
-| P6: Privacy audit | Planned | Verify accountId never leaks, pen-test correlation attacks |
+| P5: UI | ✅ Done | Profile switcher component, create form, onboarding |
+| P6: Privacy audit | ✅ Done | `passkeyUserId` column (WebAuthn correlation fix), `accountId` log redaction, privacy invariant tests, route/token/span/metric audit (all clean) |

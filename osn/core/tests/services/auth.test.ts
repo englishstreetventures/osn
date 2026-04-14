@@ -534,6 +534,12 @@ describe("passkey registration", () => {
       expect(result.options).toBeTruthy();
       expect(result.options.challenge).toBeTruthy();
       expect(result.options.user.name).toBe("@passkeyuser");
+      // P6: WebAuthn userID must be passkeyUserId (UUID), never accountId
+      const decoded = new TextDecoder().decode(
+        Uint8Array.from(atob(result.options.user.id), (c) => c.charCodeAt(0)),
+      );
+      expect(decoded).not.toBe(profile.accountId);
+      expect(decoded).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     }).pipe(Effect.provide(createTestLayer())),
   );
 

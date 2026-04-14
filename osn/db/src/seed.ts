@@ -28,6 +28,7 @@ export function buildSeedAccounts(now: Date): NewAccount[] {
   const acc = (name: string): NewAccount => ({
     id: `acc_seed_${name}`,
     email: `${name}@seed.osn.dev`,
+    passkeyUserId: crypto.randomUUID(),
     maxProfiles: 5,
     createdAt: now,
     updatedAt: now,

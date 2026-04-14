@@ -119,6 +119,12 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     // columns. Policy: log `profileId`, never `email` / `handle` /
     // `displayName`. The deny-list backstops accidental annotations.
     // (Previously `userId`; renamed to `profileId` for multi-account.)
+    //
+    // `accountId` is the internal auth principal. Leaking it in logs would
+    // let an operator correlate two profiles belonging to the same account,
+    // breaking the multi-account privacy invariant (P6 audit).
+    "accountId",
+    "account_id",
     "email",
     "handle",
     "displayName",

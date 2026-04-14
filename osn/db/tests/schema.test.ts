@@ -12,6 +12,7 @@ function createTestDb() {
     CREATE TABLE accounts (
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
+      passkey_user_id TEXT NOT NULL UNIQUE,
       max_profiles INTEGER NOT NULL DEFAULT 5,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -59,6 +60,7 @@ describe("accounts schema", () => {
     await db.insert(schema.accounts).values({
       id: "acc_test",
       email: "test@example.com",
+      passkeyUserId: crypto.randomUUID(),
       maxProfiles: 5,
       createdAt: now,
       updatedAt: now,
@@ -79,6 +81,7 @@ describe("accounts schema", () => {
     await db.insert(schema.accounts).values({
       id: "acc_a",
       email: "dup@example.com",
+      passkeyUserId: crypto.randomUUID(),
       maxProfiles: 5,
       createdAt: now,
       updatedAt: now,
@@ -87,6 +90,7 @@ describe("accounts schema", () => {
       db.insert(schema.accounts).values({
         id: "acc_b",
         email: "dup@example.com",
+        passkeyUserId: crypto.randomUUID(),
         maxProfiles: 5,
         createdAt: now,
         updatedAt: now,
@@ -102,6 +106,7 @@ describe("users schema", () => {
     await db.insert(schema.accounts).values({
       id: "acc_test",
       email: "test@example.com",
+      passkeyUserId: crypto.randomUUID(),
       maxProfiles: 5,
       createdAt: now,
       updatedAt: now,
@@ -131,6 +136,7 @@ describe("users schema", () => {
     await db.insert(schema.accounts).values({
       id: "acc_h1",
       email: "h1@example.com",
+      passkeyUserId: crypto.randomUUID(),
       maxProfiles: 5,
       createdAt: now,
       updatedAt: now,
@@ -138,6 +144,7 @@ describe("users schema", () => {
     await db.insert(schema.accounts).values({
       id: "acc_h2",
       email: "h2@example.com",
+      passkeyUserId: crypto.randomUUID(),
       maxProfiles: 5,
       createdAt: now,
       updatedAt: now,
@@ -168,6 +175,7 @@ describe("users schema", () => {
     await db.insert(schema.accounts).values({
       id: "acc_display",
       email: "display@example.com",
+      passkeyUserId: crypto.randomUUID(),
       maxProfiles: 5,
       createdAt: now,
       updatedAt: now,
@@ -193,6 +201,7 @@ describe("users schema", () => {
     await db.insert(schema.accounts).values({
       id: "acc_nodisplay",
       email: "nodisplay@example.com",
+      passkeyUserId: crypto.randomUUID(),
       maxProfiles: 5,
       createdAt: now,
       updatedAt: now,
@@ -216,6 +225,7 @@ describe("users schema", () => {
     await db.insert(schema.accounts).values({
       id: "acc_ts",
       email: "ts@example.com",
+      passkeyUserId: crypto.randomUUID(),
       maxProfiles: 5,
       createdAt: ts,
       updatedAt: ts,
@@ -241,6 +251,7 @@ describe("passkeys schema", () => {
     await db.insert(schema.accounts).values({
       id: "acc_pk",
       email: "pk@example.com",
+      passkeyUserId: crypto.randomUUID(),
       maxProfiles: 5,
       createdAt: now,
       updatedAt: now,
@@ -270,6 +281,7 @@ describe("passkeys schema", () => {
     await db.insert(schema.accounts).values({
       id: "acc_notransport",
       email: "notransport@example.com",
+      passkeyUserId: crypto.randomUUID(),
       maxProfiles: 5,
       createdAt: now,
       updatedAt: now,
@@ -295,6 +307,7 @@ describe("passkeys schema", () => {
     await db.insert(schema.accounts).values({
       id: "acc_cred",
       email: "cred@example.com",
+      passkeyUserId: crypto.randomUUID(),
       maxProfiles: 5,
       createdAt: now,
       updatedAt: now,

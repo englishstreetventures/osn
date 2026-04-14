@@ -67,6 +67,18 @@ describe("redact", () => {
     expect(out.private_key).toBe(REDACTION_PLACEHOLDER);
   });
 
+  it("redacts accountId to prevent multi-profile correlation", () => {
+    const input = {
+      profileId: "usr_123",
+      accountId: "acc_456",
+      account_id: "acc_456",
+    };
+    const out = redact(input) as Record<string, unknown>;
+    expect(out.profileId).toBe("usr_123");
+    expect(out.accountId).toBe(REDACTION_PLACEHOLDER);
+    expect(out.account_id).toBe(REDACTION_PLACEHOLDER);
+  });
+
   it("redacts user PII (email, handle, displayName) but keeps profileId", () => {
     const input = {
       profileId: "u_123",
@@ -255,6 +267,8 @@ describe("redact", () => {
       "assertion",
       "privatekey",
       "private_key",
+      "accountid",
+      "account_id",
       "email",
       "handle",
       "displayname",

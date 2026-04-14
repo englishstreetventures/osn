@@ -456,9 +456,14 @@ export function createAuthService(config: AuthConfig) {
       yield* Effect.tryPromise({
         try: () =>
           db.transaction(async (tx) => {
-            await tx
-              .insert(accounts)
-              .values({ id: accountId, email, maxProfiles: 5, createdAt: ts, updatedAt: ts });
+            await tx.insert(accounts).values({
+              id: accountId,
+              email,
+              passkeyUserId: crypto.randomUUID(),
+              maxProfiles: 5,
+              createdAt: ts,
+              updatedAt: ts,
+            });
             await tx.insert(users).values({
               id,
               accountId,
@@ -662,6 +667,7 @@ export function createAuthService(config: AuthConfig) {
               await tx.insert(accounts).values({
                 id: accountId,
                 email: pending.email,
+                passkeyUserId: crypto.randomUUID(),
                 maxProfiles: 5,
                 createdAt: ts,
                 updatedAt: ts,
@@ -1000,27 +1006,36 @@ export function createAuthService(config: AuthConfig) {
   > =>
     Effect.gen(function* () {
       const { db } = yield* Db;
-      // Look up the default profile for this account (for display name in WebAuthn)
-      const profileResult = yield* Effect.tryPromise({
-        try: () => db.select().from(users).where(eq(users.accountId, accountId)).limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
+      // Look up the account row (for passkeyUserId) and default profile (for display name)
+      const [accountResult, profileResult, existingPasskeys] = yield* Effect.all(
+        [
+          Effect.tryPromise({
+            try: () => db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
+            catch: (cause) => new DatabaseError({ cause }),
+          }),
+          Effect.tryPromise({
+            try: () => db.select().from(users).where(eq(users.accountId, accountId)).limit(1),
+            catch: (cause) => new DatabaseError({ cause }),
+          }),
+          Effect.tryPromise({
+            try: () => db.select().from(passkeys).where(eq(passkeys.accountId, accountId)),
+            catch: (cause) => new DatabaseError({ cause }),
+          }),
+        ],
+        { concurrency: "unbounded" },
+      );
+      const account = accountResult[0];
       const profile = profileResult[0];
-      if (!profile) {
+      if (!account || !profile) {
         return yield* Effect.fail(new AuthError({ message: "Account not found" }));
       }
-
-      const existingPasskeys = yield* Effect.tryPromise({
-        try: () => db.select().from(passkeys).where(eq(passkeys.accountId, accountId)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
 
       const options = yield* Effect.tryPromise({
         try: () =>
           generateRegistrationOptions({
             rpName: config.rpName,
             rpID: config.rpId,
-            userID: new TextEncoder().encode(accountId),
+            userID: new TextEncoder().encode(account.passkeyUserId),
             userName: `@${profile.handle}`,
             userDisplayName: profile.displayName ?? `@${profile.handle}`,
             attestationType: "none",

@@ -11,6 +11,7 @@ export function createTestLayer() {
     CREATE TABLE accounts (
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
+      passkey_user_id TEXT NOT NULL UNIQUE,
       max_profiles INTEGER NOT NULL DEFAULT 5,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
