@@ -506,8 +506,8 @@ export function createAuthService(config: AuthConfig) {
    *    abuse can't grow it without bound (S-M2 / P-W1).
    *  - Refuses to overwrite a non-expired pending entry, preventing an
    *    attacker from resetting a victim's in-progress OTP (S-M2).
-   *  - The dev-only `Effect.logDebug` of the OTP is gated on
-   *    `OSN_ENV` being unset or `"dev"` (S-M3 / S-L2).
+   *  - The local-only `Effect.logDebug` of the OTP is gated on
+   *    `OSN_ENV` being unset or `"local"` (S-M3 / S-L2).
    *
    * Validation errors (bad email format, bad handle format, reserved handle)
    * are still surfaced as ValidationError / AuthError because they're not
@@ -583,13 +583,13 @@ export function createAuthService(config: AuthConfig) {
             ),
           catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
         });
-      } else if (!process.env["OSN_ENV"] || process.env["OSN_ENV"] === "dev") {
-        // S-M3: only print the OTP to logs in dev environments. The guard
-        // uses OSN_ENV (not NODE_ENV) so staging is excluded — defence in
+      } else if (!process.env["OSN_ENV"] || process.env["OSN_ENV"] === "local") {
+        // S-M3: only print the OTP to logs in local environments. The guard
+        // uses OSN_ENV (not NODE_ENV) so dev/staging/prod are excluded — defence in
         // depth alongside the log-level minimum (S-L2). Values are
         // interpolated into the message string (not annotations) so the
         // redacting logger doesn't scrub them.
-        yield* Effect.logDebug(`[OSN dev] Registration OTP for ${normalisedEmail}: ${code}`);
+        yield* Effect.logDebug(`[OSN local] Registration OTP for ${normalisedEmail}: ${code}`);
       }
 
       metricAuthOtpSent("registration");
@@ -1321,11 +1321,11 @@ export function createAuthService(config: AuthConfig) {
             ),
           catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
         });
-      } else if (!process.env["OSN_ENV"] || process.env["OSN_ENV"] === "dev") {
-        // Dev-only fallback when no email sender is configured. Guard uses
-        // OSN_ENV (not NODE_ENV) so staging is excluded (S-L2). See the
-        // matching block in beginRegistration for the interpolation rationale.
-        yield* Effect.logDebug(`[OSN dev] OTP for ${profile.email}: ${code}`);
+      } else if (!process.env["OSN_ENV"] || process.env["OSN_ENV"] === "local") {
+        // Local-only fallback when no email sender is configured. Guard uses
+        // OSN_ENV (not NODE_ENV) so dev/staging/prod are excluded (S-L2). See
+        // the matching block in beginRegistration for the interpolation rationale.
+        yield* Effect.logDebug(`[OSN local] OTP for ${profile.email}: ${code}`);
       }
 
       metricAuthOtpSent("login");
@@ -1443,11 +1443,11 @@ export function createAuthService(config: AuthConfig) {
             ),
           catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
         });
-      } else if (!process.env["OSN_ENV"] || process.env["OSN_ENV"] === "dev") {
-        // Dev-only fallback when no email sender is configured. Guard uses
-        // OSN_ENV (not NODE_ENV) so staging is excluded (S-L2). See the
-        // matching block in beginRegistration for the interpolation rationale.
-        yield* Effect.logDebug(`[OSN dev] Magic link for ${profile.email}: ${magicUrl}`);
+      } else if (!process.env["OSN_ENV"] || process.env["OSN_ENV"] === "local") {
+        // Local-only fallback when no email sender is configured. Guard uses
+        // OSN_ENV (not NODE_ENV) so dev/staging/prod are excluded (S-L2). See
+        // the matching block in beginRegistration for the interpolation rationale.
+        yield* Effect.logDebug(`[OSN local] Magic link for ${profile.email}: ${magicUrl}`);
       }
 
       metricAuthMagicLinkSent("ok");

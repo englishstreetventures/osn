@@ -39,7 +39,8 @@ const makeRedactingLogger = (base: Logger.Logger<unknown, void>): Logger.Logger<
  * in `../index.ts`).
  */
 export const makeLoggerLayer = (config: ObservabilityConfig): Layer.Layer<never> => {
-  const baseLogger = config.env === "production" ? Logger.jsonLogger : Logger.prettyLogger();
+  const baseLogger =
+    config.env === "local" || config.env === "dev" ? Logger.prettyLogger() : Logger.jsonLogger;
   const redacting = makeRedactingLogger(baseLogger);
   return Layer.mergeAll(
     Logger.replace(Logger.defaultLogger, redacting),

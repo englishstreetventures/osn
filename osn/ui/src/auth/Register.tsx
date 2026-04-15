@@ -194,6 +194,9 @@ export function Register(props: RegisterProps) {
               value={email()}
               onInput={(e) => setEmail(e.currentTarget.value)}
             />
+            <Show when={email() && !EMAIL_RE.test(email())}>
+              <span class="text-destructive text-xs">Please enter a valid email address</span>
+            </Show>
           </div>
 
           <div class="flex flex-col gap-1">

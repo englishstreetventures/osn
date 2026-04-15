@@ -66,7 +66,7 @@ const app = new Elysia()
   .use(createProfileRoutes(authConfig, DbLive, observabilityLayer, profileRateLimiters));
 
 if (process.env.NODE_ENV !== "test") {
-  app.listen(port);
+  app.listen({ port, reusePort: false });
   void Effect.runPromise(
     Effect.logInfo("osn-app listening").pipe(
       Effect.annotateLogs({ port: String(port), service: SERVICE_NAME }),

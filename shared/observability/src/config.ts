@@ -7,7 +7,7 @@
  * is present.
  */
 
-export type DeploymentEnvironment = "dev" | "staging" | "production";
+export type DeploymentEnvironment = "local" | "dev" | "staging" | "production";
 
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
 
@@ -40,8 +40,11 @@ const parseEnv = (value: string | undefined): DeploymentEnvironment => {
     case "staging":
     case "stage":
       return "staging";
-    default:
+    case "dev":
+    case "development":
       return "dev";
+    default:
+      return "local";
   }
 };
 
@@ -55,7 +58,7 @@ const parseLogLevel = (value: string | undefined, env: DeploymentEnvironment): L
     case "fatal":
       return value;
     default:
-      return env === "dev" ? "debug" : "info";
+      return env === "local" ? "debug" : "info";
   }
 };
 
@@ -123,8 +126,8 @@ export const loadConfig = (overrides: ConfigOverrides = {}): ObservabilityConfig
   // S-L3: if anything claims we're in production, require an explicit
   // `OSN_ENV=production` — `NODE_ENV` alone is not sufficient because
   // Bun leaves it empty by default and a missing env would silently
-  // classify as `dev` (pretty logs + 100% trace sampling + any future
-  // dev-only code paths). Conversely, if the operator DID set
+  // classify as `local` (pretty logs + debug level + 100% trace sampling
+  // + any local-only code paths). Conversely, if the operator DID set
   // `OSN_ENV=production` but an override tries to force it elsewhere,
   // that's a bug we want to hear about.
   if (process.env.OSN_ENV === "production" && env !== "production") {

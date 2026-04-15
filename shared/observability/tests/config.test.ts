@@ -30,12 +30,12 @@ describe("loadConfig", () => {
     }
   });
 
-  it("defaults to dev env when nothing is set", () => {
+  it("defaults to local env when nothing is set", () => {
     const cfg = loadConfig();
-    expect(cfg.env).toBe("dev");
+    expect(cfg.env).toBe("local");
     expect(cfg.logLevel).toBe("debug");
     expect(cfg.otlpEndpoint).toBeUndefined();
-    expect(cfg.traceSampleRatio).toBe(1.0); // dev default
+    expect(cfg.traceSampleRatio).toBe(1.0); // local default
     expect(cfg.serviceNamespace).toBe("osn");
   });
 
@@ -88,11 +88,18 @@ describe("loadConfig", () => {
   // S-L3: production env mismatch guard
   it("throws when OSN_ENV=production but the override disagrees", () => {
     process.env.OSN_ENV = "production";
-    expect(() => loadConfig({ env: "dev" })).toThrow(/production/);
+    expect(() => loadConfig({ env: "local" })).toThrow(/production/);
   });
 
-  it("does not throw when OSN_ENV is unset and override is dev", () => {
-    expect(() => loadConfig({ env: "dev" })).not.toThrow();
+  it("does not throw when OSN_ENV is unset and override is local", () => {
+    expect(() => loadConfig({ env: "local" })).not.toThrow();
+  });
+
+  it("parses OSN_ENV=dev", () => {
+    process.env.OSN_ENV = "dev";
+    const cfg = loadConfig();
+    expect(cfg.env).toBe("dev");
+    expect(cfg.logLevel).toBe("info");
   });
 
   it("uses overrides over env", () => {
@@ -114,7 +121,7 @@ describe("loadConfig", () => {
     process.env.OSN_LOG_LEVEL = "debug";
     expect(loadConfig().logLevel).toBe("debug");
     process.env.OSN_LOG_LEVEL = "junk";
-    expect(loadConfig().logLevel).toBe("debug"); // dev env defaults to debug
+    expect(loadConfig().logLevel).toBe("debug"); // local env defaults to debug
   });
 
   it("defaults log level to info in production", () => {

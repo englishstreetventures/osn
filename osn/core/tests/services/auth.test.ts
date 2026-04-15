@@ -694,7 +694,7 @@ describe("verifyAccessToken", () => {
 //      a future PR that wraps the call with Effect.annotateLogs({ code }).
 // ---------------------------------------------------------------------------
 
-describe("dev-mode Effect.logDebug fallback", () => {
+describe("local-mode Effect.logDebug fallback", () => {
   /**
    * Install a capture logger in place of Effect's default, returning an
    * array that will be populated with every emitted message string.
@@ -714,7 +714,6 @@ describe("dev-mode Effect.logDebug fallback", () => {
   it.effect("beginRegistration logs the OTP via Effect.logDebug when sendEmail is unset", () =>
     Effect.gen(function* () {
       const { captured, loggerLayer } = captureLogs();
-      // config has no sendEmail — the dev-fallback branch is reached.
       const svc = createAuthService(config);
 
       yield* svc
@@ -729,7 +728,6 @@ describe("dev-mode Effect.logDebug fallback", () => {
 
   it.effect("beginOtp logs the login code via Effect.logDebug when sendEmail is unset", () =>
     Effect.gen(function* () {
-      // beginOtp requires the user to exist already — register first.
       yield* auth.registerProfile("dev-login@example.com", "devlogin");
 
       const { captured, loggerLayer } = captureLogs();

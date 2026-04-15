@@ -21,7 +21,7 @@ const app = new Elysia()
 const port = process.env.PORT || 3001;
 
 if (process.env.NODE_ENV !== "test") {
-  app.listen(port);
+  app.listen({ port, reusePort: false });
   // One structured info log at boot, routed through the observability layer
   // so it picks up resource attributes + redaction. Using Effect.runPromise
   // because the layer is Effect-scoped.
