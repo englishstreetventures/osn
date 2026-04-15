@@ -1,5 +1,14 @@
 # @osn/core
 
+## 0.16.3
+
+### Patch Changes
+
+- 09a2a60: Add four-tier environment model (local/dev/staging/production). Local env gets debug log level and OTP codes printed to terminal; all other environments default to info. Disable SO_REUSEPORT on all servers so stale processes cause EADDRINUSE errors instead of silently intercepting requests. Add email validation message to registration form. Remove Vite devtools plugin.
+- Updated dependencies [09a2a60]
+  - @shared/observability@0.3.0
+  - @osn/crypto@0.2.12
+
 ## 0.16.2
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @shared/observability
 
+## 0.3.0
+
+### Minor Changes
+
+- 09a2a60: Add four-tier environment model (local/dev/staging/production). Local env gets debug log level and OTP codes printed to terminal; all other environments default to info. Disable SO_REUSEPORT on all servers so stale processes cause EADDRINUSE errors instead of silently intercepting requests. Add email validation message to registration form. Remove Vite devtools plugin.
+
 ## 0.2.10
 
 ### Patch Changes
