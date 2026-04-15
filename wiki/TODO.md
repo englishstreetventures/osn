@@ -173,7 +173,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 ### High
 
 - [ ] S-H1 (client) — Refresh token sent in JSON body to `/profiles/list`, `/profiles/switch`, `/profiles/create`, `/profiles/delete`. Migrate server endpoints to accept Bearer access-token auth instead, reducing refresh-token exposure surface — see [[identity-model]], [[arc-tokens]]
-- [ ] S-H21 — Dev-mode `console.log` of OTP codes + recipient email in `osn/core/src/services/auth.ts`. Replace with `Effect.logDebug` + structured annotations. Deferred to console migration PR.
+- [x] S-H21 — Dev-mode `console.log` of OTP codes + recipient email in `osn/core/src/services/auth.ts`. **Fixed** — already uses `Effect.logDebug` (not `console.log`); guard tightened to `OSN_ENV` in log-level-debug PR.
 
 ### Medium
 
@@ -210,7 +210,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-L3 — Tauri CSP is `null` — allowlist `photon.komoot.io`, `maps.google.com`, `*.tile.openstreetmap.org`
 - [ ] S-L4 — `createdByAvatar` always null — no avatar claim in JWT
 - [ ] S-L7 — `jwtSecret` falls back to `"dev-secret"` — throw at startup in production
-- [ ] S-L8 — OTP codes and magic link URLs logged to stdout — guard with `NODE_ENV`
+- [x] S-L8 — OTP codes and magic link URLs logged to stdout. **Fixed** — guard tightened to `OSN_ENV` (excludes staging); dev log level defaults to debug so codes are visible without manual config.
 - [ ] S-L9 — `imageUrl` allows `data:` URIs — add CSP `img-src` header
 - [ ] S-L10 — SimpleWebAuthn loaded from unpkg CDN without SRI hash
 - [ ] S-L11 — Failed OAuth callback leaves PKCE verifier in `localStorage`

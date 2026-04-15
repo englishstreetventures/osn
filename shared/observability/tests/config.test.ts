@@ -33,7 +33,7 @@ describe("loadConfig", () => {
   it("defaults to dev env when nothing is set", () => {
     const cfg = loadConfig();
     expect(cfg.env).toBe("dev");
-    expect(cfg.logLevel).toBe("info");
+    expect(cfg.logLevel).toBe("debug");
     expect(cfg.otlpEndpoint).toBeUndefined();
     expect(cfg.traceSampleRatio).toBe(1.0); // dev default
     expect(cfg.serviceNamespace).toBe("osn");
@@ -114,6 +114,11 @@ describe("loadConfig", () => {
     process.env.OSN_LOG_LEVEL = "debug";
     expect(loadConfig().logLevel).toBe("debug");
     process.env.OSN_LOG_LEVEL = "junk";
+    expect(loadConfig().logLevel).toBe("debug"); // dev env defaults to debug
+  });
+
+  it("defaults log level to info in production", () => {
+    process.env.OSN_ENV = "production";
     expect(loadConfig().logLevel).toBe("info");
   });
 });

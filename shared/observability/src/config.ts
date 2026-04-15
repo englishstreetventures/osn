@@ -45,7 +45,7 @@ const parseEnv = (value: string | undefined): DeploymentEnvironment => {
   }
 };
 
-const parseLogLevel = (value: string | undefined): LogLevel => {
+const parseLogLevel = (value: string | undefined, env: DeploymentEnvironment): LogLevel => {
   switch (value) {
     case "trace":
     case "debug":
@@ -55,7 +55,7 @@ const parseLogLevel = (value: string | undefined): LogLevel => {
     case "fatal":
       return value;
     default:
-      return "info";
+      return env === "dev" ? "debug" : "info";
   }
 };
 
@@ -142,7 +142,7 @@ export const loadConfig = (overrides: ConfigOverrides = {}): ObservabilityConfig
     serviceNamespace: "osn",
     serviceInstanceId: instanceId(serviceName),
     env,
-    logLevel: parseLogLevel(process.env.OSN_LOG_LEVEL),
+    logLevel: parseLogLevel(process.env.OSN_LOG_LEVEL, env),
     otlpEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
     otlpHeaders: parseHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS),
     traceSampleRatio: parseSampleRatio(

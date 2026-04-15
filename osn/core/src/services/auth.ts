@@ -507,7 +507,7 @@ export function createAuthService(config: AuthConfig) {
    *  - Refuses to overwrite a non-expired pending entry, preventing an
    *    attacker from resetting a victim's in-progress OTP (S-M2).
    *  - The dev-only `Effect.logDebug` of the OTP is gated on
-   *    `NODE_ENV !== "production"` (S-M3).
+   *    `OSN_ENV` being unset or `"dev"` (S-M3 / S-L2).
    *
    * Validation errors (bad email format, bad handle format, reserved handle)
    * are still surfaced as ValidationError / AuthError because they're not
@@ -583,11 +583,12 @@ export function createAuthService(config: AuthConfig) {
             ),
           catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
         });
-      } else if (process.env["NODE_ENV"] !== "production") {
-        // S-M3: only print the OTP to logs in non-production environments.
-        // Values are interpolated into the message string (not annotations) so
-        // the redacting logger doesn't scrub them — the whole point of this
-        // dev-only log is to expose the code so the developer can act on it.
+      } else if (!process.env["OSN_ENV"] || process.env["OSN_ENV"] === "dev") {
+        // S-M3: only print the OTP to logs in dev environments. The guard
+        // uses OSN_ENV (not NODE_ENV) so staging is excluded — defence in
+        // depth alongside the log-level minimum (S-L2). Values are
+        // interpolated into the message string (not annotations) so the
+        // redacting logger doesn't scrub them.
         yield* Effect.logDebug(`[OSN dev] Registration OTP for ${normalisedEmail}: ${code}`);
       }
 
@@ -1320,10 +1321,10 @@ export function createAuthService(config: AuthConfig) {
             ),
           catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
         });
-      } else if (process.env["NODE_ENV"] !== "production") {
-        // Dev-only fallback when no email sender is configured. See the
-        // matching block in beginRegistration for why values are interpolated
-        // into the message string instead of using log annotations.
+      } else if (!process.env["OSN_ENV"] || process.env["OSN_ENV"] === "dev") {
+        // Dev-only fallback when no email sender is configured. Guard uses
+        // OSN_ENV (not NODE_ENV) so staging is excluded (S-L2). See the
+        // matching block in beginRegistration for the interpolation rationale.
         yield* Effect.logDebug(`[OSN dev] OTP for ${profile.email}: ${code}`);
       }
 
@@ -1442,10 +1443,10 @@ export function createAuthService(config: AuthConfig) {
             ),
           catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
         });
-      } else if (process.env["NODE_ENV"] !== "production") {
-        // Dev-only fallback when no email sender is configured. See the
-        // matching block in beginRegistration for why values are interpolated
-        // into the message string instead of using log annotations.
+      } else if (!process.env["OSN_ENV"] || process.env["OSN_ENV"] === "dev") {
+        // Dev-only fallback when no email sender is configured. Guard uses
+        // OSN_ENV (not NODE_ENV) so staging is excluded (S-L2). See the
+        // matching block in beginRegistration for the interpolation rationale.
         yield* Effect.logDebug(`[OSN dev] Magic link for ${profile.email}: ${magicUrl}`);
       }
 

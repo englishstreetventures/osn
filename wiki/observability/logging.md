@@ -8,7 +8,7 @@ related:
   - "[[tracing]]"
   - "[[metrics]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-04-12
+last-reviewed: 2026-04-15
 ---
 
 # Logging
@@ -19,8 +19,8 @@ Use `Effect.logInfo` / `Effect.logWarn` / `Effect.logError` inside Effect pipeli
 
 | Level | When to use | Production? |
 |-------|-------------|-------------|
-| `Effect.logDebug` | Dev-only diagnostics (OTP codes, magic-link URLs, internal state dumps) | Never emitted -- minimum level is `Info` unless explicitly overridden |
-| `Effect.logInfo` | Normal operations worth recording: service boot, significant state transitions, successful completions of multi-step flows | Yes -- the default minimum level in both dev and production |
+| `Effect.logDebug` | Dev-only diagnostics (OTP codes, magic-link URLs, internal state dumps) | Never emitted in production (minimum level is `Info`). Emitted in dev by default (minimum level is `Debug`). |
+| `Effect.logInfo` | Normal operations worth recording: service boot, significant state transitions, successful completions of multi-step flows | Yes -- the default minimum level in production. Dev defaults to `Debug`. |
 | `Effect.logWarning` | Degraded but recoverable conditions: rate limit tripped, retryable upstream failure, deprecated code path hit | Yes |
 | `Effect.logError` | Failures that need operator attention: unhandled exceptions, database errors, authentication verification failures | Yes |
 
@@ -77,7 +77,7 @@ Redaction is non-negotiable, but the deny-list is kept minimal. The logger layer
 
 ## Dev-mode OTP/magic-link logging
 
-Dev-mode OTP/magic-link logging uses `Effect.logDebug` gated on `NODE_ENV !== "production"`. The OTP code, email, and magic link URL are interpolated into the message string (not annotations) so the redacting logger doesn't scrub them -- the whole point of the dev log is to expose those values to the developer. In production these branches never run because `config.sendEmail` is wired up.
+Dev-mode OTP/magic-link logging uses `Effect.logDebug` gated on `OSN_ENV` being unset or `"dev"` (S-L2). The guard excludes both staging and production, providing defence in depth alongside the log-level minimum. The OTP code, email, and magic link URL are interpolated into the message string (not annotations) so the redacting logger doesn't scrub them -- the whole point of the dev log is to expose those values to the developer. In production these branches never run because `config.sendEmail` is wired up.
 
 ## Route-level logger wiring
 
