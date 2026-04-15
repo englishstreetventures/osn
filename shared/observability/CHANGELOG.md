@@ -1,5 +1,11 @@
 # @shared/observability
 
+## 0.2.10
+
+### Patch Changes
+
+- 42589e2: Default log level to debug in dev environment so OTP codes and magic-link URLs are visible without manual OSN_LOG_LEVEL configuration. Tighten OTP/magic-link debug guard from NODE_ENV to OSN_ENV so staging is also excluded.
+
 ## 0.2.9
 
 ### Patch Changes
