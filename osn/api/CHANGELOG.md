@@ -1,5 +1,12 @@
 # @osn/osn
 
+## 1.0.1
+
+### Patch Changes
+
+- Updated dependencies [1d9be5a]
+  - @osn/core@0.17.1
+
 ## 1.0.0
 
 ### Major Changes
