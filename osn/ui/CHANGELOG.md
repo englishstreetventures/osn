@@ -1,5 +1,11 @@
 # @osn/ui
 
+## 0.6.0
+
+### Minor Changes
+
+- d691034: Add 6-digit OTP input component with visual status states and fix login endpoints to return snake_case OAuth token format.
+
 ## 0.5.2
 
 ### Patch Changes

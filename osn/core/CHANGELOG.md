@@ -1,5 +1,11 @@
 # @osn/core
 
+## 0.16.4
+
+### Patch Changes
+
+- d691034: Add 6-digit OTP input component with visual status states and fix login endpoints to return snake_case OAuth token format.
+
 ## 0.16.3
 
 ### Patch Changes
