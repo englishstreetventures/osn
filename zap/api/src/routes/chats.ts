@@ -1,4 +1,4 @@
-import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@osn/core";
+import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
 import { DbLive, type Db } from "@zap/db/service";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";

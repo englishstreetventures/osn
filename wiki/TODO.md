@@ -300,7 +300,7 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 | Max event duration | Prompt user when creating events without endTime | When Pulse event creation UI is built |
 | Redis provider — see [[redis]] | Upstash (serverless, free tier) vs Redis Cloud vs self-hosted | When deploying beyond localhost |
 | DB table rename `users` → `profiles` | Table represents profiles; renaming is migration-heavy for minimal benefit | Only if it causes genuine confusion |
-| S2S scaling — see [[s2s-patterns]], [[arc-tokens]], [[s2s-migration]] | Current: direct package import. Migrate to HTTP + ARC when scaling horizontally | When multi-process deployment needed |
+| S2S scaling — see [[s2s-patterns]], [[arc-tokens]], [[s2s-migration]] | Current: direct package import. Migrate to HTTP + ARC when scaling horizontally. Prereq: `pulse-api` key pair + service account seeding + HTTP client | When multi-process deployment needed |
 | Per-app blocking — see [[social-graph]] | Blocks global across all OSN apps. Per-app scope deferred | When Messaging or third-party app needs independent block lists |
 | `@chenglou/pretext` for Zap virtual scroll — see [[zap]] | Pure-JS text measurement/layout. Enables virtualised message lists | When Zap UI needs message list virtualisation |
 | Profile transfer between accounts | Meta supports unlinking/relinking profiles | After multi-account ships (P6) |

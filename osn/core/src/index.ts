@@ -21,7 +21,7 @@ export {
 } from "./routes/recommendations";
 export { createRecommendationService } from "./services/recommendations";
 export type { RecommendationService } from "./services/recommendations";
-export { createRateLimiter, getClientIp, type RateLimiterBackend } from "./lib/rate-limit";
+export { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
 export {
   createRedisAuthRateLimiters,
   createRedisGraphRateLimiter,

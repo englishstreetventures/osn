@@ -16,7 +16,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "0.3.12",
+      "version": "1.0.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
         "@osn/core": "workspace:*",
@@ -55,6 +55,7 @@
         "@osn/crypto": "workspace:*",
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
+        "@shared/rate-limit": "workspace:*",
         "@shared/redis": "workspace:*",
         "@simplewebauthn/server": "^13.1.1",
         "drizzle-orm": "^0.45.0",
@@ -271,6 +272,14 @@
         "vitest": "^4.1.2",
       },
     },
+    "shared/rate-limit": {
+      "name": "@shared/rate-limit",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "vitest": "^4.1.2",
+      },
+    },
     "shared/redis": {
       "name": "@shared/redis",
       "version": "0.2.2",
@@ -294,8 +303,8 @@
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
         "@elysiajs/eden": "^1.2.0",
-        "@osn/core": "workspace:*",
         "@shared/observability": "workspace:*",
+        "@shared/rate-limit": "workspace:*",
         "@zap/db": "workspace:*",
         "drizzle-orm": "^0.45.0",
         "effect": "^3.19.19",
@@ -920,6 +929,8 @@
     "@shared/db-utils": ["@shared/db-utils@workspace:shared/db-utils"],
 
     "@shared/observability": ["@shared/observability@workspace:shared/observability"],
+
+    "@shared/rate-limit": ["@shared/rate-limit@workspace:shared/rate-limit"],
 
     "@shared/redis": ["@shared/redis@workspace:shared/redis"],
 

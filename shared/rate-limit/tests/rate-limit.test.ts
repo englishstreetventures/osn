@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { createRateLimiter, getClientIp } from "../../src/lib/rate-limit";
+import { createRateLimiter, getClientIp } from "../src/index";
 
 describe("createRateLimiter", () => {
   it("allows requests up to maxRequests", () => {
