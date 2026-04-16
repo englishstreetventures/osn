@@ -1,5 +1,12 @@
 # @zap/api
 
+## 0.3.8
+
+### Patch Changes
+
+- Updated dependencies [e2e010e]
+  - @osn/core@0.17.0
+
 ## 0.3.7
 
 ### Patch Changes

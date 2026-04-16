@@ -1,5 +1,15 @@
 # @osn/client
 
+## 0.5.0
+
+### Minor Changes
+
+- e2e010e: Add `@osn/social` app — identity and social graph management UI. Add
+  `recommendations` service and route to `@osn/core`. Add `graph` and
+  `organisations` client modules with Solid `GraphProvider` and `OrgProvider`.
+  Fix dropdown menu not opening by wrapping `DropdownMenuLabel` in
+  `DropdownMenuGroup` (required by Kobalte).
+
 ## 0.4.0
 
 ### Minor Changes
