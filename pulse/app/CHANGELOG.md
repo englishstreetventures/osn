@@ -1,5 +1,16 @@
 # @osn/pulse
 
+## 0.8.0
+
+### Minor Changes
+
+- e2f4c25: Add DropdownMenu component to @osn/ui; redesign Pulse header with full-width layout, expanding create-event button, and avatar dropdown menu
+
+### Patch Changes
+
+- Updated dependencies [e2f4c25]
+  - @osn/ui@0.7.0
+
 ## 0.7.12
 
 ### Patch Changes
