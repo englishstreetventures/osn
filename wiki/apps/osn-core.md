@@ -4,7 +4,7 @@ description: OSN identity and authentication stack overview
 tags: [app, auth, identity]
 status: active
 packages:
-  - "@osn/app"
+  - "@osn/api"
   - "@osn/core"
   - "@osn/client"
   - "@osn/crypto"
@@ -19,12 +19,12 @@ OSN Core is the identity and authentication stack for the OSN platform. It provi
 
 ## Architecture
 
-**`@osn/core` is a library -- it never calls `listen()`.** It exports Elysia route factories (`createAuthRoutes`, `createGraphRoutes`) and Effect services. The actual running server is `@osn/app`, which imports `@osn/core` and listens on port 4000.
+**`@osn/core` is a library -- it never calls `listen()`.** It exports Elysia route factories (`createAuthRoutes`, `createGraphRoutes`) and Effect services. The actual running server is `@osn/api`, which imports `@osn/core` and listens on port 4000.
 
-This distinction matters: `@osn/core` can be imported by other packages (e.g. Pulse imports `createGraphService()` directly for zero-overhead graph queries), while `@osn/app` is the deployable binary.
+This distinction matters: `@osn/core` can be imported by other packages (e.g. Pulse imports `createGraphService()` directly for zero-overhead graph queries), while `@osn/api` is the deployable binary.
 
 ```
-@osn/app (binary, port 4000)
+@osn/api (binary, port 4000)
   └── @osn/core (library)
         ├── Auth routes + services
         ├── Graph routes + services
@@ -86,7 +86,7 @@ Additional shared components:
 
 | Package | Role |
 |---------|------|
-| `@osn/app` | Binary server (port 4000) |
+| `@osn/api` | Binary server (port 4000) |
 | `@osn/core` | Library: route factories + Effect services |
 | `@osn/client` | SDK: `createRegistrationClient`, `createLoginClient`, `OsnAuthService`; `@osn/client/solid` for `AuthProvider` + `useAuth` |
 | `@osn/crypto` | ARC tokens (S2S auth); Signal protocol (pending) |

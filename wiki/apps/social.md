@@ -52,7 +52,7 @@ All three share the same hardening: `authGet/authPost/authPatch/authDelete` with
 ## Dev
 
 ```bash
-bun run dev:social       # starts @osn/social + @osn/app (core) together
+bun run dev:social       # starts @osn/social + @osn/api (core) together
 bun run --cwd osn/social dev   # social only (:1422)
 ```
 

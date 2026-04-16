@@ -33,7 +33,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 
 ---
 
-## OSN Core (`osn/app` + `osn/core`)
+## OSN Core (`osn/api` + `osn/core`)
 
 - [x] Multi-account profile CRUD (P3) — create/delete/set-default profiles, maxProfiles enforcement, cascade delete, observability
 - [x] Multi-account client SDK (P4) — multi-session storage, profile switching, schema validation, security hardening

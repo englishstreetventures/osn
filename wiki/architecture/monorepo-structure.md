@@ -16,7 +16,7 @@ related:
   - "[[zap]]"
   - "[[landing]]"
 packages:
-  - "@osn/app"
+  - "@osn/api"
   - "@osn/core"
   - "@osn/client"
   - "@osn/crypto"
@@ -52,7 +52,7 @@ The monorepo is organised by **domain**. Four top-level directories, four worksp
 
 ```
 osn/
-  app/                 # ✓ @osn/app — Bun/Elysia auth server (port 4000); thin wrapper over @osn/core
+  api/                 # ✓ @osn/api — Bun/Elysia auth server (port 4000); thin wrapper over @osn/core
   landing/             # ✓ @osn/landing — Astro + Solid (marketing site)
   core/                # ✓ @osn/core — auth services + routes (passkey, OTP, magic link, PKCE, JWT, /login/*) + social graph service + routes + hosted /authorize HTML
   client/              # ✓ @osn/client — SDK: createRegistrationClient, createLoginClient, OsnAuthService; @osn/client/solid AuthProvider + useAuth
@@ -80,7 +80,7 @@ Status markers: **✓** = built and functional, **⏳** = placeholder/planned.
 
 This is an important architectural distinction that comes up frequently.
 
-`@osn/core` is a **library** -- it never calls `listen()`. It exports Elysia route factories (`createAuthRoutes`, `createGraphRoutes`) + Effect services. `@osn/app` is the binary that imports it and actually listens on port 4000.
+`@osn/core` is a **library** -- it never calls `listen()`. It exports Elysia route factories (`createAuthRoutes`, `createGraphRoutes`) + Effect services. `@osn/api` is the binary that imports it and actually listens on port 4000.
 
 `@pulse/api`, by contrast, **is** the binary -- it runs its own Elysia process on port 3001 and exposes `@pulse/api/client` (an Eden treaty wrapper) for the Pulse frontend to consume. It imports `@pulse/db` and has nothing to do with OSN identity.
 

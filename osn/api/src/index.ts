@@ -20,7 +20,7 @@ import { Elysia } from "elysia";
 
 import { initRedisClient } from "./redis";
 
-const SERVICE_NAME = "osn-app";
+const SERVICE_NAME = "osn-api";
 const port = Number(process.env.PORT) || 4000;
 
 // Initialise observability (logger, tracing, metrics) before building the app.

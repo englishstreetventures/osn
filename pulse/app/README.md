@@ -5,7 +5,7 @@ Pulse frontend — Tauri + SolidJS. iOS-first, web + desktop supported.
 Talks to two backends over HTTP:
 
 - **`@pulse/api`** on port 3001 for events/RSVPs (via Eden treaty client)
-- **`@osn/app`** on port 4000 for identity (registration, sign-in, tokens,
+- **`@osn/api`** on port 4000 for identity (registration, sign-in, tokens,
   social graph)
 
 UI auth flows come entirely from `@osn/ui/auth` — `<Register>`, `<SignIn>`,
@@ -22,7 +22,7 @@ bun run --cwd pulse/app tauri dev     # desktop shell via Tauri
 
 ## Env
 
-See `.env.example`. Defaults assume `@osn/app` on `localhost:4000` and
+See `.env.example`. Defaults assume `@osn/api` on `localhost:4000` and
 `@pulse/api` on `localhost:3001`.
 
 ## Tooling

@@ -12,7 +12,7 @@ logic as reusable Effect services and Elysia route factories:
   used by third-party OAuth clients (first-party apps use the shared
   SolidJS `<SignIn />` from `@osn/ui/auth` instead)
 
-This package never calls `app.listen()` — it's consumed by `@osn/app`
+This package never calls `app.listen()` — it's consumed by `@osn/api`
 (or any other OSN platform server). Depends on `@osn/db` for persistence.
 
 ## First-party vs third-party sign-in

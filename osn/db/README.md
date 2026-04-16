@@ -24,4 +24,4 @@ bun run --cwd osn/db db:seed      # run src/seed.ts
 
 ## Consumed by
 
-`@osn/core`, `@osn/crypto` (tests only), `@osn/app`.
+`@osn/core`, `@osn/crypto` (tests only), `@osn/api`.

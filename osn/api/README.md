@@ -1,4 +1,4 @@
-# @osn/app
+# @osn/api
 
 OSN identity server binary. A Bun/Elysia process that listens on **port 4000**
 (configurable via `PORT`) and exposes:
@@ -14,7 +14,7 @@ only wires CORS, reads env config, and calls `app.listen(port)`.
 ## Run
 
 ```bash
-bun run --cwd osn/app dev
+bun run --cwd osn/api dev
 ```
 
 ## Env

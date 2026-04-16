@@ -26,7 +26,7 @@ finding-ids:
 packages:
   - "@osn/core"
   - "@shared/redis"
-  - "@osn/app"
+  - "@osn/api"
 last-reviewed: 2026-04-16
 ---
 

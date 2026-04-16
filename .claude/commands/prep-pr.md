@@ -7,7 +7,7 @@ Prepare the current branch for a pull request. Run the following steps in order.
 Run `git diff --name-only main...HEAD` to list all changed files.
 
 Map changed files to workspaces using these rules:
-- Files under `osn/<name>/` → workspace `osn/<name>`, package `@osn/<name>` (except the special case: `osn/db` → `@osn/db`, `osn/app` → `@osn/app`)
+- Files under `osn/<name>/` → workspace `osn/<name>`, package `@osn/<name>` (except the special case: `osn/db` → `@osn/db`, `osn/api` → `@osn/api`)
 - Files under `pulse/<name>/` → workspace `pulse/<name>`, package `@pulse/<name>`
 - Files under `shared/<name>/` → workspace `shared/<name>`, package `@shared/<name>`
 - Files touching only root config (`.claude/`, `turbo.json`, `lefthook.yml`, root `package.json`, `.changeset/`, `.github/`) are **CI/infra-only** — note this separately; they do not require a named package entry in the changeset.
@@ -28,7 +28,7 @@ Run `git diff --name-only main...HEAD -- .changeset/` and filter out `config.jso
 
 **If changeset(s) exist:**
 - Read each new changeset file and extract the package names listed in its YAML frontmatter (between the `---` fences).
-- **Validate every package name** against the actual `name` field in its `package.json`. Run `jq -r .name <workspace>/package.json` for each. A mismatch (e.g. `osn` instead of `@osn/app`, or `@osn/api` instead of `@pulse/api`) will cause `changeset version` to fail in CI with "package not in workspace". Fix any mismatches before continuing.
+- **Validate every package name** against the actual `name` field in its `package.json`. Run `jq -r .name <workspace>/package.json` for each. A mismatch (e.g. `osn` instead of `@osn/api`, or `@osn/app` instead of `@osn/api`) will cause `changeset version` to fail in CI with "package not in workspace". Fix any mismatches before continuing.
 - Compare against the affected workspace packages from step 1.
 - If any affected package is missing from all changesets, warn the user and offer to run `bun run changeset` to add coverage.
 

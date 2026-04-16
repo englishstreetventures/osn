@@ -41,7 +41,7 @@ All cross-service calls are in-process function calls. No network, no tokens, no
 
 ```
 @pulse/api
-  └── HTTP call to @osn/app (port 4000)
+  └── HTTP call to @osn/api (port 4000)
       └── /graph/internal/* endpoints
       └── Authorization: ARC <token>
       └── ARC token signed by pulse-api's private key

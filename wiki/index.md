@@ -43,7 +43,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 
 ## Apps
 
-- [[osn-core]] — identity/auth stack (@osn/core + @osn/app)
+- [[osn-core]] — identity/auth stack (@osn/core + @osn/api)
 - [[social]] — identity & social-graph management UI (@osn/social)
 - [[pulse]] — events app (@pulse/app + @pulse/api + @pulse/db)
 - [[zap]] — messaging app (placeholder, M0-M5 roadmap)

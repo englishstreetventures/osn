@@ -1,6 +1,6 @@
 # @osn/client
 
-Client SDK for talking to an OSN identity server (`@osn/app`). Framework-
+Client SDK for talking to an OSN identity server (`@osn/api`). Framework-
 agnostic at the core, with an optional SolidJS integration under
 `@osn/client/solid`.
 

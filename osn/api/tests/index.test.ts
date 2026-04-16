@@ -19,7 +19,7 @@ describe("OSN auth server", () => {
       expect(res.status).toBe(200);
       const json = (await res.json()) as { status: string; service: string };
       expect(json.status).toBe("ok");
-      expect(json.service).toBe("osn-app");
+      expect(json.service).toBe("osn-api");
     });
   });
 

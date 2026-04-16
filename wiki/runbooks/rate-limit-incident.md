@@ -65,7 +65,7 @@ If many IPs are hitting rate limits simultaneously:
 
 - If a legitimate user/IP is blocked, the rate limit window is 1 minute -- they can retry after waiting
 - There is no manual override to clear rate limit state (it is in-memory)
-- Restarting the `@osn/app` process clears all rate limit state (in-memory store resets)
+- Restarting the `@osn/api` process clears all rate limit state (in-memory store resets)
 
 ### Short-term
 

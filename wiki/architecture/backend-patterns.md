@@ -17,7 +17,7 @@ related:
 packages:
   - "@pulse/api"
   - "@osn/core"
-  - "@osn/app"
+  - "@osn/api"
 last-reviewed: 2026-04-12
 ---
 
