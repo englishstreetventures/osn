@@ -1,5 +1,11 @@
 # @osn/social
 
+## 0.2.1
+
+### Patch Changes
+
+- 6d0eb83: Ask for confirmation before removing a friend to prevent accidental removals.
+
 ## 0.2.0
 
 ### Minor Changes
