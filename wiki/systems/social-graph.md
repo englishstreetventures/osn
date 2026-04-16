@@ -17,7 +17,7 @@ related:
 packages:
   - "@osn/core"
   - "@osn/db"
-last-reviewed: 2026-04-13
+last-reviewed: 2026-04-16
 ---
 
 # Social Graph
@@ -103,10 +103,33 @@ The `:handle` route parameter uses TypeBox `HandleParam` with regex + length bou
 - Missing index on `close_friends.friend_id` added as `close_friends_friend_idx` (P-W16)
 - `removeConnection` and `blockProfile` wrapped in DB transactions (P-W17)
 
+## Recommendations (friends-of-friends)
+
+`createRecommendationService()` powers the "People You May Know" surface in `@osn/social`. Algorithm:
+
+1. Fetch up to **500 accepted connections** of the caller (cap bounds fan-out).
+2. Fetch blocks in both directions.
+3. Fan out to the caller's friends' accepted connections (capped at **10 000 rows**).
+4. Aggregate mutual counts in JS with an O(1) `Set` on the caller's direct connections, excluding self / existing connections / blocked.
+5. Sort by count desc, slice to the requested `limit` (bounded `[1, 50]` at the HTTP boundary).
+6. Hydrate the top N with `users` rows for `handle`/`displayName`/`avatarUrl`.
+
+Current shape prioritises correctness + bounded cost over peak throughput. Next steps tracked in `wiki/TODO.md`:
+
+- **P-W6** — short-lived per-caller cache (5-15 min) so a Discover-page visit doesn't re-run the pipeline.
+- **P-W7** — push aggregation to SQL (`GROUP BY … ORDER BY … LIMIT`) and add compound indexes `connections(status, requester_id)` / `connections(status, addressee_id)`.
+
+Privacy: the endpoint returns `mutualCount` alongside each suggestion. This leaks graph-inference signal — see `wiki/TODO.md` → S-L4 for the bucketing follow-up.
+
+Rate-limited at 20 req/user/min via `createRedisRecommendationRateLimiter` — see [[rate-limiting]].
+
 ## Source Files
 
 - [osn/core/src/services/graph.ts](../osn/core/src/services/graph.ts) -- graph service
+- [osn/core/src/services/recommendations.ts](../osn/core/src/services/recommendations.ts) -- FOF recommendations
 - [osn/core/src/routes/graph.ts](../osn/core/src/routes/graph.ts) -- graph routes
+- [osn/core/src/routes/recommendations.ts](../osn/core/src/routes/recommendations.ts) -- `/recommendations/connections`
 - [osn/db/src/schema.ts](../osn/db/src/schema.ts) -- schema (connections, close_friends, blocks)
 - [osn/core/tests/services/graph.test.ts](../osn/core/tests/services/graph.test.ts) -- service tests
+- [osn/core/tests/services/recommendations.test.ts](../osn/core/tests/services/recommendations.test.ts) -- recommendations tests
 - [osn/core/tests/routes/graph.test.ts](../osn/core/tests/routes/graph.test.ts) -- route tests

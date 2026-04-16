@@ -71,6 +71,21 @@ export function createRedisOrgRateLimiter(client: RedisClient): RateLimiterBacke
 }
 
 /**
+ * Build the recommendations rate limiter backed by Redis.
+ * Namespace: `recs:read` — key is the authenticated user ID.
+ *
+ * Tighter budget than graph/org writes because each request runs an
+ * expensive FOF fan-out.
+ */
+export function createRedisRecommendationRateLimiter(client: RedisClient): RateLimiterBackend {
+  return createRedisRateLimiter(client, {
+    namespace: "recs:read",
+    maxRequests: 20,
+    windowMs: ONE_MINUTE_MS,
+  });
+}
+
+/**
  * Build all 3 profile CRUD rate limiters backed by a shared Redis client.
  * Namespace convention: `profile:{action}`.
  */

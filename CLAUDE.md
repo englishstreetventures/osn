@@ -73,7 +73,7 @@ Monorepo organised by domain. Four directories, four prefixes — see `[[wiki/ar
 
 | Dir | Prefix | What lives here |
 |-----|--------|-----------------|
-| `osn/` | `@osn/*` | Identity stack (auth, graph, organisations, SDK, crypto, landing) |
+| `osn/` | `@osn/*` | Identity stack (auth, graph, organisations, recommendations, SDK, crypto, landing, social app) |
 | `pulse/` | `@pulse/*` | Events stack (app, API, DB) |
 | `zap/` | `@zap/*` | Messaging stack (API on port 3002, DB) |
 | `shared/` | `@shared/*` | Cross-cutting utilities |
@@ -88,7 +88,7 @@ Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+RES
 
 **Observability** — OpenTelemetry end-to-end, shipped to Grafana Cloud. Three golden rules: no `console.*`, no raw OTel constructors, no unbounded metric attributes. See `[[wiki/observability/overview]]`.
 
-**Rate Limiting** — Per-IP fixed-window on all auth endpoints; per-user on graph writes. Two backends: Redis-backed when `REDIS_URL` is set (cross-process, survives restarts), in-memory fallback when unset (local dev). See `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]`.
+**Rate Limiting** — Per-IP fixed-window on all auth endpoints; per-user on graph writes, org writes, and `/recommendations/connections` reads. Two backends: Redis-backed when `REDIS_URL` is set (cross-process, survives restarts), in-memory fallback when unset (local dev). See `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]`.
 
 **Testing** — `it.effect` + `createTestLayer()` for service tests; `createXxxRoutes(createTestLayer())` for route tests. All in-memory SQLite. See `[[wiki/conventions/testing-patterns]]`.
 

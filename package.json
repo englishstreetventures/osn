@@ -17,6 +17,7 @@
     "dev:pulse": "turbo dev --filter=@pulse/api --filter=@pulse/app --filter=@osn/app --filter=@zap/api",
     "dev:zap": "turbo dev --filter=@zap/api --filter=@osn/app",
     "dev:osn": "turbo dev --filter=@osn/core --filter=@osn/app",
+    "dev:social": "turbo dev --filter=@osn/social --filter=@osn/app",
     "dev:apis": "turbo dev --filter=@osn/app --filter=@pulse/api --filter=@zap/api",
     "dev:landing": "turbo dev --filter=@osn/landing",
     "lint": "oxlint -c oxlintrc.json .",
