@@ -4,6 +4,14 @@ import { clsx } from "@osn/ui/lib/utils";
 import { Avatar, AvatarFallback } from "@osn/ui/ui/avatar";
 import { Badge } from "@osn/ui/ui/badge";
 import { Button } from "@osn/ui/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@osn/ui/ui/dialog";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
@@ -74,10 +82,23 @@ export function ConnectionsPage() {
   const refetchPending = refetchPayload;
   const refetchCloseFriends = refetchPayload;
 
-  async function removeConnection(handle: string) {
+  // Two-step friend removal: clicking "Remove" on a row opens a confirmation
+  // dialog rather than mutating immediately, guarding against accidental
+  // removals. The pending target (full ConnectionEntry) is kept in local
+  // state so the dialog can render the friend's display name / handle.
+  const [removeTarget, setRemoveTarget] = createSignal<ConnectionEntry | null>(null);
+
+  function requestRemove(conn: ConnectionEntry) {
+    setRemoveTarget(conn);
+  }
+
+  async function confirmRemove() {
+    const target = removeTarget();
+    if (!target) return;
+    setRemoveTarget(null);
     try {
-      await graphClient.removeConnection(token(), handle);
-      toast.success(`Removed @${handle}`);
+      await graphClient.removeConnection(token(), target.handle);
+      toast.success(`Removed @${target.handle}`);
       refetchConnections();
     } catch {
       toast.error("Failed to remove connection");
@@ -202,7 +223,7 @@ export function ConnectionsPage() {
                           variant="ghost"
                           size="sm"
                           class="text-destructive h-7 text-xs"
-                          onClick={() => removeConnection(conn.handle)}
+                          onClick={() => requestRemove(conn)}
                         >
                           Remove
                         </Button>
@@ -308,6 +329,47 @@ export function ConnectionsPage() {
             </Show>
           </Show>
         </Show>
+
+        {/* Remove-friend confirmation dialog. Rendered once at the page
+            level and driven by the `removeTarget` signal so a single
+            instance handles removal from any row in the "All" tab. */}
+        <Dialog
+          open={removeTarget() !== null}
+          onOpenChange={(open) => {
+            if (!open) setRemoveTarget(null);
+          }}
+        >
+          <DialogContent class="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>
+                Remove {removeTarget()?.displayName || `@${removeTarget()?.handle}`} as a friend?
+              </DialogTitle>
+            </DialogHeader>
+            <div class="flex flex-col gap-4 p-4">
+              <DialogDescription>You can always add them again later.</DialogDescription>
+              <DialogFooter class="border-0 p-0">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setRemoveTarget(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => {
+                    void confirmRemove();
+                  }}
+                >
+                  Remove
+                </Button>
+              </DialogFooter>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Blocked */}
         <Show when={tab() === "blocked"}>
