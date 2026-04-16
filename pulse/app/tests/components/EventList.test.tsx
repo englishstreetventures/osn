@@ -1,15 +1,10 @@
-import {
-  render as _baseRender,
-  cleanup,
-  fireEvent,
-  screen,
-  waitFor,
-} from "@solidjs/testing-library";
+import { render as _baseRender, cleanup, fireEvent } from "@solidjs/testing-library";
 // @vitest-environment happy-dom
 import type { JSX } from "solid-js";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { EventList } from "../../src/components/EventList";
+import { setShowCreateForm } from "../../src/lib/createEventSignal";
 import { wrapRouter } from "../helpers/router";
 
 // EventList renders <EventCard> (which uses `<A>`) and itself uses `<A>`
@@ -142,49 +137,8 @@ describe("EventList — unauthenticated", () => {
     expect(await findByText("Second Event")).toBeTruthy();
   });
 
-  it("shows 'Sign in' button; no 'New Event' / 'Sign out' buttons", () => {
-    mockGet.mockReturnValue(new Promise(() => {}));
-    const { getByText, queryByText } = render(() => <EventList />);
-    expect(getByText("Sign in")).toBeTruthy();
-    expect(queryByText("New Event")).toBeNull();
-    expect(queryByText("Sign out")).toBeNull();
-  });
-
-  it("clicking 'Create account' opens register dialog", () => {
-    mockGet.mockReturnValue(new Promise(() => {}));
-    const { getByText } = render(() => <EventList />);
-    expect(screen.queryByText("Create your OSN account")).toBeNull();
-    fireEvent.click(getByText("Create account"));
-    expect(screen.getByText("Create your OSN account")).toBeTruthy();
-  });
-
-  it("clicking 'Sign in' opens sign-in dialog", () => {
-    mockGet.mockReturnValue(new Promise(() => {}));
-    const { getByText } = render(() => <EventList />);
-    expect(screen.queryByText("Sign in to OSN")).toBeNull();
-    fireEvent.click(getByText("Sign in"));
-    expect(screen.getByText("Sign in to OSN")).toBeTruthy();
-  });
-
-  it("opening one auth dialog closes the other (mutual exclusion)", async () => {
-    mockGet.mockReturnValue(new Promise(() => {}));
-    const { getByText } = render(() => <EventList />);
-
-    // Open register dialog
-    fireEvent.click(getByText("Create account"));
-    const registerDialog = screen.getByText("Create your OSN account").closest("[data-expanded]");
-    expect(registerDialog).toBeTruthy();
-
-    // Click sign in — register should close, sign in should open
-    fireEvent.click(getByText("Sign in"));
-    await waitFor(() => expect(registerDialog!.hasAttribute("data-expanded")).toBe(false));
-    const signInDialog = screen.getByText("Sign in to OSN").closest("[data-expanded]");
-    expect(signInDialog).toBeTruthy();
-
-    // Click create account again — sign in should close, register should re-open
-    fireEvent.click(getByText("Create account"));
-    await waitFor(() => expect(signInDialog!.hasAttribute("data-expanded")).toBe(false));
-  });
+  // Auth buttons (Sign in, Create account) and header UI moved to Header component.
+  // See Header.test.tsx for those tests.
 });
 
 // A minimal fake JWT with a decodable payload — no signature verification in client code.
@@ -203,44 +157,20 @@ describe("EventList — authenticated", () => {
   });
 
   afterEach(() => {
+    setShowCreateForm(false);
     cleanup();
     vi.unstubAllGlobals();
   });
 
-  it("shows 'New Event' and 'Sign out' buttons; no 'Sign in' button", () => {
+  // Auth buttons (New Event, Sign out) moved to Header component.
+  // See Header.test.tsx for those tests.
+
+  it("shows create form when showCreateForm signal is true", () => {
     mockGet.mockReturnValue(new Promise(() => {}));
-    const { getByText, queryByText } = render(() => <EventList />);
-    expect(getByText("New Event")).toBeTruthy();
-    expect(getByText("Sign out")).toBeTruthy();
-    expect(queryByText("Sign in")).toBeNull();
-  });
-
-  it("clicking 'New Event' shows the create form; clicking 'Cancel' hides it", () => {
-    mockGet.mockReturnValue(new Promise(() => {}));
-    const { getByText, queryByText } = render(() => <EventList />);
-
-    // Form not shown initially
-    expect(queryByText("Create")).toBeNull();
-
-    // Click "New Event" — button toggles to "Cancel" and form appears
-    fireEvent.click(getByText("New Event"));
-    expect(getByText("Create")).toBeTruthy();
-
-    // Click the form's Cancel button to dismiss it
-    // The header button now reads "Cancel" too — use the form's Cancel button
-    const cancelButtons = document.querySelectorAll("button");
-    const formCancelBtn = Array.from(cancelButtons).find(
-      (b) => b.textContent === "Cancel" && b.type === "button",
-    )!;
-    fireEvent.click(formCancelBtn);
-    expect(queryByText("Create")).toBeNull();
-  });
-
-  it("clicking 'Sign out' calls logout", () => {
-    mockGet.mockReturnValue(new Promise(() => {}));
+    setShowCreateForm(true);
     const { getByText } = render(() => <EventList />);
-    fireEvent.click(getByText("Sign out"));
-    expect(mockLogout).toHaveBeenCalled();
+    expect(getByText("Create")).toBeTruthy();
+    setShowCreateForm(false);
   });
 
   it("delete button on event card → calls api.events delete with event id and shows success toast", async () => {
@@ -311,9 +241,9 @@ describe("EventList — authenticated", () => {
     mockGet.mockReturnValue(new Promise(() => {}));
     mockPost.mockResolvedValue({ error: null });
 
-    const { getByText, queryByText } = render(() => <EventList />);
+    setShowCreateForm(true);
 
-    fireEvent.click(getByText("New Event"));
+    const { getByText, queryByText } = render(() => <EventList />);
     expect(getByText("Create")).toBeTruthy();
 
     const form = getByText("Create").closest("form")!;

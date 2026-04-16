@@ -50,6 +50,7 @@ osn/ui/src/
 │       ├── card.tsx           ← Card, CardHeader, CardTitle, etc.
 │       ├── checkbox.tsx       ← Checkbox (Kobalte)
 │       ├── dialog.tsx         ← Dialog, DialogContent, etc. (Kobalte)
+│       ├── dropdown-menu.tsx  ← DropdownMenu, DropdownMenuItem, etc. (Kobalte)
 │       ├── input.tsx          ← Input
 │       ├── label.tsx          ← Label
 │       ├── otp-input.tsx      ← OtpInput (6-digit code verification)

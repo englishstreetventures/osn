@@ -4,7 +4,6 @@ import { Button } from "@osn/ui/ui/button";
 import { Card } from "@osn/ui/ui/card";
 import { Label } from "@osn/ui/ui/label";
 import { RadioGroup, RadioGroupItem } from "@osn/ui/ui/radio-group";
-import { A } from "@solidjs/router";
 import { createSignal, Show } from "solid-js";
 import { toast } from "solid-toast";
 
@@ -53,12 +52,7 @@ export function SettingsPage() {
   }
 
   return (
-    <main class="mx-auto max-w-xl px-4 py-6">
-      <div class="mb-4">
-        <A href="/" class="text-primary text-sm hover:underline">
-          ← Back to events
-        </A>
-      </div>
+    <main class="mx-auto max-w-3xl px-6 py-6">
       <h1 class="text-foreground mb-2 text-2xl font-bold">Pulse settings</h1>
       <p class="text-muted-foreground mb-6 text-sm">
         Settings specific to Pulse. OSN identity settings (name, handle, email) live in your OSN

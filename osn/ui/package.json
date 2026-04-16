@@ -19,6 +19,7 @@
     "./ui/card": "./src/components/ui/card.tsx",
     "./ui/checkbox": "./src/components/ui/checkbox.tsx",
     "./ui/dialog": "./src/components/ui/dialog.tsx",
+    "./ui/dropdown-menu": "./src/components/ui/dropdown-menu.tsx",
     "./ui/input": "./src/components/ui/input.tsx",
     "./ui/otp-input": "./src/components/ui/otp-input.tsx",
     "./ui/label": "./src/components/ui/label.tsx",

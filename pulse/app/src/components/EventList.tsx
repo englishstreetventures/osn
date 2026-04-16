@@ -1,15 +1,9 @@
 import { useAuth } from "@osn/client/solid";
-import { ProfileSwitcher } from "@osn/ui/auth/ProfileSwitcher";
-import { Register } from "@osn/ui/auth/Register";
-import { SignIn } from "@osn/ui/auth/SignIn";
-import { Button, buttonVariants } from "@osn/ui/ui/button";
-import { Dialog, DialogContent } from "@osn/ui/ui/dialog";
-import { A } from "@solidjs/router";
 import { createResource, createSignal, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { api } from "../lib/api";
-import { registrationClient, loginClient } from "../lib/authClients";
+import { showCreateForm, setShowCreateForm } from "../lib/createEventSignal";
 import type { EventItem } from "../lib/types";
 import { getProfileIdFromToken, getDisplayNameFromToken } from "../lib/utils";
 import { CreateEventForm } from "./CreateEventForm";
@@ -24,7 +18,7 @@ async function fetchEvents(accessToken: string | null): Promise<EventItem[]> {
 }
 
 export function EventList() {
-  const { session, logout } = useAuth();
+  const { session } = useAuth();
   const accessToken = () => session()?.accessToken ?? null;
   const authClaims = createMemo(() => {
     const token = accessToken();
@@ -33,9 +27,6 @@ export function EventList() {
   const currentProfileId = () => authClaims().profileId;
   const tokenSource = createMemo(() => ({ token: accessToken() }));
   const [events, { refetch }] = createResource(tokenSource, ({ token }) => fetchEvents(token));
-  const [showForm, setShowForm] = createSignal(false);
-  const [showRegister, setShowRegister] = createSignal(false);
-  const [showSignIn, setShowSignIn] = createSignal(false);
   const [deletingIds, setDeletingIds] = createSignal(new Set<string>());
 
   function handleDelete(id: string) {
@@ -68,72 +59,17 @@ export function EventList() {
 
   function handleFormSuccess() {
     toast.success("Event created");
-    setShowForm(false);
+    setShowCreateForm(false);
     refetch();
   }
 
   return (
-    <main class="mx-auto max-w-xl px-4 py-6">
-      <div class="mb-6 flex items-center justify-between">
-        <h1 class="text-foreground text-3xl font-bold">Pulse</h1>
-        <div class="flex gap-2">
-          <Show when={!session()}>
-            <Button
-              size="sm"
-              onClick={() => {
-                setShowSignIn(false);
-                setShowRegister(true);
-              }}
-            >
-              Create account
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setShowRegister(false);
-                setShowSignIn(true);
-              }}
-            >
-              Sign in
-            </Button>
-          </Show>
-          <Show when={session()}>
-            <ProfileSwitcher
-              checkHandle={registrationClient.checkHandle}
-              onSwitch={() => refetch()}
-            />
-            <Button size="sm" onClick={() => setShowForm((v) => !v)}>
-              {showForm() ? "Cancel" : "New Event"}
-            </Button>
-            <A href="/settings" class={buttonVariants({ variant: "secondary", size: "sm" })}>
-              Settings
-            </A>
-            <Button variant="secondary" size="sm" onClick={logout}>
-              Sign out
-            </Button>
-          </Show>
-        </div>
-      </div>
-      <Dialog open={showRegister() && !session()} onOpenChange={setShowRegister}>
-        <DialogContent class="max-w-sm p-0">
-          <Register client={registrationClient} onCancel={() => setShowRegister(false)} />
-        </DialogContent>
-      </Dialog>
-      <Dialog open={showSignIn() && !session()} onOpenChange={setShowSignIn}>
-        <DialogContent class="max-w-sm p-0">
-          <SignIn
-            client={loginClient}
-            onCancel={() => setShowSignIn(false)}
-            onSuccess={() => setShowSignIn(false)}
-          />
-        </DialogContent>
-      </Dialog>
-      <Show when={showForm()}>
+    <main class="mx-auto max-w-3xl px-6 py-6">
+      <Show when={showCreateForm()}>
         <CreateEventForm
           accessToken={accessToken()}
           onSuccess={handleFormSuccess}
-          onCancel={() => setShowForm(false)}
+          onCancel={() => setShowCreateForm(false)}
         />
       </Show>
       <Show when={events.loading}>

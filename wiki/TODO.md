@@ -257,6 +257,8 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [ ] P-I1 — `evictExpiredTokens` iterates full cache on every `getOrCreateArcToken` call — throttle or remove
 - [ ] P-I2 — `new TextEncoder()` allocated per JWT sign/verify call — cache or import `CryptoKey` once
 - [ ] P-I3 — `new TextEncoder()` per `verifyPkceChallenge` call — move to module scope
+- [ ] P-I1 (pulse) — `Register`/`SignIn` eagerly imported in `Header.tsx` — lazy-load for authenticated users — see [[component-library]]
+- [ ] P-I2 (pulse) — Module-level `createSignal` in `createEventSignal.ts` outside reactive owner — wrap in `createRoot` if effects added later
 - [ ] P-I4 — Deprecated `bx()` still exported from `@osn/ui` — remove once no external consumers remain — see [[component-library]]
 - [ ] P-I5 — Auth Dialog components always mounted in EventList (vs conditional `<Show>`) — negligible for two forms but revisit if dialogs grow heavier
 - [ ] P-I4 — `AuthProvider` reconstructs Effect `Layer` on every render — wrap with `createMemo`

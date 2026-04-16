@@ -6,6 +6,7 @@ import { Toaster } from "solid-toast";
 
 import { CallbackHandler } from "./components/CallbackHandler";
 import { EventList } from "./components/EventList";
+import { Header } from "./components/Header";
 import { OSN_ISSUER_URL, OSN_CLIENT_ID } from "./lib/auth";
 import { loginClient } from "./lib/authClients";
 
@@ -33,6 +34,7 @@ function Layout(props: { children?: unknown }) {
     <>
       <CallbackHandler />
       <MagicLinkHandler client={loginClient} />
+      <Header />
       {props.children}
       <Toaster position="bottom-right" />
     </>
