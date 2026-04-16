@@ -11,12 +11,12 @@
  * call sites in auth.ts / graph.ts handle transparently.
  */
 
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import { createRedisRateLimiter } from "@shared/redis";
 import type { RedisClient } from "@shared/redis";
 
 import type { AuthRateLimiters } from "../routes/auth";
 import type { ProfileRateLimiters } from "../routes/profile";
-import type { RateLimiterBackend } from "./rate-limit";
 
 const ONE_MINUTE_MS = 60_000;
 

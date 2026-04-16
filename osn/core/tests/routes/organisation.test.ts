@@ -1,8 +1,8 @@
 import type { Db } from "@osn/db/service";
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { describe, it, expect, beforeEach } from "vitest";
 
-import type { RateLimiterBackend } from "../../src/lib/rate-limit";
 import { createOrganisationRoutes } from "../../src/routes/organisation";
 import { createAuthService } from "../../src/services/auth";
 import { createTestLayer } from "../helpers/db";

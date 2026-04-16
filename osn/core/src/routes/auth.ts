@@ -1,11 +1,11 @@
 import { DbLive, type Db } from "@osn/db/service";
 import type { AuthRateLimitedEndpoint } from "@shared/observability/metrics";
+import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { verifyPkceChallenge } from "../lib/crypto";
 import { buildAuthorizeHtml } from "../lib/html";
-import { createRateLimiter, getClientIp, type RateLimiterBackend } from "../lib/rate-limit";
 import { metricAuthRateLimited } from "../metrics";
 import { createAuthService, type AuthConfig } from "../services/auth";
 

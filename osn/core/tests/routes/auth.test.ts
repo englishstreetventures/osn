@@ -1,7 +1,7 @@
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { describe, it, expect, beforeEach } from "vitest";
 
-import type { RateLimiterBackend } from "../../src/lib/rate-limit";
 import { createAuthRoutes, createDefaultAuthRateLimiters } from "../../src/routes/auth";
 import { createAuthService } from "../../src/services/auth";
 import { createTestLayer } from "../helpers/db";

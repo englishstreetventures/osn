@@ -1,8 +1,8 @@
 import { DbLive, type Db } from "@osn/db/service";
+import { createRateLimiter, type RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
-import { createRateLimiter, type RateLimiterBackend } from "../lib/rate-limit";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createRecommendationService } from "../services/recommendations";
 
