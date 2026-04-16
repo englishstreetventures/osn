@@ -136,6 +136,13 @@ describe("SignIn component", () => {
   });
 
   describe("OTP mode", () => {
+    function fillOtpDigits(digits: string) {
+      for (let i = 0; i < digits.length && i < 6; i++) {
+        const input = screen.getByLabelText(`Digit ${i + 1}`) as HTMLInputElement;
+        fireEvent.input(input, { target: { value: digits[i] } });
+      }
+    }
+
     it("happy path: begin → code entry → complete → adoptSession", async () => {
       stub.otpBegin.mockResolvedValue({ sent: true });
       stub.otpComplete.mockResolvedValue({ session: sampleSession, user: sampleUser });
@@ -145,9 +152,8 @@ describe("SignIn component", () => {
       fillIdentifier("alice@example.com");
       fireEvent.click(screen.getByRole("button", { name: /Send verification code/i }));
 
-      await waitFor(() => screen.getByLabelText(/Verification code/));
-      const otp = screen.getByLabelText(/Verification code/) as HTMLInputElement;
-      fireEvent.input(otp, { target: { value: "123456" } });
+      await waitFor(() => screen.getByLabelText("Digit 1"));
+      fillOtpDigits("123456");
       fireEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
 
       await waitFor(() => {
@@ -157,15 +163,18 @@ describe("SignIn component", () => {
       expect(stub.otpComplete).toHaveBeenCalledWith("alice@example.com", "123456");
     });
 
-    it("OTP code input strips non-digits and caps at 6 chars", async () => {
+    it("OTP input rejects non-digit characters", async () => {
       stub.otpBegin.mockResolvedValue({ sent: true });
       render(() => <SignIn client={asClient(stub)} defaultMethod="otp" />);
       fillIdentifier("alice@example.com");
       fireEvent.click(screen.getByRole("button", { name: /Send verification code/i }));
-      await waitFor(() => screen.getByLabelText(/Verification code/));
-      const otp = screen.getByLabelText(/Verification code/) as HTMLInputElement;
-      fireEvent.input(otp, { target: { value: "12ab34cd56789" } });
-      expect(otp.value).toBe("123456");
+      await waitFor(() => screen.getByLabelText("Digit 1"));
+      // Type non-digits into each box — otpComplete should never fire.
+      for (let i = 0; i < 6; i++) {
+        const input = screen.getByLabelText(`Digit ${i + 1}`) as HTMLInputElement;
+        fireEvent.input(input, { target: { value: "x" } });
+      }
+      expect(stub.otpComplete).not.toHaveBeenCalled();
     });
   });
 

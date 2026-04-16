@@ -7,6 +7,7 @@ import { toast } from "solid-toast";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { OtpInput, type OtpStatus } from "../components/ui/otp-input";
 
 type Step = "details" | "verify" | "passkey" | "done";
 
@@ -37,6 +38,8 @@ export function Register(props: RegisterProps) {
   const [displayName, setDisplayName] = createSignal("");
   const [otp, setOtp] = createSignal("");
   const [busy, setBusy] = createSignal(false);
+  const [otpStatus, setOtpStatus] = createSignal<OtpStatus>("idle");
+  const [resendCooldown, setResendCooldown] = createSignal(0);
   const [profileId, setProfileId] = createSignal<string | null>(null);
   const [enrollmentToken, setEnrollmentToken] = createSignal<string | null>(null);
 
@@ -119,12 +122,15 @@ export function Register(props: RegisterProps) {
    */
   async function submitOtp(e: Event) {
     e.preventDefault();
-    if (busy() || otp().length !== 6) return;
+    const value = otp();
+    if (busy() || value.length !== 6) return;
     setBusy(true);
+    setOtpStatus("verifying");
     try {
-      const result = await client.completeRegistration({ email: email(), code: otp() });
+      const result = await client.completeRegistration({ email: email(), code: value });
       setProfileId(result.profileId);
       setEnrollmentToken(result.enrollmentToken);
+      setOtpStatus("accepted");
       // Sign them in *now* — passkey enrolment is an upsell, not a gate.
       await adoptSession(result.session);
       toast.success("Email verified");
@@ -135,7 +141,41 @@ export function Register(props: RegisterProps) {
         setStep("done");
       }
     } catch (err) {
+      setOtpStatus("error");
       toast.error(err instanceof Error ? err.message : "Invalid code");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startResendCooldown() {
+    setResendCooldown(30);
+    const id = setInterval(() => {
+      setResendCooldown((n) => {
+        if (n <= 1) {
+          clearInterval(id);
+          return 0;
+        }
+        return n - 1;
+      });
+    }, 1000);
+  }
+
+  async function resendCode() {
+    if (busy() || resendCooldown() > 0) return;
+    setBusy(true);
+    try {
+      await client.beginRegistration({
+        email: email(),
+        handle: handle(),
+        displayName: displayName().trim() || undefined,
+      });
+      setOtp("");
+      setOtpStatus("idle");
+      startResendCooldown();
+      toast.success("New code sent");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not resend code");
     } finally {
       setBusy(false);
     }
@@ -256,23 +296,35 @@ export function Register(props: RegisterProps) {
           <p class="text-muted-foreground text-sm">
             We sent a 6-digit code to <strong>{email()}</strong>. Enter it below to verify.
           </p>
-          <div class="flex flex-col gap-1">
-            <Label for="reg-otp">Verification code</Label>
-            <Input
-              id="reg-otp"
-              type="text"
-              inputmode="numeric"
-              autocomplete="one-time-code"
-              maxLength={6}
-              required
-              value={otp()}
-              onInput={(e) => setOtp(e.currentTarget.value.replace(/\D/g, "").slice(0, 6))}
-              class="text-center tracking-[0.5em]"
-            />
-          </div>
+          <OtpInput
+            value={otp()}
+            onChange={setOtp}
+            status={otpStatus()}
+            disabled={busy()}
+            autofocus
+          />
+          <Show when={otpStatus() === "error"}>
+            <p class="text-destructive text-sm">Incorrect code. Please try again</p>
+          </Show>
+          <Show when={otpStatus() === "verifying"}>
+            <p class="text-muted-foreground text-sm">Verifying your code…</p>
+          </Show>
+          <Show when={otpStatus() === "accepted"}>
+            <p class="text-sm text-green-600">Accepted</p>
+          </Show>
           <Button type="submit" disabled={otp().length !== 6 || busy()}>
             {busy() ? "Verifying…" : "Verify email"}
           </Button>
+          <Show when={otpStatus() === "error"}>
+            <button
+              type="button"
+              onClick={resendCode}
+              class="text-primary text-sm font-medium hover:underline disabled:opacity-50"
+              disabled={busy() || resendCooldown() > 0}
+            >
+              {resendCooldown() > 0 ? `Resend code (${resendCooldown()}s)` : "Resend code"}
+            </button>
+          </Show>
           <Button variant="ghost" size="sm" onClick={() => setStep("details")}>
             ← Use a different email
           </Button>

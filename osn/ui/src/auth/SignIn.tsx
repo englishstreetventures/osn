@@ -7,6 +7,7 @@ import { toast } from "solid-toast";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { OtpInput, type OtpStatus } from "../components/ui/otp-input";
 import { clsx } from "../lib/utils";
 
 /**
@@ -52,6 +53,8 @@ export function SignIn(props: SignInProps) {
   const [otpCode, setOtpCode] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [otpStatus, setOtpStatus] = createSignal<OtpStatus>("idle");
+  const [resendCooldown, setResendCooldown] = createSignal(0);
 
   // If the requested default tab is passkey but the environment doesn't
   // support it, silently fall through to OTP. Done in an onMount to avoid
@@ -65,6 +68,7 @@ export function SignIn(props: SignInProps) {
     setStep("identifier");
     setOtpCode("");
     setError(null);
+    setOtpStatus("idle");
   }
 
   function reportError(e: unknown, fallback: string) {
@@ -117,14 +121,48 @@ export function SignIn(props: SignInProps) {
 
   async function submitOtpCode(e: Event) {
     e.preventDefault();
-    if (busy() || otpCode().length !== 6) return;
+    const value = otpCode();
+    if (busy() || value.length !== 6) return;
+    setBusy(true);
+    setError(null);
+    setOtpStatus("verifying");
+    try {
+      const { session } = await client.otpComplete(identifier().trim(), value);
+      setOtpStatus("accepted");
+      await finishWithSession(session);
+    } catch (err) {
+      setOtpStatus("error");
+      reportError(err, "Invalid code");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startResendCooldown() {
+    setResendCooldown(30);
+    const id = setInterval(() => {
+      setResendCooldown((n) => {
+        if (n <= 1) {
+          clearInterval(id);
+          return 0;
+        }
+        return n - 1;
+      });
+    }, 1000);
+  }
+
+  async function resendOtpCode() {
+    if (busy() || !identifier().trim() || resendCooldown() > 0) return;
     setBusy(true);
     setError(null);
     try {
-      const { session } = await client.otpComplete(identifier().trim(), otpCode());
-      await finishWithSession(session);
+      await client.otpBegin(identifier().trim());
+      setOtpCode("");
+      setOtpStatus("idle");
+      startResendCooldown();
+      toast.success("New code sent");
     } catch (err) {
-      reportError(err, "Invalid code");
+      reportError(err, "Couldn't resend code");
     } finally {
       setBusy(false);
     }
@@ -253,23 +291,35 @@ export function SignIn(props: SignInProps) {
             If <strong>{identifier()}</strong> matches an account, we sent a 6-digit code. Enter it
             below.
           </p>
-          <div class="flex flex-col gap-1">
-            <Label for="si-otp-code">Verification code</Label>
-            <Input
-              id="si-otp-code"
-              type="text"
-              inputmode="numeric"
-              autocomplete="one-time-code"
-              maxLength={6}
-              required
-              value={otpCode()}
-              onInput={(e) => setOtpCode(e.currentTarget.value.replace(/\D/g, "").slice(0, 6))}
-              class="text-center tracking-[0.5em]"
-            />
-          </div>
+          <OtpInput
+            value={otpCode()}
+            onChange={setOtpCode}
+            status={otpStatus()}
+            disabled={busy()}
+            autofocus
+          />
+          <Show when={otpStatus() === "error"}>
+            <p class="text-destructive text-sm">Incorrect code. Please try again</p>
+          </Show>
+          <Show when={otpStatus() === "verifying"}>
+            <p class="text-muted-foreground text-sm">Verifying your code…</p>
+          </Show>
+          <Show when={otpStatus() === "accepted"}>
+            <p class="text-sm text-green-600">Accepted</p>
+          </Show>
           <Button type="submit" disabled={busy() || otpCode().length !== 6}>
             {busy() ? "Verifying…" : "Sign in"}
           </Button>
+          <Show when={otpStatus() === "error"}>
+            <button
+              type="button"
+              onClick={resendOtpCode}
+              class="text-primary text-sm font-medium hover:underline disabled:opacity-50"
+              disabled={busy() || resendCooldown() > 0}
+            >
+              {resendCooldown() > 0 ? `Resend code (${resendCooldown()}s)` : "Resend code"}
+            </button>
+          </Show>
           <Button variant="ghost" size="sm" onClick={() => setStep("identifier")}>
             ← Use a different identifier
           </Button>

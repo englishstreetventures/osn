@@ -213,6 +213,14 @@ describe("Register component", () => {
       });
     }
 
+    /** Type digits into the individual OTP boxes. */
+    function fillOtpDigits(digits: string) {
+      for (let i = 0; i < digits.length && i < 6; i++) {
+        const input = screen.getByLabelText(`Digit ${i + 1}`) as HTMLInputElement;
+        fireEvent.input(input, { target: { value: digits[i] } });
+      }
+    }
+
     it("calls beginRegistration with the form values and advances to verify", async () => {
       await advanceToVerify();
       expect(stub.beginRegistration).toHaveBeenCalledWith({
@@ -222,28 +230,42 @@ describe("Register component", () => {
       });
     });
 
-    it("verify submit stays disabled until 6 digits are entered", async () => {
+    it("submit stays disabled until 6 digits are entered, then enables", async () => {
       await advanceToVerify();
-      const otp = screen.getByLabelText(/Verification code/) as HTMLInputElement;
-      fireEvent.input(otp, { target: { value: "123" } });
+      fillOtpDigits("123");
       const submit = screen.getByRole("button", {
         name: /Verify email/i,
       }) as HTMLButtonElement;
       expect(submit.disabled).toBe(true);
 
-      fireEvent.input(otp, { target: { value: "123456" } });
+      fillOtpDigits("123456");
       expect(submit.disabled).toBe(false);
     });
 
-    it("OTP input strips non-digits and clamps to 6", async () => {
+    it("OTP input rejects non-digit characters", async () => {
+      stub.completeRegistration.mockResolvedValue({
+        profileId: "usr_abc",
+        session: sampleSession,
+        enrollmentToken: "enroll_xyz",
+      });
       await advanceToVerify();
-      const otp = screen.getByLabelText(/Verification code/) as HTMLInputElement;
-      fireEvent.input(otp, { target: { value: "12ab34cd5678" } });
-      expect(otp.value).toBe("123456");
+      // Type non-digits into each box — completeRegistration should never fire.
+      for (let i = 0; i < 6; i++) {
+        const input = screen.getByLabelText(`Digit ${i + 1}`) as HTMLInputElement;
+        fireEvent.input(input, { target: { value: "a" } });
+      }
+      expect(stub.completeRegistration).not.toHaveBeenCalled();
     });
   });
 
   describe("passkey step (supported)", () => {
+    function fillOtpDigits(digits: string) {
+      for (let i = 0; i < digits.length && i < 6; i++) {
+        const input = screen.getByLabelText(`Digit ${i + 1}`) as HTMLInputElement;
+        fireEvent.input(input, { target: { value: digits[i] } });
+      }
+    }
+
     async function reachPasskey() {
       stub.checkHandle.mockResolvedValue({ available: true });
       stub.beginRegistration.mockResolvedValue({ sent: true });
@@ -260,10 +282,8 @@ describe("Register component", () => {
       fillHandle("alice");
       await vi.advanceTimersByTimeAsync(350);
       fireEvent.click(screen.getByRole("button", { name: /Send verification code/i }));
-      await waitFor(() => screen.getByLabelText(/Verification code/));
-      fireEvent.input(screen.getByLabelText(/Verification code/), {
-        target: { value: "123456" },
-      });
+      await waitFor(() => screen.getByLabelText("Digit 1"));
+      fillOtpDigits("123456");
       fireEvent.click(screen.getByRole("button", { name: /Verify email/i }));
       await waitFor(() => screen.getByRole("button", { name: /Create passkey/i }));
     }
@@ -335,10 +355,11 @@ describe("Register component", () => {
       fillHandle("alice");
       await vi.advanceTimersByTimeAsync(350);
       fireEvent.click(screen.getByRole("button", { name: /Send verification code/i }));
-      await waitFor(() => screen.getByLabelText(/Verification code/));
-      fireEvent.input(screen.getByLabelText(/Verification code/), {
-        target: { value: "123456" },
-      });
+      await waitFor(() => screen.getByLabelText("Digit 1"));
+      for (let i = 0; i < 6; i++) {
+        const input = screen.getByLabelText(`Digit ${i + 1}`) as HTMLInputElement;
+        fireEvent.input(input, { target: { value: "123456"[i] } });
+      }
       fireEvent.click(screen.getByRole("button", { name: /Verify email/i }));
 
       // adoptSession is called as part of submitOtp, then we jump to done.

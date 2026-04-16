@@ -178,7 +178,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 ### Medium
 
 - [ ] S-M1 — `verifyAccessToken` rejects tokens missing `handle` claim — treat missing as `null` during transition
-- [ ] S-M3 — No "resend code" button after registration OTP; SMTP failure = claimed handle with no recovery
+- [x] S-M3 — No "resend code" button after registration OTP; SMTP failure = claimed handle with no recovery — **Fixed**: OTP input component now shows "Resend code" button on error with 30s cooldown
 - [ ] S-M4 — Legacy `POST /register` returns raw `String(catch)` — extend `publicError()` mapper
 - [ ] S-M5 — `displayName` in JWT (1h TTL) — stale after profile update
 - [ ] S-M6 — Wildcard CORS on auth server — restrict to known client origins before deployment

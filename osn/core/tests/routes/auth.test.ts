@@ -663,11 +663,11 @@ describe("auth routes", () => {
       );
       expect(res.status).toBe(200);
       const json = (await res.json()) as {
-        session: { accessToken: string; refreshToken: string; expiresIn: number };
+        session: { access_token: string; refresh_token: string; expires_in: number };
         profile: { id: string; handle: string; email: string };
       };
-      expect(json.session.accessToken).toBeTruthy();
-      expect(json.session.refreshToken).toBeTruthy();
+      expect(json.session.access_token).toBeTruthy();
+      expect(json.session.refresh_token).toBeTruthy();
       expect(json.profile.handle).toBe("otpdirect");
       expect(json.profile.email).toBe("otp-direct@example.com");
     });
@@ -755,10 +755,10 @@ describe("auth routes", () => {
       );
       expect(res.status).toBe(200);
       const json = (await res.json()) as {
-        session: { accessToken: string };
+        session: { access_token: string };
         profile: { handle: string; email: string };
       };
-      expect(json.session.accessToken).toBeTruthy();
+      expect(json.session.access_token).toBeTruthy();
       expect(json.profile.handle).toBe("magicdirect");
     });
 

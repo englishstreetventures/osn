@@ -66,6 +66,17 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
   };
 }
 
+/** Convert an internal camelCase TokenSet to the snake_case OAuth wire format. */
+function toTokenResponse(ts: { accessToken: string; refreshToken: string; expiresIn: number }) {
+  return {
+    access_token: ts.accessToken,
+    refresh_token: ts.refreshToken,
+    token_type: "Bearer" as const,
+    expires_in: ts.expiresIn,
+    scope: "openid profile",
+  };
+}
+
 export function createAuthRoutes(
   authConfig: AuthConfig,
   dbLayer: Layer.Layer<Db> = DbLive,
@@ -347,13 +358,7 @@ export function createAuthRoutes(
               profileId: result.profileId,
               handle: result.handle,
               email: result.email,
-              session: {
-                access_token: result.accessToken,
-                refresh_token: result.refreshToken,
-                token_type: "Bearer",
-                expires_in: result.expiresIn,
-                scope: "openid profile",
-              },
+              session: toTokenResponse(result),
               enrollment_token: result.enrollmentToken,
             };
           } catch (e) {
@@ -491,13 +496,7 @@ export function createAuthRoutes(
 
             try {
               const tokens = await run(auth.exchangeCode(code));
-              return {
-                access_token: tokens.accessToken,
-                refresh_token: tokens.refreshToken,
-                token_type: "Bearer",
-                expires_in: tokens.expiresIn,
-                scope: "openid profile",
-              };
+              return toTokenResponse(tokens);
             } catch (e) {
               set.status = 400;
               return { error: "invalid_grant", message: String(e) };
@@ -512,13 +511,7 @@ export function createAuthRoutes(
             }
             try {
               const tokens = await run(auth.refreshTokens(refresh_token));
-              return {
-                access_token: tokens.accessToken,
-                refresh_token: tokens.refreshToken,
-                token_type: "Bearer",
-                expires_in: tokens.expiresIn,
-                scope: "openid profile",
-              };
+              return toTokenResponse(tokens);
             } catch (e) {
               set.status = 400;
               return { error: "invalid_grant", message: String(e) };
@@ -817,7 +810,10 @@ export function createAuthRoutes(
             const result = await run(
               auth.completePasskeyLoginDirect(body.identifier, body.assertion),
             );
-            return result;
+            return {
+              session: toTokenResponse(result.session),
+              profile: result.profile,
+            };
           } catch (e) {
             set.status = 400;
             return { error: String(e) };
@@ -862,7 +858,10 @@ export function createAuthRoutes(
           }
           try {
             const result = await run(auth.completeOtpDirect(body.identifier, body.code));
-            return result;
+            return {
+              session: toTokenResponse(result.session),
+              profile: result.profile,
+            };
           } catch (e) {
             set.status = 400;
             return { error: String(e) };
@@ -897,7 +896,10 @@ export function createAuthRoutes(
         async ({ query, set }) => {
           try {
             const result = await run(auth.verifyMagicDirect(query.token));
-            return result;
+            return {
+              session: toTokenResponse(result.session),
+              profile: result.profile,
+            };
           } catch (e) {
             set.status = 400;
             return { error: String(e) };

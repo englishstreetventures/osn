@@ -20,7 +20,7 @@ related:
 packages:
   - "@osn/ui"
   - "@pulse/app"
-last-reviewed: 2026-04-15
+last-reviewed: 2026-04-16
 ---
 
 # Component Library (Zaidan)
@@ -52,13 +52,14 @@ osn/ui/src/
 │       ├── dialog.tsx         ← Dialog, DialogContent, etc. (Kobalte)
 │       ├── input.tsx          ← Input
 │       ├── label.tsx          ← Label
+│       ├── otp-input.tsx      ← OtpInput (6-digit code verification)
 │       ├── popover.tsx        ← Popover, PopoverTrigger, etc. (Kobalte)
 │       ├── radio-group.tsx    ← RadioGroup, RadioGroupItem (Kobalte)
 │       ├── tabs.tsx           ← Tabs, TabsList, TabsTrigger (Kobalte)
 │       └── textarea.tsx       ← Textarea
 └── auth/
-    ├── Register.tsx           ← uses Button, Input, Label
-    └── SignIn.tsx             ← uses Button, Input, Label, clsx()
+    ├── Register.tsx           ← uses Button, Input, Label, OtpInput
+    └── SignIn.tsx             ← uses Button, Input, Label, OtpInput, clsx()
 ```
 
 Consuming apps import via subpath exports:
