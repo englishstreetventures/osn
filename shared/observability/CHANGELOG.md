@@ -1,5 +1,11 @@
 # @shared/observability
 
+## 0.3.3
+
+### Patch Changes
+
+- 2d5cce9: HttpOnly cookie sessions (C3), Origin guard (M1), hash magic/OTP tokens (H2/H3), extract shared auth derive (S-M2)
+
 ## 0.3.2
 
 ### Patch Changes

@@ -1,5 +1,17 @@
 # @osn/osn
 
+## 1.5.0
+
+### Minor Changes
+
+- 2d5cce9: HttpOnly cookie sessions (C3), Origin guard (M1), hash magic/OTP tokens (H2/H3), extract shared auth derive (S-M2)
+
+### Patch Changes
+
+- Updated dependencies [2d5cce9]
+  - @shared/observability@0.3.3
+  - @shared/crypto@0.5.3
+
 ## 1.4.0
 
 ### Minor Changes

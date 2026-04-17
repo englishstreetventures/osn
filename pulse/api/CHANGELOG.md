@@ -1,5 +1,13 @@
 # @osn/api
 
+## 0.11.3
+
+### Patch Changes
+
+- Updated dependencies [2d5cce9]
+  - @shared/observability@0.3.3
+  - @shared/crypto@0.5.3
+
 ## 0.11.2
 
 ### Patch Changes
