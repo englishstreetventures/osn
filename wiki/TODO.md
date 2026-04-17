@@ -14,6 +14,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 - [ ] Zap rate limiting on write endpoints (S-M1) — see [[rate-limiting]]
 - [ ] Recommendations SQL aggregation + caching (P-W6/P-W7) — next step after the in-JS fan-out cap shipped in this PR — see [[social-graph]]
 - [ ] Factor shared `authGet/Post/Patch/Delete` helpers in `@osn/client` (P-I1)
+- [ ] Auth Improvements Phase 1: Server-side sessions + refresh token rotation + session invalidation (C1/C2/H1)
 
 ---
 
@@ -136,7 +137,7 @@ OSN's messaging app. Stack matches Pulse (Bun, Tauri+Solid, Elysia+Eden, Drizzle
 
 ### Database (`osn/db`, `pulse/db`)
 
-- [ ] OSN Core: session schema (JWT-based for now; DB storage deferred)
+- [x] OSN Core: session schema — server-side sessions with SHA-256 hashed opaque tokens (Copenhagen Book C1)
 - [ ] Pulse: event series schema
 - [ ] Add indexes on `status` and `category` columns in pulse-db events schema
 
@@ -308,6 +309,31 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [ ] P-I15 — `rsvpCounts` calls `loadEvent(eventId)` redundantly (route already gates via `loadVisibleEvent`)
 - [ ] P-I1 (client) — Duplicated `authGet`/`authPost`/`authPatch`/`authDelete` helpers across `graph.ts`, `organisations.ts`, `recommendations.ts`. Factor to `@osn/client/src/lib/auth-fetch.ts` parameterised by error-class constructor — see [[component-library]]
 - [ ] P-I4 (social) — List pages (`ConnectionsPage`, `OrganisationsPage`) have no pagination UI. Server supports `limit`/`offset` but users with &gt;50 connections silently lose visibility. Add infinite-scroll via `IntersectionObserver` or paginator
+
+---
+
+## Auth Improvements (Copenhagen Book Audit)
+
+Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenhagenbook.com/) by pilcrowonpaper. Organised in priority phases.
+
+### Phase 1 — Session Revocation (Critical)
+- [ ] C1: Server-side session table in `osn/db` — store hashed refresh tokens, enable revocation — see [[identity-model]]
+- [ ] C2: Refresh token rotation on `/token` refresh grant — new token each refresh, detect reuse — see [[identity-model]]
+- [ ] H1: Invalidate all sessions on security events (passkey registration, email change) — see [[identity-model]]
+
+### Phase 2 — Token Storage + Transport (Critical)
+- [ ] C3: Move refresh tokens from `localStorage` to `HttpOnly; Secure; SameSite=Lax` cookies (BFF pattern) — see [[identity-model]]
+- [ ] M1: Add Origin header validation middleware (required once cookies carry auth state) — see [[rate-limiting]]
+
+### Phase 3 — Defense-in-Depth (High)
+- [ ] H2: SHA-256 hash magic link tokens before storage in `magicStore` — see [[identity-model]]
+- [ ] H3: SHA-256 hash OTP codes before storage in `pendingRegistrations` — see [[identity-model]]
+- [ ] H4: Migrate `@zap/api` from shared-secret JWT verification to JWKS-based (align with Pulse) — see [[arc-tokens]]
+
+### Phase 4 — Hardening (Medium)
+- [ ] M2: Recovery codes for passkey-primary users (40+ bits entropy, Argon2id hashed) — see [[identity-model]]
+- [ ] M3: Email max length validation (≤255 chars) in `EmailSchema`
+- [ ] M5: Increase registration OTP from 6-digit to 8-digit (or 6-char alphanumeric)
 
 ---
 

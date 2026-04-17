@@ -1,6 +1,6 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
-import { accounts, users, passkeys } from "@osn/db/schema";
+import { accounts, sessions, users, passkeys } from "@osn/db/schema";
 import type { Profile } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import {
@@ -221,6 +221,31 @@ function sweepExpired<T extends { expiresAt: number }>(map: Map<string, T>): voi
   for (const [key, entry] of map) {
     if (entry.expiresAt <= nowMs) map.delete(key);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Session token helpers (Copenhagen Book C1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Generates an opaque session token: 20 random bytes (160-bit entropy),
+ * hex-encoded with a `ses_` prefix for developer ergonomics.
+ * The raw token is held by the client; the server stores only its SHA-256 hash.
+ */
+function generateSessionToken(): string {
+  const bytes = new Uint8Array(20);
+  crypto.getRandomValues(bytes);
+  return "ses_" + Buffer.from(bytes).toString("hex");
+}
+
+/**
+ * SHA-256 hash of the raw session token. This is what gets stored in the
+ * sessions table as the primary key. A DB leak does not expose valid tokens
+ * because the token has 160 bits of entropy — brute-forcing the preimage
+ * of SHA-256 is infeasible.
+ */
+function hashSessionToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 const EmailSchema = Schema.String.pipe(
@@ -755,15 +780,18 @@ export function createAuthService(config: AuthConfig) {
   // Token issuance
   // -------------------------------------------------------------------------
 
-  const issueTokens = (
+  /**
+   * Signs a short-lived ES256 access token JWT. Used by both initial login
+   * (via `issueTokens`) and token refresh / profile switch (standalone).
+   */
+  const issueAccessToken = (
     profileId: string,
-    accountId: string,
     email: string,
     handle: string,
     displayName: string | null,
   ) =>
     Effect.tryPromise({
-      try: async () => {
+      try: () => {
         const payload: Record<string, unknown> = {
           sub: profileId,
           email,
@@ -771,19 +799,45 @@ export function createAuthService(config: AuthConfig) {
           scope: "openid profile",
         };
         if (displayName !== null) payload["displayName"] = displayName;
-
-        const [accessToken, refreshToken] = await Promise.all([
-          signJwt(payload, config.jwtPrivateKey, config.jwtKid, accessTokenTtl),
-          signJwt(
-            { sub: accountId, type: "refresh", scope: "account" },
-            config.jwtPrivateKey,
-            config.jwtKid,
-            refreshTokenTtl,
-          ),
-        ]);
-        return { accessToken, refreshToken, expiresIn: accessTokenTtl };
+        return signJwt(payload, config.jwtPrivateKey, config.jwtKid, accessTokenTtl);
       },
       catch: (cause) => new AuthError({ message: String(cause) }),
+    });
+
+  /**
+   * Full token issuance: creates a server-side session row and returns an
+   * opaque session token (the "refresh token") alongside a short-lived
+   * access token JWT. The session token is what the client persists; the
+   * server only stores its SHA-256 hash (Copenhagen Book C1).
+   */
+  const issueTokens = (
+    profileId: string,
+    accountId: string,
+    email: string,
+    handle: string,
+    displayName: string | null,
+  ): Effect.Effect<TokenSet, AuthError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const accessToken = yield* issueAccessToken(profileId, email, handle, displayName);
+
+      // Generate opaque session token + store SHA-256 hash in DB
+      const sessionToken = generateSessionToken();
+      const sessionId = hashSessionToken(sessionToken);
+      const nowSec = Math.floor(Date.now() / 1000);
+
+      const { db } = yield* Db;
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(sessions).values({
+            id: sessionId,
+            accountId,
+            expiresAt: nowSec + refreshTokenTtl,
+            createdAt: nowSec,
+          }),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+
+      return { accessToken, refreshToken: sessionToken, expiresIn: accessTokenTtl };
     });
 
   // -------------------------------------------------------------------------
@@ -901,27 +955,57 @@ export function createAuthService(config: AuthConfig) {
     });
 
   // -------------------------------------------------------------------------
-  // Token refresh
+  // Token refresh (server-side sessions — Copenhagen Book C1)
   // -------------------------------------------------------------------------
 
   /**
-   * Verifies a refresh token and extracts the accountId. Shared by
-   * `refreshTokens`, `switchProfile`, and `listAccountProfiles`.
+   * Verifies a session token by looking up its SHA-256 hash in the sessions
+   * table. Implements sliding-window expiry: when less than half the TTL
+   * remains, `expiresAt` is extended by the full TTL from now.
+   *
+   * Shared by `refreshTokens`, `switchProfile`, and `listAccountProfiles`.
    */
-  const verifyRefreshToken = (token: string): Effect.Effect<{ accountId: string }, AuthError> =>
+  const verifyRefreshToken = (
+    token: string,
+  ): Effect.Effect<{ accountId: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const payload = yield* Effect.tryPromise({
-        try: () => verifyJwt(token, config.jwtPublicKey),
-        catch: () => new AuthError({ message: "Invalid or expired refresh token" }),
+      const sessionId = hashSessionToken(token);
+      const { db } = yield* Db;
+
+      const result = yield* Effect.tryPromise({
+        try: () => db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
       });
-      if (
-        payload["type"] !== "refresh" ||
-        payload["scope"] !== "account" ||
-        typeof payload["sub"] !== "string"
-      ) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid token type" }));
+      const session = result[0];
+      if (!session) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
       }
-      return { accountId: payload["sub"] };
+
+      const nowSec = Math.floor(Date.now() / 1000);
+
+      // Expired — clean up lazily
+      if (nowSec >= session.expiresAt) {
+        yield* Effect.tryPromise({
+          try: () => db.delete(sessions).where(eq(sessions.id, sessionId)),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
+      }
+
+      // Sliding window: extend when less than half the TTL remains
+      const halfTtl = Math.floor(refreshTokenTtl / 2);
+      if (session.expiresAt - nowSec < halfTtl) {
+        yield* Effect.tryPromise({
+          try: () =>
+            db
+              .update(sessions)
+              .set({ expiresAt: nowSec + refreshTokenTtl })
+              .where(eq(sessions.id, sessionId)),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+      }
+
+      return { accountId: session.accountId };
     });
 
   /**
@@ -950,26 +1034,31 @@ export function createAuthService(config: AuthConfig) {
       return { ...row.profile, email: row.account.email };
     });
 
+  /**
+   * Refreshes a session: verifies the session token (with sliding-window
+   * extension), finds the default profile, and issues a new access token.
+   * The session token itself is unchanged — the same opaque token is returned.
+   */
   const refreshTokens = (
-    refreshToken: string,
+    sessionToken: string,
   ): Effect.Effect<
     { accessToken: string; refreshToken: string; expiresIn: number },
     AuthError | DatabaseError,
     Db
   > =>
     Effect.gen(function* () {
-      const { accountId } = yield* verifyRefreshToken(refreshToken);
+      const { accountId } = yield* verifyRefreshToken(sessionToken);
       const profile = yield* findDefaultProfile(accountId);
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
-      return yield* issueTokens(
+      const accessToken = yield* issueAccessToken(
         profile.id,
-        accountId,
         profile.email,
         profile.handle,
         profile.displayName,
       );
+      return { accessToken, refreshToken: sessionToken, expiresIn: accessTokenTtl };
     }).pipe(withAuthTokenRefresh);
 
   // -------------------------------------------------------------------------
@@ -1584,24 +1673,52 @@ export function createAuthService(config: AuthConfig) {
           new AuthError({ message: "Profile does not belong to this account" }),
         );
       }
-      // Issue only a new access token — the refresh token is account-scoped and unchanged.
-      const payload: Record<string, unknown> = {
-        sub: profile.id,
-        email: profile.email,
-        handle: profile.handle,
-        scope: "openid profile",
-      };
-      if (profile.displayName !== null) payload["displayName"] = profile.displayName;
-      const accessToken = yield* Effect.tryPromise({
-        try: () => signJwt(payload, config.jwtPrivateKey, config.jwtKid, accessTokenTtl),
-        catch: (cause) => new AuthError({ message: String(cause) }),
-      });
+      // Issue only a new access token — the session token is account-scoped and unchanged.
+      const accessToken = yield* issueAccessToken(
+        profile.id,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
       return {
         accessToken,
         expiresIn: accessTokenTtl,
         profile: toPublicProfile(profile, profile.email),
       };
     }).pipe(withProfileSwitch("switch"));
+
+  // -------------------------------------------------------------------------
+  // Session invalidation (Copenhagen Book C1 — revocation)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Invalidates a single session by deleting its DB row. Used by the
+   * `/logout` endpoint. Silently succeeds if the session doesn't exist
+   * (idempotent — don't leak whether a session was valid).
+   */
+  const invalidateSession = (sessionToken: string): Effect.Effect<void, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const sessionId = hashSessionToken(sessionToken);
+      const { db } = yield* Db;
+      yield* Effect.tryPromise({
+        try: () => db.delete(sessions).where(eq(sessions.id, sessionId)),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+    });
+
+  /**
+   * Invalidates ALL sessions for an account. Used when a security event
+   * demands full session revocation (e.g. passkey registration, email
+   * change, account compromise). See auth improvements H1.
+   */
+  const invalidateAccountSessions = (accountId: string): Effect.Effect<void, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      yield* Effect.tryPromise({
+        try: () => db.delete(sessions).where(eq(sessions.accountId, accountId)),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+    });
 
   return {
     findProfileByEmail,
@@ -1634,6 +1751,8 @@ export function createAuthService(config: AuthConfig) {
     verifyMagic,
     verifyMagicDirect,
     validateRedirectUri,
+    invalidateSession,
+    invalidateAccountSessions,
   };
 }
 

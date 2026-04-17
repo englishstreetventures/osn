@@ -979,6 +979,30 @@ export function createAuthRoutes(
         },
       )
       // -------------------------------------------------------------------------
+      // Logout (server-side session destruction — Copenhagen Book C1)
+      // -------------------------------------------------------------------------
+      .post(
+        "/logout",
+        async ({ body, set }) => {
+          const { refresh_token } = body;
+          if (!refresh_token) {
+            set.status = 400;
+            return { error: "invalid_request" };
+          }
+          try {
+            await run(auth.invalidateSession(refresh_token));
+          } catch {
+            // Swallow — don't leak whether the session existed
+          }
+          return { success: true };
+        },
+        {
+          body: t.Object({
+            refresh_token: t.String(),
+          }),
+        },
+      )
+      // -------------------------------------------------------------------------
       // OIDC discovery (minimal)
       // -------------------------------------------------------------------------
       .get("/.well-known/openid-configuration", () => ({

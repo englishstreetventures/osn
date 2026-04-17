@@ -935,7 +935,7 @@ describe("login OTP attempt limit", () => {
 // ---------------------------------------------------------------------------
 
 describe("two-tier token model (P2)", () => {
-  it.effect("refresh token sub claim is the accountId, not the profileId", () =>
+  it.effect("verifyRefreshToken resolves the accountId from a session token", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("tier@example.com", "tier", "Tier");
       const tokens = yield* auth.issueTokens(
@@ -945,7 +945,7 @@ describe("two-tier token model (P2)", () => {
         profile.handle,
         profile.displayName,
       );
-      // Verify the refresh token — its sub should be the accountId
+      // Session token (opaque) should resolve to the correct accountId
       const { accountId } = yield* auth.verifyRefreshToken(tokens.refreshToken);
       expect(accountId).toBe(profile.accountId);
       // Access token sub should still be profileId
@@ -954,7 +954,21 @@ describe("two-tier token model (P2)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("refreshTokens resolves the default profile from account-scoped refresh token", () =>
+  it.effect("session token is opaque with ses_ prefix", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("sesprefix@example.com", "sesprefix");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      expect(tokens.refreshToken).toMatch(/^ses_[0-9a-f]{40}$/);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("refreshTokens resolves the default profile from account-scoped session token", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("refresh2@example.com", "refresh2");
       const tokens = yield* auth.issueTokens(
@@ -968,6 +982,21 @@ describe("two-tier token model (P2)", () => {
       const claims = yield* auth.verifyAccessToken(refreshed.accessToken);
       expect(claims.profileId).toBe(profile.id);
       expect(claims.handle).toBe("refresh2");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("refreshTokens returns the same session token (no rotation yet)", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("sametoken@example.com", "sametoken");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const refreshed = yield* auth.refreshTokens(tokens.refreshToken);
+      expect(refreshed.refreshToken).toBe(tokens.refreshToken);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -988,7 +1017,7 @@ describe("two-tier token model (P2)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("rejects an access token used as a refresh token (type mismatch)", () =>
+  it.effect("rejects a random string used as a session token", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("typemix@example.com", "typemix");
       const tokens = yield* auth.issueTokens(
@@ -998,14 +1027,14 @@ describe("two-tier token model (P2)", () => {
         profile.handle,
         profile.displayName,
       );
-      // Access token has no type: "refresh" claim — must be rejected
+      // An access token (JWT) is not a valid session token — must be rejected
       const switchErr = yield* Effect.flip(auth.switchProfile(tokens.accessToken, profile.id));
       expect(switchErr._tag).toBe("AuthError");
-      expect(switchErr.message).toContain("Invalid token type");
+      expect(switchErr.message).toContain("Invalid or expired session");
 
       const listErr = yield* Effect.flip(auth.listAccountProfiles(tokens.accessToken));
       expect(listErr._tag).toBe("AuthError");
-      expect(listErr.message).toContain("Invalid token type");
+      expect(listErr.message).toContain("Invalid or expired session");
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
@@ -1107,6 +1136,186 @@ describe("listAccountProfiles (P2)", () => {
     Effect.gen(function* () {
       const error = yield* Effect.flip(auth.listAccountProfiles("not.a.token"));
       expect(error._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Server-side sessions (Copenhagen Book C1)
+// ---------------------------------------------------------------------------
+
+describe("server-side sessions (C1)", () => {
+  it.effect("invalidateSession makes the session token unusable", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("revoke@example.com", "revoke");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+
+      // Session works before invalidation
+      const { accountId } = yield* auth.verifyRefreshToken(tokens.refreshToken);
+      expect(accountId).toBe(profile.accountId);
+
+      // Invalidate
+      yield* auth.invalidateSession(tokens.refreshToken);
+
+      // Session no longer works
+      const error = yield* Effect.flip(auth.verifyRefreshToken(tokens.refreshToken));
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toContain("Invalid or expired session");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("invalidateSession is idempotent (no error on double-invalidate)", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("idem@example.com", "idem");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      yield* auth.invalidateSession(tokens.refreshToken);
+      // Second invalidation should not throw
+      yield* auth.invalidateSession(tokens.refreshToken);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("invalidateAccountSessions revokes all sessions for an account", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("revokeall@example.com", "revokeall");
+
+      // Issue two separate sessions
+      const tokens1 = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const tokens2 = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+
+      // Both work
+      yield* auth.verifyRefreshToken(tokens1.refreshToken);
+      yield* auth.verifyRefreshToken(tokens2.refreshToken);
+
+      // Revoke all
+      yield* auth.invalidateAccountSessions(profile.accountId);
+
+      // Both fail
+      const err1 = yield* Effect.flip(auth.verifyRefreshToken(tokens1.refreshToken));
+      expect(err1._tag).toBe("AuthError");
+      const err2 = yield* Effect.flip(auth.verifyRefreshToken(tokens2.refreshToken));
+      expect(err2._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("invalidated session cannot be used for refreshTokens", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("norefresh@example.com", "norefresh");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      yield* auth.invalidateSession(tokens.refreshToken);
+
+      const error = yield* Effect.flip(auth.refreshTokens(tokens.refreshToken));
+      expect(error._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("invalidated session cannot be used for switchProfile", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("noswitch@example.com", "noswitch");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      yield* auth.invalidateSession(tokens.refreshToken);
+
+      const error = yield* Effect.flip(auth.switchProfile(tokens.refreshToken, profile.id));
+      expect(error._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("invalidated session cannot be used for listAccountProfiles", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("nolist@example.com", "nolist");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      yield* auth.invalidateSession(tokens.refreshToken);
+
+      const error = yield* Effect.flip(auth.listAccountProfiles(tokens.refreshToken));
+      expect(error._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("each issueTokens call creates a distinct session", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("distinct@example.com", "distinct");
+      const t1 = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const t2 = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      // Different session tokens
+      expect(t1.refreshToken).not.toBe(t2.refreshToken);
+
+      // Invalidating one doesn't affect the other
+      yield* auth.invalidateSession(t1.refreshToken);
+      const { accountId } = yield* auth.verifyRefreshToken(t2.refreshToken);
+      expect(accountId).toBe(profile.accountId);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("expired session is cleaned up and rejected on verify", () =>
+    Effect.gen(function* () {
+      // Use a 0-second TTL to create an instantly-expired session
+      const svc = createAuthService({ ...config, refreshTokenTtl: 0 });
+      const profile = yield* svc.registerProfile("expired@example.com", "expired");
+      const tokens = yield* svc.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+
+      // Should be expired immediately
+      const error = yield* Effect.flip(svc.verifyRefreshToken(tokens.refreshToken));
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toContain("Invalid or expired session");
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

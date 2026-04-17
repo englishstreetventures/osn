@@ -10,7 +10,7 @@ packages:
   - "@osn/db"
   - "@osn/core"
   - "@osn/client"
-last-reviewed: 2026-04-15
+last-reviewed: 2026-04-17
 p4-completed: 2026-04-14
 p2-completed: 2026-04-14
 p3-completed: 2026-04-14
@@ -118,17 +118,32 @@ Organisations are independent entities that are **composed of profiles, not acco
 
 ## Token Model
 
-| Token | Bound to | `sub` claim | TTL | Purpose |
-|-------|----------|-------------|-----|---------|
-| Access | Profile | `profileId` | 1 hour | Authorize API calls as a specific profile |
-| Refresh | Account | `accountId` | 30 days | Re-issue access tokens; enables profile switching without re-authentication |
-| Enrollment | Account | `accountId` | 5 min | Passkey registration after signup |
+| Token | Bound to | Format | TTL | Purpose |
+|-------|----------|--------|-----|---------|
+| Access | Profile | ES256 JWT (`sub` = profileId) | 1 hour | Authorize API calls as a specific profile |
+| Session (refresh) | Account | Opaque `ses_` + 40 hex chars (160-bit entropy) | 30 days (sliding) | Re-issue access tokens; enables profile switching without re-authentication |
+| Enrollment | Account | ES256 JWT (`sub` = accountId) | 5 min | Passkey registration after signup |
 
-The two-tier token model (P2) scopes refresh tokens to accounts and access tokens to profiles. Refresh tokens include a `scope: "account"` claim that is explicitly validated on verification.
+### Server-side sessions (Copenhagen Book C1)
+
+Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The server stores only the **SHA-256 hash** of each token in the `sessions` table. A database leak does not expose valid tokens because the tokens have 160 bits of entropy.
+
+**Sliding-window expiry:** when less than half the TTL remains (< 15 days), the session's `expiresAt` is extended by the full TTL from now. This matches the Copenhagen Book's recommended pattern.
+
+**Revocation:** `invalidateSession(token)` deletes a single session row; `invalidateAccountSessions(accountId)` deletes all sessions for an account (used for security events). `POST /logout` exposes single-session invalidation.
+
+**Sessions table:**
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `text PK` | SHA-256(raw token), hex-encoded |
+| `account_id` | `text FK → accounts.id` | The owning account |
+| `expires_at` | `integer` | Unix seconds |
+| `created_at` | `integer` | Unix seconds |
 
 Two profile management endpoints:
-- `POST /profiles/switch` — present the account-scoped refresh token + target `profileId` in the request body; receive a new access token for that profile. Per-account rate limited (20 switches/hr).
-- `POST /profiles/list` — present the refresh token in the request body; receive all profiles for the account. Refresh tokens are never sent via `Authorization` headers to avoid conflation with access tokens.
+- `POST /profiles/switch` — present the session token + target `profileId` in the request body; receive a new access token for that profile. Per-account rate limited (20 switches/hr).
+- `POST /profiles/list` — present the session token in the request body; receive all profiles for the account. Session tokens are never sent via `Authorization` headers to avoid conflation with access tokens.
 
 ## Client Storage Model (P4)
 

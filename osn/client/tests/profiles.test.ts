@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect";
 import { vi } from "vitest";
 
 import { OsnAuth, createOsnAuthLive } from "../src/service";
-import { Storage, createMemoryStorage } from "../src/storage";
+import { createMemoryStorage } from "../src/storage";
 
 const config = { issuerUrl: "https://osn.example.com", clientId: "test-client" };
 
@@ -65,48 +65,6 @@ it.effect("getSession returns a Session reconstructed from the account session",
     expect(session?.scopes).toEqual(["openid", "profile"]);
   }).pipe(Effect.provide(createTestLayer())),
 );
-
-// ---------------------------------------------------------------------------
-// Legacy session migration
-// ---------------------------------------------------------------------------
-
-it.effect("migrates a legacy single-key session to the account session model", () => {
-  const memStorage = createMemoryStorage();
-  const testLayer = Layer.merge(
-    createOsnAuthLive(config).pipe(Layer.provide(memStorage)),
-    memStorage,
-  );
-
-  return Effect.gen(function* () {
-    const storage = yield* Storage;
-    const auth = yield* OsnAuth;
-
-    // Write a legacy-format session directly to storage (bypassing the service)
-    const legacySession = {
-      accessToken: fakeJwt("usr_legacy_user"),
-      refreshToken: "ref_legacy",
-      idToken: "id_legacy",
-      expiresAt: Date.now() + 60_000,
-      scopes: ["openid"],
-    };
-    yield* storage.set("@osn/client:session", JSON.stringify(legacySession));
-
-    // getSession should trigger migration
-    const session = yield* auth.getSession();
-    expect(session?.refreshToken).toBe("ref_legacy");
-
-    const active = yield* auth.getActiveProfile();
-    expect(active).toBe("usr_legacy_user");
-
-    // Legacy key should be cleaned up
-    const legacy = yield* storage.get("@osn/client:session");
-    expect(legacy).toBeNull();
-
-    // New key should exist
-    const newKey = yield* storage.get("@osn/client:account_session");
-    expect(newKey).not.toBeNull();
-  }).pipe(Effect.provide(testLayer));
-});
 
 // ---------------------------------------------------------------------------
 // listProfiles

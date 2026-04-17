@@ -14,7 +14,6 @@ import {
   decodeAccountSession,
   decodeCreateProfileResponse,
   decodeListProfilesResponse,
-  decodeSession,
   decodeSwitchProfileResponse,
   extractJwtSub,
   parseTokenResponse,
@@ -22,7 +21,6 @@ import {
 import type { AccountSession, PublicProfile, Session } from "./tokens";
 
 const ACCOUNT_SESSION_KEY = "@osn/client:account_session";
-const LEGACY_SESSION_KEY = "@osn/client:session";
 const VERIFIER_KEY = "@osn/client:pkce_verifier";
 const STATE_KEY = "@osn/client:state";
 
@@ -146,7 +144,6 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         return storage.set(ACCOUNT_SESSION_KEY, JSON.stringify(account));
       };
 
-      /** Read account session from storage, migrating from the legacy single-key format if needed. */
       const getAccountSession = () =>
         Effect.gen(function* () {
           // P-W1: Return cached value if available
@@ -166,46 +163,8 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             }
           }
 
-          // Attempt migration from legacy single-key storage
-          const legacy = yield* storage.get(LEGACY_SESSION_KEY);
-          if (!legacy) {
-            cache = null;
-            return null;
-          }
-
-          // S-H2: Validate legacy session data
-          let legacySession: Session;
-          try {
-            legacySession = decodeSession(JSON.parse(legacy)) as Session;
-          } catch {
-            yield* storage.remove(LEGACY_SESSION_KEY);
-            cache = null;
-            return null;
-          }
-
-          if (!legacySession.refreshToken) {
-            yield* storage.remove(LEGACY_SESSION_KEY);
-            cache = null;
-            return null;
-          }
-
-          const profileId = extractJwtSub(legacySession.accessToken) ?? "default";
-          const account: AccountSession = {
-            refreshToken: legacySession.refreshToken,
-            activeProfileId: profileId,
-            profileTokens: {
-              [profileId]: {
-                accessToken: legacySession.accessToken,
-                expiresAt: legacySession.expiresAt,
-              },
-            },
-            scopes: legacySession.scopes,
-            idToken: legacySession.idToken,
-          };
-
-          yield* saveAccountSession(account);
-          yield* storage.remove(LEGACY_SESSION_KEY);
-          return account;
+          cache = null;
+          return null;
         });
 
       // ---------------------------------------------------------------------------
@@ -331,7 +290,6 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         Effect.gen(function* () {
           cache = null;
           yield* storage.remove(ACCOUNT_SESSION_KEY);
-          yield* storage.remove(LEGACY_SESSION_KEY);
         });
 
       const setSession = (session: Session) => saveAccountSession(sessionToAccountSession(session));

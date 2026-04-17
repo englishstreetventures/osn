@@ -11,7 +11,7 @@ import {
 } from "./schema";
 import type {
   NewAccount,
-  NewUser,
+  NewProfile,
   NewConnection,
   NewCloseFriend,
   NewOrganisation,
@@ -75,9 +75,9 @@ export function buildSeedAccounts(now: Date): NewAccount[] {
  * acc_seed_multi owns 3 profiles to exercise multi-account features:
  *   usr_seed_multi_main (default), usr_seed_multi_alt, usr_seed_multi_work
  */
-export function buildSeedUsers(now: Date): NewUser[] {
+export function buildSeedUsers(now: Date): NewProfile[] {
   /** Shorthand: single-profile account (1:1 mapping) */
-  const solo = (name: string, displayName: string): NewUser => ({
+  const solo = (name: string, displayName: string): NewProfile => ({
     id: `usr_seed_${name}`,
     accountId: `acc_seed_${name}`,
     handle: name,

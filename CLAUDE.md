@@ -111,6 +111,8 @@ Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+RES
 
 **User Access Tokens** — ES256 JWTs issued by `@osn/api` on login. Public key exposed at `GET /.well-known/jwks.json`. Downstream services (e.g. `@pulse/api`) verify via JWKS fetch — no shared secret. `AuthConfig` takes `jwtPrivateKey`, `jwtPublicKey`, `jwtKid`, `jwtPublicKeyJwk` (not `jwtSecret`). Env vars: `OSN_JWT_PRIVATE_KEY` / `OSN_JWT_PUBLIC_KEY` (base64 JWK JSON); ephemeral pair generated in local dev when unset. `thumbprintKid(publicKey)` from `@shared/crypto` computes the RFC 7638 kid. Downstream: set `OSN_JWKS_URL` in each service; must be HTTPS in non-local envs.
 
+**Server-side Sessions (Copenhagen Book C1)** — Session tokens (refresh tokens) are opaque (`ses_` + 40 hex chars, 160-bit entropy). Server stores only SHA-256(token) in the `sessions` table — DB leak does not expose valid tokens. Sliding-window expiry: 30 days, extended when <15 days remain. `invalidateSession(token)` revokes one session; `invalidateAccountSessions(accountId)` revokes all. `POST /logout` endpoint for server-side session destruction. See `[[wiki/systems/identity-model]]`.
+
 **Observability** — OpenTelemetry end-to-end, shipped to Grafana Cloud. Three golden rules: no `console.*`, no raw OTel constructors, no unbounded metric attributes. See `[[wiki/observability/overview]]`.
 
 **Rate Limiting** — Per-IP fixed-window on all auth endpoints; per-user on graph writes, org writes, and `/recommendations/connections` reads. Two backends: Redis-backed when `REDIS_URL` is set (cross-process, survives restarts), in-memory fallback when unset (local dev). See `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]`.

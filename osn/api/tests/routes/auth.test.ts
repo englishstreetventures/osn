@@ -912,13 +912,15 @@ describe("auth routes", () => {
         svc.registerProfile("quinn@example.com", "quinn").pipe(Effect.provide(layer)),
       );
       const tokens = await Effect.runPromise(
-        svc.issueTokens(
-          profile.id,
-          profile.accountId,
-          profile.email,
-          profile.handle,
-          profile.displayName,
-        ),
+        svc
+          .issueTokens(
+            profile.id,
+            profile.accountId,
+            profile.email,
+            profile.handle,
+            profile.displayName,
+          )
+          .pipe(Effect.provide(layer)),
       );
       const res = await app.handle(
         new Request("http://localhost/passkey/register/begin", {

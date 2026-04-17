@@ -55,10 +55,6 @@ export const passkeys = sqliteTable(
 
 export type Profile = typeof users.$inferSelect;
 export type NewProfile = typeof users.$inferInsert;
-/** @deprecated Use `Profile` — kept for migration compatibility. */
-export type User = Profile;
-/** @deprecated Use `NewProfile` — kept for migration compatibility. */
-export type NewUser = NewProfile;
 export type Passkey = typeof passkeys.$inferSelect;
 export type NewPasskey = typeof passkeys.$inferInsert;
 
@@ -179,6 +175,38 @@ export const serviceAccountKeys = sqliteTable(
 
 export type ServiceAccountKey = typeof serviceAccountKeys.$inferSelect;
 export type NewServiceAccountKey = typeof serviceAccountKeys.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Sessions (server-side session store — Copenhagen Book C1)
+//
+// Refresh tokens are opaque (20 random bytes, hex-encoded, `ses_` prefix).
+// The raw token is held by the client; the server stores only the SHA-256
+// hash as the primary key. A database leak therefore does not expose valid
+// session tokens (same principle as password hashing, but SHA-256 suffices
+// because the token already has 160 bits of entropy).
+//
+// Sliding-window expiry: when less than half the TTL remains, `expiresAt`
+// is extended to `now + TTL` on the next verification.
+// ---------------------------------------------------------------------------
+
+export const sessions = sqliteTable(
+  "sessions",
+  {
+    /** SHA-256(raw session token), hex-encoded */
+    id: text("id").primaryKey(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    /** Unix seconds */
+    expiresAt: integer("expires_at").notNull(),
+    /** Unix seconds */
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("sessions_account_idx").on(t.accountId)],
+);
+
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Organisations

@@ -78,6 +78,15 @@ export function createTestLayer() {
   sqlite.run(`CREATE INDEX blocks_blocker_idx ON blocks (blocker_id)`);
   sqlite.run(`CREATE INDEX blocks_blocked_idx ON blocks (blocked_id)`);
   sqlite.run(`
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  sqlite.run(`CREATE INDEX sessions_account_idx ON sessions (account_id)`);
+  sqlite.run(`
     CREATE TABLE service_accounts (
       service_id TEXT PRIMARY KEY,
       allowed_scopes TEXT NOT NULL,
