@@ -125,6 +125,11 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     // breaking the multi-account privacy invariant (P6 audit).
     "accountId",
     "account_id",
+    // `familyId` is the session family identifier — all rotated tokens in a
+    // refresh chain share this value (Copenhagen Book C2). Leaking it would
+    // let an operator correlate sessions across rotation events.
+    "familyId",
+    "family_id",
     "email",
     "handle",
     "displayName",

@@ -25,6 +25,7 @@ import type {
   ProfileSwitchAction,
   RegisterStep,
   Result,
+  SecurityInvalidationTrigger,
 } from "@shared/observability/metrics";
 import { Effect } from "effect";
 
@@ -40,6 +41,10 @@ export const OSN_METRICS = {
   authOtpSent: "osn.auth.otp.sent",
   authMagicLinkSent: "osn.auth.magic_link.sent",
   authRateLimited: "osn.auth.rate_limited",
+  authSessionRotations: "osn.auth.session.rotations",
+  authSessionReuseDetected: "osn.auth.session.reuse_detected",
+  authSessionFamilyRevoked: "osn.auth.session.family_revoked",
+  authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
   graphConnectionOps: "osn.graph.connection.operations",
   graphBlockOps: "osn.graph.block.operations",
   graphCloseFriendOps: "osn.graph.close_friend.operations",
@@ -423,6 +428,55 @@ export const withProfileCrud =
 
 export const metricAuthRateLimited = (endpoint: AuthRateLimitedEndpoint): void =>
   authRateLimited.inc({ endpoint });
+
+// ---------------------------------------------------------------------------
+// Session rotation (Copenhagen Book C2)
+// ---------------------------------------------------------------------------
+
+type SessionRotationAttrs = { result: Result };
+type SecurityInvalidationAttrs = { trigger: SecurityInvalidationTrigger };
+
+const authSessionRotations = createCounter<SessionRotationAttrs>({
+  name: OSN_METRICS.authSessionRotations,
+  description: "Refresh token rotation attempts and outcomes",
+  unit: "{rotation}",
+});
+
+const authSessionReuseDetected = createCounter<Record<never, never>>({
+  name: OSN_METRICS.authSessionReuseDetected,
+  description: "Replayed rotated-out session tokens detected (security signal)",
+  unit: "{detection}",
+});
+
+const authSessionFamilyRevoked = createCounter<Record<never, never>>({
+  name: OSN_METRICS.authSessionFamilyRevoked,
+  description: "Entire session families revoked due to token reuse detection",
+  unit: "{revocation}",
+});
+
+const authSessionSecurityInvalidation = createCounter<SecurityInvalidationAttrs>({
+  name: OSN_METRICS.authSessionSecurityInvalidation,
+  description: "Sessions invalidated due to security events (H1)",
+  unit: "{invalidation}",
+});
+
+export const withSessionRotation = <A, E, Ctx>(
+  effect: Effect.Effect<A, E, Ctx>,
+): Effect.Effect<A, E, Ctx> =>
+  effect.pipe(
+    Effect.withSpan("auth.session.rotate"),
+    Effect.tap(() => Effect.sync(() => authSessionRotations.inc({ result: "ok" }))),
+    Effect.tapError((e) =>
+      Effect.sync(() => authSessionRotations.inc({ result: classifyError(e) })),
+    ),
+  );
+
+export const metricSessionReuseDetected = (): void => authSessionReuseDetected.inc({});
+
+export const metricSessionFamilyRevoked = (): void => authSessionFamilyRevoked.inc({});
+
+export const metricSessionSecurityInvalidation = (trigger: SecurityInvalidationTrigger): void =>
+  authSessionSecurityInvalidation.inc({ trigger });
 
 // ---------------------------------------------------------------------------
 // JWKS

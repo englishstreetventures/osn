@@ -14,7 +14,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 - [ ] Zap rate limiting on write endpoints (S-M1) — see [[rate-limiting]]
 - [ ] Recommendations SQL aggregation + caching (P-W6/P-W7) — next step after the in-JS fan-out cap shipped in this PR — see [[social-graph]]
 - [ ] Factor shared `authGet/Post/Patch/Delete` helpers in `@osn/client` (P-I1)
-- [ ] Auth Improvements Phase 1: Server-side sessions + refresh token rotation + session invalidation (C1/C2/H1)
+- [x] Auth Improvements Phase 1: Server-side sessions + refresh token rotation + session invalidation (C1/C2/H1)
 
 ---
 
@@ -178,7 +178,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 
 ### High
 
-- [ ] S-H1 (client) — Refresh token sent in JSON body to `/profiles/list`, `/profiles/switch`, `/profiles/create`, `/profiles/delete`. Migrate server endpoints to accept Bearer access-token auth instead, reducing refresh-token exposure surface — see [[identity-model]], [[arc-tokens]]
+- [x] S-H1 (client) — Refresh token sent in JSON body to `/profiles/list`, `/profiles/switch`, `/profiles/create`, `/profiles/delete`. **Fixed** — all profile endpoints now authenticate via `Authorization: Bearer <access_token>` header; refresh token no longer sent in request body — see [[identity-model]]
 - [x] S-H21 — Dev-mode `console.log` of OTP codes + recipient email in `osn/core/src/services/auth.ts`. **Fixed** — already uses `Effect.logDebug` (not `console.log`); guard tightened to `OSN_ENV` in log-level-debug PR.
 - [x] S-H100 — Revoked ARC keys valid for 5 min after revocation (in-process cache bypass). **Fixed** — `evictPublicKeyCacheEntry(kid)` called immediately on revoke; `publicKeyCache` stores `allowedScopes` for cache-hit scope validation — see [[arc-tokens]]
 - [x] S-H101 — `INTERNAL_SERVICE_SECRET` comparison not timing-safe. **Fixed** — `crypto.timingSafeEqual` in both `/register-service` and `/service-keys/:keyId` — see [[arc-tokens]]
@@ -211,6 +211,8 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-M6 (zap) — Truncated UUIDs (12 hex chars = 48 bits)
 - [x] S-L1 (multi) — `maxProfiles` column set to 5 but never enforced. **Fixed in P3** — `createProfile` checks count vs `accounts.maxProfiles`
 - [x] S-L2 (multi) — Email duplication between `accounts.email` and `users.email`. **Resolved** — `users` table has no `email` column; all email access via JOIN to `accounts`
+- [ ] S-H1 (session) — In-memory `rotatedSessions` map does not survive restarts or scale across instances. Move to Redis when multi-replica deploys — see [[identity-model]]
+- [ ] S-M2 (auth) — `resolveAccessTokenPrincipal` and `resolveAccountId` duplicated across `routes/auth.ts` and `routes/profile.ts`. Extract shared Elysia derive — see [[identity-model]]
 - [ ] S-H1 (org) — `listMembers` service returns full profile rows; route projects, but service should restrict
 - [ ] S-M1 (org) — `GET /organisations/:handle/members` has no membership gate
 - [ ] S-M3 (org) — `getOrganisation` returns `ownerId` internal ID
@@ -266,6 +268,8 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [x] P-W100 — `publicKeyCache` unbounded under key rotation churn. **Fixed** — `MAX_CACHE_SIZE` cap with oldest-entry eviction on write — see [[arc-tokens]]
 - [x] P-W101 — `peekClaims` decoded payload before checking header validity. **Fixed** — header decoded first; payload decode gated on `kid` present — see [[arc-tokens]]
 - [x] P-W102 — `evictExpiredTokens` O(n) scan on every `getOrCreateArcToken` call. **Fixed** — internal debounced sweep (`maybeSweepExpiredTokens`) runs at most once per 30 s; public `evictExpiredTokens` still sweeps immediately — see [[arc-tokens]]
+- [ ] P-W1 (session) — `trackRotatedSession` sweeps in-memory Map O(n) on every refresh. Decouple via periodic `setInterval` or move to Redis TTL keys — see [[identity-model]]
+- [ ] P-W2 (session) — S-H1 migration adds extra `findProfileById` DB round-trip on every profile endpoint. Embed `accountId` in access token or add profileId→accountId cache — see [[identity-model]]
 - [ ] P-W3 — `sendConnectionRequest` two sequential independent DB reads — use `Effect.all` with `concurrency: "unbounded"`
 - [ ] P-W3 (jwks) — `extractClaims` in pulse/api serialises JWKS resolve before DB I/O on read-only routes — parallelise with `Promise.all` for anonymous-capable endpoints — see [[arc-tokens]]
 - [ ] P-W4 — Auth Maps (`otpStore`, `magicStore`, `pkceStore`) never evict expired entries — see [[redis]]
@@ -317,9 +321,9 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenhagenbook.com/) by pilcrowonpaper. Organised in priority phases.
 
 ### Phase 1 — Session Revocation (Critical)
-- [ ] C1: Server-side session table in `osn/db` — store hashed refresh tokens, enable revocation — see [[identity-model]]
-- [ ] C2: Refresh token rotation on `/token` refresh grant — new token each refresh, detect reuse — see [[identity-model]]
-- [ ] H1: Invalidate all sessions on security events (passkey registration, email change) — see [[identity-model]]
+- [x] C1: Server-side session table in `osn/db` — store hashed refresh tokens, enable revocation — see [[identity-model]]
+- [x] C2: Refresh token rotation on `/token` refresh grant — new token each refresh, detect reuse — see [[identity-model]]
+- [x] H1: Invalidate all sessions on security events (passkey registration, email change) — see [[identity-model]]
 
 ### Phase 2 — Token Storage + Transport (Critical)
 - [ ] C3: Move refresh tokens from `localStorage` to `HttpOnly; Secure; SameSite=Lax` cookies (BFF pattern) — see [[identity-model]]

@@ -1386,8 +1386,8 @@ describe("auth routes", () => {
   // Profile switching (P2)
   // -------------------------------------------------------------------------
 
-  describe("POST /profiles/list", () => {
-    async function getRefreshToken(): Promise<{ refreshToken: string; profileId: string }> {
+  describe("GET /profiles/list", () => {
+    async function getAccessToken(): Promise<{ accessToken: string; profileId: string }> {
       let captured: string | undefined;
       const verifiedConfig = {
         ...config,
@@ -1417,18 +1417,16 @@ describe("auth routes", () => {
       );
       const json = (await completeRes.json()) as {
         profileId: string;
-        session: { refresh_token: string };
+        session: { access_token: string };
       };
-      return { refreshToken: json.session.refresh_token, profileId: json.profileId };
+      return { accessToken: json.session.access_token, profileId: json.profileId };
     }
 
-    it("returns the list of profiles for a valid refresh token", async () => {
-      const { refreshToken } = await getRefreshToken();
+    it("returns the list of profiles for a valid access token", async () => {
+      const { accessToken } = await getAccessToken();
       const res = await app.handle(
         new Request("http://localhost/profiles/list", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: refreshToken }),
+          headers: { Authorization: `Bearer ${accessToken}` },
         }),
       );
       expect(res.status).toBe(200);
@@ -1440,9 +1438,7 @@ describe("auth routes", () => {
     it("returns error with an invalid token", async () => {
       const res = await app.handle(
         new Request("http://localhost/profiles/list", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: "not.a.valid.token" }),
+          headers: { Authorization: "Bearer not.a.valid.token" },
         }),
       );
       expect(res.status).toBeGreaterThanOrEqual(400);
@@ -1454,12 +1450,9 @@ describe("auth routes", () => {
       const freshApp = createAuthRoutes(config, layer, Layer.empty, limiters);
       const res = await freshApp.handle(
         new Request("http://localhost/profiles/list", {
-          method: "POST",
           headers: {
-            "Content-Type": "application/json",
             "x-forwarded-for": "10.10.10.10",
           },
-          body: JSON.stringify({ refresh_token: "any" }),
         }),
       );
       expect(res.status).toBe(429);
@@ -1468,7 +1461,7 @@ describe("auth routes", () => {
 
   describe("POST /profiles/switch", () => {
     async function registerAndGetTokens(): Promise<{
-      refreshToken: string;
+      accessToken: string;
       profileId: string;
     }> {
       let captured: string | undefined;
@@ -1500,19 +1493,18 @@ describe("auth routes", () => {
       );
       const json = (await completeRes.json()) as {
         profileId: string;
-        session: { refresh_token: string };
+        session: { access_token: string };
       };
-      return { refreshToken: json.session.refresh_token, profileId: json.profileId };
+      return { accessToken: json.session.access_token, profileId: json.profileId };
     }
 
     it("switches to an owned profile and returns a new access token", async () => {
-      const { refreshToken, profileId } = await registerAndGetTokens();
+      const { accessToken, profileId } = await registerAndGetTokens();
       const res = await app.handle(
         new Request("http://localhost/profiles/switch", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
           body: JSON.stringify({
-            refresh_token: refreshToken,
             profile_id: profileId,
           }),
         }),
@@ -1529,13 +1521,12 @@ describe("auth routes", () => {
     });
 
     it("returns error for non-existent profile", async () => {
-      const { refreshToken } = await registerAndGetTokens();
+      const { accessToken } = await registerAndGetTokens();
       const res = await app.handle(
         new Request("http://localhost/profiles/switch", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
           body: JSON.stringify({
-            refresh_token: refreshToken,
             profile_id: "usr_aabbccddeeff",
           }),
         }),
@@ -1543,13 +1534,12 @@ describe("auth routes", () => {
       expect(res.status).toBeGreaterThanOrEqual(400);
     });
 
-    it("returns error for invalid refresh token", async () => {
+    it("returns error for invalid access token", async () => {
       const res = await app.handle(
         new Request("http://localhost/profiles/switch", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", Authorization: "Bearer not.a.token" },
           body: JSON.stringify({
-            refresh_token: "not.a.token",
             profile_id: "usr_aabbccddeeff",
           }),
         }),
@@ -1567,9 +1557,9 @@ describe("auth routes", () => {
           headers: {
             "Content-Type": "application/json",
             "x-forwarded-for": "10.10.10.10",
+            Authorization: "Bearer any",
           },
           body: JSON.stringify({
-            refresh_token: "any",
             profile_id: "usr_aabbccddeeff",
           }),
         }),

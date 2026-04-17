@@ -81,11 +81,13 @@ export function createTestLayer() {
     CREATE TABLE sessions (
       id TEXT PRIMARY KEY,
       account_id TEXT NOT NULL REFERENCES accounts(id),
+      family_id TEXT NOT NULL,
       expires_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL
     )
   `);
   sqlite.run(`CREATE INDEX sessions_account_idx ON sessions (account_id)`);
+  sqlite.run(`CREATE INDEX sessions_family_idx ON sessions (family_id)`);
   sqlite.run(`
     CREATE TABLE service_accounts (
       service_id TEXT PRIMARY KEY,

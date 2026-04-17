@@ -298,17 +298,36 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       // Profile management methods (P4)
       // ---------------------------------------------------------------------------
 
-      // S-H1: These endpoints currently require the refresh token in the request
-      // body (server API design from P2/P3). A follow-up should migrate the server
-      // to accept Bearer access-token auth instead, reducing refresh-token exposure.
-      // Tracked in wiki/TODO.md security backlog.
+      // S-H1: Profile endpoints authenticate via Bearer access token (not
+      // refresh token in body). The access token's `sub` claim identifies
+      // the caller's profile; the server resolves the owning account.
+
+      /**
+       * Returns the Authorization header value for the active profile's
+       * access token, or null if no valid token is available.
+       */
+      function authHeader(account: AccountSession): Record<string, string> | null {
+        const pt = account.profileTokens[account.activeProfileId];
+        if (!pt || Date.now() >= pt.expiresAt) return null;
+        return {
+          Authorization: `Bearer ${pt.accessToken}`,
+          "Content-Type": "application/json",
+        };
+      }
 
       const listProfiles = () =>
         Effect.gen(function* () {
           const account = yield* getAccountSession();
-          if (!account?.refreshToken) {
+          if (!account) {
             return yield* Effect.fail(
               new ProfileManagementError({ cause: "No session available" }),
+            );
+          }
+
+          const headers = authHeader(account);
+          if (!headers) {
+            return yield* Effect.fail(
+              new ProfileManagementError({ cause: "No valid access token" }),
             );
           }
 
@@ -316,9 +335,8 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           const res = yield* Effect.tryPromise({
             try: async () => {
               const r = await fetch(`${config.issuerUrl}/profiles/list`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ refresh_token: account.refreshToken }),
+                method: "GET",
+                headers,
               });
               if (!r.ok) throw new Error(`Request failed: ${r.status}`);
               return decodeListProfilesResponse(await r.json());
@@ -332,9 +350,16 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       const switchProfile = (profileId: string) =>
         Effect.gen(function* () {
           const account = yield* getAccountSession();
-          if (!account?.refreshToken) {
+          if (!account) {
             return yield* Effect.fail(
               new ProfileManagementError({ cause: "No session available" }),
+            );
+          }
+
+          const headers = authHeader(account);
+          if (!headers) {
+            return yield* Effect.fail(
+              new ProfileManagementError({ cause: "No valid access token" }),
             );
           }
 
@@ -343,11 +368,8 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             try: async () => {
               const r = await fetch(`${config.issuerUrl}/profiles/switch`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  refresh_token: account.refreshToken,
-                  profile_id: profileId,
-                }),
+                headers,
+                body: JSON.stringify({ profile_id: profileId }),
               });
               if (!r.ok) throw new Error(`Request failed: ${r.status}`);
               return decodeSwitchProfileResponse(await r.json());
@@ -379,16 +401,20 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       const createProfile = (handle: string, displayName?: string) =>
         Effect.gen(function* () {
           const account = yield* getAccountSession();
-          if (!account?.refreshToken) {
+          if (!account) {
             return yield* Effect.fail(
               new ProfileManagementError({ cause: "No session available" }),
             );
           }
 
-          const body: Record<string, string> = {
-            refresh_token: account.refreshToken,
-            handle,
-          };
+          const headers = authHeader(account);
+          if (!headers) {
+            return yield* Effect.fail(
+              new ProfileManagementError({ cause: "No valid access token" }),
+            );
+          }
+
+          const body: Record<string, string> = { handle };
           if (displayName !== undefined) body.display_name = displayName;
 
           // S-M4: Validate response schema
@@ -396,7 +422,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             try: async () => {
               const r = await fetch(`${config.issuerUrl}/profiles/create`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers,
                 body: JSON.stringify(body),
               });
               if (!r.ok) throw new Error(`Request failed: ${r.status}`);
@@ -411,9 +437,16 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       const deleteProfile = (profileId: string) =>
         Effect.gen(function* () {
           const account = yield* getAccountSession();
-          if (!account?.refreshToken) {
+          if (!account) {
             return yield* Effect.fail(
               new ProfileManagementError({ cause: "No session available" }),
+            );
+          }
+
+          const headers = authHeader(account);
+          if (!headers) {
+            return yield* Effect.fail(
+              new ProfileManagementError({ cause: "No valid access token" }),
             );
           }
 
@@ -421,11 +454,8 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             try: async () => {
               const r = await fetch(`${config.issuerUrl}/profiles/delete`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  refresh_token: account.refreshToken,
-                  profile_id: profileId,
-                }),
+                headers,
+                body: JSON.stringify({ profile_id: profileId }),
               });
               if (!r.ok) throw new Error(`Request failed: ${r.status}`);
               return (await r.json()) as unknown;

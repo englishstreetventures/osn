@@ -77,12 +77,12 @@ const RESERVED_HANDLES = new Set([
 
 export function createProfileService(authService: AuthService) {
   /**
-   * Creates a new profile under the account identified by the refresh token.
+   * Creates a new profile under the given account.
    * Enforces `maxProfiles` limit (S-L1) and validates handle availability
    * against both user and organisation handles (shared namespace).
    */
   const createProfile = (
-    refreshToken: string,
+    accountId: string,
     handle: string,
     displayName?: string,
   ): Effect.Effect<PublicProfile, AuthError | ValidationError | DatabaseError, Db> =>
@@ -94,7 +94,6 @@ export function createProfileService(authService: AuthService) {
         return yield* Effect.fail(new AuthError({ message: "Handle is reserved" }));
       }
 
-      const { accountId } = yield* authService.verifyRefreshToken(refreshToken);
       const { db } = yield* Db;
 
       // Pre-check: account exists + get email/maxProfiles (needed outside txn for return value)
@@ -177,12 +176,10 @@ export function createProfileService(authService: AuthService) {
    * cross-service cleanup in a later phase.
    */
   const deleteProfile = (
-    refreshToken: string,
+    accountId: string,
     targetProfileId: string,
   ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const { accountId } = yield* authService.verifyRefreshToken(refreshToken);
-
       const profile = yield* authService.findProfileById(targetProfileId);
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
@@ -284,12 +281,10 @@ export function createProfileService(authService: AuthService) {
    * is used when issuing tokens via `refreshTokens()`.
    */
   const setDefaultProfile = (
-    refreshToken: string,
+    accountId: string,
     targetProfileId: string,
   ): Effect.Effect<PublicProfile, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const { accountId } = yield* authService.verifyRefreshToken(refreshToken);
-
       const profile = yield* authService.findProfileById(targetProfileId);
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));

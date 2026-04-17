@@ -36,4 +36,5 @@ export {
   type ProfileCrudAction,
   type ProfileDeleteCascadeTable,
   type JwksCacheResult,
+  type SecurityInvalidationTrigger,
 } from "./attrs";

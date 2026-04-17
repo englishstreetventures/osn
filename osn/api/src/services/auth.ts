@@ -16,7 +16,7 @@ import type {
   PublicKeyCredentialCreationOptionsJSON,
   PublicKeyCredentialRequestOptionsJSON,
 } from "@simplewebauthn/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 import { SignJWT, jwtVerify } from "jose";
 
@@ -24,9 +24,13 @@ import {
   metricAuthHandleCheck,
   metricAuthMagicLinkSent,
   metricAuthOtpSent,
+  metricSessionReuseDetected,
+  metricSessionFamilyRevoked,
+  metricSessionSecurityInvalidation,
   withAuthLogin,
   withAuthRegister,
   withAuthTokenRefresh,
+  withSessionRotation,
   withProfileSwitch,
 } from "../metrics";
 
@@ -809,6 +813,10 @@ export function createAuthService(config: AuthConfig) {
    * opaque session token (the "refresh token") alongside a short-lived
    * access token JWT. The session token is what the client persists; the
    * server only stores its SHA-256 hash (Copenhagen Book C1).
+   *
+   * `familyId` groups all rotated tokens in a single refresh chain.
+   * On initial login it is generated fresh; on rotation it is propagated
+   * from the previous session so reuse detection can revoke the entire family.
    */
   const issueTokens = (
     profileId: string,
@@ -816,6 +824,7 @@ export function createAuthService(config: AuthConfig) {
     email: string,
     handle: string,
     displayName: string | null,
+    familyId?: string,
   ): Effect.Effect<TokenSet, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const accessToken = yield* issueAccessToken(profileId, email, handle, displayName);
@@ -824,6 +833,7 @@ export function createAuthService(config: AuthConfig) {
       const sessionToken = generateSessionToken();
       const sessionId = hashSessionToken(sessionToken);
       const nowSec = Math.floor(Date.now() / 1000);
+      const fam = familyId ?? genId("sfam_");
 
       const { db } = yield* Db;
       yield* Effect.tryPromise({
@@ -831,6 +841,7 @@ export function createAuthService(config: AuthConfig) {
           db.insert(sessions).values({
             id: sessionId,
             accountId,
+            familyId: fam,
             expiresAt: nowSec + refreshTokenTtl,
             createdAt: nowSec,
           }),
@@ -963,11 +974,19 @@ export function createAuthService(config: AuthConfig) {
    * table. Implements sliding-window expiry: when less than half the TTL
    * remains, `expiresAt` is extended by the full TTL from now.
    *
+   * Returns `accountId`, `familyId`, and `sessionId` (the hash). The
+   * `familyId` is needed by `refreshTokens` for rotation; `sessionId` is
+   * needed by `invalidateOtherAccountSessions` (H1).
+   *
    * Shared by `refreshTokens`, `switchProfile`, and `listAccountProfiles`.
    */
   const verifyRefreshToken = (
     token: string,
-  ): Effect.Effect<{ accountId: string }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<
+    { accountId: string; familyId: string; sessionId: string },
+    AuthError | DatabaseError,
+    Db
+  > =>
     Effect.gen(function* () {
       const sessionId = hashSessionToken(token);
       const { db } = yield* Db;
@@ -977,7 +996,11 @@ export function createAuthService(config: AuthConfig) {
         catch: (cause) => new DatabaseError({ cause }),
       });
       const session = result[0];
+
       if (!session) {
+        // Reuse detection (C2): the token was not found — it may have been
+        // rotated out. If so, revoke the entire session family.
+        yield* detectReuse(sessionId);
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
       }
 
@@ -1005,8 +1028,64 @@ export function createAuthService(config: AuthConfig) {
         });
       }
 
-      return { accountId: session.accountId };
+      return { accountId: session.accountId, familyId: session.familyId, sessionId };
     });
+
+  // -------------------------------------------------------------------------
+  // Reuse detection (Copenhagen Book C2)
+  //
+  // When a session hash is not found in the DB, it may have been rotated
+  // out (deleted during a prior refresh). We track recently-rotated hashes
+  // in an in-memory map keyed by hash → familyId. If we find a match, a
+  // previously-valid token is being replayed — revoke the entire family.
+  //
+  // The map is bounded by sweeping entries older than refreshTokenTtl.
+  // -------------------------------------------------------------------------
+
+  /** hash → { familyId, rotatedAt (ms) } */
+  const rotatedSessions = new Map<string, { familyId: string; rotatedAt: number }>();
+
+  /**
+   * Records that a session hash was rotated out, so future presentations
+   * of that token trigger family revocation.
+   */
+  function trackRotatedSession(sessionHash: string, familyId: string): void {
+    // Sweep entries older than TTL to bound memory
+    const cutoff = Date.now() - refreshTokenTtl * 1000;
+    for (const [k, v] of rotatedSessions) {
+      if (v.rotatedAt < cutoff) rotatedSessions.delete(k);
+    }
+    rotatedSessions.set(sessionHash, { familyId, rotatedAt: Date.now() });
+  }
+
+  /**
+   * Checks if a missing session hash was recently rotated. If so, revokes
+   * the entire family — both the legitimate holder and the attacker are
+   * logged out, which is the correct security response per the Copenhagen
+   * Book.
+   */
+  const detectReuse = (sessionHash: string): Effect.Effect<void, DatabaseError, Db> => {
+    const entry = rotatedSessions.get(sessionHash);
+    if (!entry) return Effect.void;
+
+    // Replayed rotated-out token — revoke the entire family
+    metricSessionReuseDetected();
+    return Effect.gen(function* () {
+      yield* Effect.logWarning("Session token reuse detected — revoking family");
+      const { db } = yield* Db;
+      yield* Effect.tryPromise({
+        try: () => db.delete(sessions).where(eq(sessions.familyId, entry.familyId)),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      // S-M1: Sweep ALL rotated hashes in this family, not just the replayed one.
+      // Prevents stale map entries and ensures consistent observability if
+      // an attacker replays multiple exfiltrated tokens from the same chain.
+      for (const [k, v] of rotatedSessions) {
+        if (v.familyId === entry.familyId) rotatedSessions.delete(k);
+      }
+      metricSessionFamilyRevoked();
+    }).pipe(Effect.withSpan("auth.session.reuse_detect"));
+  };
 
   /**
    * Finds the default profile for an account. Uses DESC ordering on isDefault
@@ -1035,9 +1114,11 @@ export function createAuthService(config: AuthConfig) {
     });
 
   /**
-   * Refreshes a session: verifies the session token (with sliding-window
-   * extension), finds the default profile, and issues a new access token.
-   * The session token itself is unchanged — the same opaque token is returned.
+   * Refreshes a session: verifies the session token, finds the default
+   * profile, issues a new access token, and **rotates** the session token
+   * (Copenhagen Book C2). The old session row is deleted and a new one is
+   * inserted in the same family. The old hash is tracked in-memory so that
+   * a replayed old token triggers full family revocation (reuse detection).
    */
   const refreshTokens = (
     sessionToken: string,
@@ -1047,19 +1128,49 @@ export function createAuthService(config: AuthConfig) {
     Db
   > =>
     Effect.gen(function* () {
-      const { accountId } = yield* verifyRefreshToken(sessionToken);
+      const {
+        accountId,
+        familyId,
+        sessionId: oldSessionId,
+      } = yield* verifyRefreshToken(sessionToken);
       const profile = yield* findDefaultProfile(accountId);
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
+
       const accessToken = yield* issueAccessToken(
         profile.id,
         profile.email,
         profile.handle,
         profile.displayName,
       );
-      return { accessToken, refreshToken: sessionToken, expiresIn: accessTokenTtl };
-    }).pipe(withAuthTokenRefresh);
+
+      // Rotate: delete old session, insert new one in the same family
+      const newSessionToken = generateSessionToken();
+      const newSessionId = hashSessionToken(newSessionToken);
+      const nowSec = Math.floor(Date.now() / 1000);
+
+      const { db } = yield* Db;
+      yield* Effect.tryPromise({
+        try: () =>
+          db.transaction(async (tx) => {
+            await tx.delete(sessions).where(eq(sessions.id, oldSessionId));
+            await tx.insert(sessions).values({
+              id: newSessionId,
+              accountId,
+              familyId,
+              expiresAt: nowSec + refreshTokenTtl,
+              createdAt: nowSec,
+            });
+          }),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+
+      // Track the rotated-out hash for reuse detection
+      trackRotatedSession(oldSessionId, familyId);
+
+      return { accessToken, refreshToken: newSessionToken, expiresIn: accessTokenTtl };
+    }).pipe(withSessionRotation, withAuthTokenRefresh);
 
   // -------------------------------------------------------------------------
   // Verify access token (for protected routes)
@@ -1166,6 +1277,10 @@ export function createAuthService(config: AuthConfig) {
   const completePasskeyRegistration = (
     accountId: string,
     attestation: RegistrationResponseJSON,
+    /** Raw session token of the caller. When provided, hashed internally
+     *  and all OTHER sessions for this account are revoked (H1). Keeps
+     *  the raw-token → hash boundary inside the service (S-H2). */
+    currentSessionToken?: string,
   ): Effect.Effect<{ passkeyId: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const entry = registrationChallenges.get(accountId);
@@ -1209,6 +1324,13 @@ export function createAuthService(config: AuthConfig) {
           }),
         catch: (cause) => new DatabaseError({ cause }),
       });
+
+      // H1: Invalidate all other sessions on passkey registration.
+      // An attacker who stole a session token cannot persist after the
+      // legitimate user adds a passkey.
+      if (currentSessionToken) {
+        yield* invalidateOtherAccountSessions(accountId, hashSessionToken(currentSessionToken));
+      }
 
       return { passkeyId: id };
     });
@@ -1617,14 +1739,13 @@ export function createAuthService(config: AuthConfig) {
   // -------------------------------------------------------------------------
 
   /**
-   * Lists all profiles belonging to the account identified by the refresh token.
+   * Lists all profiles belonging to the given account.
    * Returns `PublicProfile[]` — accountId is never exposed in the response.
    */
   const listAccountProfiles = (
-    refreshToken: string,
+    accountId: string,
   ): Effect.Effect<{ profiles: PublicProfile[] }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const { accountId } = yield* verifyRefreshToken(refreshToken);
       const { db } = yield* Db;
       const rows = yield* Effect.tryPromise({
         try: () =>
@@ -1645,13 +1766,12 @@ export function createAuthService(config: AuthConfig) {
     }).pipe(withProfileSwitch("list"));
 
   /**
-   * Switches to a different profile under the same account. Verifies the
-   * refresh token, confirms the target profile belongs to the same account,
-   * then issues a new access token scoped to that profile. The refresh token
-   * itself is unchanged (it's account-scoped and still valid).
+   * Switches to a different profile under the same account. Confirms the
+   * target profile belongs to the given account, then issues a new access
+   * token scoped to that profile.
    */
   const switchProfile = (
-    refreshToken: string,
+    accountId: string,
     targetProfileId: string,
   ): Effect.Effect<
     { accessToken: string; expiresIn: number; profile: PublicProfile },
@@ -1659,8 +1779,7 @@ export function createAuthService(config: AuthConfig) {
     Db
   > =>
     Effect.gen(function* () {
-      const { accountId } = yield* verifyRefreshToken(refreshToken);
-      // Per-account rate limit (S-M3): bounds damage from a stolen refresh token.
+      // Per-account rate limit (S-M3): bounds damage from a stolen token.
       if (!checkProfileSwitchLimit(accountId)) {
         return yield* Effect.fail(new AuthError({ message: "Too many profile switches" }));
       }
@@ -1720,6 +1839,28 @@ export function createAuthService(config: AuthConfig) {
       });
     });
 
+  /**
+   * Invalidates all sessions for an account EXCEPT the one identified by
+   * `keepSessionHash`. Used after security events (H1) where the current
+   * session should survive but all others must be revoked (e.g. passkey
+   * registration from an authenticated session).
+   */
+  const invalidateOtherAccountSessions = (
+    accountId: string,
+    keepSessionHash: string,
+  ): Effect.Effect<void, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      yield* Effect.tryPromise({
+        try: () =>
+          db
+            .delete(sessions)
+            .where(and(eq(sessions.accountId, accountId), ne(sessions.id, keepSessionHash))),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      metricSessionSecurityInvalidation("passkey_register");
+    }).pipe(Effect.withSpan("auth.session.invalidate_other"));
+
   return {
     findProfileByEmail,
     findProfileByHandle,
@@ -1753,6 +1894,7 @@ export function createAuthService(config: AuthConfig) {
     validateRedirectUri,
     invalidateSession,
     invalidateAccountSessions,
+    invalidateOtherAccountSessions,
   };
 }
 

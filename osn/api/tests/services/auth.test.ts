@@ -985,7 +985,7 @@ describe("two-tier token model (P2)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("refreshTokens returns the same session token (no rotation yet)", () =>
+  it.effect("C2: refreshTokens rotates the session token (returns a new one)", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("sametoken@example.com", "sametoken");
       const tokens = yield* auth.issueTokens(
@@ -996,7 +996,15 @@ describe("two-tier token model (P2)", () => {
         profile.displayName,
       );
       const refreshed = yield* auth.refreshTokens(tokens.refreshToken);
-      expect(refreshed.refreshToken).toBe(tokens.refreshToken);
+      // New token must be different from the original
+      expect(refreshed.refreshToken).not.toBe(tokens.refreshToken);
+      expect(refreshed.refreshToken).toMatch(/^ses_[0-9a-f]{40}$/);
+      // New token must be valid
+      const { accountId } = yield* auth.verifyRefreshToken(refreshed.refreshToken);
+      expect(accountId).toBe(profile.accountId);
+      // Old token must be invalid (rotated out)
+      const err = yield* Effect.flip(auth.verifyRefreshToken(tokens.refreshToken));
+      expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -1028,13 +1036,9 @@ describe("two-tier token model (P2)", () => {
         profile.displayName,
       );
       // An access token (JWT) is not a valid session token — must be rejected
-      const switchErr = yield* Effect.flip(auth.switchProfile(tokens.accessToken, profile.id));
-      expect(switchErr._tag).toBe("AuthError");
-      expect(switchErr.message).toContain("Invalid or expired session");
-
-      const listErr = yield* Effect.flip(auth.listAccountProfiles(tokens.accessToken));
-      expect(listErr._tag).toBe("AuthError");
-      expect(listErr.message).toContain("Invalid or expired session");
+      const err = yield* Effect.flip(auth.verifyRefreshToken(tokens.accessToken));
+      expect(err._tag).toBe("AuthError");
+      expect(err.message).toContain("Invalid or expired session");
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
@@ -1047,15 +1051,8 @@ describe("switchProfile (P2)", () => {
   it.effect("issues new access token for target profile", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("switch@example.com", "switchme");
-      const tokens = yield* auth.issueTokens(
-        profile.id,
-        profile.accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-      );
       // Switch to self (same profile) — should work fine
-      const result = yield* auth.switchProfile(tokens.refreshToken, profile.id);
+      const result = yield* auth.switchProfile(profile.accountId, profile.id);
       expect(result.accessToken).toBeTruthy();
       expect(result.expiresIn).toBe(3600);
       expect(result.profile.id).toBe(profile.id);
@@ -1070,14 +1067,7 @@ describe("switchProfile (P2)", () => {
   it.effect("fails when target profile does not exist", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("switch2@example.com", "switch2");
-      const tokens = yield* auth.issueTokens(
-        profile.id,
-        profile.accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-      );
-      const error = yield* Effect.flip(auth.switchProfile(tokens.refreshToken, "usr_nonexistent"));
+      const error = yield* Effect.flip(auth.switchProfile(profile.accountId, "usr_nonexistent"));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Profile not found");
     }).pipe(Effect.provide(createTestLayer())),
@@ -1087,23 +1077,16 @@ describe("switchProfile (P2)", () => {
     Effect.gen(function* () {
       const alice = yield* auth.registerProfile("alice_switch@example.com", "alice_switch");
       const bob = yield* auth.registerProfile("bob_switch@example.com", "bob_switch");
-      const aliceTokens = yield* auth.issueTokens(
-        alice.id,
-        alice.accountId,
-        alice.email,
-        alice.handle,
-        alice.displayName,
-      );
-      // Try to switch to Bob's profile using Alice's refresh token
-      const error = yield* Effect.flip(auth.switchProfile(aliceTokens.refreshToken, bob.id));
+      // Try to switch to Bob's profile using Alice's accountId
+      const error = yield* Effect.flip(auth.switchProfile(alice.accountId, bob.id));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("does not belong to this account");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("fails with invalid refresh token", () =>
+  it.effect("fails when account does not exist", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(auth.switchProfile("not.a.token", "usr_any"));
+      const error = yield* Effect.flip(auth.switchProfile("acc_nonexistent", "usr_any"));
       expect(error._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -1117,14 +1100,7 @@ describe("listAccountProfiles (P2)", () => {
   it.effect("returns all profiles for the account", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("listme@example.com", "listme", "List Me");
-      const tokens = yield* auth.issueTokens(
-        profile.id,
-        profile.accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-      );
-      const result = yield* auth.listAccountProfiles(tokens.refreshToken);
+      const result = yield* auth.listAccountProfiles(profile.accountId);
       expect(result.profiles).toHaveLength(1);
       expect(result.profiles[0]!.id).toBe(profile.id);
       expect(result.profiles[0]!.handle).toBe("listme");
@@ -1132,9 +1108,9 @@ describe("listAccountProfiles (P2)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("fails with invalid refresh token", () =>
+  it.effect("fails for nonexistent account", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(auth.listAccountProfiles("not.a.token"));
+      const error = yield* Effect.flip(auth.listAccountProfiles("acc_nonexistent"));
       expect(error._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -1238,40 +1214,6 @@ describe("server-side sessions (C1)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("invalidated session cannot be used for switchProfile", () =>
-    Effect.gen(function* () {
-      const profile = yield* auth.registerProfile("noswitch@example.com", "noswitch");
-      const tokens = yield* auth.issueTokens(
-        profile.id,
-        profile.accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-      );
-      yield* auth.invalidateSession(tokens.refreshToken);
-
-      const error = yield* Effect.flip(auth.switchProfile(tokens.refreshToken, profile.id));
-      expect(error._tag).toBe("AuthError");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
-  it.effect("invalidated session cannot be used for listAccountProfiles", () =>
-    Effect.gen(function* () {
-      const profile = yield* auth.registerProfile("nolist@example.com", "nolist");
-      const tokens = yield* auth.issueTokens(
-        profile.id,
-        profile.accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-      );
-      yield* auth.invalidateSession(tokens.refreshToken);
-
-      const error = yield* Effect.flip(auth.listAccountProfiles(tokens.refreshToken));
-      expect(error._tag).toBe("AuthError");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("each issueTokens call creates a distinct session", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("distinct@example.com", "distinct");
@@ -1316,6 +1258,108 @@ describe("server-side sessions (C1)", () => {
       const error = yield* Effect.flip(svc.verifyRefreshToken(tokens.refreshToken));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Invalid or expired session");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// C2: Refresh token rotation + reuse detection
+// ---------------------------------------------------------------------------
+
+describe("refresh token rotation (C2)", () => {
+  it.effect("refreshed token can be used for a second refresh (chain)", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("chain@example.com", "chain");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const r1 = yield* auth.refreshTokens(tokens.refreshToken);
+      const r2 = yield* auth.refreshTokens(r1.refreshToken);
+      expect(r2.refreshToken).not.toBe(r1.refreshToken);
+      expect(r2.accessToken).toBeTruthy();
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("replaying a rotated-out token revokes the entire family", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("reuse@example.com", "reuse");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+
+      // Rotate once — old token is now invalid
+      const r1 = yield* auth.refreshTokens(tokens.refreshToken);
+
+      // Replay the old token — should trigger family revocation
+      const err1 = yield* Effect.flip(auth.refreshTokens(tokens.refreshToken));
+      expect(err1._tag).toBe("AuthError");
+
+      // The new token (r1) should also be revoked (family revocation)
+      const err2 = yield* Effect.flip(auth.verifyRefreshToken(r1.refreshToken));
+      expect(err2._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("verifyRefreshToken returns familyId and sessionId", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("family@example.com", "family");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const result = yield* auth.verifyRefreshToken(tokens.refreshToken);
+      expect(result.accountId).toBe(profile.accountId);
+      expect(result.familyId).toMatch(/^sfam_/);
+      expect(result.sessionId).toBeTruthy();
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// H1: Session invalidation on security events
+// ---------------------------------------------------------------------------
+
+describe("invalidateOtherAccountSessions (H1)", () => {
+  it.effect("revokes all sessions except the specified one", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("h1@example.com", "h1user");
+
+      const t1 = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const t2 = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+
+      // Keep t1's session, revoke t2's
+      const { sessionId } = yield* auth.verifyRefreshToken(t1.refreshToken);
+      yield* auth.invalidateOtherAccountSessions(profile.accountId, sessionId);
+
+      // t1 still works
+      yield* auth.verifyRefreshToken(t1.refreshToken);
+
+      // t2 is revoked
+      const err = yield* Effect.flip(auth.verifyRefreshToken(t2.refreshToken));
+      expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

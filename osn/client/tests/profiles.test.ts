@@ -70,7 +70,7 @@ it.effect("getSession returns a Session reconstructed from the account session",
 // listProfiles
 // ---------------------------------------------------------------------------
 
-it.effect("listProfiles calls POST /profiles/list and returns the profiles", () =>
+it.effect("listProfiles calls GET /profiles/list with Bearer auth and returns the profiles", () =>
   Effect.gen(function* () {
     const profiles = [
       {
@@ -104,7 +104,10 @@ it.effect("listProfiles calls POST /profiles/list and returns the profiles", () 
     expect(result).toEqual(profiles);
     expect(vi.mocked(fetch)).toHaveBeenCalledWith(
       "https://osn.example.com/profiles/list",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({ Authorization: expect.stringMatching(/^Bearer /) }),
+      }),
     );
 
     vi.unstubAllGlobals();
@@ -196,10 +199,13 @@ it.effect("createProfile calls POST /profiles/create and returns the new profile
 
     expect(result).toEqual(newProfile);
 
-    const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string);
+    const call = vi.mocked(fetch).mock.calls[0]!;
+    const headers = call[1]!.headers as Record<string, string>;
+    expect(headers.Authorization).toMatch(/^Bearer /);
+    const body = JSON.parse(call[1]!.body as string);
     expect(body.handle).toBe("charlie");
     expect(body.display_name).toBe("Charlie");
-    expect(body.refresh_token).toBe("ref_account");
+    expect(body.refresh_token).toBeUndefined();
 
     vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),

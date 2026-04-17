@@ -97,21 +97,22 @@ describe("privacy invariants (P6)", () => {
       const res = await profileApp.handle(
         new Request("http://localhost/profiles/create", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: tokens.refreshToken, handle: "priv2alt" }),
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${tokens.accessToken}`,
+          },
+          body: JSON.stringify({ handle: "priv2alt" }),
         }),
       );
       expect(res.status).toBe(201);
       assertNoAccountId(await res.json());
     });
 
-    it("POST /profiles/list response has no accountId", async () => {
+    it("GET /profiles/list response has no accountId", async () => {
       const { tokens } = await registerAccount("priv3@test.com", "priv3");
       const res = await authApp.handle(
         new Request("http://localhost/profiles/list", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: tokens.refreshToken }),
+          headers: { Authorization: `Bearer ${tokens.accessToken}` },
         }),
       );
       expect(res.status).toBe(200);
@@ -123,9 +124,11 @@ describe("privacy invariants (P6)", () => {
       const res = await authApp.handle(
         new Request("http://localhost/profiles/switch", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${tokens.accessToken}`,
+          },
           body: JSON.stringify({
-            refresh_token: tokens.refreshToken,
             profile_id: profile.id,
           }),
         }),
@@ -173,8 +176,11 @@ describe("privacy invariants (P6)", () => {
       const res = await profileApp.handle(
         new Request("http://localhost/profiles/create", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: tokens.refreshToken, handle: "priv7alt" }),
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${tokens.accessToken}`,
+          },
+          body: JSON.stringify({ handle: "priv7alt" }),
         }),
       );
       expect(res.status).toBe(201);
@@ -199,15 +205,16 @@ describe("privacy invariants (P6)", () => {
       await profileApp.handle(
         new Request("http://localhost/profiles/create", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: t1.refreshToken, handle: "priv8alt" }),
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${t1.accessToken}`,
+          },
+          body: JSON.stringify({ handle: "priv8alt" }),
         }),
       );
       const listRes = await authApp.handle(
         new Request("http://localhost/profiles/list", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: t1.refreshToken }),
+          headers: { Authorization: `Bearer ${t1.accessToken}` },
         }),
       );
       const { profiles } = (await listRes.json()) as {
@@ -220,9 +227,11 @@ describe("privacy invariants (P6)", () => {
       const switchRes = await authApp.handle(
         new Request("http://localhost/profiles/switch", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${t1.accessToken}`,
+          },
           body: JSON.stringify({
-            refresh_token: t1.refreshToken,
             profile_id: altProfile.id,
           }),
         }),

@@ -24,8 +24,8 @@ describe("profile routes", () => {
     auth = createAuthService(config);
   });
 
-  /** Helper: register + get refresh token via service layer. */
-  async function getRefreshToken(email: string, handle: string): Promise<string> {
+  /** Helper: register + get access token via service layer. */
+  async function getAccessToken(email: string, handle: string): Promise<string> {
     const profile = await Effect.runPromise(
       auth.registerProfile(email, handle).pipe(Effect.provide(layer)),
     );
@@ -40,7 +40,7 @@ describe("profile routes", () => {
         )
         .pipe(Effect.provide(layer)),
     );
-    return tokens.refreshToken;
+    return tokens.accessToken;
   }
 
   // -------------------------------------------------------------------------
@@ -48,12 +48,12 @@ describe("profile routes", () => {
   // -------------------------------------------------------------------------
   describe("POST /profiles/create", () => {
     it("returns 201 on success with profile data", async () => {
-      const rt = await getRefreshToken("pc@test.com", "pcuser");
+      const at = await getAccessToken("pc@test.com", "pcuser");
       const res = await profileApp.handle(
         new Request("http://localhost/profiles/create", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: rt, handle: "pc_alt" }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${at}` },
+          body: JSON.stringify({ handle: "pc_alt" }),
         }),
       );
       expect(res.status).toBe(201);
@@ -63,26 +63,26 @@ describe("profile routes", () => {
     });
 
     it("returns 400 for invalid handle", async () => {
-      const rt = await getRefreshToken("bad@test.com", "baduser");
+      const at = await getAccessToken("bad@test.com", "baduser");
       const res = await profileApp.handle(
         new Request("http://localhost/profiles/create", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: rt, handle: "BADHANDLE" }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${at}` },
+          body: JSON.stringify({ handle: "BADHANDLE" }),
         }),
       );
       expect(res.status).toBe(400);
     });
 
-    it("returns 400 for invalid refresh token", async () => {
+    it("returns 401 for invalid access token", async () => {
       const res = await profileApp.handle(
         new Request("http://localhost/profiles/create", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: "bad-token", handle: "somehandle" }),
+          headers: { "Content-Type": "application/json", Authorization: "Bearer bad-token" },
+          body: JSON.stringify({ handle: "somehandle" }),
         }),
       );
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(401);
     });
   });
 
@@ -91,13 +91,13 @@ describe("profile routes", () => {
   // -------------------------------------------------------------------------
   describe("POST /profiles/delete", () => {
     it("returns 200 on success", async () => {
-      const rt = await getRefreshToken("pd@test.com", "pduser");
+      const at = await getAccessToken("pd@test.com", "pduser");
       // Create a second profile first
       const createRes = await profileApp.handle(
         new Request("http://localhost/profiles/create", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: rt, handle: "pd_alt" }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${at}` },
+          body: JSON.stringify({ handle: "pd_alt" }),
         }),
       );
       const { profile: created } = (await createRes.json()) as {
@@ -107,8 +107,8 @@ describe("profile routes", () => {
       const res = await profileApp.handle(
         new Request("http://localhost/profiles/delete", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: rt, profile_id: created.id }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${at}` },
+          body: JSON.stringify({ profile_id: created.id }),
         }),
       );
       expect(res.status).toBe(200);
@@ -128,8 +128,11 @@ describe("profile routes", () => {
       const res = await profileApp.handle(
         new Request("http://localhost/profiles/delete", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: tokens.refreshToken, profile_id: p.id }),
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${tokens.accessToken}`,
+          },
+          body: JSON.stringify({ profile_id: p.id }),
         }),
       );
       expect(res.status).toBe(400);
@@ -141,12 +144,12 @@ describe("profile routes", () => {
   // -------------------------------------------------------------------------
   describe("POST /profiles/:profileId/default", () => {
     it("returns 200 on success with profile data", async () => {
-      const rt = await getRefreshToken("sd@test.com", "sduser");
+      const at = await getAccessToken("sd@test.com", "sduser");
       const createRes = await profileApp.handle(
         new Request("http://localhost/profiles/create", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: rt, handle: "sd_alt" }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${at}` },
+          body: JSON.stringify({ handle: "sd_alt" }),
         }),
       );
       const { profile: created } = (await createRes.json()) as {
@@ -156,8 +159,7 @@ describe("profile routes", () => {
       const res = await profileApp.handle(
         new Request(`http://localhost/profiles/${created.id}/default`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: rt }),
+          headers: { Authorization: `Bearer ${at}` },
         }),
       );
       expect(res.status).toBe(200);
@@ -165,15 +167,14 @@ describe("profile routes", () => {
       expect(json.profile.handle).toBe("sd_alt");
     });
 
-    it("returns 400 for invalid refresh token", async () => {
+    it("returns 401 for invalid access token", async () => {
       const res = await profileApp.handle(
         new Request("http://localhost/profiles/usr_000000000000/default", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: "bad-token" }),
+          headers: { Authorization: "Bearer bad-token" },
         }),
       );
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(401);
     });
   });
 
@@ -183,23 +184,31 @@ describe("profile routes", () => {
   describe("rate limiting", () => {
     it("returns 429 after exceeding rate limit on /profiles/create", async () => {
       const freshApp = createProfileRoutes(config, layer);
-      const rt = await getRefreshToken("rl1@test.com", "rl1user");
+      const at = await getAccessToken("rl1@test.com", "rl1user");
       // profileCreate allows 5 req/min
       for (let i = 0; i < 5; i++) {
         // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
         await freshApp.handle(
           new Request("http://localhost/profiles/create", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "x-forwarded-for": "1.2.3.4" },
-            body: JSON.stringify({ refresh_token: rt, handle: `rl1_alt${i}` }),
+            headers: {
+              "Content-Type": "application/json",
+              "x-forwarded-for": "1.2.3.4",
+              Authorization: `Bearer ${at}`,
+            },
+            body: JSON.stringify({ handle: `rl1_alt${i}` }),
           }),
         );
       }
       const blocked = await freshApp.handle(
         new Request("http://localhost/profiles/create", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-forwarded-for": "1.2.3.4" },
-          body: JSON.stringify({ refresh_token: rt, handle: "rl1_blocked" }),
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-for": "1.2.3.4",
+            Authorization: `Bearer ${at}`,
+          },
+          body: JSON.stringify({ handle: "rl1_blocked" }),
         }),
       );
       expect(blocked.status).toBe(429);
@@ -209,23 +218,31 @@ describe("profile routes", () => {
 
     it("returns 429 after exceeding rate limit on /profiles/delete", async () => {
       const freshApp = createProfileRoutes(config, layer);
-      const rt = await getRefreshToken("rl2@test.com", "rl2user");
+      const at = await getAccessToken("rl2@test.com", "rl2user");
       // profileDelete allows 5 req/min — fire 5 requests (they may fail as 400, that's fine)
       for (let i = 0; i < 5; i++) {
         // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
         await freshApp.handle(
           new Request("http://localhost/profiles/delete", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "x-forwarded-for": "2.2.2.2" },
-            body: JSON.stringify({ refresh_token: rt, profile_id: `usr_00000000000${i}` }),
+            headers: {
+              "Content-Type": "application/json",
+              "x-forwarded-for": "2.2.2.2",
+              Authorization: `Bearer ${at}`,
+            },
+            body: JSON.stringify({ profile_id: `usr_00000000000${i}` }),
           }),
         );
       }
       const blocked = await freshApp.handle(
         new Request("http://localhost/profiles/delete", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-forwarded-for": "2.2.2.2" },
-          body: JSON.stringify({ refresh_token: rt, profile_id: "usr_000000000099" }),
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-for": "2.2.2.2",
+            Authorization: `Bearer ${at}`,
+          },
+          body: JSON.stringify({ profile_id: "usr_000000000099" }),
         }),
       );
       expect(blocked.status).toBe(429);
@@ -233,23 +250,21 @@ describe("profile routes", () => {
 
     it("returns 429 after exceeding rate limit on /profiles/:profileId/default", async () => {
       const freshApp = createProfileRoutes(config, layer);
-      const rt = await getRefreshToken("rl3@test.com", "rl3user");
+      const at = await getAccessToken("rl3@test.com", "rl3user");
       // profileSetDefault allows 10 req/min
       for (let i = 0; i < 10; i++) {
         // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
         await freshApp.handle(
           new Request("http://localhost/profiles/usr_000000000000/default", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "x-forwarded-for": "3.3.3.3" },
-            body: JSON.stringify({ refresh_token: rt }),
+            headers: { "x-forwarded-for": "3.3.3.3", Authorization: `Bearer ${at}` },
           }),
         );
       }
       const blocked = await freshApp.handle(
         new Request("http://localhost/profiles/usr_000000000000/default", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-forwarded-for": "3.3.3.3" },
-          body: JSON.stringify({ refresh_token: rt }),
+          headers: { "x-forwarded-for": "3.3.3.3", Authorization: `Bearer ${at}` },
         }),
       );
       expect(blocked.status).toBe(429);
@@ -257,15 +272,19 @@ describe("profile routes", () => {
 
     it("rate limits are per-IP — different IPs are independent", async () => {
       const freshApp = createProfileRoutes(config, layer);
-      const rt = await getRefreshToken("rl4@test.com", "rl4user");
+      const at = await getAccessToken("rl4@test.com", "rl4user");
       // Exhaust limit for IP A
       for (let i = 0; i < 5; i++) {
         // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
         await freshApp.handle(
           new Request("http://localhost/profiles/create", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "x-forwarded-for": "10.0.0.1" },
-            body: JSON.stringify({ refresh_token: rt, handle: `rl4_a${i}` }),
+            headers: {
+              "Content-Type": "application/json",
+              "x-forwarded-for": "10.0.0.1",
+              Authorization: `Bearer ${at}`,
+            },
+            body: JSON.stringify({ handle: `rl4_a${i}` }),
           }),
         );
       }
@@ -273,8 +292,12 @@ describe("profile routes", () => {
       const blockedA = await freshApp.handle(
         new Request("http://localhost/profiles/create", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-forwarded-for": "10.0.0.1" },
-          body: JSON.stringify({ refresh_token: rt, handle: "rl4_blocked" }),
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-for": "10.0.0.1",
+            Authorization: `Bearer ${at}`,
+          },
+          body: JSON.stringify({ handle: "rl4_blocked" }),
         }),
       );
       expect(blockedA.status).toBe(429);
@@ -282,8 +305,12 @@ describe("profile routes", () => {
       const allowedB = await freshApp.handle(
         new Request("http://localhost/profiles/create", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-forwarded-for": "10.0.0.2" },
-          body: JSON.stringify({ refresh_token: rt, handle: "rl4_b" }),
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-for": "10.0.0.2",
+            Authorization: `Bearer ${at}`,
+          },
+          body: JSON.stringify({ handle: "rl4_b" }),
         }),
       );
       expect(allowedB.status).not.toBe(429);
@@ -296,12 +323,12 @@ describe("profile routes", () => {
         profileDelete: rejectAll,
         profileSetDefault: rejectAll,
       });
-      const rt = await getRefreshToken("rl5@test.com", "rl5user");
+      const at = await getAccessToken("rl5@test.com", "rl5user");
       const res = await freshApp.handle(
         new Request("http://localhost/profiles/create", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: rt, handle: "rl5_alt" }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${at}` },
+          body: JSON.stringify({ handle: "rl5_alt" }),
         }),
       );
       expect(res.status).toBe(429);
@@ -318,12 +345,12 @@ describe("profile routes", () => {
         profileDelete: brokenBackend,
         profileSetDefault: brokenBackend,
       });
-      const rt = await getRefreshToken("rl6@test.com", "rl6user");
+      const at = await getAccessToken("rl6@test.com", "rl6user");
       const res = await freshApp.handle(
         new Request("http://localhost/profiles/create", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: rt, handle: "rl6_alt" }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${at}` },
+          body: JSON.stringify({ handle: "rl6_alt" }),
         }),
       );
       expect(res.status).toBe(429);

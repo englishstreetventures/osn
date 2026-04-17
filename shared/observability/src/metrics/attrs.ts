@@ -67,6 +67,9 @@ export type ProfileDeleteCascadeTable = "connections" | "close_friends" | "block
 /** JWKS public key cache lookup outcomes. */
 export type JwksCacheResult = "hit" | "miss" | "refresh";
 
+/** Security events that trigger session invalidation (H1). */
+export type SecurityInvalidationTrigger = "passkey_register" | "email_change";
+
 /** Auth endpoints subject to IP-based rate limiting (S-H1). */
 export type AuthRateLimitedEndpoint =
   | "register_begin"

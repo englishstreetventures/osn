@@ -109,6 +109,23 @@ export function createProfileRoutes(
     return null;
   }
 
+  /**
+   * Resolves the accountId from a Bearer access token in the Authorization
+   * header. Returns null if auth fails. (S-H1: profile endpoints authenticate
+   * via access token, not refresh token in body.)
+   */
+  async function resolveAccountId(
+    authHeader: string | undefined,
+  ): Promise<{ accountId: string } | null> {
+    if (!authHeader || !/^Bearer\s+/i.test(authHeader)) return null;
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    const result = await Effect.runPromise(Effect.either(auth.verifyAccessToken(token)));
+    if (result._tag !== "Right") return null;
+    const p = await run(auth.findProfileById(result.right.profileId));
+    if (!p) return null;
+    return { accountId: p.accountId };
+  }
+
   return new Elysia({ prefix: "" })
     .post(
       "/profiles/create",
@@ -119,8 +136,13 @@ export function createProfileRoutes(
           return rlErr;
         }
         try {
+          const principal = await resolveAccountId(headers.authorization);
+          if (!principal) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
           const result = await run(
-            profile.createProfile(body.refresh_token, body.handle, body.display_name),
+            profile.createProfile(principal.accountId, body.handle, body.display_name),
           );
           set.status = 201;
           return { profile: result };
@@ -132,7 +154,6 @@ export function createProfileRoutes(
       },
       {
         body: t.Object({
-          refresh_token: t.String(),
           handle: t.String(),
           display_name: t.Optional(t.String()),
         }),
@@ -147,7 +168,12 @@ export function createProfileRoutes(
           return rlErr;
         }
         try {
-          await run(profile.deleteProfile(body.refresh_token, body.profile_id));
+          const principal = await resolveAccountId(headers.authorization);
+          if (!principal) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          await run(profile.deleteProfile(principal.accountId, body.profile_id));
           return { deleted: true };
         } catch (e) {
           const { status, body: errBody } = publicError(e);
@@ -157,21 +183,27 @@ export function createProfileRoutes(
       },
       {
         body: t.Object({
-          refresh_token: t.String(),
           profile_id: t.String({ pattern: "^usr_[a-f0-9]{12}$" }),
         }),
       },
     )
     .post(
       "/profiles/:profileId/default",
-      async ({ body, params, headers, set }) => {
+      async ({ params, headers, set }) => {
         const rlErr = await rateLimit(headers, "profile_set_default", rl.profileSetDefault);
         if (rlErr) {
           set.status = 429;
           return rlErr;
         }
         try {
-          const result = await run(profile.setDefaultProfile(body.refresh_token, params.profileId));
+          const principal = await resolveAccountId(headers.authorization);
+          if (!principal) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          const result = await run(
+            profile.setDefaultProfile(principal.accountId, params.profileId),
+          );
           return { profile: result };
         } catch (e) {
           const { status, body: errBody } = publicError(e);
@@ -182,9 +214,6 @@ export function createProfileRoutes(
       {
         params: t.Object({
           profileId: t.String({ pattern: "^usr_[a-f0-9]{12}$" }),
-        }),
-        body: t.Object({
-          refresh_token: t.String(),
         }),
       },
     );

@@ -79,6 +79,18 @@ describe("redact", () => {
     expect(out.account_id).toBe(REDACTION_PLACEHOLDER);
   });
 
+  it("redacts session familyId to prevent cross-rotation correlation", () => {
+    const input = {
+      sessionId: "abc123",
+      familyId: "sfam_xyz",
+      family_id: "sfam_xyz",
+    };
+    const out = redact(input) as Record<string, unknown>;
+    expect(out.sessionId).toBe("abc123");
+    expect(out.familyId).toBe(REDACTION_PLACEHOLDER);
+    expect(out.family_id).toBe(REDACTION_PLACEHOLDER);
+  });
+
   it("redacts user PII (email, handle, displayName) but keeps profileId", () => {
     const input = {
       profileId: "u_123",
@@ -269,6 +281,8 @@ describe("redact", () => {
       "private_key",
       "accountid",
       "account_id",
+      "familyid",
+      "family_id",
       "email",
       "handle",
       "displayname",

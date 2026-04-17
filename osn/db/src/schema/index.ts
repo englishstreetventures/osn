@@ -197,12 +197,22 @@ export const sessions = sqliteTable(
     accountId: text("account_id")
       .notNull()
       .references(() => accounts.id),
+    /**
+     * Session family identifier — all rotated tokens in a refresh chain
+     * share this value. Enables reuse detection: if a revoked token's
+     * family is seen again, revoke the entire family. Generated once at
+     * login (`sfam_` prefix); propagated on rotation.
+     */
+    familyId: text("family_id").notNull(),
     /** Unix seconds */
     expiresAt: integer("expires_at").notNull(),
     /** Unix seconds */
     createdAt: integer("created_at").notNull(),
   },
-  (t) => [index("sessions_account_idx").on(t.accountId)],
+  (t) => [
+    index("sessions_account_idx").on(t.accountId),
+    index("sessions_family_idx").on(t.familyId),
+  ],
 );
 
 export type Session = typeof sessions.$inferSelect;
