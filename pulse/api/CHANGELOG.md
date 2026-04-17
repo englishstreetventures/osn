@@ -1,5 +1,12 @@
 # @osn/api
 
+## 0.10.2
+
+### Patch Changes
+
+- Updated dependencies [1f14c6a]
+  - @shared/crypto@0.4.1
+
 ## 0.10.1
 
 ### Patch Changes
