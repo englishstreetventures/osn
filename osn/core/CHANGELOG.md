@@ -1,5 +1,17 @@
 # @osn/core
 
+## 0.18.0
+
+### Minor Changes
+
+- fe55da8: Implement kid-based ARC key auto-rotation. Adds service_account_keys table (per-key rows, zero-downtime rotation). ArcTokenClaims now requires a kid field (JWT header). resolvePublicKey now takes (kid, issuer, scopes). pulse/api auto-rotates ephemeral keys via startKeyRotation(). Migrates pulse/api graph bridge from in-process imports to ARC-token authenticated HTTP calls against /graph/internal/\* endpoints.
+
+### Patch Changes
+
+- Updated dependencies [fe55da8]
+  - @osn/db@0.8.0
+  - @osn/crypto@0.3.0
+
 ## 0.17.2
 
 ### Patch Changes
