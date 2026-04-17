@@ -19,8 +19,8 @@ related:
 finding-ids:
   - S-C2
 packages:
-  - "@osn/crypto"
-  - "@osn/core"
+  - "@shared/crypto"
+  - "@osn/api"
   - "@pulse/api"
 last-reviewed: 2026-04-17
 security-fixes:
@@ -30,12 +30,17 @@ security-fixes:
   - S-M101
   - S-M102
   - S-L101
+  - S-L40
 perf-fixes:
   - P-W100
   - P-W101
   - P-W102
   - P-I100
   - P-I101
+  - P-W25
+  - P-W26
+  - P-W27
+  - P-I16
 ---
 
 # ARC Tokens (S2S Auth)
@@ -55,7 +60,7 @@ ARC is OSN's service-to-service authentication token -- an ASAP-style self-issue
 
 ## Location
 
-Lives in `osn/crypto` (`@osn/crypto`). Import from `@osn/crypto/arc`.
+Lives in `shared/crypto` (`@shared/crypto`). Import from `@shared/crypto`.
 
 ## Exports
 
