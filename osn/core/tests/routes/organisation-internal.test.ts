@@ -4,7 +4,7 @@ import {
   createArcToken,
   clearPublicKeyCache,
 } from "@osn/crypto";
-import { serviceAccounts } from "@osn/db/schema";
+import { serviceAccounts, serviceAccountKeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import type { Db as DbTag } from "@osn/db/service";
 import { Effect } from "effect";
@@ -36,10 +36,11 @@ describe("internal organisation routes (ARC-protected)", () => {
     serviceId: string = "pulse-api",
     scopes: string = "org:read",
     audience: string = "osn-core",
-  ): Promise<{ token: string; keyPair: CryptoKeyPair }> {
+  ): Promise<{ token: string; keyPair: CryptoKeyPair; keyId: string }> {
     const kp = await generateArcKeyPair();
     const pubJwk = await exportKeyToJwk(kp.publicKey);
     const now = new Date();
+    const keyId = crypto.randomUUID();
 
     await runWithLayer(
       Effect.gen(function* () {
@@ -48,10 +49,21 @@ describe("internal organisation routes (ARC-protected)", () => {
           try: () =>
             db.insert(serviceAccounts).values({
               serviceId,
-              publicKeyJwk: pubJwk,
               allowedScopes: scopes,
               createdAt: now,
               updatedAt: now,
+            }),
+          catch: (e) => e,
+        });
+        yield* Effect.tryPromise({
+          try: () =>
+            db.insert(serviceAccountKeys).values({
+              keyId,
+              serviceId,
+              publicKeyJwk: pubJwk,
+              registeredAt: now,
+              expiresAt: null,
+              revokedAt: null,
             }),
           catch: (e) => e,
         });
@@ -62,9 +74,10 @@ describe("internal organisation routes (ARC-protected)", () => {
       iss: serviceId,
       aud: audience,
       scope: scopes,
+      kid: keyId,
     });
 
-    return { token, keyPair: kp };
+    return { token, keyPair: kp, keyId };
   }
 
   async function registerProfile(email: string, handle: string): Promise<string> {
@@ -111,11 +124,12 @@ describe("internal organisation routes (ARC-protected)", () => {
     });
 
     it("returns 401 with wrong scope", async () => {
-      const { keyPair: kp } = await setupArcService("pulse-api", "org:read", "osn-core");
+      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "org:read", "osn-core");
       const badToken = await createArcToken(kp.privateKey, {
         iss: "pulse-api",
         aud: "osn-core",
         scope: "graph:read",
+        kid: keyId,
       });
 
       const res = await app.handle(
@@ -127,11 +141,12 @@ describe("internal organisation routes (ARC-protected)", () => {
     });
 
     it("returns 401 with wrong audience", async () => {
-      const { keyPair: kp } = await setupArcService("pulse-api", "org:read", "osn-core");
+      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "org:read", "osn-core");
       const badToken = await createArcToken(kp.privateKey, {
         iss: "pulse-api",
         aud: "wrong-service",
         scope: "org:read",
+        kid: keyId,
       });
 
       const res = await app.handle(

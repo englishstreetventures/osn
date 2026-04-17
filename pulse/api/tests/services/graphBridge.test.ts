@@ -1,198 +1,187 @@
-import { it, expect } from "@effect/vitest";
 import { Effect } from "effect";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Mock @osn/crypto so key generation never hits the real Web Crypto API.
+// generateArcKeyPair is slow (> 5 s) in the test environment; mocking it
+// keeps all graphBridge tests under the default 5000 ms timeout.
+vi.mock("@osn/crypto", () => ({
+  generateArcKeyPair: vi.fn().mockResolvedValue({
+    privateKey: {} as CryptoKey,
+    publicKey: {} as CryptoKey,
+  }),
+  importKeyFromJwk: vi.fn().mockResolvedValue({} as CryptoKey),
+  getOrCreateArcToken: vi.fn().mockResolvedValue("test-arc-token"),
+}));
+
+import { MAX_EVENT_GUESTS } from "../../src/lib/limits";
 import {
   getCloseFriendIds,
   getCloseFriendsOf,
   getConnectionIds,
   getProfileDisplays,
-  type OsnDb,
 } from "../../src/services/graphBridge";
-import {
-  createOsnTestContext,
-  seedCloseFriend,
-  seedConnection,
-  seedOsnUser,
-} from "../helpers/osnDb";
 
-// graphBridge is the single seam between Pulse and OSN identity. When the
-// S2S strategy migrates from direct package import to ARC-token HTTP (per
-// CLAUDE.md), this file is the planned mutation point — pinning behaviour
-// here means the rewrite can be validated against the same test surface
-// without touching rsvps.ts.
+// graphBridge is the single seam between Pulse and the OSN social graph.
+// It makes ARC-authenticated HTTP calls to osn/api; this test suite mocks
+// fetch so we can verify the request/response mapping without a live server.
 
-// Tests share the same osn instance between Effect.provide and the seed
-// helpers so writes via the drizzle client land in the same in-memory
-// SQLite that the layer reads from.
-const withOsn = <A, E>(
-  body: (osn: ReturnType<typeof createOsnTestContext>) => Effect.Effect<A, E, OsnDb>,
-): Effect.Effect<A, E, never> =>
-  Effect.suspend(() => {
-    const osn = createOsnTestContext();
-    return body(osn).pipe(Effect.provide(osn.layer));
-  });
+function mockFetch(response: unknown, status = 200) {
+  return vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+    new Response(JSON.stringify(response), {
+      status,
+      headers: { "content-type": "application/json" },
+    }),
+  );
+}
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+});
 
 // ── getConnectionIds ─────────────────────────────────────────────────────────
 
-it.effect("getConnectionIds returns an empty Set when the user has no connections", () =>
-  withOsn((osn) =>
-    Effect.gen(function* () {
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_alice" }));
-      const ids = yield* getConnectionIds("usr_alice");
-      expect(ids).toBeInstanceOf(Set);
-      expect(ids.size).toBe(0);
-    }),
-  ),
-);
+describe("getConnectionIds", () => {
+  it("returns a Set of connection IDs from the API response", async () => {
+    mockFetch({ connectionIds: ["usr_bob", "usr_carol"] });
+    const result = await Effect.runPromise(getConnectionIds("usr_alice"));
+    expect(result).toBeInstanceOf(Set);
+    expect(result.size).toBe(2);
+    expect(result.has("usr_bob")).toBe(true);
+    expect(result.has("usr_carol")).toBe(true);
+  });
 
-it.effect("getConnectionIds returns the requester's accepted connections", () =>
-  withOsn((osn) =>
-    Effect.gen(function* () {
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_alice" }));
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_bob" }));
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_carol" }));
-      yield* Effect.promise(() => seedConnection(osn, "usr_alice", "usr_bob"));
-      yield* Effect.promise(() => seedConnection(osn, "usr_alice", "usr_carol"));
-      const ids = yield* getConnectionIds("usr_alice");
-      expect(ids.size).toBe(2);
-      expect(ids.has("usr_bob")).toBe(true);
-      expect(ids.has("usr_carol")).toBe(true);
-    }),
-  ),
-);
+  it("returns an empty Set when the API returns an empty list", async () => {
+    mockFetch({ connectionIds: [] });
+    const result = await Effect.runPromise(getConnectionIds("usr_alice"));
+    expect(result.size).toBe(0);
+  });
 
-it.effect("getConnectionIds returns connections regardless of who requested", () =>
-  withOsn((osn) =>
-    Effect.gen(function* () {
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_alice" }));
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_bob" }));
-      // Bob requested Alice — Alice's perspective should still include Bob.
-      yield* Effect.promise(() => seedConnection(osn, "usr_bob", "usr_alice"));
-      const ids = yield* getConnectionIds("usr_alice");
-      expect(ids.has("usr_bob")).toBe(true);
-    }),
-  ),
-);
+  it("calls the correct endpoint with profileId and limit encoded", async () => {
+    const spy = mockFetch({ connectionIds: [] });
+    await Effect.runPromise(getConnectionIds("usr_alice"));
+    const url = (spy.mock.calls[0]![0] as string).split("?")[0];
+    expect(url).toContain("/graph/internal/connections");
+    const search = new URLSearchParams((spy.mock.calls[0]![0] as string).split("?")[1]);
+    expect(search.get("profileId")).toBe("usr_alice");
+    expect(search.get("limit")).toBe(String(MAX_EVENT_GUESTS));
+  });
+
+  it("sends ARC Authorization header on GET requests", async () => {
+    const spy = mockFetch({ connectionIds: [] });
+    await Effect.runPromise(getConnectionIds("usr_alice"));
+    const headers = spy.mock.calls[0]![1]?.headers as Record<string, string>;
+    expect(headers["authorization"]).toMatch(/^ARC /);
+  });
+
+  it("fails with GraphBridgeError on HTTP error", async () => {
+    mockFetch({ error: "Unauthorized" }, 401);
+    const err = await Effect.runPromise(Effect.flip(getConnectionIds("usr_alice")));
+    expect(err._tag).toBe("GraphBridgeError");
+  });
+});
 
 // ── getCloseFriendIds ────────────────────────────────────────────────────────
 
-it.effect("getCloseFriendIds returns an empty Set when no close friends exist", () =>
-  withOsn((osn) =>
-    Effect.gen(function* () {
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_alice" }));
-      const ids = yield* getCloseFriendIds("usr_alice");
-      expect(ids.size).toBe(0);
-    }),
-  ),
-);
+describe("getCloseFriendIds", () => {
+  it("returns a Set of close friend IDs", async () => {
+    mockFetch({ closeFriendIds: ["usr_bob"] });
+    const result = await Effect.runPromise(getCloseFriendIds("usr_alice"));
+    expect(result).toBeInstanceOf(Set);
+    expect(result.has("usr_bob")).toBe(true);
+  });
 
-it.effect("getCloseFriendIds returns the user's close-friend ids (directional)", () =>
-  withOsn((osn) =>
-    Effect.gen(function* () {
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_alice" }));
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_bob" }));
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_carol" }));
-      yield* Effect.promise(() => seedCloseFriend(osn, "usr_alice", "usr_bob"));
-      const aliceFriends = yield* getCloseFriendIds("usr_alice");
-      const bobFriends = yield* getCloseFriendIds("usr_bob");
-      expect(aliceFriends.has("usr_bob")).toBe(true);
-      expect(bobFriends.size).toBe(0);
-    }),
-  ),
-);
+  it("returns an empty Set when API returns empty list", async () => {
+    mockFetch({ closeFriendIds: [] });
+    const result = await Effect.runPromise(getCloseFriendIds("usr_alice"));
+    expect(result.size).toBe(0);
+  });
 
-// ── getProfileDisplays ──────────────────────────────────────────────────────────
-
-it.effect("getProfileDisplays short-circuits on empty input", () =>
-  withOsn((_osn) =>
-    Effect.gen(function* () {
-      const map = yield* getProfileDisplays([]);
-      expect(map).toBeInstanceOf(Map);
-      expect(map.size).toBe(0);
-    }),
-  ),
-);
-
-it.effect("getProfileDisplays returns a Map keyed by user id", () =>
-  withOsn((osn) =>
-    Effect.gen(function* () {
-      yield* Effect.promise(() =>
-        seedOsnUser(osn, { id: "usr_alice", handle: "alice", displayName: "Alice" }),
-      );
-      yield* Effect.promise(() =>
-        seedOsnUser(osn, { id: "usr_bob", handle: "bob", displayName: "Bob Smith" }),
-      );
-      const map = yield* getProfileDisplays(["usr_alice", "usr_bob"]);
-      expect(map.size).toBe(2);
-      expect(map.get("usr_alice")?.displayName).toBe("Alice");
-      expect(map.get("usr_bob")?.displayName).toBe("Bob Smith");
-      expect(map.get("usr_bob")?.handle).toBe("bob");
-    }),
-  ),
-);
-
-it.effect("getProfileDisplays omits ids that don't exist in the users table", () =>
-  withOsn((osn) =>
-    Effect.gen(function* () {
-      yield* Effect.promise(() =>
-        seedOsnUser(osn, { id: "usr_alice", handle: "alice", displayName: "Alice" }),
-      );
-      const map = yield* getProfileDisplays(["usr_alice", "usr_ghost"]);
-      // Ghost user is silently dropped — caller decides how to render the gap.
-      expect(map.size).toBe(1);
-      expect(map.has("usr_alice")).toBe(true);
-      expect(map.has("usr_ghost")).toBe(false);
-    }),
-  ),
-);
+  it("fails with GraphBridgeError on HTTP error", async () => {
+    mockFetch({ error: "Unauthorized" }, 401);
+    const err = await Effect.runPromise(Effect.flip(getCloseFriendIds("usr_alice")));
+    expect(err._tag).toBe("GraphBridgeError");
+  });
+});
 
 // ── getCloseFriendsOf ────────────────────────────────────────────────────────
-//
-// This is the directionally-correct close-friend check used by the RSVP
-// visibility filter. The test pins the contract: the function returns the
-// subset of attendee IDs whose users have marked the viewer as a close
-// friend. NOT the viewer's own close-friends list.
 
-it.effect("getCloseFriendsOf returns empty Set on empty input (short-circuit)", () =>
-  withOsn((osn) =>
-    Effect.gen(function* () {
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_alice" }));
-      const result = yield* getCloseFriendsOf("usr_alice", []);
-      expect(result.size).toBe(0);
-    }),
-  ),
-);
+describe("getCloseFriendsOf", () => {
+  it("short-circuits with empty Set when attendeeIds is empty (no HTTP call)", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    const result = await Effect.runPromise(getCloseFriendsOf("usr_alice", []));
+    expect(result.size).toBe(0);
+    expect(spy).not.toHaveBeenCalled();
+  });
 
-it.effect("getCloseFriendsOf returns the subset of attendees who marked the viewer", () =>
-  withOsn((osn) =>
-    Effect.gen(function* () {
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_alice" }));
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_bob" }));
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_carol" }));
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_dan" }));
-      // Bob and Carol both add Alice as a close friend.
-      yield* Effect.promise(() => seedCloseFriend(osn, "usr_bob", "usr_alice"));
-      yield* Effect.promise(() => seedCloseFriend(osn, "usr_carol", "usr_alice"));
-      // Dan does NOT.
-      const result = yield* getCloseFriendsOf("usr_alice", ["usr_bob", "usr_carol", "usr_dan"]);
-      expect(result.size).toBe(2);
-      expect(result.has("usr_bob")).toBe(true);
-      expect(result.has("usr_carol")).toBe(true);
-      expect(result.has("usr_dan")).toBe(false);
-    }),
-  ),
-);
+  it("returns the subset of attendee IDs the API reports as close friends of viewerId", async () => {
+    mockFetch({ closeFriendIds: ["usr_bob", "usr_carol"] });
+    const result = await Effect.runPromise(
+      getCloseFriendsOf("usr_alice", ["usr_bob", "usr_carol", "usr_dan"]),
+    );
+    expect(result.size).toBe(2);
+    expect(result.has("usr_bob")).toBe(true);
+    expect(result.has("usr_carol")).toBe(true);
+    expect(result.has("usr_dan")).toBe(false);
+  });
 
-it.effect("getCloseFriendsOf is directional — viewer-side adds don't count", () =>
-  withOsn((osn) =>
-    Effect.gen(function* () {
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_alice" }));
-      yield* Effect.promise(() => seedOsnUser(osn, { id: "usr_bob" }));
-      // Alice adds Bob as her close friend, but Bob doesn't reciprocate.
-      // The function asks: "did Bob add Alice?" — the answer is no.
-      yield* Effect.promise(() => seedCloseFriend(osn, "usr_alice", "usr_bob"));
-      const result = yield* getCloseFriendsOf("usr_alice", ["usr_bob"]);
-      expect(result.has("usr_bob")).toBe(false);
-    }),
-  ),
-);
+  it("sends a POST with viewerId and profileIds in the body", async () => {
+    const spy = mockFetch({ closeFriendIds: [] });
+    await Effect.runPromise(getCloseFriendsOf("usr_alice", ["usr_bob"]));
+    expect(spy.mock.calls[0]![1]?.method).toBe("POST");
+    const body = JSON.parse(spy.mock.calls[0]![1]?.body as string) as unknown;
+    expect(body).toMatchObject({ viewerId: "usr_alice", profileIds: ["usr_bob"] });
+  });
+
+  it("sends ARC Authorization header on POST requests", async () => {
+    const spy = mockFetch({ closeFriendIds: [] });
+    await Effect.runPromise(getCloseFriendsOf("usr_alice", ["usr_bob"]));
+    const headers = spy.mock.calls[0]![1]?.headers as Record<string, string>;
+    expect(headers["authorization"]).toMatch(/^ARC /);
+  });
+
+  it("fails with GraphBridgeError on HTTP error", async () => {
+    mockFetch({ error: "Unauthorized" }, 401);
+    const err = await Effect.runPromise(Effect.flip(getCloseFriendsOf("usr_alice", ["usr_bob"])));
+    expect(err._tag).toBe("GraphBridgeError");
+  });
+});
+
+// ── getProfileDisplays ──────────────────────────────────────────────────────
+
+describe("getProfileDisplays", () => {
+  it("short-circuits with empty Map when profileIds is empty (no HTTP call)", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    const result = await Effect.runPromise(getProfileDisplays([]));
+    expect(result.size).toBe(0);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("returns a Map keyed by profile ID", async () => {
+    mockFetch({
+      profiles: [
+        { id: "usr_alice", handle: "alice", displayName: "Alice", avatarUrl: null },
+        { id: "usr_bob", handle: "bob", displayName: "Bob Smith", avatarUrl: null },
+      ],
+    });
+    const result = await Effect.runPromise(getProfileDisplays(["usr_alice", "usr_bob"]));
+    expect(result.size).toBe(2);
+    expect(result.get("usr_alice")?.displayName).toBe("Alice");
+    expect(result.get("usr_bob")?.handle).toBe("bob");
+  });
+
+  it("omits IDs that the API doesn't return (unknown profiles)", async () => {
+    mockFetch({
+      profiles: [{ id: "usr_alice", handle: "alice", displayName: "Alice", avatarUrl: null }],
+    });
+    const result = await Effect.runPromise(getProfileDisplays(["usr_alice", "usr_ghost"]));
+    expect(result.size).toBe(1);
+    expect(result.has("usr_alice")).toBe(true);
+    expect(result.has("usr_ghost")).toBe(false);
+  });
+
+  it("fails with GraphBridgeError on HTTP error", async () => {
+    mockFetch({ error: "Unauthorized" }, 401);
+    const err = await Effect.runPromise(Effect.flip(getProfileDisplays(["usr_alice"])));
+    expect(err._tag).toBe("GraphBridgeError");
+  });
+});

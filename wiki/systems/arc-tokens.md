@@ -21,7 +21,21 @@ finding-ids:
 packages:
   - "@osn/crypto"
   - "@osn/core"
-last-reviewed: 2026-04-12
+  - "@pulse/api"
+last-reviewed: 2026-04-17
+security-fixes:
+  - S-H100
+  - S-H101
+  - S-M100
+  - S-M101
+  - S-M102
+  - S-L101
+perf-fixes:
+  - P-W100
+  - P-W101
+  - P-W102
+  - P-I100
+  - P-I101
 ---
 
 # ARC Tokens (S2S Auth)
@@ -35,7 +49,9 @@ ARC is OSN's service-to-service authentication token -- an ASAP-style self-issue
 - **Short-lived (5 min TTL);** cached in-memory, re-issued 30s before expiry
 - **Scope-gated:** `scope` claim limits what the token can do (e.g. `graph:read`)
 - **Audience-scoped:** `aud` claim names the target service (e.g. `"osn-core"`)
-- **Public key discovery:** first-party services registered in `service_accounts` DB table (`service_id`, `public_key_jwk`, `allowed_scopes`); third-party apps use JWKS URL derived from `iss`
+- **`kid`-keyed:** JWT protected header carries `kid` (key ID UUID); receiver looks up the specific key row, not just the issuer
+- **Public key discovery:** first-party services have rows in `service_accounts` (allowed scopes) + `service_account_keys` (key material per `kid`); third-party apps use JWKS URL derived from `iss`
+- **Automatic rotation:** ephemeral keys are rotated before expiry via `startKeyRotation()` — no manual key management required
 
 ## Location
 
@@ -44,36 +60,39 @@ Lives in `osn/crypto` (`@osn/crypto`). Import from `@osn/crypto/arc`.
 ## Exports
 
 ```typescript
-generateArcKeyPair()                                      // → CryptoKeyPair (ES256)
-exportKeyToJwk(key)                                       // → JSON string (for DB storage)
-importKeyFromJwk(jwk)                                     // → CryptoKey
-createArcToken(privateKey, { iss, aud, scope }, ttl?)     // → signed JWT string
-verifyArcToken(token, publicKey, expectedAud, scope?)     // → ArcTokenPayload or throws
-resolvePublicKey(issuer, tokenScopes?)                    // → Effect<CryptoKey, ArcTokenError, Db>
-getOrCreateArcToken(privateKey, { iss, aud, scope }, ttl?) // → cached JWT (re-issues 30s before expiry)
-clearTokenCache() / clearPublicKeyCache()                 // → for testing / key rotation
+generateArcKeyPair()                                           // → CryptoKeyPair (ES256)
+exportKeyToJwk(key)                                            // → JSON string (for DB storage)
+importKeyFromJwk(jwk)                                          // → CryptoKey
+createArcToken(privateKey, { iss, aud, scope, kid }, ttl?)     // → signed JWT string; kid in header
+verifyArcToken(token, publicKey, expectedAud, scope?)           // → ArcTokenPayload or throws
+resolvePublicKey(kid, issuer, tokenScopes?)                    // → Effect<CryptoKey, ArcTokenError, Db>
+getOrCreateArcToken(privateKey, { iss, aud, scope, kid }, ttl?) // → cached JWT (cache key: kid:iss:aud:scope)
+clearTokenCache() / clearPublicKeyCache()                      // → for testing / key rotation
+evictPublicKeyCacheEntry(kid)                                  // → immediate per-key cache eviction (call on revoke)
+evictExpiredTokens()                                           // → force-sweep expired tokens (no debounce)
 ```
 
 ## When to Use ARC Tokens
 
 | Scenario | Use ARC? | Why |
 |----------|----------|-----|
-| Pulse API -> OSN Core graph (current) | No | Direct package import (`createGraphService()`); zero overhead |
-| Pulse API -> OSN Core graph (multi-process) | **Yes** | HTTP call to `/graph/internal/*` must prove caller identity |
+| Pulse API -> OSN Core graph | **Yes** | HTTP call to `/graph/internal/*` must prove caller identity |
 | Third-party app -> any OSN endpoint | **Yes** | Caller has no shared secret; presents its public key via JWKS |
 | User-facing API call | No | Use user JWT (Bearer token); ARC is machine-to-machine only |
 | Background job -> OSN Core | **Yes** | Job acts as a service, not a user |
 
-## Calling Service (Token Issuer) -- Typical Pattern
+## Calling Service (Token Issuer) — Typical Pattern
 
 ```typescript
-import { getOrCreateArcToken, importKeyFromJwk } from "@osn/crypto/arc";
+import { getOrCreateArcToken, generateArcKeyPair, exportKeyToJwk } from "@osn/crypto";
 
-// Boot-time: load private key from env/secret store
-const privateKey = await importKeyFromJwk(process.env.ARC_PRIVATE_KEY_JWK!);
+// Boot-time: either load pre-distributed private key or generate ephemeral pair
+// See pulse/api/src/services/graphBridge.ts for the Promise-singleton pattern.
+const pair = await generateArcKeyPair();
+// Register public key with osn/api using INTERNAL_SERVICE_SECRET...
 
 // Per-request: get a cached or fresh token
-const token = await getOrCreateArcToken(privateKey, {
+const token = await getOrCreateArcToken(pair.privateKey, {
   iss: "pulse-api",      // this service's service_id
   aud: "osn-core",       // target service
   scope: "graph:read",   // minimal required scope
@@ -107,29 +126,58 @@ const arcMiddleware = (requiredScope: string) => async (ctx) => {
 };
 ```
 
+## Key Storage Schema
+
+Two DB tables cooperate:
+
+| Table | Columns | Purpose |
+|-------|---------|---------|
+| `service_accounts` | `service_id PK`, `allowed_scopes`, timestamps | Maps issuer ID → allowed scope list |
+| `service_account_keys` | `key_id PK`, `service_id FK`, `public_key_jwk`, `registered_at`, `expires_at`, `revoked_at` | Per-key material; multiple rows per service during rotation |
+
+`resolvePublicKey(kid, issuer, scopes?)` joins both tables, rejects expired (`expires_at < now`) and revoked (`revoked_at IS NOT NULL`) keys. Key cache keyed by `kid`.
+
 ## Service Registration
 
-Each first-party service must have a row in `service_accounts`:
+Ephemeral key auto-rotation is the only supported strategy. Pre-distributed stable keys are not used.
 
-```sql
-INSERT INTO service_accounts (service_id, public_key_jwk, allowed_scopes)
-VALUES ('pulse-api', '<exported-public-key-jwk>', 'graph:read');
+### Startup self-registration with auto-rotation
+
+`osn/api` exposes `POST /graph/internal/register-service`, protected by a shared `INTERNAL_SERVICE_SECRET` Bearer token. On startup, `startKeyRotation()` in `pulse/api`:
+
+1. Generates an ephemeral P-256 key pair with a UUID `keyId`
+2. Exports the public key (`exportKeyToJwk(pair.publicKey)`)
+3. POSTs `{ serviceId, keyId, publicKeyJwk, allowedScopes, expiresAt }` to the endpoint
+4. Schedules rotation `KEY_ROTATION_BUFFER_HOURS` (default 2h) before expiry
+5. On rotation: registers the new key BEFORE swapping the signing singleton — zero downtime
+
+Throws at startup if `INTERNAL_SERVICE_SECRET` is unset — misconfiguration is surfaced immediately rather than failing silently on the first S2S call.
+
+Env vars: `INTERNAL_SERVICE_SECRET`, `KEY_TTL_HOURS` (default 24), `KEY_ROTATION_BUFFER_HOURS` (default 2).
+
+```bash
+# Both env files need:
+INTERNAL_SERVICE_SECRET=<shared-random-string>
 ```
 
-Steps:
-1. Generate a key pair once at service setup with `generateArcKeyPair()`
-2. Store the **private key** in an env/secret store (never in the DB)
-3. Insert the **public key** (via `exportKeyToJwk`) into the `service_accounts` DB table
+### Key revocation
+
+`DELETE /graph/internal/service-keys/:keyId` (also protected by `INTERNAL_SERVICE_SECRET`) sets `revoked_at` in the DB AND evicts the in-process public key cache entry immediately — revocation takes effect on the next request with no wait for the 5-minute cache TTL (S-H100).
+
+`/register-service` validates requested `allowedScopes` against a server-side allowlist (`PERMITTED_SCOPES`). Any unknown scope returns 400 — a service cannot self-promote its scope set (S-M101).
 
 ## Current S2S Strategy
 
-Pulse API imports `createGraphService()` from `@osn/core` directly (zero network overhead). ARC tokens guard HTTP-based S2S (`/graph/internal/*`) -- needed when scaling to multi-process, and immediately for any third-party app. See the "S2S scaling" deferred decision in TODO.md.
-
-**Implemented:** ARC token verification middleware (`requireArc` in `osn/core/src/lib/arc-middleware.ts`) protects seven read-only `/graph/internal/*` endpoints (see `osn/core/src/routes/graph-internal.ts`). The graphBridge in Pulse API can migrate to HTTP calls against these endpoints when scaling to multi-process.
+Pulse API calls `osn/api`'s `/graph/internal/*` endpoints over HTTP, authenticated with ARC tokens. ARC token verification middleware (`requireArc` in `osn/core/src/lib/arc-middleware.ts`) protects all inbound calls. The [[s2s-patterns|graphBridge]] in `pulse/api` is the only file that makes these calls.
 
 ## Security Notes
 
-- **S-C2 (fixed):** Untrusted ARC `iss` claim was used as a metric label before verification. Fixed with `safeIssuer()` runtime guard in `arc-metrics.ts` -- any `iss`/`aud` not matching `/^[a-z][a-z0-9-]{1,30}$/` collapses to `"unknown"`.
+- **S-C2 (fixed):** Untrusted ARC `iss` claim was used as a metric label before verification. Fixed with `safeIssuer()` runtime guard in `arc-metrics.ts`.
+- **S-H100 (fixed):** Revocation now evicts `publicKeyCache` immediately via `evictPublicKeyCacheEntry(kid)` — no 5-minute window.
+- **S-H101 (fixed):** `INTERNAL_SERVICE_SECRET` comparison uses `crypto.timingSafeEqual` — no timing oracle.
+- **S-M100 (fixed):** `peekClaims` uses base64url decode (RFC 7515 §2) — `-` and `_` in UUID `kid`s are handled correctly.
+- **S-M101 (fixed):** `/register-service` validates `allowedScopes` against `PERMITTED_SCOPES` allowlist — services cannot self-promote.
+- **S-M102 (fixed):** `resolvePublicKey` cache hit stores `allowedScopes` and validates scopes on every hit — no bypass when `tokenScopes` is omitted.
 - ARC tokens are machine-to-machine only. Never use them for user-facing authentication (use user JWTs for that).
 - The `Authorization: ARC ...` header is the trust boundary for inbound trace context propagation -- only ARC-authenticated callers have their `traceparent` honoured.
 
@@ -142,9 +190,10 @@ ARC token metrics live in `osn/crypto/src/arc-metrics.ts`:
 
 ## Source Files
 
-- [osn/crypto/src/arc.ts](../osn/crypto/src/arc.ts) -- ARC token implementation
+- [osn/crypto/src/arc.ts](../osn/crypto/src/arc.ts) -- ARC token implementation (`kid`, `resolvePublicKey`, rotation cache)
 - [osn/crypto/src/arc-metrics.ts](../osn/crypto/src/arc-metrics.ts) -- ARC metrics
-- [osn/core/src/lib/arc-middleware.ts](../osn/core/src/lib/arc-middleware.ts) -- `requireArc` Elysia middleware
-- [osn/core/src/routes/graph-internal.ts](../osn/core/src/routes/graph-internal.ts) -- Internal graph routes (ARC-protected)
-- [osn/db/src/schema.ts](../osn/db/src/schema.ts) -- `service_accounts` table definition
+- [osn/core/src/lib/arc-middleware.ts](../osn/core/src/lib/arc-middleware.ts) -- `requireArc` Elysia middleware (reads `kid` from header)
+- [osn/core/src/routes/graph-internal.ts](../osn/core/src/routes/graph-internal.ts) -- Internal graph routes + `/register-service` + `/service-keys/:keyId` (revoke)
+- [osn/db/src/schema/index.ts](../osn/db/src/schema/index.ts) -- `service_accounts` + `service_account_keys` table definitions
+- [pulse/api/src/services/graphBridge.ts](../pulse/api/src/services/graphBridge.ts) -- `startKeyRotation()`, ephemeral key auto-rotation
 - [CLAUDE.md](../CLAUDE.md) -- "ARC Tokens (S2S Auth)" section

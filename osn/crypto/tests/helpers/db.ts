@@ -80,12 +80,22 @@ export function createTestLayer() {
   sqlite.run(`
     CREATE TABLE service_accounts (
       service_id TEXT PRIMARY KEY,
-      public_key_jwk TEXT NOT NULL,
       allowed_scopes TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
   `);
+  sqlite.run(`
+    CREATE TABLE service_account_keys (
+      key_id TEXT PRIMARY KEY,
+      service_id TEXT NOT NULL REFERENCES service_accounts(service_id),
+      public_key_jwk TEXT NOT NULL,
+      registered_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      revoked_at INTEGER
+    )
+  `);
+  sqlite.run(`CREATE INDEX service_account_keys_service_idx ON service_account_keys (service_id)`);
   const db = drizzle(sqlite, { schema });
   return Layer.succeed(Db, { db });
 }

@@ -25,15 +25,32 @@ function extractArcToken(authorization: string | undefined): string | null {
 }
 
 /**
- * Decodes the JWT payload once without verification to read `iss` and `scope`.
- * Needed to look up the issuer's public key before we can verify the
- * signature. Returns null if the token is malformed.
+ * Decodes a base64url-encoded JWT segment to a plain object.
+ * JWT segments use base64url (RFC 7515 §2) — `atob()` only handles standard
+ * base64, so we convert `-` → `+` and `_` → `/` first (S-M100).
  */
-function peekClaims(token: string): { iss: string; scopes: string[] } | null {
+function decodeJwtSegment(segment: string): unknown {
+  const padded =
+    segment.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (segment.length % 4)) % 4);
+  return JSON.parse(atob(padded));
+}
+
+/**
+ * Decodes the JWT header and payload without verification to read `kid`,
+ * `iss`, and `scope`. Needed to look up the issuer's public key before
+ * we can verify the signature. Returns null if the token is malformed.
+ *
+ * Header is decoded first so malformed/non-ARC tokens short-circuit before
+ * the payload decode (P-W101).
+ */
+function peekClaims(token: string): { kid: string; iss: string; scopes: string[] } | null {
   try {
     const parts = token.split(".");
     if (parts.length !== 3) return null;
-    const payload = JSON.parse(atob(parts[1])) as { iss?: string; scope?: string };
+    // Decode header first — fast-path rejection when `kid` is absent (P-W101).
+    const header = decodeJwtSegment(parts[0]) as { kid?: string };
+    if (typeof header.kid !== "string") return null;
+    const payload = decodeJwtSegment(parts[1]) as { iss?: string; scope?: string };
     if (typeof payload.iss !== "string") return null;
     const scopes =
       typeof payload.scope === "string"
@@ -42,7 +59,7 @@ function peekClaims(token: string): { iss: string; scopes: string[] } | null {
             .map((s) => s.trim().toLowerCase())
             .filter(Boolean)
         : [];
-    return { iss: payload.iss, scopes };
+    return { kid: header.kid, iss: payload.iss, scopes };
   } catch {
     return null;
   }
@@ -93,7 +110,7 @@ export async function requireArc(
     // so the DB scope check here is a fail-fast optimisation, not the
     // sole gate. The cryptographic verification below is authoritative.
     const publicKey = await Effect.runPromise(
-      resolvePublicKey(peeked.iss, peeked.scopes).pipe(Effect.provide(dbLayer)),
+      resolvePublicKey(peeked.kid, peeked.iss, peeked.scopes).pipe(Effect.provide(dbLayer)),
     );
 
     // Verify signature, audience, expiry, and required scope (authoritative).

@@ -44,10 +44,19 @@ function createTestDb() {
   sqlite.run(`
     CREATE TABLE service_accounts (
       service_id TEXT PRIMARY KEY,
-      public_key_jwk TEXT NOT NULL,
       allowed_scopes TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
+    )
+  `);
+  sqlite.run(`
+    CREATE TABLE service_account_keys (
+      key_id TEXT PRIMARY KEY,
+      service_id TEXT NOT NULL REFERENCES service_accounts(service_id),
+      public_key_jwk TEXT NOT NULL,
+      registered_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      revoked_at INTEGER
     )
   `);
   return drizzle(sqlite, { schema });
@@ -341,10 +350,8 @@ describe("service_accounts schema", () => {
   it("inserts and retrieves a service account", async () => {
     const db = createTestDb();
     const now = new Date();
-    const jwk = JSON.stringify({ kty: "EC", crv: "P-256", x: "abc", y: "def" });
     await db.insert(schema.serviceAccounts).values({
       serviceId: "pulse-api",
-      publicKeyJwk: jwk,
       allowedScopes: "graph:read,graph:write",
       createdAt: now,
       updatedAt: now,
@@ -357,7 +364,6 @@ describe("service_accounts schema", () => {
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
     expect(row.serviceId).toBe("pulse-api");
-    expect(row.publicKeyJwk).toBe(jwk);
     expect(row.allowedScopes).toBe("graph:read,graph:write");
     expect(row.createdAt).toBeInstanceOf(Date);
   });
@@ -365,12 +371,7 @@ describe("service_accounts schema", () => {
   it("enforces primary key uniqueness on service_id", async () => {
     const db = createTestDb();
     const now = new Date();
-    const base = {
-      publicKeyJwk: "{}",
-      allowedScopes: "graph:read",
-      createdAt: now,
-      updatedAt: now,
-    };
+    const base = { allowedScopes: "graph:read", createdAt: now, updatedAt: now };
     await db.insert(schema.serviceAccounts).values({ serviceId: "svc-a", ...base });
     await expect(
       db.insert(schema.serviceAccounts).values({ serviceId: "svc-a", ...base }),
@@ -382,7 +383,6 @@ describe("service_accounts schema", () => {
     const ts = new Date("2030-01-15T08:00:00.000Z");
     await db.insert(schema.serviceAccounts).values({
       serviceId: "svc-ts",
-      publicKeyJwk: "{}",
       allowedScopes: "graph:read",
       createdAt: ts,
       updatedAt: ts,
@@ -393,5 +393,84 @@ describe("service_accounts schema", () => {
       .where(eq(schema.serviceAccounts.serviceId, "svc-ts"));
     expect(row!.createdAt.getTime()).toBe(ts.getTime());
     expect(row!.updatedAt.getTime()).toBe(ts.getTime());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// service_account_keys schema
+// ---------------------------------------------------------------------------
+
+describe("service_account_keys schema", () => {
+  async function insertServiceAccount(db: ReturnType<typeof createTestDb>, serviceId: string) {
+    const now = new Date();
+    await db.insert(schema.serviceAccounts).values({
+      serviceId,
+      allowedScopes: "graph:read",
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  it("inserts and retrieves a key row", async () => {
+    const db = createTestDb();
+    await insertServiceAccount(db, "pulse-api");
+    const now = new Date();
+    const jwk = JSON.stringify({ kty: "EC", crv: "P-256", x: "abc", y: "def" });
+
+    await db.insert(schema.serviceAccountKeys).values({
+      keyId: "key-1",
+      serviceId: "pulse-api",
+      publicKeyJwk: jwk,
+      registeredAt: now,
+      expiresAt: null,
+      revokedAt: null,
+    });
+
+    const rows = await db
+      .select()
+      .from(schema.serviceAccountKeys)
+      .where(eq(schema.serviceAccountKeys.keyId, "key-1"));
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    expect(row.keyId).toBe("key-1");
+    expect(row.serviceId).toBe("pulse-api");
+    expect(row.publicKeyJwk).toBe(jwk);
+    expect(row.expiresAt).toBeNull();
+    expect(row.revokedAt).toBeNull();
+  });
+
+  it("stores expiresAt and revokedAt as integers", async () => {
+    const db = createTestDb();
+    await insertServiceAccount(db, "svc-exp");
+    const now = new Date();
+    const expSecs = Math.floor(Date.now() / 1000) + 3600;
+    const revSecs = Math.floor(Date.now() / 1000) - 60;
+
+    await db.insert(schema.serviceAccountKeys).values({
+      keyId: "key-exp",
+      serviceId: "svc-exp",
+      publicKeyJwk: "{}",
+      registeredAt: now,
+      expiresAt: expSecs,
+      revokedAt: revSecs,
+    });
+
+    const [row] = await db
+      .select()
+      .from(schema.serviceAccountKeys)
+      .where(eq(schema.serviceAccountKeys.keyId, "key-exp"));
+    expect(row!.expiresAt).toBe(expSecs);
+    expect(row!.revokedAt).toBe(revSecs);
+  });
+
+  it("enforces primary key uniqueness on key_id", async () => {
+    const db = createTestDb();
+    await insertServiceAccount(db, "svc-pk");
+    const now = new Date();
+    const base = { serviceId: "svc-pk", publicKeyJwk: "{}", registeredAt: now };
+    await db.insert(schema.serviceAccountKeys).values({ keyId: "dup-key", ...base });
+    await expect(
+      db.insert(schema.serviceAccountKeys).values({ keyId: "dup-key", ...base }),
+    ).rejects.toThrow();
   });
 });

@@ -1,6 +1,8 @@
 import { it, expect } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
+import { vi, beforeEach } from "vitest";
 
+import type { ProfileDisplay } from "../../src/services/graphBridge";
 import { updateSettings } from "../../src/services/pulseUsers";
 import {
   inviteGuests,
@@ -10,31 +12,33 @@ import {
   upsertRsvp,
 } from "../../src/services/rsvps";
 import { createTestLayer, seedEvent } from "../helpers/db";
-import {
-  createOsnTestContext,
-  seedCloseFriend,
-  seedConnection,
-  seedOsnUser,
-  type OsnTestContext,
-} from "../helpers/osnDb";
 
-function setup() {
-  const pulse = createTestLayer();
-  const osn = createOsnTestContext();
-  const layer = Layer.mergeAll(pulse, osn.layer);
-  return { pulse, osn, layer };
-}
+// graphBridge functions are mocked at the module level so rsvps.ts uses the
+// mocked implementations. Tests that exercise listRsvps/latestRsvps set up
+// per-test mock return values to control graph data.
+vi.mock("../../src/services/graphBridge", () => ({
+  GraphBridgeError: class GraphBridgeError {
+    _tag = "GraphBridgeError";
+    constructor(public args: { cause: unknown }) {}
+  },
+  getConnectionIds: vi.fn(() => Effect.succeed(new Set<string>())),
+  getCloseFriendIds: vi.fn(() => Effect.succeed(new Set<string>())),
+  getCloseFriendsOf: vi.fn(() => Effect.succeed(new Set<string>())),
+  getProfileDisplays: vi.fn(() => Effect.succeed(new Map<string, ProfileDisplay>())),
+}));
 
-const runPulseOnly = <A, E>(
-  effect: Effect.Effect<A, E, never>,
-  pulse: ReturnType<typeof createTestLayer>,
-) => Effect.runPromise(effect.pipe(Effect.provide(pulse)));
+import * as bridge from "../../src/services/graphBridge";
 
-async function seedBasicUsers(osn: OsnTestContext) {
-  await seedOsnUser(osn, { id: "usr_alice", handle: "alice", displayName: "Alice" });
-  await seedOsnUser(osn, { id: "usr_bob", handle: "bob", displayName: "Bob" });
-  await seedOsnUser(osn, { id: "usr_carol", handle: "carol", displayName: "Carol" });
-  await seedOsnUser(osn, { id: "usr_dan", handle: "dan", displayName: "Dan" });
+beforeEach(() => {
+  vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set()));
+  vi.mocked(bridge.getCloseFriendIds).mockReturnValue(Effect.succeed(new Set()));
+  vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set()));
+  vi.mocked(bridge.getProfileDisplays).mockReturnValue(Effect.succeed(new Map()));
+});
+
+// Shorthand: build a ProfileDisplay for a mock user.
+function profile(id: string, handle: string, displayName: string): ProfileDisplay {
+  return { id, handle, displayName, avatarUrl: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -111,9 +115,6 @@ it.effect("upsertRsvp ensures pulse_users row is created", () =>
   Effect.gen(function* () {
     const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
-    // If this didn't create a pulse_users row, getAttendanceVisibility would
-    // still fall back to the default — but we've covered ensurePulseUser
-    // idempotency elsewhere; this test just verifies no crash on first RSVP.
     expect(true).toBe(true);
   }).pipe(Effect.provide(createTestLayer())),
 );
@@ -148,7 +149,6 @@ it.effect("inviteGuests skips users with existing RSVPs", () =>
     const result = yield* inviteGuests(event.id, "usr_alice", {
       profileIds: ["usr_bob", "usr_carol"],
     });
-    // Only carol gets invited — bob is already going.
     expect(result.invited).toBe(1);
   }).pipe(Effect.provide(createTestLayer())),
 );
@@ -174,7 +174,6 @@ it.effect("inviteGuests rejects batches over the platform MAX_EVENT_GUESTS cap",
       startTime: "2030-06-01T10:00:00.000Z",
       createdByProfileId: "usr_alice",
     });
-    // 1001 ids — one over the cap. ValidationError, not DatabaseError.
     const profileIds = Array.from({ length: 1001 }, (_, i) => `usr_${i}`);
     const err = yield* Effect.flip(inviteGuests(event.id, "usr_alice", { profileIds }));
     expect(err._tag).toBe("ValidationError");
@@ -217,294 +216,291 @@ it.effect("rsvpCounts groups by status", () =>
 // listRsvps — visibility filtering
 // ---------------------------------------------------------------------------
 
-// These tests need both Pulse and OSN DB layers provided. They use the
-// combined layer helper.
+// These tests mock graphBridge functions to control graph data.
+// The mock contract for each test follows the scenario being tested.
 
 it.effect("listRsvps returns all rows for public guest list event", () =>
   Effect.gen(function* () {
-    const { pulse, osn, layer } = setup();
-    yield* Effect.promise(() => seedBasicUsers(osn));
+    // Public event: no connection check — visible to everyone.
+    // getCloseFriendsOf and getProfileDisplays are called; set up stubs.
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(
+        new Map([
+          ["usr_bob", profile("usr_bob", "bob", "Bob")],
+          ["usr_carol", profile("usr_carol", "carol", "Carol")],
+        ]),
+      ),
+    );
     const event = yield* seedEvent({
       title: "Public",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "public",
       createdByProfileId: "usr_alice",
-    }).pipe(Effect.provide(pulse));
-    // Seed some RSVPs (needs pulse layer only)
-    yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
-    yield* upsertRsvp(event.id, "usr_carol", { status: "going" }).pipe(Effect.provide(pulse));
-    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
-      Effect.provide(layer),
-    );
+    });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    yield* upsertRsvp(event.id, "usr_carol", { status: "going" });
+    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" });
     expect(rows.length).toBe(2);
-  }),
+  }).pipe(Effect.provide(createTestLayer())),
 );
 
 it.effect(
   "listRsvps returns empty for connections-only event when viewer is not an organiser's connection",
   () =>
     Effect.gen(function* () {
-      const { pulse, osn, layer } = setup();
-      yield* Effect.promise(() => seedBasicUsers(osn));
+      // Dan is NOT in Alice's connection set.
+      vi.mocked(bridge.getConnectionIds).mockImplementation((profileId) =>
+        Effect.succeed(profileId === "usr_alice" ? new Set(["usr_bob"]) : new Set()),
+      );
       const event = yield* seedEvent({
         title: "Connections",
         startTime: "2030-06-01T10:00:00.000Z",
         guestListVisibility: "connections",
         createdByProfileId: "usr_alice",
-      }).pipe(Effect.provide(pulse));
-      yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
-      // Dan is NOT connected to Alice
-      const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
-        Effect.provide(layer),
-      );
+      });
+      yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+      const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" });
       expect(rows.length).toBe(0);
-    }),
+    }).pipe(Effect.provide(createTestLayer())),
 );
 
 it.effect("listRsvps returns rows for connections-only event when viewer IS a connection", () =>
   Effect.gen(function* () {
-    const { pulse, osn, layer } = setup();
-    yield* Effect.promise(() => seedBasicUsers(osn));
-    // Dan is connected to Alice (the organiser).
-    yield* Effect.promise(() => seedConnection(osn, "usr_alice", "usr_dan"));
-    // Bob is connected to Dan (so Dan can see Bob's RSVP under per-row filter).
-    yield* Effect.promise(() => seedConnection(osn, "usr_dan", "usr_bob"));
+    // Dan IS in Alice's connection set; Bob IS in Dan's connection set.
+    vi.mocked(bridge.getConnectionIds).mockImplementation((profileId) => {
+      if (profileId === "usr_alice") return Effect.succeed(new Set(["usr_dan"]));
+      if (profileId === "usr_dan") return Effect.succeed(new Set(["usr_bob", "usr_alice"]));
+      return Effect.succeed(new Set());
+    });
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(new Map([["usr_bob", profile("usr_bob", "bob", "Bob")]])),
+    );
     const event = yield* seedEvent({
       title: "Connections",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "connections",
       createdByProfileId: "usr_alice",
-    }).pipe(Effect.provide(pulse));
-    yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
-    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
-      Effect.provide(layer),
-    );
+    });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" });
     expect(rows.length).toBe(1);
     expect(rows[0]!.profileId).toBe("usr_bob");
-  }),
+  }).pipe(Effect.provide(createTestLayer())),
 );
 
 it.effect("listRsvps returns empty for private guest list when viewer is not organiser", () =>
   Effect.gen(function* () {
-    const { pulse, osn, layer } = setup();
-    yield* Effect.promise(() => seedBasicUsers(osn));
     const event = yield* seedEvent({
       title: "Hidden",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "private",
       createdByProfileId: "usr_alice",
-    }).pipe(Effect.provide(pulse));
-    yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
-    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
-      Effect.provide(layer),
-    );
+    });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" });
     expect(rows.length).toBe(0);
-  }),
+  }).pipe(Effect.provide(createTestLayer())),
 );
 
 it.effect("listRsvps returns all rows for private guest list when viewer IS the organiser", () =>
   Effect.gen(function* () {
-    const { pulse, osn, layer } = setup();
-    yield* Effect.promise(() => seedBasicUsers(osn));
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(
+        new Map([
+          ["usr_bob", profile("usr_bob", "bob", "Bob")],
+          ["usr_carol", profile("usr_carol", "carol", "Carol")],
+        ]),
+      ),
+    );
     const event = yield* seedEvent({
       title: "Hidden",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "private",
       createdByProfileId: "usr_alice",
-    }).pipe(Effect.provide(pulse));
-    yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
-    yield* upsertRsvp(event.id, "usr_carol", { status: "going" }).pipe(Effect.provide(pulse));
-    const rows = yield* listRsvps(event.id, "usr_alice", { status: "going" }).pipe(
-      Effect.provide(layer),
-    );
+    });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    yield* upsertRsvp(event.id, "usr_carol", { status: "going" });
+    const rows = yield* listRsvps(event.id, "usr_alice", { status: "going" });
     expect(rows.length).toBe(2);
-  }),
+  }).pipe(Effect.provide(createTestLayer())),
 );
 
 it.effect("listRsvps hides attendee whose own setting is 'no_one'", () =>
   Effect.gen(function* () {
-    const { pulse, osn, layer } = setup();
-    yield* Effect.promise(() => seedBasicUsers(osn));
-    // Connections-only event so per-row filter runs.
-    yield* Effect.promise(() => seedConnection(osn, "usr_alice", "usr_dan"));
-    yield* Effect.promise(() => seedConnection(osn, "usr_dan", "usr_bob"));
+    // Dan is in Alice's connections (event visible); Bob is in Dan's connections.
+    vi.mocked(bridge.getConnectionIds).mockImplementation((profileId) => {
+      if (profileId === "usr_alice") return Effect.succeed(new Set(["usr_dan"]));
+      if (profileId === "usr_dan") return Effect.succeed(new Set(["usr_bob"]));
+      return Effect.succeed(new Set());
+    });
     const event = yield* seedEvent({
       title: "Connections",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "connections",
       createdByProfileId: "usr_alice",
-    }).pipe(Effect.provide(pulse));
-    yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
-    yield* updateSettings("usr_bob", { attendanceVisibility: "no_one" }).pipe(
-      Effect.provide(pulse),
-    );
-    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
-      Effect.provide(layer),
-    );
+    });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    // Bob sets his attendance visibility to no_one — hides his row from others.
+    yield* updateSettings("usr_bob", { attendanceVisibility: "no_one" });
+    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" });
     expect(rows.length).toBe(0);
-  }),
+  }).pipe(Effect.provide(createTestLayer())),
 );
 
 it.effect(
   "listRsvps shows attendee whose setting is 'no_one' BUT public guest list overrides",
   () =>
     Effect.gen(function* () {
-      const { pulse, osn, layer } = setup();
-      yield* Effect.promise(() => seedBasicUsers(osn));
+      vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+        Effect.succeed(new Map([["usr_bob", profile("usr_bob", "bob", "Bob")]])),
+      );
       const event = yield* seedEvent({
         title: "Public",
         startTime: "2030-06-01T10:00:00.000Z",
         guestListVisibility: "public",
         createdByProfileId: "usr_alice",
-      }).pipe(Effect.provide(pulse));
-      yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
-      yield* updateSettings("usr_bob", { attendanceVisibility: "no_one" }).pipe(
-        Effect.provide(pulse),
-      );
-      const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
-        Effect.provide(layer),
-      );
-      // Public guest list wins: Bob knowingly attended a public-list event.
+      });
+      yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+      yield* updateSettings("usr_bob", { attendanceVisibility: "no_one" });
+      const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" });
+      // Public guest list wins: by attending a public-list event Bob opted in.
       expect(rows.length).toBe(1);
-    }),
+    }).pipe(Effect.provide(createTestLayer())),
 );
 
 it.effect("viewer always sees their own RSVP", () =>
   Effect.gen(function* () {
-    const { pulse, osn, layer } = setup();
-    yield* Effect.promise(() => seedBasicUsers(osn));
-    // Dan is connected to Alice (event visible) but no one else.
-    yield* Effect.promise(() => seedConnection(osn, "usr_alice", "usr_dan"));
+    // Dan is in Alice's connections (event visible).
+    vi.mocked(bridge.getConnectionIds).mockImplementation((profileId) => {
+      if (profileId === "usr_alice") return Effect.succeed(new Set(["usr_dan"]));
+      return Effect.succeed(new Set());
+    });
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(new Map([["usr_dan", profile("usr_dan", "dan", "Dan")]])),
+    );
     const event = yield* seedEvent({
       title: "Connections",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "connections",
       createdByProfileId: "usr_alice",
-    }).pipe(Effect.provide(pulse));
-    yield* upsertRsvp(event.id, "usr_dan", { status: "going" }).pipe(Effect.provide(pulse));
-    yield* updateSettings("usr_dan", { attendanceVisibility: "no_one" }).pipe(
-      Effect.provide(pulse),
-    );
-    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
-      Effect.provide(layer),
-    );
+    });
+    yield* upsertRsvp(event.id, "usr_dan", { status: "going" });
+    yield* updateSettings("usr_dan", { attendanceVisibility: "no_one" });
+    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" });
     // Dan sees himself even though his setting is no_one.
     expect(rows.length).toBe(1);
     expect(rows[0]!.profileId).toBe("usr_dan");
-  }),
+  }).pipe(Effect.provide(createTestLayer())),
 );
 
 it.effect("isCloseFriend flag is stamped when the attendee has marked the viewer as a CF", () =>
   Effect.gen(function* () {
-    const { pulse, osn, layer } = setup();
-    yield* Effect.promise(() => seedBasicUsers(osn));
-    yield* Effect.promise(() => seedConnection(osn, "usr_alice", "usr_dan"));
-    yield* Effect.promise(() => seedConnection(osn, "usr_dan", "usr_bob"));
-    // Bob (the attendee) marks Dan (the viewer) as a close friend.
-    // This is now purely a display affordance — it does not affect
-    // visibility, just surfaces Bob first in the returned list.
-    yield* Effect.promise(() => seedCloseFriend(osn, "usr_bob", "usr_dan"));
+    // Dan in Alice's connections; Bob in Dan's connections.
+    vi.mocked(bridge.getConnectionIds).mockImplementation((profileId) => {
+      if (profileId === "usr_alice") return Effect.succeed(new Set(["usr_dan"]));
+      if (profileId === "usr_dan") return Effect.succeed(new Set(["usr_bob"]));
+      return Effect.succeed(new Set());
+    });
+    // Bob (attendee) marked Dan (viewer) as a close friend.
+    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set(["usr_bob"])));
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(new Map([["usr_bob", profile("usr_bob", "bob", "Bob")]])),
+    );
     const event = yield* seedEvent({
       title: "Connections",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "connections",
       createdByProfileId: "usr_alice",
-    }).pipe(Effect.provide(pulse));
-    yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
-    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
-      Effect.provide(layer),
-    );
+    });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" });
     expect(rows.length).toBe(1);
     expect(rows[0]!.isCloseFriend).toBe(true);
-  }),
+  }).pipe(Effect.provide(createTestLayer())),
 );
 
 it.effect("isCloseFriend flag is NOT stamped when only the viewer marked the attendee", () =>
   Effect.gen(function* () {
-    const { pulse, osn, layer } = setup();
-    yield* Effect.promise(() => seedBasicUsers(osn));
-    yield* Effect.promise(() => seedConnection(osn, "usr_alice", "usr_dan"));
-    yield* Effect.promise(() => seedConnection(osn, "usr_dan", "usr_bob"));
-    // Dan (viewer) marks Bob (attendee). Bob did NOT mark Dan. The
-    // flag keys on the attendee's CF list — so Dan doesn't get the
-    // ring affordance. The row is still visible because Bob's
-    // attendance visibility defaults to "connections" and Dan is
-    // connected to Bob.
-    yield* Effect.promise(() => seedCloseFriend(osn, "usr_dan", "usr_bob"));
+    // Dan in Alice's connections; Bob in Dan's connections.
+    vi.mocked(bridge.getConnectionIds).mockImplementation((profileId) => {
+      if (profileId === "usr_alice") return Effect.succeed(new Set(["usr_dan"]));
+      if (profileId === "usr_dan") return Effect.succeed(new Set(["usr_bob"]));
+      return Effect.succeed(new Set());
+    });
+    // Dan marked Bob — but Bob did NOT mark Dan. getCloseFriendsOf returns empty.
+    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set()));
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(new Map([["usr_bob", profile("usr_bob", "bob", "Bob")]])),
+    );
     const event = yield* seedEvent({
       title: "Connections",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "connections",
       createdByProfileId: "usr_alice",
-    }).pipe(Effect.provide(pulse));
-    yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
-    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
-      Effect.provide(layer),
-    );
+    });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" });
     expect(rows.length).toBe(1);
     expect(rows[0]!.isCloseFriend).toBe(false);
-  }),
+  }).pipe(Effect.provide(createTestLayer())),
 );
 
 it.effect("listRsvps surfaces close-friend rows first, newest-within-bucket after", () =>
   Effect.gen(function* () {
-    const { pulse, osn, layer } = setup();
-    yield* Effect.promise(() => seedBasicUsers(osn));
-    yield* Effect.promise(() =>
-      seedOsnUser(osn, { id: "usr_eve", handle: "eve", displayName: "Eve" }),
+    // Dan is in Alice's connections; Dan is connected to bob, carol, eve.
+    vi.mocked(bridge.getConnectionIds).mockImplementation((profileId) => {
+      if (profileId === "usr_alice") return Effect.succeed(new Set(["usr_dan"]));
+      if (profileId === "usr_dan")
+        return Effect.succeed(new Set(["usr_bob", "usr_carol", "usr_eve"]));
+      return Effect.succeed(new Set());
+    });
+    // Only Eve has marked Dan as a close friend.
+    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set(["usr_eve"])));
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(
+        new Map([
+          ["usr_eve", profile("usr_eve", "eve", "Eve")],
+          ["usr_bob", profile("usr_bob", "bob", "Bob")],
+          ["usr_carol", profile("usr_carol", "carol", "Carol")],
+        ]),
+      ),
     );
-    // Dan is connected to everyone so visibility allows every RSVP.
-    yield* Effect.promise(() => seedConnection(osn, "usr_alice", "usr_dan"));
-    yield* Effect.promise(() => seedConnection(osn, "usr_dan", "usr_bob"));
-    yield* Effect.promise(() => seedConnection(osn, "usr_dan", "usr_carol"));
-    yield* Effect.promise(() => seedConnection(osn, "usr_dan", "usr_eve"));
-    // Only Eve has marked Dan as a close friend. Bob and Carol RSVP
-    // after Eve, so the default createdAt-DESC order would put Eve
-    // last — but the close-friend-first sort must hoist her first.
-    yield* Effect.promise(() => seedCloseFriend(osn, "usr_eve", "usr_dan"));
     const event = yield* seedEvent({
       title: "Connections",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "connections",
       createdByProfileId: "usr_alice",
-    }).pipe(Effect.provide(pulse));
-    yield* upsertRsvp(event.id, "usr_eve", { status: "going" }).pipe(Effect.provide(pulse));
-    yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
-    yield* upsertRsvp(event.id, "usr_carol", { status: "going" }).pipe(Effect.provide(pulse));
-    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" }).pipe(
-      Effect.provide(layer),
-    );
+    });
+    // Eve RSVPs first; Bob and Carol after — default createdAt-DESC would put Eve last.
+    yield* upsertRsvp(event.id, "usr_eve", { status: "going" });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    yield* upsertRsvp(event.id, "usr_carol", { status: "going" });
+    const rows = yield* listRsvps(event.id, "usr_dan", { status: "going" });
     expect(rows.length).toBe(3);
-    // Eve first (close friend), then the non-CF rows in createdAt DESC order.
+    // Eve first (close friend), then non-CF rows in createdAt DESC order.
     expect(rows[0]!.profileId).toBe("usr_eve");
     expect(rows[0]!.isCloseFriend).toBe(true);
     expect(rows[1]!.isCloseFriend).toBe(false);
     expect(rows[2]!.isCloseFriend).toBe(false);
-  }),
+  }).pipe(Effect.provide(createTestLayer())),
 );
 
 it.effect("listRsvps joins user display metadata onto rows", () =>
   Effect.gen(function* () {
-    const { pulse, osn, layer } = setup();
-    yield* Effect.promise(() =>
-      seedOsnUser(osn, { id: "usr_alice", handle: "alice", displayName: "Alice" }),
-    );
-    yield* Effect.promise(() =>
-      seedOsnUser(osn, { id: "usr_bob", handle: "bob", displayName: "Bob Smith" }),
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(new Map([["usr_bob", profile("usr_bob", "bob", "Bob Smith")]])),
     );
     const event = yield* seedEvent({
       title: "Public",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "public",
       createdByProfileId: "usr_alice",
-    }).pipe(Effect.provide(pulse));
-    yield* upsertRsvp(event.id, "usr_bob", { status: "going" }).pipe(Effect.provide(pulse));
-    const rows = yield* listRsvps(event.id, "usr_alice", { status: "going" }).pipe(
-      Effect.provide(layer),
-    );
+    });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    const rows = yield* listRsvps(event.id, "usr_alice", { status: "going" });
     expect(rows[0]!.profile?.displayName).toBe("Bob Smith");
     expect(rows[0]!.profile?.handle).toBe("bob");
-  }),
+  }).pipe(Effect.provide(createTestLayer())),
 );
 
 // ---------------------------------------------------------------------------
@@ -513,50 +509,40 @@ it.effect("listRsvps joins user display metadata onto rows", () =>
 
 it.effect("latestRsvps defaults to 5 results when more exist", () =>
   Effect.gen(function* () {
-    const { pulse, osn, layer } = setup();
-    yield* Effect.promise(() =>
-      seedOsnUser(osn, { id: "usr_alice", handle: "alice", displayName: "Alice" }),
+    const ids = ["usr_b1", "usr_b2", "usr_b3", "usr_b4", "usr_b5", "usr_b6", "usr_b7"];
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(new Map(ids.map((id) => [id, profile(id, id, id)]))),
     );
-    for (const id of ["usr_b1", "usr_b2", "usr_b3", "usr_b4", "usr_b5", "usr_b6", "usr_b7"]) {
-      yield* Effect.promise(() => seedOsnUser(osn, { id, handle: id, displayName: id }));
-    }
     const event = yield* seedEvent({
       title: "Popular",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "public",
       createdByProfileId: "usr_alice",
-    }).pipe(Effect.provide(pulse));
-    for (const id of ["usr_b1", "usr_b2", "usr_b3", "usr_b4", "usr_b5", "usr_b6", "usr_b7"]) {
-      yield* upsertRsvp(event.id, id, { status: "going" }).pipe(Effect.provide(pulse));
+    });
+    for (const id of ids) {
+      yield* upsertRsvp(event.id, id, { status: "going" });
     }
-    const rows = yield* latestRsvps(event.id, "usr_alice").pipe(Effect.provide(layer));
+    const rows = yield* latestRsvps(event.id, "usr_alice");
     expect(rows.length).toBe(5);
-  }),
+  }).pipe(Effect.provide(createTestLayer())),
 );
 
 it.effect("latestRsvps respects an explicit limit", () =>
   Effect.gen(function* () {
-    const { pulse, osn, layer } = setup();
-    yield* Effect.promise(() =>
-      seedOsnUser(osn, { id: "usr_alice", handle: "alice", displayName: "Alice" }),
+    const ids = ["usr_b1", "usr_b2", "usr_b3"];
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(new Map(ids.map((id) => [id, profile(id, id, id)]))),
     );
-    for (const id of ["usr_b1", "usr_b2", "usr_b3"]) {
-      yield* Effect.promise(() => seedOsnUser(osn, { id, handle: id, displayName: id }));
-    }
     const event = yield* seedEvent({
       title: "Small",
       startTime: "2030-06-01T10:00:00.000Z",
       guestListVisibility: "public",
       createdByProfileId: "usr_alice",
-    }).pipe(Effect.provide(pulse));
-    for (const id of ["usr_b1", "usr_b2", "usr_b3"]) {
-      yield* upsertRsvp(event.id, id, { status: "going" }).pipe(Effect.provide(pulse));
+    });
+    for (const id of ids) {
+      yield* upsertRsvp(event.id, id, { status: "going" });
     }
-    const rows = yield* latestRsvps(event.id, "usr_alice", 1).pipe(Effect.provide(layer));
+    const rows = yield* latestRsvps(event.id, "usr_alice", 1);
     expect(rows.length).toBe(1);
-  }),
+  }).pipe(Effect.provide(createTestLayer())),
 );
-
-// Suppress "vitest imported but not used" lint on _runPulseOnly helper —
-// keep the helper definition in case future tests need it.
-void runPulseOnly;

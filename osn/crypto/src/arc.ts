@@ -1,6 +1,6 @@
-import { serviceAccounts } from "@osn/db";
+import { serviceAccounts, serviceAccountKeys } from "@osn/db";
 import { Db } from "@osn/db/service";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, gt, or } from "drizzle-orm";
 import { Effect, Data } from "effect";
 import { SignJWT, jwtVerify, importJWK, exportJWK } from "jose";
 
@@ -31,9 +31,15 @@ export interface ArcTokenClaims {
   readonly iss: string;
   readonly aud: string;
   readonly scope: string;
+  /** Key ID — identifies which public key to use for verification. Becomes the `kid` JWT header. */
+  readonly kid: string;
 }
 
-export interface ArcTokenPayload extends ArcTokenClaims {
+/** Verified payload claims returned from verifyArcToken. Does not include `kid` (a JWT header field). */
+export interface ArcTokenPayload {
+  readonly iss: string;
+  readonly aud: string;
+  readonly scope: string;
   readonly iat: number;
   readonly exp: number;
 }
@@ -153,7 +159,7 @@ export async function createArcToken(
   validateScopeFormat(scopes);
 
   const token = await new SignJWT({ scope: scopes.join(",") })
-    .setProtectedHeader({ alg: ARC_ALG })
+    .setProtectedHeader({ alg: ARC_ALG, kid: claims.kid })
     .setIssuer(claims.iss)
     .setAudience(claims.aud)
     .setIssuedAt()
@@ -229,64 +235,86 @@ export async function verifyArcToken(
 // Public key resolution (Effect-based, requires Db)
 // ---------------------------------------------------------------------------
 
-/** In-memory cache for resolved CryptoKeys (service_id → { key, expiresAt }). */
-const publicKeyCache = new Map<string, { key: CryptoKey; expiresAt: number }>();
+/** In-memory cache for resolved CryptoKeys (kid → { key, allowedScopes, expiresAt }). */
+const publicKeyCache = new Map<
+  string,
+  { key: CryptoKey; allowedScopes: string; expiresAt: number }
+>();
 const PUBLIC_KEY_CACHE_TTL_SECONDS = 300; // 5 min
 
 /**
- * Resolves a service's public key from the `service_accounts` table.
- * Also validates that the token's scopes are within the service's `allowed_scopes`.
+ * Resolves a service's public key from the `service_account_keys` table by `kid`.
+ * Also validates that `serviceId == issuer` and the token's scopes are within
+ * the service's `allowed_scopes` (from `service_accounts`).
  *
- * Results are cached in-memory for 5 minutes to avoid repeated DB + JWK import.
+ * Results are cached in-memory for 5 minutes (by `kid`) to avoid repeated
+ * DB + JWK import. Revoked and expired keys are never cached. On cache hit,
+ * scope validation runs against the cached `allowedScopes` — no DB round-trip.
  */
 export const resolvePublicKey = (
+  kid: string,
   issuer: string,
   tokenScopes?: string[],
 ): Effect.Effect<CryptoKey, ArcTokenError, Db> =>
   Effect.gen(function* () {
     const now = Math.floor(Date.now() / 1000);
 
-    // Check CryptoKey cache first. Cache entries only exist for
-    // issuers we've already verified against the DB, so recording the
-    // hit metric with `issuer` here is safe (S-C2).
-    const cached = publicKeyCache.get(issuer);
+    // Cache hit path — validate scopes against stored allowedScopes so we
+    // never skip scope enforcement even when tokenScopes is omitted (S-M102).
+    const cached = publicKeyCache.get(kid);
     if (cached && cached.expiresAt > now) {
-      // Still need to validate scopes against DB if tokenScopes provided
-      // but skip the DB query for key material — we fetch allowedScopes below
-      if (!tokenScopes || tokenScopes.length === 0) {
-        metricArcPublicKeyCacheHit(issuer);
-        return cached.key;
+      if (tokenScopes && tokenScopes.length > 0) {
+        const allowed = normaliseScopes(cached.allowedScopes);
+        for (const s of tokenScopes) {
+          if (!allowed.includes(s.trim().toLowerCase())) {
+            return yield* Effect.fail(
+              new ArcTokenError({
+                message: `Service "${issuer}" not authorised for scope: ${s}`,
+              }),
+            );
+          }
+        }
       }
+      metricArcPublicKeyCacheHit(issuer);
+      return cached.key;
     }
 
-    // S-C2: do NOT record the miss metric yet. At this point `issuer`
-    // is attacker-controlled (it's the `iss` claim of an unverified
-    // token). Recording it as a metric label would let anyone explode
-    // cardinality. Defer until the DB lookup confirms the issuer
-    // exists in `service_accounts`.
+    // S-C2: do NOT record the miss metric yet — `kid` and `issuer` are
+    // attacker-controlled (unverified JWT fields). Defer until the DB
+    // lookup confirms the key exists and belongs to the issuer.
     const { db } = yield* Db;
 
     const rows = yield* Effect.tryPromise({
       try: () =>
         db
           .select({
-            publicKeyJwk: serviceAccounts.publicKeyJwk,
+            publicKeyJwk: serviceAccountKeys.publicKeyJwk,
             allowedScopes: serviceAccounts.allowedScopes,
           })
-          .from(serviceAccounts)
-          .where(eq(serviceAccounts.serviceId, issuer))
+          .from(serviceAccountKeys)
+          .innerJoin(serviceAccounts, eq(serviceAccountKeys.serviceId, serviceAccounts.serviceId))
+          .where(
+            and(
+              eq(serviceAccountKeys.keyId, kid),
+              eq(serviceAccountKeys.serviceId, issuer),
+              isNull(serviceAccountKeys.revokedAt),
+              or(isNull(serviceAccountKeys.expiresAt), gt(serviceAccountKeys.expiresAt, now)),
+            ),
+          )
           .limit(1),
-      catch: (cause) => new ArcTokenError({ message: "Failed to query service_accounts", cause }),
+      catch: (cause) =>
+        new ArcTokenError({ message: "Failed to query service_account_keys", cause }),
     });
 
     if (rows.length === 0) {
-      // Unknown issuer — record the miss against the "unknown" bucket
-      // so we still observe the probe volume.
+      // Unknown or revoked/expired key — record against "unknown" bucket.
       metricArcPublicKeyCacheMiss("unknown");
-      return yield* Effect.fail(new ArcTokenError({ message: `Unknown service: ${issuer}` }));
+      return yield* Effect.fail(
+        new ArcTokenError({ message: `Unknown or invalid key: ${kid} for service: ${issuer}` }),
+      );
     }
 
-    // Issuer verified — safe to record against the real service ID.
+    // Key verified against DB — safe to record the metric.
     metricArcPublicKeyCacheMiss(issuer);
 
     const { publicKeyJwk, allowedScopes } = rows[0];
@@ -305,27 +333,36 @@ export const resolvePublicKey = (
       }
     }
 
-    // Use cached CryptoKey if still valid (we only needed DB for scope check)
-    if (cached && cached.expiresAt > now) {
-      return cached.key;
-    }
-
     const key = yield* Effect.tryPromise({
       try: () => importKeyFromJwk(publicKeyJwk),
       catch: (cause) => new ArcTokenError({ message: `Invalid public key for ${issuer}`, cause }),
     });
 
-    // Cache the resolved CryptoKey
-    publicKeyCache.set(issuer, { key, expiresAt: now + PUBLIC_KEY_CACHE_TTL_SECONDS });
+    // Cache the resolved CryptoKey with its allowedScopes for scope validation on future hits.
+    // Enforce size cap — evict the oldest entry when full (P-W100).
+    if (publicKeyCache.size >= MAX_CACHE_SIZE) {
+      const oldest = publicKeyCache.keys().next().value;
+      if (oldest !== undefined) publicKeyCache.delete(oldest);
+    }
+    publicKeyCache.set(kid, { key, allowedScopes, expiresAt: now + PUBLIC_KEY_CACHE_TTL_SECONDS });
 
     return key;
   });
 
 /**
- * Clears the public key cache. Useful for testing and key rotation.
+ * Clears the public key cache. Useful for testing.
  */
 export function clearPublicKeyCache(): void {
   publicKeyCache.clear();
+}
+
+/**
+ * Evicts a single entry from the public key cache by `kid`.
+ * Call immediately after revoking a key so the revocation takes effect in
+ * this process without waiting for the 5-minute cache TTL to expire (S-H100).
+ */
+export function evictPublicKeyCacheEntry(kid: string): void {
+  publicKeyCache.delete(kid);
 }
 
 // ---------------------------------------------------------------------------
@@ -339,14 +376,14 @@ interface CachedToken {
 
 const tokenCache = new Map<string, CachedToken>();
 
-function cacheKey(iss: string, aud: string, scope: string): string {
-  return `${iss}:${aud}:${scope}`;
+function cacheKey(kid: string, iss: string, aud: string, scope: string): string {
+  return `${kid}:${iss}:${aud}:${scope}`;
 }
 
 /**
  * Returns a cached ARC token if it's still valid (with 30s buffer),
  * or creates a new one. The cache is bounded to MAX_CACHE_SIZE entries;
- * expired entries are evicted on every call.
+ * expired entries are evicted at most once per 30 seconds (P-W102).
  */
 export async function getOrCreateArcToken(
   privateKey: CryptoKey,
@@ -355,11 +392,11 @@ export async function getOrCreateArcToken(
 ): Promise<string> {
   validateTtl(ttl);
 
-  const key = cacheKey(claims.iss, claims.aud, claims.scope);
+  const key = cacheKey(claims.kid, claims.iss, claims.aud, claims.scope);
   const now = Math.floor(Date.now() / 1000);
 
-  // Auto-evict expired entries on every access
-  evictExpiredTokens();
+  // Debounced eviction — avoid O(n) scan on every outbound S2S request (P-W102).
+  maybeSweepExpiredTokens();
 
   const cached = tokenCache.get(key);
   if (cached && cached.expiresAt - CACHE_REISSUE_BUFFER_SECONDS > now) {
@@ -385,18 +422,37 @@ export async function getOrCreateArcToken(
  */
 export function clearTokenCache(): void {
   tokenCache.clear();
+  _lastEvictionMs = 0; // reset debounce so the next auto-sweep fires immediately
+}
+
+let _lastEvictionMs = 0;
+const EVICTION_DEBOUNCE_MS = 30_000; // internal sweep at most once every 30 s
+
+/**
+ * Internal debounced sweep — called by getOrCreateArcToken on every access
+ * but runs at most once per 30 s to avoid O(n) scanning on the hot S2S
+ * request path (P-W102).
+ */
+function maybeSweepExpiredTokens(): void {
+  const nowMs = Date.now();
+  if (nowMs - _lastEvictionMs < EVICTION_DEBOUNCE_MS) return;
+  _lastEvictionMs = nowMs;
+  const now = Math.floor(nowMs / 1000);
+  for (const [key, entry] of tokenCache) {
+    if (entry.expiresAt <= now) tokenCache.delete(key);
+  }
 }
 
 /**
- * Evicts expired entries from the token cache.
- * Called automatically by getOrCreateArcToken on every access.
+ * Evicts all expired entries from the token cache immediately (no debounce).
+ * Also resets the debounce window so the next automatic sweep can run.
+ * Exported for testing and explicit cache management.
  */
 export function evictExpiredTokens(): void {
+  _lastEvictionMs = Date.now();
   const now = Math.floor(Date.now() / 1000);
   for (const [key, entry] of tokenCache) {
-    if (entry.expiresAt <= now) {
-      tokenCache.delete(key);
-    }
+    if (entry.expiresAt <= now) tokenCache.delete(key);
   }
 }
 

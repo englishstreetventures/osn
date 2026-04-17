@@ -1,5 +1,5 @@
 import { it as effectIt } from "@effect/vitest";
-import { serviceAccounts } from "@osn/db";
+import { serviceAccounts, serviceAccountKeys } from "@osn/db";
 import { Db } from "@osn/db/service";
 import { Effect } from "effect";
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -98,6 +98,7 @@ describe("createArcToken / verifyArcToken", () => {
       iss: "pulse-api",
       aud: "osn-core",
       scope: "graph:read",
+      kid: "test-kid",
     });
 
     expect(typeof token).toBe("string");
@@ -113,7 +114,7 @@ describe("createArcToken / verifyArcToken", () => {
   it("respects custom TTL", async () => {
     const token = await createArcToken(
       privateKey,
-      { iss: "pulse-api", aud: "osn-core", scope: "graph:read" },
+      { iss: "pulse-api", aud: "osn-core", scope: "graph:read", kid: "test-kid" },
       60,
     );
     const payload = await verifyArcToken(token, publicKey, "osn-core");
@@ -123,25 +124,29 @@ describe("createArcToken / verifyArcToken", () => {
 
   it("rejects TTL of 0", async () => {
     await expect(
-      createArcToken(privateKey, { iss: "a", aud: "b", scope: "graph:read" }, 0),
+      createArcToken(privateKey, { iss: "a", aud: "b", scope: "graph:read", kid: "k" }, 0),
     ).rejects.toThrow("Invalid TTL");
   });
 
   it("rejects TTL > 600", async () => {
     await expect(
-      createArcToken(privateKey, { iss: "a", aud: "b", scope: "graph:read" }, 700),
+      createArcToken(privateKey, { iss: "a", aud: "b", scope: "graph:read", kid: "k" }, 700),
     ).rejects.toThrow("Invalid TTL");
   });
 
   it("accepts TTL at boundary: 1", async () => {
-    const token = await createArcToken(privateKey, { iss: "a", aud: "b", scope: "graph:read" }, 1);
+    const token = await createArcToken(
+      privateKey,
+      { iss: "a", aud: "b", scope: "graph:read", kid: "k" },
+      1,
+    );
     expect(typeof token).toBe("string");
   });
 
   it("accepts TTL at boundary: 600", async () => {
     const token = await createArcToken(
       privateKey,
-      { iss: "a", aud: "b", scope: "graph:read" },
+      { iss: "a", aud: "b", scope: "graph:read", kid: "k" },
       600,
     );
     expect(typeof token).toBe("string");
@@ -152,6 +157,7 @@ describe("createArcToken / verifyArcToken", () => {
       iss: "pulse-api",
       aud: "osn-core",
       scope: "graph:read",
+      kid: "test-kid",
     });
 
     await expect(verifyArcToken(token, publicKey, "wrong-service")).rejects.toThrow(
@@ -165,6 +171,7 @@ describe("createArcToken / verifyArcToken", () => {
       iss: "evil",
       aud: "osn-core",
       scope: "graph:read",
+      kid: "evil-kid",
     });
 
     await expect(verifyArcToken(token, publicKey, "osn-core")).rejects.toThrow(
@@ -177,6 +184,7 @@ describe("createArcToken / verifyArcToken", () => {
       iss: "pulse-api",
       aud: "osn-core",
       scope: "graph:read",
+      kid: "test-kid",
     });
 
     const payload = await verifyArcToken(token, publicKey, "osn-core", "graph:read");
@@ -192,6 +200,7 @@ describe("createArcToken / verifyArcToken", () => {
       iss: "pulse-api",
       aud: "osn-core",
       scope: "graph:read,graph:write",
+      kid: "test-kid",
     });
 
     const payload = await verifyArcToken(token, publicKey, "osn-core", "graph:read");
@@ -206,6 +215,7 @@ describe("createArcToken / verifyArcToken", () => {
       iss: "pulse-api",
       aud: "osn-core",
       scope: "Graph:Read",
+      kid: "test-kid",
     });
     const payload = await verifyArcToken(token, publicKey, "osn-core", "graph:read");
     expect(payload.scope).toBe("graph:read");
@@ -213,7 +223,7 @@ describe("createArcToken / verifyArcToken", () => {
 
   it("rejects invalid scope format", async () => {
     await expect(
-      createArcToken(privateKey, { iss: "a", aud: "b", scope: "bad scope!" }),
+      createArcToken(privateKey, { iss: "a", aud: "b", scope: "bad scope!", kid: "k" }),
     ).rejects.toThrow("Invalid scope format");
   });
 });
@@ -234,7 +244,7 @@ describe("getOrCreateArcToken", () => {
   });
 
   it("caches tokens and returns the same token on repeat calls", async () => {
-    const claims = { iss: "pulse-api", aud: "osn-core", scope: "graph:read" };
+    const claims = { iss: "pulse-api", aud: "osn-core", scope: "graph:read", kid: "test-kid" };
     const token1 = await getOrCreateArcToken(privateKey, claims);
     const token2 = await getOrCreateArcToken(privateKey, claims);
     expect(token1).toBe(token2);
@@ -245,17 +255,19 @@ describe("getOrCreateArcToken", () => {
       iss: "pulse-api",
       aud: "osn-core",
       scope: "graph:read",
+      kid: "test-kid",
     });
     const token2 = await getOrCreateArcToken(privateKey, {
       iss: "pulse-api",
       aud: "osn-core",
       scope: "graph:write",
+      kid: "test-kid",
     });
     expect(token1).not.toBe(token2);
   });
 
   it("cached token is valid", async () => {
-    const claims = { iss: "pulse-api", aud: "osn-core", scope: "graph:read" };
+    const claims = { iss: "pulse-api", aud: "osn-core", scope: "graph:read", kid: "test-kid" };
     const token = await getOrCreateArcToken(privateKey, claims);
     const payload = await verifyArcToken(token, publicKey, "osn-core");
     expect(payload.iss).toBe("pulse-api");
@@ -263,12 +275,12 @@ describe("getOrCreateArcToken", () => {
 
   it("validates TTL before caching", async () => {
     await expect(
-      getOrCreateArcToken(privateKey, { iss: "a", aud: "b", scope: "graph:read" }, 0),
+      getOrCreateArcToken(privateKey, { iss: "a", aud: "b", scope: "graph:read", kid: "k" }, 0),
     ).rejects.toThrow("Invalid TTL");
   });
 
   it("reissues token within 30s of expiry", async () => {
-    const claims = { iss: "pulse-api", aud: "osn-core", scope: "graph:read" };
+    const claims = { iss: "pulse-api", aud: "osn-core", scope: "graph:read", kid: "test-kid" };
     // Create a token with very short TTL (31s — will expire within reissue buffer soon)
     const token1 = await getOrCreateArcToken(privateKey, claims, 31);
 
@@ -295,7 +307,7 @@ describe("evictExpiredTokens", () => {
 
   it("removes expired entries", async () => {
     const keyPair = await generateArcKeyPair();
-    const claims = { iss: "pulse-api", aud: "osn-core", scope: "graph:read" };
+    const claims = { iss: "pulse-api", aud: "osn-core", scope: "graph:read", kid: "test-kid" };
 
     // Create token with 1s TTL
     await getOrCreateArcToken(keyPair.privateKey, claims, 1);
@@ -314,8 +326,16 @@ describe("evictExpiredTokens", () => {
   it("preserves non-expired entries", async () => {
     const keyPair = await generateArcKeyPair();
 
-    await getOrCreateArcToken(keyPair.privateKey, { iss: "a", aud: "b", scope: "graph:read" }, 300);
-    await getOrCreateArcToken(keyPair.privateKey, { iss: "c", aud: "d", scope: "graph:read" }, 1);
+    await getOrCreateArcToken(
+      keyPair.privateKey,
+      { iss: "a", aud: "b", scope: "graph:read", kid: "k1" },
+      300,
+    );
+    await getOrCreateArcToken(
+      keyPair.privateKey,
+      { iss: "c", aud: "d", scope: "graph:read", kid: "k2" },
+      1,
+    );
     expect(tokenCacheSize()).toBe(2);
 
     vi.useFakeTimers();
@@ -350,20 +370,33 @@ describe("resolvePublicKey", () => {
       const keyPair = yield* Effect.promise(() => generateArcKeyPair());
       const jwk = yield* Effect.promise(() => exportKeyToJwk(keyPair.publicKey));
       const now = new Date();
+      const keyId = "test-key-1";
 
       yield* Effect.tryPromise({
         try: () =>
           db.insert(serviceAccounts).values({
             serviceId: "pulse-api",
-            publicKeyJwk: jwk,
             allowedScopes: "graph:read,graph:write",
             createdAt: now,
             updatedAt: now,
           }),
-        catch: (e) => new ArcTokenError({ message: "insert failed", cause: e }),
+        catch: (e) => new ArcTokenError({ message: "insert service_accounts failed", cause: e }),
+      });
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(serviceAccountKeys).values({
+            keyId,
+            serviceId: "pulse-api",
+            publicKeyJwk: jwk,
+            registeredAt: now,
+            expiresAt: null,
+            revokedAt: null,
+          }),
+        catch: (e) =>
+          new ArcTokenError({ message: "insert service_account_keys failed", cause: e }),
       });
 
-      const resolvedKey = yield* resolvePublicKey("pulse-api");
+      const resolvedKey = yield* resolvePublicKey(keyId, "pulse-api");
       expect(resolvedKey.algorithm).toMatchObject({ name: "ECDSA", namedCurve: "P-256" });
 
       // Verify a token created with the original key can be verified with the resolved key
@@ -372,6 +405,7 @@ describe("resolvePublicKey", () => {
           iss: "pulse-api",
           aud: "osn-core",
           scope: "graph:read",
+          kid: keyId,
         }),
       );
       const payload = yield* Effect.promise(() => verifyArcToken(token, resolvedKey, "osn-core"));
@@ -379,11 +413,11 @@ describe("resolvePublicKey", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  effectIt.effect("fails for unknown service", () =>
+  effectIt.effect("fails for unknown key id", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(resolvePublicKey("unknown-service"));
+      const error = yield* Effect.flip(resolvePublicKey("no-such-key", "unknown-service"));
       expect(error._tag).toBe("ArcTokenError");
-      expect(error.message).toContain("Unknown service");
+      expect(error.message).toContain("Unknown or invalid key");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -393,27 +427,113 @@ describe("resolvePublicKey", () => {
       const keyPair = yield* Effect.promise(() => generateArcKeyPair());
       const jwk = yield* Effect.promise(() => exportKeyToJwk(keyPair.publicKey));
       const now = new Date();
+      const keyId = "limited-key-1";
 
       yield* Effect.tryPromise({
         try: () =>
           db.insert(serviceAccounts).values({
             serviceId: "limited-svc",
-            publicKeyJwk: jwk,
             allowedScopes: "graph:read",
             createdAt: now,
             updatedAt: now,
           }),
         catch: (e) => new ArcTokenError({ message: "insert failed", cause: e }),
       });
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(serviceAccountKeys).values({
+            keyId,
+            serviceId: "limited-svc",
+            publicKeyJwk: jwk,
+            registeredAt: now,
+            expiresAt: null,
+            revokedAt: null,
+          }),
+        catch: (e) => new ArcTokenError({ message: "insert key failed", cause: e }),
+      });
 
       // Allowed scope succeeds
-      const key = yield* resolvePublicKey("limited-svc", ["graph:read"]);
+      const key = yield* resolvePublicKey(keyId, "limited-svc", ["graph:read"]);
       expect(key).toBeDefined();
 
       // Disallowed scope fails
-      const error = yield* Effect.flip(resolvePublicKey("limited-svc", ["graph:write"]));
+      const error = yield* Effect.flip(resolvePublicKey(keyId, "limited-svc", ["graph:write"]));
       expect(error._tag).toBe("ArcTokenError");
       expect(error.message).toContain("not authorised for scope");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  effectIt.effect("rejects a revoked key", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const keyPair = yield* Effect.promise(() => generateArcKeyPair());
+      const jwk = yield* Effect.promise(() => exportKeyToJwk(keyPair.publicKey));
+      const now = new Date();
+      const keyId = "revoked-key-1";
+
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(serviceAccounts).values({
+            serviceId: "revoked-svc",
+            allowedScopes: "graph:read",
+            createdAt: now,
+            updatedAt: now,
+          }),
+        catch: (e) => new ArcTokenError({ message: "insert failed", cause: e }),
+      });
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(serviceAccountKeys).values({
+            keyId,
+            serviceId: "revoked-svc",
+            publicKeyJwk: jwk,
+            registeredAt: now,
+            expiresAt: null,
+            revokedAt: Math.floor(Date.now() / 1000) - 60, // revoked 1min ago
+          }),
+        catch: (e) => new ArcTokenError({ message: "insert key failed", cause: e }),
+      });
+
+      const error = yield* Effect.flip(resolvePublicKey(keyId, "revoked-svc"));
+      expect(error._tag).toBe("ArcTokenError");
+      expect(error.message).toContain("Unknown or invalid key");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  effectIt.effect("rejects an expired key", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const keyPair = yield* Effect.promise(() => generateArcKeyPair());
+      const jwk = yield* Effect.promise(() => exportKeyToJwk(keyPair.publicKey));
+      const now = new Date();
+      const keyId = "expired-key-1";
+
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(serviceAccounts).values({
+            serviceId: "expired-svc",
+            allowedScopes: "graph:read",
+            createdAt: now,
+            updatedAt: now,
+          }),
+        catch: (e) => new ArcTokenError({ message: "insert failed", cause: e }),
+      });
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(serviceAccountKeys).values({
+            keyId,
+            serviceId: "expired-svc",
+            publicKeyJwk: jwk,
+            registeredAt: now,
+            expiresAt: Math.floor(Date.now() / 1000) - 60, // expired 1min ago
+            revokedAt: null,
+          }),
+        catch: (e) => new ArcTokenError({ message: "insert key failed", cause: e }),
+      });
+
+      const error = yield* Effect.flip(resolvePublicKey(keyId, "expired-svc"));
+      expect(error._tag).toBe("ArcTokenError");
+      expect(error.message).toContain("Unknown or invalid key");
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

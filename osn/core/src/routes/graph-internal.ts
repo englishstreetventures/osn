@@ -1,6 +1,7 @@
-import { users } from "@osn/db/schema";
+import { evictPublicKeyCacheEntry } from "@osn/crypto";
+import { serviceAccounts, serviceAccountKeys, users } from "@osn/db/schema";
 import { Db, DbLive } from "@osn/db/service";
-import { inArray } from "drizzle-orm";
+import { inArray, eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
@@ -15,10 +16,22 @@ const AUDIENCE = "osn-core";
 const SCOPE_GRAPH_READ = "graph:read";
 /** Max profile IDs per batch request — stays well under SQLite's variable limit (999). */
 const MAX_BATCH_PROFILE_IDS = 200;
+/** Exhaustive list of scopes this server will grant to any service. S-M101. */
+const PERMITTED_SCOPES = new Set(["graph:read"]);
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Constant-time string equality check for shared-secret comparison (S-H101).
+ * Length inequality is checked first; a mismatch returns false immediately
+ * since length is not secret in a `Bearer <secret>` scheme.
+ */
+function isTimingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 
 /** Extracts a safe, non-leaking message from a caught error. */
 function safeError(e: unknown): string {
@@ -243,6 +256,156 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
             viewerId: t.String({ minLength: 1 }),
             profileIds: t.Array(t.String({ minLength: 1 }), { maxItems: MAX_BATCH_PROFILE_IDS }),
           }),
+        },
+      )
+      // -----------------------------------------------------------------------
+      // Service account self-registration / key rotation
+      //
+      // A S2S service (e.g. pulse-api) calls this on startup to register (or
+      // rotate) its public key. Protected by INTERNAL_SERVICE_SECRET — a
+      // shared secret between osn/api and the registering service. This
+      // eliminates the need for pre-distributed private keys in .env files.
+      //
+      // Body:
+      //   serviceId     — the service identifier (e.g. "pulse-api")
+      //   keyId         — UUID that becomes the `kid` JWT header field
+      //   publicKeyJwk  — ES256 public key in JWK JSON string form
+      //   allowedScopes — comma-separated scopes (e.g. "graph:read")
+      //   expiresAt     — optional unix seconds; omit for non-expiring stable keys
+      //
+      // Omit INTERNAL_SERVICE_SECRET in the environment to disable this
+      // endpoint (it returns 501 when the env var is unset).
+      // -----------------------------------------------------------------------
+      .post(
+        "/register-service",
+        async ({ body, headers, set }) => {
+          const secret = process.env.INTERNAL_SERVICE_SECRET;
+          if (!secret) {
+            set.status = 501;
+            return { error: "Service registration is disabled on this instance" };
+          }
+          if (!isTimingSafeEqual(headers["authorization"] ?? "", `Bearer ${secret}`)) {
+            set.status = 401;
+            return { error: "Unauthorized" };
+          }
+          // Validate requested scopes against the server-side allowlist (S-M101).
+          const requestedScopes = body.allowedScopes
+            .split(",")
+            .map((s) => s.trim().toLowerCase())
+            .filter(Boolean);
+          const invalidScopes = requestedScopes.filter((s) => !PERMITTED_SCOPES.has(s));
+          if (invalidScopes.length > 0) {
+            set.status = 400;
+            return { error: `Unknown scopes: ${invalidScopes.join(", ")}` };
+          }
+          try {
+            const now = new Date();
+            await run(
+              Effect.gen(function* () {
+                const { db } = yield* Db;
+                // Upsert service_accounts for allowed scopes
+                yield* Effect.tryPromise({
+                  try: () =>
+                    db
+                      .insert(serviceAccounts)
+                      .values({
+                        serviceId: body.serviceId,
+                        allowedScopes: body.allowedScopes,
+                        createdAt: now,
+                        updatedAt: now,
+                      })
+                      .onConflictDoUpdate({
+                        target: serviceAccounts.serviceId,
+                        set: { allowedScopes: body.allowedScopes, updatedAt: now },
+                      }),
+                  catch: (cause) => new Error("DB error upserting service_accounts", { cause }),
+                });
+                // Upsert key row in service_account_keys
+                yield* Effect.tryPromise({
+                  try: () =>
+                    db
+                      .insert(serviceAccountKeys)
+                      .values({
+                        keyId: body.keyId,
+                        serviceId: body.serviceId,
+                        publicKeyJwk: body.publicKeyJwk,
+                        registeredAt: now,
+                        expiresAt: body.expiresAt ?? null,
+                        revokedAt: null,
+                      })
+                      .onConflictDoUpdate({
+                        target: serviceAccountKeys.keyId,
+                        set: {
+                          publicKeyJwk: body.publicKeyJwk,
+                          expiresAt: body.expiresAt ?? null,
+                          revokedAt: null,
+                        },
+                      }),
+                  catch: (cause) => new Error("DB error upserting service_account_keys", { cause }),
+                });
+              }),
+            );
+            return { ok: true };
+          } catch (e) {
+            set.status = 500;
+            return { error: safeError(e) };
+          }
+        },
+        {
+          body: t.Object({
+            serviceId: t.String({ minLength: 1 }),
+            keyId: t.String({ minLength: 1 }),
+            publicKeyJwk: t.String({ minLength: 1 }),
+            allowedScopes: t.String({ minLength: 1 }),
+            expiresAt: t.Optional(t.Number()),
+          }),
+        },
+      )
+      // -----------------------------------------------------------------------
+      // Revoke a service key by ID
+      //
+      // Sets revokedAt on the key row; the key will be rejected by
+      // resolvePublicKey immediately (no wait for natural expiry).
+      // Protected by the same INTERNAL_SERVICE_SECRET.
+      // -----------------------------------------------------------------------
+      .delete(
+        "/service-keys/:keyId",
+        async ({ params, headers, set }) => {
+          const secret = process.env.INTERNAL_SERVICE_SECRET;
+          if (!secret) {
+            set.status = 501;
+            return { error: "Service registration is disabled on this instance" };
+          }
+          if (!isTimingSafeEqual(headers["authorization"] ?? "", `Bearer ${secret}`)) {
+            set.status = 401;
+            return { error: "Unauthorized" };
+          }
+          try {
+            const nowSecs = Math.floor(Date.now() / 1000);
+            await run(
+              Effect.gen(function* () {
+                const { db } = yield* Db;
+                yield* Effect.tryPromise({
+                  try: () =>
+                    db
+                      .update(serviceAccountKeys)
+                      .set({ revokedAt: nowSecs })
+                      .where(eq(serviceAccountKeys.keyId, params.keyId)),
+                  catch: (cause) => new Error("DB error revoking key", { cause }),
+                });
+              }),
+            );
+            // Evict immediately so the revocation takes effect in this process
+            // without waiting for the 5-minute cache TTL (S-H100).
+            evictPublicKeyCacheEntry(params.keyId);
+            return { ok: true };
+          } catch (e) {
+            set.status = 500;
+            return { error: safeError(e) };
+          }
+        },
+        {
+          params: t.Object({ keyId: t.String({ minLength: 1 }) }),
         },
       )
       // -----------------------------------------------------------------------

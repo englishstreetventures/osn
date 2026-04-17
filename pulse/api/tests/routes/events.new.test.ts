@@ -1,9 +1,23 @@
+import { Effect } from "effect";
 import { SignJWT } from "jose";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import { createEventsRoutes, createSettingsRoutes } from "../../src/routes/events";
+import type { ProfileDisplay } from "../../src/services/graphBridge";
 import { createTestLayer } from "../helpers/db";
-import { createOsnTestContext, seedOsnUser } from "../helpers/osnDb";
+
+vi.mock("../../src/services/graphBridge", () => ({
+  GraphBridgeError: class GraphBridgeError {
+    _tag = "GraphBridgeError";
+    constructor(public args: { cause: unknown }) {}
+  },
+  getConnectionIds: vi.fn(),
+  getCloseFriendIds: vi.fn(),
+  getCloseFriendsOf: vi.fn(),
+  getProfileDisplays: vi.fn(),
+}));
+
+import * as bridge from "../../src/services/graphBridge";
 
 const FUTURE = "2030-06-01T10:00:00.000Z";
 const TEST_JWT_SECRET = "test-secret";
@@ -57,17 +71,19 @@ const patch = (
 
 describe("events routes — new config fields", () => {
   let layer: ReturnType<typeof createTestLayer>;
-  let osn: ReturnType<typeof createOsnTestContext>;
   let app: ReturnType<typeof createEventsRoutes>;
   let aliceToken: string;
 
   beforeEach(async () => {
+    vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getCloseFriendIds).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(new Map<string, ProfileDisplay>()),
+    );
     layer = createTestLayer();
-    osn = createOsnTestContext();
-    app = createEventsRoutes(layer, TEST_JWT_SECRET, osn.layer);
+    app = createEventsRoutes(layer, TEST_JWT_SECRET);
     aliceToken = await makeToken("usr_alice");
-    await seedOsnUser(osn, { id: "usr_alice", handle: "alice", displayName: "Alice" });
-    await seedOsnUser(osn, { id: "usr_bob", handle: "bob", displayName: "Bob" });
   });
 
   it("POST /events accepts visibility + guestListVisibility + joinPolicy + allowInterested + commsChannels", async () => {
@@ -151,20 +167,30 @@ describe("events routes — new config fields", () => {
 
 describe("RSVP routes", () => {
   let layer: ReturnType<typeof createTestLayer>;
-  let osn: ReturnType<typeof createOsnTestContext>;
   let app: ReturnType<typeof createEventsRoutes>;
   let aliceToken: string;
   let bobToken: string;
   let eventId: string;
 
   beforeEach(async () => {
+    vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getCloseFriendIds).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(
+        new Map<string, ProfileDisplay>([
+          [
+            "usr_alice",
+            { id: "usr_alice", handle: "alice", displayName: "Alice", avatarUrl: null },
+          ],
+          ["usr_bob", { id: "usr_bob", handle: "bob", displayName: "Bob", avatarUrl: null }],
+        ]),
+      ),
+    );
     layer = createTestLayer();
-    osn = createOsnTestContext();
-    app = createEventsRoutes(layer, TEST_JWT_SECRET, osn.layer);
+    app = createEventsRoutes(layer, TEST_JWT_SECRET);
     aliceToken = await makeToken("usr_alice");
     bobToken = await makeToken("usr_bob");
-    await seedOsnUser(osn, { id: "usr_alice", handle: "alice", displayName: "Alice" });
-    await seedOsnUser(osn, { id: "usr_bob", handle: "bob", displayName: "Bob" });
     const res = await post(app, "/events", { title: "Party", startTime: FUTURE }, aliceToken);
     const body = (await res.json()) as { event: { id: string } };
     eventId = body.event.id;
@@ -257,14 +283,18 @@ describe("RSVP routes", () => {
 
 describe("ICS route", () => {
   let layer: ReturnType<typeof createTestLayer>;
-  let osn: ReturnType<typeof createOsnTestContext>;
   let app: ReturnType<typeof createEventsRoutes>;
   let aliceToken: string;
 
   beforeEach(async () => {
+    vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getCloseFriendIds).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(new Map<string, ProfileDisplay>()),
+    );
     layer = createTestLayer();
-    osn = createOsnTestContext();
-    app = createEventsRoutes(layer, TEST_JWT_SECRET, osn.layer);
+    app = createEventsRoutes(layer, TEST_JWT_SECRET);
     aliceToken = await makeToken("usr_alice");
   });
 
@@ -292,16 +322,20 @@ describe("ICS route", () => {
 
 describe("Comms routes", () => {
   let layer: ReturnType<typeof createTestLayer>;
-  let osn: ReturnType<typeof createOsnTestContext>;
   let app: ReturnType<typeof createEventsRoutes>;
   let aliceToken: string;
   let bobToken: string;
   let eventId: string;
 
   beforeEach(async () => {
+    vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getCloseFriendIds).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(new Map<string, ProfileDisplay>()),
+    );
     layer = createTestLayer();
-    osn = createOsnTestContext();
-    app = createEventsRoutes(layer, TEST_JWT_SECRET, osn.layer);
+    app = createEventsRoutes(layer, TEST_JWT_SECRET);
     aliceToken = await makeToken("usr_alice");
     bobToken = await makeToken("usr_bob");
     const res = await post(
@@ -372,7 +406,6 @@ describe("Comms routes", () => {
 
 describe("Private event visibility gate", () => {
   let layer: ReturnType<typeof createTestLayer>;
-  let osn: ReturnType<typeof createOsnTestContext>;
   let app: ReturnType<typeof createEventsRoutes>;
   let aliceToken: string;
   let bobToken: string;
@@ -380,13 +413,24 @@ describe("Private event visibility gate", () => {
   let publicEventId: string;
 
   beforeEach(async () => {
+    vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getCloseFriendIds).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(
+        new Map<string, ProfileDisplay>([
+          [
+            "usr_alice",
+            { id: "usr_alice", handle: "alice", displayName: "Alice", avatarUrl: null },
+          ],
+          ["usr_bob", { id: "usr_bob", handle: "bob", displayName: "Bob", avatarUrl: null }],
+        ]),
+      ),
+    );
     layer = createTestLayer();
-    osn = createOsnTestContext();
-    app = createEventsRoutes(layer, TEST_JWT_SECRET, osn.layer);
+    app = createEventsRoutes(layer, TEST_JWT_SECRET);
     aliceToken = await makeToken("usr_alice");
     bobToken = await makeToken("usr_bob");
-    await seedOsnUser(osn, { id: "usr_alice", handle: "alice", displayName: "Alice" });
-    await seedOsnUser(osn, { id: "usr_bob", handle: "bob", displayName: "Bob" });
 
     const privateRes = await post(
       app,
@@ -530,14 +574,18 @@ describe("Private event visibility gate", () => {
 
 describe("Event text field length caps (S-M3)", () => {
   let layer: ReturnType<typeof createTestLayer>;
-  let osn: ReturnType<typeof createOsnTestContext>;
   let app: ReturnType<typeof createEventsRoutes>;
   let aliceToken: string;
 
   beforeEach(async () => {
+    vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getCloseFriendIds).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(new Map<string, ProfileDisplay>()),
+    );
     layer = createTestLayer();
-    osn = createOsnTestContext();
-    app = createEventsRoutes(layer, TEST_JWT_SECRET, osn.layer);
+    app = createEventsRoutes(layer, TEST_JWT_SECRET);
     aliceToken = await makeToken("usr_alice");
   });
 

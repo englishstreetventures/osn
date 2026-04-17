@@ -141,7 +141,6 @@ export type NewBlock = typeof blocks.$inferInsert;
 
 export const serviceAccounts = sqliteTable("service_accounts", {
   serviceId: text("service_id").primaryKey(), // e.g. "pulse-api", "messaging"
-  publicKeyJwk: text("public_key_jwk").notNull(), // JSON-serialised JWK (ES256)
   allowedScopes: text("allowed_scopes").notNull(), // comma-separated: "graph:read,graph:write"
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
@@ -149,6 +148,37 @@ export const serviceAccounts = sqliteTable("service_accounts", {
 
 export type ServiceAccount = typeof serviceAccounts.$inferSelect;
 export type NewServiceAccount = typeof serviceAccounts.$inferInsert;
+
+/**
+ * Per-key rows for a service account. Supports multiple active keys during
+ * rotation (zero-downtime key roll). Public key material lives here;
+ * allowed scopes live in service_accounts.
+ *
+ * Rotation flow:
+ *   1. Register new key row (expiresAt = now + TTL)
+ *   2. Service starts signing with new key
+ *   3. Old key row expires naturally after tokens bearing it have expired (≤5 min TTL)
+ *   4. Optionally revoke old key early by setting revokedAt
+ */
+export const serviceAccountKeys = sqliteTable(
+  "service_account_keys",
+  {
+    keyId: text("key_id").primaryKey(), // UUID, becomes `kid` in JWT header
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => serviceAccounts.serviceId),
+    publicKeyJwk: text("public_key_jwk").notNull(), // JSON-serialised JWK (ES256)
+    registeredAt: integer("registered_at", { mode: "timestamp" }).notNull(),
+    /** Unix seconds. NULL = key does not expire (pre-distributed stable keys). */
+    expiresAt: integer("expires_at"), // nullable — plain seconds, no timestamp mode
+    /** Unix seconds. Non-null when the key has been explicitly revoked. */
+    revokedAt: integer("revoked_at"), // nullable — plain seconds
+  },
+  (t) => [index("service_account_keys_service_idx").on(t.serviceId)],
+);
+
+export type ServiceAccountKey = typeof serviceAccountKeys.$inferSelect;
+export type NewServiceAccountKey = typeof serviceAccountKeys.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Organisations

@@ -15,6 +15,7 @@ export {
   // Public key resolution (Effect-based)
   resolvePublicKey,
   clearPublicKeyCache,
+  evictPublicKeyCacheEntry,
   // Token cache
   getOrCreateArcToken,
   clearTokenCache,
