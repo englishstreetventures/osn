@@ -1,5 +1,11 @@
 # @osn/api
 
+## 0.11.1
+
+### Patch Changes
+
+- @shared/crypto@0.5.1
+
 ## 0.11.0
 
 ### Minor Changes

@@ -1,5 +1,13 @@
 # @osn/social
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [ac6a86c]
+  - @osn/client@0.5.1
+  - @osn/ui@0.7.2
+
 ## 0.2.1
 
 ### Patch Changes

@@ -1,5 +1,22 @@
 # @osn/osn
 
+## 1.3.0
+
+### Minor Changes
+
+- ac6a86c: feat(auth): server-side sessions with revocation (Copenhagen Book C1)
+
+  Replace stateless JWT refresh tokens with opaque server-side session tokens.
+  Session tokens use 160-bit entropy, stored as SHA-256 hashes in the new `sessions` table.
+  Sliding-window expiry, single-session and account-wide revocation, `POST /logout` endpoint.
+  Removes deprecated `User`/`NewUser` type aliases and legacy client session migration.
+
+### Patch Changes
+
+- Updated dependencies [ac6a86c]
+  - @osn/db@0.9.0
+  - @shared/crypto@0.5.1
+
 ## 1.2.0
 
 ### Minor Changes
