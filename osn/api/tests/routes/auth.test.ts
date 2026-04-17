@@ -154,9 +154,13 @@ describe("auth routes", () => {
       expect(json.handle).toBe("verifyme");
       expect(json.email).toBe("verify-me@example.com");
       expect(json.session.access_token.length).toBeGreaterThan(0);
-      expect(json.session.refresh_token.length).toBeGreaterThan(0);
+      // C3: refresh_token no longer in body — carried in HttpOnly cookie
+      expect(json.session.refresh_token).toBeUndefined();
       expect(json.session.token_type).toBe("Bearer");
       expect(json.session.expires_in).toBeGreaterThan(0);
+      // Verify Set-Cookie header is present
+      expect(completeRes.headers.get("set-cookie")).toContain("osn_session=");
+      expect(completeRes.headers.get("set-cookie")).toContain("HttpOnly");
       expect(json.enrollment_token.length).toBeGreaterThan(0);
 
       // Handle now taken.
@@ -662,11 +666,12 @@ describe("auth routes", () => {
       );
       expect(res.status).toBe(200);
       const json = (await res.json()) as {
-        session: { access_token: string; refresh_token: string; expires_in: number };
+        session: { access_token: string; expires_in: number };
         profile: { id: string; handle: string; email: string };
       };
       expect(json.session.access_token).toBeTruthy();
-      expect(json.session.refresh_token).toBeTruthy();
+      // C3: refresh_token in cookie, not body
+      expect(res.headers.get("set-cookie")).toContain("osn_session=");
       expect(json.profile.handle).toBe("otpdirect");
       expect(json.profile.email).toBe("otp-direct@example.com");
     });

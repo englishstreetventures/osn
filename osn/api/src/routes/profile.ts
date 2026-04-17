@@ -4,6 +4,8 @@ import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
+import { resolveAccountId } from "../lib/auth-derive";
+import { publicError } from "../lib/public-error";
 import { metricAuthRateLimited } from "../metrics";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createProfileService } from "../services/profile";
@@ -54,39 +56,7 @@ export function createProfileRoutes(
       >,
     );
 
-  function publicError(e: unknown): { status: number; body: { error: string; message?: string } } {
-    const tag = (() => {
-      const seen = new Set<unknown>();
-      const queue: unknown[] = [e];
-      while (queue.length) {
-        const node = queue.shift();
-        if (!node || typeof node !== "object" || seen.has(node)) continue;
-        seen.add(node);
-        const tagValue = (node as { _tag?: unknown })._tag;
-        if (typeof tagValue === "string") return tagValue;
-        for (const v of Object.values(node)) queue.push(v);
-      }
-      return null;
-    })();
-
-    void Effect.runPromise(
-      Effect.logError("profile route error").pipe(
-        Effect.annotateLogs({ tag: tag ?? "unknown" }),
-        Effect.provide(loggerLayer),
-      ),
-    );
-
-    switch (tag) {
-      case "ValidationError":
-        return { status: 400, body: { error: "invalid_request" } };
-      case "AuthError":
-        return { status: 400, body: { error: "invalid_request" } };
-      case "DatabaseError":
-        return { status: 500, body: { error: "internal_error" } };
-      default:
-        return { status: 400, body: { error: "invalid_request" } };
-    }
-  }
+  const handleError = (e: unknown) => publicError(e, loggerLayer);
 
   const rl = rateLimiters;
 
@@ -109,23 +79,6 @@ export function createProfileRoutes(
     return null;
   }
 
-  /**
-   * Resolves the accountId from a Bearer access token in the Authorization
-   * header. Returns null if auth fails. (S-H1: profile endpoints authenticate
-   * via access token, not refresh token in body.)
-   */
-  async function resolveAccountId(
-    authHeader: string | undefined,
-  ): Promise<{ accountId: string } | null> {
-    if (!authHeader || !/^Bearer\s+/i.test(authHeader)) return null;
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-    const result = await Effect.runPromise(Effect.either(auth.verifyAccessToken(token)));
-    if (result._tag !== "Right") return null;
-    const p = await run(auth.findProfileById(result.right.profileId));
-    if (!p) return null;
-    return { accountId: p.accountId };
-  }
-
   return new Elysia({ prefix: "" })
     .post(
       "/profiles/create",
@@ -136,7 +89,7 @@ export function createProfileRoutes(
           return rlErr;
         }
         try {
-          const principal = await resolveAccountId(headers.authorization);
+          const principal = await resolveAccountId(auth, run, headers.authorization);
           if (!principal) {
             set.status = 401;
             return { error: "unauthorized" };
@@ -147,7 +100,7 @@ export function createProfileRoutes(
           set.status = 201;
           return { profile: result };
         } catch (e) {
-          const { status, body: errBody } = publicError(e);
+          const { status, body: errBody } = handleError(e);
           set.status = status;
           return errBody;
         }
@@ -168,7 +121,7 @@ export function createProfileRoutes(
           return rlErr;
         }
         try {
-          const principal = await resolveAccountId(headers.authorization);
+          const principal = await resolveAccountId(auth, run, headers.authorization);
           if (!principal) {
             set.status = 401;
             return { error: "unauthorized" };
@@ -176,7 +129,7 @@ export function createProfileRoutes(
           await run(profile.deleteProfile(principal.accountId, body.profile_id));
           return { deleted: true };
         } catch (e) {
-          const { status, body: errBody } = publicError(e);
+          const { status, body: errBody } = handleError(e);
           set.status = status;
           return errBody;
         }
@@ -196,7 +149,7 @@ export function createProfileRoutes(
           return rlErr;
         }
         try {
-          const principal = await resolveAccountId(headers.authorization);
+          const principal = await resolveAccountId(auth, run, headers.authorization);
           if (!principal) {
             set.status = 401;
             return { error: "unauthorized" };
@@ -206,7 +159,7 @@ export function createProfileRoutes(
           );
           return { profile: result };
         } catch (e) {
-          const { status, body: errBody } = publicError(e);
+          const { status, body: errBody } = handleError(e);
           set.status = status;
           return errBody;
         }

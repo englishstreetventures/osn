@@ -21,6 +21,7 @@ import type {
   GraphConnectionAction,
   OrgAction,
   OrgMemberAction,
+  OriginGuardRejectionReason,
   ProfileCrudAction,
   ProfileSwitchAction,
   RegisterStep,
@@ -31,6 +32,8 @@ import { Effect } from "effect";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
 export const OSN_METRICS = {
+  authOriginGuardRejections: "osn.auth.origin_guard.rejections",
+  authSessionCookieFallback: "osn.auth.session.cookie_fallback",
   authJwksServed: "osn.auth.jwks.served",
   authRegisterAttempts: "osn.auth.register.attempts",
   authRegisterDuration: "osn.auth.register.duration",
@@ -477,6 +480,33 @@ export const metricSessionFamilyRevoked = (): void => authSessionFamilyRevoked.i
 
 export const metricSessionSecurityInvalidation = (trigger: SecurityInvalidationTrigger): void =>
   authSessionSecurityInvalidation.inc({ trigger });
+
+// ---------------------------------------------------------------------------
+// Origin guard (M1)
+// ---------------------------------------------------------------------------
+
+type OriginGuardAttrs = { reason: OriginGuardRejectionReason };
+
+const authOriginGuardRejections = createCounter<OriginGuardAttrs>({
+  name: OSN_METRICS.authOriginGuardRejections,
+  description: "Requests rejected by Origin header validation (CSRF guard)",
+  unit: "{rejection}",
+});
+
+export const metricOriginGuardRejection = (reason: OriginGuardRejectionReason): void =>
+  authOriginGuardRejections.inc({ reason });
+
+// ---------------------------------------------------------------------------
+// Session cookie fallback (C3)
+// ---------------------------------------------------------------------------
+
+const authSessionCookieFallback = createCounter<Record<never, never>>({
+  name: OSN_METRICS.authSessionCookieFallback,
+  description: "Token refresh requests falling back from cookie to body parameter",
+  unit: "{fallback}",
+});
+
+export const metricSessionCookieFallback = (): void => authSessionCookieFallback.inc({});
 
 // ---------------------------------------------------------------------------
 // JWKS

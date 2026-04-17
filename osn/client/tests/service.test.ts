@@ -117,33 +117,13 @@ it.effect("logout clears the persisted session", () =>
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-it.effect("refreshSession fails when there is no refresh token", () =>
+it.effect("refreshSession fails when there is no session", () =>
   Effect.gen(function* () {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        json: () =>
-          Promise.resolve({
-            access_token: "acc_123",
-            expires_in: 3600,
-            token_type: "Bearer",
-            // no refresh_token
-          }),
-      }),
-    );
-
     const auth = yield* OsnAuth;
-    const { state } = yield* auth.startLogin({ redirectUri: "http://localhost/callback" });
-    yield* auth.handleCallback({
-      code: "code_xyz",
-      state,
-      redirectUri: "http://localhost/callback",
-    });
 
+    // No session set — refreshSession should fail
     const error = yield* Effect.flip(auth.refreshSession());
     expect(error._tag).toBe("TokenRefreshError");
-
-    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 

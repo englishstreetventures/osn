@@ -47,6 +47,7 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(body),
   });
   const json = (await res.json()) as T & { error?: string };
@@ -57,7 +58,7 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
 }
 
 async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  const res = await fetch(url, { credentials: "include" });
   const json = (await res.json()) as T & { error?: string };
   if (!res.ok) {
     throw new LoginError(json.error ?? `Request failed: ${res.status}`);

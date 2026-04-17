@@ -215,6 +215,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
               fetch(`${config.issuerUrl}/token`, {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                credentials: "include",
                 body: new URLSearchParams({
                   grant_type: "authorization_code",
                   code: params.code,
@@ -248,20 +249,21 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       const refreshSession = () =>
         Effect.gen(function* () {
           const account = yield* getAccountSession();
-          if (!account?.refreshToken) {
-            return yield* Effect.fail(
-              new TokenRefreshError({ cause: "No refresh token available" }),
-            );
+          if (!account) {
+            return yield* Effect.fail(new TokenRefreshError({ cause: "No session available" }));
           }
 
+          // C3: session token is in the HttpOnly cookie; send credentials: include.
+          // The grant_type=refresh_token body param is sent for backwards compat
+          // but the server prefers the cookie.
           const raw = yield* Effect.tryPromise({
             try: () =>
               fetch(`${config.issuerUrl}/token`, {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                credentials: "include",
                 body: new URLSearchParams({
                   grant_type: "refresh_token",
-                  refresh_token: account.refreshToken,
                   client_id: config.clientId,
                 }).toString(),
               }).then((r) => r.json() as Promise<unknown>),
@@ -288,6 +290,17 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
 
       const logout = () =>
         Effect.gen(function* () {
+          // C3: server-side session destruction + cookie clearing
+          yield* Effect.tryPromise({
+            try: () =>
+              fetch(`${config.issuerUrl}/logout`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: "{}",
+              }),
+            catch: () => new StorageError({ cause: "Logout request failed" }),
+          }).pipe(Effect.catchAll(() => Effect.void));
           cache = null;
           yield* storage.remove(ACCOUNT_SESSION_KEY);
         });
@@ -337,6 +350,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
               const r = await fetch(`${config.issuerUrl}/profiles/list`, {
                 method: "GET",
                 headers,
+                credentials: "include",
               });
               if (!r.ok) throw new Error(`Request failed: ${r.status}`);
               return decodeListProfilesResponse(await r.json());
@@ -369,6 +383,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
               const r = await fetch(`${config.issuerUrl}/profiles/switch`, {
                 method: "POST",
                 headers,
+                credentials: "include",
                 body: JSON.stringify({ profile_id: profileId }),
               });
               if (!r.ok) throw new Error(`Request failed: ${r.status}`);
@@ -423,6 +438,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
               const r = await fetch(`${config.issuerUrl}/profiles/create`, {
                 method: "POST",
                 headers,
+                credentials: "include",
                 body: JSON.stringify(body),
               });
               if (!r.ok) throw new Error(`Request failed: ${r.status}`);
@@ -455,6 +471,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
               const r = await fetch(`${config.issuerUrl}/profiles/delete`, {
                 method: "POST",
                 headers,
+                credentials: "include",
                 body: JSON.stringify({ profile_id: profileId }),
               });
               if (!r.ok) throw new Error(`Request failed: ${r.status}`);

@@ -70,6 +70,9 @@ export type JwksCacheResult = "hit" | "miss" | "refresh";
 /** Security events that trigger session invalidation (H1). */
 export type SecurityInvalidationTrigger = "passkey_register" | "email_change";
 
+/** Origin guard CSRF rejection reasons (M1). */
+export type OriginGuardRejectionReason = "missing" | "mismatch";
+
 /** Auth endpoints subject to IP-based rate limiting (S-H1). */
 export type AuthRateLimitedEndpoint =
   | "register_begin"

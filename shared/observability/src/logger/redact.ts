@@ -80,6 +80,14 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     // an error log that includes the inbound request, an outbound fetch
     // trace event — must not leak the bearer token.
     "authorization",
+    // `cookie` header may carry the session token in HttpOnly cookies (C3).
+    "cookie",
+
+    // --- Session cookies (C3) ---
+    // The HttpOnly session cookie names — if someone logs a parsed cookie
+    // object or a Set-Cookie header, the raw session token must not appear.
+    "__host-osn_session",
+    "osn_session",
 
     // --- OAuth / first-party token responses ---
     // Both spellings exist: snake_case is the OAuth wire format

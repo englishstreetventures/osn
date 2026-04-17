@@ -37,4 +37,5 @@ export {
   type ProfileDeleteCascadeTable,
   type JwksCacheResult,
   type SecurityInvalidationTrigger,
+  type OriginGuardRejectionReason,
 } from "./attrs";

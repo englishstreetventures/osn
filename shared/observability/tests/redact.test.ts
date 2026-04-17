@@ -230,7 +230,7 @@ describe("redact", () => {
       otpCode: "000000",
       jwt: "eyJ...",
       sessionToken: "tok",
-      cookie: "sid=abc",
+      // cookie: moved to deny-list (C3 — HttpOnly session cookies)
       apiKey: "sk_live_",
       secretKey: "sk",
       // E2E / Signal — no messaging impl yet:
@@ -268,6 +268,9 @@ describe("redact", () => {
   it("deny-list contains the documented set of keys (and only that set)", () => {
     const expected = [
       "authorization",
+      "cookie",
+      "__host-osn_session",
+      "osn_session",
       "accesstoken",
       "access_token",
       "refreshtoken",

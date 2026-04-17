@@ -5,6 +5,8 @@ import { healthRoutes, initObservability, observabilityPlugin } from "@shared/ob
 import { Effect, Logger } from "effect";
 import { Elysia } from "elysia";
 
+import type { CookieSessionConfig } from "./lib/cookie-session";
+import { createOriginGuard } from "./lib/origin-guard";
 import {
   createRedisAuthRateLimiters,
   createRedisGraphRateLimiter,
@@ -115,12 +117,30 @@ const corsOrigins = process.env.OSN_CORS_ORIGIN
   ? process.env.OSN_CORS_ORIGIN.split(",").map((o) => o.trim())
   : authConfig.origin;
 
+// C3: Cookie session config — Secure flag + __Host- prefix in non-local envs.
+const cookieConfig: CookieSessionConfig = {
+  secure: !!process.env.OSN_ENV && process.env.OSN_ENV !== "local",
+};
+
+// M1: Origin guard — validate Origin header on state-changing requests.
+// S-L1: warn if allowlist is empty in non-local envs (guard would be disabled).
+const corsOriginSet = new Set(Array.isArray(corsOrigins) ? corsOrigins : [corsOrigins]);
+if (corsOriginSet.size === 0 && cookieConfig.secure) {
+  void Effect.runPromise(
+    Effect.logWarning(
+      "OSN_CORS_ORIGIN is empty in a non-local environment — Origin guard is disabled. Set OSN_CORS_ORIGIN to enable CSRF protection.",
+    ).pipe(Effect.provide(observabilityLayer)),
+  );
+}
+const originGuard = createOriginGuard({ allowedOrigins: corsOriginSet });
+
 const app = new Elysia()
-  .use(cors({ origin: corsOrigins }))
+  .use(cors({ origin: corsOrigins, credentials: true }))
+  .onBeforeHandle(originGuard)
   .use(observabilityPlugin({ serviceName: SERVICE_NAME }))
   .use(healthRoutes({ serviceName: SERVICE_NAME }))
   .get("/", () => ({ status: "ok", service: "osn-auth" }))
-  .use(createAuthRoutes(authConfig, DbLive, observabilityLayer, authRateLimiters))
+  .use(createAuthRoutes(authConfig, DbLive, observabilityLayer, authRateLimiters, cookieConfig))
   .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter))
   .use(createInternalGraphRoutes(DbLive))
   .use(createOrganisationRoutes(authConfig, DbLive, observabilityLayer, orgRateLimiter))

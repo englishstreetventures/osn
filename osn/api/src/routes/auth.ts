@@ -4,9 +4,21 @@ import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
+import { resolveAccessTokenPrincipal } from "../lib/auth-derive";
+import {
+  buildClearSessionCookie,
+  buildSessionCookie,
+  readSessionCookie,
+  type CookieSessionConfig,
+} from "../lib/cookie-session";
 import { verifyPkceChallenge } from "../lib/crypto";
 import { buildAuthorizeHtml } from "../lib/html";
-import { metricAuthJwksServed, metricAuthRateLimited } from "../metrics";
+import { publicError } from "../lib/public-error";
+import {
+  metricAuthJwksServed,
+  metricAuthRateLimited,
+  metricSessionCookieFallback,
+} from "../metrics";
 import { createAuthService, type AuthConfig } from "../services/auth";
 
 // In-memory PKCE challenge store (keyed by state)
@@ -66,11 +78,28 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
   };
 }
 
-/** Convert an internal camelCase TokenSet to the snake_case OAuth wire format. */
+/**
+ * Convert an internal camelCase TokenSet to the snake_case OAuth wire format.
+ * Used for third-party PKCE flows where the client can't use cookies.
+ */
 function toTokenResponse(ts: { accessToken: string; refreshToken: string; expiresIn: number }) {
   return {
     access_token: ts.accessToken,
     refresh_token: ts.refreshToken,
+    token_type: "Bearer" as const,
+    expires_in: ts.expiresIn,
+    scope: "openid profile",
+  };
+}
+
+/**
+ * Convert a TokenSet to wire format WITHOUT the refresh token (S-M2).
+ * Used for first-party flows where the refresh token is in the HttpOnly cookie.
+ * Omitting it from the body prevents XSS exfiltration of the session token.
+ */
+function toTokenResponseCookieOnly(ts: { accessToken: string; expiresIn: number }) {
+  return {
+    access_token: ts.accessToken,
     token_type: "Bearer" as const,
     expires_in: ts.expiresIn,
     scope: "openid profile",
@@ -97,6 +126,12 @@ export function createAuthRoutes(
    * application (`osn/app/src/index.ts`) and inject them here.
    */
   rateLimiters: AuthRateLimiters = createDefaultAuthRateLimiters(),
+  /**
+   * Cookie session config (C3). Controls whether session tokens are set
+   * as HttpOnly cookies with the Secure flag. Defaults to non-secure
+   * (local dev mode).
+   */
+  cookieConfig: CookieSessionConfig = { secure: false },
 ) {
   // Fail-fast: validate every limiter slot at construction time (S-L2) so a
   // partially-valid object surfaces immediately instead of on the first
@@ -134,45 +169,7 @@ export function createAuthRoutes(
       >,
     );
 
-  /**
-   * Maps a thrown Effect-tagged error (or anything else) to a stable, public,
-   * non-leaky error payload. The full cause is logged server-side for diagnosis,
-   * but only opaque codes / sanitised messages cross the wire (S-H5 / S-M6).
-   */
-  function publicError(e: unknown): { status: number; body: { error: string; message?: string } } {
-    const tag = (() => {
-      const seen = new Set<unknown>();
-      const queue: unknown[] = [e];
-      while (queue.length) {
-        const node = queue.shift();
-        if (!node || typeof node !== "object" || seen.has(node)) continue;
-        seen.add(node);
-        const tag_value = (node as { _tag?: unknown })._tag;
-        if (typeof tag_value === "string") return tag_value;
-        for (const v of Object.values(node)) queue.push(v);
-      }
-      return null;
-    })();
-
-    // Log for operators via the Effect logger (respects redaction + JSON formatting).
-    void Effect.runPromise(
-      Effect.logError("auth route error").pipe(
-        Effect.annotateLogs({ tag: tag ?? "unknown" }),
-        Effect.provide(loggerLayer),
-      ),
-    );
-
-    switch (tag) {
-      case "ValidationError":
-        return { status: 400, body: { error: "invalid_request" } };
-      case "AuthError":
-        return { status: 400, body: { error: "invalid_request" } };
-      case "DatabaseError":
-        return { status: 500, body: { error: "internal_error" } };
-      default:
-        return { status: 400, body: { error: "invalid_request" } };
-    }
-  }
+  const handleError = (e: unknown) => publicError(e, loggerLayer);
 
   // ---------------------------------------------------------------------------
   // IP-based rate limiters (S-H1). Injected via the `rateLimiters` parameter
@@ -271,25 +268,6 @@ export function createAuthRoutes(
     return { unauthorized: true };
   }
 
-  /**
-   * Resolves a Bearer access token from the Authorization header. Returns
-   * the token claims on success, or null if the header is missing / invalid.
-   * Used by the S-H1-migrated profile endpoints that authenticate via
-   * access token instead of refresh token in body.
-   */
-  async function resolveAccessTokenPrincipal(authHeader: string | undefined): Promise<{
-    profileId: string;
-    email: string;
-    handle: string;
-    displayName: string | null;
-  } | null> {
-    if (!authHeader || !/^Bearer\s+/i.test(authHeader)) return null;
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-    const result = await Effect.runPromise(Effect.either(auth.verifyAccessToken(token)));
-    if (result._tag === "Right") return result.right;
-    return null;
-  }
-
   return (
     new Elysia({ prefix: "" })
       // -------------------------------------------------------------------------
@@ -358,7 +336,7 @@ export function createAuthRoutes(
           try {
             return await run(auth.beginRegistration(body.email, body.handle, body.displayName));
           } catch (e) {
-            const { status, body: errBody } = publicError(e);
+            const { status, body: errBody } = handleError(e);
             set.status = status;
             return errBody;
           }
@@ -389,15 +367,16 @@ export function createAuthRoutes(
           try {
             const result = await run(auth.completeRegistration(body.email, body.code));
             set.status = 201;
+            set.headers["set-cookie"] = buildSessionCookie(result.refreshToken, cookieConfig);
             return {
               profileId: result.profileId,
               handle: result.handle,
               email: result.email,
-              session: toTokenResponse(result),
+              session: toTokenResponseCookieOnly(result),
               enrollment_token: result.enrollmentToken,
             };
           } catch (e) {
-            const { status, body: errBody } = publicError(e);
+            const { status, body: errBody } = handleError(e);
             set.status = status;
             return errBody;
           }
@@ -479,7 +458,7 @@ export function createAuthRoutes(
       // -------------------------------------------------------------------------
       .post(
         "/token",
-        async ({ body, set }) => {
+        async ({ body, set, headers }) => {
           const { grant_type } = body as { grant_type: string };
 
           if (grant_type === "authorization_code") {
@@ -539,14 +518,20 @@ export function createAuthRoutes(
           }
 
           if (grant_type === "refresh_token") {
-            const { refresh_token } = body as { refresh_token: string };
+            // C3: prefer session token from HttpOnly cookie; fall back to body
+            const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
+            const bodyToken = (body as { refresh_token?: string }).refresh_token;
+            const refresh_token = cookieToken ?? bodyToken;
+            if (bodyToken && !cookieToken) metricSessionCookieFallback();
             if (!refresh_token) {
               set.status = 400;
               return { error: "invalid_request" };
             }
             try {
               const tokens = await run(auth.refreshTokens(refresh_token));
-              return toTokenResponse(tokens);
+              // Set the rotated session token as a cookie
+              set.headers["set-cookie"] = buildSessionCookie(tokens.refreshToken, cookieConfig);
+              return toTokenResponseCookieOnly(tokens);
             } catch (e) {
               set.status = 400;
               return { error: "invalid_grant", message: String(e) };
@@ -597,7 +582,7 @@ export function createAuthRoutes(
             const result = await run(auth.beginPasskeyRegistration(principal.accountId));
             return result.options;
           } catch (e) {
-            const { status, body: errBody } = publicError(e);
+            const { status, body: errBody } = handleError(e);
             set.status = status;
             return errBody;
           }
@@ -643,7 +628,7 @@ export function createAuthRoutes(
             );
             return result;
           } catch (e) {
-            const { status, body: errBody } = publicError(e);
+            const { status, body: errBody } = handleError(e);
             set.status = status;
             return errBody;
           }
@@ -853,8 +838,12 @@ export function createAuthRoutes(
             const result = await run(
               auth.completePasskeyLoginDirect(body.identifier, body.assertion),
             );
+            set.headers["set-cookie"] = buildSessionCookie(
+              result.session.refreshToken,
+              cookieConfig,
+            );
             return {
-              session: toTokenResponse(result.session),
+              session: toTokenResponseCookieOnly(result.session),
               profile: result.profile,
             };
           } catch (e) {
@@ -901,8 +890,12 @@ export function createAuthRoutes(
           }
           try {
             const result = await run(auth.completeOtpDirect(body.identifier, body.code));
+            set.headers["set-cookie"] = buildSessionCookie(
+              result.session.refreshToken,
+              cookieConfig,
+            );
             return {
-              session: toTokenResponse(result.session),
+              session: toTokenResponseCookieOnly(result.session),
               profile: result.profile,
             };
           } catch (e) {
@@ -939,8 +932,12 @@ export function createAuthRoutes(
         async ({ query, set }) => {
           try {
             const result = await run(auth.verifyMagicDirect(query.token));
+            set.headers["set-cookie"] = buildSessionCookie(
+              result.session.refreshToken,
+              cookieConfig,
+            );
             return {
-              session: toTokenResponse(result.session),
+              session: toTokenResponseCookieOnly(result.session),
               profile: result.profile,
             };
           } catch (e) {
@@ -966,7 +963,7 @@ export function createAuthRoutes(
           return rlErr;
         }
         try {
-          const claims = await resolveAccessTokenPrincipal(headers.authorization);
+          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
           if (!claims) {
             set.status = 401;
             return { error: "unauthorized" };
@@ -978,7 +975,7 @@ export function createAuthRoutes(
           }
           return await run(auth.listAccountProfiles(profile.accountId));
         } catch (e) {
-          const { status, body: errBody } = publicError(e);
+          const { status, body: errBody } = handleError(e);
           set.status = status;
           return errBody;
         }
@@ -992,7 +989,7 @@ export function createAuthRoutes(
             return rlErr;
           }
           try {
-            const claims = await resolveAccessTokenPrincipal(headers.authorization);
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
             if (!claims) {
               set.status = 401;
               return { error: "unauthorized" };
@@ -1009,7 +1006,7 @@ export function createAuthRoutes(
               profile: result.profile,
             };
           } catch (e) {
-            const { status, body: errBody } = publicError(e);
+            const { status, body: errBody } = handleError(e);
             set.status = status;
             return errBody;
           }
@@ -1025,8 +1022,11 @@ export function createAuthRoutes(
       // -------------------------------------------------------------------------
       .post(
         "/logout",
-        async ({ body, set }) => {
-          const { refresh_token } = body;
+        async ({ body, set, headers }) => {
+          // C3: prefer session token from cookie; fall back to body
+          const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
+          const bodyToken = (body as { refresh_token?: string }).refresh_token;
+          const refresh_token = cookieToken ?? bodyToken;
           if (!refresh_token) {
             set.status = 400;
             return { error: "invalid_request" };
@@ -1036,11 +1036,13 @@ export function createAuthRoutes(
           } catch {
             // Swallow — don't leak whether the session existed
           }
+          // Always clear the cookie regardless
+          set.headers["set-cookie"] = buildClearSessionCookie(cookieConfig);
           return { success: true };
         },
         {
           body: t.Object({
-            refresh_token: t.String(),
+            refresh_token: t.Optional(t.String()),
           }),
         },
       )

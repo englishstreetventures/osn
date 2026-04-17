@@ -212,7 +212,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [x] S-L1 (multi) — `maxProfiles` column set to 5 but never enforced. **Fixed in P3** — `createProfile` checks count vs `accounts.maxProfiles`
 - [x] S-L2 (multi) — Email duplication between `accounts.email` and `users.email`. **Resolved** — `users` table has no `email` column; all email access via JOIN to `accounts`
 - [ ] S-H1 (session) — In-memory `rotatedSessions` map does not survive restarts or scale across instances. Move to Redis when multi-replica deploys — see [[identity-model]]
-- [ ] S-M2 (auth) — `resolveAccessTokenPrincipal` and `resolveAccountId` duplicated across `routes/auth.ts` and `routes/profile.ts`. Extract shared Elysia derive — see [[identity-model]]
+- [x] S-M2 (auth) — `resolveAccessTokenPrincipal` and `resolveAccountId` duplicated across `routes/auth.ts` and `routes/profile.ts`. Extract shared Elysia derive — see [[identity-model]]
 - [ ] S-H1 (org) — `listMembers` service returns full profile rows; route projects, but service should restrict
 - [ ] S-M1 (org) — `GET /organisations/:handle/members` has no membership gate
 - [ ] S-M3 (org) — `getOrganisation` returns `ownerId` internal ID
@@ -326,12 +326,12 @@ Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenha
 - [x] H1: Invalidate all sessions on security events (passkey registration, email change) — see [[identity-model]]
 
 ### Phase 2 — Token Storage + Transport (Critical)
-- [ ] C3: Move refresh tokens from `localStorage` to `HttpOnly; Secure; SameSite=Lax` cookies (BFF pattern) — see [[identity-model]]
-- [ ] M1: Add Origin header validation middleware (required once cookies carry auth state) — see [[rate-limiting]]
+- [x] C3: Move refresh tokens from `localStorage` to `HttpOnly; Secure; SameSite=Lax` cookies (BFF pattern) — see [[identity-model]]
+- [x] M1: Add Origin header validation middleware (required once cookies carry auth state) — see [[rate-limiting]]
 
 ### Phase 3 — Defense-in-Depth (High)
-- [ ] H2: SHA-256 hash magic link tokens before storage in `magicStore` — see [[identity-model]]
-- [ ] H3: SHA-256 hash OTP codes before storage in `pendingRegistrations` — see [[identity-model]]
+- [x] H2: SHA-256 hash magic link tokens before storage in `magicStore` — see [[identity-model]]
+- [x] H3: SHA-256 hash OTP codes before storage in `pendingRegistrations` — see [[identity-model]]
 - [ ] H4: Migrate `@zap/api` from shared-secret JWT verification to JWKS-based (align with Pulse) — see [[arc-tokens]]
 
 ### Phase 4 — Hardening (Medium)

@@ -100,14 +100,13 @@ interface ChallengeEntry {
 }
 
 interface OtpEntry {
-  code: string;
+  codeHash: string;
   profileId: string;
   attempts: number;
   expiresAt: number;
 }
 
 interface MagicEntry {
-  token: string;
   profileId: string;
   expiresAt: number;
 }
@@ -116,7 +115,7 @@ interface PendingRegistration {
   email: string;
   handle: string;
   displayName: string | null;
-  code: string;
+  codeHash: string;
   attempts: number;
   expiresAt: number;
 }
@@ -602,7 +601,7 @@ export function createAuthService(config: AuthConfig) {
         email: normalisedEmail,
         handle,
         displayName: displayName ?? null,
-        code,
+        codeHash: hashSessionToken(code),
         attempts: 0,
         expiresAt: Date.now() + otpTtl * 1000,
       });
@@ -676,7 +675,7 @@ export function createAuthService(config: AuthConfig) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
 
-      if (!timingSafeEqualString(pending.code, code)) {
+      if (!timingSafeEqualString(pending.codeHash, hashSessionToken(code))) {
         // Increment the attempt counter; wipe after too many guesses.
         pending.attempts += 1;
         if (pending.attempts >= MAX_OTP_ATTEMPTS) {
@@ -1524,7 +1523,7 @@ export function createAuthService(config: AuthConfig) {
 
       // Key by normalised identifier so completeOtp can check in-memory first.
       otpStore.set(normalised, {
-        code,
+        codeHash: hashSessionToken(code),
         profileId: profile.id,
         attempts: 0,
         expiresAt: Date.now() + otpTtl * 1000,
@@ -1568,7 +1567,7 @@ export function createAuthService(config: AuthConfig) {
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
-      if (!timingSafeEqualString(entry.code, code)) {
+      if (!timingSafeEqualString(entry.codeHash, hashSessionToken(code))) {
         entry.attempts++;
         if (entry.attempts >= MAX_OTP_ATTEMPTS) {
           otpStore.delete(normalised);
@@ -1643,9 +1642,9 @@ export function createAuthService(config: AuthConfig) {
       }
 
       const token = genId("mlnk_") + crypto.randomUUID().replace(/-/g, "");
+      const hashedToken = hashSessionToken(token);
 
-      magicStore.set(token, {
-        token,
+      magicStore.set(hashedToken, {
         profileId: profile.id,
         expiresAt: Date.now() + magicTtl * 1000,
       });
@@ -1683,18 +1682,19 @@ export function createAuthService(config: AuthConfig) {
     token: string,
   ): Effect.Effect<ProfileWithEmail, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const entry = magicStore.get(token);
+      const hashedToken = hashSessionToken(token);
+      const entry = magicStore.get(hashedToken);
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Magic link expired or not found" }));
       }
-      magicStore.delete(token);
+      magicStore.delete(hashedToken);
 
       const profile = yield* findProfileById(entry.profileId);
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
       return profile;
-    });
+    }).pipe(Effect.withSpan("auth.magic_link.verify"));
 
   // -------------------------------------------------------------------------
   // Magic link: verify (PKCE — returns a redirectUrl with an auth code)
