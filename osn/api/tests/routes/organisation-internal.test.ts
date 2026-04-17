@@ -1,12 +1,12 @@
+import { serviceAccounts, serviceAccountKeys } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
+import type { Db as DbTag } from "@osn/db/service";
 import {
   generateArcKeyPair,
   exportKeyToJwk,
   createArcToken,
   clearPublicKeyCache,
-} from "@osn/crypto";
-import { serviceAccounts, serviceAccountKeys } from "@osn/db/schema";
-import { Db } from "@osn/db/service";
-import type { Db as DbTag } from "@osn/db/service";
+} from "@shared/crypto";
 import { Effect } from "effect";
 import { describe, it, expect, beforeEach } from "vitest";
 
@@ -35,7 +35,7 @@ describe("internal organisation routes (ARC-protected)", () => {
   async function setupArcService(
     serviceId: string = "pulse-api",
     scopes: string = "org:read",
-    audience: string = "osn-core",
+    audience: string = "osn-api",
   ): Promise<{ token: string; keyPair: CryptoKeyPair; keyId: string }> {
     const kp = await generateArcKeyPair();
     const pubJwk = await exportKeyToJwk(kp.publicKey);
@@ -124,10 +124,10 @@ describe("internal organisation routes (ARC-protected)", () => {
     });
 
     it("returns 401 with wrong scope", async () => {
-      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "org:read", "osn-core");
+      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "org:read", "osn-api");
       const badToken = await createArcToken(kp.privateKey, {
         iss: "pulse-api",
-        aud: "osn-core",
+        aud: "osn-api",
         scope: "graph:read",
         kid: keyId,
       });
@@ -141,7 +141,7 @@ describe("internal organisation routes (ARC-protected)", () => {
     });
 
     it("returns 401 with wrong audience", async () => {
-      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "org:read", "osn-core");
+      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "org:read", "osn-api");
       const badToken = await createArcToken(kp.privateKey, {
         iss: "pulse-api",
         aud: "wrong-service",

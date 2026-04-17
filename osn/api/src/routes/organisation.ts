@@ -300,10 +300,12 @@ export function createOrganisationRoutes(
           if (!(await requireRateLimit(caller.profileId, set)))
             return { error: "Too many requests" };
 
-          const organisation = await resolveOrg(params.handle, set);
+          // P-W2: resolve org and target profile in parallel (independent DB lookups).
+          const [organisation, target] = await Promise.all([
+            resolveOrg(params.handle, set),
+            resolveHandle(params.profileHandle, set),
+          ]);
           if (!organisation) return { error: "Organisation not found" };
-
-          const target = await resolveHandle(params.profileHandle, set);
           if (!target) return { error: "Profile not found" };
 
           try {
@@ -330,10 +332,12 @@ export function createOrganisationRoutes(
           if (!(await requireRateLimit(caller.profileId, set)))
             return { error: "Too many requests" };
 
-          const organisation = await resolveOrg(params.handle, set);
+          // P-W2: resolve org and target profile in parallel (independent DB lookups).
+          const [organisation, target] = await Promise.all([
+            resolveOrg(params.handle, set),
+            resolveHandle(params.profileHandle, set),
+          ]);
           if (!organisation) return { error: "Organisation not found" };
-
-          const target = await resolveHandle(params.profileHandle, set);
           if (!target) return { error: "Profile not found" };
 
           try {
@@ -354,10 +358,12 @@ export function createOrganisationRoutes(
           if (!(await requireRateLimit(caller.profileId, set)))
             return { error: "Too many requests" };
 
-          const organisation = await resolveOrg(params.handle, set);
+          // P-W2: resolve org and target profile in parallel (independent DB lookups).
+          const [organisation, target] = await Promise.all([
+            resolveOrg(params.handle, set),
+            resolveHandle(params.profileHandle, set),
+          ]);
           if (!organisation) return { error: "Organisation not found" };
-
-          const target = await resolveHandle(params.profileHandle, set);
           if (!target) return { error: "Profile not found" };
 
           try {

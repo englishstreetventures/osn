@@ -58,6 +58,29 @@ The `wiki/` directory contains detailed reference pages. Use this index to find 
 | Check security or perf findings | `wiki/TODO.md` (Security Backlog / Performance Backlog sections) |
 | Track progress and priorities | `wiki/TODO.md` |
 
+### Searching the wiki
+
+Always check for the Obsidian CLI first (requires Obsidian app to be running):
+
+```bash
+# 1. Check availability
+which obsidian 2>/dev/null && OBSCLI=obsidian || OBSCLI=""
+
+# 2a. If available — use obsidian CLI (vault-aware, follows [[wikilinks]])
+obsidian search query="arc tokens"                     # full-text search
+obsidian search:context query="arc tokens"             # search with line context
+obsidian tag name=systems verbose                      # list files tagged #systems
+obsidian read path=wiki/systems/arc-tokens.md          # read a page
+obsidian backlinks file=arc-tokens                     # find pages linking to it
+obsidian files folder=wiki/systems                     # list files in a folder
+
+# 2b. Fallback — grep over markdown files (always works)
+grep -r "arc token" wiki/ --include="*.md" -l          # find matching pages
+grep -r "arc token" wiki/ --include="*.md" -n          # with line numbers
+```
+
+Note: the `obsidian` CLI communicates with the running Obsidian app — fall back to grep if Obsidian is not open.
+
 ### Wiki maintenance rules
 
 - **When you add a new system or pattern**, create a wiki page and link it from the table above and from `[[wiki/index]]`.
@@ -73,10 +96,10 @@ Monorepo organised by domain. Four directories, four prefixes — see `[[wiki/ar
 
 | Dir | Prefix | What lives here |
 |-----|--------|-----------------|
-| `osn/` | `@osn/*` | Identity stack (auth, graph, organisations, recommendations, SDK, crypto, landing, social app) |
+| `osn/` | `@osn/*` | Identity stack (auth, graph, organisations, recommendations, SDK, landing, social app) — crypto moved to `@shared/crypto` |
 | `pulse/` | `@pulse/*` | Events stack (app, API, DB) |
 | `zap/` | `@zap/*` | Messaging stack (API on port 3002, DB) |
-| `shared/` | `@shared/*` | Cross-cutting utilities |
+| `shared/` | `@shared/*` | Cross-cutting utilities (`@shared/crypto` for ARC tokens, `@shared/observability`, `@shared/rate-limit`) |
 
 ## Tech (one-liner)
 
@@ -84,7 +107,7 @@ Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+RES
 
 ## Key Patterns (summaries)
 
-**ARC Tokens** — S2S auth via self-issued ES256 JWTs. Lives in `@osn/crypto/arc`. See `[[wiki/systems/arc-tokens]]`.
+**ARC Tokens** — S2S auth via self-issued ES256 JWTs. Lives in `@shared/crypto`. See `[[wiki/systems/arc-tokens]]`.
 
 **Observability** — OpenTelemetry end-to-end, shipped to Grafana Cloud. Three golden rules: no `console.*`, no raw OTel constructors, no unbounded metric attributes. See `[[wiki/observability/overview]]`.
 
@@ -133,7 +156,7 @@ bun run check            # Type-check all packages (turbo)
 # Testing
 bun run test                          # run all tests (turbo, skips packages without test script)
 bun run --cwd pulse/api test:run          # run Pulse events API tests once
-bun run --cwd osn/core test:run           # run OSN core auth tests once
+bun run --cwd osn/api test:run            # run OSN API (auth + graph) tests once
 bun run --cwd osn/client test:run         # run OSN client SDK tests once
 bun run --cwd osn/ui test:run             # run shared auth component tests once
 bun run --cwd pulse/db test:run           # run Pulse DB schema tests once

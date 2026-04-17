@@ -1,14 +1,15 @@
+import { serviceAccounts, serviceAccountKeys } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
+import type { Db as DbTag } from "@osn/db/service";
 import {
   generateArcKeyPair,
   exportKeyToJwk,
   createArcToken,
   clearPublicKeyCache,
-} from "@osn/crypto";
-import { serviceAccounts, serviceAccountKeys } from "@osn/db/schema";
-import { Db } from "@osn/db/service";
-import type { Db as DbTag } from "@osn/db/service";
+} from "@shared/crypto";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
 import { createAuthService } from "../../src/services/auth";
@@ -36,7 +37,7 @@ describe("internal graph routes (ARC-protected)", () => {
   async function setupArcService(
     serviceId: string = "pulse-api",
     scopes: string = "graph:read",
-    audience: string = "osn-core",
+    audience: string = "osn-api",
   ): Promise<{ token: string; keyPair: CryptoKeyPair; keyId: string }> {
     const kp = await generateArcKeyPair();
     const pubJwk = await exportKeyToJwk(kp.publicKey);
@@ -129,7 +130,7 @@ describe("internal graph routes (ARC-protected)", () => {
       const kp = await generateArcKeyPair();
       const token = await createArcToken(kp.privateKey, {
         iss: "unknown-service",
-        aud: "osn-core",
+        aud: "osn-api",
         scope: "graph:read",
         kid: "no-such-key",
       });
@@ -143,7 +144,7 @@ describe("internal graph routes (ARC-protected)", () => {
     });
 
     it("returns 401 with wrong audience", async () => {
-      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "graph:read", "osn-core");
+      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "graph:read", "osn-api");
       // Create token with wrong audience
       const badToken = await createArcToken(kp.privateKey, {
         iss: "pulse-api",
@@ -161,11 +162,11 @@ describe("internal graph routes (ARC-protected)", () => {
     });
 
     it("returns 401 with wrong scope", async () => {
-      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "graph:read", "osn-core");
+      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "graph:read", "osn-api");
       // Create token with wrong scope (service is only allowed graph:read)
       const badToken = await createArcToken(kp.privateKey, {
         iss: "pulse-api",
-        aud: "osn-core",
+        aud: "osn-api",
         scope: "graph:write",
         kid: keyId,
       });
@@ -179,11 +180,11 @@ describe("internal graph routes (ARC-protected)", () => {
     });
 
     it("returns 401 with expired ARC token", async () => {
-      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "graph:read", "osn-core");
+      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "graph:read", "osn-api");
       // Create token with minimum TTL (1 second)
       const expiredToken = await createArcToken(
         kp.privateKey,
-        { iss: "pulse-api", aud: "osn-core", scope: "graph:read", kid: keyId },
+        { iss: "pulse-api", aud: "osn-api", scope: "graph:read", kid: keyId },
         1,
       );
 
@@ -556,6 +557,217 @@ describe("internal graph routes (ARC-protected)", () => {
       expect(body.profiles).toHaveLength(1);
       expect(body.profiles[0].id).toBe(alice);
       expect(body.profiles[0].handle).toBe("alice");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /graph/internal/register-service  (T-R1)
+  // -------------------------------------------------------------------------
+
+  describe("POST /graph/internal/register-service", () => {
+    const SECRET = "test-internal-secret";
+    let validBody: {
+      serviceId: string;
+      keyId: string;
+      publicKeyJwk: string;
+      allowedScopes: string;
+    };
+
+    beforeEach(async () => {
+      process.env.INTERNAL_SERVICE_SECRET = SECRET;
+      // S-M1 requires a genuinely importable JWK — generate a real key pair.
+      const kp = await generateArcKeyPair();
+      validBody = {
+        serviceId: "zap-api",
+        keyId: "key-reg-1",
+        publicKeyJwk: await exportKeyToJwk(kp.publicKey),
+        allowedScopes: "graph:read",
+      };
+    });
+
+    afterEach(() => {
+      delete process.env.INTERNAL_SERVICE_SECRET;
+    });
+
+    it("returns 501 when INTERNAL_SERVICE_SECRET is unset", async () => {
+      delete process.env.INTERNAL_SERVICE_SECRET;
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/register-service", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SECRET}` },
+          body: JSON.stringify(validBody),
+        }),
+      );
+      expect(res.status).toBe(501);
+    });
+
+    it("returns 401 with wrong secret", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/register-service", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer wrong-secret" },
+          body: JSON.stringify(validBody),
+        }),
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 400 when requested scope is not in allowlist", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/register-service", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${SECRET}`,
+          },
+          body: JSON.stringify({ ...validBody, allowedScopes: "admin:write" }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain("Unknown scopes");
+    });
+
+    it("returns 200 and upserts the service account and key", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/register-service", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${SECRET}`,
+          },
+          body: JSON.stringify(validBody),
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean };
+      expect(body.ok).toBe(true);
+
+      // Verify key row was inserted
+      const rows = await runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          return yield* Effect.tryPromise({
+            try: () =>
+              db
+                .select()
+                .from(serviceAccountKeys)
+                .where(eq(serviceAccountKeys.keyId, validBody.keyId)),
+            catch: (e) => e,
+          });
+        }),
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.serviceId).toBe(validBody.serviceId);
+    });
+
+    it("upserts on re-registration — allowedScopes updated", async () => {
+      const makeRequest = (scopes: string) =>
+        app.handle(
+          new Request("http://localhost/graph/internal/register-service", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${SECRET}`,
+            },
+            body: JSON.stringify({ ...validBody, keyId: "key-upsert-1", allowedScopes: scopes }),
+          }),
+        );
+
+      await makeRequest("graph:read");
+      const res2 = await makeRequest("graph:read");
+      expect(res2.status).toBe(200);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // DELETE /graph/internal/service-keys/:keyId  (T-R2)
+  // -------------------------------------------------------------------------
+
+  describe("DELETE /graph/internal/service-keys/:keyId", () => {
+    const SECRET = "test-internal-secret";
+
+    beforeEach(() => {
+      process.env.INTERNAL_SERVICE_SECRET = SECRET;
+    });
+
+    afterEach(() => {
+      delete process.env.INTERNAL_SERVICE_SECRET;
+    });
+
+    it("returns 501 when INTERNAL_SERVICE_SECRET is unset", async () => {
+      delete process.env.INTERNAL_SERVICE_SECRET;
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/service-keys/some-key", {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${SECRET}` },
+        }),
+      );
+      expect(res.status).toBe(501);
+    });
+
+    it("returns 401 with wrong secret", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/service-keys/some-key", {
+          method: "DELETE",
+          headers: { Authorization: "Bearer wrong-secret" },
+        }),
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 200 and sets revokedAt on the key row", async () => {
+      const { keyId } = await setupArcService("revoke-svc", "graph:read");
+
+      const res = await app.handle(
+        new Request(`http://localhost/graph/internal/service-keys/${keyId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${SECRET}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean };
+      expect(body.ok).toBe(true);
+
+      const rows = await runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          return yield* Effect.tryPromise({
+            try: () =>
+              db.select().from(serviceAccountKeys).where(eq(serviceAccountKeys.keyId, keyId)),
+            catch: (e) => e,
+          });
+        }),
+      );
+      expect(rows[0]?.revokedAt).not.toBeNull();
+    });
+
+    it("after revocation, ARC-protected requests using the key return 401", async () => {
+      const { token, keyId } = await setupArcService("evict-test-svc", "graph:read");
+
+      // Confirm the token works before revocation
+      const pre = await app.handle(
+        new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(pre.status).toBe(200);
+
+      // Revoke the key — also evicts cache entry
+      await app.handle(
+        new Request(`http://localhost/graph/internal/service-keys/${keyId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${SECRET}` },
+        }),
+      );
+
+      // Same token now rejected (cache evicted + key revoked in DB)
+      const post = await app.handle(
+        new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(post.status).toBe(401);
     });
   });
 });

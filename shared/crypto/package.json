@@ -1,29 +1,21 @@
 {
-  "name": "@osn/core",
-  "version": "0.18.0",
+  "name": "@shared/crypto",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./*": "./src/*"
+    ".": "./src/index.ts"
   },
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
     "check": "tsc --noEmit",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "@elysiajs/cors": "^1.4.0",
-    "@osn/crypto": "workspace:*",
     "@osn/db": "workspace:*",
     "@shared/observability": "workspace:*",
-    "@shared/rate-limit": "workspace:*",
-    "@shared/redis": "workspace:*",
-    "@simplewebauthn/server": "^13.1.1",
     "drizzle-orm": "^0.45.0",
     "effect": "^3.19.19",
-    "elysia": "^1.2.0",
     "jose": "^6.2.2"
   },
   "devDependencies": {

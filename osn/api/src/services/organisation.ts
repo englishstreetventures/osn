@@ -172,32 +172,35 @@ export function createOrganisationService() {
     Effect.gen(function* () {
       const { db } = yield* Db;
 
-      // Check org exists
-      const orgRows = yield* Effect.tryPromise({
-        try: () => db.select().from(organisations).where(eq(organisations.id, orgId)).limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
+      // P-I1: org-exists and admin-check are independent queries — run in parallel.
+      const [orgRows, memberRows] = yield* Effect.all(
+        [
+          Effect.tryPromise({
+            try: () => db.select().from(organisations).where(eq(organisations.id, orgId)).limit(1),
+            catch: (cause) => new DatabaseError({ cause }),
+          }),
+          Effect.tryPromise({
+            try: () =>
+              db
+                .select()
+                .from(organisationMembers)
+                .where(
+                  and(
+                    eq(organisationMembers.organisationId, orgId),
+                    eq(organisationMembers.profileId, callerId),
+                    eq(organisationMembers.role, "admin"),
+                  ),
+                )
+                .limit(1),
+            catch: (cause) => new DatabaseError({ cause }),
+          }),
+        ],
+        { concurrency: 2 },
+      );
 
       if (orgRows.length === 0) {
         return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
       }
-
-      // Check caller is admin
-      const memberRows = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select()
-            .from(organisationMembers)
-            .where(
-              and(
-                eq(organisationMembers.organisationId, orgId),
-                eq(organisationMembers.profileId, callerId),
-                eq(organisationMembers.role, "admin"),
-              ),
-            )
-            .limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
 
       if (memberRows.length === 0) {
         return yield* Effect.fail(
@@ -386,42 +389,45 @@ export function createOrganisationService() {
         return yield* Effect.fail(new OrgError({ message: "Cannot remove the owner" }));
       }
 
-      // Check caller is admin
-      const callerMember = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select()
-            .from(organisationMembers)
-            .where(
-              and(
-                eq(organisationMembers.organisationId, orgId),
-                eq(organisationMembers.profileId, callerId),
-                eq(organisationMembers.role, "admin"),
-              ),
-            )
-            .limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
+      // P-W1: caller-is-admin and target-is-member checks are independent — run in parallel.
+      const [callerMember, targetMember] = yield* Effect.all(
+        [
+          Effect.tryPromise({
+            try: () =>
+              db
+                .select()
+                .from(organisationMembers)
+                .where(
+                  and(
+                    eq(organisationMembers.organisationId, orgId),
+                    eq(organisationMembers.profileId, callerId),
+                    eq(organisationMembers.role, "admin"),
+                  ),
+                )
+                .limit(1),
+            catch: (cause) => new DatabaseError({ cause }),
+          }),
+          Effect.tryPromise({
+            try: () =>
+              db
+                .select()
+                .from(organisationMembers)
+                .where(
+                  and(
+                    eq(organisationMembers.organisationId, orgId),
+                    eq(organisationMembers.profileId, targetProfileId),
+                  ),
+                )
+                .limit(1),
+            catch: (cause) => new DatabaseError({ cause }),
+          }),
+        ],
+        { concurrency: 2 },
+      );
 
       if (callerMember.length === 0) {
         return yield* Effect.fail(new OrgError({ message: "Only admins can remove members" }));
       }
-
-      // Check target is a member
-      const targetMember = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select()
-            .from(organisationMembers)
-            .where(
-              and(
-                eq(organisationMembers.organisationId, orgId),
-                eq(organisationMembers.profileId, targetProfileId),
-              ),
-            )
-            .limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
 
       if (targetMember.length === 0) {
         return yield* Effect.fail(new NotFoundError({ message: "Member not found" }));

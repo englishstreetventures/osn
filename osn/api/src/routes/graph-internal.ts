@@ -1,6 +1,6 @@
-import { evictPublicKeyCacheEntry } from "@osn/crypto";
 import { serviceAccounts, serviceAccountKeys, users } from "@osn/db/schema";
 import { Db, DbLive } from "@osn/db/service";
+import { evictPublicKeyCacheEntry, importKeyFromJwk } from "@shared/crypto";
 import { inArray, eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
@@ -12,7 +12,7 @@ import { createGraphService } from "../services/graph";
 // Constants
 // ---------------------------------------------------------------------------
 
-const AUDIENCE = "osn-core";
+const AUDIENCE = "osn-api";
 const SCOPE_GRAPH_READ = "graph:read";
 /** Max profile IDs per batch request — stays well under SQLite's variable limit (999). */
 const MAX_BATCH_PROFILE_IDS = 200;
@@ -51,7 +51,7 @@ function safeError(e: unknown): string {
  * Creates the `/graph/internal/*` route group for service-to-service calls.
  *
  * All routes require `Authorization: ARC <token>` with `graph:read` scope
- * and audience `"osn-core"`. These are read-only endpoints consumed by
+ * and audience `"osn-api"`. These are read-only endpoints consumed by
  * other OSN services (e.g. Pulse API via the graphBridge).
  *
  * @param dbLayer - Effect Layer providing Db (defaults to DbLive)
@@ -75,7 +75,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
           const caller = await requireArc(
             headers.authorization,
             set,
-            dbLayer,
+            run,
             AUDIENCE,
             SCOPE_GRAPH_READ,
           );
@@ -105,7 +105,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
           const caller = await requireArc(
             headers.authorization,
             set,
-            dbLayer,
+            run,
             AUDIENCE,
             SCOPE_GRAPH_READ,
           );
@@ -135,7 +135,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
           const caller = await requireArc(
             headers.authorization,
             set,
-            dbLayer,
+            run,
             AUDIENCE,
             SCOPE_GRAPH_READ,
           );
@@ -171,7 +171,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
           const caller = await requireArc(
             headers.authorization,
             set,
-            dbLayer,
+            run,
             AUDIENCE,
             SCOPE_GRAPH_READ,
           );
@@ -207,7 +207,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
           const caller = await requireArc(
             headers.authorization,
             set,
-            dbLayer,
+            run,
             AUDIENCE,
             SCOPE_GRAPH_READ,
           );
@@ -237,7 +237,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
           const caller = await requireArc(
             headers.authorization,
             set,
-            dbLayer,
+            run,
             AUDIENCE,
             SCOPE_GRAPH_READ,
           );
@@ -297,6 +297,15 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
           if (invalidScopes.length > 0) {
             set.status = 400;
             return { error: `Unknown scopes: ${invalidScopes.join(", ")}` };
+          }
+          // S-M1: Validate the JWK can be imported before writing it to the DB.
+          // Prevents storage of malformed or non-EC keys that would later cause
+          // resolvePublicKey to throw on every ARC verification attempt.
+          try {
+            await importKeyFromJwk(body.publicKeyJwk);
+          } catch {
+            set.status = 400;
+            return { error: "Invalid public key JWK" };
           }
           try {
             const now = new Date();
@@ -417,7 +426,7 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
           const caller = await requireArc(
             headers.authorization,
             set,
-            dbLayer,
+            run,
             AUDIENCE,
             SCOPE_GRAPH_READ,
           );

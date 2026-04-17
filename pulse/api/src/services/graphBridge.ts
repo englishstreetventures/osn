@@ -1,4 +1,4 @@
-import { exportKeyToJwk, generateArcKeyPair, getOrCreateArcToken } from "@osn/crypto";
+import { exportKeyToJwk, generateArcKeyPair, getOrCreateArcToken } from "@shared/crypto";
 import { Data, Effect } from "effect";
 
 import { MAX_EVENT_GUESTS } from "../lib/limits";
@@ -89,7 +89,7 @@ async function arcAuthHeader(): Promise<string> {
   const { privateKey, keyId } = await initKeys();
   const token = await getOrCreateArcToken(privateKey, {
     iss: "pulse-api",
-    aud: "osn-core",
+    aud: "osn-api",
     // POST endpoints (/close-friends-of, /profile-displays) are read-equivalent
     // enrichment calls; graph:read is the correct scope for all four bridge calls.
     // If a truly mutating S2S POST is ever added, introduce a new scope and a

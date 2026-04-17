@@ -33,7 +33,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 
 ---
 
-## OSN Core (`osn/api` + `osn/core`)
+## OSN Core (`osn/api`)
 
 - [x] Multi-account profile CRUD (P3) — create/delete/set-default profiles, maxProfiles enforcement, cascade delete, observability
 - [x] Multi-account client SDK (P4) — multi-session storage, profile switching, schema validation, security hardening
@@ -43,6 +43,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 - [ ] Interest profile selection (onboarding)
 - [ ] Third-party app authorization flow
 - [x] Organisation frontend — standalone `@osn/social` app delivered (2026-04-16); Tauri wrapping deferred
+- [x] Merge `@osn/core` into `@osn/api`, move `@osn/crypto` → `@shared/crypto`; ARC audience updated `"osn-core"` → `"osn-api"`
 - [ ] Recommendations SQL aggregation + compound indexes (P-W7) — push FOF counting into DB, add `connections(status, requester_id)` + `connections(status, addressee_id)` — see [[social-graph]]
 - [ ] Unified `handles` reservation table (user + org handles share namespace; currently enforced at service layer — see Deferred Decisions)
 
@@ -196,6 +197,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-M34 — Rate limiter trusts `X-Forwarded-For` without reverse-proxy guarantee — see [[rate-limiting]]
 - [ ] S-M35 — Redirect URI allowlist matches origin only, not exact URI per RFC 9700 §4.1.3
 - [ ] S-M43 — No rate limiting on `/graph/internal/*` S2S endpoints — see [[arc-tokens]]
+- [x] S-M44 — `/register-service` stored JWK without verifying it could be imported. **Fixed** — `importKeyFromJwk` called before DB upsert; returns 400 on invalid key — see [[arc-tokens]]
 - [x] S-M100 — `peekClaims` used `atob()` which breaks on base64url (`-`/`_` in UUID kids). **Fixed** — `decodeJwtSegment` converts base64url → base64 before decode (RFC 7515 §2) — see [[arc-tokens]]
 - [x] S-M101 — `/register-service` stored arbitrary `allowedScopes` without server-side validation. **Fixed** — `PERMITTED_SCOPES` allowlist in `graph-internal.ts`; unknown scopes return 400 — see [[arc-tokens]]
 - [x] S-M102 — `resolvePublicKey` cache hit skipped scope check when `tokenScopes` empty. **Fixed** — cache entry now stores `allowedScopes`; scope validated on every cache hit — see [[arc-tokens]]
@@ -218,6 +220,8 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-L3 — Tauri CSP is `null` — allowlist `photon.komoot.io`, `maps.google.com`, `*.tile.openstreetmap.org`
 - [ ] S-L4 — `createdByAvatar` always null — no avatar claim in JWT
 - [x] S-L7 — `jwtSecret` falls back to `"dev-secret"` — throw at startup in production. **Fixed**: `OSN_JWT_SECRET` is validated at startup in `pulse/api/src/index.ts` (throws when unset in non-test env)
+- [x] S-L29 — `/graph/internal/*` mounted under open CORS. **Fixed** — `cors()` now uses `OSN_CORS_ORIGIN` env var (falls back to `authConfig.origin`); wildcard removed — see [[arc-tokens]]
+- [x] S-L32 — `OSN_JWT_SECRET` in `osn/api` fell back to `"dev-secret-change-in-prod"` at startup. **Fixed** — throws at startup when `NODE_ENV=production` and secret is unset
 - [x] S-L8 — OTP codes and magic link URLs logged to stdout. **Fixed** — guard tightened to `OSN_ENV` (excludes staging); dev log level defaults to debug so codes are visible without manual config.
 - [ ] S-L9 — `imageUrl` allows `data:` URIs — add CSP `img-src` header
 - [ ] S-L10 — SimpleWebAuthn loaded from unpkg CDN without SRI hash
@@ -230,7 +234,6 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-L22 — `listRsvps` counts privacy-filtered rows toward `limit` (weak side-channel oracle)
 - [ ] S-L23 — `pkceStore` has no size bound or eviction sweep
 - [ ] S-L24 — `/token` and legacy `POST /register` have no rate limiting
-- [ ] S-L29 — `/graph/internal/*` mounted under open CORS — see [[arc-tokens]]
 - [ ] S-L30 — `createInternalGraphRoutes` has no `loggerLayer` — see [[arc-tokens]], [[observability/overview]]
 - [ ] S-L1 (zap) — `jwtVerify` does not restrict algorithms — pass `{ algorithms: ['HS256'] }`
 - [ ] S-L2 (zap) — DM chats have no member count enforcement
@@ -264,9 +267,10 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [ ] P-W10 — `RegistrationClient.checkHandle` has no `AbortController` — debounced bursts leave multiple in-flight requests
 - [ ] P-W11 — `beginRegistration` issues two parallel queries instead of single `WHERE email = ? OR handle = ?`
 - [ ] P-W22 — Two `Effect.runPromise` calls per internal graph request — consolidate when S2S throughput grows — see [[arc-tokens]]
+- [ ] P-W25 — `publicKeyCache` uses FIFO eviction; upgrade to LRU so the most-recently-used keys are kept under churn — see [[arc-tokens]]
 - [ ] P-W23 — `tailwind-merge` (~12-14 KB) in initial bundle — see [[component-library]]
 - [ ] P-W24 — `cn()` with signal reads replaces `classList` — avoid in `<For>` loops — see [[component-library]]
-- [ ] P-W3 (org) — Sequential queries in `removeMember`/`updateMemberRole` could be parallelised
+- [x] P-W3 (org) — Sequential queries in `removeMember` and `updateOrganisation` could be parallelised. **Fixed** — `callerMember`+`targetMember` in `removeMember` and `orgRows`+`memberRows` in `updateOrganisation` now use `Effect.all({ concurrency: 2 })`. `resolveOrg`+`resolveHandle` in the three member routes now run via `Promise.all`
 - [ ] P-W6 (recs) — No caching/pagination contract on `/recommendations/connections`. Every request re-runs the FOF pipeline. Add short-lived per-caller cache (5-15 min) and/or `generated_at` timestamp so clients can detect cached responses — see [[social-graph]]
 - [ ] P-W7 (recs) — FOF aggregation in JS after capping fan-out (current). Next step: push aggregation to SQL via `SELECT candidate_id, COUNT(*) FROM (...) GROUP BY candidate_id ORDER BY count DESC LIMIT ?`. Add compound indexes `connections(status, requester_id)` + `connections(status, addressee_id)` — see [[social-graph]]
 

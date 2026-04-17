@@ -16,7 +16,7 @@
     "dev": "turbo dev",
     "dev:pulse": "turbo dev --filter=@pulse/api --filter=@pulse/app --filter=@osn/api --filter=@zap/api",
     "dev:zap": "turbo dev --filter=@zap/api --filter=@osn/api",
-    "dev:osn": "turbo dev --filter=@osn/core --filter=@osn/api",
+    "dev:osn": "turbo dev --filter=@osn/api",
     "dev:social": "turbo dev --filter=@osn/social --filter=@osn/api",
     "dev:apis": "turbo dev --filter=@osn/api --filter=@pulse/api --filter=@zap/api",
     "dev:landing": "turbo dev --filter=@osn/landing",

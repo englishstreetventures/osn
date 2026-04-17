@@ -1,14 +1,15 @@
 import { Effect } from "effect";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// Mock @osn/crypto so key generation never hits the real Web Crypto API.
+// Mock @shared/crypto so key generation never hits the real Web Crypto API.
 // generateArcKeyPair is slow (> 5 s) in the test environment; mocking it
 // keeps all graphBridge tests under the default 5000 ms timeout.
-vi.mock("@osn/crypto", () => ({
+vi.mock("@shared/crypto", () => ({
   generateArcKeyPair: vi.fn().mockResolvedValue({
     privateKey: {} as CryptoKey,
     publicKey: {} as CryptoKey,
   }),
+  exportKeyToJwk: vi.fn().mockResolvedValue('{"kty":"EC","crv":"P-256","x":"stub","y":"stub"}'),
   importKeyFromJwk: vi.fn().mockResolvedValue({} as CryptoKey),
   getOrCreateArcToken: vi.fn().mockResolvedValue("test-arc-token"),
 }));
@@ -19,6 +20,7 @@ import {
   getCloseFriendsOf,
   getConnectionIds,
   getProfileDisplays,
+  startKeyRotation,
 } from "../../src/services/graphBridge";
 
 // graphBridge is the single seam between Pulse and the OSN social graph.
@@ -183,5 +185,58 @@ describe("getProfileDisplays", () => {
     mockFetch({ error: "Unauthorized" }, 401);
     const err = await Effect.runPromise(Effect.flip(getProfileDisplays(["usr_alice"])));
     expect(err._tag).toBe("GraphBridgeError");
+  });
+});
+
+// ── startKeyRotation (T-U2) ──────────────────────────────────────────────────
+
+describe("startKeyRotation", () => {
+  const SECRET = "test-internal-secret";
+
+  beforeEach(() => {
+    vi.stubEnv("INTERNAL_SERVICE_SECRET", SECRET);
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
+  });
+
+  it("throws when INTERNAL_SERVICE_SECRET is unset", async () => {
+    vi.unstubAllEnvs(); // undo beforeEach stub so the env var is absent
+    await expect(startKeyRotation()).rejects.toThrow("INTERNAL_SERVICE_SECRET must be set");
+  });
+
+  it("makes a POST to /graph/internal/register-service with correct shape", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await startKeyRotation();
+
+    expect(spy).toHaveBeenCalledOnce();
+    const [url, init] = spy.mock.calls[0]!;
+    expect(url).toContain("/graph/internal/register-service");
+    expect(init?.method).toBe("POST");
+    const body = JSON.parse(init?.body as string) as Record<string, unknown>;
+    expect(body.serviceId).toBe("pulse-api");
+    expect(body.allowedScopes).toBe("graph:read");
+    expect(typeof body.keyId).toBe("string");
+    expect(typeof body.publicKeyJwk).toBe("string");
+  });
+
+  it("throws when the registration endpoint returns non-2xx", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(startKeyRotation()).rejects.toThrow("failed to register");
   });
 });

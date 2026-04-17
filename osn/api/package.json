@@ -13,14 +13,19 @@
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.0",
-    "@osn/core": "workspace:*",
     "@osn/db": "workspace:*",
+    "@shared/crypto": "workspace:*",
     "@shared/observability": "workspace:*",
+    "@shared/rate-limit": "workspace:*",
     "@shared/redis": "workspace:*",
+    "@simplewebauthn/server": "^13.1.1",
+    "drizzle-orm": "^0.45.0",
     "effect": "^3.19.19",
-    "elysia": "^1.2.0"
+    "elysia": "^1.2.0",
+    "jose": "^6.2.2"
   },
   "devDependencies": {
+    "@effect/vitest": "^0.29.0",
     "@shared/typescript-config": "workspace:*",
     "vitest": "^4.1.2"
   }

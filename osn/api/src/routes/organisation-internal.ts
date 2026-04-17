@@ -9,7 +9,7 @@ import { createOrganisationService } from "../services/organisation";
 // Constants
 // ---------------------------------------------------------------------------
 
-const AUDIENCE = "osn-core";
+const AUDIENCE = "osn-api";
 const SCOPE_ORG_READ = "org:read";
 /** S-M2: defined now so future mutation endpoints use the write scope, not read. */
 const _SCOPE_ORG_WRITE = "org:write";
@@ -42,13 +42,7 @@ export function createInternalOrganisationRoutes(dbLayer: Layer.Layer<Db> = DbLi
     .get(
       "/profile-orgs",
       async ({ query, headers, set }) => {
-        const caller = await requireArc(
-          headers.authorization,
-          set,
-          dbLayer,
-          AUDIENCE,
-          SCOPE_ORG_READ,
-        );
+        const caller = await requireArc(headers.authorization, set, run, AUDIENCE, SCOPE_ORG_READ);
         if (!caller) return { error: "Unauthorized" };
 
         try {
@@ -68,13 +62,7 @@ export function createInternalOrganisationRoutes(dbLayer: Layer.Layer<Db> = DbLi
     .get(
       "/membership",
       async ({ query, headers, set }) => {
-        const caller = await requireArc(
-          headers.authorization,
-          set,
-          dbLayer,
-          AUDIENCE,
-          SCOPE_ORG_READ,
-        );
+        const caller = await requireArc(headers.authorization, set, run, AUDIENCE, SCOPE_ORG_READ);
         if (!caller) return { error: "Unauthorized" };
 
         try {

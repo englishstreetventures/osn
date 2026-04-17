@@ -1,6 +1,7 @@
 import { it as effectIt } from "@effect/vitest";
 import { serviceAccounts, serviceAccountKeys } from "@osn/db";
 import { Db } from "@osn/db/service";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -11,9 +12,10 @@ import {
   createArcToken,
   verifyArcToken,
   resolvePublicKey,
+  clearPublicKeyCache,
+  evictPublicKeyCacheEntry,
   getOrCreateArcToken,
   clearTokenCache,
-  clearPublicKeyCache,
   evictExpiredTokens,
   tokenCacheSize,
   ArcTokenError,
@@ -532,6 +534,108 @@ describe("resolvePublicKey", () => {
       });
 
       const error = yield* Effect.flip(resolvePublicKey(keyId, "expired-svc"));
+      expect(error._tag).toBe("ArcTokenError");
+      expect(error.message).toContain("Unknown or invalid key");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // T-E1: cache-hit scope enforcement path
+  effectIt.effect("enforces scope on cache-hit path without re-querying DB", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const keyPair = yield* Effect.promise(() => generateArcKeyPair());
+      const jwk = yield* Effect.promise(() => exportKeyToJwk(keyPair.publicKey));
+      const now = new Date();
+      const keyId = "cache-hit-scope-key";
+
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(serviceAccounts).values({
+            serviceId: "cache-hit-svc",
+            allowedScopes: "graph:read",
+            createdAt: now,
+            updatedAt: now,
+          }),
+        catch: (e) => new ArcTokenError({ message: "insert failed", cause: e }),
+      });
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(serviceAccountKeys).values({
+            keyId,
+            serviceId: "cache-hit-svc",
+            publicKeyJwk: jwk,
+            registeredAt: now,
+            expiresAt: null,
+            revokedAt: null,
+          }),
+        catch: (e) => new ArcTokenError({ message: "insert key failed", cause: e }),
+      });
+
+      // First call: DB path — populates cache with allowedScopes "graph:read"
+      const key = yield* resolvePublicKey(keyId, "cache-hit-svc", ["graph:read"]);
+      expect(key).toBeDefined();
+
+      // Second call: cache-hit path — "graph:write" not in cached allowedScopes
+      // (No clearPublicKeyCache between calls — intentional to hit cache)
+      const error = yield* Effect.flip(resolvePublicKey(keyId, "cache-hit-svc", ["graph:write"]));
+      expect(error._tag).toBe("ArcTokenError");
+      expect(error.message).toContain("not authorised for scope");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // T-U1: evictPublicKeyCacheEntry forces re-lookup and respects DB revocation
+  effectIt.effect("evictPublicKeyCacheEntry forces DB re-lookup and sees revocation", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const keyPair = yield* Effect.promise(() => generateArcKeyPair());
+      const jwk = yield* Effect.promise(() => exportKeyToJwk(keyPair.publicKey));
+      const now = new Date();
+      const keyId = "evict-cache-key";
+
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(serviceAccounts).values({
+            serviceId: "evict-svc",
+            allowedScopes: "graph:read",
+            createdAt: now,
+            updatedAt: now,
+          }),
+        catch: (e) => new ArcTokenError({ message: "insert failed", cause: e }),
+      });
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(serviceAccountKeys).values({
+            keyId,
+            serviceId: "evict-svc",
+            publicKeyJwk: jwk,
+            registeredAt: now,
+            expiresAt: null,
+            revokedAt: null,
+          }),
+        catch: (e) => new ArcTokenError({ message: "insert key failed", cause: e }),
+      });
+
+      // Populate cache
+      const cachedKey = yield* resolvePublicKey(keyId, "evict-svc");
+      expect(cachedKey).toBeDefined();
+
+      // Revoke key in DB (simulates /service-keys/:keyId DELETE)
+      yield* Effect.tryPromise({
+        try: () =>
+          db
+            .update(serviceAccountKeys)
+            .set({ revokedAt: Math.floor(Date.now() / 1000) })
+            .where(eq(serviceAccountKeys.keyId, keyId)),
+        catch: (e) => new ArcTokenError({ message: "revoke failed", cause: e }),
+      });
+
+      // Without eviction, cache still serves the stale key
+      const staleKey = yield* resolvePublicKey(keyId, "evict-svc");
+      expect(staleKey).toBeDefined();
+
+      // Evict — next lookup hits DB and sees revokedAt
+      evictPublicKeyCacheEntry(keyId);
+      const error = yield* Effect.flip(resolvePublicKey(keyId, "evict-svc"));
       expect(error._tag).toBe("ArcTokenError");
       expect(error.message).toContain("Unknown or invalid key");
     }).pipe(Effect.provide(createTestLayer())),

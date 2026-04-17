@@ -21,14 +21,21 @@ import {
 
 const mockedCreateClientFromUrl = vi.mocked(createClientFromUrl);
 
+function mockFn<T>(returnValue: T): () => Promise<T> {
+  return vi.fn().mockResolvedValue(returnValue) as unknown as () => Promise<T>;
+}
+function mockFnReject<T>(err: Error): () => Promise<T> {
+  return vi.fn().mockRejectedValue(err) as unknown as () => Promise<T>;
+}
+
 function createMockConnectableClient(
   overrides: Partial<ConnectableRedisClient> = {},
 ): ConnectableRedisClient {
   const base = createMemoryClient();
   return {
     ...base,
-    connect: vi.fn<any>().mockResolvedValue(undefined),
-    disconnect: vi.fn<any>().mockResolvedValue(undefined),
+    connect: mockFn(undefined),
+    disconnect: mockFn(undefined),
     ...overrides,
   };
 }
@@ -79,7 +86,7 @@ describe("initRedisClient", () => {
 
   it("falls back to in-memory when connect() throws", async () => {
     const mockClient = createMockConnectableClient({
-      connect: vi.fn<any>().mockRejectedValue(new Error("ECONNREFUSED")),
+      connect: mockFnReject(new Error("ECONNREFUSED")),
     });
     mockedCreateClientFromUrl.mockReturnValue(mockClient);
 
@@ -95,7 +102,7 @@ describe("initRedisClient", () => {
 
   it("falls back to in-memory when health check returns false", async () => {
     const mockClient = createMockConnectableClient({
-      ping: vi.fn<any>().mockResolvedValue("NOT_PONG"), // health check fails
+      ping: mockFn("NOT_PONG"), // health check fails
     });
     mockedCreateClientFromUrl.mockReturnValue(mockClient);
 
@@ -109,9 +116,9 @@ describe("initRedisClient", () => {
   });
 
   it("calls disconnect() on health check failure (P-W1)", async () => {
-    const disconnectFn = vi.fn<any>().mockResolvedValue(undefined);
+    const disconnectFn = mockFn(undefined);
     const mockClient = createMockConnectableClient({
-      ping: vi.fn<any>().mockResolvedValue("NOT_PONG"),
+      ping: mockFn("NOT_PONG"),
       disconnect: disconnectFn,
     });
     mockedCreateClientFromUrl.mockReturnValue(mockClient);
@@ -134,7 +141,7 @@ describe("initRedisClient", () => {
     });
 
     const mockClient = createMockConnectableClient({
-      connect: vi.fn<any>().mockRejectedValue(new Error("ECONNREFUSED")),
+      connect: mockFnReject(new Error("ECONNREFUSED")),
     });
     mockedCreateClientFromUrl.mockReturnValue(mockClient);
 
@@ -156,7 +163,7 @@ describe("initRedisClient", () => {
     });
 
     const mockClient = createMockConnectableClient({
-      connect: vi.fn<any>().mockRejectedValue(new Error("ECONNREFUSED")),
+      connect: mockFnReject(new Error("ECONNREFUSED")),
     });
     mockedCreateClientFromUrl.mockReturnValue(mockClient);
 

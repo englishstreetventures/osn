@@ -1,27 +1,32 @@
 import { cors } from "@elysiajs/cors";
-import {
-  createAuthRoutes,
-  createGraphRoutes,
-  createInternalGraphRoutes,
-  createOrganisationRoutes,
-  createInternalOrganisationRoutes,
-  createProfileRoutes,
-  createRecommendationRoutes,
-  createRedisAuthRateLimiters,
-  createRedisGraphRateLimiter,
-  createRedisOrgRateLimiter,
-  createRedisProfileRateLimiters,
-  createRedisRecommendationRateLimiter,
-} from "@osn/core";
 import { DbLive } from "@osn/db/service";
 import { healthRoutes, initObservability, observabilityPlugin } from "@shared/observability";
 import { Effect, Logger } from "effect";
 import { Elysia } from "elysia";
 
+import {
+  createRedisAuthRateLimiters,
+  createRedisGraphRateLimiter,
+  createRedisOrgRateLimiter,
+  createRedisProfileRateLimiters,
+  createRedisRecommendationRateLimiter,
+} from "./lib/redis-rate-limiters";
 import { initRedisClient } from "./redis";
+import { createAuthRoutes } from "./routes/auth";
+import { createGraphRoutes } from "./routes/graph";
+import { createInternalGraphRoutes } from "./routes/graph-internal";
+import { createOrganisationRoutes } from "./routes/organisation";
+import { createInternalOrganisationRoutes } from "./routes/organisation-internal";
+import { createProfileRoutes } from "./routes/profile";
+import { createRecommendationRoutes } from "./routes/recommendations";
 
 const SERVICE_NAME = "osn-api";
 const port = Number(process.env.PORT) || 4000;
+
+// S-L2: Fail at startup in production when the JWT signing secret is not set.
+if (process.env.NODE_ENV === "production" && !process.env.OSN_JWT_SECRET) {
+  throw new Error("OSN_JWT_SECRET must be set in production");
+}
 
 // Initialise observability (logger, tracing, metrics) before building the app.
 const { layer: observabilityLayer } = initObservability({ serviceName: SERVICE_NAME });
@@ -56,8 +61,14 @@ const orgRateLimiter = createRedisOrgRateLimiter(redisClient);
 const profileRateLimiters = createRedisProfileRateLimiters(redisClient);
 const recommendationRateLimiter = createRedisRecommendationRateLimiter(redisClient);
 
+// S-L1: Restrict CORS to the known app origin instead of the open wildcard.
+// OSN_CORS_ORIGIN may be a comma-separated list for multi-origin setups.
+const corsOrigins = process.env.OSN_CORS_ORIGIN
+  ? process.env.OSN_CORS_ORIGIN.split(",").map((o) => o.trim())
+  : authConfig.origin;
+
 const app = new Elysia()
-  .use(cors())
+  .use(cors({ origin: corsOrigins }))
   .use(observabilityPlugin({ serviceName: SERVICE_NAME }))
   .use(healthRoutes({ serviceName: SERVICE_NAME }))
   .get("/", () => ({ status: "ok", service: "osn-auth" }))

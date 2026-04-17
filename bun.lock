@@ -16,17 +16,22 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
-        "@osn/core": "workspace:*",
         "@osn/db": "workspace:*",
+        "@shared/crypto": "workspace:*",
         "@shared/observability": "workspace:*",
+        "@shared/rate-limit": "workspace:*",
         "@shared/redis": "workspace:*",
+        "@simplewebauthn/server": "^13.1.1",
+        "drizzle-orm": "^0.45.0",
         "effect": "^3.19.19",
         "elysia": "^1.2.0",
+        "jose": "^6.2.2",
       },
       "devDependencies": {
+        "@effect/vitest": "^0.29.0",
         "@shared/typescript-config": "workspace:*",
         "vitest": "^4.1.2",
       },
@@ -47,47 +52,9 @@
         "solid-js": ">=1.0.0",
       },
     },
-    "osn/core": {
-      "name": "@osn/core",
-      "version": "0.17.2",
-      "dependencies": {
-        "@elysiajs/cors": "^1.4.0",
-        "@osn/crypto": "workspace:*",
-        "@osn/db": "workspace:*",
-        "@shared/observability": "workspace:*",
-        "@shared/rate-limit": "workspace:*",
-        "@shared/redis": "workspace:*",
-        "@simplewebauthn/server": "^13.1.1",
-        "drizzle-orm": "^0.45.0",
-        "effect": "^3.19.19",
-        "elysia": "^1.2.0",
-        "jose": "^6.2.2",
-      },
-      "devDependencies": {
-        "@effect/vitest": "^0.29.0",
-        "@shared/typescript-config": "workspace:*",
-        "vitest": "^4.1.2",
-      },
-    },
-    "osn/crypto": {
-      "name": "@osn/crypto",
-      "version": "0.2.12",
-      "dependencies": {
-        "@osn/db": "workspace:*",
-        "@shared/observability": "workspace:*",
-        "drizzle-orm": "^0.45.0",
-        "effect": "^3.19.19",
-        "jose": "^6.2.2",
-      },
-      "devDependencies": {
-        "@effect/vitest": "^0.29.0",
-        "@shared/typescript-config": "workspace:*",
-        "vitest": "^4.1.2",
-      },
-    },
     "osn/db": {
       "name": "@osn/db",
-      "version": "0.7.2",
+      "version": "0.8.0",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.0",
@@ -168,12 +135,12 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.9.10",
+      "version": "0.10.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
         "@elysiajs/eden": "^1.2.0",
-        "@osn/crypto": "workspace:*",
         "@pulse/db": "workspace:*",
+        "@shared/crypto": "workspace:*",
         "@shared/observability": "workspace:*",
         "@zap/db": "workspace:*",
         "drizzle-orm": "^0.45.0",
@@ -189,7 +156,7 @@
     },
     "pulse/app": {
       "name": "@pulse/app",
-      "version": "0.8.3",
+      "version": "0.8.4",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -231,6 +198,22 @@
         "@types/better-sqlite3": "^7.6.13",
         "better-sqlite3": "^12.5.0",
         "drizzle-kit": "^0.31.0",
+        "vitest": "^4.1.2",
+      },
+    },
+    "shared/crypto": {
+      "name": "@shared/crypto",
+      "version": "0.3.0",
+      "dependencies": {
+        "@osn/db": "workspace:*",
+        "@shared/observability": "workspace:*",
+        "drizzle-orm": "^0.45.0",
+        "effect": "^3.19.19",
+        "jose": "^6.2.2",
+      },
+      "devDependencies": {
+        "@effect/vitest": "^0.29.0",
+        "@shared/typescript-config": "workspace:*",
         "vitest": "^4.1.2",
       },
     },
@@ -671,10 +654,6 @@
 
     "@osn/client": ["@osn/client@workspace:osn/client"],
 
-    "@osn/core": ["@osn/core@workspace:osn/core"],
-
-    "@osn/crypto": ["@osn/crypto@workspace:osn/crypto"],
-
     "@osn/db": ["@osn/db@workspace:osn/db"],
 
     "@osn/landing": ["@osn/landing@workspace:osn/landing"],
@@ -924,6 +903,8 @@
     "@rollup/rollup-win32-x64-gnu": ["@rollup/rollup-win32-x64-gnu@4.60.1", "", { "os": "win32", "cpu": "x64" }, "sha512-k+600V9Zl1CM7eZxJgMyTUzmrmhB/0XZnF4pRypKAlAgxmedUA+1v9R+XOFv56W4SlHEzfeMtzujLJD22Uz5zg=="],
 
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.60.1", "", { "os": "win32", "cpu": "x64" }, "sha512-lWMnixq/QzxyhTV6NjQJ4SFo1J6PvOX8vUx5Wb4bBPsEb+8xZ89Bz6kOXpfXj9ak9AHTQVQzlgzBEc1SyM27xQ=="],
+
+    "@shared/crypto": ["@shared/crypto@workspace:shared/crypto"],
 
     "@shared/db-utils": ["@shared/db-utils@workspace:shared/db-utils"],
 
