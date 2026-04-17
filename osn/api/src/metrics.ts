@@ -30,6 +30,7 @@ import { Effect } from "effect";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
 export const OSN_METRICS = {
+  authJwksServed: "osn.auth.jwks.served",
   authRegisterAttempts: "osn.auth.register.attempts",
   authRegisterDuration: "osn.auth.register.duration",
   authLoginAttempts: "osn.auth.login.attempts",
@@ -422,3 +423,15 @@ export const withProfileCrud =
 
 export const metricAuthRateLimited = (endpoint: AuthRateLimitedEndpoint): void =>
   authRateLimited.inc({ endpoint });
+
+// ---------------------------------------------------------------------------
+// JWKS
+// ---------------------------------------------------------------------------
+
+const authJwksServed = createCounter<Record<never, never>>({
+  name: OSN_METRICS.authJwksServed,
+  description: "JWKS public key endpoint served (GET /.well-known/jwks.json)",
+  unit: "{request}",
+});
+
+export const metricAuthJwksServed = (): void => authJwksServed.inc({});

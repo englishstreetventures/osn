@@ -6,7 +6,7 @@ import { Elysia, t } from "elysia";
 
 import { verifyPkceChallenge } from "../lib/crypto";
 import { buildAuthorizeHtml } from "../lib/html";
-import { metricAuthRateLimited } from "../metrics";
+import { metricAuthJwksServed, metricAuthRateLimited } from "../metrics";
 import { createAuthService, type AuthConfig } from "../services/auth";
 
 // In-memory PKCE challenge store (keyed by state)
@@ -106,6 +106,22 @@ export function createAuthRoutes(
       throw new Error(`AuthRateLimiters.${key} must have a check() method`);
     }
   }
+
+  // P-I2: pre-build the static JWKS response once at route construction time.
+  // The key does not change during the server's lifetime — no need to allocate
+  // a new object (and spread-copy all JWK fields) on every request.
+  // S-L2: include key_ops alongside use for RFC 7517 compliance.
+  const jwksResponse = {
+    keys: [
+      {
+        ...authConfig.jwtPublicKeyJwk,
+        use: "sig",
+        alg: "ES256",
+        kid: authConfig.jwtKid,
+        key_ops: ["verify"],
+      },
+    ],
+  } as const;
 
   const auth = createAuthService(authConfig);
 
@@ -969,10 +985,18 @@ export function createAuthRoutes(
         issuer: authConfig.issuerUrl,
         authorization_endpoint: `${authConfig.issuerUrl}/authorize`,
         token_endpoint: `${authConfig.issuerUrl}/token`,
+        jwks_uri: `${authConfig.issuerUrl}/.well-known/jwks.json`,
         response_types_supported: ["code"],
         grant_types_supported: ["authorization_code", "refresh_token"],
         code_challenge_methods_supported: ["S256"],
         scopes_supported: ["openid", "profile", "email"],
+        id_token_signing_alg_values_supported: ["ES256"],
       }))
+      .get("/.well-known/jwks.json", ({ set }) => {
+        // S-H1: explicit caching contract — aligns with pulse-side JWKS_CACHE_TTL_MS (5 min).
+        set.headers["cache-control"] = "public, max-age=300, stale-while-revalidate=60";
+        metricAuthJwksServed();
+        return jwksResponse;
+      })
   );
 }

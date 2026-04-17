@@ -14,7 +14,7 @@ import {
   createHistogram,
   LATENCY_BUCKETS_SECONDS,
 } from "@shared/observability/metrics";
-import type { EventStatus, Result } from "@shared/observability/metrics";
+import type { EventStatus, JwksCacheResult, Result } from "@shared/observability/metrics";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
 export const PULSE_METRICS = {
@@ -39,6 +39,8 @@ export const PULSE_METRICS = {
   eventAccessDenied: "pulse.events.access.denied",
   // Pulse user settings
   settingsUpdated: "pulse.settings.updated",
+  // JWKS public key cache
+  authJwksCacheLookups: "pulse.auth.jwks_cache.lookups",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -178,6 +180,12 @@ type EventAccessDeniedAttrs = {
 type SettingsUpdatedAttrs = {
   field: "attendance_visibility";
   result: Result;
+};
+
+// --- JWKS cache ---
+
+type JwksCacheLookupAttrs = {
+  result: JwksCacheResult;
 };
 
 // ---------------------------------------------------------------------------
@@ -379,3 +387,14 @@ export const metricEventAccessDenied = (
 
 export const metricSettingsUpdated = (field: "attendance_visibility", result: Result): void =>
   settingsUpdated.inc({ field, result });
+
+// --- JWKS cache ---
+
+const authJwksCacheLookups = createCounter<JwksCacheLookupAttrs>({
+  name: PULSE_METRICS.authJwksCacheLookups,
+  description: "JWKS public key cache lookups by result (hit/miss/refresh)",
+  unit: "{lookup}",
+});
+
+export const metricJwksCacheLookup = (result: JwksCacheResult): void =>
+  authJwksCacheLookups.inc({ result });

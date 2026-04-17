@@ -1,20 +1,20 @@
 import { it, expect, describe } from "@effect/vitest";
 import { Effect } from "effect";
+import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { createOrganisationService } from "../../src/services/organisation";
+import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
 
-const config = {
-  rpId: "localhost",
-  rpName: "OSN Test",
-  origin: "http://localhost:5173",
-  issuerUrl: "http://localhost:4000",
-  jwtSecret: "test-secret-at-least-32-characters-long",
-};
-
-const auth = createAuthService(config);
+let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
+let auth: ReturnType<typeof createAuthService>;
 const org = createOrganisationService();
+
+beforeAll(async () => {
+  config = await makeTestAuthConfig();
+  auth = createAuthService(config);
+});
 
 /** Register a user and return them. */
 const registerProfile = (email: string, handle: string, displayName?: string) =>

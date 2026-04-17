@@ -1,19 +1,28 @@
+import { generateArcKeyPair } from "@shared/crypto";
 import { Effect } from "effect";
 import { SignJWT } from "jose";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
 import { createEventsRoutes } from "../../src/routes/events";
 import { createTestLayer, seedEvent } from "../helpers/db";
 
 const FUTURE = "2030-06-01T10:00:00.000Z";
-const TEST_JWT_SECRET = "test-secret";
+
+let testPrivateKey: CryptoKey;
+let testPublicKey: CryptoKey;
+
+beforeAll(async () => {
+  const pair = await generateArcKeyPair();
+  testPrivateKey = pair.privateKey;
+  testPublicKey = pair.publicKey;
+});
 
 async function makeToken(profileId: string, email?: string): Promise<string> {
   const payload: Record<string, string> = { sub: profileId };
   if (email) payload.email = email;
   return new SignJWT(payload)
-    .setProtectedHeader({ alg: "HS256" })
-    .sign(new TextEncoder().encode(TEST_JWT_SECRET));
+    .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
+    .sign(testPrivateKey);
 }
 
 const json = (body: unknown) => JSON.stringify(body);
@@ -64,7 +73,7 @@ describe("events routes", () => {
 
   beforeEach(async () => {
     layer = createTestLayer();
-    app = createEventsRoutes(layer, TEST_JWT_SECRET);
+    app = createEventsRoutes(layer, "", testPublicKey);
     aliceToken = await makeToken("usr_alice");
   });
 

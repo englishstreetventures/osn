@@ -9,6 +9,7 @@ export {
   generateArcKeyPair,
   exportKeyToJwk,
   importKeyFromJwk,
+  thumbprintKid,
   // Token lifecycle
   createArcToken,
   verifyArcToken,

@@ -59,8 +59,14 @@ export interface AuthConfig {
   origin: string;
   /** Issuer URL (used as JWT issuer + magic link base) */
   issuerUrl: string;
-  /** JWT signing secret (at least 32 chars) */
-  jwtSecret: string;
+  /** ES256 private key for signing access, refresh, enrollment, and code tokens */
+  jwtPrivateKey: CryptoKey;
+  /** ES256 public key for verifying the above */
+  jwtPublicKey: CryptoKey;
+  /** Key ID (RFC 7638 thumbprint) — included in JWT headers and JWKS */
+  jwtKid: string;
+  /** Public key as JWK object — served at /.well-known/jwks.json */
+  jwtPublicKeyJwk: Record<string, unknown>;
   /** Access token TTL in seconds (default: 3600) */
   accessTokenTtl?: number;
   /** Refresh token TTL in seconds (default: 2592000 = 30 days) */
@@ -163,20 +169,19 @@ function now(): Date {
 
 async function signJwt(
   payload: Record<string, unknown>,
-  secret: string,
+  privateKey: CryptoKey,
+  kid: string,
   ttl: number,
 ): Promise<string> {
-  const key = new TextEncoder().encode(secret);
   return new SignJWT(payload)
-    .setProtectedHeader({ alg: "HS256" })
+    .setProtectedHeader({ alg: "ES256", kid })
     .setIssuedAt()
     .setExpirationTime(Math.floor(Date.now() / 1000) + ttl)
-    .sign(key);
+    .sign(privateKey);
 }
 
-async function verifyJwt(token: string, secret: string): Promise<Record<string, unknown>> {
-  const key = new TextEncoder().encode(secret);
-  const { payload } = await jwtVerify(token, key);
+async function verifyJwt(token: string, publicKey: CryptoKey): Promise<Record<string, unknown>> {
+  const { payload } = await jwtVerify(token, publicKey, { algorithms: ["ES256"] });
   return payload as Record<string, unknown>;
 }
 
@@ -768,10 +773,11 @@ export function createAuthService(config: AuthConfig) {
         if (displayName !== null) payload["displayName"] = displayName;
 
         const [accessToken, refreshToken] = await Promise.all([
-          signJwt(payload, config.jwtSecret, accessTokenTtl),
+          signJwt(payload, config.jwtPrivateKey, config.jwtKid, accessTokenTtl),
           signJwt(
             { sub: accountId, type: "refresh", scope: "account" },
-            config.jwtSecret,
+            config.jwtPrivateKey,
+            config.jwtKid,
             refreshTokenTtl,
           ),
         ]);
@@ -786,7 +792,8 @@ export function createAuthService(config: AuthConfig) {
 
   const issueCode = (profileId: string) =>
     Effect.tryPromise({
-      try: () => signJwt({ sub: profileId, type: "code" }, config.jwtSecret, 120),
+      try: () =>
+        signJwt({ sub: profileId, type: "code" }, config.jwtPrivateKey, config.jwtKid, 120),
       catch: (cause) => new AuthError({ message: String(cause) }),
     });
 
@@ -813,7 +820,8 @@ export function createAuthService(config: AuthConfig) {
         const jti = crypto.randomUUID();
         return signJwt(
           { sub: accountId, type: "passkey-enroll", jti },
-          config.jwtSecret,
+          config.jwtPrivateKey,
+          config.jwtKid,
           enrollmentTokenTtl,
         );
       },
@@ -832,7 +840,7 @@ export function createAuthService(config: AuthConfig) {
   ): Effect.Effect<{ accountId: string }, AuthError> =>
     Effect.gen(function* () {
       const payload = yield* Effect.tryPromise({
-        try: () => verifyJwt(token, config.jwtSecret),
+        try: () => verifyJwt(token, config.jwtPublicKey),
         catch: () => new AuthError({ message: "Invalid or expired enrollment token" }),
       });
       if (
@@ -872,7 +880,7 @@ export function createAuthService(config: AuthConfig) {
   > =>
     Effect.gen(function* () {
       const payload = yield* Effect.tryPromise({
-        try: () => verifyJwt(code, config.jwtSecret),
+        try: () => verifyJwt(code, config.jwtPublicKey),
         catch: () => new AuthError({ message: "Invalid or expired code" }),
       });
       if (payload["type"] !== "code" || typeof payload["sub"] !== "string") {
@@ -903,7 +911,7 @@ export function createAuthService(config: AuthConfig) {
   const verifyRefreshToken = (token: string): Effect.Effect<{ accountId: string }, AuthError> =>
     Effect.gen(function* () {
       const payload = yield* Effect.tryPromise({
-        try: () => verifyJwt(token, config.jwtSecret),
+        try: () => verifyJwt(token, config.jwtPublicKey),
         catch: () => new AuthError({ message: "Invalid or expired refresh token" }),
       });
       if (
@@ -976,7 +984,7 @@ export function createAuthService(config: AuthConfig) {
   > =>
     Effect.gen(function* () {
       const payload = yield* Effect.tryPromise({
-        try: () => verifyJwt(token, config.jwtSecret),
+        try: () => verifyJwt(token, config.jwtPublicKey),
         catch: () => new AuthError({ message: "Invalid or expired access token" }),
       });
       if (
@@ -1585,7 +1593,7 @@ export function createAuthService(config: AuthConfig) {
       };
       if (profile.displayName !== null) payload["displayName"] = profile.displayName;
       const accessToken = yield* Effect.tryPromise({
-        try: () => signJwt(payload, config.jwtSecret, accessTokenTtl),
+        try: () => signJwt(payload, config.jwtPrivateKey, config.jwtKid, accessTokenTtl),
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
       return {

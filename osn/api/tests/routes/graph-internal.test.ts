@@ -9,20 +9,19 @@ import {
 } from "@shared/crypto";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
 
 import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
 import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
+import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
 
-const config = {
-  rpId: "localhost",
-  rpName: "OSN Test",
-  origin: "http://localhost:5173",
-  issuerUrl: "http://localhost:4000",
-  jwtSecret: "test-secret-at-least-32-characters-long",
-};
+let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
+
+beforeAll(async () => {
+  config = await makeTestAuthConfig();
+});
 
 describe("internal graph routes (ARC-protected)", () => {
   let layer: ReturnType<typeof createTestLayer>;

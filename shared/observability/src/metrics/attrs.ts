@@ -64,6 +64,9 @@ export type ProfileCrudAction = "create" | "delete" | "set_default";
 /** Tables affected by cascade profile delete (P3). */
 export type ProfileDeleteCascadeTable = "connections" | "close_friends" | "blocks" | "org_members";
 
+/** JWKS public key cache lookup outcomes. */
+export type JwksCacheResult = "hit" | "miss" | "refresh";
+
 /** Auth endpoints subject to IP-based rate limiting (S-H1). */
 export type AuthRateLimitedEndpoint =
   | "register_begin"

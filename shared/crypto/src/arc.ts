@@ -2,7 +2,7 @@ import { serviceAccounts, serviceAccountKeys } from "@osn/db";
 import { Db } from "@osn/db/service";
 import { and, eq, isNull, gt, or } from "drizzle-orm";
 import { Effect, Data } from "effect";
-import { SignJWT, jwtVerify, importJWK, exportJWK } from "jose";
+import { SignJWT, jwtVerify, importJWK, exportJWK, calculateJwkThumbprint } from "jose";
 
 import {
   classifyArcVerifyError,
@@ -96,6 +96,15 @@ function validateEs256Jwk(jwk: Record<string, unknown>): void {
   if (typeof jwk.x !== "string" || typeof jwk.y !== "string") {
     throw new ArcTokenError({ message: "Invalid JWK: missing x or y coordinates" });
   }
+}
+
+/**
+ * Computes an RFC 7638 SHA-256 JWK thumbprint for a public key.
+ * Stable across restarts for the same key — suitable for use as a `kid`.
+ */
+export async function thumbprintKid(publicKey: CryptoKey): Promise<string> {
+  const jwk = await exportJWK(publicKey);
+  return calculateJwkThumbprint(jwk);
 }
 
 /**

@@ -1,18 +1,18 @@
 import { it, expect, describe } from "@effect/vitest";
 import { Effect, Logger, LogLevel } from "effect";
+import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
+import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
 
-const config = {
-  rpId: "localhost",
-  rpName: "OSN Test",
-  origin: "http://localhost:5173",
-  issuerUrl: "http://localhost:4000",
-  jwtSecret: "test-secret-at-least-32-characters-long",
-};
+let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
+let auth: ReturnType<typeof createAuthService>;
 
-const auth = createAuthService(config);
+beforeAll(async () => {
+  config = await makeTestAuthConfig();
+  auth = createAuthService(config);
+});
 
 describe("registerProfile", () => {
   it.effect("creates a new user with usr_ prefix and correct fields", () =>

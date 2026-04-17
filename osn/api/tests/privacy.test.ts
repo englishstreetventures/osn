@@ -1,9 +1,10 @@
 import { Effect } from "effect";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
 import { createAuthRoutes } from "../src/routes/auth";
 import { createProfileRoutes } from "../src/routes/profile";
 import { createAuthService } from "../src/services/auth";
+import { makeTestAuthConfig } from "./helpers/auth-config";
 import { createTestLayer } from "./helpers/db";
 
 /**
@@ -14,13 +15,11 @@ import { createTestLayer } from "./helpers/db";
  * responses, tokens, or WebAuthn ceremony data.
  */
 
-const config = {
-  rpId: "localhost",
-  rpName: "OSN Test",
-  origin: "http://localhost:5173",
-  issuerUrl: "http://localhost:4000",
-  jwtSecret: "test-secret-at-least-32-characters-long",
-};
+let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
+
+beforeAll(async () => {
+  config = await makeTestAuthConfig();
+});
 
 /** Recursively check that no key named `accountId` or `account_id` exists. */
 function assertNoAccountId(obj: unknown, path = "$"): void {

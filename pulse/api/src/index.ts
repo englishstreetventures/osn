@@ -22,8 +22,12 @@ const app = new Elysia()
 const port = process.env.PORT || 3001;
 
 if (process.env.NODE_ENV !== "test") {
-  if (!process.env.OSN_JWT_SECRET) {
-    throw new Error("OSN_JWT_SECRET must be set");
+  // S-H3: fetching public keys over plaintext HTTP in a deployed env allows
+  // any process with network access to serve a forged JWK set. Fail fast.
+  const jwksUrl = process.env.OSN_JWKS_URL ?? "http://localhost:4000/.well-known/jwks.json";
+  const nonLocal = process.env.OSN_ENV && process.env.OSN_ENV !== "local";
+  if (nonLocal && jwksUrl.startsWith("http://")) {
+    throw new Error("OSN_JWKS_URL must use HTTPS in non-local environments");
   }
 
   app.listen({ port, reusePort: false });

@@ -1,19 +1,18 @@
 import type { Db } from "@osn/db/service";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
 import { createOrganisationRoutes } from "../../src/routes/organisation";
 import { createAuthService } from "../../src/services/auth";
+import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
 
-const config = {
-  rpId: "localhost",
-  rpName: "OSN Test",
-  origin: "http://localhost:5173",
-  issuerUrl: "http://localhost:4000",
-  jwtSecret: "test-secret-at-least-32-characters-long",
-};
+let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
+
+beforeAll(async () => {
+  config = await makeTestAuthConfig();
+});
 
 describe("organisation routes", () => {
   let layer: ReturnType<typeof createTestLayer>;

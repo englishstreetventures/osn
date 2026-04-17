@@ -1,20 +1,20 @@
 import { it, expect, describe } from "@effect/vitest";
 import { Effect } from "effect";
+import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
+import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
 
-const config = {
-  rpId: "localhost",
-  rpName: "OSN Test",
-  origin: "http://localhost:5173",
-  issuerUrl: "http://localhost:4000",
-  jwtSecret: "test-secret-at-least-32-characters-long",
-};
-
-const auth = createAuthService(config);
+let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
+let auth: ReturnType<typeof createAuthService>;
 const graph = createGraphService();
+
+beforeAll(async () => {
+  config = await makeTestAuthConfig();
+  auth = createAuthService(config);
+});
 
 /** Register two users and return their IDs. */
 const setupTwoUsers = Effect.gen(function* () {

@@ -109,6 +109,8 @@ Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+RES
 
 **ARC Tokens** — S2S auth via self-issued ES256 JWTs. Lives in `@shared/crypto`. See `[[wiki/systems/arc-tokens]]`.
 
+**User Access Tokens** — ES256 JWTs issued by `@osn/api` on login. Public key exposed at `GET /.well-known/jwks.json`. Downstream services (e.g. `@pulse/api`) verify via JWKS fetch — no shared secret. `AuthConfig` takes `jwtPrivateKey`, `jwtPublicKey`, `jwtKid`, `jwtPublicKeyJwk` (not `jwtSecret`). Env vars: `OSN_JWT_PRIVATE_KEY` / `OSN_JWT_PUBLIC_KEY` (base64 JWK JSON); ephemeral pair generated in local dev when unset. `thumbprintKid(publicKey)` from `@shared/crypto` computes the RFC 7638 kid. Downstream: set `OSN_JWKS_URL` in each service; must be HTTPS in non-local envs.
+
 **Observability** — OpenTelemetry end-to-end, shipped to Grafana Cloud. Three golden rules: no `console.*`, no raw OTel constructors, no unbounded metric attributes. See `[[wiki/observability/overview]]`.
 
 **Rate Limiting** — Per-IP fixed-window on all auth endpoints; per-user on graph writes, org writes, and `/recommendations/connections` reads. Two backends: Redis-backed when `REDIS_URL` is set (cross-process, survives restarts), in-memory fallback when unset (local dev). See `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]`.

@@ -142,6 +142,7 @@ OSN's messaging app. Stack matches Pulse (Bun, Tauri+Solid, Elysia+Eden, Drizzle
 
 ### Crypto (`osn/crypto`)
 
+- [x] JWKS endpoint + ES256 access tokens — `GET /.well-known/jwks.json` live in `@osn/api`; `@pulse/api` verifies via JWKS cache — see [[arc-tokens]]
 - [ ] JWKS URL fallback in `resolvePublicKey` for third-party apps (currently first-party only via `service_account_keys`)
 
 ### UI Components (`osn/ui`)
@@ -219,9 +220,9 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-L2 — `Effect.orDie` in `requireAuth` swallows auth errors — replace with `Effect.either` + 401
 - [ ] S-L3 — Tauri CSP is `null` — allowlist `photon.komoot.io`, `maps.google.com`, `*.tile.openstreetmap.org`
 - [ ] S-L4 — `createdByAvatar` always null — no avatar claim in JWT
-- [x] S-L7 — `jwtSecret` falls back to `"dev-secret"` — throw at startup in production. **Fixed**: `OSN_JWT_SECRET` is validated at startup in `pulse/api/src/index.ts` (throws when unset in non-test env)
+- [x] S-L7 — `jwtSecret` falls back to `"dev-secret"` — **Superseded**: symmetric `OSN_JWT_SECRET` removed entirely; replaced by ES256 key pair (`OSN_JWT_PRIVATE_KEY`/`OSN_JWT_PUBLIC_KEY`); startup guard uses `OSN_ENV` — see [[arc-tokens]]
 - [x] S-L29 — `/graph/internal/*` mounted under open CORS. **Fixed** — `cors()` now uses `OSN_CORS_ORIGIN` env var (falls back to `authConfig.origin`); wildcard removed — see [[arc-tokens]]
-- [x] S-L32 — `OSN_JWT_SECRET` in `osn/api` fell back to `"dev-secret-change-in-prod"` at startup. **Fixed** — throws at startup when `NODE_ENV=production` and secret is unset
+- [x] S-L32 — `OSN_JWT_SECRET` in `osn/api` fell back to `"dev-secret-change-in-prod"` at startup. **Superseded**: symmetric secret removed; ES256 key pair required in non-local envs (guarded via `OSN_ENV`) — see [[arc-tokens]]
 - [x] S-L8 — OTP codes and magic link URLs logged to stdout. **Fixed** — guard tightened to `OSN_ENV` (excludes staging); dev log level defaults to debug so codes are visible without manual config.
 - [ ] S-L9 — `imageUrl` allows `data:` URIs — add CSP `img-src` header
 - [ ] S-L10 — SimpleWebAuthn loaded from unpkg CDN without SRI hash
@@ -232,6 +233,10 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-L14 — `assertion: t.Any()` on passkey routes — add TypeBox shape validation
 - [ ] S-L15 — No reserved-handle blocklist in DB
 - [x] S-L101 — `registerWithOsnApi()` silently returned early when `INTERNAL_SERVICE_SECRET` unset. **Fixed** — now throws, caught at startup by `index.ts` — see [[arc-tokens]]
+- [ ] S-M1 (auth) — `pkceStore` unbounded + no expiry sweep — add `MAX_PKCE_ENTRIES` cap + `sweepExpired` on insert, or migrate to Redis (Phase 4) — see [[arc-tokens]]
+- [ ] S-M2 (auth) — `/authorize` has no rate limiter — add `authorize: RateLimiterBackend` to `AuthRateLimiters` — see [[rate-limiting]]
+- [ ] S-M4 (auth) — No startup assertion that `OSN_JWT_PRIVATE_KEY` has `sign` usage — assert `key.usages.includes("sign")` after import in `loadJwtKeyPair`
+- [ ] S-L2 (auth) — Wildcard CORS on `@pulse/api` — restrict to known client origins (mirrors OSN_CORS_ORIGIN pattern) — see [[rate-limiting]]
 - [ ] S-L22 — `listRsvps` counts privacy-filtered rows toward `limit` (weak side-channel oracle)
 - [ ] S-L23 — `pkceStore` has no size bound or eviction sweep
 - [ ] S-L24 — `/token` and legacy `POST /register` have no rate limiting
@@ -261,6 +266,7 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [x] P-W101 — `peekClaims` decoded payload before checking header validity. **Fixed** — header decoded first; payload decode gated on `kid` present — see [[arc-tokens]]
 - [x] P-W102 — `evictExpiredTokens` O(n) scan on every `getOrCreateArcToken` call. **Fixed** — internal debounced sweep (`maybeSweepExpiredTokens`) runs at most once per 30 s; public `evictExpiredTokens` still sweeps immediately — see [[arc-tokens]]
 - [ ] P-W3 — `sendConnectionRequest` two sequential independent DB reads — use `Effect.all` with `concurrency: "unbounded"`
+- [ ] P-W3 (jwks) — `extractClaims` in pulse/api serialises JWKS resolve before DB I/O on read-only routes — parallelise with `Promise.all` for anonymous-capable endpoints — see [[arc-tokens]]
 - [ ] P-W4 — Auth Maps (`otpStore`, `magicStore`, `pkceStore`) never evict expired entries — see [[redis]]
 - [ ] P-W1 (pulse) — Duplicate event DB load per RSVP route: `loadVisibleEvent` fetches the row for the access gate; `listRsvps`/`rsvpCounts` re-fetch the same row internally. Thread the loaded `Event` into service functions — see [[s2s-patterns]]
 - [ ] P-W3 (pulse) — `listTodayEvents` has no `LIMIT` clause; fetches all matching rows for the day into memory — see [[event-access]]

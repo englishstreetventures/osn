@@ -1,24 +1,25 @@
 import { it, expect, describe } from "@effect/vitest";
 import { Effect } from "effect";
+import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
 import { createOrganisationService } from "../../src/services/organisation";
 import { createProfileService } from "../../src/services/profile";
+import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
 
-const config = {
-  rpId: "localhost",
-  rpName: "OSN Test",
-  origin: "http://localhost:5173",
-  issuerUrl: "http://localhost:4000",
-  jwtSecret: "test-secret-at-least-32-characters-long",
-};
-
-const auth = createAuthService(config);
-const profile = createProfileService(auth);
+let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
+let auth: ReturnType<typeof createAuthService>;
+let profile: ReturnType<typeof createProfileService>;
 const graph = createGraphService();
 const org = createOrganisationService();
+
+beforeAll(async () => {
+  config = await makeTestAuthConfig();
+  auth = createAuthService(config);
+  profile = createProfileService(auth);
+});
 
 /** Register an account + profile, then get a refresh token for the account. */
 function setupAccount(email: string, handle: string, displayName?: string) {

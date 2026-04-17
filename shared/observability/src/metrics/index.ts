@@ -35,4 +35,5 @@ export {
   type ProfileSwitchAction,
   type ProfileCrudAction,
   type ProfileDeleteCascadeTable,
+  type JwksCacheResult,
 } from "./attrs";

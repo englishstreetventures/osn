@@ -1,5 +1,6 @@
 import { cors } from "@elysiajs/cors";
 import { DbLive } from "@osn/db/service";
+import { generateArcKeyPair, importKeyFromJwk, thumbprintKid } from "@shared/crypto";
 import { healthRoutes, initObservability, observabilityPlugin } from "@shared/observability";
 import { Effect, Logger } from "effect";
 import { Elysia } from "elysia";
@@ -23,20 +24,67 @@ import { createRecommendationRoutes } from "./routes/recommendations";
 const SERVICE_NAME = "osn-api";
 const port = Number(process.env.PORT) || 4000;
 
-// S-L2: Fail at startup in production when the JWT signing secret is not set.
-if (process.env.NODE_ENV === "production" && !process.env.OSN_JWT_SECRET) {
-  throw new Error("OSN_JWT_SECRET must be set in production");
-}
-
 // Initialise observability (logger, tracing, metrics) before building the app.
 const { layer: observabilityLayer } = initObservability({ serviceName: SERVICE_NAME });
+
+// ---------------------------------------------------------------------------
+// JWT key pair — ES256 (ECDSA P-256)
+//
+// In production, OSN_JWT_PRIVATE_KEY and OSN_JWT_PUBLIC_KEY must be set to
+// base64-encoded JWK JSON. Generate once with:
+//   node -e "const {subtle}=globalThis.crypto; subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']).then(async k=>{const {exportJWK}=await import('jose');console.log('private:',btoa(JSON.stringify(await exportJWK(k.privateKey))));console.log('public:',btoa(JSON.stringify(await exportJWK(k.publicKey))))})"
+//
+// In local dev without these vars, an ephemeral key pair is generated (tokens
+// are invalidated on restart — acceptable for local development).
+// ---------------------------------------------------------------------------
+
+async function loadJwtKeyPair() {
+  const { exportJWK } = await import("jose");
+  const rawPriv = process.env.OSN_JWT_PRIVATE_KEY;
+  const rawPub = process.env.OSN_JWT_PUBLIC_KEY;
+
+  // S-H2: use OSN_ENV (the project's canonical env discriminator) rather than
+  // NODE_ENV. A staging deploy with NODE_ENV=development would silently fall
+  // through to an ephemeral key pair and issue tokens that can't survive restarts.
+  const nonLocal = process.env.OSN_ENV && process.env.OSN_ENV !== "local";
+  if (nonLocal && (!rawPriv || !rawPub)) {
+    throw new Error(
+      "OSN_JWT_PRIVATE_KEY and OSN_JWT_PUBLIC_KEY must be set in non-local environments",
+    );
+  }
+
+  if (rawPriv && rawPub) {
+    const privateKey = await importKeyFromJwk(JSON.parse(atob(rawPriv)) as Record<string, unknown>);
+    const publicKey = await importKeyFromJwk(JSON.parse(atob(rawPub)) as Record<string, unknown>);
+    const kid = await thumbprintKid(publicKey);
+    const jwtPublicKeyJwk = (await exportJWK(publicKey)) as Record<string, unknown>;
+    return { privateKey, publicKey, kid, jwtPublicKeyJwk };
+  }
+
+  // Ephemeral dev pair — warn via Effect logger after observability is ready.
+  const { privateKey, publicKey } = await generateArcKeyPair();
+  const kid = await thumbprintKid(publicKey);
+  const jwtPublicKeyJwk = (await exportJWK(publicKey)) as Record<string, unknown>;
+  return { privateKey, publicKey, kid, jwtPublicKeyJwk, ephemeral: true };
+}
+
+const {
+  privateKey: jwtPrivateKey,
+  publicKey: jwtPublicKey,
+  kid: jwtKid,
+  jwtPublicKeyJwk,
+  ephemeral: jwtEphemeral,
+} = await loadJwtKeyPair();
 
 const authConfig = {
   rpId: process.env.OSN_RP_ID || "localhost",
   rpName: process.env.OSN_RP_NAME || "OSN",
   origin: process.env.OSN_ORIGIN || "http://localhost:5173",
   issuerUrl: process.env.OSN_ISSUER_URL || `http://localhost:${port}`,
-  jwtSecret: process.env.OSN_JWT_SECRET || "dev-secret-change-in-prod",
+  jwtPrivateKey,
+  jwtPublicKey,
+  jwtKid,
+  jwtPublicKeyJwk,
   accessTokenTtl: Number(process.env.OSN_ACCESS_TOKEN_TTL) || 3600,
   refreshTokenTtl: Number(process.env.OSN_REFRESH_TOKEN_TTL) || 2592000,
 };
@@ -85,7 +133,14 @@ const app = new Elysia()
 if (process.env.NODE_ENV !== "test") {
   app.listen({ port, reusePort: false });
   void Effect.runPromise(
-    Effect.logInfo("osn-app listening").pipe(
+    Effect.gen(function* () {
+      if (jwtEphemeral) {
+        yield* Effect.logWarning(
+          "Using ephemeral JWT key pair — tokens will be invalidated on restart. Set OSN_JWT_PRIVATE_KEY and OSN_JWT_PUBLIC_KEY for persistent keys.",
+        );
+      }
+      yield* Effect.logInfo("osn-app listening");
+    }).pipe(
       Effect.annotateLogs({ port: String(port), service: SERVICE_NAME }),
       Effect.provide(Logger.pretty),
       Effect.provide(observabilityLayer),
