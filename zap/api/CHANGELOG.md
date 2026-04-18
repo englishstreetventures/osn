@@ -1,5 +1,12 @@
 # @zap/api
 
+## 0.3.13
+
+### Patch Changes
+
+- Updated dependencies [9459f5e]
+  - @shared/observability@0.4.0
+
 ## 0.3.12
 
 ### Patch Changes
