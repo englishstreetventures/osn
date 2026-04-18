@@ -30,7 +30,6 @@ function jsonResponse(body: unknown, init: ResponseInit = { status: 200 }) {
 
 const sampleSessionPayload = {
   access_token: "acc_abc",
-  refresh_token: "ref_xyz",
   token_type: "Bearer",
   expires_in: 3600,
 };
@@ -75,7 +74,6 @@ describe("createLoginClient", () => {
       const result = await client.passkeyComplete("alice", { id: "cred" });
       expect(result.profile).toEqual(sampleProfile);
       expect(result.session.accessToken).toBe("acc_abc");
-      expect(result.session.refreshToken).toBe("ref_xyz");
     });
   });
 

@@ -1,7 +1,7 @@
 import type { Db } from "@osn/db/service";
 import { Effect } from "effect";
 
-import type { AuthService } from "../services/auth";
+import type { AuthService, ProfileWithEmail } from "../services/auth";
 
 /**
  * Resolves a Bearer access token from the Authorization header. Returns
@@ -25,17 +25,19 @@ export async function resolveAccessTokenPrincipal(
 }
 
 /**
- * Resolves the accountId from a Bearer access token. Returns null if auth
- * fails. Wraps resolveAccessTokenPrincipal + DB lookup.
+ * Unified auth check for routes that need both the authenticated profile and
+ * its accountId. Combines the Bearer access-token verification with the
+ * profile DB lookup in a single call — collapses the duplicate pattern used
+ * across profile and auth routes (S-M2).
  */
-export async function resolveAccountId(
+export async function requireAuth(
   auth: AuthService,
   run: <A, E>(eff: Effect.Effect<A, E, Db>) => Promise<A>,
   authHeader: string | undefined,
-): Promise<{ accountId: string } | null> {
+): Promise<{ profile: ProfileWithEmail; accountId: string } | null> {
   const claims = await resolveAccessTokenPrincipal(auth, authHeader);
   if (!claims) return null;
   const profile = await run(auth.findProfileById(claims.profileId));
   if (!profile) return null;
-  return { accountId: profile.accountId };
+  return { profile, accountId: profile.accountId };
 }

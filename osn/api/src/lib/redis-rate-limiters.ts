@@ -43,6 +43,7 @@ export function createRedisAuthRateLimiters(client: RedisClient): AuthRateLimite
     passkeyRegisterComplete: rl("auth:passkey_register_complete", 10),
     profileSwitch: rl("auth:profile_switch", 10),
     profileList: rl("auth:profile_list", 10),
+    me: rl("auth:me", 60),
   };
 }
 

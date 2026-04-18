@@ -4,7 +4,7 @@ import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
-import { resolveAccountId } from "../lib/auth-derive";
+import { requireAuth } from "../lib/auth-derive";
 import { publicError } from "../lib/public-error";
 import { metricAuthRateLimited } from "../metrics";
 import { createAuthService, type AuthConfig } from "../services/auth";
@@ -89,7 +89,7 @@ export function createProfileRoutes(
           return rlErr;
         }
         try {
-          const principal = await resolveAccountId(auth, run, headers.authorization);
+          const principal = await requireAuth(auth, run, headers.authorization);
           if (!principal) {
             set.status = 401;
             return { error: "unauthorized" };
@@ -121,7 +121,7 @@ export function createProfileRoutes(
           return rlErr;
         }
         try {
-          const principal = await resolveAccountId(auth, run, headers.authorization);
+          const principal = await requireAuth(auth, run, headers.authorization);
           if (!principal) {
             set.status = 401;
             return { error: "unauthorized" };
@@ -149,7 +149,7 @@ export function createProfileRoutes(
           return rlErr;
         }
         try {
-          const principal = await resolveAccountId(auth, run, headers.authorization);
+          const principal = await requireAuth(auth, run, headers.authorization);
           if (!principal) {
             set.status = 401;
             return { error: "unauthorized" };

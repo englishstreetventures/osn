@@ -4,7 +4,6 @@ import { parseTokenResponse } from "../src/tokens";
 
 const validFull = {
   access_token: "at_abc123",
-  refresh_token: "rt_xyz789",
   id_token: "id_tok_456",
   expires_in: 3600,
   token_type: "Bearer",
@@ -22,7 +21,6 @@ describe("parseTokenResponse", () => {
     it("parses a full token response", () => {
       const session = parseTokenResponse(validFull);
       expect(session.accessToken).toBe("at_abc123");
-      expect(session.refreshToken).toBe("rt_xyz789");
       expect(session.idToken).toBe("id_tok_456");
       expect(session.expiresAt).toBeGreaterThan(Date.now());
       expect(session.scopes).toEqual(["openid", "profile", "email"]);
@@ -31,7 +29,6 @@ describe("parseTokenResponse", () => {
     it("parses a minimal token response (optional fields absent)", () => {
       const session = parseTokenResponse(validMinimal);
       expect(session.accessToken).toBe("at_abc123");
-      expect(session.refreshToken).toBeNull();
       expect(session.idToken).toBeNull();
       expect(session.scopes).toEqual([]);
     });

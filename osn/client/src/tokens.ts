@@ -2,7 +2,6 @@ import { Schema } from "effect";
 
 const TokenResponseSchema = Schema.Struct({
   access_token: Schema.String,
-  refresh_token: Schema.optional(Schema.String),
   id_token: Schema.optional(Schema.String),
   expires_in: Schema.Number,
   token_type: Schema.String,
@@ -11,9 +10,12 @@ const TokenResponseSchema = Schema.Struct({
 
 const decodeTokenResponse = Schema.decodeUnknownSync(TokenResponseSchema);
 
+/**
+ * Client-side session. The refresh token lives in the HttpOnly cookie
+ * (Copenhagen Book C3) — it is never materialised in JS memory or storage.
+ */
 export interface Session {
   accessToken: string;
-  refreshToken: string | null;
   idToken: string | null;
   /** Unix timestamp (ms) when the access token expires */
   expiresAt: number;
@@ -24,7 +26,6 @@ export function parseTokenResponse(raw: unknown): Session {
   const t = decodeTokenResponse(raw);
   return {
     accessToken: t.access_token,
-    refreshToken: t.refresh_token ?? null,
     idToken: t.id_token ?? null,
     expiresAt: Date.now() + t.expires_in * 1000,
     scopes: t.scope ? t.scope.split(" ") : [],
@@ -45,8 +46,15 @@ export interface ProfileToken {
   expiresAt: number;
 }
 
+/**
+ * Multi-profile account session. The refresh token is kept in the
+ * HttpOnly cookie only — dropping it from client-side storage closes the
+ * XSS exfiltration surface for the longest-lived credential (S-M2).
+ *
+ * The active profile id is server-authoritative: resolved via GET /me
+ * after every token issuance / rotation.
+ */
 export interface AccountSession {
-  refreshToken: string;
   activeProfileId: string;
   profileTokens: Record<string, ProfileToken>;
   scopes: string[];
@@ -59,7 +67,6 @@ export interface AccountSession {
 
 const SessionSchema = Schema.Struct({
   accessToken: Schema.String,
-  refreshToken: Schema.NullOr(Schema.String),
   idToken: Schema.NullOr(Schema.String),
   expiresAt: Schema.Number,
   scopes: Schema.Array(Schema.String),
@@ -73,7 +80,6 @@ const ProfileTokenSchema = Schema.Struct({
 });
 
 const AccountSessionSchema = Schema.Struct({
-  refreshToken: Schema.String,
   activeProfileId: Schema.String,
   profileTokens: Schema.Record({ key: Schema.String, value: ProfileTokenSchema }),
   scopes: Schema.Array(Schema.String),
@@ -110,16 +116,10 @@ const CreateProfileResponseSchema = Schema.Struct({
 
 export const decodeCreateProfileResponse = Schema.decodeUnknownSync(CreateProfileResponseSchema);
 
-/** Extract the `sub` claim from a JWT payload without cryptographic verification. */
-export function extractJwtSub(jwt: string): string | null {
-  try {
-    const payload = jwt.split(".")[1];
-    if (!payload) return null;
-    // S-M1: JWT payloads use Base64URL encoding (RFC 7515) — convert to standard Base64
-    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const decoded = JSON.parse(atob(base64)) as { sub?: string };
-    return decoded.sub ?? null;
-  } catch {
-    return null;
-  }
-}
+const MeResponseSchema = Schema.Struct({
+  profile: PublicProfileSchema,
+  activeProfileId: Schema.String,
+  scopes: Schema.Array(Schema.String),
+});
+
+export const decodeMeResponse = Schema.decodeUnknownSync(MeResponseSchema);

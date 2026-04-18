@@ -2,7 +2,7 @@ import type { Session } from "@osn/client";
 import { AuthProvider, useAuth } from "@osn/client/solid";
 // @vitest-environment happy-dom
 import { render, cleanup, screen, waitFor } from "@solidjs/testing-library";
-import { afterEach, describe, it, expect, beforeEach } from "vitest";
+import { afterEach, describe, it, expect, beforeEach, vi } from "vitest";
 
 /**
  * T-M2: assert that AuthProvider.adoptSession persists a session via the
@@ -11,7 +11,43 @@ import { afterEach, describe, it, expect, beforeEach } from "vitest";
  * registration flow uses to install a session into the auth context, so a
  * regression here (e.g. forgetting to refetch) would silently leave the user
  * "logged in" at the storage layer but invisible to the UI.
+ *
+ * setSession now resolves the active profile via GET /me (S-M2), so tests
+ * stub fetch to return a canned /me response.
  */
+
+const meResponse = {
+  profile: {
+    id: "usr_adopt",
+    handle: "adopter",
+    email: "a@b.com",
+    displayName: null,
+    avatarUrl: null,
+  },
+  activeProfileId: "usr_adopt",
+  scopes: ["openid", "profile"],
+};
+
+function stubMeFetch(): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(meResponse),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        json: () => Promise.resolve({ error: "Unstubbed path" }),
+      });
+    }),
+  );
+}
 
 function AdoptHarness(props: { session: Session }) {
   const { session, adoptSession } = useAuth();
@@ -28,16 +64,17 @@ function AdoptHarness(props: { session: Session }) {
 describe("AuthProvider.adoptSession", () => {
   beforeEach(() => {
     localStorage.clear();
+    stubMeFetch();
   });
   afterEach(() => {
     cleanup();
     localStorage.clear();
+    vi.unstubAllGlobals();
   });
 
   it("persists the session and updates session() so consumers see it", async () => {
     const fixture: Session = {
       accessToken: "acc_adopt",
-      refreshToken: "ref_adopt",
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: ["openid", "profile"],
@@ -74,7 +111,6 @@ describe("AuthProvider.adoptSession", () => {
   it("overwrites a previously adopted session", async () => {
     const first: Session = {
       accessToken: "first",
-      refreshToken: null,
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: [],

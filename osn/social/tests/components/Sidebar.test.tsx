@@ -16,7 +16,6 @@ function renderSidebar() {
     session: Object.assign(
       () => ({
         accessToken: "tkn",
-        refreshToken: "r",
         idToken: null,
         expiresAt: Date.now() + 60_000,
         scopes: [],
@@ -58,7 +57,6 @@ function renderSidebar() {
       Promise.resolve({
         session: {
           accessToken: "t",
-          refreshToken: "r",
           idToken: null,
           expiresAt: 0,
           scopes: [],

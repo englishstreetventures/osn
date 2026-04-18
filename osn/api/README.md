@@ -19,5 +19,6 @@ bun run --cwd osn/api dev
 
 ## Env
 
-See `.env.example`. At minimum: `OSN_JWT_SECRET` (≥32 chars in prod),
-`OSN_ORIGIN`, `OSN_RP_ID`.
+See `.env.example`. At minimum: `OSN_JWT_PRIVATE_KEY`, `OSN_JWT_PUBLIC_KEY`
+(both base64-encoded JWK JSON; ephemeral pair auto-generated in local dev when
+unset), `OSN_ORIGIN`, `OSN_RP_ID`.

@@ -15,6 +15,9 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 - [ ] Recommendations SQL aggregation + caching (P-W6/P-W7) — next step after the in-JS fan-out cap shipped in this PR — see [[social-graph]]
 - [ ] Factor shared `authGet/Post/Patch/Delete` helpers in `@osn/client` (P-I1)
 - [x] Auth Improvements Phase 1: Server-side sessions + refresh token rotation + session invalidation (C1/C2/H1)
+- [x] Auth Improvements Phase 2: HttpOnly cookie sessions + origin guard + hashed magic/OTP tokens (C3/M1/H2/H3) + JWKS migration from OSN_JWT_SECRET
+- [x] Auth Improvements Phase 3: Zap JWKS migration (H4) + server-authoritative `/me` + unified `requireAuth` derive (S-M2) + client-side refresh token removal
+- [ ] Auth Improvements Phase 4: Passkey recovery codes (M2) — next auth slice, pure new feature, no migration risk
 
 ---
 
@@ -212,7 +215,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [x] S-L1 (multi) — `maxProfiles` column set to 5 but never enforced. **Fixed in P3** — `createProfile` checks count vs `accounts.maxProfiles`
 - [x] S-L2 (multi) — Email duplication between `accounts.email` and `users.email`. **Resolved** — `users` table has no `email` column; all email access via JOIN to `accounts`
 - [ ] S-H1 (session) — In-memory `rotatedSessions` map does not survive restarts or scale across instances. Move to Redis when multi-replica deploys — see [[identity-model]]
-- [x] S-M2 (auth) — `resolveAccessTokenPrincipal` and `resolveAccountId` duplicated across `routes/auth.ts` and `routes/profile.ts`. Extract shared Elysia derive — see [[identity-model]]
+- [x] S-M2 (auth) — `resolveAccessTokenPrincipal` and `resolveAccountId` duplicated across `routes/auth.ts` and `routes/profile.ts`. **Fixed** — unified `requireAuth` helper in `lib/auth-derive.ts` consumed by every protected route; `resolveAccountId` deleted — see [[identity-model]]
 - [ ] S-H1 (org) — `listMembers` service returns full profile rows; route projects, but service should restrict
 - [ ] S-M1 (org) — `GET /organisations/:handle/members` has no membership gate
 - [ ] S-M3 (org) — `getOrganisation` returns `ownerId` internal ID
@@ -244,7 +247,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-L23 — `pkceStore` has no size bound or eviction sweep
 - [ ] S-L24 — `/token` and legacy `POST /register` have no rate limiting
 - [ ] S-L30 — `createInternalGraphRoutes` has no `loggerLayer` — see [[arc-tokens]], [[observability/overview]]
-- [ ] S-L1 (zap) — `jwtVerify` does not restrict algorithms — pass `{ algorithms: ['HS256'] }`
+- [x] S-L1 (zap) — `jwtVerify` does not restrict algorithms. **Fixed** — ES256 enforced via `{ algorithms: ["ES256"] }` alongside H4 JWKS migration — see [[arc-tokens]]
 - [ ] S-L2 (zap) — DM chats have no member count enforcement
 - [ ] S-L3 (zap) — Admin can remove themselves leaving chat with no admin
 - [ ] S-L1 (org) — Org creation rate limit (60/min) shared with member ops
@@ -332,7 +335,7 @@ Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenha
 ### Phase 3 — Defense-in-Depth (High)
 - [x] H2: SHA-256 hash magic link tokens before storage in `magicStore` — see [[identity-model]]
 - [x] H3: SHA-256 hash OTP codes before storage in `pendingRegistrations` — see [[identity-model]]
-- [ ] H4: Migrate `@zap/api` from shared-secret JWT verification to JWKS-based (align with Pulse) — see [[arc-tokens]]
+- [x] H4: Migrate `@zap/api` from shared-secret JWT verification to JWKS-based (align with Pulse). **Fixed** — `zap/api/src/lib/jwks-cache.ts` mirrors Pulse; ES256 enforced; `OSN_JWT_SECRET` removed from env surface; `zap.auth.jwks_cache.lookups` metric added — see [[arc-tokens]]
 
 ### Phase 4 — Hardening (Medium)
 - [ ] M2: Recovery codes for passkey-primary users (40+ bits entropy, Argon2id hashed) — see [[identity-model]]

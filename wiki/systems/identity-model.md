@@ -10,7 +10,7 @@ packages:
   - "@osn/db"
   - "@osn/core"
   - "@osn/client"
-last-reviewed: 2026-04-17
+last-reviewed: 2026-04-18
 p4-completed: 2026-04-14
 p2-completed: 2026-04-14
 p3-completed: 2026-04-14
@@ -141,9 +141,10 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 | `expires_at` | `integer` | Unix seconds |
 | `created_at` | `integer` | Unix seconds |
 
-Two profile management endpoints:
-- `POST /profiles/switch` — present the session token + target `profileId` in the request body; receive a new access token for that profile. Per-account rate limited (20 switches/hr).
-- `POST /profiles/list` — present the session token in the request body; receive all profiles for the account. Session tokens are never sent via `Authorization` headers to avoid conflation with access tokens.
+Profile management endpoints:
+- `POST /profiles/switch` — Bearer access token in `Authorization`; body is `{ profile_id }`. Receive a new access token for that profile. Per-account rate limited (20 switches/hr).
+- `POST /profiles/list` — Bearer access token in `Authorization`; receive all profiles for the account.
+- `GET /me` — Bearer access token in `Authorization`; returns `{ profile, activeProfileId, scopes }`. Server-authoritative source for the client's "who am I" state. Rate limited (60 req/IP/min). Replaces the client-side unverified JWT decode (S-M2).
 
 ## Client Storage Model (P4)
 
@@ -151,14 +152,13 @@ Two profile management endpoints:
 
 | Key | Shape | Purpose |
 |-----|-------|---------|
-| `@osn/client:account_session` | `AccountSession` JSON | Refresh token, active profile ID, per-profile access tokens, scopes, ID token |
+| `@osn/client:account_session` | `AccountSession` JSON | Active profile ID, per-profile access tokens, scopes, ID token |
 
 The `AccountSession` structure:
 
 ```typescript
 interface AccountSession {
-  refreshToken: string;           // Account-scoped (shared across profiles)
-  activeProfileId: string;        // Currently active profile
+  activeProfileId: string;        // Server-authoritative (resolved via GET /me)
   profileTokens: Record<string, ProfileToken>;  // Per-profile access tokens
   scopes: string[];
   idToken: string | null;
@@ -166,11 +166,12 @@ interface AccountSession {
 ```
 
 **Design decisions:**
+- The refresh token lives **only** in the `HttpOnly; Secure; SameSite=Lax` cookie (Copenhagen Book C3). It is never materialised in JS memory or `localStorage` — this closes the XSS exfiltration surface for the longest-lived credential (S-M2).
+- `activeProfileId` is server-authoritative: resolved by calling `GET /me` after every token issuance / rotation. The client never decodes the JWT payload to derive identity.
 - Single-key storage (not multi-key) avoids the need for `keys()` enumeration on logout and simplifies atomic writes.
 - Expired profile tokens are pruned on every `saveAccountSession` call (except the active profile's token, which is kept for identity tracking).
 - An in-memory cache avoids redundant `localStorage.getItem` + `JSON.parse` round-trips within the same service instance.
-- All storage reads are validated against Effect Schema (`decodeAccountSession`) — malformed data is discarded rather than consumed.
-- Legacy sessions (pre-P4, stored under `@osn/client:session`) are migrated transparently on the first `getSession()` call.
+- All storage reads are validated against Effect Schema (`decodeAccountSession`) — malformed data is discarded rather than consumed. Legacy payloads that still carry `refreshToken` fail validation and are wiped.
 
 ## Registration Flow
 

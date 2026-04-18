@@ -14,8 +14,8 @@ import {
   decodeAccountSession,
   decodeCreateProfileResponse,
   decodeListProfilesResponse,
+  decodeMeResponse,
   decodeSwitchProfileResponse,
-  extractJwtSub,
   parseTokenResponse,
 } from "./tokens";
 import type { AccountSession, PublicProfile, Session } from "./tokens";
@@ -30,31 +30,13 @@ function toSession(account: AccountSession): Session | null {
   if (!profileToken || Date.now() >= profileToken.expiresAt) return null;
   return {
     accessToken: profileToken.accessToken,
-    refreshToken: account.refreshToken,
     idToken: account.idToken,
     expiresAt: profileToken.expiresAt,
     scopes: account.scopes,
   };
 }
 
-/** Create a fresh AccountSession from a Session (used by handleCallback / setSession). */
-function sessionToAccountSession(session: Session): AccountSession {
-  const profileId = extractJwtSub(session.accessToken) ?? "default";
-  return {
-    refreshToken: session.refreshToken ?? "",
-    activeProfileId: profileId,
-    profileTokens: {
-      [profileId]: {
-        accessToken: session.accessToken,
-        expiresAt: session.expiresAt,
-      },
-    },
-    scopes: session.scopes,
-    idToken: session.idToken,
-  };
-}
-
-/** Remove expired profile tokens from an AccountSession, except the active profile. (S-M2, P-W3) */
+/** Remove expired profile tokens from an AccountSession, except the active profile. (P-W3) */
 function pruneExpiredTokens(account: AccountSession): void {
   const now = Date.now();
   for (const id of Object.keys(account.profileTokens)) {
@@ -67,6 +49,13 @@ function pruneExpiredTokens(account: AccountSession): void {
 export interface OsnAuthConfig {
   issuerUrl: string;
   clientId: string;
+}
+
+/** Server-authoritative identity resolved by GET /me. */
+export interface MeResult {
+  profile: PublicProfile;
+  activeProfileId: string;
+  scopes: string[];
 }
 
 // Methods close over the already-resolved Storage instance, so requirements are never.
@@ -93,10 +82,12 @@ export interface OsnAuthService {
 
   /**
    * Persists a Session that was obtained out-of-band (e.g. from the
-   * email-verified registration flow, which exchanges its auth code through
-   * the standalone registration client and bypasses the PKCE callback).
+   * email-verified registration flow or first-party login). Resolves the
+   * active profile via GET /me.
    */
-  readonly setSession: (session: Session) => Effect.Effect<void, StorageError>;
+  readonly setSession: (session: Session) => Effect.Effect<void, TokenExchangeError | StorageError>;
+
+  readonly me: () => Effect.Effect<MeResult, ProfileManagementError | StorageError>;
 
   readonly listProfiles: () => Effect.Effect<
     PublicProfile[],
@@ -146,12 +137,13 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
 
       const getAccountSession = () =>
         Effect.gen(function* () {
-          // P-W1: Return cached value if available
           if (cache !== undefined) return cache;
 
           const raw = yield* storage.get(ACCOUNT_SESSION_KEY);
           if (raw) {
-            // S-H2: Validate storage data against schema before consuming
+            // S-H2: validate storage data against schema before consuming.
+            // Schema changed to drop refreshToken — legacy payloads fail here
+            // and are wiped, forcing a fresh login via cookie/refresh.
             try {
               const account = decodeAccountSession(JSON.parse(raw)) as AccountSession;
               cache = account;
@@ -167,8 +159,30 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           return null;
         });
 
+      /**
+       * Resolves the server-authoritative active profile for a freshly issued
+       * access token by calling GET /me. Replaces the unverified-JWT decode
+       * that previously lived in extractJwtSub (S-M2).
+       */
+      const resolveMe = (accessToken: string) =>
+        Effect.tryPromise({
+          try: async () => {
+            const r = await fetch(`${config.issuerUrl}/me`, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
+              },
+              credentials: "include",
+            });
+            if (!r.ok) throw new Error(`GET /me failed: ${r.status}`);
+            return decodeMeResponse(await r.json());
+          },
+          catch: (cause) => new TokenExchangeError({ cause }),
+        });
+
       // ---------------------------------------------------------------------------
-      // Existing auth methods (updated for multi-key storage)
+      // Existing auth methods (updated for multi-key storage + /me)
       // ---------------------------------------------------------------------------
 
       const startLogin = (params: { redirectUri: string; scopes?: string[] }) =>
@@ -232,7 +246,18 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             catch: (cause) => new TokenExchangeError({ cause }),
           });
 
-          yield* saveAccountSession(sessionToAccountSession(session));
+          const me = yield* resolveMe(session.accessToken);
+          yield* saveAccountSession({
+            activeProfileId: me.activeProfileId,
+            profileTokens: {
+              [me.activeProfileId]: {
+                accessToken: session.accessToken,
+                expiresAt: session.expiresAt,
+              },
+            },
+            scopes: session.scopes,
+            idToken: session.idToken,
+          });
           yield* storage.remove(VERIFIER_KEY);
           yield* storage.remove(STATE_KEY);
 
@@ -253,9 +278,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             return yield* Effect.fail(new TokenRefreshError({ cause: "No session available" }));
           }
 
-          // C3: session token is in the HttpOnly cookie; send credentials: include.
-          // The grant_type=refresh_token body param is sent for backwards compat
-          // but the server prefers the cookie.
+          // C3: session token lives in the HttpOnly cookie; send credentials: include.
           const raw = yield* Effect.tryPromise({
             try: () =>
               fetch(`${config.issuerUrl}/token`, {
@@ -275,12 +298,15 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             catch: (cause) => new TokenRefreshError({ cause }),
           });
 
-          const profileId = extractJwtSub(next.accessToken) ?? account.activeProfileId;
-          account.profileTokens[profileId] = {
+          // Resolve the server-authoritative active profile id for the new token.
+          const me = yield* resolveMe(next.accessToken).pipe(
+            Effect.mapError((cause) => new TokenRefreshError({ cause })),
+          );
+          account.profileTokens[me.activeProfileId] = {
             accessToken: next.accessToken,
             expiresAt: next.expiresAt,
           };
-          if (next.refreshToken) account.refreshToken = next.refreshToken;
+          account.activeProfileId = me.activeProfileId;
           account.scopes = next.scopes;
           account.idToken = next.idToken;
 
@@ -305,7 +331,21 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           yield* storage.remove(ACCOUNT_SESSION_KEY);
         });
 
-      const setSession = (session: Session) => saveAccountSession(sessionToAccountSession(session));
+      const setSession = (session: Session) =>
+        Effect.gen(function* () {
+          const me = yield* resolveMe(session.accessToken);
+          yield* saveAccountSession({
+            activeProfileId: me.activeProfileId,
+            profileTokens: {
+              [me.activeProfileId]: {
+                accessToken: session.accessToken,
+                expiresAt: session.expiresAt,
+              },
+            },
+            scopes: session.scopes,
+            idToken: session.idToken,
+          });
+        });
 
       // ---------------------------------------------------------------------------
       // Profile management methods (P4)
@@ -327,6 +367,39 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           "Content-Type": "application/json",
         };
       }
+
+      const me = () =>
+        Effect.gen(function* () {
+          const account = yield* getAccountSession();
+          if (!account) {
+            return yield* Effect.fail(
+              new ProfileManagementError({ cause: "No session available" }),
+            );
+          }
+          const headers = authHeader(account);
+          if (!headers) {
+            return yield* Effect.fail(
+              new ProfileManagementError({ cause: "No valid access token" }),
+            );
+          }
+          return yield* Effect.tryPromise({
+            try: async () => {
+              const r = await fetch(`${config.issuerUrl}/me`, {
+                method: "GET",
+                headers,
+                credentials: "include",
+              });
+              if (!r.ok) throw new Error(`GET /me failed: ${r.status}`);
+              const parsed = decodeMeResponse(await r.json());
+              return {
+                profile: parsed.profile as PublicProfile,
+                activeProfileId: parsed.activeProfileId,
+                scopes: [...parsed.scopes],
+              };
+            },
+            catch: (cause) => new ProfileManagementError({ cause }),
+          });
+        });
 
       const listProfiles = () =>
         Effect.gen(function* () {
@@ -404,7 +477,6 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
 
           const session: Session = {
             accessToken: res.access_token,
-            refreshToken: account.refreshToken,
             idToken: account.idToken,
             expiresAt,
             scopes: account.scopes,
@@ -502,6 +574,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         refreshSession,
         logout,
         setSession,
+        me,
         listProfiles,
         switchProfile,
         createProfile,

@@ -2,8 +2,9 @@ import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared
 import { DbLive, type Db } from "@zap/db/service";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
-import { jwtVerify } from "jose";
+import { decodeProtectedHeader, jwtVerify } from "jose";
 
+import { resolvePublicKeyForKid, refreshPublicKeyForKid } from "../lib/jwks-cache";
 import { MAX_CHAT_MEMBERS, MAX_CIPHERTEXT_LENGTH, MAX_NONCE_LENGTH } from "../lib/limits";
 import { metricAccessDenied } from "../metrics";
 import {
@@ -20,14 +21,15 @@ import { sendMessage, listMessages } from "../services/messages";
 
 const chatTypeEnum = t.Union([t.Literal("dm"), t.Literal("group"), t.Literal("event")]);
 
-/** Extracts verified claims from a Bearer token. Returns null on any failure. */
-async function extractClaims(
-  authHeader: string | undefined,
-  secret: Uint8Array,
+/**
+ * Verifies token signature with a pre-resolved ES256 key. Returns claims or null.
+ */
+async function verifyTokenWithKey(
+  token: string,
+  key: CryptoKey,
 ): Promise<{ profileId: string } | null> {
-  if (!authHeader?.startsWith("Bearer ")) return null;
   try {
-    const { payload } = await jwtVerify(authHeader.slice(7), secret);
+    const { payload } = await jwtVerify(token, key, { algorithms: ["ES256"] });
     const profileId = typeof payload.sub === "string" ? payload.sub : null;
     if (!profileId) return null;
     return { profileId };
@@ -36,7 +38,41 @@ async function extractClaims(
   }
 }
 
-const DEFAULT_JWT_SECRET = process.env.OSN_JWT_SECRET ?? "dev-secret-change-in-prod";
+/** Extracts verified claims from a Bearer token. Returns null on any failure. */
+async function extractClaims(
+  authHeader: string | undefined,
+  jwksUrl: string,
+  _testKey?: CryptoKey,
+): Promise<{ profileId: string } | null> {
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  const token = authHeader.slice(7);
+
+  let header: { kid?: string; alg?: string };
+  try {
+    header = decodeProtectedHeader(token);
+  } catch {
+    return null;
+  }
+  if (header.alg !== "ES256" || typeof header.kid !== "string") return null;
+  const kid = header.kid;
+
+  if (_testKey) {
+    return verifyTokenWithKey(token, _testKey);
+  }
+
+  const key = await resolvePublicKeyForKid(kid, jwksUrl);
+  if (key) {
+    const result = await verifyTokenWithKey(token, key);
+    if (result) return result;
+  }
+
+  // Verification failed — refresh key in case of rotation, then retry.
+  const freshKey = await refreshPublicKeyForKid(kid, jwksUrl);
+  if (!freshKey) return null;
+  return verifyTokenWithKey(token, freshKey);
+}
+
+const DEFAULT_JWKS_URL = process.env.OSN_JWKS_URL ?? "http://localhost:4000/.well-known/jwks.json";
 
 /** Rate limiter configuration for Zap write endpoints. */
 export interface ZapRateLimiters {
@@ -58,16 +94,15 @@ export function createDefaultZapRateLimiters(): ZapRateLimiters {
 
 export const createChatsRoutes = (
   dbLayer: Layer.Layer<Db> = DbLive,
-  jwtSecret: string = DEFAULT_JWT_SECRET,
+  jwksUrl: string = DEFAULT_JWKS_URL,
   rateLimiters: ZapRateLimiters = createDefaultZapRateLimiters(),
+  _testKey?: CryptoKey,
 ) => {
-  const secretBytes = new TextEncoder().encode(jwtSecret);
-
   return (
     new Elysia({ prefix: "/chats" })
       // ── List user's chats ─────────────────────────────────────────────
       .get("/", async ({ headers, set }) => {
-        const claims = await extractClaims(headers["authorization"], secretBytes);
+        const claims = await extractClaims(headers["authorization"], jwksUrl, _testKey);
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
@@ -81,7 +116,7 @@ export const createChatsRoutes = (
       .get(
         "/:id",
         async ({ params, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await extractClaims(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -115,7 +150,7 @@ export const createChatsRoutes = (
             set.status = 429;
             return { message: "Too many requests" } as const;
           }
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await extractClaims(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -148,7 +183,7 @@ export const createChatsRoutes = (
       .patch(
         "/:id",
         async ({ params, body, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await extractClaims(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -191,7 +226,7 @@ export const createChatsRoutes = (
       .get(
         "/:id/members",
         async ({ params, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await extractClaims(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -223,7 +258,7 @@ export const createChatsRoutes = (
             set.status = 429;
             return { message: "Too many requests" } as const;
           }
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await extractClaims(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -269,7 +304,7 @@ export const createChatsRoutes = (
       .delete(
         "/:id/members/:profileId",
         async ({ params, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await extractClaims(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -312,7 +347,7 @@ export const createChatsRoutes = (
             set.status = 429;
             return { message: "Too many requests" } as const;
           }
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await extractClaims(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -356,7 +391,7 @@ export const createChatsRoutes = (
       .get(
         "/:id/messages",
         async ({ params, query, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await extractClaims(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;

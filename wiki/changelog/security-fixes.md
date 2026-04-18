@@ -7,7 +7,7 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-14
+last-reviewed: 2026-04-18
 ---
 
 # Security Fixes — Completed
@@ -49,6 +49,7 @@ Archived completed security findings from [[TODO]]. Finding IDs follow the [[rev
 - **S-H3 (zap)** — Missing membership check on `GET /chats/:id/members`. Fixed: `assertMember` gate.
 - **S-H4 (zap)** — `PATCH /chats/:id` differentiated 403/404 for non-members. Fixed: 404 for non-members.
 - **S-H2 (org)** — Handle enumeration via error message. Fixed: "Handle unavailable".
+- **H4 (auth)** — `@zap/api` verified user access tokens with a shared symmetric secret (`OSN_JWT_SECRET`, fallback `"dev-secret-change-in-prod"`). Fixed: migrated to JWKS-based ES256 verification mirroring `@pulse/api`; `zap/api/src/lib/jwks-cache.ts` added; `OSN_JWT_SECRET` removed from env surface; `zap.auth.jwks_cache.lookups` metric added.
 
 ## Medium
 
@@ -86,6 +87,7 @@ Archived completed security findings from [[TODO]]. Finding IDs follow the [[rev
 - **S-M1 (multi)** — Missing email index after UNIQUE removal. Fixed: re-added `users_email_idx`.
 - **S-M2 (multi)** — `accountId` exposed in org `listMembers`. Fixed: stripped from projection.
 - **S-M2 (org)** — No `org:write` scope constant. Fixed: `_SCOPE_ORG_WRITE` added.
+- **S-M2 (auth)** — `resolveAccessTokenPrincipal` + `resolveAccountId` duplicated across `routes/auth.ts` and `routes/profile.ts`. Fixed: unified `requireAuth` helper in `lib/auth-derive.ts`; `resolveAccountId` deleted; every route consumes the shared helper.
 
 ## Low
 
@@ -107,3 +109,4 @@ Archived completed security findings from [[TODO]]. Finding IDs follow the [[rev
 - **S-L31** — No input format validation on `profile_id` in `/profiles/switch`. Fixed: TypeBox pattern.
 - **S-L32** — `findDefaultProfile` ORDER BY relied on SQLite boolean-as-integer semantics. Fixed: explicit ordering.
 - **S-L4 (org)** — No `maxLength` on internal route query params. Fixed: added 50 char limit.
+- **S-L1 (zap)** — `jwtVerify` accepted any signing algorithm — a crafted `alg: none` token could bypass verification. Fixed: `{ algorithms: ["ES256"] }` enforced as part of H4 JWKS migration.

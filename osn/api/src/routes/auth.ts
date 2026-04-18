@@ -4,7 +4,7 @@ import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
-import { resolveAccessTokenPrincipal } from "../lib/auth-derive";
+import { requireAuth } from "../lib/auth-derive";
 import {
   buildClearSessionCookie,
   buildSessionCookie,
@@ -16,6 +16,7 @@ import { buildAuthorizeHtml } from "../lib/html";
 import { publicError } from "../lib/public-error";
 import {
   metricAuthJwksServed,
+  metricAuthMeRequest,
   metricAuthRateLimited,
   metricSessionCookieFallback,
 } from "../metrics";
@@ -52,6 +53,7 @@ export type AuthRateLimiters = Readonly<{
   passkeyRegisterComplete: RateLimiterBackend;
   profileSwitch: RateLimiterBackend;
   profileList: RateLimiterBackend;
+  me: RateLimiterBackend;
 }>;
 
 /**
@@ -75,6 +77,7 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     passkeyRegisterComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     profileSwitch: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     profileList: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    me: createRateLimiter({ maxRequests: 60, windowMs: 60_000 }),
   };
 }
 
@@ -963,17 +966,12 @@ export function createAuthRoutes(
           return rlErr;
         }
         try {
-          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-          if (!claims) {
+          const principal = await requireAuth(auth, run, headers.authorization);
+          if (!principal) {
             set.status = 401;
             return { error: "unauthorized" };
           }
-          const profile = await run(auth.findProfileById(claims.profileId));
-          if (!profile) {
-            set.status = 401;
-            return { error: "unauthorized" };
-          }
-          return await run(auth.listAccountProfiles(profile.accountId));
+          return await run(auth.listAccountProfiles(principal.accountId));
         } catch (e) {
           const { status, body: errBody } = handleError(e);
           set.status = status;
@@ -989,17 +987,12 @@ export function createAuthRoutes(
             return rlErr;
           }
           try {
-            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-            if (!claims) {
+            const principal = await requireAuth(auth, run, headers.authorization);
+            if (!principal) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const profile = await run(auth.findProfileById(claims.profileId));
-            if (!profile) {
-              set.status = 401;
-              return { error: "unauthorized" };
-            }
-            const result = await run(auth.switchProfile(profile.accountId, body.profile_id));
+            const result = await run(auth.switchProfile(principal.accountId, body.profile_id));
             return {
               access_token: result.accessToken,
               expires_in: result.expiresIn,
@@ -1046,6 +1039,46 @@ export function createAuthRoutes(
           }),
         },
       )
+      // -------------------------------------------------------------------------
+      // GET /me — active profile + scopes (S-M2, replaces client JWT decode)
+      //
+      // Server-authoritative source for the client's "who am I" state. The
+      // client no longer decodes the access token to derive the active profile
+      // id — it calls /me instead. Returns 401 on missing/invalid Bearer.
+      // -------------------------------------------------------------------------
+      .get("/me", async ({ headers, set }) => {
+        const rlErr = await rateLimit(headers, "me", rl.me);
+        if (rlErr) {
+          set.status = 429;
+          metricAuthMeRequest("rate_limited");
+          return rlErr;
+        }
+        try {
+          const principal = await requireAuth(auth, run, headers.authorization);
+          if (!principal) {
+            set.status = 401;
+            metricAuthMeRequest("unauthorized");
+            return { error: "unauthorized" };
+          }
+          metricAuthMeRequest("ok");
+          return {
+            profile: {
+              id: principal.profile.id,
+              handle: principal.profile.handle,
+              email: principal.profile.email,
+              displayName: principal.profile.displayName,
+              avatarUrl: principal.profile.avatarUrl,
+            },
+            activeProfileId: principal.profile.id,
+            scopes: ["openid", "profile"] as const,
+          };
+        } catch (e) {
+          metricAuthMeRequest("error");
+          const { status, body: errBody } = handleError(e);
+          set.status = status;
+          return errBody;
+        }
+      })
       // -------------------------------------------------------------------------
       // OIDC discovery (minimal)
       // -------------------------------------------------------------------------

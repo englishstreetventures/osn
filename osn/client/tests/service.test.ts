@@ -11,6 +11,43 @@ function createTestLayer() {
   return createOsnAuthLive(config).pipe(Layer.provide(createMemoryStorage()));
 }
 
+type JsonResponse = { status?: number; body: unknown };
+
+function stubFetchByPath(handlers: Record<string, JsonResponse>): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const pathname = new URL(url).pathname;
+      const match = handlers[pathname];
+      if (!match) {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          json: () => Promise.resolve({ error: "Unstubbed path: " + pathname }),
+        });
+      }
+      return Promise.resolve({
+        ok: (match.status ?? 200) < 400,
+        status: match.status ?? 200,
+        json: () => Promise.resolve(match.body),
+      });
+    }),
+  );
+}
+
+const meResponse = {
+  profile: {
+    id: "usr_abc",
+    handle: "alice",
+    email: "alice@example.com",
+    displayName: "Alice",
+    avatarUrl: null,
+  },
+  activeProfileId: "usr_abc",
+  scopes: ["openid", "profile"],
+};
+
 it.effect("startLogin returns a valid authorization URL with PKCE params", () =>
   Effect.gen(function* () {
     const auth = yield* OsnAuth;
@@ -50,22 +87,20 @@ it.effect("handleCallback fails with StateMismatchError on wrong state", () =>
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-it.effect("handleCallback exchanges code and persists session", () =>
+it.effect("handleCallback exchanges code, resolves /me and persists session", () =>
   Effect.gen(function* () {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        json: () =>
-          Promise.resolve({
-            access_token: "acc_123",
-            refresh_token: "ref_456",
-            id_token: "id_789",
-            expires_in: 3600,
-            token_type: "Bearer",
-            scope: "openid profile",
-          }),
-      }),
-    );
+    stubFetchByPath({
+      "/token": {
+        body: {
+          access_token: "acc_123",
+          id_token: "id_789",
+          expires_in: 3600,
+          token_type: "Bearer",
+          scope: "openid profile",
+        },
+      },
+      "/me": { body: meResponse },
+    });
 
     const auth = yield* OsnAuth;
     const { state } = yield* auth.startLogin({ redirectUri: "http://localhost/callback" });
@@ -76,12 +111,14 @@ it.effect("handleCallback exchanges code and persists session", () =>
     });
 
     expect(session.accessToken).toBe("acc_123");
-    expect(session.refreshToken).toBe("ref_456");
     expect(session.idToken).toBe("id_789");
     expect(session.scopes).toEqual(["openid", "profile"]);
 
     const stored = yield* auth.getSession();
     expect(stored?.accessToken).toBe("acc_123");
+
+    const activeProfileId = yield* auth.getActiveProfile();
+    expect(activeProfileId).toBe("usr_abc");
 
     vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
@@ -89,17 +126,13 @@ it.effect("handleCallback exchanges code and persists session", () =>
 
 it.effect("logout clears the persisted session", () =>
   Effect.gen(function* () {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        json: () =>
-          Promise.resolve({
-            access_token: "acc_123",
-            expires_in: 3600,
-            token_type: "Bearer",
-          }),
-      }),
-    );
+    stubFetchByPath({
+      "/token": {
+        body: { access_token: "acc_123", expires_in: 3600, token_type: "Bearer" },
+      },
+      "/me": { body: meResponse },
+      "/logout": { body: { success: true } },
+    });
 
     const auth = yield* OsnAuth;
     const { state } = yield* auth.startLogin({ redirectUri: "http://localhost/callback" });
@@ -127,39 +160,43 @@ it.effect("refreshSession fails when there is no session", () =>
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-it.effect("setSession persists a session that getSession can read back", () =>
+it.effect("setSession resolves /me and persists the session", () =>
   Effect.gen(function* () {
+    stubFetchByPath({ "/me": { body: meResponse } });
+
     const auth = yield* OsnAuth;
-    const fixture = {
+    yield* auth.setSession({
       accessToken: "acc_persisted",
-      refreshToken: "ref_persisted",
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: ["openid", "profile"],
-    };
-    yield* auth.setSession(fixture);
+    });
 
     const stored = yield* auth.getSession();
     expect(stored).not.toBeNull();
     expect(stored?.accessToken).toBe("acc_persisted");
-    expect(stored?.refreshToken).toBe("ref_persisted");
     expect(stored?.scopes).toEqual(["openid", "profile"]);
+
+    const activeProfileId = yield* auth.getActiveProfile();
+    expect(activeProfileId).toBe("usr_abc");
+
+    vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
 
 it.effect("setSession overwrites a previously persisted session", () =>
   Effect.gen(function* () {
+    stubFetchByPath({ "/me": { body: meResponse } });
+
     const auth = yield* OsnAuth;
     yield* auth.setSession({
       accessToken: "first",
-      refreshToken: null,
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: [],
     });
     yield* auth.setSession({
       accessToken: "second",
-      refreshToken: null,
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: [],
@@ -167,5 +204,37 @@ it.effect("setSession overwrites a previously persisted session", () =>
 
     const stored = yield* auth.getSession();
     expect(stored?.accessToken).toBe("second");
+
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("me() returns the profile + activeProfileId + scopes from the server", () =>
+  Effect.gen(function* () {
+    stubFetchByPath({ "/me": { body: meResponse } });
+
+    const auth = yield* OsnAuth;
+    yield* auth.setSession({
+      accessToken: "acc_me",
+      idToken: null,
+      expiresAt: Date.now() + 60_000,
+      scopes: ["openid", "profile"],
+    });
+
+    const result = yield* auth.me();
+    expect(result.profile.id).toBe("usr_abc");
+    expect(result.profile.handle).toBe("alice");
+    expect(result.activeProfileId).toBe("usr_abc");
+    expect(result.scopes).toEqual(["openid", "profile"]);
+
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("me() fails with ProfileManagementError when there is no session", () =>
+  Effect.gen(function* () {
+    const auth = yield* OsnAuth;
+    const err = yield* Effect.flip(auth.me());
+    expect(err._tag).toBe("ProfileManagementError");
   }).pipe(Effect.provide(createTestLayer())),
 );

@@ -56,6 +56,7 @@ export const OSN_METRICS = {
   profileSwitchAttempts: "osn.auth.profile_switch.attempts",
   profileCrudOps: "osn.profile.crud.operations",
   profileCrudDuration: "osn.profile.crud.duration",
+  authMeRequests: "osn.auth.me.requests",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -519,3 +520,19 @@ const authJwksServed = createCounter<Record<never, never>>({
 });
 
 export const metricAuthJwksServed = (): void => authJwksServed.inc({});
+
+// ---------------------------------------------------------------------------
+// GET /me (S-M2)
+// ---------------------------------------------------------------------------
+
+type MeRequestResult = "ok" | "unauthorized" | "rate_limited" | "error";
+type MeRequestAttrs = { result: MeRequestResult };
+
+const authMeRequests = createCounter<MeRequestAttrs>({
+  name: OSN_METRICS.authMeRequests,
+  description: "GET /me requests by outcome",
+  unit: "{request}",
+});
+
+export const metricAuthMeRequest = (result: MeRequestResult): void =>
+  authMeRequests.inc({ result });

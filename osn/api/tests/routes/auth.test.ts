@@ -1464,6 +1464,92 @@ describe("auth routes", () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // GET /me — server-authoritative active profile + scopes (S-M2)
+  // -------------------------------------------------------------------------
+  describe("GET /me", () => {
+    async function getAccessToken(): Promise<{ accessToken: string; profileId: string }> {
+      let captured: string | undefined;
+      const verifiedConfig = {
+        ...config,
+        sendEmail: async (_to: string, _subject: string, body: string) => {
+          const m = body.match(/code is: (\d{6})/);
+          if (m) captured = m[1];
+        },
+      };
+      const verifiedApp = createAuthRoutes(verifiedConfig, layer);
+      await verifiedApp.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: "me@example.com",
+            handle: "meuser",
+            displayName: "Me User",
+          }),
+        }),
+      );
+      const completeRes = await verifiedApp.handle(
+        new Request("http://localhost/register/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "me@example.com", code: captured }),
+        }),
+      );
+      const json = (await completeRes.json()) as {
+        profileId: string;
+        session: { access_token: string };
+      };
+      return { accessToken: json.session.access_token, profileId: json.profileId };
+    }
+
+    it("returns profile + activeProfileId + scopes for a valid Bearer token", async () => {
+      const { accessToken, profileId } = await getAccessToken();
+      const res = await app.handle(
+        new Request("http://localhost/me", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as {
+        profile: { id: string; handle: string; email: string };
+        activeProfileId: string;
+        scopes: readonly string[];
+      };
+      expect(json.profile.id).toBe(profileId);
+      expect(json.profile.handle).toBe("meuser");
+      expect(json.profile.email).toBe("me@example.com");
+      expect(json.activeProfileId).toBe(profileId);
+      expect(json.scopes).toEqual(["openid", "profile"]);
+    });
+
+    it("returns 401 with no Authorization header", async () => {
+      const res = await app.handle(new Request("http://localhost/me"));
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 401 with an invalid Bearer token", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/me", {
+          headers: { Authorization: "Bearer not.a.valid.token" },
+        }),
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it("rate limits /me requests", async () => {
+      const denyAll: RateLimiterBackend = { check: () => false };
+      const limiters = { ...createDefaultAuthRateLimiters(), me: denyAll };
+      const freshApp = createAuthRoutes(config, layer, Layer.empty, limiters);
+      const res = await freshApp.handle(
+        new Request("http://localhost/me", {
+          headers: { "x-forwarded-for": "10.10.10.10" },
+        }),
+      );
+      expect(res.status).toBe(429);
+    });
+  });
+
   describe("POST /profiles/switch", () => {
     async function registerAndGetTokens(): Promise<{
       accessToken: string;

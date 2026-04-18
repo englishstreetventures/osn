@@ -90,4 +90,5 @@ export type AuthRateLimitedEndpoint =
   | "profile_list"
   | "profile_create"
   | "profile_delete"
-  | "profile_set_default";
+  | "profile_set_default"
+  | "me";

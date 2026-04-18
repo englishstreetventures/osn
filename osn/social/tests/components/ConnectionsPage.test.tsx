@@ -31,7 +31,6 @@ function authedProvider() {
     session: Object.assign(
       () => ({
         accessToken: "tkn",
-        refreshToken: "r",
         idToken: null,
         expiresAt: Date.now() + 60_000,
         scopes: [],

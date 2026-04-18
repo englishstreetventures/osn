@@ -16,7 +16,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "1.0.3",
+      "version": "1.5.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
         "@osn/db": "workspace:*",
@@ -38,7 +38,7 @@
     },
     "osn/client": {
       "name": "@osn/client",
-      "version": "0.5.0",
+      "version": "0.7.0",
       "dependencies": {
         "effect": "^3.19.19",
       },
@@ -54,7 +54,7 @@
     },
     "osn/db": {
       "name": "@osn/db",
-      "version": "0.8.0",
+      "version": "0.10.0",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.0",
@@ -85,7 +85,7 @@
     },
     "osn/social": {
       "name": "@osn/social",
-      "version": "0.2.1",
+      "version": "0.2.4",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -109,7 +109,7 @@
     },
     "osn/ui": {
       "name": "@osn/ui",
-      "version": "0.7.1",
+      "version": "0.7.4",
       "dependencies": {
         "@kobalte/core": "^0.13.11",
         "@osn/client": "workspace:*",
@@ -135,7 +135,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.10.0",
+      "version": "0.11.3",
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
         "@elysiajs/eden": "^1.2.0",
@@ -156,7 +156,7 @@
     },
     "pulse/app": {
       "name": "@pulse/app",
-      "version": "0.8.4",
+      "version": "0.8.10",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -203,7 +203,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.3.0",
+      "version": "0.5.3",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -232,7 +232,7 @@
     },
     "shared/observability": {
       "name": "@shared/observability",
-      "version": "0.3.0",
+      "version": "0.3.3",
       "dependencies": {
         "@effect/opentelemetry": "^0.63.0",
         "@opentelemetry/api": "^1.9.0",
@@ -281,10 +281,11 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.3.9",
+      "version": "0.3.12",
       "dependencies": {
         "@elysiajs/cors": "^1.4.0",
         "@elysiajs/eden": "^1.2.0",
+        "@shared/crypto": "workspace:*",
         "@shared/observability": "workspace:*",
         "@shared/rate-limit": "workspace:*",
         "@zap/db": "workspace:*",

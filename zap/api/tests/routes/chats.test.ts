@@ -1,15 +1,23 @@
+import { generateArcKeyPair } from "@shared/crypto";
 import { SignJWT } from "jose";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
 import { createChatsRoutes } from "../../src/routes/chats";
 import { createTestLayer } from "../helpers/db";
 
-const TEST_JWT_SECRET = "test-secret";
+let testPrivateKey: CryptoKey;
+let testPublicKey: CryptoKey;
+
+beforeAll(async () => {
+  const pair = await generateArcKeyPair();
+  testPrivateKey = pair.privateKey;
+  testPublicKey = pair.publicKey;
+});
 
 async function makeToken(profileId: string): Promise<string> {
   return new SignJWT({ sub: profileId })
-    .setProtectedHeader({ alg: "HS256" })
-    .sign(new TextEncoder().encode(TEST_JWT_SECRET));
+    .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
+    .sign(testPrivateKey);
 }
 
 const json = (body: unknown) => JSON.stringify(body);
@@ -43,7 +51,7 @@ describe("chats routes", () => {
 
   beforeEach(async () => {
     layer = createTestLayer();
-    app = createChatsRoutes(layer, TEST_JWT_SECRET);
+    app = createChatsRoutes(layer, "", undefined, testPublicKey);
     aliceToken = await makeToken("usr_alice");
     bobToken = await makeToken("usr_bob");
   });

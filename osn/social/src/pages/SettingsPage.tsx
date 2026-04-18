@@ -132,7 +132,7 @@ export function SettingsPage() {
 
             <div class="border-border border-t pt-4">
               <h3 class="text-foreground text-sm font-semibold">Danger zone</h3>
-              <p class="text-muted-foreground mb-3 mt-1 text-xs">
+              <p class="text-muted-foreground mt-1 mb-3 text-xs">
                 Account deletion is permanent and cannot be undone.
               </p>
               <Button variant="ghost" size="sm" class="text-destructive" disabled>

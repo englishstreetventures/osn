@@ -102,7 +102,6 @@ describe("createRegistrationClient", () => {
             email: "alice@example.com",
             session: {
               access_token: "acc_999",
-              refresh_token: "ref_999",
               token_type: "Bearer",
               expires_in: 3600,
               scope: "openid profile",
@@ -124,7 +123,6 @@ describe("createRegistrationClient", () => {
       // The session is parsed via the same parseTokenResponse used for the
       // OAuth callback flow.
       expect(result.session.accessToken).toBe("acc_999");
-      expect(result.session.refreshToken).toBe("ref_999");
       expect(result.session.scopes).toEqual(["openid", "profile"]);
       expect(result.session.expiresAt).toBeGreaterThan(Date.now());
 

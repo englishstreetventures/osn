@@ -14,7 +14,7 @@ import {
   createHistogram,
   createUpDownCounter,
 } from "@shared/observability/metrics";
-import type { Result } from "@shared/observability/metrics";
+import type { JwksCacheResult, Result } from "@shared/observability/metrics";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
 export const ZAP_METRICS = {
@@ -27,6 +27,7 @@ export const ZAP_METRICS = {
   wsConnections: "zap.ws.connections",
   wsMessagesDelivered: "zap.ws.messages.delivered",
   accessDenied: "zap.access.denied",
+  authJwksCacheLookups: "zap.auth.jwks_cache.lookups",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -71,6 +72,10 @@ type AccessDeniedReason = "not_member" | "blocked" | "not_found";
 type AccessDeniedAttrs = {
   surface: AccessDeniedSurface;
   reason: AccessDeniedReason;
+};
+
+type JwksCacheLookupAttrs = {
+  result: JwksCacheResult;
 };
 
 // ---------------------------------------------------------------------------
@@ -132,6 +137,12 @@ const accessDenied = createCounter<AccessDeniedAttrs>({
   unit: "{denial}",
 });
 
+const authJwksCacheLookups = createCounter<JwksCacheLookupAttrs>({
+  name: ZAP_METRICS.authJwksCacheLookups,
+  description: "JWKS public key cache lookups by result (hit/miss/refresh)",
+  unit: "{lookup}",
+});
+
 // ---------------------------------------------------------------------------
 // Public recording helpers — the ONLY way Zap code should emit metrics.
 // ---------------------------------------------------------------------------
@@ -164,3 +175,6 @@ export const metricAccessDenied = (
   surface: AccessDeniedSurface,
   reason: AccessDeniedReason,
 ): void => accessDenied.inc({ surface, reason });
+
+export const metricJwksCacheLookup = (result: JwksCacheResult): void =>
+  authJwksCacheLookups.inc({ result });
