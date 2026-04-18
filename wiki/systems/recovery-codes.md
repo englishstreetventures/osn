@@ -50,7 +50,7 @@ POST /recovery/generate
   Rate limited: 1/day/IP (recoveryGenerate) — stop-gap for S-M1
 ```
 
-Wire field is `recoveryCodes` (not `codes`) so the redaction deny-list entry matches (S-L2). Emits `osn.auth.session.security_invalidation{trigger="recovery_code_generate"}` on every successful generate so out-of-band regeneration is visible in the existing session-invalidation dashboard.
+Wire field is `recoveryCodes` (not `codes`) so the redaction deny-list entry matches (S-L2). Emits `osn.auth.session.revoked{reason="recovery_code_generate"}` on every successful generate so out-of-band regeneration is visible on the unified session-revocation dashboard.
 
 Regenerating atomically replaces any previous set — the transaction deletes the existing rows and inserts the new ones. The previous codes become permanently invalid.
 
@@ -63,7 +63,7 @@ POST /login/recovery/complete
 
 On success the server:
 1. Marks the consumed row's `used_at` — the row is kept for audit.
-2. **Revokes every session on the account** in the same transaction. The fresh session issued by the login step is the only one standing afterwards. Emits `osn.auth.session.security_invalidation{trigger="recovery_code_consume"}`.
+2. **Revokes every session on the account** in the same transaction. The fresh session issued by the login step is the only one standing afterwards. Emits `osn.auth.session.revoked{reason="recovery_code_consume"}`.
 3. Sets the HttpOnly session cookie (C3) and returns the access token in the body.
 
 All failure modes — unknown identifier, bad code, used code — surface as `{ error: "invalid_request" }` with no distinguishing detail, preserving the no-enumeration posture from `/login/otp`. Both the known-identifier + wrong-code branch and the unknown-identifier branch execute the same set of DB + SHA-256 work so latency does not disclose user existence (S-M2).

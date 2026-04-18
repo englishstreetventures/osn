@@ -36,6 +36,13 @@
       "when": 1776556800000,
       "tag": "0004_add_recovery_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1776988800000,
+      "tag": "0005_add_session_device_metadata",
+      "breakpoints": true
     }
   ]
 }

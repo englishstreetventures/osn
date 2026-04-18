@@ -142,7 +142,9 @@ it.effect("setSession persists a session that getSession can read back", () =>
     const stored = yield* auth.getSession();
     expect(stored).not.toBeNull();
     expect(stored?.accessToken).toBe("acc_persisted");
-    expect(stored?.refreshToken).toBe("ref_persisted");
+    // C3: refresh token lives in the HttpOnly cookie; never persisted
+    // client-side. Session rebuilt from storage always has refreshToken null.
+    expect(stored?.refreshToken).toBeNull();
     expect(stored?.scopes).toEqual(["openid", "profile"]);
   }).pipe(Effect.provide(createTestLayer())),
 );

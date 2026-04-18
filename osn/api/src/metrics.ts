@@ -28,14 +28,14 @@ import type {
   RecoveryCodeStep,
   RegisterStep,
   Result,
-  SecurityInvalidationTrigger,
+  SessionManagementAction,
+  SessionRevokeReason,
 } from "@shared/observability/metrics";
 import { Effect } from "effect";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
 export const OSN_METRICS = {
   authOriginGuardRejections: "osn.auth.origin_guard.rejections",
-  authSessionCookieFallback: "osn.auth.session.cookie_fallback",
   authJwksServed: "osn.auth.jwks.served",
   authRegisterAttempts: "osn.auth.register.attempts",
   authRegisterDuration: "osn.auth.register.duration",
@@ -49,7 +49,9 @@ export const OSN_METRICS = {
   authSessionRotations: "osn.auth.session.rotations",
   authSessionReuseDetected: "osn.auth.session.reuse_detected",
   authSessionFamilyRevoked: "osn.auth.session.family_revoked",
-  authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
+  authSessionRevoked: "osn.auth.session.revoked",
+  authSessionListed: "osn.auth.session.listed",
+  authSessionManagementDuration: "osn.auth.session.management_duration",
   authRecoveryCodesGenerated: "osn.auth.recovery.codes_generated",
   authRecoveryCodeConsumed: "osn.auth.recovery.code_consumed",
   authRecoveryDuration: "osn.auth.recovery.duration",
@@ -442,7 +444,8 @@ export const metricAuthRateLimited = (endpoint: AuthRateLimitedEndpoint): void =
 // ---------------------------------------------------------------------------
 
 type SessionRotationAttrs = { result: Result };
-type SecurityInvalidationAttrs = { trigger: SecurityInvalidationTrigger };
+type SessionRevokeAttrs = { reason: SessionRevokeReason };
+type SessionManagementAttrs = { action: SessionManagementAction; result: Result };
 
 const authSessionRotations = createCounter<SessionRotationAttrs>({
   name: OSN_METRICS.authSessionRotations,
@@ -462,10 +465,28 @@ const authSessionFamilyRevoked = createCounter<Record<never, never>>({
   unit: "{revocation}",
 });
 
-const authSessionSecurityInvalidation = createCounter<SecurityInvalidationAttrs>({
-  name: OSN_METRICS.authSessionSecurityInvalidation,
-  description: "Sessions invalidated due to security events (H1)",
-  unit: "{invalidation}",
+/**
+ * Unified session-revocation counter. Every code path that deletes a
+ * sessions row (or, for recovery-code-generate, invalidates the previous
+ * code set) increments this once with a bounded-union reason.
+ */
+const authSessionRevoked = createCounter<SessionRevokeAttrs>({
+  name: OSN_METRICS.authSessionRevoked,
+  description: "Sessions revoked (explicit, automatic, or ceremony-driven)",
+  unit: "{revocation}",
+});
+
+const authSessionListed = createCounter<Record<never, never>>({
+  name: OSN_METRICS.authSessionListed,
+  description: "Session-list reads (GET /sessions)",
+  unit: "{read}",
+});
+
+const authSessionManagementDuration = createHistogram<SessionManagementAttrs>({
+  name: OSN_METRICS.authSessionManagementDuration,
+  description: "Session management operation duration by action",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
 });
 
 export const withSessionRotation = <A, E, Ctx>(
@@ -483,8 +504,35 @@ export const metricSessionReuseDetected = (): void => authSessionReuseDetected.i
 
 export const metricSessionFamilyRevoked = (): void => authSessionFamilyRevoked.inc({});
 
-export const metricSessionSecurityInvalidation = (trigger: SecurityInvalidationTrigger): void =>
-  authSessionSecurityInvalidation.inc({ trigger });
+export const metricSessionRevoked = (reason: SessionRevokeReason): void =>
+  authSessionRevoked.inc({ reason });
+
+export const metricSessionListed = (): void => authSessionListed.inc({});
+
+/**
+ * Wrapper for `SessionService` operations. Attaches a span and records
+ * `osn.auth.session.management_duration{action,result}` on both happy and
+ * error paths. Does NOT emit the revoke counter — the service records that
+ * directly with the precise reason.
+ */
+export const withSessionManagement =
+  (action: SessionManagementAction) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      measureSeconds((seconds, outcome) => {
+        authSessionManagementDuration.record(seconds, {
+          action,
+          result: outcome === "ok" ? "ok" : "error",
+        });
+      }),
+      Effect.withSpan(`auth.session.${action}`),
+      Effect.tapError((e) =>
+        Effect.logError("auth.session operation failed", {
+          action,
+          ...safeErrorSummary(e),
+        }),
+      ),
+    );
 
 // ---------------------------------------------------------------------------
 // Recovery codes (Copenhagen Book M2)
@@ -544,18 +592,6 @@ const authOriginGuardRejections = createCounter<OriginGuardAttrs>({
 
 export const metricOriginGuardRejection = (reason: OriginGuardRejectionReason): void =>
   authOriginGuardRejections.inc({ reason });
-
-// ---------------------------------------------------------------------------
-// Session cookie fallback (C3)
-// ---------------------------------------------------------------------------
-
-const authSessionCookieFallback = createCounter<Record<never, never>>({
-  name: OSN_METRICS.authSessionCookieFallback,
-  description: "Token refresh requests falling back from cookie to body parameter",
-  unit: "{fallback}",
-});
-
-export const metricSessionCookieFallback = (): void => authSessionCookieFallback.inc({});
 
 // ---------------------------------------------------------------------------
 // JWKS

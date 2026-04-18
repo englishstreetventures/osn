@@ -2,7 +2,7 @@
 title: OSN Wiki
 aliases: [home, map of content, MOC]
 tags: [index]
-last-reviewed: 2026-04-14
+last-reviewed: 2026-04-18
 ---
 
 # OSN Wiki
@@ -27,6 +27,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[arc-tokens]] — S2S authentication protocol (ES256, scoped JWTs)
 - [[rate-limiting]] — per-IP fixed-window rate limiting on auth endpoints
 - [[identity-model]] — accounts, profiles (users), organisations, multi-account
+- [[sessions]] — list active sessions + per-device revoke (user-facing session management)
 - [[recovery-codes]] — single-use account-recovery tokens (Copenhagen Book M2)
 - [[social-graph]] — connections, close friends, blocks
 - [[close-friends]] — one-way graph edge, RSVP visibility, UI treatment

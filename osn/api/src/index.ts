@@ -13,6 +13,7 @@ import {
   createRedisOrgRateLimiter,
   createRedisProfileRateLimiters,
   createRedisRecommendationRateLimiter,
+  createRedisSessionRateLimiters,
 } from "./lib/redis-rate-limiters";
 import { initRedisClient } from "./redis";
 import { createAuthRoutes } from "./routes/auth";
@@ -22,6 +23,7 @@ import { createOrganisationRoutes } from "./routes/organisation";
 import { createInternalOrganisationRoutes } from "./routes/organisation-internal";
 import { createProfileRoutes } from "./routes/profile";
 import { createRecommendationRoutes } from "./routes/recommendations";
+import { createSessionRoutes } from "./routes/session";
 
 const SERVICE_NAME = "osn-api";
 const port = Number(process.env.PORT) || 4000;
@@ -113,6 +115,7 @@ const graphRateLimiter = createRedisGraphRateLimiter(redisClient);
 const orgRateLimiter = createRedisOrgRateLimiter(redisClient);
 const profileRateLimiters = createRedisProfileRateLimiters(redisClient);
 const recommendationRateLimiter = createRedisRecommendationRateLimiter(redisClient);
+const sessionRateLimiters = createRedisSessionRateLimiters(redisClient);
 
 // S-L1: Restrict CORS to the known app origin instead of the open wildcard.
 // OSN_CORS_ORIGIN may be a comma-separated list for multi-origin setups.
@@ -144,6 +147,9 @@ const app = new Elysia()
   .use(healthRoutes({ serviceName: SERVICE_NAME }))
   .get("/", () => ({ status: "ok", service: "osn-auth" }))
   .use(createAuthRoutes(authConfig, DbLive, observabilityLayer, authRateLimiters, cookieConfig))
+  .use(
+    createSessionRoutes(authConfig, DbLive, observabilityLayer, sessionRateLimiters, cookieConfig),
+  )
   .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter))
   .use(createInternalGraphRoutes(DbLive))
   .use(createOrganisationRoutes(authConfig, DbLive, observabilityLayer, orgRateLimiter))

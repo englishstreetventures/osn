@@ -73,12 +73,34 @@ export type ProfileDeleteCascadeTable = "connections" | "close_friends" | "block
 /** JWKS public key cache lookup outcomes. */
 export type JwksCacheResult = "hit" | "miss" | "refresh";
 
-/** Security events that trigger session invalidation (H1). */
-export type SecurityInvalidationTrigger =
+/**
+ * Session revocation reasons — unified counter for every code path that
+ * deletes a sessions row. Replaces the previous `SecurityInvalidationTrigger`
+ * split so dashboards have one canonical metric to pivot on.
+ *
+ * - `self` — user revoked their current session via `DELETE /sessions/:id`
+ * - `other` — user revoked a different device from the session list
+ * - `revoke_all_others` — user nuked every other session via
+ *   `POST /sessions/revoke-others`
+ * - `logout` — explicit `POST /logout`
+ * - `passkey_register` — automatic after a new passkey is added (H1)
+ * - `recovery_code_generate` — regenerating recovery codes invalidates the
+ *   previous set; surfaced here even though no sessions are deleted, so the
+ *   set-rotation signal shows up on the same dashboard
+ * - `recovery_code_consume` — recovery-code login wipes every session
+ *   (ceremony is "log me back in everywhere else is out")
+ */
+export type SessionRevokeReason =
+  | "self"
+  | "other"
+  | "revoke_all_others"
+  | "logout"
   | "passkey_register"
-  | "email_change"
   | "recovery_code_generate"
   | "recovery_code_consume";
+
+/** Session management actions (list / per-device revoke). */
+export type SessionManagementAction = "list" | "revoke" | "revoke_others";
 
 /** Recovery code (Copenhagen Book M2) operation steps. */
 export type RecoveryCodeStep = "generate" | "consume";
@@ -108,4 +130,7 @@ export type AuthRateLimitedEndpoint =
   | "profile_delete"
   | "profile_set_default"
   | "recovery_generate"
-  | "recovery_complete";
+  | "recovery_complete"
+  | "session_list"
+  | "session_revoke"
+  | "session_revoke_others";

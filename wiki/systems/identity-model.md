@@ -10,7 +10,7 @@ packages:
   - "@osn/db"
   - "@osn/core"
   - "@osn/client"
-last-reviewed: 2026-04-17
+last-reviewed: 2026-04-18
 p4-completed: 2026-04-14
 p2-completed: 2026-04-14
 p3-completed: 2026-04-14
@@ -133,7 +133,9 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 
 **Sliding-window expiry:** when less than half the TTL remains (< 15 days), the session's `expiresAt` is extended by the full TTL from now. This matches the Copenhagen Book's recommended pattern.
 
-**Revocation:** `invalidateSession(token)` deletes a single session row; `invalidateAccountSessions(accountId)` deletes all sessions for an account (used for security events). `POST /logout` exposes single-session invalidation.
+**Revocation:** `invalidateSession(token, reason)` deletes a single session row; `invalidateAccountSessions(accountId, reason)` deletes all sessions for an account; `invalidateOtherAccountSessions(accountId, keepHash, reason)` deletes every row except the caller's. Every deletion emits the unified `osn.auth.session.revoked{reason}` counter — the `reason` union covers `self`, `other`, `revoke_all_others`, `logout`, `passkey_register`, `recovery_code_generate`, `recovery_code_consume`.
+
+**User-facing session management:** see [[sessions]] for the list/revoke endpoints and the `SessionList` UI surface.
 
 **Sessions table:**
 
@@ -141,8 +143,14 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 |--------|------|-------|
 | `id` | `text PK` | SHA-256(raw token), hex-encoded |
 | `account_id` | `text FK → accounts.id` | The owning account |
+| `family_id` | `text` | Rotation family (C2 reuse detection) |
 | `expires_at` | `integer` | Unix seconds |
 | `created_at` | `integer` | Unix seconds |
+| `last_seen_at` | `integer` | Unix seconds, bumped on every `verifyRefreshToken` — drives the session list ordering |
+| `user_agent` | `text?` | Raw UA header, cap 512 chars |
+| `ip_hash` | `text?` | SHA-256(clientIp + `OSN_IP_HASH_SALT`); coarse device fingerprint (not a security boundary) |
+| `created_ip_hash` | `text?` | `ip_hash` pinned at first-seen time, carried across rotations |
+| `device_label` | `text?` | User-chosen nickname (null until renamed) |
 
 Two profile management endpoints:
 - `POST /profiles/switch` — present the session token + target `profileId` in the request body; receive a new access token for that profile. Per-account rate limited (20 switches/hr).
@@ -154,13 +162,12 @@ Two profile management endpoints:
 
 | Key | Shape | Purpose |
 |-----|-------|---------|
-| `@osn/client:account_session` | `AccountSession` JSON | Refresh token, active profile ID, per-profile access tokens, scopes, ID token |
+| `@osn/client:account_session` | `AccountSession` JSON | Active profile ID, per-profile access tokens, scopes, ID token. **Refresh token is NOT stored client-side** — it lives in the HttpOnly cookie (C3). |
 
 The `AccountSession` structure:
 
 ```typescript
 interface AccountSession {
-  refreshToken: string;           // Account-scoped (shared across profiles)
   activeProfileId: string;        // Currently active profile
   profileTokens: Record<string, ProfileToken>;  // Per-profile access tokens
   scopes: string[];

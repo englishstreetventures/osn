@@ -17,6 +17,7 @@ import type { RedisClient } from "@shared/redis";
 
 import type { AuthRateLimiters } from "../routes/auth";
 import type { ProfileRateLimiters } from "../routes/profile";
+import type { SessionRateLimiters } from "../routes/session";
 
 const ONE_MINUTE_MS = 60_000;
 const ONE_HOUR_MS = 3_600_000;
@@ -108,5 +109,24 @@ export function createRedisProfileRateLimiters(client: RedisClient): ProfileRate
     profileCreate: rl("profile:create", 5),
     profileDelete: rl("profile:delete", 5),
     profileSetDefault: rl("profile:set_default", 10),
+  };
+}
+
+/**
+ * Build the 3 session-management rate limiters backed by a shared Redis
+ * client. Session listing is the loosest cap (users may refresh the page);
+ * revoke-others is the tightest (a compromised token should not be able to
+ * mass-revoke — stricter than per-session revoke).
+ *
+ * Namespace convention: `session:{action}`.
+ */
+export function createRedisSessionRateLimiters(client: RedisClient): SessionRateLimiters {
+  const rl = (namespace: string, maxRequests: number): RateLimiterBackend =>
+    createRedisRateLimiter(client, { namespace, maxRequests, windowMs: ONE_MINUTE_MS });
+
+  return {
+    sessionList: rl("session:list", 30),
+    sessionRevoke: rl("session:revoke", 10),
+    sessionRevokeOthers: rl("session:revoke_others", 5),
   };
 }

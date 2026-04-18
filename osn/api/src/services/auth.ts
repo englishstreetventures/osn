@@ -8,6 +8,7 @@ import {
   hashRecoveryCode,
   RECOVERY_CODE_COUNT,
 } from "@shared/crypto";
+import type { SessionRevokeReason } from "@shared/observability/metrics";
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -33,7 +34,7 @@ import {
   metricRecoveryCodesGenerated,
   metricSessionReuseDetected,
   metricSessionFamilyRevoked,
-  metricSessionSecurityInvalidation,
+  metricSessionRevoked,
   withAuthLogin,
   withAuthRecovery,
   withAuthRegister,
@@ -261,8 +262,11 @@ function generateSessionToken(): string {
  * sessions table as the primary key. A DB leak does not expose valid tokens
  * because the token has 160 bits of entropy — brute-forcing the preimage
  * of SHA-256 is infeasible.
+ *
+ * Exported so `SessionService` can convert the caller's raw cookie value
+ * into the row id without re-importing `node:crypto`.
  */
-function hashSessionToken(token: string): string {
+export function hashSessionToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
@@ -301,6 +305,21 @@ export interface TokenSet {
   refreshToken: string;
   expiresIn: number;
 }
+
+/**
+ * Per-request device metadata threaded into `issueTokens` and `refreshTokens`.
+ * Populates the `sessions` row so the session list UI can display where each
+ * session lives. All fields optional: service tests and non-browser callers
+ * can omit the context entirely.
+ */
+export interface SessionContext {
+  /** User-Agent header, raw. Capped at 512 chars in the route layer. */
+  userAgent?: string;
+  /** SHA-256(clientIp + OSN_IP_HASH_SALT) — see `lib/auth-derive.ts`. */
+  ipHash?: string;
+}
+
+const EMPTY_SESSION_CONTEXT: SessionContext = {};
 
 /**
  * A profile row enriched with the `email` from the linked `accounts` row.
@@ -669,6 +688,7 @@ export function createAuthService(config: AuthConfig) {
   const completeRegistration = (
     email: string,
     code: string,
+    context: SessionContext = EMPTY_SESSION_CONTEXT,
   ): Effect.Effect<
     {
       profileId: string;
@@ -759,6 +779,8 @@ export function createAuthService(config: AuthConfig) {
         pending.email,
         pending.handle,
         pending.displayName,
+        undefined,
+        context,
       );
       const enrollmentToken = yield* issueEnrollmentToken(accountId);
 
@@ -839,6 +861,7 @@ export function createAuthService(config: AuthConfig) {
     handle: string,
     displayName: string | null,
     familyId?: string,
+    context: SessionContext = EMPTY_SESSION_CONTEXT,
   ): Effect.Effect<TokenSet, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const accessToken = yield* issueAccessToken(profileId, email, handle, displayName);
@@ -858,6 +881,11 @@ export function createAuthService(config: AuthConfig) {
             familyId: fam,
             expiresAt: nowSec + refreshTokenTtl,
             createdAt: nowSec,
+            userAgent: context.userAgent ?? null,
+            ipHash: context.ipHash ?? null,
+            deviceLabel: null,
+            lastSeenAt: nowSec,
+            createdIpHash: context.ipHash ?? null,
           }),
         catch: (cause) => new DatabaseError({ cause }),
       });
@@ -952,6 +980,7 @@ export function createAuthService(config: AuthConfig) {
 
   const exchangeCode = (
     code: string,
+    context: SessionContext = EMPTY_SESSION_CONTEXT,
   ): Effect.Effect<
     { accessToken: string; refreshToken: string; expiresIn: number },
     AuthError | DatabaseError,
@@ -976,6 +1005,8 @@ export function createAuthService(config: AuthConfig) {
         profile.email,
         profile.handle,
         profile.displayName,
+        undefined,
+        context,
       );
     });
 
@@ -1029,18 +1060,23 @@ export function createAuthService(config: AuthConfig) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
       }
 
-      // Sliding window: extend when less than half the TTL remains
+      // Sliding window: extend when less than half the TTL remains. We always
+      // bump last_seen_at so the session list can surface "last active at" —
+      // the two updates share the same UPDATE so the row touches disk once.
       const halfTtl = Math.floor(refreshTokenTtl / 2);
-      if (session.expiresAt - nowSec < halfTtl) {
-        yield* Effect.tryPromise({
-          try: () =>
-            db
-              .update(sessions)
-              .set({ expiresAt: nowSec + refreshTokenTtl })
-              .where(eq(sessions.id, sessionId)),
-          catch: (cause) => new DatabaseError({ cause }),
-        });
-      }
+      const slidingExpiry = session.expiresAt - nowSec < halfTtl;
+      yield* Effect.tryPromise({
+        try: () =>
+          db
+            .update(sessions)
+            .set(
+              slidingExpiry
+                ? { expiresAt: nowSec + refreshTokenTtl, lastSeenAt: nowSec }
+                : { lastSeenAt: nowSec },
+            )
+            .where(eq(sessions.id, sessionId)),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
 
       return { accountId: session.accountId, familyId: session.familyId, sessionId };
     });
@@ -1136,6 +1172,7 @@ export function createAuthService(config: AuthConfig) {
    */
   const refreshTokens = (
     sessionToken: string,
+    context: SessionContext = EMPTY_SESSION_CONTEXT,
   ): Effect.Effect<
     { accessToken: string; refreshToken: string; expiresIn: number },
     AuthError | DatabaseError,
@@ -1159,12 +1196,22 @@ export function createAuthService(config: AuthConfig) {
         profile.displayName,
       );
 
-      // Rotate: delete old session, insert new one in the same family
+      // Rotate: delete old session, insert new one in the same family. The
+      // new row carries the caller's current device metadata (userAgent,
+      // ipHash) — so a rotated session reflects where the client is NOW,
+      // not where the chain started. `createdIpHash` pins the first-seen
+      // origin for the chain via verifyRefreshToken.
       const newSessionToken = generateSessionToken();
       const newSessionId = hashSessionToken(newSessionToken);
       const nowSec = Math.floor(Date.now() / 1000);
 
       const { db } = yield* Db;
+      const previousRow = yield* Effect.tryPromise({
+        try: () => db.select().from(sessions).where(eq(sessions.id, oldSessionId)).limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const carriedCreatedIpHash = previousRow[0]?.createdIpHash ?? context.ipHash ?? null;
+
       yield* Effect.tryPromise({
         try: () =>
           db.transaction(async (tx) => {
@@ -1175,6 +1222,11 @@ export function createAuthService(config: AuthConfig) {
               familyId,
               expiresAt: nowSec + refreshTokenTtl,
               createdAt: nowSec,
+              userAgent: context.userAgent ?? null,
+              ipHash: context.ipHash ?? null,
+              deviceLabel: null,
+              lastSeenAt: nowSec,
+              createdIpHash: carriedCreatedIpHash,
             });
           }),
         catch: (cause) => new DatabaseError({ cause }),
@@ -1343,7 +1395,11 @@ export function createAuthService(config: AuthConfig) {
       // An attacker who stole a session token cannot persist after the
       // legitimate user adds a passkey.
       if (currentSessionToken) {
-        yield* invalidateOtherAccountSessions(accountId, hashSessionToken(currentSessionToken));
+        yield* invalidateOtherAccountSessions(
+          accountId,
+          hashSessionToken(currentSessionToken),
+          "passkey_register",
+        );
       }
 
       return { passkeyId: id };
@@ -1497,6 +1553,7 @@ export function createAuthService(config: AuthConfig) {
   const completePasskeyLoginDirect = (
     identifier: string,
     assertion: AuthenticationResponseJSON,
+    context: SessionContext = EMPTY_SESSION_CONTEXT,
   ): Effect.Effect<{ session: TokenSet; profile: PublicProfile }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const profile = yield* verifyPasskeyAssertion(identifier, assertion);
@@ -1506,6 +1563,8 @@ export function createAuthService(config: AuthConfig) {
         profile.email,
         profile.handle,
         profile.displayName,
+        undefined,
+        context,
       );
       return { session, profile: toPublicProfile(profile, profile.email) };
     }).pipe(withAuthLogin("passkey"));
@@ -1619,6 +1678,7 @@ export function createAuthService(config: AuthConfig) {
   const completeOtpDirect = (
     identifier: string,
     code: string,
+    context: SessionContext = EMPTY_SESSION_CONTEXT,
   ): Effect.Effect<{ session: TokenSet; profile: PublicProfile }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const profile = yield* verifyOtpCode(identifier, code);
@@ -1628,6 +1688,8 @@ export function createAuthService(config: AuthConfig) {
         profile.email,
         profile.handle,
         profile.displayName,
+        undefined,
+        context,
       );
       return { session, profile: toPublicProfile(profile, profile.email) };
     }).pipe(withAuthLogin("otp"));
@@ -1736,6 +1798,7 @@ export function createAuthService(config: AuthConfig) {
 
   const verifyMagicDirect = (
     token: string,
+    context: SessionContext = EMPTY_SESSION_CONTEXT,
   ): Effect.Effect<{ session: TokenSet; profile: PublicProfile }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const profile = yield* consumeMagicToken(token);
@@ -1745,6 +1808,8 @@ export function createAuthService(config: AuthConfig) {
         profile.email,
         profile.handle,
         profile.displayName,
+        undefined,
+        context,
       );
       return { session, profile: toPublicProfile(profile, profile.email) };
     }).pipe(withAuthLogin("magic_link"));
@@ -1827,10 +1892,15 @@ export function createAuthService(config: AuthConfig) {
 
   /**
    * Invalidates a single session by deleting its DB row. Used by the
-   * `/logout` endpoint. Silently succeeds if the session doesn't exist
-   * (idempotent — don't leak whether a session was valid).
+   * `/logout` endpoint and by `SessionService.revokeSession` for the
+   * current-device case. Silently succeeds if the session doesn't exist
+   * (idempotent — don't leak whether a session was valid). Emits the
+   * unified revoke counter with the caller-supplied reason.
    */
-  const invalidateSession = (sessionToken: string): Effect.Effect<void, DatabaseError, Db> =>
+  const invalidateSession = (
+    sessionToken: string,
+    reason: SessionRevokeReason = "logout",
+  ): Effect.Effect<void, DatabaseError, Db> =>
     Effect.gen(function* () {
       const sessionId = hashSessionToken(sessionToken);
       const { db } = yield* Db;
@@ -1838,31 +1908,38 @@ export function createAuthService(config: AuthConfig) {
         try: () => db.delete(sessions).where(eq(sessions.id, sessionId)),
         catch: (cause) => new DatabaseError({ cause }),
       });
+      metricSessionRevoked(reason);
     });
 
   /**
    * Invalidates ALL sessions for an account. Used when a security event
-   * demands full session revocation (e.g. passkey registration, email
-   * change, account compromise). See auth improvements H1.
+   * demands full session revocation (account compromise, account deletion).
+   * Caller passes the reason for the unified revoke counter.
    */
-  const invalidateAccountSessions = (accountId: string): Effect.Effect<void, DatabaseError, Db> =>
+  const invalidateAccountSessions = (
+    accountId: string,
+    reason: SessionRevokeReason = "revoke_all_others",
+  ): Effect.Effect<void, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       yield* Effect.tryPromise({
         try: () => db.delete(sessions).where(eq(sessions.accountId, accountId)),
         catch: (cause) => new DatabaseError({ cause }),
       });
+      metricSessionRevoked(reason);
     });
 
   /**
    * Invalidates all sessions for an account EXCEPT the one identified by
    * `keepSessionHash`. Used after security events (H1) where the current
    * session should survive but all others must be revoked (e.g. passkey
-   * registration from an authenticated session).
+   * registration from an authenticated session) and by
+   * `SessionService.revokeOtherSessions` for the user-driven case.
    */
   const invalidateOtherAccountSessions = (
     accountId: string,
     keepSessionHash: string,
+    reason: SessionRevokeReason = "revoke_all_others",
   ): Effect.Effect<void, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
@@ -1873,7 +1950,7 @@ export function createAuthService(config: AuthConfig) {
             .where(and(eq(sessions.accountId, accountId), ne(sessions.id, keepSessionHash))),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      metricSessionSecurityInvalidation("passkey_register");
+      metricSessionRevoked(reason);
     }).pipe(Effect.withSpan("auth.session.invalidate_other"));
 
   // -------------------------------------------------------------------------
@@ -1918,11 +1995,11 @@ export function createAuthService(config: AuthConfig) {
 
       metricRecoveryCodesGenerated();
       // S-L3 (symmetric): regenerating the set is a security-relevant event
-      // worth surfacing on the session-invalidation dashboard. It doesn't
-      // revoke sessions itself, but it does invalidate the previous code set
-      // — an out-of-band regen (XSS-triggered, S-M1) is exactly the pattern
-      // we want to notice.
-      metricSessionSecurityInvalidation("recovery_code_generate");
+      // worth surfacing on the same dashboard as session revocations. It
+      // doesn't delete a sessions row itself, but it does invalidate the
+      // previous recovery-code set — an out-of-band regen (XSS-triggered,
+      // S-M1) is exactly the pattern we want to notice.
+      metricSessionRevoked("recovery_code_generate");
       return { recoveryCodes: codes };
     }).pipe(withAuthRecovery("generate"));
 
@@ -2017,8 +2094,9 @@ export function createAuthService(config: AuthConfig) {
 
       metricRecoveryCodeConsumed("success");
       // S-L3: whole-account session wipe is a security-relevant event — emit
-      // the canonical invalidation metric so the existing dashboard covers it.
-      metricSessionSecurityInvalidation("recovery_code_consume");
+      // the unified revoke counter so the dashboard covers it alongside
+      // every other revoke reason.
+      metricSessionRevoked("recovery_code_consume");
       return { profile };
     }).pipe(withAuthRecovery("consume"));
 
@@ -2030,6 +2108,7 @@ export function createAuthService(config: AuthConfig) {
   const completeRecoveryLogin = (
     identifier: string,
     code: string,
+    context: SessionContext = EMPTY_SESSION_CONTEXT,
   ): Effect.Effect<{ session: TokenSet; profile: PublicProfile }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const { profile } = yield* consumeRecoveryCode(identifier, code);
@@ -2039,6 +2118,8 @@ export function createAuthService(config: AuthConfig) {
         profile.email,
         profile.handle,
         profile.displayName,
+        undefined,
+        context,
       );
       return { session, profile: toPublicProfile(profile, profile.email) };
     }).pipe(withAuthLogin("recovery_code"));

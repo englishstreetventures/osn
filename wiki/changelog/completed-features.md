@@ -8,7 +8,7 @@ related:
   - "[[zap]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-14
+last-reviewed: 2026-04-18
 ---
 
 # Completed Features
@@ -59,6 +59,7 @@ Archived completed feature work from [[TODO]]. For open work see [[TODO]].
 - Organisation support — schema, Effect service, REST + ARC routes, observability, 355 tests
 - Multi-account schema foundation (P1) — 81 files changed
 - Multi-account auth refactor (P2) — two-tier tokens, profile switching
+- Session management (Phase 5a) — `GET /sessions`, `DELETE /sessions/:id`, `POST /sessions/revoke-others`; `sessions` gained `user_agent` / `ip_hash` / `last_seen_at` / `created_ip_hash` / `device_label` columns; unified `osn.auth.session.revoked{reason}` counter replaces `security_invalidation`; `/token` refresh + `/logout` are now cookie-only (breaking); `AccountSession.refreshToken` dropped from `@osn/client`. See [[sessions]].
 
 ## Zap
 

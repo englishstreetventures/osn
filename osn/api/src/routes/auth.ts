@@ -4,7 +4,7 @@ import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
-import { resolveAccessTokenPrincipal } from "../lib/auth-derive";
+import { resolveAccessTokenPrincipal, resolveSessionContext } from "../lib/auth-derive";
 import {
   buildClearSessionCookie,
   buildSessionCookie,
@@ -14,11 +14,7 @@ import {
 import { verifyPkceChallenge } from "../lib/crypto";
 import { buildAuthorizeHtml } from "../lib/html";
 import { publicError } from "../lib/public-error";
-import {
-  metricAuthJwksServed,
-  metricAuthRateLimited,
-  metricSessionCookieFallback,
-} from "../metrics";
+import { metricAuthJwksServed, metricAuthRateLimited } from "../metrics";
 import { createAuthService, type AuthConfig } from "../services/auth";
 
 // In-memory PKCE challenge store (keyed by state)
@@ -378,7 +374,9 @@ export function createAuthRoutes(
             return rlErr;
           }
           try {
-            const result = await run(auth.completeRegistration(body.email, body.code));
+            const result = await run(
+              auth.completeRegistration(body.email, body.code, resolveSessionContext(headers)),
+            );
             set.status = 201;
             set.headers["set-cookie"] = buildSessionCookie(result.refreshToken, cookieConfig);
             return {
@@ -522,7 +520,7 @@ export function createAuthRoutes(
             pkceStore.delete(state);
 
             try {
-              const tokens = await run(auth.exchangeCode(code));
+              const tokens = await run(auth.exchangeCode(code, resolveSessionContext(headers)));
               return toTokenResponse(tokens);
             } catch (e) {
               set.status = 400;
@@ -531,17 +529,21 @@ export function createAuthRoutes(
           }
 
           if (grant_type === "refresh_token") {
-            // C3: prefer session token from HttpOnly cookie; fall back to body
-            const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
-            const bodyToken = (body as { refresh_token?: string }).refresh_token;
-            const refresh_token = cookieToken ?? bodyToken;
-            if (bodyToken && !cookieToken) metricSessionCookieFallback();
+            // C3 (strict): session token MUST come from the HttpOnly cookie.
+            // The body-parameter fallback was removed when the session list
+            // + per-device revoke surfaces landed — keeping a parallel path
+            // let a stolen refresh token (which an XSS-bounded access token
+            // could never grab) ride in over cleartext headers. Cookie-only
+            // closes that.
+            const refresh_token = readSessionCookie(headers.cookie, cookieConfig);
             if (!refresh_token) {
               set.status = 400;
               return { error: "invalid_request" };
             }
             try {
-              const tokens = await run(auth.refreshTokens(refresh_token));
+              const tokens = await run(
+                auth.refreshTokens(refresh_token, resolveSessionContext(headers)),
+              );
               // Set the rotated session token as a cookie
               set.headers["set-cookie"] = buildSessionCookie(tokens.refreshToken, cookieConfig);
               return toTokenResponseCookieOnly(tokens);
@@ -562,7 +564,6 @@ export function createAuthRoutes(
             client_id: t.Optional(t.String()),
             code_verifier: t.Optional(t.String()),
             state: t.Optional(t.String()),
-            refresh_token: t.Optional(t.String()),
           }),
         },
       )
@@ -849,7 +850,11 @@ export function createAuthRoutes(
           }
           try {
             const result = await run(
-              auth.completePasskeyLoginDirect(body.identifier, body.assertion),
+              auth.completePasskeyLoginDirect(
+                body.identifier,
+                body.assertion,
+                resolveSessionContext(headers),
+              ),
             );
             set.headers["set-cookie"] = buildSessionCookie(
               result.session.refreshToken,
@@ -902,7 +907,9 @@ export function createAuthRoutes(
             return rlErr;
           }
           try {
-            const result = await run(auth.completeOtpDirect(body.identifier, body.code));
+            const result = await run(
+              auth.completeOtpDirect(body.identifier, body.code, resolveSessionContext(headers)),
+            );
             set.headers["set-cookie"] = buildSessionCookie(
               result.session.refreshToken,
               cookieConfig,
@@ -942,9 +949,11 @@ export function createAuthRoutes(
       )
       .get(
         "/login/magic/verify",
-        async ({ query, set }) => {
+        async ({ query, set, headers }) => {
           try {
-            const result = await run(auth.verifyMagicDirect(query.token));
+            const result = await run(
+              auth.verifyMagicDirect(query.token, resolveSessionContext(headers)),
+            );
             set.headers["set-cookie"] = buildSessionCookie(
               result.session.refreshToken,
               cookieConfig,
@@ -1077,7 +1086,13 @@ export function createAuthRoutes(
             return rlErr;
           }
           try {
-            const result = await run(auth.completeRecoveryLogin(body.identifier, body.code));
+            const result = await run(
+              auth.completeRecoveryLogin(
+                body.identifier,
+                body.code,
+                resolveSessionContext(headers),
+              ),
+            );
             set.headers["set-cookie"] = buildSessionCookie(
               result.session.refreshToken,
               cookieConfig,
@@ -1098,33 +1113,26 @@ export function createAuthRoutes(
       )
       // -------------------------------------------------------------------------
       // Logout (server-side session destruction — Copenhagen Book C1)
+      //
+      // Cookie-only. The body-parameter fallback was removed alongside the
+      // /token cookie-only change — a first-party logout is always driven by
+      // the HttpOnly cookie. An invocation without the cookie still clears
+      // any stale client-side Set-Cookie state and returns success so the
+      // client reliably ends up logged out regardless of server state.
       // -------------------------------------------------------------------------
-      .post(
-        "/logout",
-        async ({ body, set, headers }) => {
-          // C3: prefer session token from cookie; fall back to body
-          const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
-          const bodyToken = (body as { refresh_token?: string }).refresh_token;
-          const refresh_token = cookieToken ?? bodyToken;
-          if (!refresh_token) {
-            set.status = 400;
-            return { error: "invalid_request" };
-          }
+      .post("/logout", async ({ set, headers }) => {
+        const refresh_token = readSessionCookie(headers.cookie, cookieConfig);
+        if (refresh_token) {
           try {
-            await run(auth.invalidateSession(refresh_token));
+            await run(auth.invalidateSession(refresh_token, "logout"));
           } catch {
             // Swallow — don't leak whether the session existed
           }
-          // Always clear the cookie regardless
-          set.headers["set-cookie"] = buildClearSessionCookie(cookieConfig);
-          return { success: true };
-        },
-        {
-          body: t.Object({
-            refresh_token: t.Optional(t.String()),
-          }),
-        },
-      )
+        }
+        // Always clear the cookie regardless
+        set.headers["set-cookie"] = buildClearSessionCookie(cookieConfig);
+        return { success: true };
+      })
       // -------------------------------------------------------------------------
       // OIDC discovery (minimal)
       // -------------------------------------------------------------------------

@@ -351,8 +351,8 @@ Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenha
 - [x] C3-follow-up: Access token TTL cut from 1h → 5min; client `authFetch` silent-refreshes on 401 via the HttpOnly session cookie. Caps XSS blast radius on the remaining localStorage secret. See [[identity-model]]
 
 ### Phase 5 — Passkey-primary (Next)
-- [ ] S-H1 (session): Move in-memory `rotatedSessions` map to Redis so C2 reuse detection survives restart + scales across processes. Depends on: nothing.
-- [ ] Device/session listing + revocation UI (`GET /sessions`, `DELETE /sessions/:id`). Requires `sessions.user_agent`/`ip_hash` columns. Depends on: nothing.
+- [ ] S-H1 (session): Move in-memory `rotatedSessions` map to Redis so C2 reuse detection survives restart + scales across processes. Unblocked — session rows now carry device metadata so Redis-only rotation tracking has the full context it needs. Depends on: nothing.
+- [x] Device/session listing + revocation UI (`GET /sessions`, `DELETE /sessions/:id`, `POST /sessions/revoke-others`). Ships `sessions.user_agent` / `ip_hash` / `last_seen_at` / `created_ip_hash` / `device_label` columns, `SessionService`, `createSessionsClient`, `<SessionList />`, and removes the `/token` + `/logout` body-parameter fallbacks (fearless breaking change). See [[sessions]].
 - [ ] M-PK: Switch to passkey-primary login, demote OTP/magic-link to recovery-only paths gated behind a recovery code. Depends on: M2 ✅
 
 ---

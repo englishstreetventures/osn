@@ -46,7 +46,6 @@ export interface ProfileToken {
 }
 
 export interface AccountSession {
-  refreshToken: string;
   activeProfileId: string;
   profileTokens: Record<string, ProfileToken>;
   scopes: string[];
@@ -72,8 +71,14 @@ const ProfileTokenSchema = Schema.Struct({
   expiresAt: Schema.Number,
 });
 
+/**
+ * Persisted shape of the account-scoped session. The refresh token is NOT
+ * stored on the client — it lives in the HttpOnly cookie only (Copenhagen
+ * Book C3). Old blobs carrying `refreshToken` fail schema validation and
+ * are purged by the service layer on the next load, which is the intended
+ * upgrade path (no explicit version bump needed).
+ */
 const AccountSessionSchema = Schema.Struct({
-  refreshToken: Schema.String,
   activeProfileId: Schema.String,
   profileTokens: Schema.Record({ key: Schema.String, value: ProfileTokenSchema }),
   scopes: Schema.Array(Schema.String),

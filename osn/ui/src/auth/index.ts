@@ -5,4 +5,5 @@ export { ProfileSwitcher } from "./ProfileSwitcher";
 export { RecoveryCodesView } from "./RecoveryCodesView";
 export { RecoveryLoginForm } from "./RecoveryLoginForm";
 export { Register } from "./Register";
+export { SessionList } from "./SessionList";
 export { SignIn } from "./SignIn";

@@ -149,6 +149,25 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     // let an operator correlate sessions across rotation events.
     "familyId",
     "family_id",
+    // --- Session device metadata (`sessions` columns + wire fields) ---
+    // `userAgent` + `ipHash` are populated on every `issueTokens` /
+    // `refreshTokens` and surfaced on the session list response. Low
+    // direct sensitivity but consistent with the rule "don't serialise
+    // session rows to logs". `deviceLabel` will carry user-chosen text
+    // once the rename flow lands. `createdIpHash` follows the same
+    // treatment as `ipHash`.
+    "userAgent",
+    "user_agent",
+    "ipHash",
+    "ip_hash",
+    "ipHashPrefix",
+    "ip_hash_prefix",
+    "deviceLabel",
+    "device_label",
+    "createdIpHash",
+    "created_ip_hash",
+    "createdIpHashPrefix",
+    "created_ip_hash_prefix",
     "email",
     "handle",
     "displayName",

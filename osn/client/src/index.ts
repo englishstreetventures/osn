@@ -7,5 +7,6 @@ export * from "./recommendations";
 export * from "./recovery";
 export * from "./register";
 export * from "./service";
+export * from "./sessions";
 export * from "./storage";
 export * from "./tokens";

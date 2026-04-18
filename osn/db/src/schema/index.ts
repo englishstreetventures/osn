@@ -208,10 +208,34 @@ export const sessions = sqliteTable(
     expiresAt: integer("expires_at").notNull(),
     /** Unix seconds */
     createdAt: integer("created_at").notNull(),
+    /**
+     * Device metadata (session management). Populated on issue + refresh so
+     * the user-facing session list can show where each session is active
+     * and the current device can be flagged.
+     *
+     * - `userAgent`: raw User-Agent header. Not normalised — the UI parses it
+     *   for display, but the raw string is what the server stores for fidelity.
+     * - `ipHash`: SHA-256 of `clientIp + OSN_IP_HASH_SALT`. Coarse fingerprint
+     *   — enough to say "same device as last week" without the PII / precision
+     *   of storing the raw IP. Salt rotates invalidate historic equality, which
+     *   is acceptable.
+     * - `deviceLabel`: user-set nickname (future). Null until the user renames.
+     * - `lastSeenAt`: unix seconds, updated on every `verifyRefreshToken`. The
+     *   session list sorts descending on this.
+     * - `createdIpHash`: same hash format as ipHash but pinned at session-create
+     *   time. Surfaced in the UI as "signed in from …" alongside the current
+     *   location to make session hijack more visible.
+     */
+    userAgent: text("user_agent"),
+    ipHash: text("ip_hash"),
+    deviceLabel: text("device_label"),
+    lastSeenAt: integer("last_seen_at").notNull(),
+    createdIpHash: text("created_ip_hash"),
   },
   (t) => [
     index("sessions_account_idx").on(t.accountId),
     index("sessions_family_idx").on(t.familyId),
+    index("sessions_last_seen_idx").on(t.lastSeenAt),
   ],
 );
 

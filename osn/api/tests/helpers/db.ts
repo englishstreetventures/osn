@@ -83,11 +83,17 @@ export function createTestLayer() {
       account_id TEXT NOT NULL REFERENCES accounts(id),
       family_id TEXT NOT NULL,
       expires_at INTEGER NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      user_agent TEXT,
+      ip_hash TEXT,
+      device_label TEXT,
+      last_seen_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      created_ip_hash TEXT
     )
   `);
   sqlite.run(`CREATE INDEX sessions_account_idx ON sessions (account_id)`);
   sqlite.run(`CREATE INDEX sessions_family_idx ON sessions (family_id)`);
+  sqlite.run(`CREATE INDEX sessions_last_seen_idx ON sessions (last_seen_at)`);
   sqlite.run(`
     CREATE TABLE recovery_codes (
       id TEXT PRIMARY KEY,

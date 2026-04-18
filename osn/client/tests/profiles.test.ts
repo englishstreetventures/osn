@@ -61,7 +61,10 @@ it.effect("getSession returns a Session reconstructed from the account session",
     yield* seedSession("usr_aaaaaaaaaaaa");
     const session = yield* auth.getSession();
     expect(session).not.toBeNull();
-    expect(session?.refreshToken).toBe("ref_account");
+    // C3: client never holds the refresh token for first-party flows — it
+    // lives in the HttpOnly cookie. `Session.refreshToken` is always null
+    // on the session rebuilt from storage.
+    expect(session?.refreshToken).toBeNull();
     expect(session?.scopes).toEqual(["openid", "profile"]);
   }).pipe(Effect.provide(createTestLayer())),
 );

@@ -31,7 +31,10 @@ function toSession(account: AccountSession): Session | null {
   if (!profileToken || Date.now() >= profileToken.expiresAt) return null;
   return {
     accessToken: profileToken.accessToken,
-    refreshToken: account.refreshToken,
+    // Refresh token lives in the HttpOnly cookie (C3) — first-party clients
+    // never hold it. The Session shape keeps the field for third-party
+    // consumers (PKCE authorization_code grant still returns one in-body).
+    refreshToken: null,
     idToken: account.idToken,
     expiresAt: profileToken.expiresAt,
     scopes: account.scopes,
@@ -42,7 +45,6 @@ function toSession(account: AccountSession): Session | null {
 function sessionToAccountSession(session: Session): AccountSession {
   const profileId = extractJwtSub(session.accessToken) ?? "default";
   return {
-    refreshToken: session.refreshToken ?? "",
     activeProfileId: profileId,
     profileTokens: {
       [profileId]: {
@@ -287,9 +289,9 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             return yield* Effect.fail(new TokenRefreshError({ cause: "No session available" }));
           }
 
-          // C3: session token is in the HttpOnly cookie; send credentials: include.
-          // The grant_type=refresh_token body param is sent for backwards compat
-          // but the server prefers the cookie.
+          // C3: session token is in the HttpOnly cookie; credentials: include
+          // carries it across. No body parameter — the server-side /token
+          // refresh_token grant is cookie-only.
           const raw = yield* Effect.tryPromise({
             try: () =>
               fetch(`${config.issuerUrl}/token`, {
@@ -314,7 +316,6 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             accessToken: next.accessToken,
             expiresAt: next.expiresAt,
           };
-          if (next.refreshToken) account.refreshToken = next.refreshToken;
           account.scopes = next.scopes;
           account.idToken = next.idToken;
 
@@ -463,7 +464,9 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
 
           const session: Session = {
             accessToken: res.access_token,
-            refreshToken: account.refreshToken,
+            // C3: refresh token lives in the HttpOnly cookie; not held by
+            // the client. Switching profile reuses the same session cookie.
+            refreshToken: null,
             idToken: account.idToken,
             expiresAt,
             scopes: account.scopes,
