@@ -1,8 +1,11 @@
 import { it, expect, describe } from "@effect/vitest";
+import { sessions } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
+import { eq } from "drizzle-orm";
 import { Effect, Logger, LogLevel } from "effect";
 import { beforeAll } from "vitest";
 
-import { createAuthService } from "../../src/services/auth";
+import { createAuthService, hashSessionToken } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
 
@@ -631,6 +634,84 @@ describe("token refresh", () => {
     Effect.gen(function* () {
       const error = yield* Effect.flip(auth.refreshTokens("not.a.token"));
       expect(error._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // T-U1: createdIpHash must stay pinned across rotation so the session
+  // list can surface "signed in from X" independent of the current IP.
+  it.effect(
+    "refreshTokens preserves createdIpHash across rotation; ipHash tracks the current call",
+    () =>
+      Effect.gen(function* () {
+        const profile = yield* auth.registerProfile("rotate-ip@example.com", "rotateip");
+        const first = yield* auth.issueTokens(
+          profile.id,
+          profile.accountId,
+          profile.email,
+          profile.handle,
+          profile.displayName,
+          undefined,
+          { userAgent: "iphone", ipHash: "a".repeat(64) },
+        );
+
+        // Rotate with a *different* ipHash, simulating a new network for the
+        // same device. createdIpHash must not change; ipHash tracks the new call.
+        const second = yield* auth.refreshTokens(first.refreshToken, {
+          userAgent: "iphone",
+          ipHash: "b".repeat(64),
+        });
+
+        const { db } = yield* Db;
+        const rows = yield* Effect.tryPromise(() =>
+          db
+            .select()
+            .from(sessions)
+            .where(eq(sessions.id, hashSessionToken(second.refreshToken))),
+        );
+        const row = rows[0]!;
+        expect(row.createdIpHash).toBe("a".repeat(64));
+        expect(row.ipHash).toBe("b".repeat(64));
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // T-U2: verifyRefreshToken must bump lastSeenAt on every refresh —
+  // the sliding-expiry extension is orthogonal. Separating the two fields
+  // prevents the session-list ordering from collapsing to "last rotated".
+  it.effect("refreshTokens advances lastSeenAt on the rotated row", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("seenat@example.com", "seenat");
+      const first = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+
+      const { db } = yield* Db;
+      // Backdate the pre-refresh row to 1 hour ago — deterministic way to
+      // assert strict "post > pre" without wall-clock sleep.
+      const backdate = Math.floor(Date.now() / 1000) - 3600;
+      yield* Effect.tryPromise(() =>
+        db
+          .update(sessions)
+          .set({ lastSeenAt: backdate })
+          .where(eq(sessions.id, hashSessionToken(first.refreshToken))),
+      );
+
+      const second = yield* auth.refreshTokens(first.refreshToken);
+
+      const postRows = yield* Effect.tryPromise(() =>
+        db
+          .select()
+          .from(sessions)
+          .where(eq(sessions.id, hashSessionToken(second.refreshToken))),
+      );
+      const postSeen = postRows[0]!.lastSeenAt;
+      // The rotated row's last_seen_at reflects the wall clock at refresh
+      // time, not the backdated pre-row value. Locks the "every refresh
+      // bumps last_seen_at" contract the session-list ordering depends on.
+      expect(postSeen).toBeGreaterThan(backdate);
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

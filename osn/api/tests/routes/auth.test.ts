@@ -1741,4 +1741,225 @@ describe("auth routes", () => {
       expect(res.status).toBe(429);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // T-R1: /token grant_type=refresh_token — cookie-only contract
+  //
+  // The body-parameter fallback was removed. These tests pin that the cookie
+  // is required, that a rotated cookie is set on success, and that the body
+  // parameter is genuinely ignored (regression guard for the removal).
+  // -------------------------------------------------------------------------
+  describe("POST /token — refresh_token grant (cookie-only)", () => {
+    async function seedSession() {
+      const auth = createAuthService(config);
+      const profile = await Effect.runPromise(
+        auth
+          .registerProfile("refresh-cookie@example.com", "refreshcookie")
+          .pipe(Effect.provide(layer)),
+      );
+      const tokens = await Effect.runPromise(
+        auth
+          .issueTokens(
+            profile.id,
+            profile.accountId,
+            profile.email,
+            profile.handle,
+            profile.displayName,
+          )
+          .pipe(Effect.provide(layer)),
+      );
+      return tokens.refreshToken;
+    }
+
+    it("refreshes successfully when the session token is in the cookie", async () => {
+      const sessionToken = await seedSession();
+      const res = await app.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `osn_session=${sessionToken}`,
+          },
+          body: JSON.stringify({ grant_type: "refresh_token" }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as {
+        access_token: string;
+        token_type: string;
+        expires_in: number;
+      };
+      expect(json.access_token).toBeTruthy();
+      expect(json.token_type).toBe("Bearer");
+      // The rotated session token ships back via Set-Cookie (C3 + C2).
+      const setCookie = res.headers.get("set-cookie");
+      expect(setCookie).toContain("osn_session=");
+      expect(setCookie).toContain("HttpOnly");
+    });
+
+    it("returns 400 when neither cookie nor body is present", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ grant_type: "refresh_token" }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe("invalid_request");
+    });
+
+    it("ignores refresh_token in body when no cookie is present (body fallback is gone)", async () => {
+      const sessionToken = await seedSession();
+      // refresh_token is in the body but NO cookie — the pre-refactor code
+      // would have accepted this. The post-refactor contract rejects it.
+      const res = await app.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            grant_type: "refresh_token",
+            refresh_token: sessionToken,
+          }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe("invalid_request");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // T-R2: /logout — cookie-only contract + always-clear invariant
+  //
+  // Three cases: (1) valid cookie invalidates the session; (2) missing cookie
+  // still clears client state and returns success; (3) unknown cookie still
+  // succeeds (the invalidate failure is swallowed so we don't leak whether
+  // the session existed).
+  // -------------------------------------------------------------------------
+  describe("POST /logout", () => {
+    async function seedSession() {
+      const auth = createAuthService(config);
+      const profile = await Effect.runPromise(
+        auth.registerProfile("logout-test@example.com", "logouttest").pipe(Effect.provide(layer)),
+      );
+      const tokens = await Effect.runPromise(
+        auth
+          .issueTokens(
+            profile.id,
+            profile.accountId,
+            profile.email,
+            profile.handle,
+            profile.displayName,
+          )
+          .pipe(Effect.provide(layer)),
+      );
+      return { auth, refreshToken: tokens.refreshToken };
+    }
+
+    it("invalidates the session and clears the cookie when a valid cookie is presented", async () => {
+      const { auth, refreshToken } = await seedSession();
+      const res = await app.handle(
+        new Request("http://localhost/logout", {
+          method: "POST",
+          headers: { cookie: `osn_session=${refreshToken}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { success: boolean }).toEqual({ success: true });
+      const setCookie = res.headers.get("set-cookie");
+      expect(setCookie).toContain("osn_session=");
+      expect(setCookie).toContain("Max-Age=0");
+
+      // The session is gone — a subsequent refresh must fail.
+      const refreshAttempt = await Effect.runPromise(
+        Effect.either(auth.refreshTokens(refreshToken)).pipe(Effect.provide(layer)),
+      );
+      expect(refreshAttempt._tag).toBe("Left");
+    });
+
+    it("still returns success + clear-cookie when no cookie is presented", async () => {
+      const res = await app.handle(new Request("http://localhost/logout", { method: "POST" }));
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { success: boolean }).toEqual({ success: true });
+      // Client-side cookie clearing always fires — needed so a stale Set-Cookie
+      // on the client doesn't survive an erroneous logout trigger.
+      const setCookie = res.headers.get("set-cookie");
+      expect(setCookie).toContain("osn_session=");
+      expect(setCookie).toContain("Max-Age=0");
+    });
+
+    it("swallows the invalidate failure for an unknown cookie and still succeeds", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/logout", {
+          method: "POST",
+          headers: { cookie: "osn_session=ses_deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" },
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { success: boolean }).toEqual({ success: true });
+      // Clear-cookie still emitted — we don't leak session-existed-or-not via
+      // response shape differences.
+      expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // T-S1: end-to-end coverage — login-route headers → session row metadata
+  //
+  // Proves that `resolveSessionContext(headers)` is plumbed through the
+  // direct-session login completers. Drives /login/otp/complete with a real
+  // User-Agent + x-forwarded-for pair and reads the row back via
+  // SessionService. If a future refactor forgets to thread the context
+  // through a specific login path, the session list for that auth method
+  // silently loses device metadata — this is the canary.
+  // -------------------------------------------------------------------------
+  describe("resolveSessionContext is threaded end-to-end", () => {
+    it("/login/otp/complete → sessions row carries User-Agent + ip_hash", async () => {
+      let capturedOtp: string | undefined;
+      const captureConfig = {
+        ...config,
+        sendEmail: async (_to: string, _subject: string, body: string) => {
+          const m = body.match(/\b(\d{6})\b/);
+          if (m) capturedOtp = m[1];
+        },
+      };
+      const captureApp = createAuthRoutes(captureConfig, layer);
+      const authHelper = createAuthService(captureConfig);
+      await Effect.runPromise(
+        authHelper.registerProfile("ctx-e2e@example.com", "ctxe2e").pipe(Effect.provide(layer)),
+      );
+      await Effect.runPromise(
+        authHelper.beginOtp("ctx-e2e@example.com").pipe(Effect.provide(layer)),
+      );
+
+      const completeRes = await captureApp.handle(
+        new Request("http://localhost/login/otp/complete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "IntegrationTest/1.0",
+            "x-forwarded-for": "203.0.113.5",
+          },
+          body: JSON.stringify({ identifier: "ctx-e2e@example.com", code: capturedOtp }),
+        }),
+      );
+      expect(completeRes.status).toBe(200);
+
+      // Read the resulting row via the session service against the same
+      // layer — that's the production read path.
+      const { createSessionService } = await import("../../src/services/session");
+      const svc = createSessionService(authHelper);
+      const profile = await Effect.runPromise(
+        authHelper.findProfileByEmail("ctx-e2e@example.com").pipe(Effect.provide(layer)),
+      );
+      expect(profile).not.toBeNull();
+      const list = await Effect.runPromise(
+        svc.listSessions(profile!.accountId, null).pipe(Effect.provide(layer)),
+      );
+      const row = list.sessions.find((s) => s.user_agent === "IntegrationTest/1.0");
+      expect(row).toBeDefined();
+      expect(row!.ip_hash_prefix).not.toBeNull();
+      expect(row!.ip_hash_prefix).toHaveLength(12);
+    });
+  });
 });

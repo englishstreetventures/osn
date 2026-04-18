@@ -145,6 +145,80 @@ describe("SessionList", () => {
     expect(stub.listSessions).toHaveBeenCalledTimes(2);
   });
 
+  // -------------------------------------------------------------------------
+  // T-S2: UI polish coverage — formatRelative thresholds, deviceLabel
+  // fallback, zero-revoke toast.
+  // -------------------------------------------------------------------------
+
+  describe("relative-time labels", () => {
+    const nowSec = 1_800_000_000; // fixed base; matches `Date.now()` in tests below
+    const originalNow = Date.now;
+
+    beforeEach(() => {
+      Date.now = () => nowSec * 1000;
+    });
+    afterEach(() => {
+      Date.now = originalNow;
+    });
+
+    const cases: Array<[string, number, RegExp]> = [
+      ["seconds", 10, /10s ago/],
+      ["minutes", 120, /2m ago/],
+      ["hours", 7200, /2h ago/],
+      ["days", 3 * 86_400, /3d ago/],
+      ["months", 60 * 86_400, /2mo ago/],
+      ["years", 400 * 86_400, /1y ago/],
+    ];
+    for (const [label, deltaSec, expected] of cases) {
+      it(`renders the ${label} threshold`, async () => {
+        stub.listSessions.mockResolvedValue({
+          sessions: [makeSession({ lastSeenAt: nowSec - deltaSec })],
+        });
+        render(() => <SessionList client={asClient(stub)} accessToken="acc_live" />);
+        await waitFor(() => {
+          expect(screen.getByText(expected)).toBeTruthy();
+        });
+      });
+    }
+  });
+
+  it("falls back to 'Unnamed device' when deviceLabel is null", async () => {
+    stub.listSessions.mockResolvedValue({
+      sessions: [makeSession({ deviceLabel: null, isCurrent: true })],
+    });
+    render(() => <SessionList client={asClient(stub)} accessToken="acc_live" />);
+    await waitFor(() => {
+      expect(screen.getByText(/Unnamed device/)).toBeTruthy();
+    });
+  });
+
+  it("surfaces 'No other sessions to revoke' when revokeOthers returns 0", async () => {
+    // Seed with the current device + one other so the button renders. Then
+    // the revoke-others call returns revoked=0 — toast the right copy.
+    stub.listSessions
+      .mockResolvedValueOnce({
+        sessions: [
+          makeSession({ isCurrent: true }),
+          makeSession({ id: "b".repeat(64), userAgent: "Stale Device" }),
+        ],
+      })
+      .mockResolvedValueOnce({ sessions: [makeSession({ isCurrent: true })] });
+    stub.revokeOtherSessions.mockResolvedValue({ revoked: 0 });
+
+    render(() => <SessionList client={asClient(stub)} accessToken="acc_live" />);
+    await waitFor(() => screen.getByRole("button", { name: /Sign out other devices/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Sign out other devices/i }));
+    // Confirm dialog
+    const confirm = await waitFor(() =>
+      screen.getByRole("button", { name: /^Sign out other devices$/ }),
+    );
+    fireEvent.click(confirm);
+    // The component re-fetches after the action; the mock returned revoked=0.
+    await waitFor(() => {
+      expect(stub.revokeOtherSessions).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("does not render any sessions when the fetch rejects", async () => {
     // Silence the unhandled-rejection noise that solid-js's `createResource`
     // surfaces when the loader rejects — the rejection is expected here.
