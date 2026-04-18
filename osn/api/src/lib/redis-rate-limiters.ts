@@ -19,6 +19,7 @@ import type { AuthRateLimiters } from "../routes/auth";
 import type { ProfileRateLimiters } from "../routes/profile";
 
 const ONE_MINUTE_MS = 60_000;
+const ONE_HOUR_MS = 3_600_000;
 
 /**
  * Build all 13 auth rate limiters backed by a shared Redis client.
@@ -43,6 +44,16 @@ export function createRedisAuthRateLimiters(client: RedisClient): AuthRateLimite
     passkeyRegisterComplete: rl("auth:passkey_register_complete", 10),
     profileSwitch: rl("auth:profile_switch", 10),
     profileList: rl("auth:profile_list", 10),
+    recoveryGenerate: createRedisRateLimiter(client, {
+      namespace: "auth:recovery_generate",
+      maxRequests: 1,
+      windowMs: 24 * ONE_HOUR_MS,
+    }),
+    recoveryComplete: createRedisRateLimiter(client, {
+      namespace: "auth:recovery_complete",
+      maxRequests: 5,
+      windowMs: ONE_HOUR_MS,
+    }),
   };
 }
 

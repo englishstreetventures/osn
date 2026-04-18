@@ -436,7 +436,7 @@ describe("auth routes", () => {
       expect(json.access_token).toBeTruthy();
       expect(json.refresh_token).toBeTruthy();
       expect(json.token_type).toBe("Bearer");
-      expect(json.expires_in).toBe(3600);
+      expect(json.expires_in).toBe(300);
     });
   });
 
@@ -1521,7 +1521,7 @@ describe("auth routes", () => {
         profile: { id: string; handle: string };
       };
       expect(json.access_token).toBeTruthy();
-      expect(json.expires_in).toBe(3600);
+      expect(json.expires_in).toBe(300);
       expect(json.profile.handle).toBe("switchrt");
     });
 
@@ -1567,6 +1567,175 @@ describe("auth routes", () => {
           body: JSON.stringify({
             profile_id: "usr_aabbccddeeff",
           }),
+        }),
+      );
+      expect(res.status).toBe(429);
+    });
+  });
+
+  describe("recovery codes (Copenhagen Book M2)", () => {
+    async function registerForRecovery(): Promise<{
+      accessToken: string;
+      email: string;
+      identifier: string;
+    }> {
+      let captured: string | undefined;
+      const verifiedConfig = {
+        ...config,
+        sendEmail: async (_to: string, _subject: string, body: string) => {
+          const m = body.match(/code is: (\d{6})/);
+          if (m) captured = m[1];
+        },
+      };
+      const verifiedApp = createAuthRoutes(verifiedConfig, layer);
+      await verifiedApp.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: "recovery-user@example.com",
+            handle: "recoveryuser",
+            displayName: "Recovery User",
+          }),
+        }),
+      );
+      const completeRes = await verifiedApp.handle(
+        new Request("http://localhost/register/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "recovery-user@example.com", code: captured }),
+        }),
+      );
+      const json = (await completeRes.json()) as {
+        session: { access_token: string };
+      };
+      return {
+        accessToken: json.session.access_token,
+        email: "recovery-user@example.com",
+        identifier: "recoveryuser",
+      };
+    }
+
+    it("POST /recovery/generate returns 10 codes with the expected shape", async () => {
+      const { accessToken } = await registerForRecovery();
+      const res = await app.handle(
+        new Request("http://localhost/recovery/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: "{}",
+        }),
+      );
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { recoveryCodes: string[] };
+      expect(json.recoveryCodes).toHaveLength(10);
+      for (const c of json.recoveryCodes) {
+        expect(c).toMatch(/^[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}$/);
+      }
+    });
+
+    it("POST /recovery/generate without an access token returns 401", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/recovery/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        }),
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it("POST /login/recovery/complete returns a session cookie on success", async () => {
+      const { accessToken, email } = await registerForRecovery();
+      const genRes = await app.handle(
+        new Request("http://localhost/recovery/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: "{}",
+        }),
+      );
+      const { recoveryCodes: codes } = (await genRes.json()) as { recoveryCodes: string[] };
+
+      const loginRes = await app.handle(
+        new Request("http://localhost/login/recovery/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier: email, code: codes[0] }),
+        }),
+      );
+      expect(loginRes.status).toBe(200);
+      const loginJson = (await loginRes.json()) as {
+        session: { access_token: string };
+        profile: { handle: string };
+      };
+      expect(loginJson.session.access_token).toBeTruthy();
+      expect(loginJson.profile.handle).toBe("recoveryuser");
+      expect(loginRes.headers.get("set-cookie")).toContain("osn_session=");
+    });
+
+    it("POST /login/recovery/complete rejects a reused code", async () => {
+      const { accessToken, email } = await registerForRecovery();
+      const genRes = await app.handle(
+        new Request("http://localhost/recovery/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: "{}",
+        }),
+      );
+      const { recoveryCodes: codes } = (await genRes.json()) as { recoveryCodes: string[] };
+
+      await app.handle(
+        new Request("http://localhost/login/recovery/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier: email, code: codes[0] }),
+        }),
+      );
+      const replay = await app.handle(
+        new Request("http://localhost/login/recovery/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier: email, code: codes[0] }),
+        }),
+      );
+      expect(replay.status).toBe(400);
+    });
+
+    it("rate limits recovery generate requests", async () => {
+      const denyAll: RateLimiterBackend = { check: () => false };
+      const limiters = { ...createDefaultAuthRateLimiters(), recoveryGenerate: denyAll };
+      const freshApp = createAuthRoutes(config, layer, Layer.empty, limiters);
+      const res = await freshApp.handle(
+        new Request("http://localhost/recovery/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-for": "10.10.10.10",
+            Authorization: "Bearer any",
+          },
+          body: "{}",
+        }),
+      );
+      expect(res.status).toBe(429);
+    });
+
+    it("rate limits recovery login requests", async () => {
+      const denyAll: RateLimiterBackend = { check: () => false };
+      const limiters = { ...createDefaultAuthRateLimiters(), recoveryComplete: denyAll };
+      const freshApp = createAuthRoutes(config, layer, Layer.empty, limiters);
+      const res = await freshApp.handle(
+        new Request("http://localhost/login/recovery/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-forwarded-for": "10.10.10.10" },
+          body: JSON.stringify({ identifier: "x@y.com", code: "aaaa-bbbb-cccc-dddd" }),
         }),
       );
       expect(res.status).toBe(429);

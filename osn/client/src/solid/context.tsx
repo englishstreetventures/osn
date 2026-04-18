@@ -29,6 +29,13 @@ interface AuthContextValue {
   switchProfile: (profileId: string) => Promise<{ session: Session; profile: PublicProfile }>;
   createProfile: (handle: string, displayName?: string) => Promise<PublicProfile>;
   deleteProfile: (profileId: string) => Promise<void>;
+  /**
+   * Access-token-aware fetch with silent refresh on 401. Mirrors
+   * `OsnAuthService.authFetch`, wrapped for Promise-returning Solid
+   * consumers. Throws on `AuthExpiredError` so callers can redirect to
+   * sign-in.
+   */
+  authFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 }
 
 export const AuthContext = createContext<AuthContextValue>();
@@ -131,6 +138,9 @@ export function AuthProvider(props: AuthProviderProps) {
     await refetchProfiles();
   };
 
+  const authFetch = (input: RequestInfo | URL, init?: RequestInit) =>
+    run(Effect.flatMap(OsnAuth, (auth) => auth.authFetch(input, init)));
+
   return (
     <AuthContext.Provider
       value={{
@@ -144,6 +154,7 @@ export function AuthProvider(props: AuthProviderProps) {
         switchProfile,
         createProfile,
         deleteProfile,
+        authFetch,
       }}
     >
       {props.children}

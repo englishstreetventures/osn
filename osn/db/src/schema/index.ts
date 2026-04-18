@@ -219,6 +219,36 @@ export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 
 // ---------------------------------------------------------------------------
+// Recovery codes (Copenhagen Book M2)
+//
+// Single-use account-recovery tokens. Only the SHA-256 hash of the code is
+// stored; the raw codes are shown to the user exactly once at generation
+// time. Regenerating wipes the previous set (see service.generateRecoveryCodes).
+// A successful `consume` revokes all active sessions (the recovery ceremony
+// establishes a fresh session anyway).
+// ---------------------------------------------------------------------------
+
+export const recoveryCodes = sqliteTable(
+  "recovery_codes",
+  {
+    id: text("id").primaryKey(), // "rec_" prefix
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    /** SHA-256(normalised raw code), hex-encoded */
+    codeHash: text("code_hash").notNull().unique(),
+    /** Unix seconds. Set when the code is consumed; remains for audit purposes. */
+    usedAt: integer("used_at"),
+    /** Unix seconds. */
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("recovery_codes_account_idx").on(t.accountId)],
+);
+
+export type RecoveryCode = typeof recoveryCodes.$inferSelect;
+export type NewRecoveryCode = typeof recoveryCodes.$inferInsert;
+
+// ---------------------------------------------------------------------------
 // Organisations
 // ---------------------------------------------------------------------------
 

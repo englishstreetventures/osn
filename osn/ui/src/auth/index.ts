@@ -2,5 +2,7 @@ export { CreateProfileForm } from "./CreateProfileForm";
 export { MagicLinkHandler } from "./MagicLinkHandler";
 export { ProfileOnboarding } from "./ProfileOnboarding";
 export { ProfileSwitcher } from "./ProfileSwitcher";
+export { RecoveryCodesView } from "./RecoveryCodesView";
+export { RecoveryLoginForm } from "./RecoveryLoginForm";
 export { Register } from "./Register";
 export { SignIn } from "./SignIn";

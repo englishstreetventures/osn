@@ -4,6 +4,7 @@ export * from "./login";
 export * from "./organisations";
 export * from "./pkce";
 export * from "./recommendations";
+export * from "./recovery";
 export * from "./register";
 export * from "./service";
 export * from "./storage";

@@ -87,7 +87,10 @@ const authConfig = {
   jwtPublicKey,
   jwtKid,
   jwtPublicKeyJwk,
-  accessTokenTtl: Number(process.env.OSN_ACCESS_TOKEN_TTL) || 3600,
+  // 5 min default — short TTL caps XSS blast radius on the access token.
+  // Refresh token is in an HttpOnly cookie (C3) so silent refresh on 401
+  // is transparent to the user.
+  accessTokenTtl: Number(process.env.OSN_ACCESS_TOKEN_TTL) || 300,
   refreshTokenTtl: Number(process.env.OSN_REFRESH_TOKEN_TTL) || 2592000,
 };
 

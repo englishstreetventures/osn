@@ -1,8 +1,13 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import { accounts, sessions, users, passkeys } from "@osn/db/schema";
+import { accounts, recoveryCodes, sessions, users, passkeys } from "@osn/db/schema";
 import type { Profile } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import {
+  generateRecoveryCodes as cryptoGenerateRecoveryCodes,
+  hashRecoveryCode,
+  RECOVERY_CODE_COUNT,
+} from "@shared/crypto";
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -24,10 +29,13 @@ import {
   metricAuthHandleCheck,
   metricAuthMagicLinkSent,
   metricAuthOtpSent,
+  metricRecoveryCodeConsumed,
+  metricRecoveryCodesGenerated,
   metricSessionReuseDetected,
   metricSessionFamilyRevoked,
   metricSessionSecurityInvalidation,
   withAuthLogin,
+  withAuthRecovery,
   withAuthRegister,
   withAuthTokenRefresh,
   withSessionRotation,
@@ -71,7 +79,14 @@ export interface AuthConfig {
   jwtKid: string;
   /** Public key as JWK object — served at /.well-known/jwks.json */
   jwtPublicKeyJwk: Record<string, unknown>;
-  /** Access token TTL in seconds (default: 3600) */
+  /**
+   * Access token TTL in seconds. Default: 300 (5 minutes).
+   *
+   * Short TTL caps the XSS blast radius on the access token — the one
+   * auth secret that still lives in localStorage after C3. The refresh
+   * token is in an HttpOnly cookie so transparent silent-refresh works
+   * without the user noticing the rotation.
+   */
   accessTokenTtl?: number;
   /** Refresh token TTL in seconds (default: 2592000 = 30 days) */
   refreshTokenTtl?: number;
@@ -344,7 +359,7 @@ const RESERVED_HANDLES = new Set([
 // ---------------------------------------------------------------------------
 
 export function createAuthService(config: AuthConfig) {
-  const accessTokenTtl = config.accessTokenTtl ?? 3600;
+  const accessTokenTtl = config.accessTokenTtl ?? 300;
   const refreshTokenTtl = config.refreshTokenTtl ?? 2592000;
   const otpTtl = config.otpTtl ?? 600;
   const magicTtl = config.magicTtl ?? 600;
@@ -1861,6 +1876,187 @@ export function createAuthService(config: AuthConfig) {
       metricSessionSecurityInvalidation("passkey_register");
     }).pipe(Effect.withSpan("auth.session.invalidate_other"));
 
+  // -------------------------------------------------------------------------
+  // Recovery codes (Copenhagen Book M2)
+  //
+  // Single-use, high-entropy account-recovery tokens. Raw codes are returned
+  // exactly once to the caller (the UI shows them and prompts the user to
+  // save them). The server stores only the SHA-256 hash.
+  //
+  // Generation replaces any existing set atomically — regenerating invalidates
+  // the old codes, which is the only way to revoke a leaked set.
+  //
+  // Consumption marks the matched row as used (kept for audit) and revokes
+  // all active sessions for the account. The recovery route then issues a
+  // fresh session for the caller, so the net effect is "log out everywhere
+  // else and log me back in here".
+  // -------------------------------------------------------------------------
+
+  const generateRecoveryCodesForAccount = (
+    accountId: string,
+  ): Effect.Effect<{ recoveryCodes: string[] }, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const codes = cryptoGenerateRecoveryCodes(RECOVERY_CODE_COUNT);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const rows = codes.map((code) => ({
+        id: genId("rec_"),
+        accountId,
+        codeHash: hashRecoveryCode(code),
+        usedAt: null,
+        createdAt: nowSec,
+      }));
+
+      yield* Effect.tryPromise({
+        try: () =>
+          db.transaction(async (tx) => {
+            await tx.delete(recoveryCodes).where(eq(recoveryCodes.accountId, accountId));
+            await tx.insert(recoveryCodes).values(rows);
+          }),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+
+      metricRecoveryCodesGenerated();
+      // S-L3 (symmetric): regenerating the set is a security-relevant event
+      // worth surfacing on the session-invalidation dashboard. It doesn't
+      // revoke sessions itself, but it does invalidate the previous code set
+      // — an out-of-band regen (XSS-triggered, S-M1) is exactly the pattern
+      // we want to notice.
+      metricSessionSecurityInvalidation("recovery_code_generate");
+      return { recoveryCodes: codes };
+    }).pipe(withAuthRecovery("generate"));
+
+  /**
+   * Consumes a recovery code — returns the profile to establish a fresh
+   * session against, and marks the code row as used. Invalidates every
+   * existing session for the account before the caller issues the new one.
+   *
+   * Always fails with the same generic AuthError on unknown identifier,
+   * unknown/used code, or expired lookups — does not distinguish between
+   * "wrong identifier" and "wrong code" over the wire.
+   *
+   * S-M2: both branches (unknown identifier vs known identifier + wrong code)
+   * execute the same work — identifier lookup, a `hashRecoveryCode` call, and
+   * an indexed SELECT against `recovery_codes` — so wall-clock latency does
+   * not reveal whether the identifier exists.
+   */
+  const consumeRecoveryCode = (
+    identifier: string,
+    code: string,
+  ): Effect.Effect<{ profile: ProfileWithEmail }, AuthError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const normalised = normaliseIdentifier(identifier);
+      const profile = yield* resolveIdentifier(normalised);
+      const { db } = yield* Db;
+
+      // Compute the hash up front regardless of profile existence so both
+      // branches pay the same SHA-256 cost (S-M2).
+      const codeHash = hashRecoveryCode(code);
+
+      if (!profile) {
+        // Equalise DB work on the unknown-identifier branch with a same-shape
+        // no-op lookup (predicate can never match since the accountId is an
+        // impossible sentinel). Indexed by `recovery_codes_account_idx`.
+        yield* Effect.tryPromise({
+          try: () =>
+            db
+              .select()
+              .from(recoveryCodes)
+              .where(
+                and(
+                  eq(recoveryCodes.accountId, "__nonexistent__"),
+                  eq(recoveryCodes.codeHash, codeHash),
+                ),
+              )
+              .limit(1),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        metricRecoveryCodeConsumed("invalid");
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+      }
+
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select()
+            .from(recoveryCodes)
+            .where(
+              and(
+                eq(recoveryCodes.accountId, profile.accountId),
+                eq(recoveryCodes.codeHash, codeHash),
+              ),
+            )
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const row = result[0];
+      if (!row) {
+        metricRecoveryCodeConsumed("invalid");
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+      }
+      if (row.usedAt !== null) {
+        metricRecoveryCodeConsumed("used");
+        yield* Effect.logWarning("Used recovery code replayed");
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+      }
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      yield* Effect.tryPromise({
+        try: () =>
+          db.transaction(async (tx) => {
+            await tx
+              .update(recoveryCodes)
+              .set({ usedAt: nowSec })
+              .where(eq(recoveryCodes.id, row.id));
+            // Recovery always revokes existing sessions — the ceremony is
+            // "I lost access, log me back in cleanly everywhere".
+            await tx.delete(sessions).where(eq(sessions.accountId, profile.accountId));
+          }),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+
+      metricRecoveryCodeConsumed("success");
+      // S-L3: whole-account session wipe is a security-relevant event — emit
+      // the canonical invalidation metric so the existing dashboard covers it.
+      metricSessionSecurityInvalidation("recovery_code_consume");
+      return { profile };
+    }).pipe(withAuthRecovery("consume"));
+
+  /**
+   * Completes a recovery-code login. Consumes the code, then issues a fresh
+   * session + profile in one step so the route can return the same shape as
+   * the other first-party `/login/*` completers.
+   */
+  const completeRecoveryLogin = (
+    identifier: string,
+    code: string,
+  ): Effect.Effect<{ session: TokenSet; profile: PublicProfile }, AuthError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { profile } = yield* consumeRecoveryCode(identifier, code);
+      const session = yield* issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      return { session, profile: toPublicProfile(profile, profile.email) };
+    }).pipe(withAuthLogin("recovery_code"));
+
+  /** Returns the count of unused recovery codes for the account. */
+  const countActiveRecoveryCodes = (
+    accountId: string,
+  ): Effect.Effect<{ active: number; total: number }, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () => db.select().from(recoveryCodes).where(eq(recoveryCodes.accountId, accountId)),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const active = rows.filter((r) => r.usedAt === null).length;
+      return { active, total: rows.length };
+    });
+
   return {
     findProfileByEmail,
     findProfileByHandle,
@@ -1895,6 +2091,10 @@ export function createAuthService(config: AuthConfig) {
     invalidateSession,
     invalidateAccountSessions,
     invalidateOtherAccountSessions,
+    generateRecoveryCodesForAccount,
+    consumeRecoveryCode,
+    completeRecoveryLogin,
+    countActiveRecoveryCodes,
   };
 }
 

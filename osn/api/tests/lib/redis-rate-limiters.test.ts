@@ -7,7 +7,7 @@ import {
 } from "../../src/lib/redis-rate-limiters";
 
 describe("createRedisAuthRateLimiters", () => {
-  it("returns all 13 rate limiter slots", () => {
+  it("returns all 15 rate limiter slots", () => {
     const client = createMemoryClient();
     const limiters = createRedisAuthRateLimiters(client);
 
@@ -25,12 +25,18 @@ describe("createRedisAuthRateLimiters", () => {
       "passkeyRegisterComplete",
       "profileSwitch",
       "profileList",
+      "recoveryGenerate",
+      "recoveryComplete",
     ] as const;
 
     for (const key of expectedKeys) {
       expect(limiters[key]).toBeDefined();
       expect(typeof limiters[key].check).toBe("function");
     }
+
+    // Catch additions to the bundle that aren't reflected in expectedKeys —
+    // a new slot without a matching entry here means the test is stale.
+    expect(Object.keys(limiters).sort()).toEqual([...expectedKeys].sort());
   });
 
   it("enforces begin-endpoint limits (5 req/min)", async () => {

@@ -15,6 +15,8 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 - [ ] Recommendations SQL aggregation + caching (P-W6/P-W7) — next step after the in-JS fan-out cap shipped in this PR — see [[social-graph]]
 - [ ] Factor shared `authGet/Post/Patch/Delete` helpers in `@osn/client` (P-I1)
 - [x] Auth Improvements Phase 1: Server-side sessions + refresh token rotation + session invalidation (C1/C2/H1)
+- [x] Auth Improvements Phase 4: Recovery codes (M2) + short access-token TTL (5 min) with client silent-refresh on 401 — see [[recovery-codes]]
+- [ ] Auth Improvements Phase 5: Redis-backed rotated-session store + session listing/revocation UI + passkey-primary login
 
 ---
 
@@ -194,7 +196,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-M13 — Photon geocoding sends keystrokes to third-party with no user notice — add consent UI or proxy
 - [ ] S-M14 — Pulse `REDIRECT_URI` falls back to `window.location.origin` — validate allowed redirect URIs server-side (see S-H3)
 - [ ] S-M19 — Legacy `/register` does not lowercase emails — add `lower(email)` unique index
-- [ ] S-M20 — Refresh tokens in `localStorage` — XSS = permanent account takeover. Swap to keychain/HttpOnly cookies
+- [x] S-M20 — Refresh tokens in `localStorage` — XSS = permanent account takeover. **Mitigated** by C3 (refresh tokens in HttpOnly cookie) + Phase 4 short access-token TTL (5 min) with `authFetch` silent-refresh. Access token remains in `localStorage` but blast radius is ≤5 min. See [[identity-model]]
 - [ ] S-M21 — `/register/begin` differential timing oracle on silent no-op branch
 - [ ] S-M34 — Rate limiter trusts `X-Forwarded-For` without reverse-proxy guarantee — see [[rate-limiting]]
 - [ ] S-M35 — Redirect URI allowlist matches origin only, not exact URI per RFC 9700 §4.1.3
@@ -251,6 +253,10 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-L3 (org) — TOCTOU gap in handle uniqueness check
 - [ ] S-L1 (social) — Access tokens in `localStorage` via `StorageLive` — XSS = token exfiltration. Inherited from `@osn/client`; revisit alongside S-M20 by moving to HttpOnly cookie BFF or `sessionStorage` with tight TTL — see [[identity-model]]
 - [ ] S-L4 (recs) — `mutualCount` discloses graph-inference signal; adversary with many test accounts can combine counts to deduce third-party connection sets. Consider bucketing (e.g. "10+") above a threshold — see [[social-graph]]
+- [ ] S-L1 (auth-fetch) — `OsnAuthService.authFetch` attaches `Authorization: Bearer` + `credentials: include` to any URL; no origin allowlist. Add `allowedOrigins` to `OsnAuthConfig` and skip header attachment off-list (defence-in-depth against mis-routed fetches / injected URLs) — see [[identity-model]]
+
+### Recovery / passkey-primary (Phase 5 prerequisites)
+- [ ] M-PK1 — Step-up auth for `POST /recovery/generate` (S-M1 full fix). Bearer access token alone is a weaker authenticator than the ceremony that minted the codes; an XSS-stolen token currently can still mint a new set (mitigated by 1/day rate limit + `recovery_code_generate` invalidation metric, not closed). Add a short-lived step-up token issued by a fresh passkey re-assertion (mirrors the enrollment-token pattern) and require it on `/recovery/generate`. Also surface out-of-band regeneration to the user (email/in-app banner) — see [[recovery-codes]]
 
 ---
 
@@ -288,6 +294,7 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [x] P-W3 (org) — Sequential queries in `removeMember` and `updateOrganisation` could be parallelised. **Fixed** — `callerMember`+`targetMember` in `removeMember` and `orgRows`+`memberRows` in `updateOrganisation` now use `Effect.all({ concurrency: 2 })`. `resolveOrg`+`resolveHandle` in the three member routes now run via `Promise.all`
 - [ ] P-W6 (recs) — No caching/pagination contract on `/recommendations/connections`. Every request re-runs the FOF pipeline. Add short-lived per-caller cache (5-15 min) and/or `generated_at` timestamp so clients can detect cached responses — see [[social-graph]]
 - [ ] P-W7 (recs) — FOF aggregation in JS after capping fan-out (current). Next step: push aggregation to SQL via `SELECT candidate_id, COUNT(*) FROM (...) GROUP BY candidate_id ORDER BY count DESC LIMIT ?`. Add compound indexes `connections(status, requester_id)` + `connections(status, addressee_id)` — see [[social-graph]]
+- [ ] P-W2 (auth-ttl) — 3600s → 300s access-token TTL raises `/token` write load ~12× per session (DELETE+INSERT on `sessions` each refresh). Single-flight refresh (shipped as S-H1 fix) caps concurrent multiplication but doesn't change the baseline. Before horizontal-scale promotion: (a) watch `osn.auth.token.refresh` rate, (b) consider window-based session rotation (only rotate the refresh-token row when `now - createdAt > rotateAfterMs`) so the common case becomes "issue new access token, leave sessions row untouched" while still preserving C2 reuse detection — see [[identity-model]]
 
 ### Info
 
@@ -302,6 +309,9 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [ ] P-I5 — Auth Dialog components always mounted in EventList (vs conditional `<Show>`) — negligible for two forms but revisit if dialogs grow heavier
 - [ ] P-I4 — `AuthProvider` reconstructs Effect `Layer` on every render — wrap with `createMemo`
 - [ ] P-I5 — `/graph/internal/connections` and `/close-friends` no `offset` parameter — see [[arc-tokens]]
+- [ ] P-I1 (recovery) — `countActiveRecoveryCodes` SELECTs full rows then filters in JS to compute count. Bounded to ~10 rows today so impact is nil, but the helper returns secret-bearing `code_hash` values over the wire just to take a length. Replace with `SELECT SUM(CASE WHEN used_at IS NULL THEN 1 ELSE 0 END) AS active, COUNT(*) AS total FROM recovery_codes WHERE account_id = ?` — see [[recovery-codes]]
+- [ ] P-I2 (recovery) — `consumeRecoveryCode` issues SELECT + separate transaction. Collapse into a single conditional update: `UPDATE recovery_codes SET used_at = ? WHERE id = ? AND code_hash = ? AND account_id = ? AND used_at IS NULL RETURNING id` — one atomic round-trip, single-use race-free on every backend — see [[recovery-codes]]
+- [ ] P-I3 (recovery) — `generateRecoveryCodesForAccount` computes `genId()` + `hashRecoveryCode()` synchronously for the whole batch before the DB transaction. Nil impact at `RECOVERY_CODE_COUNT = 10` with SHA-256; flag only as a precondition for any future switch to a memory-hard KDF — wrap the `rows.map(...)` in `Effect.sync` so the runtime can yield — see [[recovery-codes]]
 - [ ] P-I5b — `completePasskeyLogin` calls `findProfileByEmail` redundantly — `pk.userId` already on passkey row
 - [ ] P-I10 — `beginPasskeyRegistration` fetches all passkeys without `LIMIT` — add `maxPasskeys` cap at registration time — see [[identity-model]]
 - [ ] P-I6 — Duplicate index on `users.email` — `unique()` already creates one implicitly in SQLite
@@ -335,9 +345,15 @@ Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenha
 - [ ] H4: Migrate `@zap/api` from shared-secret JWT verification to JWKS-based (align with Pulse) — see [[arc-tokens]]
 
 ### Phase 4 — Hardening (Medium)
-- [ ] M2: Recovery codes for passkey-primary users (40+ bits entropy, Argon2id hashed) — see [[identity-model]]
+- [x] M2: Recovery codes — 10 × 64-bit single-use codes, SHA-256 hashed at rest, revoke-all-sessions on consume. See [[recovery-codes]] + [[identity-model]]
 - [ ] M3: Email max length validation (≤255 chars) in `EmailSchema`
 - [ ] M5: Increase registration OTP from 6-digit to 8-digit (or 6-char alphanumeric)
+- [x] C3-follow-up: Access token TTL cut from 1h → 5min; client `authFetch` silent-refreshes on 401 via the HttpOnly session cookie. Caps XSS blast radius on the remaining localStorage secret. See [[identity-model]]
+
+### Phase 5 — Passkey-primary (Next)
+- [ ] S-H1 (session): Move in-memory `rotatedSessions` map to Redis so C2 reuse detection survives restart + scales across processes. Depends on: nothing.
+- [ ] Device/session listing + revocation UI (`GET /sessions`, `DELETE /sessions/:id`). Requires `sessions.user_agent`/`ip_hash` columns. Depends on: nothing.
+- [ ] M-PK: Switch to passkey-primary login, demote OTP/magic-link to recovery-only paths gated behind a recovery code. Depends on: M2 ✅
 
 ---
 

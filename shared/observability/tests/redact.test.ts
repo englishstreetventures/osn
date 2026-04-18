@@ -45,6 +45,26 @@ describe("redact", () => {
     expect(out.headers.authorization).toBe(REDACTION_PLACEHOLDER);
   });
 
+  it("redacts recovery codes (Copenhagen Book M2) in both camelCase and snake_case", () => {
+    const input = {
+      accountId: "acc_123",
+      recoveryCode: "abcd-1234-5678-ef00",
+      recovery_code: "abcd-1234-5678-ef00",
+      recoveryCodes: ["abcd-1234-5678-ef00"],
+      recovery_codes: ["abcd-1234-5678-ef00"],
+      codeHash: "ab".repeat(32),
+      code_hash: "ab".repeat(32),
+    };
+    const out = redact(input) as Record<string, unknown>;
+    expect(out.accountId).toBe(REDACTION_PLACEHOLDER);
+    expect(out.recoveryCode).toBe(REDACTION_PLACEHOLDER);
+    expect(out.recovery_code).toBe(REDACTION_PLACEHOLDER);
+    expect(out.recoveryCodes).toBe(REDACTION_PLACEHOLDER);
+    expect(out.recovery_codes).toBe(REDACTION_PLACEHOLDER);
+    expect(out.codeHash).toBe(REDACTION_PLACEHOLDER);
+    expect(out.code_hash).toBe(REDACTION_PLACEHOLDER);
+  });
+
   it("redacts WebAuthn assertion bodies", () => {
     const input = {
       identifier: "u_123",
@@ -279,6 +299,12 @@ describe("redact", () => {
       "id_token",
       "enrollmenttoken",
       "enrollment_token",
+      "recoverycode",
+      "recovery_code",
+      "recoverycodes",
+      "recovery_codes",
+      "codehash",
+      "code_hash",
       "assertion",
       "privatekey",
       "private_key",

@@ -26,3 +26,12 @@ export {
 
 // ARC observability — metric name consts; emitted by the arc.ts module itself.
 export { ARC_METRICS } from "./arc-metrics";
+
+// Recovery codes — Copenhagen Book M2
+export {
+  RECOVERY_CODE_COUNT,
+  generateRecoveryCode,
+  generateRecoveryCodes,
+  hashRecoveryCode,
+  verifyRecoveryCode,
+} from "./recovery";

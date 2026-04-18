@@ -393,7 +393,7 @@ describe("issueTokens + exchangeCode", () => {
       );
       expect(tokens.accessToken).toBeTruthy();
       expect(tokens.refreshToken).toBeTruthy();
-      expect(tokens.expiresIn).toBe(3600);
+      expect(tokens.expiresIn).toBe(300);
 
       // Verify claims include handle and displayName
       const claims = yield* auth.verifyAccessToken(tokens.accessToken);
@@ -623,7 +623,7 @@ describe("token refresh", () => {
       );
       const refreshed = yield* auth.refreshTokens(tokens.refreshToken);
       expect(refreshed.accessToken).toBeTruthy();
-      expect(refreshed.expiresIn).toBe(3600);
+      expect(refreshed.expiresIn).toBe(300);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -1054,7 +1054,7 @@ describe("switchProfile (P2)", () => {
       // Switch to self (same profile) — should work fine
       const result = yield* auth.switchProfile(profile.accountId, profile.id);
       expect(result.accessToken).toBeTruthy();
-      expect(result.expiresIn).toBe(3600);
+      expect(result.expiresIn).toBe(300);
       expect(result.profile.id).toBe(profile.id);
       expect(result.profile.handle).toBe("switchme");
 

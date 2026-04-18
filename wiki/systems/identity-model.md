@@ -120,9 +120,12 @@ Organisations are independent entities that are **composed of profiles, not acco
 
 | Token | Bound to | Format | TTL | Purpose |
 |-------|----------|--------|-----|---------|
-| Access | Profile | ES256 JWT (`sub` = profileId) | 1 hour | Authorize API calls as a specific profile |
+| Access | Profile | ES256 JWT (`sub` = profileId) | **5 min** | Authorize API calls as a specific profile |
 | Session (refresh) | Account | Opaque `ses_` + 40 hex chars (160-bit entropy) | 30 days (sliding) | Re-issue access tokens; enables profile switching without re-authentication |
 | Enrollment | Account | ES256 JWT (`sub` = accountId) | 5 min | Passkey registration after signup |
+| Recovery code | Account | 16 hex chars `xxxx-xxxx-xxxx-xxxx` (64-bit entropy) | No expiry, single-use | Lost-device account recovery (Copenhagen Book M2) — see [[recovery-codes]] |
+
+Access tokens live in `localStorage` and are the only auth secret there after C3. A 5-minute TTL caps the XSS blast radius — the companion change is client `authFetch` silent-refresh on 401 via the HttpOnly refresh cookie. Third-party OAuth clients receive `expires_in: 300` in the `/token` response.
 
 ### Server-side sessions (Copenhagen Book C1)
 

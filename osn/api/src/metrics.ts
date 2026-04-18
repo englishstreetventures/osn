@@ -24,6 +24,8 @@ import type {
   OriginGuardRejectionReason,
   ProfileCrudAction,
   ProfileSwitchAction,
+  RecoveryCodeConsumeResult,
+  RecoveryCodeStep,
   RegisterStep,
   Result,
   SecurityInvalidationTrigger,
@@ -48,6 +50,9 @@ export const OSN_METRICS = {
   authSessionReuseDetected: "osn.auth.session.reuse_detected",
   authSessionFamilyRevoked: "osn.auth.session.family_revoked",
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
+  authRecoveryCodesGenerated: "osn.auth.recovery.codes_generated",
+  authRecoveryCodeConsumed: "osn.auth.recovery.code_consumed",
+  authRecoveryDuration: "osn.auth.recovery.duration",
   graphConnectionOps: "osn.graph.connection.operations",
   graphBlockOps: "osn.graph.block.operations",
   graphCloseFriendOps: "osn.graph.close_friend.operations",
@@ -480,6 +485,50 @@ export const metricSessionFamilyRevoked = (): void => authSessionFamilyRevoked.i
 
 export const metricSessionSecurityInvalidation = (trigger: SecurityInvalidationTrigger): void =>
   authSessionSecurityInvalidation.inc({ trigger });
+
+// ---------------------------------------------------------------------------
+// Recovery codes (Copenhagen Book M2)
+// ---------------------------------------------------------------------------
+
+type RecoveryConsumeAttrs = { result: RecoveryCodeConsumeResult };
+type RecoveryStepAttrs = { step: RecoveryCodeStep; result: Result };
+
+const authRecoveryCodesGenerated = createCounter<Record<never, never>>({
+  name: OSN_METRICS.authRecoveryCodesGenerated,
+  description: "Recovery code sets generated (each event = one 10-code batch)",
+  unit: "{set}",
+});
+
+const authRecoveryCodeConsumed = createCounter<RecoveryConsumeAttrs>({
+  name: OSN_METRICS.authRecoveryCodeConsumed,
+  description: "Recovery code consume attempts by outcome",
+  unit: "{attempt}",
+});
+
+const authRecoveryDuration = createHistogram<RecoveryStepAttrs>({
+  name: OSN_METRICS.authRecoveryDuration,
+  description: "Recovery code generate/consume duration by step",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
+export const metricRecoveryCodesGenerated = (): void => authRecoveryCodesGenerated.inc({});
+
+export const metricRecoveryCodeConsumed = (result: RecoveryCodeConsumeResult): void =>
+  authRecoveryCodeConsumed.inc({ result });
+
+export const withAuthRecovery =
+  (step: RecoveryCodeStep) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      measureSeconds((seconds, outcome) => {
+        authRecoveryDuration.record(seconds, {
+          step,
+          result: outcome === "ok" ? "ok" : "error",
+        });
+      }),
+      Effect.withSpan(`auth.recovery.${step}`),
+    );
 
 // ---------------------------------------------------------------------------
 // Origin guard (M1)

@@ -22,7 +22,13 @@ export type Result =
   | "conflict";
 
 /** Auth methods supported by OSN Core. */
-export type AuthMethod = "passkey" | "otp" | "magic_link" | "refresh" | "password";
+export type AuthMethod =
+  | "passkey"
+  | "otp"
+  | "magic_link"
+  | "recovery_code"
+  | "refresh"
+  | "password";
 
 /** Registration funnel steps. */
 export type RegisterStep = "begin" | "otp_verify" | "passkey_enroll" | "complete";
@@ -68,7 +74,17 @@ export type ProfileDeleteCascadeTable = "connections" | "close_friends" | "block
 export type JwksCacheResult = "hit" | "miss" | "refresh";
 
 /** Security events that trigger session invalidation (H1). */
-export type SecurityInvalidationTrigger = "passkey_register" | "email_change";
+export type SecurityInvalidationTrigger =
+  | "passkey_register"
+  | "email_change"
+  | "recovery_code_generate"
+  | "recovery_code_consume";
+
+/** Recovery code (Copenhagen Book M2) operation steps. */
+export type RecoveryCodeStep = "generate" | "consume";
+
+/** Recovery code consume outcomes. */
+export type RecoveryCodeConsumeResult = "success" | "invalid" | "used";
 
 /** Origin guard CSRF rejection reasons (M1). */
 export type OriginGuardRejectionReason = "missing" | "mismatch";
@@ -90,4 +106,6 @@ export type AuthRateLimitedEndpoint =
   | "profile_list"
   | "profile_create"
   | "profile_delete"
-  | "profile_set_default";
+  | "profile_set_default"
+  | "recovery_generate"
+  | "recovery_complete";

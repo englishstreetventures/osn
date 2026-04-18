@@ -27,6 +27,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[arc-tokens]] — S2S authentication protocol (ES256, scoped JWTs)
 - [[rate-limiting]] — per-IP fixed-window rate limiting on auth endpoints
 - [[identity-model]] — accounts, profiles (users), organisations, multi-account
+- [[recovery-codes]] — single-use account-recovery tokens (Copenhagen Book M2)
 - [[social-graph]] — connections, close friends, blocks
 - [[close-friends]] — one-way graph edge, RSVP visibility, UI treatment
 - [[event-access]] — loadVisibleEvent, public/private visibility gate

@@ -89,6 +89,16 @@ export function createTestLayer() {
   sqlite.run(`CREATE INDEX sessions_account_idx ON sessions (account_id)`);
   sqlite.run(`CREATE INDEX sessions_family_idx ON sessions (family_id)`);
   sqlite.run(`
+    CREATE TABLE recovery_codes (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      code_hash TEXT NOT NULL UNIQUE,
+      used_at INTEGER,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  sqlite.run(`CREATE INDEX recovery_codes_account_idx ON recovery_codes (account_id)`);
+  sqlite.run(`
     CREATE TABLE service_accounts (
       service_id TEXT PRIMARY KEY,
       allowed_scopes TEXT NOT NULL,

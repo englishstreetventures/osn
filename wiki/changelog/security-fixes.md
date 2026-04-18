@@ -86,6 +86,8 @@ Archived completed security findings from [[TODO]]. Finding IDs follow the [[rev
 - **S-M1 (multi)** — Missing email index after UNIQUE removal. Fixed: re-added `users_email_idx`.
 - **S-M2 (multi)** — `accountId` exposed in org `listMembers`. Fixed: stripped from projection.
 - **S-M2 (org)** — No `org:write` scope constant. Fixed: `_SCOPE_ORG_WRITE` added.
+- **Copenhagen Book M2** — Recovery codes: 10 × 64-bit single-use codes, SHA-256 hashed, tight rate limits (3/hr generate, 5/hr login), revoke-all-sessions on consume. See [[recovery-codes]].
+- **Access-token TTL reduction** (S-M20 mitigation + S-L1 (social)) — default cut from 3600s → 300s. Client `authFetch` silent-refreshes on 401 via the HttpOnly session cookie so UX is unchanged. XSS blast radius on the localStorage access token drops from ~1h to ≤5min. See [[identity-model]].
 
 ## Low
 

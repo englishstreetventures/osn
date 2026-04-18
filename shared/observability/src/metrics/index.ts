@@ -38,4 +38,6 @@ export {
   type JwksCacheResult,
   type SecurityInvalidationTrigger,
   type OriginGuardRejectionReason,
+  type RecoveryCodeStep,
+  type RecoveryCodeConsumeResult,
 } from "./attrs";

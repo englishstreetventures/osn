@@ -106,6 +106,17 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     // profile as accessToken.
     "enrollmentToken",
     "enrollment_token",
+    // Recovery codes (Copenhagen Book M2). Raw codes are returned once by
+    // /recovery/generate and POSTed by /login/recovery/complete; hashed codes
+    // live in the recovery_codes table (osn/db/src/schema/index.ts). Both
+    // plaintext and the hash are session-granting and must never appear in
+    // operator logs.
+    "recoveryCode",
+    "recovery_code",
+    "recoveryCodes",
+    "recovery_codes",
+    "codeHash",
+    "code_hash",
 
     // --- WebAuthn ---
     // `assertion` is the AuthenticationResponseJSON body posted to
