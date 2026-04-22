@@ -24,9 +24,14 @@ describe("auth routes", () => {
 
   // -------------------------------------------------------------------------
   // Registration
+  //
+  // The unverified `POST /register` endpoint was removed in favour of the
+  // OTP-gated begin/complete pair (Phase 5 cleanup). The service-layer
+  // `registerProfile` helper survives as a test seeder; direct HTTP access
+  // to it must stay 404 so unverified account creation can't sneak back in.
   // -------------------------------------------------------------------------
-  describe("POST /register", () => {
-    it("creates a user and returns 201", async () => {
+  describe("POST /register (removed)", () => {
+    it("returns 404 — the unverified endpoint was deleted", async () => {
       const res = await app.handle(
         new Request("http://localhost/register", {
           method: "POST",
@@ -38,58 +43,7 @@ describe("auth routes", () => {
           }),
         }),
       );
-      expect(res.status).toBe(201);
-      const json = (await res.json()) as { profileId: string; handle: string; email: string };
-      expect(json.handle).toBe("alice");
-      expect(json.email).toBe("alice@example.com");
-      expect(json.profileId).toMatch(/^usr_/);
-    });
-
-    it("returns 400 for duplicate email", async () => {
-      await app.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "bob@example.com", handle: "bob" }),
-        }),
-      );
-      const res = await app.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "bob@example.com", handle: "bob2" }),
-        }),
-      );
-      expect(res.status).toBe(400);
-    });
-
-    it("returns 400 for duplicate handle", async () => {
-      await app.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "carol@example.com", handle: "carol" }),
-        }),
-      );
-      const res = await app.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "carol2@example.com", handle: "carol" }),
-        }),
-      );
-      expect(res.status).toBe(400);
-    });
-
-    it("returns 400 for invalid handle format", async () => {
-      const res = await app.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "dan@example.com", handle: "Dan!" }),
-        }),
-      );
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(404);
     });
   });
 
@@ -317,12 +271,9 @@ describe("auth routes", () => {
     });
 
     it("returns available:false for a taken handle", async () => {
-      await app.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "eve@example.com", handle: "eve" }),
-        }),
+      const svc = createAuthService(config);
+      await Effect.runPromise(
+        svc.registerProfile("eve@example.com", "eve").pipe(Effect.provide(layer)),
       );
       const res = await app.handle(new Request("http://localhost/handle/eve"));
       expect(res.status).toBe(200);
@@ -670,13 +621,9 @@ describe("auth routes", () => {
         if (m) capturedUrl = m[0];
       };
       const spyApp = createAuthRoutes({ ...config, sendEmail: emailSpy }, layer);
-
-      await spyApp.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "lockstep@example.com", handle: "lockstep" }),
-        }),
+      const seedSvc = createAuthService(config);
+      await Effect.runPromise(
+        seedSvc.registerProfile("lockstep@example.com", "lockstep").pipe(Effect.provide(layer)),
       );
       await spyApp.handle(
         new Request("http://localhost/login/magic/begin", {
@@ -773,6 +720,58 @@ describe("auth routes", () => {
         }),
       );
       expect(res.status).toBe(400);
+    });
+
+    // T-R1: identifier ⊕ challengeId — exactly one must be present.
+    it("returns 400 invalid_request when both identifier and challengeId are present", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/login/passkey/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            identifier: "whoever@example.com",
+            challengeId: "00000000-0000-0000-0000-000000000000",
+            assertion: { id: "x", rawId: "x", response: {}, type: "public-key" },
+          }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { error?: string };
+      expect(json.error).toBe("invalid_request");
+    });
+
+    it("returns 400 invalid_request when neither identifier nor challengeId is present", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/login/passkey/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            assertion: { id: "x", rawId: "x", response: {}, type: "public-key" },
+          }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { error?: string };
+      expect(json.error).toBe("invalid_request");
+    });
+  });
+
+  // T-R2: identifier-less (discoverable) /login/passkey/begin — emits a
+  // challengeId the client must round-trip to /login/passkey/complete.
+  describe("POST /login/passkey/begin (discoverable)", () => {
+    it("returns { options, challengeId } with no identifier in the body", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/login/passkey/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }),
+      );
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { options?: { challenge?: string }; challengeId?: string };
+      expect(json.options?.challenge).toBeTruthy();
+      expect(typeof json.challengeId).toBe("string");
+      expect(json.challengeId!.length).toBeGreaterThan(0);
     });
   });
 

@@ -23,6 +23,7 @@ import type {
   OrgAction,
   OrgMemberAction,
   OriginGuardRejectionReason,
+  PasskeyAction,
   ProfileCrudAction,
   ProfileSwitchAction,
   RecoveryCodeConsumeResult,
@@ -73,6 +74,9 @@ export const OSN_METRICS = {
   authSecurityEventNotified: "osn.auth.security_event.notified",
   authSecurityEventAcknowledged: "osn.auth.security_event.acknowledged",
   authSecurityEventNotifyDuration: "osn.auth.security_event.notify.duration",
+  authPasskeyOps: "osn.auth.passkey.operations",
+  authPasskeyDuration: "osn.auth.passkey.duration",
+  authPasskeyLoginDiscoverable: "osn.auth.passkey.login_discoverable",
   graphConnectionOps: "osn.graph.connection.operations",
   graphBlockOps: "osn.graph.block.operations",
   graphCloseFriendOps: "osn.graph.close_friend.operations",
@@ -754,3 +758,51 @@ export const metricSecurityEventAcknowledged = (kind: SecurityEventKind): void =
 
 export const metricSecurityEventNotifyDuration = (seconds: number, result: "ok" | "error"): void =>
   authSecurityEventNotifyDuration.record(seconds, { result });
+
+// ---------------------------------------------------------------------------
+// Passkey management (M-PK) — caller-initiated list / rename / delete on
+// existing credentials. Login/register flows keep their own metric families.
+// ---------------------------------------------------------------------------
+
+type PasskeyOpAttrs = { action: PasskeyAction; result: Result };
+type PasskeyDurationAttrs = { action: PasskeyAction; result: "ok" | "error" };
+type PasskeyLoginDiscoverableAttrs = { result: Result };
+
+const authPasskeyOps = createCounter<PasskeyOpAttrs>({
+  name: OSN_METRICS.authPasskeyOps,
+  description: "Passkey management operations (list / rename / delete) by outcome",
+  unit: "{operation}",
+});
+
+const authPasskeyDuration = createHistogram<PasskeyDurationAttrs>({
+  name: OSN_METRICS.authPasskeyDuration,
+  description: "Passkey management operation duration by action",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
+const authPasskeyLoginDiscoverable = createCounter<PasskeyLoginDiscoverableAttrs>({
+  name: OSN_METRICS.authPasskeyLoginDiscoverable,
+  description: "Identifier-free (discoverable credential / conditional-UI) passkey login attempts",
+  unit: "{attempt}",
+});
+
+export const withPasskeyOp =
+  (action: PasskeyAction) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      measureSeconds((seconds, outcome) => {
+        authPasskeyDuration.record(seconds, { action, result: outcome === "ok" ? "ok" : "error" });
+      }),
+      Effect.withSpan(`auth.passkey.${action}`),
+      Effect.tap(() => Effect.sync(() => authPasskeyOps.inc({ action, result: "ok" }))),
+      Effect.tapError((e) =>
+        Effect.all([
+          Effect.sync(() => authPasskeyOps.inc({ action, result: classifyError(e) })),
+          Effect.logError("auth.passkey operation failed", { action, ...safeErrorSummary(e) }),
+        ]),
+      ),
+    );
+
+export const metricPasskeyLoginDiscoverable = (result: Result): void =>
+  authPasskeyLoginDiscoverable.inc({ result });

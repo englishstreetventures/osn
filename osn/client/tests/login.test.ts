@@ -72,7 +72,10 @@ describe("createLoginClient", () => {
   describe("passkeyComplete", () => {
     it("returns a parsed session + profile", async () => {
       stubFetch(() => jsonResponse({ session: sampleSessionPayload, profile: sampleProfile }));
-      const result = await client.passkeyComplete("alice", { id: "cred" });
+      const result = await client.passkeyComplete({
+        identifier: "alice",
+        assertion: { id: "cred" },
+      });
       expect(result.profile).toEqual(sampleProfile);
       expect(result.session.accessToken).toBe("acc_abc");
       // Session no longer exposes refreshToken (Copenhagen Book C3).

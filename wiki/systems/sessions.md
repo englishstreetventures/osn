@@ -68,7 +68,7 @@ Failure modes fail **open**: `check` returns `null` on Redis error (so an outage
 
 - `osn.auth.session.operations{action, result}` — one per `list` / `revoke` / `revoke_all` call
 - Spans: `auth.session.list`, `auth.session.revoke`, `auth.session.revoke_all`
-- `SecurityInvalidationTrigger` union extended with `session_revoke` and `session_revoke_all` so the H1 dashboard picks up user-initiated revocations alongside passkey-register, recovery-code, and email-change triggers
+- `SecurityInvalidationTrigger` union extended with `session_revoke`, `session_revoke_all`, and `passkey_delete` so the H1 dashboard picks up user-initiated revocations alongside passkey-register, passkey-delete, recovery-code, and email-change triggers
 - `osn.auth.session.rotated_store.operations{action, result, backend}` — counter for every rotated-session store call. `action` ∈ `track` / `check` / `revoke_family`; `result` ∈ `ok` / `hit` / `miss` / `error`; `backend` ∈ `memory` / `redis`. Error rate by backend is the primary Redis-health signal for the reuse detector.
 - `osn.auth.session.rotated_store.duration{action, backend}` — histogram of store operation latency
 - Spans: `auth.session.rotated_store.track`, `auth.session.rotated_store.check`, `auth.session.rotated_store.revoke_family`, wrapped by the outer `auth.session.reuse_detect` and `auth.session.rotate` spans

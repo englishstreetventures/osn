@@ -27,7 +27,7 @@ packages:
   - "@osn/core"
   - "@shared/redis"
   - "@osn/api"
-last-reviewed: 2026-04-16
+last-reviewed: 2026-04-22
 ---
 
 # Rate Limiting
@@ -107,6 +107,9 @@ Send `maxRequests + 1` requests and assert the last returns 429.
 |----------------|----------------|-----------|
 | `/register/begin`, `/otp/begin`, `/magic/begin`, `/login/otp/begin`, `/login/magic/begin` | 5 | OTP/email send -- prevents email bombing |
 | `/register/complete`, `/otp/complete`, `/magic/verify`, `/login/otp/complete`, `/login/passkey/begin`, `/login/passkey/complete`, `/passkey/register/begin`, `/passkey/register/complete`, `/handle/:handle` | 10 | Verify/complete -- slightly higher to allow legitimate retries |
+| `PATCH /passkeys/:id` (rename) | 20 | Cheap settings action; label-only writes |
+| `DELETE /passkeys/:id` | 10 | Step-up is the primary gate; per-user throttle is defence in depth |
+| `GET /passkeys` | 30 | Settings listing — cheap reads |
 
 Graph write endpoints are rate-limited at 60 requests per user per minute (S-M16). Recommendations reads (`/recommendations/connections`) are rate-limited at 20 requests per user per minute — tighter because each call runs an FOF fan-out query (S-H1/P-C2).
 

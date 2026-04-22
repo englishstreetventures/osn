@@ -50,6 +50,35 @@ export const passkeys = sqliteTable(
     counter: integer("counter").notNull().default(0),
     transports: text("transports"), // JSON of AuthenticatorTransport[]
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    /**
+     * User-editable friendly name for this passkey. Defaulted at enrolment
+     * from the `aaguid` lookup ("iCloud Keychain", "Windows Hello", …) and
+     * editable from Settings → Passkeys. Optional: older rows can be null.
+     */
+    label: text("label"),
+    /**
+     * Unix seconds of the most recent successful authentication or step-up
+     * ceremony. Drives the "last used" column in Settings → Passkeys so the
+     * user can spot a stale credential at a glance.
+     */
+    lastUsedAt: integer("last_used_at"),
+    /**
+     * Authenticator-model UUID from WebAuthn attestation. Not a secret; the
+     * FIDO MDS publishes the full list. We keep it so a future migration can
+     * backfill `label` from the MDS name map without re-prompting the user.
+     */
+    aaguid: text("aaguid"),
+    /** WebAuthn `backupEligible` bit — does this authenticator support sync? */
+    backupEligible: integer("backup_eligible", { mode: "boolean" }),
+    /** WebAuthn `backupState` bit — has this credential been synced yet? */
+    backupState: integer("backup_state", { mode: "boolean" }),
+    /**
+     * Unix seconds for the most recent metadata change (rename, counter
+     * update, sync-state flip). `createdAt` stays immutable. Indexing
+     * `last_used_at` alone would miss renames; a dedicated updatedAt is
+     * cleaner than over-reading the hot last_used_at column.
+     */
+    updatedAt: integer("updated_at"),
   },
   (t) => [index("passkeys_account_id_idx").on(t.accountId)],
 );

@@ -54,10 +54,17 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
 }
 
 export interface LoginClient {
-  /** Begin passkey login — returns the WebAuthn assertion challenge options. */
-  passkeyBegin(identifier: string): Promise<{ options: unknown }>;
+  /**
+   * Begin passkey login. Pass a handle / email for the identifier-bound
+   * flow, or omit to kick off the discoverable-credential (conditional-UI)
+   * flow — in that case the response carries a `challengeId` the caller
+   * must pass to `passkeyComplete`.
+   */
+  passkeyBegin(identifier?: string): Promise<{ options: unknown; challengeId?: string }>;
   /** Complete passkey login — exchange a signed assertion for a session. */
-  passkeyComplete(identifier: string, assertion: unknown): Promise<LoginResult>;
+  passkeyComplete(
+    input: { identifier: string; assertion: unknown } | { challengeId: string; assertion: unknown },
+  ): Promise<LoginResult>;
   /** Send a 6-digit OTP code to the identifier's email. Always resolves to { sent: true }. */
   otpBegin(identifier: string): Promise<{ sent: true }>;
   /** Exchange a 6-digit OTP code for a session. */
@@ -78,12 +85,15 @@ export function createLoginClient(config: LoginClientConfig): LoginClient {
 
   return {
     passkeyBegin: (identifier) =>
-      postJson<{ options: unknown }>(`${base}/login/passkey/begin`, { identifier }),
+      postJson<{ options: unknown; challengeId?: string }>(
+        `${base}/login/passkey/begin`,
+        identifier === undefined ? {} : { identifier },
+      ),
 
-    passkeyComplete: async (identifier, assertion) => {
+    passkeyComplete: async (input) => {
       const raw = await postJson<{ session: unknown; profile: LoginProfile }>(
         `${base}/login/passkey/complete`,
-        { identifier, assertion },
+        input,
       );
       return toLoginResult(raw);
     },

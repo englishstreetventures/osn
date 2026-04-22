@@ -152,6 +152,16 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     // carries clientDataJSON + signature material that should never be
     // mirrored back into logs verbatim.
     "assertion",
+    // `attestation` is the RegistrationResponseJSON body posted to
+    // /passkey/register/complete. Same shape / same rationale as assertion —
+    // clientDataJSON + attestationObject should not land in a log line.
+    "attestation",
+    // User-chosen free-text nickname for a passkey
+    // (osn/db/src/schema/index.ts → passkeys.label; PATCH /passkeys/:id body).
+    // Labels default to "iCloud Keychain"-style model names but are editable;
+    // an operator-readable log of "Mom's old iPad" is a privacy regression.
+    "passkeyLabel",
+    "passkey_label",
 
     // --- ARC token signing keys ---
     // `privateKey` is the parameter name on createArcToken /

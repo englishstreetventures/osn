@@ -17,7 +17,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 - [x] Auth Improvements Phase 1: Server-side sessions + refresh token rotation + session invalidation (C1/C2/H1)
 - [x] Auth Improvements Phase 4: Recovery codes (M2) + short access-token TTL (5 min) with client silent-refresh on 401 — see [[recovery-codes]]
 - [x] Auth Improvements Phase 5a: Step-up (sudo) tokens (M-PK1), session introspection/revocation UI, email change flow — see [[step-up]], [[sessions]]
-- [ ] Auth Improvements Phase 5b: ~~Redis-backed rotated-session store~~ (shipped — see [[sessions]]), ~~PKCE cleanup~~ (shipped — deleted `/authorize`, `authorization_code` grant, `pkceStore`, client `pkce.ts` + `startLogin`/`handleCallback`; magic link now routes through frontend origin via POST body, S-M1 body fallback on `/token` removed), passkey-primary login
+- [ ] Auth Improvements Phase 5b: ~~Redis-backed rotated-session store~~ (shipped — see [[sessions]]), ~~PKCE cleanup~~ (shipped — deleted `/authorize`, `authorization_code` grant, `pkceStore`, client `pkce.ts` + `startLogin`/`handleCallback`; magic link now routes through frontend origin via POST body, S-M1 body fallback on `/token` removed), ~~passkey management surface~~ (shipped — see [[identity-model]]: list/rename/delete, discoverable-credential login, last-passkey lockout guard), passkey-primary login (demote OTP/magic-link to recovery-only)
 
 ---
 
@@ -223,6 +223,9 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-H1 (org) — `listMembers` service returns full profile rows; route projects, but service should restrict
 - [ ] S-M1 (org) — `GET /organisations/:handle/members` has no membership gate
 - [ ] S-M3 (org) — `getOrganisation` returns `ownerId` internal ID
+- [x] S-M1 (passkey) — `deletePasskey` last-passkey/recovery-code lockout guard was SELECT-then-DELETE outside a transaction; two concurrent deletes could bypass it. **Fixed** — gate + delete + security-event insert wrapped in `db.transaction`, returns tagged result; collapses TOCTOU window to zero — see [[identity-model]]
+- [x] S-M2 (passkey) — `PATCH /passkeys/:id` had no step-up gate; XSS-captured access token could swap labels to mislead the user before a delete. **Fixed** — rename now uses the same step-up gate as delete (`passkeyDeleteAllowedAmr`); client + UI thread the token through — see [[identity-model]]
+- [x] S-M3 (passkey) — Discoverable login did not cross-check assertion `userHandle` against the credential row's `accountId`. **Fixed** — verifier decodes the base64url userHandle and compares to `accounts.passkeyUserId` before completing the ceremony — see [[identity-model]]
 
 ### Low
 
@@ -254,6 +257,11 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-L1 (zap) — `jwtVerify` does not restrict algorithms — pass `{ algorithms: ['HS256'] }`
 - [ ] S-L2 (zap) — DM chats have no member count enforcement
 - [ ] S-L3 (zap) — Admin can remove themselves leaving chat with no admin
+- [x] S-L1 (passkey) — `PasskeysView` `window.confirm` race could swap pending delete id on rapid double-click. **Fixed** — every Rename / Delete button is disabled while a step-up ceremony is in flight (`locked()`); pending action stored as a single tagged signal — see [[identity-model]]
+- [x] S-L2 (passkey) — `listPasskeys` exposed raw `credentialId` to the browser without UI need. **Fixed** — projection drops `credentialId`; opaque `pk_<hex>` `id` is the only handle reaching the client — see [[identity-model]]
+- [x] S-L3 (passkey) — Fallback "no caller session" branch in `deletePasskey` nuked all sessions silently. **Fixed** — branch now `Effect.logWarning`s the anomalous condition before the wipe — see [[sessions]]
+- [x] S-L4 (passkey) — `DELETE /passkeys/:id` accepted OTP step-up via reused `recoveryGenerateAllowedAmr`. **Fixed** — new `passkeyDeleteAllowedAmr` config knob defaults to `["webauthn"]` (passkey-only); operators can widen if their threat model requires — see [[step-up]]
+- [x] S-L5 (passkey) — `verifyPasskeyAssertion` reflected raw `@simplewebauthn/server` error text to the client (verifier-probe oracle). **Fixed** — fixed `"Passkey verification failed"` on the wire; cause logged via `Effect.logWarning` — see [[identity-model]]
 - [ ] S-L1 (org) — Org creation rate limit (60/min) shared with member ops
 - [ ] S-L3 (org) — TOCTOU gap in handle uniqueness check
 - [ ] S-L1 (social) — Access tokens in `localStorage` via `StorageLive` — XSS = token exfiltration. Inherited from `@osn/client`; revisit alongside S-M20 by moving to HttpOnly cookie BFF or `sessionStorage` with tight TTL — see [[identity-model]]
@@ -303,6 +311,9 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [ ] P-W6 (recs) — No caching/pagination contract on `/recommendations/connections`. Every request re-runs the FOF pipeline. Add short-lived per-caller cache (5-15 min) and/or `generated_at` timestamp so clients can detect cached responses — see [[social-graph]]
 - [ ] P-W7 (recs) — FOF aggregation in JS after capping fan-out (current). Next step: push aggregation to SQL via `SELECT candidate_id, COUNT(*) FROM (...) GROUP BY candidate_id ORDER BY count DESC LIMIT ?`. Add compound indexes `connections(status, requester_id)` + `connections(status, addressee_id)` — see [[social-graph]]
 - [ ] P-W2 (auth-ttl) — 3600s → 300s access-token TTL raises `/token` write load ~12× per session (DELETE+INSERT on `sessions` each refresh). Single-flight refresh (shipped as S-H1 fix) caps concurrent multiplication but doesn't change the baseline. Before horizontal-scale promotion: (a) watch `osn.auth.token.refresh` rate, (b) consider window-based session rotation (only rotate the refresh-token row when `now - createdAt > rotateAfterMs`) so the common case becomes "issue new access token, leave sessions row untouched" while still preserving C2 reuse detection — see [[identity-model]]
+- [x] P-W1 (passkey) — `completePasskeyRegistration` MAX_PASSKEYS race guard was SELECT-then-INSERT outside a transaction. **Fixed** — both statements now run inside `db.transaction`, collapsing the TOCTOU window to zero on SQLite — see [[identity-model]]
+- [x] P-I1 (passkey) — `deletePasskey` issued two SELECTs against `passkeys` for the same account. **Fixed** — collapsed into one query inside the transaction; the per-account 10-row cap means the in-memory `.some(…)` check is O(1) — see [[identity-model]]
+- [x] P-I2 (passkey) — `loginChallenges` map had no hard cap, only TTL eviction. **Fixed** — `MAX_LOGIN_CHALLENGES = 10_000` ceiling enforced on both the identifier-keyed and discoverable (`__disc__:<uuid>`) insert paths — see [[identity-model]]
 
 ### Info
 
@@ -323,7 +334,7 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [ ] P-I2 (security-events) — `listUnacknowledgedSecurityEvents` returns up to 50 rows with no pagination token. Fine for today's single-kind taxonomy, but silently drops older rows if the list grows past the cap. Add `?before=<createdAt>` + `{ events, hasMore }` once another kind is introduced — see [[recovery-codes]]
 - [ ] P-I4 (security-events) — `GET /account/security-events` has no `Cache-Control` header. Low-impact today (the query is cheap and the banner fetches once per mount); add `Cache-Control: private, no-store` + a weak ETag on `MAX(created_at)` once the banner starts polling or is embedded outside Settings — see [[recovery-codes]]
 - [ ] P-I5b — `completePasskeyLogin` calls `findProfileByEmail` redundantly — `pk.userId` already on passkey row
-- [ ] P-I10 — `beginPasskeyRegistration` fetches all passkeys without `LIMIT` — add `maxPasskeys` cap at registration time — see [[identity-model]]
+- [x] P-I10 — `beginPasskeyRegistration` fetches all passkeys without `LIMIT` — `MAX_PASSKEYS_PER_ACCOUNT = 10` enforced at begin and race-safely re-checked at complete — see [[identity-model]]
 - [ ] P-I6 — Duplicate index on `users.email` — `unique()` already creates one implicitly in SQLite
 - [ ] P-I7 — Eliminate extra `getEvent` round-trip in `createEvent` via `RETURNING *`
 - [ ] P-I8 — `resolveHandle` re-fetches user from DB when handler already has the User row

@@ -87,11 +87,12 @@ export function SignIn(props: SignInProps) {
     setBusy(true);
     setError(null);
     try {
-      const beginResult = (await client.passkeyBegin(identifier().trim())) as {
+      const trimmed = identifier().trim();
+      const beginResult = (await client.passkeyBegin(trimmed)) as {
         options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
       };
       const assertion = await startAuthentication({ optionsJSON: beginResult.options });
-      const { session } = await client.passkeyComplete(identifier().trim(), assertion);
+      const { session } = await client.passkeyComplete({ identifier: trimmed, assertion });
       await finishWithSession(session);
     } catch (err) {
       reportError(err, "Passkey sign-in failed");
@@ -99,6 +100,51 @@ export function SignIn(props: SignInProps) {
       setBusy(false);
     }
   }
+
+  /**
+   * M-PK: discoverable-credential / conditional-UI flow. Kicks off on mount
+   * when the browser supports `mediation: "conditional"` and the user has at
+   * least one resident credential for the RP. The ceremony runs in the
+   * background — if the user ignores the autofill prompt, nothing happens
+   * and the regular identifier flow still works.
+   */
+  async function startConditionalPasskey() {
+    if (typeof window === "undefined") return;
+    const PKC: {
+      isConditionalMediationAvailable?: () => Promise<boolean>;
+    } =
+      (
+        window as unknown as {
+          PublicKeyCredential?: { isConditionalMediationAvailable?: () => Promise<boolean> };
+        }
+      ).PublicKeyCredential ?? {};
+    if (typeof PKC.isConditionalMediationAvailable !== "function") return;
+    try {
+      const available = await PKC.isConditionalMediationAvailable();
+      if (!available) return;
+      const beginResult = (await client.passkeyBegin()) as {
+        options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
+        challengeId?: string;
+      };
+      if (!beginResult.challengeId) return;
+      const assertion = await startAuthentication({
+        optionsJSON: beginResult.options,
+        useBrowserAutofill: true,
+      });
+      const { session } = await client.passkeyComplete({
+        challengeId: beginResult.challengeId,
+        assertion,
+      });
+      await finishWithSession(session);
+    } catch {
+      // Silent fail — conditional UI is opportunistic. A real failure
+      // surfaces when the user submits via the form.
+    }
+  }
+
+  onMount(() => {
+    if (passkeySupported()) void startConditionalPasskey();
+  });
 
   async function submitOtpIdentifier(e: Event) {
     e.preventDefault();

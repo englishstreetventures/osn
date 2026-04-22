@@ -50,4 +50,5 @@ export {
   type RotatedStoreResult,
   type RotatedStoreBackend,
   type EmailChangeStep,
+  type PasskeyAction,
 } from "./attrs";

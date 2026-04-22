@@ -104,7 +104,10 @@ describe("SignIn component", () => {
       expect(hoisted.startAuthentication).toHaveBeenCalledWith({
         optionsJSON: { challenge: "ch" },
       });
-      expect(stub.passkeyComplete).toHaveBeenCalledWith("alice", { id: "cred", rawId: "raw" });
+      expect(stub.passkeyComplete).toHaveBeenCalledWith({
+        identifier: "alice",
+        assertion: { id: "cred", rawId: "raw" },
+      });
     });
 
     it("surfaces errors from passkeyComplete and doesn't adopt a session", async () => {
@@ -131,6 +134,59 @@ describe("SignIn component", () => {
       });
       // OTP tab should be active (the "Send verification code" button belongs to OTP).
       expect(screen.getByRole("button", { name: /Send verification code/i })).toBeTruthy();
+    });
+
+    // T-S3: discoverable / conditional-UI on-mount path. Fails silently by
+    // design — without an explicit assertion, a regression that breaks the
+    // mount trigger goes unnoticed.
+    describe("conditional-UI / discoverable login on mount", () => {
+      it("kicks off passkeyBegin() (no identifier) → passkeyComplete({ challengeId, assertion })", async () => {
+        // Stub the WebAuthn conditional-mediation feature detection.
+        const isAvail = vi.fn(async () => true);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- happy-dom shim
+        (window as any).PublicKeyCredential = { isConditionalMediationAvailable: isAvail };
+
+        stub.passkeyBegin.mockResolvedValue({
+          options: { challenge: "ch-disc" },
+          challengeId: "cid-1",
+        });
+        hoisted.startAuthentication.mockResolvedValue({ id: "cred-disc", rawId: "raw-disc" });
+        stub.passkeyComplete.mockResolvedValue({ session: sampleSession, user: sampleUser });
+        hoisted.adoptSession.mockResolvedValue(undefined);
+
+        render(() => <SignIn client={asClient(stub)} />);
+
+        await waitFor(() => expect(stub.passkeyBegin).toHaveBeenCalledWith());
+        // Browser-autofill flag must be set so the assertion runs in the
+        // background instead of popping a modal.
+        await waitFor(() =>
+          expect(hoisted.startAuthentication).toHaveBeenCalledWith({
+            optionsJSON: { challenge: "ch-disc" },
+            useBrowserAutofill: true,
+          }),
+        );
+        await waitFor(() =>
+          expect(stub.passkeyComplete).toHaveBeenCalledWith({
+            challengeId: "cid-1",
+            assertion: { id: "cred-disc", rawId: "raw-disc" },
+          }),
+        );
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- cleanup
+        delete (window as any).PublicKeyCredential;
+      });
+
+      it("does nothing when isConditionalMediationAvailable is missing", async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- cleanup
+        delete (window as any).PublicKeyCredential;
+
+        render(() => <SignIn client={asClient(stub)} />);
+
+        // Give the on-mount tick a chance to fire.
+        await new Promise((r) => setTimeout(r, 10));
+        expect(stub.passkeyBegin).not.toHaveBeenCalled();
+        expect(stub.passkeyComplete).not.toHaveBeenCalled();
+      });
     });
   });
 

@@ -59,6 +59,12 @@ export type AuthRateLimiters = Readonly<{
   securityEventList: RateLimiterBackend;
   /** Security event acknowledge (authenticated, per-user). */
   securityEventAck: RateLimiterBackend;
+  /** Passkey list (authenticated, per-user). */
+  passkeyList: RateLimiterBackend;
+  /** Passkey rename (authenticated, per-user). */
+  passkeyRename: RateLimiterBackend;
+  /** Passkey delete (authenticated, per-user — step-up is the primary gate). */
+  passkeyDelete: RateLimiterBackend;
 }>;
 
 /**
@@ -109,6 +115,11 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     // and only dismisses a banner, so a generous per-minute allowance.
     securityEventList: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
     securityEventAck: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    // Passkey management (M-PK). Listing is cheap; rename / delete are
+    // infrequent settings actions. Delete has an additional step-up gate.
+    passkeyList: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
+    passkeyRename: createRateLimiter({ maxRequests: 20, windowMs: 60_000 }),
+    passkeyDelete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
   };
 }
 
@@ -306,31 +317,6 @@ export function createAuthRoutes(
         },
         {
           params: t.Object({ handle: t.String() }),
-        },
-      )
-      // -------------------------------------------------------------------------
-      // Registration
-      // -------------------------------------------------------------------------
-      .post(
-        "/register",
-        async ({ body, set }) => {
-          try {
-            const profile = await run(
-              auth.registerProfile(body.email, body.handle, body.displayName),
-            );
-            set.status = 201;
-            return { profileId: profile.id, handle: profile.handle, email: profile.email };
-          } catch (e) {
-            set.status = 400;
-            return { error: String(e) };
-          }
-        },
-        {
-          body: t.Object({
-            email: t.String(),
-            handle: t.String(),
-            displayName: t.Optional(t.String()),
-          }),
         },
       )
       // -------------------------------------------------------------------------
@@ -549,7 +535,11 @@ export function createAuthRoutes(
             return rlErr;
           }
           try {
-            const result = await run(auth.beginPasskeyLogin(body.identifier));
+            // M-PK: identifier is optional. Omitting it kicks off the
+            // discoverable-credential / conditional-UI flow and the
+            // response carries a `challengeId` the client must round-trip
+            // to /login/passkey/complete.
+            const result = await run(auth.beginPasskeyLogin(body.identifier ?? null));
             return result;
           } catch (e) {
             set.status = 400;
@@ -557,7 +547,7 @@ export function createAuthRoutes(
           }
         },
         {
-          body: t.Object({ identifier: t.String() }),
+          body: t.Object({ identifier: t.Optional(t.String()) }),
         },
       )
       .post(
@@ -568,11 +558,20 @@ export function createAuthRoutes(
             set.status = 429;
             return rlErr;
           }
+          // Exactly one of identifier / challengeId must be present.
+          const hasIdentifier = typeof body.identifier === "string" && body.identifier.length > 0;
+          const hasChallengeId =
+            typeof body.challengeId === "string" && body.challengeId.length > 0;
+          if (hasIdentifier === hasChallengeId) {
+            set.status = 400;
+            return { error: "invalid_request" };
+          }
           try {
             const result = await run(
               auth.completePasskeyLoginDirect(
-                body.identifier,
-                body.assertion,
+                hasIdentifier
+                  ? { identifier: body.identifier!, assertion: body.assertion }
+                  : { challengeId: body.challengeId!, assertion: body.assertion },
                 sessionMetaFrom(headers),
               ),
             );
@@ -591,7 +590,8 @@ export function createAuthRoutes(
         },
         {
           body: t.Object({
-            identifier: t.String(),
+            identifier: t.Optional(t.String()),
+            challengeId: t.Optional(t.String()),
             assertion: t.Any(),
           }),
         },
@@ -1295,6 +1295,135 @@ export function createAuthRoutes(
         },
         {
           body: t.Object({ step_up_token: t.Optional(t.String()) }),
+        },
+      )
+      // -------------------------------------------------------------------------
+      // Passkey management (M-PK)
+      //
+      // GET    /passkeys       — list the caller's credentials (public shape)
+      // PATCH  /passkeys/:id   — rename (label only; step-up NOT required)
+      // DELETE /passkeys/:id   — remove, revokes other sessions, requires
+      //                          step-up (passkey or OTP amr) so an XSS that
+      //                          captured an access token cannot drop the
+      //                          account's real authenticators.
+      // -------------------------------------------------------------------------
+      .get("/passkeys", async ({ headers, set }) => {
+        const rlErr = await rateLimit(headers, "passkey_list", rl.passkeyList);
+        if (rlErr) {
+          set.status = 429;
+          return rlErr;
+        }
+        try {
+          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+          if (!claims) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          const profile = await run(auth.findProfileById(claims.profileId));
+          if (!profile) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          return await run(auth.listPasskeys(profile.accountId));
+        } catch (e) {
+          const { status, body: errBody } = handleError(e);
+          set.status = status;
+          return errBody;
+        }
+      })
+      .patch(
+        "/passkeys/:id",
+        async ({ params, body, headers, set }) => {
+          const rlErr = await rateLimit(headers, "passkey_rename", rl.passkeyRename);
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            // S-M2: rename is gated by step-up too. Otherwise an XSS-captured
+            // access token could swap labels to mislead the user about which
+            // credential they're confirming a delete on. Same AMR set as
+            // delete (defaults to passkey-only via passkeyDeleteAllowedAmr).
+            const headerToken = headers["x-step-up-token"];
+            const stepUpToken = body.step_up_token ?? headerToken;
+            if (!stepUpToken) {
+              set.status = 403;
+              return { error: "step_up_required" };
+            }
+            await run(auth.verifyStepUpForPasskeyDelete(profile.accountId, stepUpToken));
+            await run(auth.renamePasskey(profile.accountId, params.id, body.label));
+            return { success: true };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          params: t.Object({ id: t.String({ pattern: "^pk_[a-f0-9]{12}$" }) }),
+          body: t.Object({ label: t.String(), step_up_token: t.Optional(t.String()) }),
+        },
+      )
+      .delete(
+        "/passkeys/:id",
+        async ({ params, body, headers, set }) => {
+          const rlErr = await rateLimit(headers, "passkey_delete", rl.passkeyDelete);
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const headerToken = headers["x-step-up-token"];
+            const stepUpToken = body?.step_up_token ?? headerToken;
+            if (!stepUpToken) {
+              set.status = 403;
+              return { error: "step_up_required" };
+            }
+            // S-L4: passkey-delete uses its own AMR set (defaults to
+            // passkey-only). The caller necessarily has a passkey by
+            // construction (last-passkey guard), so requiring one for
+            // deletion is the strongest available signal.
+            await run(auth.verifyStepUpForPasskeyDelete(profile.accountId, stepUpToken));
+            const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
+            const currentHash = cookieToken ? auth.hashSessionToken(cookieToken) : null;
+            const result = await run(
+              auth.deletePasskey(
+                profile.accountId,
+                params.id,
+                currentHash,
+                sessionMetaFrom(headers),
+              ),
+            );
+            return { success: true, remaining: result.remaining };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          params: t.Object({ id: t.String({ pattern: "^pk_[a-f0-9]{12}$" }) }),
+          body: t.Optional(t.Object({ step_up_token: t.Optional(t.String()) })),
         },
       )
       // -------------------------------------------------------------------------

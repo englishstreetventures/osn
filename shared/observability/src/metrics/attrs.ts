@@ -22,13 +22,7 @@ export type Result =
   | "conflict";
 
 /** Auth methods supported by OSN Core. */
-export type AuthMethod =
-  | "passkey"
-  | "otp"
-  | "magic_link"
-  | "recovery_code"
-  | "refresh"
-  | "password";
+export type AuthMethod = "passkey" | "otp" | "magic_link" | "recovery_code" | "refresh";
 
 /** Registration funnel steps. */
 export type RegisterStep = "begin" | "otp_verify" | "passkey_enroll" | "complete";
@@ -76,6 +70,7 @@ export type JwksCacheResult = "hit" | "miss" | "refresh";
 /** Security events that trigger session invalidation (H1). */
 export type SecurityInvalidationTrigger =
   | "passkey_register"
+  | "passkey_delete"
   | "email_change"
   | "recovery_code_generate"
   | "recovery_code_consume"
@@ -126,7 +121,17 @@ export type RecoveryCodeConsumeResult = "success" | "invalid" | "used";
  * service layer, otherwise the counter attribute will fall outside the
  * bounded union.
  */
-export type SecurityEventKind = "recovery_code_generate" | "recovery_code_consume";
+export type SecurityEventKind =
+  | "recovery_code_generate"
+  | "recovery_code_consume"
+  | "passkey_delete";
+
+/**
+ * Caller-initiated passkey management actions (M-PK). Keep the list tight —
+ * this attribute appears on counter + histogram dashboards that slice by
+ * action, so additions raise cardinality linearly.
+ */
+export type PasskeyAction = "list" | "rename" | "delete";
 
 /** Result of an attempted security-event email notification. */
 export type SecurityEventNotifyResult = "sent" | "failed" | "skipped";
@@ -162,4 +167,7 @@ export type AuthRateLimitedEndpoint =
   | "email_change_begin"
   | "email_change_complete"
   | "security_event_list"
-  | "security_event_ack";
+  | "security_event_ack"
+  | "passkey_list"
+  | "passkey_rename"
+  | "passkey_delete";

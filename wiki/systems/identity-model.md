@@ -10,7 +10,7 @@ packages:
   - "@osn/db"
   - "@osn/core"
   - "@osn/client"
-last-reviewed: 2026-04-17
+last-reviewed: 2026-04-22
 p4-completed: 2026-04-14
 p2-completed: 2026-04-14
 p3-completed: 2026-04-14
@@ -205,6 +205,40 @@ POST /register/complete → OTP →
 4. **Block independence** — blocking on one profile does NOT affect other profiles on the same account.
 5. **Self-interaction allowed** — two profiles from the same account can follow, message, and interact. Preventing this would reveal the link.
 6. **Log redaction** — `accountId` and `account_id` are in the observability deny-list (`shared/observability/src/logger/redact.ts`) as defence in depth.
+
+## Passkey Management (M-PK)
+
+Settings-surface operations over an account's existing credentials. All routes bearer-authenticated; `DELETE` additionally gated by a fresh step-up token (passkey or OTP amr).
+
+| Endpoint | Purpose | Step-up required? |
+|----------|---------|-------------------|
+| `GET /passkeys` | List credentials with label / created / last-used / backup-eligible flags | No |
+| `PATCH /passkeys/:id` | Rename (label-only, 1–64 chars trimmed) | No |
+| `DELETE /passkeys/:id` | Remove + invalidate other sessions (H1) + write `security_events{kind: "passkey_delete"}` (M-PK1b) | **Yes** |
+
+### Schema columns (added 2026-04-22, migration `0007_passkey_management.sql`)
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `label` | `text` | User-editable friendly name. NULL → UI falls back to synced/device heuristic |
+| `last_used_at` | `integer` | Unix seconds. Coalesced to 60s on assertion / step-up (P-W4) |
+| `aaguid` | `text` | Authenticator model UUID from WebAuthn attestation |
+| `backup_eligible` / `backup_state` | `integer` 0/1 | WebAuthn sync-capable / synced flags |
+| `updated_at` | `integer` | Unix seconds for any metadata change (rename, counter bump) |
+
+### Enrolment hardening
+
+- `residentKey: "required"` — discoverable-credential / conditional-UI login is mandatory.
+- `userVerification: "required"` — biometric or PIN, never silent sign-in.
+- `maxPasskeys = 10` per account (P-I10), enforced at `begin` and re-checked race-safely at `complete`.
+
+### Discoverable-credential login
+
+`POST /login/passkey/begin` with no body (or `{}`) returns `{ options, challengeId }`. Browser calls `navigator.credentials.get({ mediation: "conditional", … })`; the signed assertion is posted back via `/login/passkey/complete` with `{ challengeId, assertion }`. The server resolves the caller from the credential's `accountId` + `userHandle`. Exactly one of `identifier` / `challengeId` must be present — the route returns 400 otherwise.
+
+### Last-passkey guard
+
+`deletePasskey` refuses when this would be the final passkey AND the account has zero unused recovery codes. Users must generate recovery codes (or add a second passkey) before we let them lock themselves out.
 
 ## Multi-Account Roadmap
 

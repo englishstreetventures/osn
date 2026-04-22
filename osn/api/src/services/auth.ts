@@ -18,6 +18,7 @@ import {
 } from "@shared/crypto";
 import type {
   SecurityEventKind,
+  SecurityInvalidationTrigger,
   StepUpFactor,
   StepUpVerifyResult,
 } from "@shared/observability/metrics";
@@ -43,9 +44,11 @@ import {
   type RotatedSessionStore,
 } from "../lib/rotated-session-store";
 import {
+  classifyError,
   metricAuthHandleCheck,
   metricAuthMagicLinkSent,
   metricAuthOtpSent,
+  metricPasskeyLoginDiscoverable,
   metricRecoveryCodeConsumed,
   metricRecoveryCodesGenerated,
   metricRotatedStoreDuration,
@@ -64,6 +67,7 @@ import {
   withAuthRegister,
   withAuthTokenRefresh,
   withEmailChange,
+  withPasskeyOp,
   withSessionOp,
   withSessionRotation,
   withProfileSwitch,
@@ -157,6 +161,13 @@ export interface AuthConfig {
    */
   recoveryGenerateAllowedAmr?: readonly ("webauthn" | "otp")[];
   /**
+   * Permitted AMR values for `DELETE /passkeys/:id` step-up. Defaults to
+   * passkey-only (`["webauthn"]`) — by construction the caller already
+   * has at least one passkey (the last-passkey guard fires otherwise),
+   * so accepting OTP would weaken the gate without UX gain (S-L4).
+   */
+  passkeyDeleteAllowedAmr?: readonly ("webauthn" | "otp")[];
+  /**
    * Cluster-wide single-use guard for step-up token jtis (S-H1). Inject a
    * Redis-backed store in multi-pod deployments; otherwise the default
    * in-memory map means a captured token replays successfully once per pod.
@@ -203,6 +214,13 @@ interface PendingRegistration {
 
 // Bound on in-memory pending registrations to cap memory under abuse.
 const MAX_PENDING_REGISTRATIONS = 10_000;
+/**
+ * Hard ceiling on concurrent unexpired passkey-login challenges (P-I2).
+ * Rate limiting is the primary defence — this bound is the belt to the
+ * rate limiter's braces and matches the shape used by the pending-
+ * registrations store.
+ */
+const MAX_LOGIN_CHALLENGES = 10_000;
 // Max OTP guesses against a single pending entry before it is wiped.
 const MAX_OTP_ATTEMPTS = 5;
 
@@ -421,6 +439,18 @@ const HandleSchema = Schema.String.pipe(
 );
 
 /**
+ * User-chosen free-text nickname for a passkey. Trimmed client-side and here;
+ * upper-bounded at 64 chars so a stored label fits inside any reasonable
+ * settings-row display without having to `LIKE …%` truncate at read time.
+ * Empty strings aren't valid — the caller should PATCH `null` to clear.
+ */
+const PasskeyLabelSchema = Schema.String.pipe(
+  Schema.filter((s) => s.trim().length > 0 && s.length <= 64, {
+    message: () => "Passkey label must be 1–64 characters",
+  }),
+);
+
+/**
  * Normalises an identifier by stripping a leading @ sigil.
  * Users may type "@alice" meaning handle "alice"; this strips it before dispatch.
  */
@@ -482,6 +512,27 @@ export interface SecurityEventSummary {
   createdAt: number;
   uaLabel: string | null;
   ipHash: string | null;
+}
+
+/**
+ * Public-safe shape returned by `listPasskeys`. Deliberately omits
+ * `publicKey` + `counter` (internal to the WebAuthn ceremony) and
+ * `credentialId` (S-L2: not needed by the Settings UI; reduces the
+ * supply-chain-attack surface for targeted-phishing exfiltration of
+ * authenticator-model fingerprints). The opaque `pk_<hex>` `id` is the
+ * only handle the management surface needs.
+ */
+export interface PasskeySummary {
+  id: string;
+  label: string | null;
+  aaguid: string | null;
+  transports: string[] | null;
+  backupEligible: boolean | null;
+  backupState: boolean | null;
+  /** Unix seconds. */
+  createdAt: number;
+  /** Unix seconds — null if the credential has never been used for auth. */
+  lastUsedAt: number | null;
 }
 
 /**
@@ -549,6 +600,20 @@ const RESERVED_HANDLES = new Set([
  */
 const MAX_SESSIONS_PER_ACCOUNT = 50;
 /**
+ * Hard cap on passkeys per account (P-I10). An attacker with a stolen
+ * access token (or a hijacked enrollment token) cannot add unlimited
+ * credentials; 10 is comfortably above the real-world ceiling of one
+ * passkey per device for a typical user.
+ */
+const MAX_PASSKEYS_PER_ACCOUNT = 10;
+/**
+ * Coalesce window for `passkeys.last_used_at` writes (mirrors
+ * LAST_USED_AT_COALESCE_MS for sessions). Sub-minute accuracy on the
+ * Settings surface buys nothing and adds a DB write per authenticator
+ * ceremony — not worth it on the hot path.
+ */
+const PASSKEY_LAST_USED_COALESCE_MS = 60_000;
+/**
  * Minimum gap between `last_used_at` writes on the hot-path (P-W4).
  * The Sessions UI doesn't need sub-second accuracy; coalescing to 60s
  * cuts per-refresh DB writes by ~60× at typical 5-min refresh cadence.
@@ -573,6 +638,7 @@ export function createAuthService(config: AuthConfig) {
   const recoveryGenerateAllowedAmr = new Set<string>(
     config.recoveryGenerateAllowedAmr ?? ["webauthn", "otp"],
   );
+  const passkeyDeleteAllowedAmr = new Set<string>(config.passkeyDeleteAllowedAmr ?? ["webauthn"]);
   const jtiStore = config.stepUpJtiStore ?? createInMemoryJtiStore();
   const rotatedSessionStore = config.rotatedSessionStore ?? createInMemoryRotatedSessionStore();
   const rotatedSessionStoreBackend = rotatedSessionStore.backend;
@@ -1556,6 +1622,15 @@ export function createAuthService(config: AuthConfig) {
         return yield* Effect.fail(new AuthError({ message: "Account not found" }));
       }
 
+      // P-I10: refuse to mint options past the per-account cap. The WebAuthn
+      // ceremony would still land DB-side at `complete` anyway; failing early
+      // avoids the user rehearsing a fingerprint / PIN for nothing.
+      if (existingPasskeys.length >= MAX_PASSKEYS_PER_ACCOUNT) {
+        return yield* Effect.fail(
+          new AuthError({ message: "Passkey limit reached for this account" }),
+        );
+      }
+
       const options = yield* Effect.tryPromise({
         try: () =>
           generateRegistrationOptions({
@@ -1571,9 +1646,12 @@ export function createAuthService(config: AuthConfig) {
                 ? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
                 : undefined,
             })),
+            // M-PK: discoverable-credential login requires a resident key.
+            // `userVerification: required` forces a biometric or PIN, which
+            // is the Copenhagen Book requirement for passkey-primary auth.
             authenticatorSelection: {
-              residentKey: "preferred",
-              userVerification: "preferred",
+              residentKey: "required",
+              userVerification: "required",
             },
           }),
         catch: (cause) => new AuthError({ message: String(cause) }),
@@ -1621,25 +1699,61 @@ export function createAuthService(config: AuthConfig) {
         return yield* Effect.fail(new AuthError({ message: "Passkey registration not verified" }));
       }
 
-      const info = verification.registrationInfo;
+      // Library-version-tolerant read of the optional WebAuthn fields. The
+      // bounded fields (id/publicKey/counter/transports) are stable across
+      // @simplewebauthn/server versions; aaguid + backup flags moved around
+      // between majors and we don't want the build to pin to a point release.
+      const info = verification.registrationInfo as typeof verification.registrationInfo & {
+        aaguid?: string;
+        credentialBackedUp?: boolean;
+        credentialDeviceType?: "singleDevice" | "multiDevice";
+      };
+      const aaguid = typeof info.aaguid === "string" ? info.aaguid : null;
+      const backedUp = info.credentialBackedUp ?? null;
+      const eligible = info.credentialDeviceType === "multiDevice";
       const { db } = yield* Db;
       const id = genId("pk_");
       const ts = now();
+      const nowSec = Math.floor(ts.getTime() / 1000);
 
+      // P-W1 / P-I10: race-safe cap enforcement inside a single transaction.
+      // `beginPasskeyRegistration` already refuses past the limit, but a pair
+      // of `begin` calls racing `complete` would both pass the pre-check.
+      // Wrapping the count + insert in `db.transaction` collapses the TOCTOU
+      // window to zero on SQLite (serial writes) and to READ COMMITTED on
+      // libsql/Postgres.
       yield* Effect.tryPromise({
         try: () =>
-          db.insert(passkeys).values({
-            id,
-            accountId,
-            credentialId: info.credential.id,
-            publicKey: Buffer.from(info.credential.publicKey).toString("base64"),
-            counter: info.credential.counter,
-            transports: info.credential.transports
-              ? JSON.stringify(info.credential.transports)
-              : null,
-            createdAt: ts,
+          db.transaction(async (tx) => {
+            const rows = await tx
+              .select({ id: passkeys.id })
+              .from(passkeys)
+              .where(eq(passkeys.accountId, accountId));
+            if (rows.length >= MAX_PASSKEYS_PER_ACCOUNT) {
+              throw new Error("Passkey limit reached for this account");
+            }
+            await tx.insert(passkeys).values({
+              id,
+              accountId,
+              credentialId: info.credential.id,
+              publicKey: Buffer.from(info.credential.publicKey).toString("base64"),
+              counter: info.credential.counter,
+              transports: info.credential.transports
+                ? JSON.stringify(info.credential.transports)
+                : null,
+              createdAt: ts,
+              label: null,
+              lastUsedAt: null,
+              aaguid,
+              backupEligible: eligible,
+              backupState: backedUp,
+              updatedAt: nowSec,
+            });
           }),
-        catch: (cause) => new DatabaseError({ cause }),
+        catch: (cause) =>
+          cause instanceof Error && /limit reached/i.test(cause.message)
+            ? new AuthError({ message: "Passkey limit reached for this account" })
+            : new DatabaseError({ cause }),
       });
 
       // H1: Invalidate all other sessions on passkey registration.
@@ -1656,14 +1770,65 @@ export function createAuthService(config: AuthConfig) {
   // Passkey: begin login
   // -------------------------------------------------------------------------
 
+  /**
+   * M-PK: passkey login `begin` supports two flows:
+   *
+   *  1. **Identifier-bound** (legacy + explicit). The caller knows which
+   *     account they want and supplies the handle or email. We look up the
+   *     account's credentials and seed `allowCredentials` so the browser
+   *     can filter its authenticator list. Challenge is keyed by the
+   *     normalised identifier.
+   *
+   *  2. **Discoverable** (`identifier === null`). The caller has no
+   *     identity up-front — conditional-UI autofill drives the ceremony,
+   *     and the authenticator picks the credential. We emit options with
+   *     an empty `allowCredentials` (forcing discoverable-credential
+   *     resolution on the device) and key the challenge by a random
+   *     `challengeId` that the client must round-trip to `complete`.
+   *
+   * Discoverable flow uses a short-lived random UUID as the challenge
+   * key so two concurrent discoverable `begin`s don't collide. The raw
+   * WebAuthn challenge is still a cryptographic nonce inside the
+   * ceremony; `challengeId` is just the server-side map key.
+   */
   const beginPasskeyLogin = (
-    identifier: string,
+    identifier: string | null,
   ): Effect.Effect<
-    { options: PublicKeyCredentialRequestOptionsJSON },
+    {
+      options: PublicKeyCredentialRequestOptionsJSON;
+      challengeId?: string;
+    },
     AuthError | DatabaseError,
     Db
   > =>
     Effect.gen(function* () {
+      // Discoverable path — no identifier. Emit options with empty
+      // allowCredentials so the authenticator resolves via resident keys.
+      if (identifier === null) {
+        const options = yield* Effect.tryPromise({
+          try: () =>
+            generateAuthenticationOptions({
+              rpID: config.rpId,
+              allowCredentials: [],
+              userVerification: "required",
+            }),
+          catch: (cause) => new AuthError({ message: String(cause) }),
+        });
+        sweepExpired(loginChallenges);
+        // P-I2: cap defence-in-depth. Rate limiting is the primary
+        // guard; this bounds memory even if the per-IP limit is ever
+        // relaxed or fails open.
+        if (loginChallenges.size >= MAX_LOGIN_CHALLENGES) {
+          return yield* Effect.fail(new AuthError({ message: "Try again shortly" }));
+        }
+        const challengeId = crypto.randomUUID();
+        loginChallenges.set(`__disc__:${challengeId}`, {
+          challenge: options.challenge,
+          expiresAt: Date.now() + 120_000,
+        });
+        return { options, challengeId };
+      }
+
       const normalised = normaliseIdentifier(identifier);
       const profile = yield* resolveIdentifier(normalised);
       if (!profile) {
@@ -1692,13 +1857,17 @@ export function createAuthService(config: AuthConfig) {
                 ? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
                 : undefined,
             })),
-            userVerification: "preferred",
+            userVerification: "required",
           }),
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
 
       // Key challenge by normalised identifier so completePasskeyLoginDirect
       // can check the in-memory guard before touching the DB.
+      sweepExpired(loginChallenges);
+      if (loginChallenges.size >= MAX_LOGIN_CHALLENGES) {
+        return yield* Effect.fail(new AuthError({ message: "Try again shortly" }));
+      }
       loginChallenges.set(normalised, {
         challenge: options.challenge,
         expiresAt: Date.now() + 120_000,
@@ -1713,25 +1882,36 @@ export function createAuthService(config: AuthConfig) {
   // logic without duplication).
   // -------------------------------------------------------------------------
 
+  /**
+   * Input for the shared passkey-assertion verifier. Exactly one of
+   * `identifier` or `challengeId` is present — the route layer validates
+   * that invariant before dispatching.
+   */
+  type PasskeyLoginContext =
+    | { kind: "identified"; identifier: string }
+    | { kind: "discoverable"; challengeId: string };
+
   const verifyPasskeyAssertion = (
-    identifier: string,
+    context: PasskeyLoginContext,
     assertion: AuthenticationResponseJSON,
   ): Effect.Effect<ProfileWithEmail, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      // Check in-memory challenge guard before any DB lookup.
-      const normalised = normaliseIdentifier(identifier);
-      const entry = loginChallenges.get(normalised);
+      // Resolve challenge key before any DB lookup.
+      const challengeKey =
+        context.kind === "identified"
+          ? normaliseIdentifier(context.identifier)
+          : `__disc__:${context.challengeId}`;
+      const entry = loginChallenges.get(challengeKey);
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
       }
-      loginChallenges.delete(normalised);
-
-      const profile = yield* resolveIdentifier(normalised);
-      if (!profile) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
-      }
+      loginChallenges.delete(challengeKey);
 
       const { db } = yield* Db;
+      // Look up the credential row by `credentialId` — stable across both
+      // flows. For the identified flow we also verify the credential belongs
+      // to the claimed account (prevents a valid assertion for credential X
+      // from signing in account Y).
       const pkResult = yield* Effect.tryPromise({
         try: () =>
           db.select().from(passkeys).where(eq(passkeys.credentialId, assertion.id)).limit(1),
@@ -1739,38 +1919,100 @@ export function createAuthService(config: AuthConfig) {
       });
       const pk = pkResult[0];
       if (!pk) {
-        return yield* Effect.fail(new AuthError({ message: "Passkey not found" }));
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
 
-      const verification = yield* Effect.tryPromise({
-        try: () =>
-          verifyAuthenticationResponse({
-            response: assertion,
-            expectedChallenge: entry.challenge,
-            expectedOrigin: config.origin,
-            expectedRPID: config.rpId,
-            credential: {
-              id: pk.credentialId,
-              publicKey: new Uint8Array(Buffer.from(pk.publicKey, "base64")),
-              counter: pk.counter,
-              transports: pk.transports
-                ? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
-                : undefined,
-            },
-          }),
-        catch: (cause) => new AuthError({ message: String(cause) }),
+      let profile: ProfileWithEmail | null;
+      // Look up the owning account once — needed for both the identified-flow
+      // accountId equality check and the discoverable-flow userHandle pin.
+      const accountRow = yield* Effect.tryPromise({
+        try: () => db.select().from(accounts).where(eq(accounts.id, pk.accountId)).limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
       });
+      const account = accountRow[0];
+      if (!account) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+      }
+      if (context.kind === "identified") {
+        const normalised = normaliseIdentifier(context.identifier);
+        profile = yield* resolveIdentifier(normalised);
+        if (!profile || profile.accountId !== pk.accountId) {
+          return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+        }
+      } else {
+        // S-M3: discoverable flow — the credential row supplies the account.
+        // Cross-check the assertion's `userHandle` against the account's
+        // stored `passkeyUserId`. The signature already binds the assertion
+        // to the credential, so this is defence-in-depth: if a future schema
+        // change ever lets a credentialId map to two accounts, the
+        // userHandle pin still prevents account A's credential from logging
+        // into account B.
+        const userHandle = assertion.response.userHandle;
+        if (typeof userHandle !== "string" || userHandle.length === 0) {
+          return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+        }
+        // userHandle is base64url-encoded by the browser. The stored
+        // passkeyUserId is the raw UTF-8 string we passed to
+        // generateRegistrationOptions, so decode + compare.
+        const decodedHandle = Buffer.from(userHandle, "base64url").toString("utf8");
+        if (decodedHandle !== account.passkeyUserId) {
+          return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+        }
+        profile = yield* findDefaultProfile(pk.accountId);
+        if (!profile) {
+          return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
+        }
+      }
 
+      // S-L5: never reflect the WebAuthn library's error text to the caller —
+      // it can pinpoint failure mode (challenge mismatch vs origin mismatch
+      // vs counter regression) and lets an attacker probe the verifier. We
+      // log the cause for operators (annotation goes through the redaction
+      // logger) and surface a fixed message on the wire.
+      const verifyResult = yield* Effect.promise(() =>
+        verifyAuthenticationResponse({
+          response: assertion,
+          expectedChallenge: entry.challenge,
+          expectedOrigin: config.origin,
+          expectedRPID: config.rpId,
+          requireUserVerification: true,
+          credential: {
+            id: pk.credentialId,
+            publicKey: new Uint8Array(Buffer.from(pk.publicKey, "base64")),
+            counter: pk.counter,
+            transports: pk.transports
+              ? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
+              : undefined,
+          },
+        }).then(
+          (v) => ({ ok: true as const, v }),
+          (e: unknown) => ({ ok: false as const, e }),
+        ),
+      );
+      if (!verifyResult.ok) {
+        yield* Effect.logWarning("auth.passkey.verify threw", {
+          cause: verifyResult.e instanceof Error ? verifyResult.e.message : String(verifyResult.e),
+        });
+        return yield* Effect.fail(new AuthError({ message: "Passkey verification failed" }));
+      }
+      const verification = verifyResult.v;
       if (!verification.verified) {
         return yield* Effect.fail(new AuthError({ message: "Passkey verification failed" }));
       }
 
+      // Update counter + coalesced last_used_at (P-W4 parallel to sessions).
+      const nowSec = Math.floor(Date.now() / 1000);
+      const shouldTouchLastUsed =
+        !pk.lastUsedAt || Date.now() - pk.lastUsedAt * 1000 >= PASSKEY_LAST_USED_COALESCE_MS;
+      const updates: Record<string, number | boolean> = {
+        counter: verification.authenticationInfo.newCounter,
+      };
+      if (shouldTouchLastUsed) {
+        updates["lastUsedAt"] = nowSec;
+        updates["updatedAt"] = nowSec;
+      }
       yield* Effect.tryPromise({
-        try: () =>
-          db
-            .update(passkeys)
-            .set({ counter: verification.authenticationInfo.newCounter })
-            .where(eq(passkeys.id, pk.id)),
+        try: () => db.update(passkeys).set(updates).where(eq(passkeys.id, pk.id)),
         catch: (cause) => new DatabaseError({ cause }),
       });
 
@@ -1782,12 +2024,26 @@ export function createAuthService(config: AuthConfig) {
   // -------------------------------------------------------------------------
 
   const completePasskeyLoginDirect = (
-    identifier: string,
-    assertion: AuthenticationResponseJSON,
+    input:
+      | { identifier: string; assertion: AuthenticationResponseJSON }
+      | { challengeId: string; assertion: AuthenticationResponseJSON },
     sessionMeta?: SessionMeta,
   ): Effect.Effect<{ session: TokenSet; profile: PublicProfile }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const profile = yield* verifyPasskeyAssertion(identifier, assertion);
+      const isDiscoverable = "challengeId" in input;
+      const context: PasskeyLoginContext = isDiscoverable
+        ? { kind: "discoverable", challengeId: input.challengeId }
+        : { kind: "identified", identifier: input.identifier };
+      const profile = yield* verifyPasskeyAssertion(context, input.assertion).pipe(
+        Effect.tap(() =>
+          isDiscoverable ? Effect.sync(() => metricPasskeyLoginDiscoverable("ok")) : Effect.void,
+        ),
+        Effect.tapError((e) =>
+          isDiscoverable
+            ? Effect.sync(() => metricPasskeyLoginDiscoverable(classifyError(e)))
+            : Effect.void,
+        ),
+      );
       const session = yield* issueTokens(
         profile.id,
         profile.accountId,
@@ -2123,12 +2379,14 @@ export function createAuthService(config: AuthConfig) {
   /**
    * Invalidates all sessions for an account EXCEPT the one identified by
    * `keepSessionHash`. Used after security events (H1) where the current
-   * session should survive but all others must be revoked (e.g. passkey
-   * registration from an authenticated session).
+   * session should survive but all others must be revoked (passkey
+   * registration, passkey deletion, …). `trigger` labels the emitted metric
+   * so the security-invalidation dashboard can attribute the sweep.
    */
   const invalidateOtherAccountSessions = (
     accountId: string,
     keepSessionHash: string,
+    trigger: SecurityInvalidationTrigger = "passkey_register",
   ): Effect.Effect<void, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
@@ -2139,7 +2397,7 @@ export function createAuthService(config: AuthConfig) {
             .where(and(eq(sessions.accountId, accountId), ne(sessions.id, keepSessionHash))),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      metricSessionSecurityInvalidation("passkey_register");
+      metricSessionSecurityInvalidation(trigger);
     }).pipe(Effect.withSpan("auth.session.invalidate_other"));
 
   // -------------------------------------------------------------------------
@@ -2803,12 +3061,18 @@ export function createAuthService(config: AuthConfig) {
         return yield* Effect.fail(new AuthError({ message: "Passkey verification failed" }));
       }
 
+      const nowSec = Math.floor(Date.now() / 1000);
+      const shouldTouchLastUsed =
+        !pk.lastUsedAt || Date.now() - pk.lastUsedAt * 1000 >= PASSKEY_LAST_USED_COALESCE_MS;
+      const updates: Record<string, number | boolean> = {
+        counter: verification.authenticationInfo.newCounter,
+      };
+      if (shouldTouchLastUsed) {
+        updates["lastUsedAt"] = nowSec;
+        updates["updatedAt"] = nowSec;
+      }
       yield* Effect.tryPromise({
-        try: () =>
-          db
-            .update(passkeys)
-            .set({ counter: verification.authenticationInfo.newCounter })
-            .where(eq(passkeys.id, pk.id)),
+        try: () => db.update(passkeys).set(updates).where(eq(passkeys.id, pk.id)),
         catch: (cause) => new DatabaseError({ cause }),
       });
 
@@ -2878,6 +3142,20 @@ export function createAuthService(config: AuthConfig) {
       const stepUpToken = yield* issueStepUpToken(accountId, "otp");
       return { stepUpToken, expiresIn: stepUpTokenTtl };
     }).pipe(withStepUp("complete"));
+
+  /**
+   * S-L4: separate step-up verifier for `DELETE /passkeys/:id`. Defaults
+   * to passkey-only AMR — the caller necessarily has a passkey (the
+   * last-passkey lockout guard fires otherwise), so requiring one for
+   * deletion is the strongest available signal at no UX cost.
+   */
+  const verifyStepUpForPasskeyDelete = (
+    accountId: string,
+    stepUpToken: string,
+  ): Effect.Effect<void, AuthError> =>
+    Effect.gen(function* () {
+      yield* verifyStepUpToken(stepUpToken, accountId, passkeyDeleteAllowedAmr);
+    });
 
   const verifyStepUpForRecoveryGenerate = (
     accountId: string,
@@ -3241,6 +3519,267 @@ export function createAuthService(config: AuthConfig) {
       return { email: changed.email };
     }).pipe(withEmailChange("complete"));
 
+  // -------------------------------------------------------------------------
+  // Passkey management (M-PK)
+  //
+  // Settings-surface operations over an account's existing credentials:
+  //   • listPasskeys   → public, label-friendly summary
+  //   • renamePasskey  → patch the user-editable label only
+  //   • deletePasskey  → remove one credential, revoke other sessions (H1),
+  //                     and record a security_events row (M-PK1b). Guarded
+  //                     by step-up at the route layer.
+  //
+  // None of these methods accept or emit secret material. `publicKey` and
+  // `counter` stay internal to the auth service.
+  // -------------------------------------------------------------------------
+
+  const listPasskeys = (
+    accountId: string,
+  ): Effect.Effect<{ passkeys: PasskeySummary[] }, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      // Explicit projection so the public type never widens by accident —
+      // adding publicKey / counter later must be an intentional edit here.
+      // S-L2: `credentialId` is intentionally excluded from the projection.
+      // The Settings UI only needs the opaque `pk_<hex>` `id` to drive
+      // rename/delete; emitting credentialIds would let a malicious bundled
+      // dependency exfiltrate authenticator-model fingerprints for targeted
+      // phishing.
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({
+              id: passkeys.id,
+              label: passkeys.label,
+              aaguid: passkeys.aaguid,
+              transports: passkeys.transports,
+              backupEligible: passkeys.backupEligible,
+              backupState: passkeys.backupState,
+              createdAt: passkeys.createdAt,
+              lastUsedAt: passkeys.lastUsedAt,
+            })
+            .from(passkeys)
+            .where(eq(passkeys.accountId, accountId))
+            .orderBy(desc(passkeys.lastUsedAt), desc(passkeys.createdAt)),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      return {
+        passkeys: rows.map((row) => ({
+          id: row.id,
+          label: row.label,
+          aaguid: row.aaguid,
+          transports: row.transports ? (JSON.parse(row.transports) as string[]) : null,
+          backupEligible: row.backupEligible,
+          backupState: row.backupState,
+          createdAt: Math.floor(row.createdAt.getTime() / 1000),
+          lastUsedAt: row.lastUsedAt,
+        })),
+      };
+    }).pipe(withPasskeyOp("list"));
+
+  const renamePasskey = (
+    accountId: string,
+    passkeyId: string,
+    label: string,
+  ): Effect.Effect<void, AuthError | ValidationError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const trimmed = label.trim();
+      yield* Schema.decodeUnknown(PasskeyLabelSchema)(trimmed).pipe(
+        Effect.mapError((cause) => new ValidationError({ cause })),
+      );
+      if (!/^pk_[a-f0-9]{12}$/.test(passkeyId)) {
+        return yield* Effect.fail(new AuthError({ message: "Passkey not found" }));
+      }
+      const { db } = yield* Db;
+      const nowSec = Math.floor(Date.now() / 1000);
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .update(passkeys)
+            .set({ label: trimmed, updatedAt: nowSec })
+            .where(and(eq(passkeys.id, passkeyId), eq(passkeys.accountId, accountId))),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      // better-sqlite3 returns `{ changes }`, libsql returns `{ rowsAffected }`.
+      // Treat 0 rows updated as not-found without leaking whether another
+      // account owns the id.
+      const affected =
+        (result as unknown as { changes?: number; rowsAffected?: number }).changes ??
+        (result as unknown as { changes?: number; rowsAffected?: number }).rowsAffected ??
+        0;
+      if (affected === 0) {
+        return yield* Effect.fail(new AuthError({ message: "Passkey not found" }));
+      }
+    }).pipe(withPasskeyOp("rename"));
+
+  /**
+   * Deletes a single passkey, records a security event, and revokes every
+   * OTHER session so an attacker who stole one passkey cannot piggyback on
+   * a stale access token to keep working after the legitimate user
+   * remediates.
+   *
+   * Last-passkey guard: if this is the account's final passkey AND they
+   * have zero active recovery codes, we refuse. The alternative is a
+   * locked-out account — the user must generate recovery codes first, or
+   * add another passkey, before we let them delete.
+   */
+  const deletePasskey = (
+    accountId: string,
+    passkeyId: string,
+    currentSessionHash: string | null,
+    eventMeta?: SessionMeta,
+  ): Effect.Effect<{ remaining: number }, AuthError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      if (!/^pk_[a-f0-9]{12}$/.test(passkeyId)) {
+        return yield* Effect.fail(new AuthError({ message: "Passkey not found" }));
+      }
+      const { db } = yield* Db;
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      const securityEventRow: typeof securityEvents.$inferInsert = {
+        id: genId("sev_"),
+        accountId,
+        kind: "passkey_delete",
+        createdAt: nowSec,
+        acknowledgedAt: null,
+        ipHash: eventMeta?.ip ? hashIp(eventMeta.ip) : null,
+        uaLabel: eventMeta?.uaLabel ?? null,
+      };
+
+      // S-M1 / P-W1: gate-then-delete inside one transaction so two concurrent
+      // DELETEs cannot race past the last-passkey guard. P-I1: collapse the
+      // earlier 3-way SELECT into one passkey scan + one recovery-code scan.
+      // The guard refuses the delete when this is the last passkey AND there
+      // are no active recovery codes — the user must generate codes first.
+      // The transaction body returns a tagged result so Effect can fail with
+      // the right error class outside the tx.
+      type TxResult =
+        | { ok: true; remaining: number }
+        | { ok: false; reason: "not_found" | "lockout" };
+      const txResult = yield* Effect.tryPromise<TxResult, DatabaseError>({
+        try: () =>
+          db.transaction(async (tx) => {
+            const accountPasskeys = await tx
+              .select({ id: passkeys.id })
+              .from(passkeys)
+              .where(eq(passkeys.accountId, accountId));
+            const exists = accountPasskeys.some((r) => r.id === passkeyId);
+            if (!exists) {
+              return { ok: false, reason: "not_found" } as const;
+            }
+            if (accountPasskeys.length <= 1) {
+              const activeCodes = await tx
+                .select({ id: recoveryCodes.id })
+                .from(recoveryCodes)
+                .where(and(eq(recoveryCodes.accountId, accountId), isNull(recoveryCodes.usedAt)));
+              if (activeCodes.length === 0) {
+                return { ok: false, reason: "lockout" } as const;
+              }
+            }
+            await tx
+              .delete(passkeys)
+              .where(and(eq(passkeys.id, passkeyId), eq(passkeys.accountId, accountId)));
+            await tx.insert(securityEvents).values(securityEventRow);
+            return { ok: true, remaining: accountPasskeys.length - 1 } as const;
+          }),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+
+      if (!txResult.ok) {
+        if (txResult.reason === "not_found") {
+          return yield* Effect.fail(new AuthError({ message: "Passkey not found" }));
+        }
+        return yield* Effect.fail(
+          new AuthError({
+            message:
+              "Refusing to delete the last passkey without recovery codes — generate recovery codes first",
+          }),
+        );
+      }
+
+      metricSecurityEventRecorded("passkey_delete");
+
+      // H1: revoke other sessions. An attacker who stole a session + the
+      // passkey shouldn't keep working after the credential goes away.
+      if (currentSessionHash) {
+        yield* invalidateOtherAccountSessions(accountId, currentSessionHash, "passkey_delete");
+      } else {
+        // S-L3: caller has no session cookie (e.g. the delete came in via an
+        // enrollment-token path or the cookie was stripped by a proxy). We
+        // nuke every session on the account because there's no "self" to
+        // preserve. This branch is rare and forensically distinct, so log it
+        // out-of-band and emit the security-invalidation metric explicitly.
+        yield* Effect.logWarning("auth.passkey.delete: nuking all sessions (no caller session)");
+        yield* Effect.tryPromise({
+          try: () => db.delete(sessions).where(eq(sessions.accountId, accountId)),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        metricSessionSecurityInvalidation("passkey_delete");
+      }
+
+      // M-PK1b: fire-and-forget email notification (codes never included).
+      yield* Effect.forkDaemon(
+        notifyPasskeyDeletedByAccountId(accountId).pipe(
+          Effect.timeout("10 seconds"),
+          Effect.catchAll(() => Effect.void),
+        ),
+      );
+
+      return { remaining: txResult.remaining };
+    }).pipe(withPasskeyOp("delete"));
+
+  /**
+   * Fetches the account's email and dispatches a best-effort notification
+   * that a passkey was deleted. Mirrors the recovery-code notification path —
+   * never includes identifying material beyond "it was you if you did this,
+   * otherwise investigate."
+   */
+  const notifyPasskeyDeletedByAccountId = (
+    accountId: string,
+  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () => db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const email = rows[0]?.email;
+      if (!email) {
+        metricSecurityEventNotified("passkey_delete", "skipped");
+        return;
+      }
+      if (!config.sendEmail) {
+        yield* Effect.logDebug(`[OSN local] Passkey-delete notice for ${email}: audit row written`);
+        metricSecurityEventNotified("passkey_delete", "skipped");
+        return;
+      }
+      const start = Date.now();
+      yield* Effect.tryPromise({
+        try: () =>
+          config.sendEmail!(
+            email,
+            "A passkey was removed from your OSN account",
+            `A passkey was just removed from your OSN account. If that was you, no further action is needed.\n\nIf this wasn't you: sign in, review your active sessions, and rotate any remaining credentials.`,
+          ),
+        catch: () => new AuthError({ message: "notify_dispatch_failed" }),
+      }).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            metricSecurityEventNotifyDuration((Date.now() - start) / 1000, "ok");
+            metricSecurityEventNotified("passkey_delete", "sent");
+          }),
+        ),
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            metricSecurityEventNotifyDuration((Date.now() - start) / 1000, "error");
+            metricSecurityEventNotified("passkey_delete", "failed");
+          }),
+        ),
+      );
+    }).pipe(
+      Effect.withSpan("auth.security_event.notify", { attributes: { kind: "passkey_delete" } }),
+    );
+
   /** Returns the count of unused recovery codes for the account. */
   const countActiveRecoveryCodes = (
     accountId: string,
@@ -3277,6 +3816,9 @@ export function createAuthService(config: AuthConfig) {
     completePasskeyRegistration,
     beginPasskeyLogin,
     completePasskeyLoginDirect,
+    listPasskeys,
+    renamePasskey,
+    deletePasskey,
     beginOtp,
     completeOtpDirect,
     beginMagic,
@@ -3301,6 +3843,7 @@ export function createAuthService(config: AuthConfig) {
     beginStepUpOtp,
     completeStepUpOtp,
     verifyStepUpForRecoveryGenerate,
+    verifyStepUpForPasskeyDelete,
     listAccountSessions,
     revokeAccountSession,
     revokeAllOtherAccountSessions,

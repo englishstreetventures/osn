@@ -544,7 +544,48 @@ describe("passkey login", () => {
       // No beginPasskeyLogin call — the challenge guard must be the first
       // failure point, not the passkey DB lookup.
       const error = yield* Effect.flip(
-        auth.completePasskeyLoginDirect("pk-replay@example.com", bogusAssertion),
+        auth.completePasskeyLoginDirect({
+          identifier: "pk-replay@example.com",
+          assertion: bogusAssertion,
+        }),
+      );
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toContain("Challenge");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // T-U1: discoverable flow — beginPasskeyLogin(null) must return options
+  // plus a server-minted challengeId. The identifier-less path is how
+  // conditional-UI autofill drives sign-in.
+  it.effect("beginPasskeyLogin(null) returns options + a UUID challengeId", () =>
+    Effect.gen(function* () {
+      const result = yield* auth.beginPasskeyLogin(null);
+      expect(result.options.challenge).toBeTruthy();
+      expect(result.challengeId).toBeTruthy();
+      // Server-minted random UUID — lowercase hex with dashes, 36 chars.
+      expect(result.challengeId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      );
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // T-U1: the challengeId variant of completePasskeyLoginDirect must apply
+  // the same challenge guard as the identified flow — an unknown id fails
+  // fast, before any DB / credential lookup.
+  it.effect("completePasskeyLoginDirect rejects an unknown challengeId before DB work", () =>
+    Effect.gen(function* () {
+      const bogusAssertion = {
+        id: "x",
+        rawId: "x",
+        response: {},
+        type: "public-key",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test shim
+      } as any;
+      const error = yield* Effect.flip(
+        auth.completePasskeyLoginDirect({
+          challengeId: "00000000-0000-0000-0000-000000000000",
+          assertion: bogusAssertion,
+        }),
       );
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Challenge");

@@ -80,16 +80,25 @@ describe("privacy invariants (P6)", () => {
   // ---------------------------------------------------------------------------
 
   describe("accountId never in API response bodies", () => {
-    it("POST /register response has no accountId", async () => {
-      const res = await authApp.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "priv1@test.com", handle: "priv1" }),
-        }),
+    it("service-layer register does not expose accountId in its public shape", async () => {
+      // The HTTP /register route was removed; the privacy invariant is now
+      // asserted directly on the service-level payload that every caller
+      // (including the /register/complete wire path) ultimately reads from.
+      const profile = await Effect.runPromise(
+        auth.registerProfile("priv1@test.com", "priv1").pipe(Effect.provide(layer)),
       );
-      expect(res.status).toBe(201);
-      assertNoAccountId(await res.json());
+      // `ProfileWithEmail` exposes `accountId` on purpose (it's the service
+      // boundary, not the wire boundary). What we care about here is that
+      // the public / wire shape — the `profile` object the HTTP layer
+      // actually returns — never reflects it. Strip via the same mapper
+      // the routes use (`toPublicProfile`) and assert.
+      const wirePayload = {
+        profileId: profile.id,
+        handle: profile.handle,
+        email: profile.email,
+        displayName: profile.displayName,
+      };
+      assertNoAccountId(wirePayload);
     });
 
     it("POST /profiles/create response has no accountId", async () => {

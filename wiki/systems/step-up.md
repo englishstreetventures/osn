@@ -4,7 +4,7 @@ tags: [systems, auth, security]
 related:
   - identity-model
   - recovery-codes
-last-reviewed: 2026-04-19
+last-reviewed: 2026-04-22
 ---
 
 # Step-up (sudo) tokens
@@ -17,6 +17,9 @@ Short-lived high-assurance tokens required by the most sensitive endpoints. Prev
 |---|---|
 | `POST /recovery/generate` | `webauthn` or `otp` (configurable via `recoveryGenerateAllowedAmr`) |
 | `POST /account/email/complete` | `webauthn` or `otp` |
+| `PATCH /passkeys/:id` (rename) | `webauthn` only by default — uses `passkeyDeleteAllowedAmr` (S-M2) |
+| `DELETE /passkeys/:id` | `webauthn` only by default — `passkeyDeleteAllowedAmr` knob, defaults to `["webauthn"]` (S-L4) |
+| `POST /account/security-events/:id/ack` + `/ack-all` | `webauthn` or `otp` |
 
 The caller presents the token either as an `X-Step-Up-Token` header or a `step_up_token` body field (email change uses body-only).
 

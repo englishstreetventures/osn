@@ -46,7 +46,13 @@ function createTestDb() {
       public_key TEXT NOT NULL,
       counter INTEGER NOT NULL DEFAULT 0,
       transports TEXT,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      label TEXT,
+      last_used_at INTEGER,
+      aaguid TEXT,
+      backup_eligible INTEGER,
+      backup_state INTEGER,
+      updated_at INTEGER
     )
   `);
   sqlite.run(`
