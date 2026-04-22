@@ -29,6 +29,9 @@ import type {
   RecoveryCodeStep,
   RegisterStep,
   Result,
+  RotatedStoreAction,
+  RotatedStoreBackend,
+  RotatedStoreResult,
   SecurityInvalidationTrigger,
   SessionAction,
   StepUpFactor,
@@ -54,6 +57,8 @@ export const OSN_METRICS = {
   authSessionRotations: "osn.auth.session.rotations",
   authSessionReuseDetected: "osn.auth.session.reuse_detected",
   authSessionFamilyRevoked: "osn.auth.session.family_revoked",
+  authSessionRotatedStoreOps: "osn.auth.session.rotated_store.operations",
+  authSessionRotatedStoreDuration: "osn.auth.session.rotated_store.duration",
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
   authRecoveryCodesGenerated: "osn.auth.recovery.codes_generated",
   authRecoveryCodeConsumed: "osn.auth.recovery.code_consumed",
@@ -496,6 +501,42 @@ export const metricSessionFamilyRevoked = (): void => authSessionFamilyRevoked.i
 
 export const metricSessionSecurityInvalidation = (trigger: SecurityInvalidationTrigger): void =>
   authSessionSecurityInvalidation.inc({ trigger });
+
+// ---------------------------------------------------------------------------
+// Rotated-session store (S-H1: cluster-safe C2 reuse detection)
+// ---------------------------------------------------------------------------
+
+type RotatedStoreOpAttrs = {
+  action: RotatedStoreAction;
+  result: RotatedStoreResult;
+  backend: RotatedStoreBackend;
+};
+type RotatedStoreDurationAttrs = {
+  action: RotatedStoreAction;
+  backend: RotatedStoreBackend;
+};
+
+const authSessionRotatedStoreOps = createCounter<RotatedStoreOpAttrs>({
+  name: OSN_METRICS.authSessionRotatedStoreOps,
+  description:
+    "Rotated-session store operations (C2 reuse detection) by action, outcome, and backend",
+  unit: "{operation}",
+});
+
+const authSessionRotatedStoreDuration = createHistogram<RotatedStoreDurationAttrs>({
+  name: OSN_METRICS.authSessionRotatedStoreDuration,
+  description: "Rotated-session store operation latency by action and backend",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
+export const metricRotatedStoreOp = (attrs: RotatedStoreOpAttrs): void =>
+  authSessionRotatedStoreOps.inc(attrs);
+
+export const metricRotatedStoreDuration = (
+  seconds: number,
+  attrs: RotatedStoreDurationAttrs,
+): void => authSessionRotatedStoreDuration.record(seconds, attrs);
 
 // ---------------------------------------------------------------------------
 // Recovery codes (Copenhagen Book M2)

@@ -7,12 +7,20 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-19
+last-reviewed: 2026-04-22
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## Auth Phase 5b (2026-04-22)
+
+- **S-H1 (session)** — The C2 reuse-detection map (`rotatedSessions`) was a single-process in-memory `Map`; in a multi-pod deployment a rotation recorded on pod A was invisible to pod B, so a replayed rotated-out token hitting B passed without triggering family revocation. Fixed: extracted `RotatedSessionStore` interface (`osn/api/src/lib/rotated-session-store.ts`) with in-memory + Redis-backed impls, wired from `osn/api/src/index.ts`. Fail-open on Redis error — an outage must not manufacture false-positive family revocations that log legitimate users out — with structured warning logs and a `{backend, action, result}` counter so ops dashboards surface degradation. — see [[sessions]]
+- **S-M1 (session)** — The `onError` hook in `osn/api/src/index.ts` annotated logs with `error: String(cause)`, which would leak a credentialed `redis://user:pass@…` URL if ioredis ever embedded one in a connection-level error string. Fixed: route the cause through `sanitizeCause()` from `@shared/redis` before annotation, matching the convention already used by every other Redis error sink in the repo.
+- **S-L1 (session)** — The prior design held a JSON-array family-set in Redis (`{ns}:fam:{familyId}`) to drive proactive `revokeFamily` cleanup. `track` was a three-round-trip read-modify-write with no cross-command atomicity, creating a theoretical race under concurrent rotations of the same family. Fixed: dropped the family set entirely. `track` is now a single `SET hashKey = familyId PX ttl`; the DB-level `DELETE FROM sessions WHERE family_id = ?` in `detectReuse` remains the authoritative family revocation. Stale `hash:*` keys expire under their own TTL.
+- **S-L2 (session)** — `JSON.parse(existing) as string[]` on the family-set payload was a cast rather than a runtime guard — a malformed value written by a different process (migration, manual intervention) would have propagated a thrown error. Removed by the same family-set drop in S-L1.
+- **S-L3 (session)** — `revokeFamily` spread every tracked hash into a single unbounded `DEL` command. Under adversarial `/token` flooding (within the existing rate-limit ceiling) the argument list could have grown large enough to press Redis protocol limits. Removed by the same family-set drop in S-L1.
 
 ## Auth Phase 5a (2026-04-19)
 

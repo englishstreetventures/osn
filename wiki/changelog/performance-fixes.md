@@ -6,12 +6,18 @@ related:
   - "[[redis]]"
   - "[[arc-tokens]]"
   - "[[component-library]]"
-last-reviewed: 2026-04-19
+last-reviewed: 2026-04-22
 ---
 
 # Performance Fixes — Completed
 
 Archived completed performance findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Performance Backlog in [[TODO]].
+
+## Auth Phase 5b (2026-04-22)
+
+- **P-W1 (session)** — `trackRotatedSession` performed a JS-side map sweep on every `/token` refresh (O(n) amortised via FIFO). Fixed: the Redis-backed store delegates expiry to Redis's native per-key PX TTL; the in-memory fallback keeps the existing bounded FIFO sweep for single-process deployments. `track` is a single Redis round-trip on the `/token` hot path. — see [[sessions]]
+- **P-W2 (session)** — Prior design kept a `{ns}:fam:{familyId}` JSON-array of tracked hashes and re-parsed/re-stringified it on every `track`. Over a 30-day active refresh chain (access-token TTL 5 min → ~8 640 rotations) that blob would have grown to ~550 KB of CPU + bandwidth per rotation. Fixed: dropped the family set. `track` writes one 64-hex hash key; `revokeFamily` is a no-op on Redis because the DB-level `DELETE FROM sessions WHERE family_id = ?` already revokes the sessions and the hash keys expire under their own TTL.
+- **P-I1 (session)** — In-memory `revokeFamily` deleted from `entries` but left stale keys in the `order` FIFO queue, so the `ROTATED_SESSIONS_MAX` cap-driven eviction path could pop already-revoked entries. Fixed: filter the queue alongside the `entries` purge — one extra pass per revocation, which is rare.
 
 ## Auth Phase 5a (2026-04-19)
 

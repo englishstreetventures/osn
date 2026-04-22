@@ -102,6 +102,15 @@ export type StepUpVerifyResult =
 /** Session-management actions initiated by the caller. */
 export type SessionAction = "list" | "revoke" | "revoke_all";
 
+/** Rotated-session tracking store operations (C2 reuse detection). */
+export type RotatedStoreAction = "track" | "check" | "revoke_family";
+
+/** Outcome of a rotated-session store operation. */
+export type RotatedStoreResult = "ok" | "hit" | "miss" | "error";
+
+/** Rotated-session store backend. */
+export type RotatedStoreBackend = "memory" | "redis";
+
 /** Email-change ceremony steps, for funnel counters. */
 export type EmailChangeStep = "begin" | "complete";
 

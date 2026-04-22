@@ -44,5 +44,8 @@ export {
   type StepUpStep,
   type StepUpVerifyResult,
   type SessionAction,
+  type RotatedStoreAction,
+  type RotatedStoreResult,
+  type RotatedStoreBackend,
   type EmailChangeStep,
 } from "./attrs";

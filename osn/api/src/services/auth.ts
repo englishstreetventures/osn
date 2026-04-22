@@ -27,11 +27,17 @@ import { Data, Effect, Schema } from "effect";
 import { SignJWT, jwtVerify } from "jose";
 
 import {
+  createInMemoryRotatedSessionStore,
+  type RotatedSessionStore,
+} from "../lib/rotated-session-store";
+import {
   metricAuthHandleCheck,
   metricAuthMagicLinkSent,
   metricAuthOtpSent,
   metricRecoveryCodeConsumed,
   metricRecoveryCodesGenerated,
+  metricRotatedStoreDuration,
+  metricRotatedStoreOp,
   metricSessionReuseDetected,
   metricSessionFamilyRevoked,
   metricSessionSecurityInvalidation,
@@ -135,6 +141,13 @@ export interface AuthConfig {
    * in-memory map means a captured token replays successfully once per pod.
    */
   stepUpJtiStore?: StepUpJtiStore;
+  /**
+   * Cluster-safe record of rotated-out session hashes for C2 reuse detection
+   * (S-H1 session). Single-process deployments get the in-memory default;
+   * multi-pod deployments inject a Redis-backed store so a rotation recorded
+   * on one pod is visible to every other pod on subsequent /token calls.
+   */
+  rotatedSessionStore?: RotatedSessionStore;
 }
 
 // ---------------------------------------------------------------------------
@@ -516,13 +529,6 @@ const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX = 3;
 const emailChangeBeginCounts = new Map<string, { count: number; resetAt: number }>();
 
-/**
- * Bounded `rotatedSessions` wrapper (P-I5). Uses a FIFO queue plus the
- * existing Map so inserts are O(1) amortised and the sweep is capped at
- * the queue head instead of scanning the whole map on every rotation.
- */
-const ROTATED_SESSIONS_MAX = 100_000;
-
 export function createAuthService(config: AuthConfig) {
   const accessTokenTtl = config.accessTokenTtl ?? 300;
   const refreshTokenTtl = config.refreshTokenTtl ?? 2592000;
@@ -533,6 +539,8 @@ export function createAuthService(config: AuthConfig) {
     config.recoveryGenerateAllowedAmr ?? ["webauthn", "otp"],
   );
   const jtiStore = config.stepUpJtiStore ?? createInMemoryJtiStore();
+  const rotatedSessionStore = config.rotatedSessionStore ?? createInMemoryRotatedSessionStore();
+  const rotatedSessionStoreBackend = rotatedSessionStore.backend;
   /**
    * HMAC-SHA256 pepper for IP hashing. Only applied when the caller has
    * configured one — in dev we leave ip_hash NULL so local Docker IPs
@@ -1267,48 +1275,62 @@ export function createAuthService(config: AuthConfig) {
   // Reuse detection (Copenhagen Book C2)
   //
   // When a session hash is not found in the DB, it may have been rotated
-  // out (deleted during a prior refresh). We track recently-rotated hashes
-  // in an in-memory map keyed by hash → familyId. If we find a match, a
-  // previously-valid token is being replayed — revoke the entire family.
-  //
-  // The map is bounded by sweeping entries older than refreshTokenTtl.
+  // out (deleted during a prior refresh). `rotatedSessionStore` tracks
+  // recently-rotated hashes (keyed by hash → familyId) so a replayed
+  // old token triggers full family revocation. S-H1 session: the store
+  // abstraction lets the memory default (single-process dev/test) swap for
+  // a Redis-backed cluster-safe implementation in production.
   // -------------------------------------------------------------------------
 
-  /** hash → { familyId, rotatedAt (ms) } */
-  const rotatedSessions = new Map<string, { familyId: string; rotatedAt: number }>();
-  /**
-   * FIFO ordering for O(1) amortised sweeps on insert (P-I5). We only need
-   * to check the head of the queue against the cutoff; the map itself is
-   * still the authoritative lookup. A full rescan was previously O(n) per
-   * rotation, which degenerates to O(n²) over the 30-day window.
-   */
-  const rotatedSessionsQueue: string[] = [];
+  const rotatedSessionStoreTtlMs = refreshTokenTtl * 1000;
 
   /**
-   * Records that a session hash was rotated out, so future presentations
-   * of that token trigger family revocation. Sweeps the queue head only
-   * (bounded work per call) and caps the map size as defence-in-depth.
+   * Record a rotated-out hash. Wraps the async store call with the standard
+   * observability trio: span + duration histogram + bounded-attrs counter.
+   * Fail-open on store errors — rotation itself has already committed at
+   * the DB layer and aborting the refresh on a Redis blip is a worse UX
+   * than a temporary gap in reuse detection.
    */
-  function trackRotatedSession(sessionHash: string, familyId: string): void {
-    const cutoff = Date.now() - refreshTokenTtl * 1000;
-    while (rotatedSessionsQueue.length > 0) {
-      const oldest = rotatedSessionsQueue[0]!;
-      const entry = rotatedSessions.get(oldest);
-      if (!entry || entry.rotatedAt < cutoff) {
-        rotatedSessionsQueue.shift();
-        if (entry) rotatedSessions.delete(oldest);
-        continue;
-      }
-      break;
-    }
-    // Belt-and-braces cap for pathological workloads.
-    while (rotatedSessionsQueue.length >= ROTATED_SESSIONS_MAX) {
-      const oldest = rotatedSessionsQueue.shift()!;
-      rotatedSessions.delete(oldest);
-    }
-    rotatedSessions.set(sessionHash, { familyId, rotatedAt: Date.now() });
-    rotatedSessionsQueue.push(sessionHash);
-  }
+  const trackRotatedSession = (
+    sessionHash: string,
+    familyId: string,
+  ): Effect.Effect<void, never, never> =>
+    Effect.suspend(() => {
+      const start = Date.now();
+      return Effect.tryPromise({
+        try: () => rotatedSessionStore.track(sessionHash, familyId, rotatedSessionStoreTtlMs),
+        catch: (cause) => cause,
+      }).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            metricRotatedStoreOp({
+              action: "track",
+              result: "ok",
+              backend: rotatedSessionStoreBackend,
+            });
+            metricRotatedStoreDuration((Date.now() - start) / 1000, {
+              action: "track",
+              backend: rotatedSessionStoreBackend,
+            });
+          }),
+        ),
+        Effect.catchAll(() =>
+          Effect.gen(function* () {
+            metricRotatedStoreOp({
+              action: "track",
+              result: "error",
+              backend: rotatedSessionStoreBackend,
+            });
+            metricRotatedStoreDuration((Date.now() - start) / 1000, {
+              action: "track",
+              backend: rotatedSessionStoreBackend,
+            });
+            yield* Effect.logWarning("Rotated-session store unreachable — fail-open on track");
+          }),
+        ),
+        Effect.withSpan("auth.session.rotated_store.track"),
+      );
+    });
 
   /**
    * Checks if a missing session hash was recently rotated. If so, revokes
@@ -1316,28 +1338,97 @@ export function createAuthService(config: AuthConfig) {
    * logged out, which is the correct security response per the Copenhagen
    * Book.
    */
-  const detectReuse = (sessionHash: string): Effect.Effect<void, DatabaseError, Db> => {
-    const entry = rotatedSessions.get(sessionHash);
-    if (!entry) return Effect.void;
+  const detectReuse = (sessionHash: string): Effect.Effect<void, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const start = Date.now();
+      const familyId = yield* Effect.tryPromise({
+        try: () => rotatedSessionStore.check(sessionHash),
+        catch: (cause) => cause,
+      }).pipe(
+        Effect.tap((result) =>
+          Effect.sync(() => {
+            metricRotatedStoreOp({
+              action: "check",
+              result: result ? "hit" : "miss",
+              backend: rotatedSessionStoreBackend,
+            });
+            metricRotatedStoreDuration((Date.now() - start) / 1000, {
+              action: "check",
+              backend: rotatedSessionStoreBackend,
+            });
+          }),
+        ),
+        Effect.catchAll(() =>
+          Effect.gen(function* () {
+            metricRotatedStoreOp({
+              action: "check",
+              result: "error",
+              backend: rotatedSessionStoreBackend,
+            });
+            metricRotatedStoreDuration((Date.now() - start) / 1000, {
+              action: "check",
+              backend: rotatedSessionStoreBackend,
+            });
+            yield* Effect.logWarning("Rotated-session store unreachable — fail-open on check");
+            // Fail-open: return null so a Redis outage cannot manufacture
+            // false-positive family revocations that log legitimate users out.
+            return null as string | null;
+          }),
+        ),
+        Effect.withSpan("auth.session.rotated_store.check"),
+      );
+      if (!familyId) return;
 
-    // Replayed rotated-out token — revoke the entire family
-    metricSessionReuseDetected();
-    return Effect.gen(function* () {
+      // Replayed rotated-out token — revoke the entire family.
+      metricSessionReuseDetected();
       yield* Effect.logWarning("Session token reuse detected — revoking family");
       const { db } = yield* Db;
       yield* Effect.tryPromise({
-        try: () => db.delete(sessions).where(eq(sessions.familyId, entry.familyId)),
+        try: () => db.delete(sessions).where(eq(sessions.familyId, familyId)),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      // S-M1: Sweep ALL rotated hashes in this family, not just the replayed one.
-      // Prevents stale map entries and ensures consistent observability if
-      // an attacker replays multiple exfiltrated tokens from the same chain.
-      for (const [k, v] of rotatedSessions) {
-        if (v.familyId === entry.familyId) rotatedSessions.delete(k);
-      }
+      // S-M1: clear every tracking record for this family so observability
+      // stays consistent if an attacker replays multiple exfiltrated tokens
+      // from the same chain. Store-level fail-open — leaving stale keys
+      // behind is harmless (they expire with the refresh TTL).
+      const revokeStart = Date.now();
+      yield* Effect.tryPromise({
+        try: () => rotatedSessionStore.revokeFamily(familyId),
+        catch: (cause) => cause,
+      }).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            metricRotatedStoreOp({
+              action: "revoke_family",
+              result: "ok",
+              backend: rotatedSessionStoreBackend,
+            });
+            metricRotatedStoreDuration((Date.now() - revokeStart) / 1000, {
+              action: "revoke_family",
+              backend: rotatedSessionStoreBackend,
+            });
+          }),
+        ),
+        Effect.catchAll(() =>
+          Effect.gen(function* () {
+            metricRotatedStoreOp({
+              action: "revoke_family",
+              result: "error",
+              backend: rotatedSessionStoreBackend,
+            });
+            metricRotatedStoreDuration((Date.now() - revokeStart) / 1000, {
+              action: "revoke_family",
+              backend: rotatedSessionStoreBackend,
+            });
+            yield* Effect.logWarning(
+              "Rotated-session store unreachable — fail-open on revoke_family",
+            );
+          }),
+        ),
+        Effect.withSpan("auth.session.rotated_store.revoke_family"),
+      );
       metricSessionFamilyRevoked();
     }).pipe(Effect.withSpan("auth.session.reuse_detect"));
-  };
 
   /**
    * Finds the default profile for an account. Uses DESC ordering on isDefault
@@ -1430,7 +1521,7 @@ export function createAuthService(config: AuthConfig) {
       });
 
       // Track the rotated-out hash for reuse detection
-      trackRotatedSession(oldSessionId, familyId);
+      yield* trackRotatedSession(oldSessionId, familyId);
 
       return { accessToken, refreshToken: newSessionToken, expiresIn: accessTokenTtl };
     }).pipe(withSessionRotation, withAuthTokenRefresh);

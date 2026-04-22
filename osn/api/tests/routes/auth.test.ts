@@ -438,6 +438,85 @@ describe("auth routes", () => {
       expect(json.token_type).toBe("Bearer");
       expect(json.expires_in).toBe(300);
     });
+
+    it("C2: replaying a rotated-out refresh cookie revokes the entire family", async () => {
+      // Route-layer integration test for reuse detection. Service-level
+      // coverage already exercises the detector in isolation; this one
+      // locks in the Elysia derive + cookie-reader glue so a regression in
+      // cookie handling or rate-limit ordering can't silently downgrade C2.
+      let captured: string | undefined;
+      const verifiedApp = createAuthRoutes(
+        {
+          ...config,
+          sendEmail: async (_to, _subject, body) => {
+            const m = body.match(/code is: (\d{6})/);
+            if (m) captured = m[1];
+          },
+        },
+        layer,
+      );
+
+      await verifiedApp.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "reuse-route@example.com", handle: "reuseroute" }),
+        }),
+      );
+      const completeRes = await verifiedApp.handle(
+        new Request("http://localhost/register/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "reuse-route@example.com", code: captured! }),
+        }),
+      );
+      expect(completeRes.status).toBe(201);
+      const originalCookie = completeRes.headers.get("set-cookie")!;
+      const originalSession = originalCookie.match(/osn_session=([^;]+)/)![1]!;
+
+      // Rotate once — the server-issued Set-Cookie carries the new token.
+      const rotateRes = await verifiedApp.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `osn_session=${originalSession}`,
+          },
+          body: JSON.stringify({ grant_type: "refresh_token" }),
+        }),
+      );
+      expect(rotateRes.status).toBe(200);
+      const rotatedCookie = rotateRes.headers.get("set-cookie")!;
+      const rotatedSession = rotatedCookie.match(/osn_session=([^;]+)/)![1]!;
+      expect(rotatedSession).not.toBe(originalSession);
+
+      // Replay the original (rotated-out) cookie — must be rejected.
+      const replayRes = await verifiedApp.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `osn_session=${originalSession}`,
+          },
+          body: JSON.stringify({ grant_type: "refresh_token" }),
+        }),
+      );
+      expect(replayRes.status).toBe(400);
+
+      // And the token from the rotation must now be revoked too — family
+      // revocation logs everyone out, not just the attacker.
+      const rotatedAfterReuse = await verifiedApp.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `osn_session=${rotatedSession}`,
+          },
+          body: JSON.stringify({ grant_type: "refresh_token" }),
+        }),
+      );
+      expect(rotatedAfterReuse.status).toBe(400);
+    });
   });
 
   // -------------------------------------------------------------------------
