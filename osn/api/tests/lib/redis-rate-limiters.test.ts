@@ -35,6 +35,8 @@ describe("createRedisAuthRateLimiters", () => {
       "sessionRevoke",
       "emailChangeBegin",
       "emailChangeComplete",
+      "securityEventList",
+      "securityEventAck",
     ] as const;
 
     for (const key of expectedKeys) {

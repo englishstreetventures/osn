@@ -7,6 +7,7 @@ export * from "./pkce";
 export * from "./recommendations";
 export * from "./recovery";
 export * from "./register";
+export * from "./security-events";
 export * from "./service";
 export * from "./sessions";
 export * from "./step-up";

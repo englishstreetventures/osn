@@ -326,6 +326,8 @@ describe("redact", () => {
       "ip_hash",
       "ualabel",
       "ua_label",
+      "securityeventid",
+      "security_event_id",
       "assertion",
       "privatekey",
       "private_key",

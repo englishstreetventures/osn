@@ -137,6 +137,15 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     "uaLabel",
     "ua_label",
 
+    // --- Security events (M-PK1b) ---
+    // `securityEventId` is the public row id for security_events audit rows
+    // (osn/db/src/schema/index.ts → securityEvents). It's low-entropy and
+    // scoped to the owning account, but pairing it with `accountId` in a
+    // log line would let an operator fingerprint which accounts have
+    // unacknowledged events. Defensive both-spellings.
+    "securityEventId",
+    "security_event_id",
+
     // --- WebAuthn ---
     // `assertion` is the AuthenticationResponseJSON body posted to
     // /passkey/login/complete (osn/core/src/routes/auth.ts:476,607). It

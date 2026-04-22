@@ -32,6 +32,8 @@ import type {
   RotatedStoreAction,
   RotatedStoreBackend,
   RotatedStoreResult,
+  SecurityEventKind,
+  SecurityEventNotifyResult,
   SecurityInvalidationTrigger,
   SessionAction,
   StepUpFactor,
@@ -68,6 +70,10 @@ export const OSN_METRICS = {
   authSessionOps: "osn.auth.session.operations",
   authEmailChangeAttempts: "osn.auth.account.email_change.attempts",
   authEmailChangeDuration: "osn.auth.account.email_change.duration",
+  authSecurityEventRecorded: "osn.auth.security_event.recorded",
+  authSecurityEventNotified: "osn.auth.security_event.notified",
+  authSecurityEventAcknowledged: "osn.auth.security_event.acknowledged",
+  authSecurityEventNotifyDuration: "osn.auth.security_event.notify.duration",
   graphConnectionOps: "osn.graph.connection.operations",
   graphBlockOps: "osn.graph.block.operations",
   graphCloseFriendOps: "osn.graph.close_friend.operations",
@@ -710,3 +716,54 @@ export const withEmailChange =
         ]),
       ),
     );
+
+// ---------------------------------------------------------------------------
+// Security events (M-PK1b) — out-of-band audit trail for account-level
+// security actions so the client can surface "did you do this?" banners.
+// ---------------------------------------------------------------------------
+
+type SecurityEventAttrs = { kind: SecurityEventKind };
+type SecurityEventNotifyAttrs = {
+  kind: SecurityEventKind;
+  result: SecurityEventNotifyResult;
+};
+type SecurityEventNotifyDurationAttrs = { result: "ok" | "error" };
+
+const authSecurityEventRecorded = createCounter<SecurityEventAttrs>({
+  name: OSN_METRICS.authSecurityEventRecorded,
+  description: "Security-event audit rows recorded (M-PK1b)",
+  unit: "{event}",
+});
+
+const authSecurityEventNotified = createCounter<SecurityEventNotifyAttrs>({
+  name: OSN_METRICS.authSecurityEventNotified,
+  description: "Out-of-band security-event notification outcomes",
+  unit: "{notification}",
+});
+
+const authSecurityEventAcknowledged = createCounter<SecurityEventAttrs>({
+  name: OSN_METRICS.authSecurityEventAcknowledged,
+  description: "Security-event banners acknowledged by the account holder",
+  unit: "{ack}",
+});
+
+const authSecurityEventNotifyDuration = createHistogram<SecurityEventNotifyDurationAttrs>({
+  name: OSN_METRICS.authSecurityEventNotifyDuration,
+  description: "Out-of-band security-event notification dispatch duration",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
+export const metricSecurityEventRecorded = (kind: SecurityEventKind): void =>
+  authSecurityEventRecorded.inc({ kind });
+
+export const metricSecurityEventNotified = (
+  kind: SecurityEventKind,
+  result: SecurityEventNotifyResult,
+): void => authSecurityEventNotified.inc({ kind, result });
+
+export const metricSecurityEventAcknowledged = (kind: SecurityEventKind): void =>
+  authSecurityEventAcknowledged.inc({ kind });
+
+export const metricSecurityEventNotifyDuration = (seconds: number, result: "ok" | "error"): void =>
+  authSecurityEventNotifyDuration.record(seconds, { result });

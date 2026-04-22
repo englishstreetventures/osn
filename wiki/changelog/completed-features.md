@@ -8,7 +8,7 @@ related:
   - "[[zap]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-19
+last-reviewed: 2026-04-22
 ---
 
 # Completed Features
@@ -22,6 +22,15 @@ Archived completed feature work from [[TODO]]. For open work see [[TODO]].
 - **Email change**: step-up gated `POST /account/email/{begin,complete}`. Begin sends OTP to the NEW email. Complete verifies OTP + step-up token and atomically swaps `accounts.email`, revokes every other session, and inserts an `email_changes` audit row. Hard cap of 2 changes per trailing 7 days.
 - **Client SDK cleanup (breaking)**: `Session` and `AccountSession` no longer carry `refreshToken` — cookie-only C3. `AccountSession.hasSession: boolean` replaces the stored token. `/logout` body `refresh_token` parameter removed.
 - **Observability**: new `osn.auth.step_up.{issued,verified}`, `osn.auth.session.operations`, `osn.auth.account.email_change.{attempts,duration}` metrics; `SecurityInvalidationTrigger` extended with `session_revoke`, `session_revoke_all`; redaction deny-list extended with `stepUpToken`, `ipHash`, `uaLabel` (both camel + snake spellings).
+
+## Auth improvements — M-PK1b (out-of-band security-event audit for recovery codes)
+
+- **Security events audit trail**: new `security_events` table + partial index on `WHERE acknowledged_at IS NULL` (P-W1). Inserted in the same transaction as BOTH recovery-code regeneration AND successful consumption (S-H1 — the takeover half). Captures the coarse UA label + HMAC-peppered IP hash so the UI can render "was this you?" without exposing raw signals.
+- **Fire-and-forget email notifications**: both kinds (`recovery_code_generate`, `recovery_code_consume`) fire a best-effort email post-commit on `Effect.forkDaemon` with a 10 s `Effect.timeout` (P-W2 + S-L1) — the user-visible request latency is decoupled from mailer health. S-L5 framed; codes are never included. Failure is reported via `osn.auth.security_event.notified{result=failed}` and never rolls back the primary action.
+- **Step-up-gated dismissal (S-M1)**: `POST /account/security-events/:id/ack` and `POST /account/security-events/ack-all` both require a fresh step-up token (same amr set as `/recovery/generate`). A compromised access token cannot silently dismiss the banner that warns about its own compromise. Ack-all acks every unacked row in one transaction so the user completes one step-up ceremony per banner visit.
+- **Client surface**: `GET /account/security-events` (Bearer-auth, rate-limited, explicit projection) + step-up-gated ack routes. `createSecurityEventsClient` in `@osn/client` exposes `list / acknowledge / acknowledgeAll`. `SecurityEventsBanner` in `@osn/ui/auth` opens `StepUpDialog` on "Acknowledge" and uses optimistic local removal (P-I3) — no refetch after dismissal.
+- **Observability**: new `osn.auth.security_event.{recorded,notified,acknowledged}` counters + `osn.auth.security_event.notify.duration` histogram. `SecurityEventKind` (`recovery_code_generate | recovery_code_consume`) + `SecurityEventNotifyResult` added to `@shared/observability/metrics` with bounded string-literal unions. Redaction deny-list now includes `securityEventId` / `security_event_id`.
+- Unblocks the Phase-5 passkey-primary migration: a stolen access token + inbox hijack can no longer silently burn OR use the account's recovery codes, and the banner itself is out of the XSS blast radius. — see [[recovery-codes]]
 
 ## Multi-account
 

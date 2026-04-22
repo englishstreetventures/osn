@@ -120,6 +120,17 @@ export type RecoveryCodeStep = "generate" | "consume";
 /** Recovery code consume outcomes. */
 export type RecoveryCodeConsumeResult = "success" | "invalid" | "used";
 
+/**
+ * Out-of-band security event kinds (M-PK1b). Mirrors the `kind` column on
+ * the `security_events` table; new entries here MUST be matched by the
+ * service layer, otherwise the counter attribute will fall outside the
+ * bounded union.
+ */
+export type SecurityEventKind = "recovery_code_generate" | "recovery_code_consume";
+
+/** Result of an attempted security-event email notification. */
+export type SecurityEventNotifyResult = "sent" | "failed" | "skipped";
+
 /** Origin guard CSRF rejection reasons (M1). */
 export type OriginGuardRejectionReason = "missing" | "mismatch";
 
@@ -150,4 +161,6 @@ export type AuthRateLimitedEndpoint =
   | "session_list"
   | "session_revoke"
   | "email_change_begin"
-  | "email_change_complete";
+  | "email_change_complete"
+  | "security_event_list"
+  | "security_event_ack";

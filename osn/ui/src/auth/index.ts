@@ -6,6 +6,7 @@ export { ProfileSwitcher } from "./ProfileSwitcher";
 export { RecoveryCodesView } from "./RecoveryCodesView";
 export { RecoveryLoginForm } from "./RecoveryLoginForm";
 export { Register } from "./Register";
+export { SecurityEventsBanner } from "./SecurityEventsBanner";
 export { SessionsView } from "./SessionsView";
 export { SignIn } from "./SignIn";
 export { StepUpDialog } from "./StepUpDialog";

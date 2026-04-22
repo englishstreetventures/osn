@@ -66,6 +66,8 @@ export function createRedisAuthRateLimiters(client: RedisClient): AuthRateLimite
       windowMs: ONE_HOUR_MS,
     }),
     emailChangeComplete: rl("auth:email_change_complete", 10),
+    securityEventList: rl("auth:security_event_list", 30),
+    securityEventAck: rl("auth:security_event_ack", 10),
   };
 }
 

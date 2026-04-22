@@ -104,6 +104,20 @@ export function createTestLayer() {
   sqlite.run(`CREATE INDEX email_changes_account_idx ON email_changes (account_id)`);
   sqlite.run(`CREATE INDEX email_changes_completed_at_idx ON email_changes (completed_at)`);
   sqlite.run(`
+    CREATE TABLE security_events (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      kind TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      acknowledged_at INTEGER,
+      ip_hash TEXT,
+      ua_label TEXT
+    )
+  `);
+  sqlite.run(
+    `CREATE INDEX security_events_unacked_idx ON security_events (account_id, created_at) WHERE acknowledged_at IS NULL`,
+  );
+  sqlite.run(`
     CREATE TABLE recovery_codes (
       id TEXT PRIMARY KEY,
       account_id TEXT NOT NULL REFERENCES accounts(id),
