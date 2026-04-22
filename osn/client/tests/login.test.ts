@@ -117,12 +117,14 @@ describe("createLoginClient", () => {
   });
 
   describe("magicVerify", () => {
-    it("GETs /login/magic/verify with url-encoded token", async () => {
+    it("POSTs /login/magic/verify with token in body (S-H1)", async () => {
       const { calls } = stubFetch(() =>
         jsonResponse({ session: sampleSessionPayload, profile: sampleProfile }),
       );
       const result = await client.magicVerify("mlnk_abc+def");
-      expect(calls[0].url).toBe("https://osn.example.com/login/magic/verify?token=mlnk_abc%2Bdef");
+      expect(calls[0].url).toBe("https://osn.example.com/login/magic/verify");
+      expect(calls[0].init?.method).toBe("POST");
+      expect(JSON.parse(calls[0].init!.body as string)).toEqual({ token: "mlnk_abc+def" });
       expect(result.profile.handle).toBe("alice");
     });
 

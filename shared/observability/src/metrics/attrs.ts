@@ -142,7 +142,6 @@ export type AuthRateLimitedEndpoint =
   | "otp_begin"
   | "otp_complete"
   | "magic_begin"
-  | "magic_verify"
   | "passkey_login_begin"
   | "passkey_login_complete"
   | "passkey_register_begin"

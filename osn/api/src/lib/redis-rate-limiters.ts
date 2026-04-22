@@ -37,7 +37,6 @@ export function createRedisAuthRateLimiters(client: RedisClient): AuthRateLimite
     otpBegin: rl("auth:otp_begin", 5),
     otpComplete: rl("auth:otp_complete", 10),
     magicBegin: rl("auth:magic_begin", 5),
-    magicVerify: rl("auth:magic_verify", 10),
     passkeyLoginBegin: rl("auth:passkey_login_begin", 10),
     passkeyLoginComplete: rl("auth:passkey_login_complete", 10),
     passkeyRegisterBegin: rl("auth:passkey_register_begin", 10),

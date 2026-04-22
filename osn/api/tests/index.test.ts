@@ -31,12 +31,12 @@ describe("OSN auth server", () => {
       expect(res.status).toBe(200);
       const json = (await res.json()) as {
         issuer: string;
-        authorization_endpoint: string;
         token_endpoint: string;
+        grant_types_supported: string[];
       };
       expect(json.issuer).toContain("localhost");
-      expect(json.authorization_endpoint).toContain("/authorize");
       expect(json.token_endpoint).toContain("/token");
+      expect(json.grant_types_supported).toEqual(["refresh_token"]);
     });
   });
 });

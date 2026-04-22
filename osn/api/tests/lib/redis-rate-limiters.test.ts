@@ -18,7 +18,6 @@ describe("createRedisAuthRateLimiters", () => {
       "otpBegin",
       "otpComplete",
       "magicBegin",
-      "magicVerify",
       "passkeyLoginBegin",
       "passkeyLoginComplete",
       "passkeyRegisterBegin",

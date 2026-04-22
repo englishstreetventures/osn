@@ -380,7 +380,7 @@ describe("findProfileByEmail + findProfileByHandle", () => {
   );
 });
 
-describe("issueTokens + exchangeCode", () => {
+describe("issueTokens", () => {
   it.effect("issueTokens returns access + refresh tokens with handle in payload", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("ivan@example.com", "ivan", "Ivan");
@@ -401,38 +401,10 @@ describe("issueTokens + exchangeCode", () => {
       expect(claims.displayName).toBe("Ivan");
     }).pipe(Effect.provide(createTestLayer())),
   );
-
-  it.effect("exchangeCode returns tokens for a valid auth code", () =>
-    Effect.gen(function* () {
-      const profile = yield* auth.registerProfile("judy@example.com", "judy");
-      let capturedCode: string | undefined;
-      const authSpy = createAuthService({
-        ...config,
-        sendEmail: async (_to, _subject, body) => {
-          const m = body.match(/code is: (\d{6})/);
-          if (m) capturedCode = m[1];
-        },
-      });
-      yield* authSpy.beginOtp("judy@example.com");
-      const { code } = yield* authSpy.completeOtp("judy@example.com", capturedCode!);
-      const tokens = yield* auth.exchangeCode(code);
-      expect(tokens.accessToken).toBeTruthy();
-      const claims = yield* auth.verifyAccessToken(tokens.accessToken);
-      expect(claims.profileId).toBe(profile.id);
-      expect(claims.handle).toBe("judy");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
-  it.effect("exchangeCode fails with invalid code", () =>
-    Effect.gen(function* () {
-      const error = yield* Effect.flip(auth.exchangeCode("not.a.valid.jwt"));
-      expect(error._tag).toBe("AuthError");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
 });
 
 describe("OTP flow", () => {
-  it.effect("beginOtp + completeOtp via email identifier issues a code", () =>
+  it.effect("beginOtp + completeOtpDirect via email identifier returns a session", () =>
     Effect.gen(function* () {
       yield* auth.registerProfile("kate@example.com", "kate");
       let capturedCode: string | undefined;
@@ -447,13 +419,13 @@ describe("OTP flow", () => {
       yield* authWithSpy.beginOtp("kate@example.com");
       expect(capturedCode).toMatch(/^\d{6}$/);
 
-      const result = yield* authWithSpy.completeOtp("kate@example.com", capturedCode!);
-      expect(result.code).toBeTruthy();
-      expect(result.profileId).toMatch(/^usr_/);
+      const result = yield* authWithSpy.completeOtpDirect("kate@example.com", capturedCode!);
+      expect(result.session.accessToken).toBeTruthy();
+      expect(result.profile.id).toMatch(/^usr_/);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("beginOtp + completeOtp via handle identifier issues a code", () =>
+  it.effect("beginOtp + completeOtpDirect via handle identifier returns a session", () =>
     Effect.gen(function* () {
       yield* auth.registerProfile("liam@example.com", "liam");
       let capturedCode: string | undefined;
@@ -468,8 +440,8 @@ describe("OTP flow", () => {
       yield* authWithSpy.beginOtp("liam"); // handle, not email
       expect(capturedCode).toMatch(/^\d{6}$/);
 
-      const result = yield* authWithSpy.completeOtp("liam", capturedCode!);
-      expect(result.code).toBeTruthy();
+      const result = yield* authWithSpy.completeOtpDirect("liam", capturedCode!);
+      expect(result.session.accessToken).toBeTruthy();
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -480,11 +452,11 @@ describe("OTP flow", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("completeOtp fails with wrong code", () =>
+  it.effect("completeOtpDirect fails with wrong code", () =>
     Effect.gen(function* () {
       yield* auth.registerProfile("mia@example.com", "mia");
       yield* auth.beginOtp("mia@example.com");
-      const error = yield* Effect.flip(auth.completeOtp("mia@example.com", "000000"));
+      const error = yield* Effect.flip(auth.completeOtpDirect("mia@example.com", "000000"));
       expect(error._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -520,7 +492,7 @@ describe("OTP flow", () => {
       });
       yield* authSpy.beginOtp("noah@example.com");
       yield* authSpy.beginOtp("noah@example.com");
-      const error = yield* Effect.flip(authSpy.completeOtp("noah@example.com", firstCode!));
+      const error = yield* Effect.flip(authSpy.completeOtpDirect("noah@example.com", firstCode!));
       expect(error._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -551,8 +523,37 @@ describe("passkey registration", () => {
   );
 });
 
+describe("passkey login", () => {
+  // Single-use challenge invariant: verifyPasskeyAssertion gates on the
+  // in-memory `loginChallenges` entry BEFORE any DB work. Without a fresh
+  // beginPasskeyLogin to populate it, complete must fail — which is the
+  // same guard that prevents a captured assertion from being replayed
+  // after the legitimate call has consumed its challenge.
+  it.effect("completePasskeyLoginDirect rejects when no login challenge is live", () =>
+    Effect.gen(function* () {
+      yield* auth.registerProfile("pk-replay@example.com", "pkreplay");
+
+      const bogusAssertion = {
+        id: "x",
+        rawId: "x",
+        response: {},
+        type: "public-key",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test shim; real AuthenticationResponseJSON is exhaustive
+      } as any;
+
+      // No beginPasskeyLogin call — the challenge guard must be the first
+      // failure point, not the passkey DB lookup.
+      const error = yield* Effect.flip(
+        auth.completePasskeyLoginDirect("pk-replay@example.com", bogusAssertion),
+      );
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toContain("Challenge");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
 describe("magic link flow", () => {
-  it.effect("beginMagic + verifyMagic via email redirects correctly", () =>
+  it.effect("beginMagic + verifyMagicDirect via email returns a session", () =>
     Effect.gen(function* () {
       yield* auth.registerProfile("oliver@example.com", "oliver");
       let capturedToken: string | undefined;
@@ -567,13 +568,9 @@ describe("magic link flow", () => {
       yield* authWithSpy.beginMagic("oliver@example.com");
       expect(capturedToken).toBeTruthy();
 
-      const result = yield* authWithSpy.verifyMagic(
-        capturedToken!,
-        "http://localhost:5173/callback",
-        "some-state",
-      );
-      expect(result.redirectUrl).toContain("code=");
-      expect(result.redirectUrl).toContain("state=some-state");
+      const result = yield* authWithSpy.verifyMagicDirect(capturedToken!);
+      expect(result.session.accessToken).toBeTruthy();
+      expect(result.profile.handle).toBe("oliver");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -600,12 +597,35 @@ describe("magic link flow", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("verifyMagic fails with unknown token", () =>
+  it.effect("verifyMagicDirect fails with unknown token", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(
-        auth.verifyMagic("bad-token", "http://localhost:5173/callback", "state"),
-      );
+      const error = yield* Effect.flip(auth.verifyMagicDirect("bad-token"));
       expect(error._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // Single-use invariant: consumeMagicToken deletes the entry before the
+  // profile lookup, so a second call with the same token must fail.
+  it.effect("verifyMagicDirect is single-use: a replayed token fails", () =>
+    Effect.gen(function* () {
+      yield* auth.registerProfile("replay-magic@example.com", "replaymagic");
+      let capturedToken: string | undefined;
+      const svc = createAuthService({
+        ...config,
+        sendEmail: async (_to, _subject, body) => {
+          const match = body.match(/token=([^\s]+)/);
+          if (match) capturedToken = match[1];
+        },
+      });
+
+      yield* svc.beginMagic("replay-magic@example.com");
+      expect(capturedToken).toBeTruthy();
+
+      const first = yield* svc.verifyMagicDirect(capturedToken!);
+      expect(first.session.accessToken).toBeTruthy();
+
+      const second = yield* Effect.flip(svc.verifyMagicDirect(capturedToken!));
+      expect(second._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
@@ -756,94 +776,10 @@ describe("local-mode Effect.logDebug fallback", () => {
 
       expect(captured.length).toBe(1);
       expect(captured[0]).toContain("Magic link for dev-magic@example.com:");
-      expect(captured[0]).toContain(`${config.issuerUrl}/magic/verify?token=`);
+      // S-H1: URL points at the frontend origin (`config.origin`), not the API.
+      expect(captured[0]).toContain(`${config.origin}/?token=`);
       expect(captured[0]).not.toContain("[REDACTED]");
     }).pipe(Effect.provide(createTestLayer())),
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Redirect URI validation (S-H3)
-// ---------------------------------------------------------------------------
-describe("validateRedirectUri", () => {
-  it.effect("accepts any URI when allowedRedirectUris is not set", () =>
-    Effect.gen(function* () {
-      const svc = createAuthService(config); // no allowedRedirectUris
-      yield* svc.validateRedirectUri("http://anything.example.com/callback");
-    }),
-  );
-
-  it.effect("accepts any URI when allowedRedirectUris is empty", () =>
-    Effect.gen(function* () {
-      const svc = createAuthService({ ...config, allowedRedirectUris: [] });
-      yield* svc.validateRedirectUri("http://anything.example.com/callback");
-    }),
-  );
-
-  it.effect("accepts URI whose origin matches the allowlist", () =>
-    Effect.gen(function* () {
-      const svc = createAuthService({
-        ...config,
-        allowedRedirectUris: ["http://localhost:5173"],
-      });
-      yield* svc.validateRedirectUri("http://localhost:5173/callback");
-    }),
-  );
-
-  it.effect("accepts URI with a different path on the same origin", () =>
-    Effect.gen(function* () {
-      const svc = createAuthService({
-        ...config,
-        allowedRedirectUris: ["http://localhost:5173/some-path"],
-      });
-      yield* svc.validateRedirectUri("http://localhost:5173/other-path");
-    }),
-  );
-
-  it.effect("rejects URI from a different origin", () =>
-    Effect.gen(function* () {
-      const svc = createAuthService({
-        ...config,
-        allowedRedirectUris: ["http://localhost:5173"],
-      });
-      const error = yield* Effect.flip(svc.validateRedirectUri("http://evil.com/callback"));
-      expect(error._tag).toBe("AuthError");
-      expect(error.message).toBe("redirect_uri not allowed");
-    }),
-  );
-
-  it.effect("rejects URI with different port on same host", () =>
-    Effect.gen(function* () {
-      const svc = createAuthService({
-        ...config,
-        allowedRedirectUris: ["http://localhost:5173"],
-      });
-      const error = yield* Effect.flip(svc.validateRedirectUri("http://localhost:9999/callback"));
-      expect(error._tag).toBe("AuthError");
-    }),
-  );
-
-  it.effect("rejects URI with different scheme", () =>
-    Effect.gen(function* () {
-      const svc = createAuthService({
-        ...config,
-        allowedRedirectUris: ["http://localhost:5173"],
-      });
-      const error = yield* Effect.flip(svc.validateRedirectUri("https://localhost:5173/callback"));
-      expect(error._tag).toBe("AuthError");
-    }),
-  );
-
-  it.effect("rejects invalid URI", () =>
-    Effect.gen(function* () {
-      const svc = createAuthService({
-        ...config,
-        allowedRedirectUris: ["http://localhost:5173"],
-      });
-      const error = yield* Effect.flip(svc.validateRedirectUri("not-a-url"));
-      expect(error._tag).toBe("AuthError");
-      expect(error.message).toBe("Invalid redirect_uri");
-    }),
   );
 });
 
@@ -868,12 +804,12 @@ describe("login OTP attempt limit", () => {
 
       // 5 wrong guesses
       for (let i = 0; i < 5; i++) {
-        const error = yield* Effect.flip(svc.completeOtp("brute@example.com", "000000"));
+        const error = yield* Effect.flip(svc.completeOtpDirect("brute@example.com", "000000"));
         expect(error._tag).toBe("AuthError");
       }
 
       // Now the correct code should also fail (entry wiped)
-      const error = yield* Effect.flip(svc.completeOtp("brute@example.com", capturedCode!));
+      const error = yield* Effect.flip(svc.completeOtpDirect("brute@example.com", capturedCode!));
       expect(error._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -894,38 +830,12 @@ describe("login OTP attempt limit", () => {
 
       // 4 wrong guesses (under the limit)
       for (let i = 0; i < 4; i++) {
-        yield* Effect.flip(svc.completeOtp("careful@example.com", "000000"));
+        yield* Effect.flip(svc.completeOtpDirect("careful@example.com", "000000"));
       }
 
       // Correct code still works
-      const result = yield* svc.completeOtp("careful@example.com", capturedCode!);
-      expect(result.code).toBeTruthy();
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
-  it.effect("completeOtpDirect also respects the attempt limit", () =>
-    Effect.gen(function* () {
-      let capturedCode: string | undefined;
-      const svc = createAuthService({
-        ...config,
-        sendEmail: async (_to, _subject, body) => {
-          const m = body.match(/code is: (\d{6})/);
-          if (m) capturedCode = m[1];
-        },
-      });
-
-      yield* svc.registerProfile("direct@example.com", "direct");
-      yield* svc.beginOtp("direct@example.com");
-      expect(capturedCode).toBeTruthy();
-
-      // 5 wrong guesses via direct path
-      for (let i = 0; i < 5; i++) {
-        yield* Effect.flip(svc.completeOtpDirect("direct@example.com", "000000"));
-      }
-
-      // Correct code fails (entry wiped)
-      const error = yield* Effect.flip(svc.completeOtpDirect("direct@example.com", capturedCode!));
-      expect(error._tag).toBe("AuthError");
+      const result = yield* svc.completeOtpDirect("careful@example.com", capturedCode!);
+      expect(result.session.accessToken).toBeTruthy();
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

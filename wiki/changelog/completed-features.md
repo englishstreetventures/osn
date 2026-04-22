@@ -15,6 +15,16 @@ last-reviewed: 2026-04-22
 
 Archived completed feature work from [[TODO]]. For open work see [[TODO]].
 
+## Auth improvements — Phase 5b (PKCE cleanup)
+
+- **Removed legacy OAuth authorization-code / PKCE flow**: deleted `GET /authorize`, the `authorization_code` branch of `POST /token`, the hosted HTML login page (`buildAuthorizeHtml`), and the duplicate hosted-form routes `/passkey/login/*`, `/otp/*`, `/magic/*`. The first-party `/login/*` endpoints (Session + PublicProfile returned inline) are now the only sign-in surface.
+- **Service cleanup**: deleted `exchangeCode`, `issueCode`, `completePasskeyLogin`, `completeOtp`, `verifyMagic`, `validateRedirectUri`; removed `AuthConfig.allowedRedirectUris`.
+- **Client SDK cleanup (breaking, @osn/client major)**: deleted `OsnAuthService.startLogin`/`handleCallback`, `pkce.ts` (code verifier / challenge helpers), `AuthorizationError`, `TokenExchangeError`, `StateMismatchError`, `OsnAuthConfig.clientId`. Solid `AuthProvider` context drops `login` and `handleCallback`. First-party `CallbackHandler` components removed from `@pulse/app` and `@osn/social` along with their `/callback` routes.
+- **Cookie-only `/token` (S-M1)**: `grant_type=refresh_token` reads the session token exclusively from the HttpOnly cookie. The body fallback was a silent-rotation trap (rotated token never returned in body) and a log-leak surface — removed, along with the `osn.auth.session.cookie_fallback` metric.
+- **Magic-link routed through frontend (S-H1)**: `beginMagic` now emits a URL on `config.magicLinkBaseUrl ?? config.origin` (the frontend RP origin), not the API. `POST /login/magic/verify` accepts the token in the body; the client app's `MagicLinkHandler` consumes the token on mount and POSTs it. Restores the security posture of the removed redirect path — access token never visible in the browser window, never in URL access logs, resilient to email-client pre-fetchers.
+- **OIDC discovery**: `grant_types_supported: ["refresh_token"]` only; `authorization_endpoint`, `response_types_supported`, and `code_challenge_methods_supported` removed.
+- **Observability**: `magic_verify` dropped from `AuthRateLimitedEndpoint` and its rate-limiter slot; `osn.auth.session.cookie_fallback` counter deleted.
+
 ## Auth improvements — Phase 5a (step-up, sessions, email change)
 
 - **Step-up (sudo) tokens (M-PK1)**: short-lived (5 min) ES256 JWTs with `aud: "osn-step-up"`. Passkey or OTP ceremony mints the token; single-use `jti` replay guard. Required on `/recovery/generate` (breaking — stop-gap 1/day rate limit removed) and `/account/email/complete`. Routes: `POST /step-up/{passkey,otp}/{begin,complete}`. — see [[step-up]]

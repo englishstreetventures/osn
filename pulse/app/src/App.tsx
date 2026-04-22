@@ -4,10 +4,9 @@ import { Router, Route } from "@solidjs/router";
 import { lazy } from "solid-js";
 import { Toaster } from "solid-toast";
 
-import { CallbackHandler } from "./components/CallbackHandler";
 import { EventList } from "./components/EventList";
 import { Header } from "./components/Header";
-import { OSN_ISSUER_URL, OSN_CLIENT_ID } from "./lib/auth";
+import { OSN_ISSUER_URL } from "./lib/auth";
 import { loginClient } from "./lib/authClients";
 
 import "./App.css";
@@ -25,14 +24,13 @@ const SettingsPage = lazy(() =>
 );
 
 /**
- * Root layout. Wraps every route in the AuthProvider and deep-link
- * handlers so auth context and magic-link/OAuth callbacks keep working
+ * Root layout. Wraps every route in the AuthProvider and the magic-link
+ * handler so auth context and magic-link deep links keep working
  * regardless of the initial URL.
  */
 function Layout(props: { children?: unknown }) {
   return (
     <>
-      <CallbackHandler />
       <MagicLinkHandler client={loginClient} />
       <Header />
       {props.children}
@@ -43,7 +41,7 @@ function Layout(props: { children?: unknown }) {
 
 export default function App() {
   return (
-    <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL, clientId: OSN_CLIENT_ID }}>
+    <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }}>
       <Router root={Layout}>
         <Route path="/" component={EventList} />
         <Route path="/events/:id" component={EventDetailPage} />

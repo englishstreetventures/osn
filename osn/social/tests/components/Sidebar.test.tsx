@@ -49,9 +49,7 @@ function renderSidebar() {
       },
     ),
     activeProfileId: () => "usr_1",
-    login: () => undefined,
     logout: () => Promise.resolve(),
-    handleCallback: () => Promise.resolve(),
     adoptSession: () => Promise.resolve(),
     switchProfile: () =>
       Promise.resolve({

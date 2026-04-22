@@ -1,13 +1,9 @@
 import { parseTokenResponse, type Session } from "./tokens";
 
 /**
- * Plain-fetch helpers for the first-party sign-in flow. Mirrors
- * `createRegistrationClient`: no Effect, no PKCE state, no authorization
- * code round-trip. The server's `/login/*` endpoints return a session
- * directly, which the UI layer can hand straight to `AuthProvider.adoptSession`.
- *
- * Third-party apps that still want the PKCE redirect flow can continue to
- * drive `OsnAuthService.startLogin` / `handleCallback` in `./service`.
+ * Plain-fetch helpers for the sign-in flow. Mirrors `createRegistrationClient`:
+ * no Effect. The server's `/login/*` endpoints return a session directly,
+ * which the UI layer can hand straight to `AuthProvider.adoptSession`.
  *
  * The WebAuthn browser ceremony (`startAuthentication`) is intentionally
  * performed by the caller — keeping it caller-side avoids pulling
@@ -50,15 +46,6 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
     credentials: "include",
     body: JSON.stringify(body),
   });
-  const json = (await res.json()) as T & { error?: string };
-  if (!res.ok) {
-    throw new LoginError(json.error ?? `Request failed: ${res.status}`);
-  }
-  return json;
-}
-
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { credentials: "include" });
   const json = (await res.json()) as T & { error?: string };
   if (!res.ok) {
     throw new LoginError(json.error ?? `Request failed: ${res.status}`);
@@ -115,8 +102,10 @@ export function createLoginClient(config: LoginClientConfig): LoginClient {
       postJson<{ sent: true }>(`${base}/login/magic/begin`, { identifier }),
 
     magicVerify: async (token) => {
-      const raw = await getJson<{ session: unknown; profile: LoginProfile }>(
-        `${base}/login/magic/verify?token=${encodeURIComponent(token)}`,
+      // S-H1: token goes in the body, never in the URL.
+      const raw = await postJson<{ session: unknown; profile: LoginProfile }>(
+        `${base}/login/magic/verify`,
+        { token },
       );
       return toLoginResult(raw);
     },

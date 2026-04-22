@@ -11,27 +11,10 @@ import {
   readSessionCookie,
   type CookieSessionConfig,
 } from "../lib/cookie-session";
-import { verifyPkceChallenge } from "../lib/crypto";
-import { buildAuthorizeHtml } from "../lib/html";
 import { publicError } from "../lib/public-error";
 import { deriveUaLabel } from "../lib/ua-label";
-import {
-  metricAuthJwksServed,
-  metricAuthRateLimited,
-  metricSessionCookieFallback,
-} from "../metrics";
+import { metricAuthJwksServed, metricAuthRateLimited } from "../metrics";
 import { createAuthService, type AuthConfig } from "../services/auth";
-
-// In-memory PKCE challenge store (keyed by state)
-interface PkceEntry {
-  codeChallenge: string;
-  codeChallengeMethod: string;
-  clientId: string;
-  redirectUri: string;
-  scope: string;
-  expiresAt: number;
-}
-const pkceStore = new Map<string, PkceEntry>();
 
 /**
  * Typed map of every rate limiter the auth routes consume. Split out as a
@@ -46,7 +29,6 @@ export type AuthRateLimiters = Readonly<{
   otpBegin: RateLimiterBackend;
   otpComplete: RateLimiterBackend;
   magicBegin: RateLimiterBackend;
-  magicVerify: RateLimiterBackend;
   passkeyLoginBegin: RateLimiterBackend;
   passkeyLoginComplete: RateLimiterBackend;
   passkeyRegisterBegin: RateLimiterBackend;
@@ -93,7 +75,6 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     otpBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
     otpComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     magicBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
-    magicVerify: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     passkeyLoginBegin: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     passkeyLoginComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     passkeyRegisterBegin: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
@@ -128,20 +109,6 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     // and only dismisses a banner, so a generous per-minute allowance.
     securityEventList: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
     securityEventAck: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-  };
-}
-
-/**
- * Convert an internal camelCase TokenSet to the snake_case OAuth wire format.
- * Used for third-party PKCE flows where the client can't use cookies.
- */
-function toTokenResponse(ts: { accessToken: string; refreshToken: string; expiresIn: number }) {
-  return {
-    access_token: ts.accessToken,
-    refresh_token: ts.refreshToken,
-    token_type: "Bearer" as const,
-    expires_in: ts.expiresIn,
-    scope: "openid profile",
   };
 }
 
@@ -265,24 +232,6 @@ export function createAuthRoutes(
       return { error: "rate_limited" };
     }
     return null;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Redirect URI validation (S-H3) — route-level helper for /authorize + /token
-  // Pre-computed origin set avoids re-parsing the static allowlist per request (P-W17).
-  // ---------------------------------------------------------------------------
-
-  const allowedOrigins = new Set(
-    (authConfig.allowedRedirectUris ?? [])
-      .map((u) => URL.parse(u)?.origin)
-      .filter((o): o is string => o != null),
-  );
-
-  function isAllowedRedirectUri(uri: string): boolean {
-    if (allowedOrigins.size === 0) return true;
-    const parsed = URL.parse(uri);
-    if (!parsed) return false;
-    return allowedOrigins.has(parsed.origin);
   }
 
   /**
@@ -457,167 +406,39 @@ export function createAuthRoutes(
         },
       )
       // -------------------------------------------------------------------------
-      // Authorization endpoint — renders the sign-in page
-      // -------------------------------------------------------------------------
-      .get(
-        "/authorize",
-        ({ query, set }) => {
-          const {
-            response_type,
-            client_id,
-            redirect_uri,
-            state,
-            code_challenge,
-            code_challenge_method,
-            scope,
-          } = query;
-
-          if (response_type !== "code") {
-            set.status = 400;
-            return { error: "unsupported_response_type" };
-          }
-
-          if (!client_id || !redirect_uri || !state || !code_challenge) {
-            set.status = 400;
-            return { error: "invalid_request", message: "Missing required parameters" };
-          }
-
-          // S-H3: validate redirect_uri against allowlist
-          if (!isAllowedRedirectUri(redirect_uri)) {
-            set.status = 400;
-            return { error: "invalid_request", message: "redirect_uri not allowed" };
-          }
-
-          // Store PKCE entry
-          pkceStore.set(state, {
-            codeChallenge: code_challenge,
-            codeChallengeMethod: code_challenge_method ?? "S256",
-            clientId: client_id,
-            redirectUri: redirect_uri,
-            scope: scope ?? "openid profile",
-            expiresAt: Date.now() + 600_000,
-          });
-
-          set.headers["Content-Type"] = "text/html; charset=utf-8";
-          return buildAuthorizeHtml({
-            clientId: client_id,
-            redirectUri: redirect_uri,
-            state,
-            codeChallenge: code_challenge,
-            codeChallengeMethod: code_challenge_method ?? "S256",
-            scope: scope ?? "openid profile",
-            issuerUrl: authConfig.issuerUrl,
-          });
-        },
-        {
-          query: t.Object({
-            response_type: t.String(),
-            client_id: t.String(),
-            redirect_uri: t.String(),
-            state: t.String(),
-            code_challenge: t.String(),
-            scope: t.Optional(t.String()),
-            code_challenge_method: t.Optional(t.String()),
-          }),
-        },
-      )
-      // -------------------------------------------------------------------------
-      // Token endpoint — PKCE code exchange + refresh
+      // Token endpoint — refresh grant only (session token in HttpOnly cookie)
       // -------------------------------------------------------------------------
       .post(
         "/token",
         async ({ body, set, headers }) => {
           const { grant_type } = body as { grant_type: string };
 
-          if (grant_type === "authorization_code") {
-            const { code, redirect_uri, client_id, code_verifier, state } = body as {
-              code: string;
-              redirect_uri: string;
-              client_id: string;
-              code_verifier: string;
-              state: string;
-            };
-
-            // S-H4: PKCE is mandatory for authorization_code grants
-            if (!code || !redirect_uri || !client_id || !code_verifier || !state) {
-              set.status = 400;
-              return { error: "invalid_request", message: "PKCE parameters required" };
-            }
-
-            // S-H3: validate redirect_uri against allowlist
-            if (!isAllowedRedirectUri(redirect_uri)) {
-              set.status = 400;
-              return { error: "invalid_request", message: "redirect_uri not allowed" };
-            }
-
-            const pkce = pkceStore.get(state);
-            if (!pkce) {
-              set.status = 400;
-              return { error: "invalid_grant", message: "Unknown state" };
-            }
-
-            if (Date.now() > pkce.expiresAt) {
-              pkceStore.delete(state);
-              set.status = 400;
-              return { error: "invalid_grant", message: "State expired" };
-            }
-
-            // S-M9: redirect_uri must match the value stored at /authorize (RFC 6749 §4.1.3)
-            if (pkce.redirectUri !== redirect_uri) {
-              pkceStore.delete(state);
-              set.status = 400;
-              return { error: "invalid_grant", message: "redirect_uri mismatch" };
-            }
-
-            const valid = await verifyPkceChallenge(code_verifier, pkce.codeChallenge);
-            if (!valid) {
-              set.status = 400;
-              return { error: "invalid_grant", message: "PKCE verification failed" };
-            }
-            pkceStore.delete(state);
-
-            try {
-              const tokens = await run(auth.exchangeCode(code));
-              return toTokenResponse(tokens);
-            } catch (e) {
-              set.status = 400;
-              return { error: "invalid_grant", message: String(e) };
-            }
+          if (grant_type !== "refresh_token") {
+            set.status = 400;
+            return { error: "unsupported_grant_type" };
           }
 
-          if (grant_type === "refresh_token") {
-            // C3: prefer session token from HttpOnly cookie; fall back to body
-            const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
-            const bodyToken = (body as { refresh_token?: string }).refresh_token;
-            const refresh_token = cookieToken ?? bodyToken;
-            if (bodyToken && !cookieToken) metricSessionCookieFallback();
-            if (!refresh_token) {
-              set.status = 400;
-              return { error: "invalid_request" };
-            }
-            try {
-              const tokens = await run(auth.refreshTokens(refresh_token));
-              // Set the rotated session token as a cookie
-              set.headers["set-cookie"] = buildSessionCookie(tokens.refreshToken, cookieConfig);
-              return toTokenResponseCookieOnly(tokens);
-            } catch (e) {
-              set.status = 400;
-              return { error: "invalid_grant", message: String(e) };
-            }
+          // C3: session token lives exclusively in the HttpOnly cookie —
+          // body fallback was a defence-in-depth trap (rotated token never
+          // returned in body, so cookieless clients broke on second refresh)
+          // and was removed to reduce the log-leak surface (S-M1).
+          const refresh_token = readSessionCookie(headers.cookie, cookieConfig);
+          if (!refresh_token) {
+            set.status = 400;
+            return { error: "invalid_request" };
           }
-
-          set.status = 400;
-          return { error: "unsupported_grant_type" };
+          try {
+            const tokens = await run(auth.refreshTokens(refresh_token));
+            set.headers["set-cookie"] = buildSessionCookie(tokens.refreshToken, cookieConfig);
+            return toTokenResponseCookieOnly(tokens);
+          } catch (e) {
+            set.status = 400;
+            return { error: "invalid_grant", message: String(e) };
+          }
         },
         {
           body: t.Object({
             grant_type: t.String(),
-            code: t.Optional(t.String()),
-            redirect_uri: t.Optional(t.String()),
-            client_id: t.Optional(t.String()),
-            code_verifier: t.Optional(t.String()),
-            state: t.Optional(t.String()),
-            refresh_token: t.Optional(t.String()),
           }),
         },
       )
@@ -709,165 +530,10 @@ export function createAuthRoutes(
           }),
         },
       )
-      // -------------------------------------------------------------------------
-      // Passkey: begin login (identifier = email or handle)
-      // -------------------------------------------------------------------------
-      .post(
-        "/passkey/login/begin",
-        async ({ body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "passkey_login_begin", rl.passkeyLoginBegin);
-          if (rlErr) {
-            set.status = 429;
-            return rlErr;
-          }
-          try {
-            const result = await run(auth.beginPasskeyLogin(body.identifier));
-            return result;
-          } catch (e) {
-            set.status = 400;
-            return { error: String(e) };
-          }
-        },
-        {
-          body: t.Object({ identifier: t.String() }),
-        },
-      )
-      // -------------------------------------------------------------------------
-      // Passkey: complete login (identifier = email or handle)
-      // -------------------------------------------------------------------------
-      .post(
-        "/passkey/login/complete",
-        async ({ body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "passkey_login_complete", rl.passkeyLoginComplete);
-          if (rlErr) {
-            set.status = 429;
-            return rlErr;
-          }
-          try {
-            const result = await run(auth.completePasskeyLogin(body.identifier, body.assertion));
-            return result;
-          } catch (e) {
-            set.status = 400;
-            return { error: String(e) };
-          }
-        },
-        {
-          body: t.Object({
-            identifier: t.String(),
-            assertion: t.Any(),
-          }),
-        },
-      )
-      // -------------------------------------------------------------------------
-      // OTP: begin (identifier = email or handle)
-      // -------------------------------------------------------------------------
-      .post(
-        "/otp/begin",
-        async ({ body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "otp_begin", rl.otpBegin);
-          if (rlErr) {
-            set.status = 429;
-            return rlErr;
-          }
-          try {
-            const result = await run(auth.beginOtp(body.identifier));
-            return result;
-          } catch (e) {
-            set.status = 400;
-            return { error: String(e) };
-          }
-        },
-        {
-          body: t.Object({ identifier: t.String() }),
-        },
-      )
-      // -------------------------------------------------------------------------
-      // OTP: complete (identifier = email or handle)
-      // -------------------------------------------------------------------------
-      .post(
-        "/otp/complete",
-        async ({ body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "otp_complete", rl.otpComplete);
-          if (rlErr) {
-            set.status = 429;
-            return rlErr;
-          }
-          try {
-            const result = await run(auth.completeOtp(body.identifier, body.code));
-            return result;
-          } catch (e) {
-            set.status = 400;
-            return { error: String(e) };
-          }
-        },
-        {
-          body: t.Object({ identifier: t.String(), code: t.String() }),
-        },
-      )
-      // -------------------------------------------------------------------------
-      // Magic link: begin (identifier = email or handle)
-      // -------------------------------------------------------------------------
-      .post(
-        "/magic/begin",
-        async ({ body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "magic_begin", rl.magicBegin);
-          if (rlErr) {
-            set.status = 429;
-            return rlErr;
-          }
-          try {
-            const result = await run(auth.beginMagic(body.identifier));
-            return result;
-          } catch (e) {
-            set.status = 400;
-            return { error: String(e) };
-          }
-        },
-        {
-          body: t.Object({ identifier: t.String() }),
-        },
-      )
-      // -------------------------------------------------------------------------
-      // Magic link: verify (GET, user clicks link from email)
-      // -------------------------------------------------------------------------
-      .get(
-        "/magic/verify",
-        async ({ query, set, headers }) => {
-          const rlErr = await rateLimit(headers, "magic_verify", rl.magicVerify);
-          if (rlErr) {
-            set.status = 429;
-            return rlErr;
-          }
-          const { token, redirect_uri, state } = query;
-          if (!token || !redirect_uri || !state) {
-            set.status = 400;
-            return { error: "Missing parameters" };
-          }
-          try {
-            const result = await run(auth.verifyMagic(token, redirect_uri, state));
-            set.redirect = result.redirectUrl;
-            set.status = 302;
-            return null;
-          } catch (e) {
-            set.status = 400;
-            return { error: String(e) };
-          }
-        },
-        {
-          query: t.Object({
-            token: t.String(),
-            redirect_uri: t.String(),
-            state: t.String(),
-          }),
-        },
-      )
       // =========================================================================
       // First-party direct-session login endpoints
       //
-      // These mirror the /register/* flow: they return a Session + PublicProfile
-      // directly, skipping the PKCE authorization-code round-trip. The hosted
-      // HTML flow at /authorize continues to use the code-returning variants
-      // above for third-party OAuth clients.
+      // These return a Session + PublicProfile directly.
       //
       // Enumeration safety: /login/otp/begin and /login/magic/begin always
       // return { sent: true } regardless of whether the identifier exists, so
@@ -1001,11 +667,15 @@ export function createAuthRoutes(
           body: t.Object({ identifier: t.String() }),
         },
       )
-      .get(
+      // S-H1: POST-only. Token arrives in the request body via the frontend's
+      // MagicLinkHandler — never in a URL the browser navigates to top-level.
+      // Closes three issues: access-token JSON rendered in browser window,
+      // email-scanner pre-fetch burning the token, and token-in-URL logging.
+      .post(
         "/login/magic/verify",
-        async ({ query, headers, set }) => {
+        async ({ body, headers, set }) => {
           try {
-            const result = await run(auth.verifyMagicDirect(query.token, sessionMetaFrom(headers)));
+            const result = await run(auth.verifyMagicDirect(body.token, sessionMetaFrom(headers)));
             set.headers["set-cookie"] = buildSessionCookie(
               result.session.refreshToken,
               cookieConfig,
@@ -1020,7 +690,7 @@ export function createAuthRoutes(
           }
         },
         {
-          query: t.Object({ token: t.String() }),
+          body: t.Object({ token: t.String() }),
         },
       )
       // -------------------------------------------------------------------------
@@ -1632,12 +1302,9 @@ export function createAuthRoutes(
       // -------------------------------------------------------------------------
       .get("/.well-known/openid-configuration", () => ({
         issuer: authConfig.issuerUrl,
-        authorization_endpoint: `${authConfig.issuerUrl}/authorize`,
         token_endpoint: `${authConfig.issuerUrl}/token`,
         jwks_uri: `${authConfig.issuerUrl}/.well-known/jwks.json`,
-        response_types_supported: ["code"],
-        grant_types_supported: ["authorization_code", "refresh_token"],
-        code_challenge_methods_supported: ["S256"],
+        grant_types_supported: ["refresh_token"],
         scopes_supported: ["openid", "profile", "email"],
         id_token_signing_alg_values_supported: ["ES256"],
       }))

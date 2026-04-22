@@ -17,7 +17,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 - [x] Auth Improvements Phase 1: Server-side sessions + refresh token rotation + session invalidation (C1/C2/H1)
 - [x] Auth Improvements Phase 4: Recovery codes (M2) + short access-token TTL (5 min) with client silent-refresh on 401 — see [[recovery-codes]]
 - [x] Auth Improvements Phase 5a: Step-up (sudo) tokens (M-PK1), session introspection/revocation UI, email change flow — see [[step-up]], [[sessions]]
-- [ ] Auth Improvements Phase 5b: ~~Redis-backed rotated-session store~~ (shipped — see [[sessions]]), passkey-primary login, PKCE cleanup (delete `/authorize`, `/token` authorization_code grant, client `pkce.ts` + `startLogin`/`handleCallback`)
+- [ ] Auth Improvements Phase 5b: ~~Redis-backed rotated-session store~~ (shipped — see [[sessions]]), ~~PKCE cleanup~~ (shipped — deleted `/authorize`, `authorization_code` grant, `pkceStore`, client `pkce.ts` + `startLogin`/`handleCallback`; magic link now routes through frontend origin via POST body, S-M1 body fallback on `/token` removed), passkey-primary login
 
 ---
 
@@ -168,7 +168,7 @@ Phases 1–3 complete (abstraction layer, `@shared/redis` package, wire-up). Det
 **Phase 4 — Auth state migration (S-M8)**
 - [ ] `otpStore` → Redis with TTL (resolves S-M8 partial, P-W4 partial)
 - [ ] `magicStore` → Redis with TTL
-- [ ] `pkceStore` → Redis with TTL + size bound (resolves S-L23)
+- [x] ~~`pkceStore` → Redis with TTL + size bound (resolves S-L23)~~ — **Obsolete**: `pkceStore` deleted entirely with the PKCE flow removal (Phase 5b)
 - [ ] `pendingRegistrations` → Redis with TTL
 
 **Observability (Redis)**
@@ -236,20 +236,20 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [x] S-L8 — OTP codes and magic link URLs logged to stdout. **Fixed** — guard tightened to `OSN_ENV` (excludes staging); dev log level defaults to debug so codes are visible without manual config.
 - [ ] S-L9 — `imageUrl` allows `data:` URIs — add CSP `img-src` header
 - [ ] S-L10 — SimpleWebAuthn loaded from unpkg CDN without SRI hash
-- [ ] S-L11 — Failed OAuth callback leaves PKCE verifier in `localStorage`
-- [ ] S-L12 — `REDIRECT_URI` from `window.location.origin` — prefer explicit env var
-- [ ] S-L13 — PKCE `state` not validated against stored nonce
+- [x] S-L11 — ~~Failed OAuth callback leaves PKCE verifier in `localStorage`~~ — **Obsolete**: PKCE flow deleted (Phase 5b)
+- [x] S-L12 — ~~`REDIRECT_URI` from `window.location.origin` — prefer explicit env var~~ — **Obsolete**: `REDIRECT_URI` constant deleted with PKCE cleanup
+- [x] S-L13 — ~~PKCE `state` not validated against stored nonce~~ — **Obsolete**: PKCE flow deleted
 - [x] S-L40 — `publicKeyCacheSize`, `_setPublicKeyCacheMaxSizeForTest`, `_resetPublicKeyCacheMaxSize` re-exported from `@shared/crypto` public index.ts (test-only symbols in public API). **Fixed** — removed from `index.ts`; tests import direct from `../src/arc` — see [[arc-tokens]]
 - [ ] S-L14 — `assertion: t.Any()` on passkey routes — add TypeBox shape validation
 - [ ] S-L15 — No reserved-handle blocklist in DB
 - [x] S-L101 — `registerWithOsnApi()` silently returned early when `INTERNAL_SERVICE_SECRET` unset. **Fixed** — now throws, caught at startup by `index.ts` — see [[arc-tokens]]
-- [ ] S-M1 (auth) — `pkceStore` unbounded + no expiry sweep — add `MAX_PKCE_ENTRIES` cap + `sweepExpired` on insert, or migrate to Redis (Phase 4) — see [[arc-tokens]]
-- [ ] S-M2 (auth) — `/authorize` has no rate limiter — add `authorize: RateLimiterBackend` to `AuthRateLimiters` — see [[rate-limiting]]
+- [x] S-M1 (auth) — ~~`pkceStore` unbounded + no expiry sweep~~ — **Obsolete**: `pkceStore` deleted with PKCE cleanup (Phase 5b)
+- [x] S-M2 (auth) — ~~`/authorize` has no rate limiter~~ — **Obsolete**: `/authorize` route deleted with PKCE cleanup (Phase 5b)
 - [ ] S-M4 (auth) — No startup assertion that `OSN_JWT_PRIVATE_KEY` has `sign` usage — assert `key.usages.includes("sign")` after import in `loadJwtKeyPair`
 - [ ] S-L2 (auth) — Wildcard CORS on `@pulse/api` — restrict to known client origins (mirrors OSN_CORS_ORIGIN pattern) — see [[rate-limiting]]
 - [ ] S-L22 — `listRsvps` counts privacy-filtered rows toward `limit` (weak side-channel oracle)
-- [ ] S-L23 — `pkceStore` has no size bound or eviction sweep
-- [ ] S-L24 — `/token` and legacy `POST /register` have no rate limiting
+- [x] S-L23 — ~~`pkceStore` has no size bound or eviction sweep~~ — **Obsolete**: `pkceStore` deleted
+- [ ] S-L24 — `/token` and legacy `POST /register` have no rate limiting (partial: `authorization_code` grant deleted; `refresh_token` grant and legacy `POST /register` still unthrottled)
 - [ ] S-L30 — `createInternalGraphRoutes` has no `loggerLayer` — see [[arc-tokens]], [[observability/overview]]
 - [ ] S-L1 (zap) — `jwtVerify` does not restrict algorithms — pass `{ algorithms: ['HS256'] }`
 - [ ] S-L2 (zap) — DM chats have no member count enforcement
@@ -285,7 +285,8 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [ ] P-W2 (session) — S-H1 migration adds extra `findProfileById` DB round-trip on every profile endpoint. Embed `accountId` in access token or add profileId→accountId cache — see [[identity-model]]
 - [ ] P-W3 — `sendConnectionRequest` two sequential independent DB reads — use `Effect.all` with `concurrency: "unbounded"`
 - [ ] P-W3 (jwks) — `extractClaims` in pulse/api serialises JWKS resolve before DB I/O on read-only routes — parallelise with `Promise.all` for anonymous-capable endpoints — see [[arc-tokens]]
-- [ ] P-W4 — Auth Maps (`otpStore`, `magicStore`, `pkceStore`) never evict expired entries — see [[redis]]
+- [ ] P-W4 — Auth Maps (`otpStore`, `magicStore`) never evict expired entries — see [[redis]] (`pkceStore` removed with Phase 5b)
+- [ ] P-I4 (auth) — `/login/magic/verify` has no rate limiter — add `magicVerify: RateLimiterBackend` (10/60s per-IP, mirror `/login/otp/complete`). Pre-existing, not a regression; parity with the rest of `/login/*` — see [[rate-limiting]]
 - [ ] P-W1 (pulse) — Duplicate event DB load per RSVP route: `loadVisibleEvent` fetches the row for the access gate; `listRsvps`/`rsvpCounts` re-fetch the same row internally. Thread the loaded `Event` into service functions — see [[s2s-patterns]]
 - [ ] P-W3 (pulse) — `listTodayEvents` has no `LIMIT` clause; fetches all matching rows for the day into memory — see [[event-access]]
 - [ ] P-W5 — Batch status-transition `UPDATE`s in `listEvents`/`listTodayEvents` (N individual writes)

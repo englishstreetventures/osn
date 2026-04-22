@@ -5,7 +5,7 @@ import { vi } from "vitest";
 import { OsnAuth, createOsnAuthLive } from "../src/service";
 import { createMemoryStorage } from "../src/storage";
 
-const config = { issuerUrl: "https://osn.example.com", clientId: "test-client" };
+const config = { issuerUrl: "https://osn.example.com" };
 
 function createTestLayer() {
   return createOsnAuthLive(config).pipe(Layer.provide(createMemoryStorage()));

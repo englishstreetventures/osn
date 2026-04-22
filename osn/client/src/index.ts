@@ -3,7 +3,6 @@ export * from "./errors";
 export * from "./graph";
 export * from "./login";
 export * from "./organisations";
-export * from "./pkce";
 export * from "./recommendations";
 export * from "./recovery";
 export * from "./register";

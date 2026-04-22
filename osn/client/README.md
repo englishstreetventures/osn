@@ -9,15 +9,17 @@ agnostic at the core, with an optional SolidJS integration under
 - `createRegistrationClient({ issuerUrl })` — email-verified registration
   (`beginRegistration`, `completeRegistration`, `checkHandle`, passkey
   enrolment). Returns a `Session` directly.
-- `createLoginClient({ issuerUrl })` — first-party sign-in via the
-  `/login/*` endpoints (`passkeyBegin/Complete`, `otpBegin/Complete`,
+- `createLoginClient({ issuerUrl })` — sign-in via the `/login/*`
+  endpoints (`passkeyBegin/Complete`, `otpBegin/Complete`,
   `magicBegin/Verify`). Returns a `Session` + `LoginUser`.
 - `OsnAuthService` (via `createOsnAuthLive`) — the Effect-based service
-  that drives the legacy PKCE redirect flow (`startLogin`, `handleCallback`,
-  `refreshSession`, `adoptSession`). Used by third-party OAuth integrations
-  and by the SolidJS `AuthProvider`.
+  that holds the persisted `Session`, handles silent-refresh on 401
+  (`authFetch`), and drives profile management
+  (`switchProfile`/`createProfile`/`deleteProfile`). Used by the SolidJS
+  `AuthProvider`.
 - `@osn/client/solid` — `<AuthProvider>` + `useAuth()` hook exposing
-  `session`, `login`, `logout`, `adoptSession`, `handleCallback`.
+  `session`, `logout`, `adoptSession`, `authFetch`, and the profile
+  management methods.
 
 ## Consumed by
 

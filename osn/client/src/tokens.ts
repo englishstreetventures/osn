@@ -2,11 +2,11 @@ import { Schema } from "effect";
 
 /**
  * Wire schema for OAuth-style token responses. The `refresh_token` field is
- * OPTIONAL and the first-party flow never populates it — the refresh token
- * lives only in the HttpOnly session cookie (Copenhagen Book C3). We keep
- * the field in the schema because the third-party PKCE flow (which has no
- * cookie) still returns it verbatim, but the parsed `Session` intentionally
- * drops it so application code never holds a refresh token in JS.
+ * declared optional for schema flexibility but is never populated by the
+ * first-party `/login/*` or `/token` endpoints — the refresh token lives
+ * only in the HttpOnly session cookie (Copenhagen Book C3). The parsed
+ * `Session` intentionally drops it so application code never holds a
+ * refresh token in JS.
  */
 const TokenResponseSchema = Schema.Struct({
   access_token: Schema.String,

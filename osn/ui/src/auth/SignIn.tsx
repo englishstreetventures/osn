@@ -11,13 +11,10 @@ import { OtpInput, type OtpStatus } from "../components/ui/otp-input";
 import { clsx } from "../lib/utils";
 
 /**
- * Shared first-party sign-in component. Drives the new `/login/*` endpoints
- * through an injected `LoginClient`, talks to `AuthProvider.adoptSession`
- * from `@osn/client/solid`, and never redirects the browser — registration
- * and sign-in are both fully in-app for first-party OSN apps.
- *
- * Third-party OAuth consumers continue to use `useAuth().login()` + the
- * hosted HTML at `/authorize`; this component is for first-party use only.
+ * Shared sign-in component. Drives the `/login/*` endpoints through an
+ * injected `LoginClient`, talks to `AuthProvider.adoptSession` from
+ * `@osn/client/solid`, and never redirects the browser — registration and
+ * sign-in are both fully in-app.
  */
 
 type Method = "passkey" | "otp" | "magic";

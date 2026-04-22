@@ -337,31 +337,6 @@ describe("auth routes", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Authorization
-  // -------------------------------------------------------------------------
-  describe("GET /authorize", () => {
-    it("returns 400 for unsupported response_type", async () => {
-      const res = await app.handle(
-        new Request(
-          "http://localhost/authorize?response_type=token&client_id=pulse&redirect_uri=http://localhost:5173/callback&state=abc&code_challenge=xyz",
-        ),
-      );
-      expect(res.status).toBe(400);
-    });
-
-    it("returns HTML page for valid request", async () => {
-      const res = await app.handle(
-        new Request(
-          "http://localhost/authorize?response_type=code&client_id=pulse&redirect_uri=http://localhost:5173/callback&state=abc&code_challenge=xyz",
-        ),
-      );
-      expect(res.status).toBe(200);
-      const text = (await res.text()) as string;
-      expect(text).toContain("Sign in to OSN");
-    });
-  });
-
-  // -------------------------------------------------------------------------
   // Token endpoint
   // -------------------------------------------------------------------------
   describe("POST /token", () => {
@@ -376,67 +351,6 @@ describe("auth routes", () => {
       expect(res.status).toBe(400);
       const json = (await res.json()) as { error: string };
       expect(json.error).toBe("unsupported_grant_type");
-    });
-
-    it("returns tokens for a valid authorization_code grant", async () => {
-      // Register then obtain a real auth code via OTP flow
-      let capturedOtp: string | undefined;
-      const authHelper = createAuthService({
-        ...config,
-        sendEmail: async (_to, _subject, body) => {
-          const m = body.match(/code is: (\d{6})/);
-          if (m) capturedOtp = m[1];
-        },
-      });
-      await Effect.runPromise(
-        authHelper.registerProfile("judy@example.com", "judy").pipe(Effect.provide(layer)),
-      );
-      await Effect.runPromise(authHelper.beginOtp("judy@example.com").pipe(Effect.provide(layer)));
-      const { code } = await Effect.runPromise(
-        authHelper.completeOtp("judy@example.com", capturedOtp!).pipe(Effect.provide(layer)),
-      );
-
-      // S-H4: PKCE is now mandatory — set up a PKCE entry via /authorize first
-      const verifier = "test-verifier-that-is-long-enough";
-      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-      const challenge = Buffer.from(digest)
-        .toString("base64")
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=/g, "");
-      const testState = "test-state-" + Date.now();
-
-      await app.handle(
-        new Request(
-          `http://localhost/authorize?response_type=code&client_id=pulse&redirect_uri=${encodeURIComponent("http://localhost:5173/callback")}&state=${testState}&code_challenge=${challenge}&code_challenge_method=S256`,
-        ),
-      );
-
-      const res = await app.handle(
-        new Request("http://localhost/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            grant_type: "authorization_code",
-            code,
-            redirect_uri: "http://localhost:5173/callback",
-            client_id: "pulse",
-            code_verifier: verifier,
-            state: testState,
-          }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      const json = (await res.json()) as {
-        access_token: string;
-        refresh_token: string;
-        token_type: string;
-        expires_in: number;
-      };
-      expect(json.access_token).toBeTruthy();
-      expect(json.refresh_token).toBeTruthy();
-      expect(json.token_type).toBe("Bearer");
-      expect(json.expires_in).toBe(300);
     });
 
     it("C2: replaying a rotated-out refresh cookie revokes the entire family", async () => {
@@ -517,172 +431,57 @@ describe("auth routes", () => {
       );
       expect(rotatedAfterReuse.status).toBe(400);
     });
-  });
 
-  // -------------------------------------------------------------------------
-  // OTP
-  // -------------------------------------------------------------------------
-  describe("POST /otp/begin", () => {
-    it("returns sent:true when user exists (email identifier)", async () => {
-      await app.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "kate@example.com", handle: "kate" }),
-        }),
-      );
-      const res = await app.handle(
-        new Request("http://localhost/otp/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "kate@example.com" }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      const json = (await res.json()) as { sent: boolean };
-      expect(json.sent).toBe(true);
-    });
-
-    it("returns sent:true when user exists (handle identifier)", async () => {
-      await app.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "lars@example.com", handle: "lars" }),
-        }),
-      );
-      const res = await app.handle(
-        new Request("http://localhost/otp/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "lars" }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      const json = (await res.json()) as { sent: boolean };
-      expect(json.sent).toBe(true);
-    });
-
-    it("returns 400 when user does not exist", async () => {
-      const res = await app.handle(
-        new Request("http://localhost/otp/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "ghost@example.com" }),
-        }),
-      );
-      expect(res.status).toBe(400);
-    });
-  });
-
-  describe("POST /otp/complete", () => {
-    it("returns 400 for wrong OTP code", async () => {
-      await app.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "liam@example.com", handle: "liam" }),
-        }),
-      );
-      await app.handle(
-        new Request("http://localhost/otp/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "liam@example.com" }),
-        }),
-      );
-      const res = await app.handle(
-        new Request("http://localhost/otp/complete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "liam@example.com", code: "000000" }),
-        }),
-      );
-      expect(res.status).toBe(400);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Magic link
-  // -------------------------------------------------------------------------
-  describe("POST /magic/begin", () => {
-    it("returns sent:true for existing user", async () => {
-      await app.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "mia@example.com", handle: "mia" }),
-        }),
-      );
-      const res = await app.handle(
-        new Request("http://localhost/magic/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "mia@example.com" }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      const json = (await res.json()) as { sent: boolean };
-      expect(json.sent).toBe(true);
-    });
-
-    it("returns 400 for non-existent user", async () => {
-      const res = await app.handle(
-        new Request("http://localhost/magic/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "ghost@example.com" }),
-        }),
-      );
-      expect(res.status).toBe(400);
-    });
-  });
-
-  describe("GET /magic/verify", () => {
-    it("returns 302 redirect for a valid magic token", async () => {
-      let capturedToken: string | undefined;
-      const authHelper = createAuthService({
-        ...config,
-        sendEmail: async (_to, _subject, body) => {
-          const m = body.match(/token=([^\s]+)/);
-          if (m) capturedToken = m[1];
+    it("rejects refresh_token supplied in the body (cookie-only contract, S-M1)", async () => {
+      // The body fallback was removed: any refresh_token submitted outside
+      // the HttpOnly cookie must fail with invalid_request, independent of
+      // whether the token itself would be valid.
+      let captured: string | undefined;
+      const cookieOnlyApp = createAuthRoutes(
+        {
+          ...config,
+          sendEmail: async (_to, _subject, body) => {
+            const m = body.match(/code is: (\d{6})/);
+            if (m) captured = m[1];
+          },
         },
-      });
-      await Effect.runPromise(
-        authHelper
-          .registerProfile("magic-route@example.com", "magicroute")
-          .pipe(Effect.provide(layer)),
-      );
-      await Effect.runPromise(
-        authHelper.beginMagic("magic-route@example.com").pipe(Effect.provide(layer)),
+        layer,
       );
 
-      const encodedRedirect = encodeURIComponent("http://localhost:5173/callback");
-      const res = await app.handle(
-        new Request(
-          `http://localhost/magic/verify?token=${capturedToken}&redirect_uri=${encodedRedirect}&state=abc123`,
-        ),
+      await cookieOnlyApp.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "cookie-only@example.com", handle: "cookieonly" }),
+        }),
       );
-      expect(res.status).toBe(302);
-    });
+      const completeRes = await cookieOnlyApp.handle(
+        new Request("http://localhost/register/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "cookie-only@example.com", code: captured! }),
+        }),
+      );
+      expect(completeRes.status).toBe(201);
+      const cookie = completeRes.headers.get("set-cookie")!;
+      const refreshToken = cookie.match(/osn_session=([^;]+)/)![1]!;
 
-    it("returns 400 for an unknown token", async () => {
-      const res = await app.handle(
-        new Request(
-          "http://localhost/magic/verify?token=bad-token&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2Fcallback&state=xyz",
-        ),
+      // No cookie, token in body — must 400 with invalid_request.
+      const res = await cookieOnlyApp.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ grant_type: "refresh_token", refresh_token: refreshToken }),
+        }),
       );
       expect(res.status).toBe(400);
-    });
-
-    it("returns 422 when required query params are missing", async () => {
-      const res = await app.handle(new Request("http://localhost/magic/verify?token=something"));
-      expect(res.status).toBe(422);
+      const json = (await res.json()) as { error: string };
+      expect(json.error).toBe("invalid_request");
     });
   });
 
   // -------------------------------------------------------------------------
-  // First-party direct-session login (/login/*)
+  // Direct-session login (/login/*)
   // -------------------------------------------------------------------------
   describe("POST /login/otp/begin", () => {
     it("returns sent:true for a known user", async () => {
@@ -814,7 +613,7 @@ describe("auth routes", () => {
     });
   });
 
-  describe("GET /login/magic/verify", () => {
+  describe("POST /login/magic/verify", () => {
     it("returns a session + public user for a valid magic token", async () => {
       let capturedToken: string | undefined;
       const authHelper = createAuthService({
@@ -834,7 +633,11 @@ describe("auth routes", () => {
       );
 
       const res = await app.handle(
-        new Request(`http://localhost/login/magic/verify?token=${capturedToken}`),
+        new Request("http://localhost/login/magic/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: capturedToken }),
+        }),
       );
       expect(res.status).toBe(200);
       const json = (await res.json()) as {
@@ -846,7 +649,129 @@ describe("auth routes", () => {
     });
 
     it("returns 400 for an unknown token", async () => {
-      const res = await app.handle(new Request("http://localhost/login/magic/verify?token=bogus"));
+      const res = await app.handle(
+        new Request("http://localhost/login/magic/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: "bogus" }),
+        }),
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("S-H1: emailed URL points at the frontend origin, not the API", async () => {
+      // Lockstep check: beginMagic emits a URL whose origin must be
+      // `config.origin` (the frontend RP origin) — putting the access token
+      // on the API domain would render it in the browser window and burn it
+      // to email-scanner pre-fetchers.
+      let capturedUrl: string | undefined;
+      const emailSpy = async (_to: string, _subject: string, body: string) => {
+        const m = body.match(/https?:\/\/\S+/);
+        if (m) capturedUrl = m[0];
+      };
+      const spyApp = createAuthRoutes({ ...config, sendEmail: emailSpy }, layer);
+
+      await spyApp.handle(
+        new Request("http://localhost/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "lockstep@example.com", handle: "lockstep" }),
+        }),
+      );
+      await spyApp.handle(
+        new Request("http://localhost/login/magic/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier: "lockstep@example.com" }),
+        }),
+      );
+      expect(capturedUrl).toBeTruthy();
+      const parsed = new URL(capturedUrl!);
+      // Frontend origin (config.origin), NOT the API (config.issuerUrl).
+      expect(parsed.origin).toBe(config.origin);
+      expect(parsed.origin).not.toBe(config.issuerUrl);
+      expect(parsed.searchParams.get("token")).toBeTruthy();
+
+      // The token extracted from the emitted URL must verify successfully
+      // when POSTed to the API — that's the path MagicLinkHandler drives.
+      const token = parsed.searchParams.get("token")!;
+      const verifyRes = await spyApp.handle(
+        new Request("http://localhost/login/magic/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        }),
+      );
+      expect(verifyRes.status).toBe(200);
+    });
+  });
+
+  describe("POST /login/passkey/begin", () => {
+    it("returns 400 for an unknown identifier", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/login/passkey/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier: "nobody@example.com" }),
+        }),
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 when the user has no registered passkey", async () => {
+      const svc = createAuthService(config);
+      await Effect.runPromise(
+        svc.registerProfile("pk-begin@example.com", "pkbegin").pipe(Effect.provide(layer)),
+      );
+      const res = await app.handle(
+        new Request("http://localhost/login/passkey/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier: "pk-begin@example.com" }),
+        }),
+      );
+      // Service surfaces "No passkey registered" → 400.
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("POST /login/passkey/complete", () => {
+    it("returns 400 when no login challenge has been issued", async () => {
+      // Call /login/passkey/complete without a preceding /login/passkey/begin —
+      // the service's in-memory challenge guard rejects before any DB work.
+      const res = await app.handle(
+        new Request("http://localhost/login/passkey/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            identifier: "nobody@example.com",
+            assertion: { id: "fake", rawId: "fake", response: {}, type: "public-key" },
+          }),
+        }),
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 for a malformed assertion", async () => {
+      const svc = createAuthService(config);
+      await Effect.runPromise(
+        svc.registerProfile("pk-complete@example.com", "pkcomplete").pipe(Effect.provide(layer)),
+      );
+      // Issue a challenge (matches what /login/passkey/begin would do for a
+      // user with a registered passkey — we don't have one, but the challenge
+      // guard itself is populated by beginPasskeyLogin's precondition failure,
+      // so just hit complete with a bogus payload and expect a 400 from the
+      // downstream "passkey not found" / verification-failed path).
+      const res = await app.handle(
+        new Request("http://localhost/login/passkey/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            identifier: "pk-complete@example.com",
+            assertion: { id: "fake", rawId: "fake", response: {}, type: "public-key" },
+          }),
+        }),
+      );
       expect(res.status).toBe(400);
     });
   });
@@ -862,60 +787,12 @@ describe("auth routes", () => {
       expect(res.status).toBe(200);
       const json = (await res.json()) as {
         issuer: string;
-        authorization_endpoint: string;
         token_endpoint: string;
+        grant_types_supported: string[];
       };
       expect(json.issuer).toBe("http://localhost:4000");
-      expect(json.authorization_endpoint).toBe("http://localhost:4000/authorize");
       expect(json.token_endpoint).toBe("http://localhost:4000/token");
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Passkey login
-  // -------------------------------------------------------------------------
-  describe("POST /passkey/login/begin", () => {
-    it("returns 400 when user has no passkeys (by email)", async () => {
-      const auth = createAuthService(config);
-      await Effect.runPromise(
-        auth.registerProfile("noah@example.com", "noah").pipe(Effect.provide(layer)),
-      );
-
-      const res = await app.handle(
-        new Request("http://localhost/passkey/login/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "noah@example.com" }),
-        }),
-      );
-      expect(res.status).toBe(400);
-    });
-
-    it("returns 400 when user has no passkeys (by handle)", async () => {
-      const auth = createAuthService(config);
-      await Effect.runPromise(
-        auth.registerProfile("olivia@example.com", "olivia").pipe(Effect.provide(layer)),
-      );
-
-      const res = await app.handle(
-        new Request("http://localhost/passkey/login/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "olivia" }),
-        }),
-      );
-      expect(res.status).toBe(400);
-    });
-
-    it("returns 400 when user does not exist", async () => {
-      const res = await app.handle(
-        new Request("http://localhost/passkey/login/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "nobody@example.com" }),
-        }),
-      );
-      expect(res.status).toBe(400);
+      expect(json.grant_types_supported).toEqual(["refresh_token"]);
     });
   });
 
@@ -1197,193 +1074,6 @@ describe("auth routes", () => {
         }),
       );
       expect(blocked.status).toBe(429);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // PKCE enforcement (S-H4)
-  // -------------------------------------------------------------------------
-  describe("POST /token — PKCE enforcement", () => {
-    it("returns 400 when state is missing", async () => {
-      const res = await app.handle(
-        new Request("http://localhost/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            grant_type: "authorization_code",
-            code: "some-code",
-            redirect_uri: "http://localhost:5173/callback",
-            client_id: "pulse",
-            code_verifier: "some-verifier",
-          }),
-        }),
-      );
-      expect(res.status).toBe(400);
-      const json = (await res.json()) as { error: string; message: string };
-      expect(json.message).toBe("PKCE parameters required");
-    });
-
-    it("returns 400 when code_verifier is missing", async () => {
-      const res = await app.handle(
-        new Request("http://localhost/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            grant_type: "authorization_code",
-            code: "some-code",
-            redirect_uri: "http://localhost:5173/callback",
-            client_id: "pulse",
-            state: "some-state",
-          }),
-        }),
-      );
-      expect(res.status).toBe(400);
-      const json = (await res.json()) as { error: string; message: string };
-      expect(json.message).toBe("PKCE parameters required");
-    });
-
-    it("returns 400 for unknown state", async () => {
-      const res = await app.handle(
-        new Request("http://localhost/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            grant_type: "authorization_code",
-            code: "some-code",
-            redirect_uri: "http://localhost:5173/callback",
-            client_id: "pulse",
-            code_verifier: "some-verifier",
-            state: "nonexistent-state",
-          }),
-        }),
-      );
-      expect(res.status).toBe(400);
-      const json = (await res.json()) as { error: string; message: string };
-      expect(json.message).toBe("Unknown state");
-    });
-
-    it("returns 400 when redirect_uri does not match stored value", async () => {
-      // Set up a PKCE entry via /authorize
-      const verifier = "test-verifier-for-mismatch";
-      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-      const challenge = Buffer.from(digest)
-        .toString("base64")
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=/g, "");
-      const testState = "mismatch-state-" + Date.now();
-
-      await app.handle(
-        new Request(
-          `http://localhost/authorize?response_type=code&client_id=pulse&redirect_uri=${encodeURIComponent("http://localhost:5173/callback")}&state=${testState}&code_challenge=${challenge}&code_challenge_method=S256`,
-        ),
-      );
-
-      const res = await app.handle(
-        new Request("http://localhost/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            grant_type: "authorization_code",
-            code: "some-code",
-            redirect_uri: "http://different-origin:5173/callback",
-            client_id: "pulse",
-            code_verifier: verifier,
-            state: testState,
-          }),
-        }),
-      );
-      expect(res.status).toBe(400);
-      const json = (await res.json()) as { error: string; message: string };
-      expect(json.message).toBe("redirect_uri mismatch");
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Redirect URI allowlist (S-H3)
-  // -------------------------------------------------------------------------
-  describe("redirect URI allowlist", () => {
-    it("/authorize rejects disallowed redirect_uri when allowlist is set", async () => {
-      const restrictedApp = createAuthRoutes(
-        { ...config, allowedRedirectUris: ["http://localhost:5173"] },
-        layer,
-      );
-      const res = await restrictedApp.handle(
-        new Request(
-          "http://localhost/authorize?response_type=code&client_id=pulse&redirect_uri=http%3A%2F%2Fevil.com%2Fcallback&state=s1&code_challenge=ch1&code_challenge_method=S256",
-        ),
-      );
-      expect(res.status).toBe(400);
-      const json = (await res.json()) as { error: string; message: string };
-      expect(json.message).toBe("redirect_uri not allowed");
-    });
-
-    it("/authorize allows redirect_uri from the allowlist", async () => {
-      const restrictedApp = createAuthRoutes(
-        { ...config, allowedRedirectUris: ["http://localhost:5173"] },
-        layer,
-      );
-      const res = await restrictedApp.handle(
-        new Request(
-          "http://localhost/authorize?response_type=code&client_id=pulse&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2Fcallback&state=s2&code_challenge=ch2&code_challenge_method=S256",
-        ),
-      );
-      // Should return HTML (200), not an error
-      expect(res.status).toBe(200);
-      const text = await res.text();
-      expect(text).toContain("Sign in to OSN");
-    });
-
-    it("/authorize allows any redirect_uri when allowlist is empty", async () => {
-      // Default config has no allowedRedirectUris
-      const res = await app.handle(
-        new Request(
-          "http://localhost/authorize?response_type=code&client_id=pulse&redirect_uri=http%3A%2F%2Fanything.example.com%2Fcb&state=s3&code_challenge=ch3&code_challenge_method=S256",
-        ),
-      );
-      expect(res.status).toBe(200);
-    });
-
-    it("/token rejects disallowed redirect_uri when allowlist is set", async () => {
-      const restrictedApp = createAuthRoutes(
-        { ...config, allowedRedirectUris: ["http://localhost:5173"] },
-        layer,
-      );
-
-      // First set up a valid PKCE entry with the allowed redirect_uri
-      const verifier = "redirect-test-verifier";
-      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-      const challenge = Buffer.from(digest)
-        .toString("base64")
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=/g, "");
-      const testState = "redirect-test-state";
-
-      await restrictedApp.handle(
-        new Request(
-          `http://localhost/authorize?response_type=code&client_id=pulse&redirect_uri=${encodeURIComponent("http://localhost:5173/callback")}&state=${testState}&code_challenge=${challenge}&code_challenge_method=S256`,
-        ),
-      );
-
-      // Try /token with a different origin
-      const res = await restrictedApp.handle(
-        new Request("http://localhost/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            grant_type: "authorization_code",
-            code: "test",
-            redirect_uri: "http://evil.com/callback",
-            client_id: "pulse",
-            code_verifier: verifier,
-            state: testState,
-          }),
-        }),
-      );
-      expect(res.status).toBe(400);
-      const json = (await res.json()) as { error: string; message: string };
-      expect(json.message).toBe("redirect_uri not allowed");
     });
   });
 

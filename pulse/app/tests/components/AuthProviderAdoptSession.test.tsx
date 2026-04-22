@@ -44,7 +44,7 @@ describe("AuthProvider.adoptSession", () => {
     };
 
     render(() => (
-      <AuthProvider config={{ issuerUrl: "https://osn.example.com", clientId: "test" }}>
+      <AuthProvider config={{ issuerUrl: "https://osn.example.com" }}>
         <AdoptHarness session={fixture} />
       </AuthProvider>
     ));
@@ -97,7 +97,7 @@ describe("AuthProvider.adoptSession", () => {
     }
 
     render(() => (
-      <AuthProvider config={{ issuerUrl: "https://osn.example.com", clientId: "test" }}>
+      <AuthProvider config={{ issuerUrl: "https://osn.example.com" }}>
         <Harness />
       </AuthProvider>
     ));
