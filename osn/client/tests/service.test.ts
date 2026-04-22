@@ -76,7 +76,8 @@ it.effect("handleCallback exchanges code and persists session", () =>
     });
 
     expect(session.accessToken).toBe("acc_123");
-    expect(session.refreshToken).toBe("ref_456");
+    // C3: refresh_token stays in the HttpOnly cookie; Session never exposes it.
+    expect("refreshToken" in session).toBe(false);
     expect(session.idToken).toBe("id_789");
     expect(session.scopes).toEqual(["openid", "profile"]);
 
@@ -132,7 +133,6 @@ it.effect("setSession persists a session that getSession can read back", () =>
     const auth = yield* OsnAuth;
     const fixture = {
       accessToken: "acc_persisted",
-      refreshToken: "ref_persisted",
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: ["openid", "profile"],
@@ -142,7 +142,6 @@ it.effect("setSession persists a session that getSession can read back", () =>
     const stored = yield* auth.getSession();
     expect(stored).not.toBeNull();
     expect(stored?.accessToken).toBe("acc_persisted");
-    expect(stored?.refreshToken).toBe("ref_persisted");
     expect(stored?.scopes).toEqual(["openid", "profile"]);
   }).pipe(Effect.provide(createTestLayer())),
 );
@@ -152,14 +151,12 @@ it.effect("setSession overwrites a previously persisted session", () =>
     const auth = yield* OsnAuth;
     yield* auth.setSession({
       accessToken: "first",
-      refreshToken: null,
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: [],
     });
     yield* auth.setSession({
       accessToken: "second",
-      refreshToken: null,
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: [],
@@ -191,7 +188,6 @@ it.effect("authFetch attaches Authorization and returns the 200 response directl
     const auth = yield* OsnAuth;
     yield* auth.setSession({
       accessToken: "acc_live",
-      refreshToken: "ref_live",
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: ["openid", "profile"],
@@ -237,7 +233,6 @@ it.effect("authFetch silent-refreshes on 401 and retries once", () =>
     const auth = yield* OsnAuth;
     yield* auth.setSession({
       accessToken: "acc_stale",
-      refreshToken: "ref_live",
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: ["openid", "profile"],
@@ -272,7 +267,6 @@ it.effect("authFetch surfaces AuthExpiredError when refresh fails", () =>
     const auth = yield* OsnAuth;
     yield* auth.setSession({
       accessToken: "acc_stale",
-      refreshToken: "ref_stale",
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: ["openid", "profile"],
@@ -363,7 +357,6 @@ it.effect("authFetch dedupes concurrent refreshes — only ONE /token roundtrip 
     const auth = yield* OsnAuth;
     yield* auth.setSession({
       accessToken: "acc_stale",
-      refreshToken: "ref_live",
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: ["openid", "profile"],

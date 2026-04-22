@@ -225,6 +225,21 @@ describe("redact", () => {
    * accidentally dropping an entry without updating the explicit
    * assertion below.
    */
+  it("redacts step-up tokens and session-metadata keys", () => {
+    const input = {
+      stepUpToken: "eyJ...",
+      step_up_token: "eyJ...",
+      ipHash: "abcdef",
+      ip_hash: "abcdef",
+      uaLabel: "Firefox on macOS",
+      ua_label: "Firefox on macOS",
+    };
+    const out = redact(input) as Record<string, unknown>;
+    for (const k of Object.keys(input)) {
+      expect(out[k], `key "${k}" was not redacted`).toBe(REDACTION_PLACEHOLDER);
+    }
+  });
+
   it("every entry in REDACT_KEYS is actually redacted", () => {
     expect(REDACT_KEYS.size).toBeGreaterThan(0);
     for (const key of REDACT_KEYS) {
@@ -305,6 +320,12 @@ describe("redact", () => {
       "recovery_codes",
       "codehash",
       "code_hash",
+      "stepuptoken",
+      "step_up_token",
+      "iphash",
+      "ip_hash",
+      "ualabel",
+      "ua_label",
       "assertion",
       "privatekey",
       "private_key",

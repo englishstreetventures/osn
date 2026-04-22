@@ -6,8 +6,11 @@
   "exports": {
     ".": "./src/index.ts",
     "./auth": "./src/auth/index.ts",
+    "./auth/ChangeEmailForm": "./src/auth/ChangeEmailForm.tsx",
     "./auth/Register": "./src/auth/Register.tsx",
+    "./auth/SessionsView": "./src/auth/SessionsView.tsx",
     "./auth/SignIn": "./src/auth/SignIn.tsx",
+    "./auth/StepUpDialog": "./src/auth/StepUpDialog.tsx",
     "./auth/CreateProfileForm": "./src/auth/CreateProfileForm.tsx",
     "./auth/MagicLinkHandler": "./src/auth/MagicLinkHandler.tsx",
     "./auth/ProfileOnboarding": "./src/auth/ProfileOnboarding.tsx",

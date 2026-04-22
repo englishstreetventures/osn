@@ -19,10 +19,12 @@ const validMinimal = {
 
 describe("parseTokenResponse", () => {
   describe("valid input", () => {
-    it("parses a full token response", () => {
+    it("parses a full token response (refresh_token is dropped: cookie-only)", () => {
       const session = parseTokenResponse(validFull);
       expect(session.accessToken).toBe("at_abc123");
-      expect(session.refreshToken).toBe("rt_xyz789");
+      // C3: refresh token is intentionally absent from the Session type —
+      // it lives in the HttpOnly cookie, not in application JS.
+      expect("refreshToken" in session).toBe(false);
       expect(session.idToken).toBe("id_tok_456");
       expect(session.expiresAt).toBeGreaterThan(Date.now());
       expect(session.scopes).toEqual(["openid", "profile", "email"]);
@@ -31,7 +33,6 @@ describe("parseTokenResponse", () => {
     it("parses a minimal token response (optional fields absent)", () => {
       const session = parseTokenResponse(validMinimal);
       expect(session.accessToken).toBe("at_abc123");
-      expect(session.refreshToken).toBeNull();
       expect(session.idToken).toBeNull();
       expect(session.scopes).toEqual([]);
     });

@@ -40,4 +40,9 @@ export {
   type OriginGuardRejectionReason,
   type RecoveryCodeStep,
   type RecoveryCodeConsumeResult,
+  type StepUpFactor,
+  type StepUpStep,
+  type StepUpVerifyResult,
+  type SessionAction,
+  type EmailChangeStep,
 } from "./attrs";

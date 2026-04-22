@@ -14,6 +14,7 @@ import {
 import { verifyPkceChallenge } from "../lib/crypto";
 import { buildAuthorizeHtml } from "../lib/html";
 import { publicError } from "../lib/public-error";
+import { deriveUaLabel } from "../lib/ua-label";
 import {
   metricAuthJwksServed,
   metricAuthRateLimited,
@@ -56,6 +57,22 @@ export type AuthRateLimiters = Readonly<{
   recoveryGenerate: RateLimiterBackend;
   /** Recovery code login — per-IP quota, stricter than normal login completers. */
   recoveryComplete: RateLimiterBackend;
+  /** Step-up passkey begin (authenticated, issues a challenge). */
+  stepUpPasskeyBegin: RateLimiterBackend;
+  /** Step-up passkey complete (authenticated, consumes assertion). */
+  stepUpPasskeyComplete: RateLimiterBackend;
+  /** Step-up OTP begin (authenticated, sends email). */
+  stepUpOtpBegin: RateLimiterBackend;
+  /** Step-up OTP complete (authenticated, verifies code). */
+  stepUpOtpComplete: RateLimiterBackend;
+  /** Session list (authenticated, per-user). */
+  sessionList: RateLimiterBackend;
+  /** Session revoke (authenticated, per-user). */
+  sessionRevoke: RateLimiterBackend;
+  /** Email change begin (authenticated, sends OTP to new email). */
+  emailChangeBegin: RateLimiterBackend;
+  /** Email change complete (authenticated, verifies OTP + step-up). */
+  emailChangeComplete: RateLimiterBackend;
 }>;
 
 /**
@@ -79,15 +96,29 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     passkeyRegisterComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     profileSwitch: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     profileList: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-    // Recovery generation is authenticated + deliberate — a user should only
-    // trigger it once per day. Tight cap is the stop-gap for S-M1 (bearer
-    // access token alone is a weaker authenticator than the ceremony that
-    // originally issued the codes; full step-up auth is tracked as M-PK).
-    recoveryGenerate: createRateLimiter({ maxRequests: 1, windowMs: 86_400_000 }),
+    // Recovery generation: the step-up gate is now the primary defence
+    // against stolen-access-token abuse (superseding the per-day cap
+    // relied on previously for S-M1). Keep a coarse per-IP throttle in
+    // place so the endpoint isn't trivially floodable.
+    recoveryGenerate: createRateLimiter({ maxRequests: 10, windowMs: 3_600_000 }),
     // Recovery login is an IP-side limit; the underlying DB hash comparison
     // is already constant-time, but per-IP throttling curbs online brute
     // force across different account identifiers.
     recoveryComplete: createRateLimiter({ maxRequests: 5, windowMs: 3_600_000 }),
+    // Step-up ceremonies: treat like login completers. A misbehaving
+    // browser that keeps retrying a bad OTP shouldn't be able to burn
+    // through codes faster than a human.
+    stepUpPasskeyBegin: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    stepUpPasskeyComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    stepUpOtpBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
+    stepUpOtpComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    sessionList: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
+    sessionRevoke: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    // Email change begin is tightly capped because each call sends mail
+    // to a user-controlled address — uncapped it would be an open relay
+    // for an authenticated attacker.
+    emailChangeBegin: createRateLimiter({ maxRequests: 3, windowMs: 3_600_000 }),
+    emailChangeComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
   };
 }
 
@@ -183,6 +214,19 @@ export function createAuthRoutes(
     );
 
   const handleError = (e: unknown) => publicError(e, loggerLayer);
+
+  /**
+   * Extracts the caller's coarse UA label + client IP from incoming headers
+   * so `issueTokens` can persist them onto the new session row. Both fields
+   * are best-effort — missing headers just yield `null` downstream.
+   */
+  const sessionMetaFrom = (headers: Record<string, string | undefined>) => ({
+    uaLabel: deriveUaLabel(headers["user-agent"]),
+    ip: (() => {
+      const ip = getClientIp(headers);
+      return ip === "unknown" ? null : ip;
+    })(),
+  });
 
   // ---------------------------------------------------------------------------
   // IP-based rate limiters (S-H1). Injected via the `rateLimiters` parameter
@@ -378,7 +422,9 @@ export function createAuthRoutes(
             return rlErr;
           }
           try {
-            const result = await run(auth.completeRegistration(body.email, body.code));
+            const result = await run(
+              auth.completeRegistration(body.email, body.code, sessionMetaFrom(headers)),
+            );
             set.status = 201;
             set.headers["set-cookie"] = buildSessionCookie(result.refreshToken, cookieConfig);
             return {
@@ -849,7 +895,11 @@ export function createAuthRoutes(
           }
           try {
             const result = await run(
-              auth.completePasskeyLoginDirect(body.identifier, body.assertion),
+              auth.completePasskeyLoginDirect(
+                body.identifier,
+                body.assertion,
+                sessionMetaFrom(headers),
+              ),
             );
             set.headers["set-cookie"] = buildSessionCookie(
               result.session.refreshToken,
@@ -902,7 +952,9 @@ export function createAuthRoutes(
             return rlErr;
           }
           try {
-            const result = await run(auth.completeOtpDirect(body.identifier, body.code));
+            const result = await run(
+              auth.completeOtpDirect(body.identifier, body.code, sessionMetaFrom(headers)),
+            );
             set.headers["set-cookie"] = buildSessionCookie(
               result.session.refreshToken,
               cookieConfig,
@@ -942,9 +994,9 @@ export function createAuthRoutes(
       )
       .get(
         "/login/magic/verify",
-        async ({ query, set }) => {
+        async ({ query, headers, set }) => {
           try {
-            const result = await run(auth.verifyMagicDirect(query.token));
+            const result = await run(auth.verifyMagicDirect(query.token, sessionMetaFrom(headers)));
             set.headers["set-cookie"] = buildSessionCookie(
               result.session.refreshToken,
               cookieConfig,
@@ -1041,33 +1093,51 @@ export function createAuthRoutes(
       //                            + recovery code for a full session + profile,
       //                            and revokes all other sessions for the account.
       // -------------------------------------------------------------------------
-      .post("/recovery/generate", async ({ headers, set }) => {
-        const rlErr = await rateLimit(headers, "recovery_generate", rl.recoveryGenerate);
-        if (rlErr) {
-          set.status = 429;
-          return rlErr;
-        }
-        try {
-          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-          if (!claims) {
-            set.status = 401;
-            return { error: "unauthorized" };
+      .post(
+        "/recovery/generate",
+        async ({ body, headers, set }) => {
+          const rlErr = await rateLimit(headers, "recovery_generate", rl.recoveryGenerate);
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
           }
-          const profile = await run(auth.findProfileById(claims.profileId));
-          if (!profile) {
-            set.status = 401;
-            return { error: "unauthorized" };
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            // M-PK1: require a fresh step-up token (passkey or OTP amr by
+            // default). Access token alone is insufficient — a stolen
+            // access token cannot burn the user's existing recovery codes.
+            const headerToken = headers["x-step-up-token"];
+            const stepUpToken = body.step_up_token ?? headerToken;
+            if (!stepUpToken) {
+              set.status = 403;
+              return { error: "step_up_required" };
+            }
+            await run(auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken));
+            const result = await run(auth.generateRecoveryCodesForAccount(profile.accountId));
+            // S-L2: wire field is `recoveryCodes` (not `codes`) so the
+            // redaction deny-list entry actually matches in logs.
+            return { recoveryCodes: result.recoveryCodes };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
           }
-          const result = await run(auth.generateRecoveryCodesForAccount(profile.accountId));
-          // S-L2: wire field is `recoveryCodes` (not `codes`) so the
-          // redaction deny-list entry actually matches in logs.
-          return { recoveryCodes: result.recoveryCodes };
-        } catch (e) {
-          const { status, body: errBody } = handleError(e);
-          set.status = status;
-          return errBody;
-        }
-      })
+        },
+        {
+          body: t.Object({
+            step_up_token: t.Optional(t.String()),
+          }),
+        },
+      )
       .post(
         "/login/recovery/complete",
         async ({ body, set, headers }) => {
@@ -1077,7 +1147,9 @@ export function createAuthRoutes(
             return rlErr;
           }
           try {
-            const result = await run(auth.completeRecoveryLogin(body.identifier, body.code));
+            const result = await run(
+              auth.completeRecoveryLogin(body.identifier, body.code, sessionMetaFrom(headers)),
+            );
             set.headers["set-cookie"] = buildSessionCookie(
               result.session.refreshToken,
               cookieConfig,
@@ -1097,31 +1169,335 @@ export function createAuthRoutes(
         },
       )
       // -------------------------------------------------------------------------
-      // Logout (server-side session destruction — Copenhagen Book C1)
+      // Logout (server-side session destruction — Copenhagen Book C1 / C3)
+      //
+      // Cookie-only. The refresh-token-in-body fallback was removed: no
+      // first-party flow sends a refresh token in the body any more, and
+      // accepting it here kept the server one accidental-logging incident
+      // away from a credential leak. Idempotent — always returns 200.
       // -------------------------------------------------------------------------
+      .post("/logout", async ({ set, headers }) => {
+        const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
+        if (cookieToken) {
+          try {
+            await run(auth.invalidateSession(cookieToken));
+          } catch {
+            // Swallow — don't leak whether the session existed.
+          }
+        }
+        set.headers["set-cookie"] = buildClearSessionCookie(cookieConfig);
+        return { success: true };
+      })
+      // -------------------------------------------------------------------------
+      // Step-up (sudo) — passkey + OTP ceremonies that mint a short-lived
+      // JWT required for sensitive operations (recovery generate, email
+      // change). All routes authenticate via Bearer access token so the
+      // account is known up-front; the challenge / OTP stores are keyed
+      // by accountId to keep the ceremony scoped to the caller.
+      // -------------------------------------------------------------------------
+      .post("/step-up/passkey/begin", async ({ headers, set }) => {
+        const rlErr = await rateLimit(headers, "step_up_passkey_begin", rl.stepUpPasskeyBegin);
+        if (rlErr) {
+          set.status = 429;
+          return rlErr;
+        }
+        try {
+          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+          if (!claims) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          const profile = await run(auth.findProfileById(claims.profileId));
+          if (!profile) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          return await run(auth.beginStepUpPasskey(profile.accountId));
+        } catch (e) {
+          const { status, body: errBody } = handleError(e);
+          set.status = status;
+          return errBody;
+        }
+      })
       .post(
-        "/logout",
-        async ({ body, set, headers }) => {
-          // C3: prefer session token from cookie; fall back to body
-          const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
-          const bodyToken = (body as { refresh_token?: string }).refresh_token;
-          const refresh_token = cookieToken ?? bodyToken;
-          if (!refresh_token) {
-            set.status = 400;
-            return { error: "invalid_request" };
+        "/step-up/passkey/complete",
+        async ({ body, headers, set }) => {
+          const rlErr = await rateLimit(
+            headers,
+            "step_up_passkey_complete",
+            rl.stepUpPasskeyComplete,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
           }
           try {
-            await run(auth.invalidateSession(refresh_token));
-          } catch {
-            // Swallow — don't leak whether the session existed
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const result = await run(auth.completeStepUpPasskey(profile.accountId, body.assertion));
+            return {
+              step_up_token: result.stepUpToken,
+              expires_in: result.expiresIn,
+            };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
           }
-          // Always clear the cookie regardless
-          set.headers["set-cookie"] = buildClearSessionCookie(cookieConfig);
+        },
+        {
+          body: t.Object({ assertion: t.Any() }),
+        },
+      )
+      .post("/step-up/otp/begin", async ({ headers, set }) => {
+        const rlErr = await rateLimit(headers, "step_up_otp_begin", rl.stepUpOtpBegin);
+        if (rlErr) {
+          set.status = 429;
+          return rlErr;
+        }
+        try {
+          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+          if (!claims) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          const profile = await run(auth.findProfileById(claims.profileId));
+          if (!profile) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          return await run(auth.beginStepUpOtp(profile.accountId));
+        } catch (e) {
+          const { status, body: errBody } = handleError(e);
+          set.status = status;
+          return errBody;
+        }
+      })
+      .post(
+        "/step-up/otp/complete",
+        async ({ body, headers, set }) => {
+          const rlErr = await rateLimit(headers, "step_up_otp_complete", rl.stepUpOtpComplete);
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const result = await run(auth.completeStepUpOtp(profile.accountId, body.code));
+            return {
+              step_up_token: result.stepUpToken,
+              expires_in: result.expiresIn,
+            };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          body: t.Object({ code: t.String() }),
+        },
+      )
+      // -------------------------------------------------------------------------
+      // Session introspection + revocation
+      //
+      // `GET /sessions` lists the caller's active sessions for the account,
+      // marking the one currently attached to the request cookie as
+      // "isCurrent". `DELETE /sessions/:id` revokes a single session by
+      // its public handle (first 16 hex of the SHA-256 hash).
+      // `POST /sessions/revoke-all-other` is the "sign out everywhere else"
+      // button — it preserves the caller's current session.
+      // -------------------------------------------------------------------------
+      .get("/sessions", async ({ headers, set }) => {
+        const rlErr = await rateLimit(headers, "session_list", rl.sessionList);
+        if (rlErr) {
+          set.status = 429;
+          return rlErr;
+        }
+        try {
+          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+          if (!claims) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          const profile = await run(auth.findProfileById(claims.profileId));
+          if (!profile) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
+          const currentHash = cookieToken ? auth.hashSessionToken(cookieToken) : null;
+          return await run(auth.listAccountSessions(profile.accountId, currentHash));
+        } catch (e) {
+          const { status, body: errBody } = handleError(e);
+          set.status = status;
+          return errBody;
+        }
+      })
+      .delete(
+        "/sessions/:id",
+        async ({ params, headers, set }) => {
+          const rlErr = await rateLimit(headers, "session_revoke", rl.sessionRevoke);
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
+            const currentHash = cookieToken ? auth.hashSessionToken(cookieToken) : null;
+            const result = await run(
+              auth.revokeAccountSession(profile.accountId, params.id, currentHash),
+            );
+            if (result.revokedSelf) {
+              set.headers["set-cookie"] = buildClearSessionCookie(cookieConfig);
+            }
+            return { success: true, revokedSelf: result.revokedSelf };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          params: t.Object({ id: t.String({ pattern: "^[0-9a-f]{16}$" }) }),
+        },
+      )
+      .post("/sessions/revoke-all-other", async ({ headers, set }) => {
+        const rlErr = await rateLimit(headers, "session_revoke", rl.sessionRevoke);
+        if (rlErr) {
+          set.status = 429;
+          return rlErr;
+        }
+        try {
+          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+          if (!claims) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          const profile = await run(auth.findProfileById(claims.profileId));
+          if (!profile) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
+          if (!cookieToken) {
+            set.status = 400;
+            return { error: "invalid_request", message: "No current session" };
+          }
+          const currentHash = auth.hashSessionToken(cookieToken);
+          await run(auth.revokeAllOtherAccountSessions(profile.accountId, currentHash));
           return { success: true };
+        } catch (e) {
+          const { status, body: errBody } = handleError(e);
+          set.status = status;
+          return errBody;
+        }
+      })
+      // -------------------------------------------------------------------------
+      // Email change (step-up gated)
+      //
+      // `POST /account/email/begin` sends an OTP to the NEW email address.
+      // `POST /account/email/complete` swaps the account's email on a matching
+      //   OTP + a valid step-up token (passkey or OTP amr). All other sessions
+      //   are revoked atomically in the same transaction as the email update.
+      // -------------------------------------------------------------------------
+      .post(
+        "/account/email/begin",
+        async ({ body, headers, set }) => {
+          const rlErr = await rateLimit(headers, "email_change_begin", rl.emailChangeBegin);
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            return await run(auth.beginEmailChange(profile.accountId, body.new_email));
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          body: t.Object({ new_email: t.String() }),
+        },
+      )
+      .post(
+        "/account/email/complete",
+        async ({ body, headers, set }) => {
+          const rlErr = await rateLimit(headers, "email_change_complete", rl.emailChangeComplete);
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
+            const currentHash = cookieToken ? auth.hashSessionToken(cookieToken) : null;
+            const result = await run(
+              auth.completeEmailChange(
+                profile.accountId,
+                body.code,
+                body.step_up_token,
+                currentHash,
+              ),
+            );
+            return { email: result.email };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
         },
         {
           body: t.Object({
-            refresh_token: t.Optional(t.String()),
+            code: t.String(),
+            step_up_token: t.String(),
           }),
         },
       )

@@ -8,12 +8,20 @@ related:
   - "[[zap]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-14
+last-reviewed: 2026-04-19
 ---
 
 # Completed Features
 
 Archived completed feature work from [[TODO]]. For open work see [[TODO]].
+
+## Auth improvements — Phase 5a (step-up, sessions, email change)
+
+- **Step-up (sudo) tokens (M-PK1)**: short-lived (5 min) ES256 JWTs with `aud: "osn-step-up"`. Passkey or OTP ceremony mints the token; single-use `jti` replay guard. Required on `/recovery/generate` (breaking — stop-gap 1/day rate limit removed) and `/account/email/complete`. Routes: `POST /step-up/{passkey,otp}/{begin,complete}`. — see [[step-up]]
+- **Session introspection + revocation**: `GET /sessions`, `DELETE /sessions/:id`, `POST /sessions/revoke-all-other`. Each session carries a coarse UA label (`"Firefox on macOS"`), HMAC-peppered IP hash, and `last_used_at`. Public revocation handle is the first 16 hex of the session-token SHA-256. Metadata preserved across C2 rotations. — see [[sessions]]
+- **Email change**: step-up gated `POST /account/email/{begin,complete}`. Begin sends OTP to the NEW email. Complete verifies OTP + step-up token and atomically swaps `accounts.email`, revokes every other session, and inserts an `email_changes` audit row. Hard cap of 2 changes per trailing 7 days.
+- **Client SDK cleanup (breaking)**: `Session` and `AccountSession` no longer carry `refreshToken` — cookie-only C3. `AccountSession.hasSession: boolean` replaces the stored token. `/logout` body `refresh_token` parameter removed.
+- **Observability**: new `osn.auth.step_up.{issued,verified}`, `osn.auth.session.operations`, `osn.auth.account.email_change.{attempts,duration}` metrics; `SecurityInvalidationTrigger` extended with `session_revoke`, `session_revoke_all`; redaction deny-list extended with `stepUpToken`, `ipHash`, `uaLabel` (both camel + snake spellings).
 
 ## Multi-account
 

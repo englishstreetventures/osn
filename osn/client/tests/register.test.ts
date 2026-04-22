@@ -124,7 +124,8 @@ describe("createRegistrationClient", () => {
       // The session is parsed via the same parseTokenResponse used for the
       // OAuth callback flow.
       expect(result.session.accessToken).toBe("acc_999");
-      expect(result.session.refreshToken).toBe("ref_999");
+      // C3: Session no longer carries refreshToken — cookie-only.
+      expect("refreshToken" in result.session).toBe(false);
       expect(result.session.scopes).toEqual(["openid", "profile"]);
       expect(result.session.expiresAt).toBeGreaterThan(Date.now());
 

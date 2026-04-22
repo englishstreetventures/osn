@@ -118,6 +118,25 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     "codeHash",
     "code_hash",
 
+    // --- Step-up (sudo) tokens ---
+    // Short-lived bearer tokens minted by /step-up/*/complete and required
+    // by sensitive endpoints (/recovery/generate, /account/email/*). Same
+    // secrecy profile as accessToken — anyone who holds one can execute the
+    // gated action inside the 5-minute window.
+    "stepUpToken",
+    "step_up_token",
+
+    // --- Session metadata ---
+    // `ipHash` is HMAC-peppered but still a privacy signal — operators
+    // shouldn't routinely see which IP issued which session. `uaLabel` is
+    // coarse ("Firefox on macOS") and not secret in itself, but listing raw
+    // user-agent strings under this key would be, so we redact both spellings
+    // defensively.
+    "ipHash",
+    "ip_hash",
+    "uaLabel",
+    "ua_label",
+
     // --- WebAuthn ---
     // `assertion` is the AuthenticationResponseJSON body posted to
     // /passkey/login/complete (osn/core/src/routes/auth.ts:476,607). It

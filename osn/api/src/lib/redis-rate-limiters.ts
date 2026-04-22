@@ -46,14 +46,26 @@ export function createRedisAuthRateLimiters(client: RedisClient): AuthRateLimite
     profileList: rl("auth:profile_list", 10),
     recoveryGenerate: createRedisRateLimiter(client, {
       namespace: "auth:recovery_generate",
-      maxRequests: 1,
-      windowMs: 24 * ONE_HOUR_MS,
+      maxRequests: 10,
+      windowMs: ONE_HOUR_MS,
     }),
     recoveryComplete: createRedisRateLimiter(client, {
       namespace: "auth:recovery_complete",
       maxRequests: 5,
       windowMs: ONE_HOUR_MS,
     }),
+    stepUpPasskeyBegin: rl("auth:step_up_passkey_begin", 10),
+    stepUpPasskeyComplete: rl("auth:step_up_passkey_complete", 10),
+    stepUpOtpBegin: rl("auth:step_up_otp_begin", 5),
+    stepUpOtpComplete: rl("auth:step_up_otp_complete", 10),
+    sessionList: rl("auth:session_list", 30),
+    sessionRevoke: rl("auth:session_revoke", 10),
+    emailChangeBegin: createRedisRateLimiter(client, {
+      namespace: "auth:email_change_begin",
+      maxRequests: 3,
+      windowMs: ONE_HOUR_MS,
+    }),
+    emailChangeComplete: rl("auth:email_change_complete", 10),
   };
 }
 

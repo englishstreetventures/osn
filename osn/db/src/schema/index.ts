@@ -208,10 +208,28 @@ export const sessions = sqliteTable(
     expiresAt: integer("expires_at").notNull(),
     /** Unix seconds */
     createdAt: integer("created_at").notNull(),
+    /**
+     * Coarse UA label, e.g. "Firefox on macOS". Derived from the User-Agent
+     * header at session-issue time and never stored raw — we keep
+     * cardinality bounded to ~browser × OS so Settings UI can render a
+     * recognisable device list without turning this into a fingerprint.
+     */
+    uaLabel: text("ua_label"),
+    /**
+     * HMAC-SHA256(peppered, client-IP), hex-encoded. Rainbow-table resistant
+     * handle for the issuing IP. Only used to let the owner recognise which
+     * session is which — never exposed beyond the caller's own list.
+     */
+    ipHash: text("ip_hash"),
+    /** Unix seconds. Updated on every successful refresh/verify hit. */
+    lastUsedAt: integer("last_used_at"),
   },
   (t) => [
     index("sessions_account_idx").on(t.accountId),
     index("sessions_family_idx").on(t.familyId),
+    // P-W2: composite index serves ORDER BY last_used_at DESC for
+    // listAccountSessions + LRU eviction scan in issueTokens.
+    index("sessions_account_last_used_idx").on(t.accountId, t.lastUsedAt),
   ],
 );
 
@@ -247,6 +265,37 @@ export const recoveryCodes = sqliteTable(
 
 export type RecoveryCode = typeof recoveryCodes.$inferSelect;
 export type NewRecoveryCode = typeof recoveryCodes.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Email change audit log
+//
+// Captures completed email-address changes so we can enforce a "max 2 changes
+// per 7 days" cap (a soft anti-abuse guard — low enough to curb account-stuff
+// churn, high enough to forgive a legitimate typo + correction). Rows stay
+// after the window expires for audit purposes; the cap only counts rows
+// completed inside the trailing 7-day window.
+// ---------------------------------------------------------------------------
+
+export const emailChanges = sqliteTable(
+  "email_changes",
+  {
+    id: text("id").primaryKey(), // "ech_" prefix
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    previousEmail: text("previous_email").notNull(),
+    newEmail: text("new_email").notNull(),
+    /** Unix seconds */
+    completedAt: integer("completed_at").notNull(),
+  },
+  (t) => [
+    index("email_changes_account_idx").on(t.accountId),
+    index("email_changes_completed_at_idx").on(t.completedAt),
+  ],
+);
+
+export type EmailChange = typeof emailChanges.$inferSelect;
+export type NewEmailChange = typeof emailChanges.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Organisations

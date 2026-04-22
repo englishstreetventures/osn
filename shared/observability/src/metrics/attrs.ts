@@ -78,7 +78,32 @@ export type SecurityInvalidationTrigger =
   | "passkey_register"
   | "email_change"
   | "recovery_code_generate"
-  | "recovery_code_consume";
+  | "recovery_code_consume"
+  | "session_revoke"
+  | "session_revoke_all";
+
+/** Step-up (sudo mode) factor presented by the caller. */
+export type StepUpFactor = "passkey" | "otp" | "recovery_code";
+
+/** Step-up ceremony steps, for attempt funnel counters. */
+export type StepUpStep = "begin" | "complete";
+
+/** Step-up verification outcomes on protected endpoints. */
+export type StepUpVerifyResult =
+  | "ok"
+  | "missing"
+  | "invalid"
+  | "expired"
+  | "wrong_audience"
+  | "wrong_subject"
+  | "jti_replay"
+  | "amr_not_allowed";
+
+/** Session-management actions initiated by the caller. */
+export type SessionAction = "list" | "revoke" | "revoke_all";
+
+/** Email-change ceremony steps, for funnel counters. */
+export type EmailChangeStep = "begin" | "complete";
 
 /** Recovery code (Copenhagen Book M2) operation steps. */
 export type RecoveryCodeStep = "generate" | "consume";
@@ -108,4 +133,12 @@ export type AuthRateLimitedEndpoint =
   | "profile_delete"
   | "profile_set_default"
   | "recovery_generate"
-  | "recovery_complete";
+  | "recovery_complete"
+  | "step_up_passkey_begin"
+  | "step_up_passkey_complete"
+  | "step_up_otp_begin"
+  | "step_up_otp_complete"
+  | "session_list"
+  | "session_revoke"
+  | "email_change_begin"
+  | "email_change_complete";

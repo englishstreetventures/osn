@@ -31,7 +31,6 @@ function toSession(account: AccountSession): Session | null {
   if (!profileToken || Date.now() >= profileToken.expiresAt) return null;
   return {
     accessToken: profileToken.accessToken,
-    refreshToken: account.refreshToken,
     idToken: account.idToken,
     expiresAt: profileToken.expiresAt,
     scopes: account.scopes,
@@ -42,7 +41,7 @@ function toSession(account: AccountSession): Session | null {
 function sessionToAccountSession(session: Session): AccountSession {
   const profileId = extractJwtSub(session.accessToken) ?? "default";
   return {
-    refreshToken: session.refreshToken ?? "",
+    hasSession: true,
     activeProfileId: profileId,
     profileTokens: {
       [profileId]: {
@@ -314,7 +313,9 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             accessToken: next.accessToken,
             expiresAt: next.expiresAt,
           };
-          if (next.refreshToken) account.refreshToken = next.refreshToken;
+          // C3: refresh token lives in the HttpOnly cookie; the fact that this
+          // refresh call succeeded is itself proof the cookie is alive.
+          account.hasSession = true;
           account.scopes = next.scopes;
           account.idToken = next.idToken;
 
@@ -463,7 +464,6 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
 
           const session: Session = {
             accessToken: res.access_token,
-            refreshToken: account.refreshToken,
             idToken: account.idToken,
             expiresAt,
             scopes: account.scopes,

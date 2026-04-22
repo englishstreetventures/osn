@@ -1,3 +1,4 @@
+export { ChangeEmailForm } from "./ChangeEmailForm";
 export { CreateProfileForm } from "./CreateProfileForm";
 export { MagicLinkHandler } from "./MagicLinkHandler";
 export { ProfileOnboarding } from "./ProfileOnboarding";
@@ -5,4 +6,6 @@ export { ProfileSwitcher } from "./ProfileSwitcher";
 export { RecoveryCodesView } from "./RecoveryCodesView";
 export { RecoveryLoginForm } from "./RecoveryLoginForm";
 export { Register } from "./Register";
+export { SessionsView } from "./SessionsView";
 export { SignIn } from "./SignIn";
+export { StepUpDialog } from "./StepUpDialog";

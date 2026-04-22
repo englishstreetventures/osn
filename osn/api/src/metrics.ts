@@ -16,6 +16,7 @@ import {
 import type {
   AuthMethod,
   AuthRateLimitedEndpoint,
+  EmailChangeStep,
   GraphBlockAction,
   GraphCloseFriendAction,
   GraphConnectionAction,
@@ -29,6 +30,10 @@ import type {
   RegisterStep,
   Result,
   SecurityInvalidationTrigger,
+  SessionAction,
+  StepUpFactor,
+  StepUpStep,
+  StepUpVerifyResult,
 } from "@shared/observability/metrics";
 import { Effect } from "effect";
 
@@ -53,6 +58,11 @@ export const OSN_METRICS = {
   authRecoveryCodesGenerated: "osn.auth.recovery.codes_generated",
   authRecoveryCodeConsumed: "osn.auth.recovery.code_consumed",
   authRecoveryDuration: "osn.auth.recovery.duration",
+  authStepUpIssued: "osn.auth.step_up.issued",
+  authStepUpVerified: "osn.auth.step_up.verified",
+  authSessionOps: "osn.auth.session.operations",
+  authEmailChangeAttempts: "osn.auth.account.email_change.attempts",
+  authEmailChangeDuration: "osn.auth.account.email_change.duration",
   graphConnectionOps: "osn.graph.connection.operations",
   graphBlockOps: "osn.graph.block.operations",
   graphCloseFriendOps: "osn.graph.close_friend.operations",
@@ -71,7 +81,7 @@ type RegisterAttrs = { step: RegisterStep; result: Result };
 type LoginAttrs = { method: AuthMethod; result: Result };
 type TokenRefreshAttrs = { result: Result };
 type HandleCheckAttrs = { result: "available" | "taken" | "invalid" };
-type OtpSentAttrs = { purpose: "registration" | "login" };
+type OtpSentAttrs = { purpose: "registration" | "login" | "step_up" | "email_change" };
 type MagicLinkSentAttrs = { result: Result };
 type AuthRateLimitAttrs = { endpoint: AuthRateLimitedEndpoint };
 type GraphConnectionAttrs = { action: GraphConnectionAction; result: Result };
@@ -367,8 +377,9 @@ export const withGraphCloseFriendOp =
 export const metricAuthHandleCheck = (result: "available" | "taken" | "invalid"): void =>
   authHandleCheck.inc({ result });
 
-export const metricAuthOtpSent = (purpose: "registration" | "login"): void =>
-  authOtpSent.inc({ purpose });
+export const metricAuthOtpSent = (
+  purpose: "registration" | "login" | "step_up" | "email_change",
+): void => authOtpSent.inc({ purpose });
 
 export const metricAuthMagicLinkSent = (result: Result): void => authMagicLinkSent.inc({ result });
 
@@ -568,3 +579,93 @@ const authJwksServed = createCounter<Record<never, never>>({
 });
 
 export const metricAuthJwksServed = (): void => authJwksServed.inc({});
+
+// ---------------------------------------------------------------------------
+// Step-up (sudo mode)
+// ---------------------------------------------------------------------------
+
+type StepUpIssuedAttrs = { factor: StepUpFactor };
+type StepUpVerifiedAttrs = { result: StepUpVerifyResult };
+type SessionOpAttrs = { action: SessionAction; result: Result };
+type EmailChangeAttrs = { step: EmailChangeStep; result: Result };
+
+const authStepUpIssued = createCounter<StepUpIssuedAttrs>({
+  name: OSN_METRICS.authStepUpIssued,
+  description: "Step-up tokens minted, by the factor that authorised issuance",
+  unit: "{token}",
+});
+
+const authStepUpVerified = createCounter<StepUpVerifiedAttrs>({
+  name: OSN_METRICS.authStepUpVerified,
+  description: "Step-up token verification outcomes on gated endpoints",
+  unit: "{verification}",
+});
+
+const authSessionOps = createCounter<SessionOpAttrs>({
+  name: OSN_METRICS.authSessionOps,
+  description: "Caller-initiated session-management operations",
+  unit: "{operation}",
+});
+
+const authEmailChangeAttempts = createCounter<EmailChangeAttrs>({
+  name: OSN_METRICS.authEmailChangeAttempts,
+  description: "Email-change ceremony attempts by step and outcome",
+  unit: "{attempt}",
+});
+
+const authEmailChangeDuration = createHistogram<EmailChangeAttrs>({
+  name: OSN_METRICS.authEmailChangeDuration,
+  description: "Email-change ceremony duration by step",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
+export const metricStepUpIssued = (factor: StepUpFactor): void => authStepUpIssued.inc({ factor });
+
+export const metricStepUpVerified = (result: StepUpVerifyResult): void =>
+  authStepUpVerified.inc({ result });
+
+export const withStepUp =
+  (step: StepUpStep) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(Effect.withSpan(`auth.step_up.${step}`));
+
+export const withSessionOp =
+  (action: SessionAction) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      Effect.withSpan(`auth.session.${action}`),
+      Effect.tap(() => Effect.sync(() => authSessionOps.inc({ action, result: "ok" }))),
+      Effect.tapError((e) =>
+        Effect.all([
+          Effect.sync(() => authSessionOps.inc({ action, result: classifyError(e) })),
+          Effect.logError("auth.session operation failed", {
+            action,
+            ...safeErrorSummary(e),
+          }),
+        ]),
+      ),
+    );
+
+export const withEmailChange =
+  (step: EmailChangeStep) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      measureSeconds((seconds, outcome) => {
+        authEmailChangeDuration.record(seconds, {
+          step,
+          result: outcome === "ok" ? "ok" : "error",
+        });
+      }),
+      Effect.withSpan(`auth.account.email_change.${step}`),
+      Effect.tap(() => Effect.sync(() => authEmailChangeAttempts.inc({ step, result: "ok" }))),
+      Effect.tapError((e) =>
+        Effect.all([
+          Effect.sync(() => authEmailChangeAttempts.inc({ step, result: classifyError(e) })),
+          Effect.logError("auth.account.email_change failed", {
+            step,
+            ...safeErrorSummary(e),
+          }),
+        ]),
+      ),
+    );

@@ -1,3 +1,4 @@
+export * from "./account";
 export * from "./errors";
 export * from "./graph";
 export * from "./login";
@@ -7,5 +8,7 @@ export * from "./recommendations";
 export * from "./recovery";
 export * from "./register";
 export * from "./service";
+export * from "./sessions";
+export * from "./step-up";
 export * from "./storage";
 export * from "./tokens";

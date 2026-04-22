@@ -16,7 +16,8 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 - [ ] Factor shared `authGet/Post/Patch/Delete` helpers in `@osn/client` (P-I1)
 - [x] Auth Improvements Phase 1: Server-side sessions + refresh token rotation + session invalidation (C1/C2/H1)
 - [x] Auth Improvements Phase 4: Recovery codes (M2) + short access-token TTL (5 min) with client silent-refresh on 401 — see [[recovery-codes]]
-- [ ] Auth Improvements Phase 5: Redis-backed rotated-session store + session listing/revocation UI + passkey-primary login
+- [x] Auth Improvements Phase 5a: Step-up (sudo) tokens (M-PK1), session introspection/revocation UI, email change flow — see [[step-up]], [[sessions]]
+- [ ] Auth Improvements Phase 5b: Redis-backed rotated-session store, passkey-primary login, PKCE cleanup (delete `/authorize`, `/token` authorization_code grant, client `pkce.ts` + `startLogin`/`handleCallback`)
 
 ---
 
@@ -47,6 +48,10 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 - [ ] Third-party app authorization flow
 - [x] Organisation frontend — standalone `@osn/social` app delivered (2026-04-16); Tauri wrapping deferred
 - [x] Merge `@osn/core` into `@osn/api`, move `@osn/crypto` → `@shared/crypto`; ARC audience updated `"osn-core"` → `"osn-api"`
+- [x] Step-up (sudo) tokens (M-PK1) — ES256 JWTs with `aud: "osn-step-up"`, passkey/OTP ceremonies, required on `/recovery/generate` + `/account/email/complete` — see [[step-up]]
+- [x] Session introspection + per-device revocation — `GET /sessions`, `DELETE /sessions/:id`, `POST /sessions/revoke-all-other`, coarse UA labels, HMAC-peppered IP hash, `last_used_at` — see [[sessions]]
+- [x] Email-change ceremony — step-up gated, OTP to new address, transactional other-session revoke, 2-per-7-days cap, `email_changes` audit table
+- [x] Session + `AccountSession` types drop `refreshToken` — cookie-only first-party; `AccountSession.hasSession` replaces stored refresh token. `/logout` body no longer accepts `refresh_token`.
 - [ ] Recommendations SQL aggregation + compound indexes (P-W7) — push FOF counting into DB, add `connections(status, requester_id)` + `connections(status, addressee_id)` — see [[social-graph]]
 - [ ] Unified `handles` reservation table (user + org handles share namespace; currently enforced at service layer — see Deferred Decisions)
 
@@ -256,7 +261,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-L1 (auth-fetch) — `OsnAuthService.authFetch` attaches `Authorization: Bearer` + `credentials: include` to any URL; no origin allowlist. Add `allowedOrigins` to `OsnAuthConfig` and skip header attachment off-list (defence-in-depth against mis-routed fetches / injected URLs) — see [[identity-model]]
 
 ### Recovery / passkey-primary (Phase 5 prerequisites)
-- [ ] M-PK1 — Step-up auth for `POST /recovery/generate` (S-M1 full fix). Bearer access token alone is a weaker authenticator than the ceremony that minted the codes; an XSS-stolen token currently can still mint a new set (mitigated by 1/day rate limit + `recovery_code_generate` invalidation metric, not closed). Add a short-lived step-up token issued by a fresh passkey re-assertion (mirrors the enrollment-token pattern) and require it on `/recovery/generate`. Also surface out-of-band regeneration to the user (email/in-app banner) — see [[recovery-codes]]
+- [ ] M-PK1b — Out-of-band recovery-code regeneration notification. Step-up is now required for `/recovery/generate` (M-PK1 ✅), but users should still receive an email + in-app banner when their code set is regenerated so a successful XSS + OTP-inbox-access chain doesn't go silent — see [[recovery-codes]]
 
 ---
 

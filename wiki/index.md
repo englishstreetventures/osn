@@ -28,6 +28,8 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[rate-limiting]] — per-IP fixed-window rate limiting on auth endpoints
 - [[identity-model]] — accounts, profiles (users), organisations, multi-account
 - [[recovery-codes]] — single-use account-recovery tokens (Copenhagen Book M2)
+- [[step-up]] — short-lived sudo tokens gating sensitive endpoints (M-PK1)
+- [[sessions]] — session introspection, per-device revocation, "sign out everywhere else"
 - [[social-graph]] — connections, close friends, blocks
 - [[close-friends]] — one-way graph edge, RSVP visibility, UI treatment
 - [[event-access]] — loadVisibleEvent, public/private visibility gate

@@ -1,5 +1,13 @@
 import { Schema } from "effect";
 
+/**
+ * Wire schema for OAuth-style token responses. The `refresh_token` field is
+ * OPTIONAL and the first-party flow never populates it — the refresh token
+ * lives only in the HttpOnly session cookie (Copenhagen Book C3). We keep
+ * the field in the schema because the third-party PKCE flow (which has no
+ * cookie) still returns it verbatim, but the parsed `Session` intentionally
+ * drops it so application code never holds a refresh token in JS.
+ */
 const TokenResponseSchema = Schema.Struct({
   access_token: Schema.String,
   refresh_token: Schema.optional(Schema.String),
@@ -11,9 +19,14 @@ const TokenResponseSchema = Schema.Struct({
 
 const decodeTokenResponse = Schema.decodeUnknownSync(TokenResponseSchema);
 
+/**
+ * The first-party session, post-parse. Intentionally lacks a refresh token:
+ * the server-side session token is held by the browser as an HttpOnly cookie,
+ * and silent refresh via `authFetch` works entirely off that cookie plus the
+ * short-lived access token below.
+ */
 export interface Session {
   accessToken: string;
-  refreshToken: string | null;
   idToken: string | null;
   /** Unix timestamp (ms) when the access token expires */
   expiresAt: number;
@@ -24,7 +37,6 @@ export function parseTokenResponse(raw: unknown): Session {
   const t = decodeTokenResponse(raw);
   return {
     accessToken: t.access_token,
-    refreshToken: t.refresh_token ?? null,
     idToken: t.id_token ?? null,
     expiresAt: Date.now() + t.expires_in * 1000,
     scopes: t.scope ? t.scope.split(" ") : [],
@@ -45,8 +57,15 @@ export interface ProfileToken {
   expiresAt: number;
 }
 
+/**
+ * Persisted per-device session state. After Copenhagen Book C3 the refresh
+ * token is cookie-only, so the client keeps nothing sensitive on disk — just
+ * the access-token cache (short TTL) and a `hasSession` flag so we know
+ * whether to attempt silent refresh. Setting `hasSession = false` is how the
+ * client signals "cookie was cleared server-side or expired".
+ */
 export interface AccountSession {
-  refreshToken: string;
+  hasSession: boolean;
   activeProfileId: string;
   profileTokens: Record<string, ProfileToken>;
   scopes: string[];
@@ -59,7 +78,6 @@ export interface AccountSession {
 
 const SessionSchema = Schema.Struct({
   accessToken: Schema.String,
-  refreshToken: Schema.NullOr(Schema.String),
   idToken: Schema.NullOr(Schema.String),
   expiresAt: Schema.Number,
   scopes: Schema.Array(Schema.String),
@@ -73,7 +91,7 @@ const ProfileTokenSchema = Schema.Struct({
 });
 
 const AccountSessionSchema = Schema.Struct({
-  refreshToken: Schema.String,
+  hasSession: Schema.Boolean,
   activeProfileId: Schema.String,
   profileTokens: Schema.Record({ key: Schema.String, value: ProfileTokenSchema }),
   scopes: Schema.Array(Schema.String),

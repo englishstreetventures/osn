@@ -7,7 +7,7 @@ import {
 } from "../../src/lib/redis-rate-limiters";
 
 describe("createRedisAuthRateLimiters", () => {
-  it("returns all 15 rate limiter slots", () => {
+  it("returns every rate limiter slot in the auth bundle", () => {
     const client = createMemoryClient();
     const limiters = createRedisAuthRateLimiters(client);
 
@@ -27,6 +27,14 @@ describe("createRedisAuthRateLimiters", () => {
       "profileList",
       "recoveryGenerate",
       "recoveryComplete",
+      "stepUpPasskeyBegin",
+      "stepUpPasskeyComplete",
+      "stepUpOtpBegin",
+      "stepUpOtpComplete",
+      "sessionList",
+      "sessionRevoke",
+      "emailChangeBegin",
+      "emailChangeComplete",
     ] as const;
 
     for (const key of expectedKeys) {

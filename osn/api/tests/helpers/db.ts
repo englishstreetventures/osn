@@ -83,11 +83,26 @@ export function createTestLayer() {
       account_id TEXT NOT NULL REFERENCES accounts(id),
       family_id TEXT NOT NULL,
       expires_at INTEGER NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      ua_label TEXT,
+      ip_hash TEXT,
+      last_used_at INTEGER
     )
   `);
   sqlite.run(`CREATE INDEX sessions_account_idx ON sessions (account_id)`);
   sqlite.run(`CREATE INDEX sessions_family_idx ON sessions (family_id)`);
+  sqlite.run(`CREATE INDEX sessions_account_last_used_idx ON sessions (account_id, last_used_at)`);
+  sqlite.run(`
+    CREATE TABLE email_changes (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      previous_email TEXT NOT NULL,
+      new_email TEXT NOT NULL,
+      completed_at INTEGER NOT NULL
+    )
+  `);
+  sqlite.run(`CREATE INDEX email_changes_account_idx ON email_changes (account_id)`);
+  sqlite.run(`CREATE INDEX email_changes_completed_at_idx ON email_changes (completed_at)`);
   sqlite.run(`
     CREATE TABLE recovery_codes (
       id TEXT PRIMARY KEY,

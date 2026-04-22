@@ -7,12 +7,24 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-14
+last-reviewed: 2026-04-19
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## Auth Phase 5a (2026-04-19)
+
+- **S-H1** — Step-up jti replay guard was single-process in-memory; a captured token could replay once per pod. Fixed: extracted `StepUpJtiStore` interface; Redis-backed implementation in `osn/api/src/lib/step-up-jti-store.ts` wired from startup, fail-closed on Redis errors. — see [[step-up]]
+- **S-H2** — `beginEmailChange` leaked user existence via a distinct "Email already in use" error. Fixed: silently returns `{ sent: true }` on collision (matches `beginRegistration`'s anti-enumeration posture); the UNIQUE(email) constraint at `complete` remains the real defence.
+- **S-H3** — `/account/email/begin` was an authenticated email-spam amplifier (per-IP only, bypassable via IP rotation). Fixed: per-account cap of 3 begins per 24h on top of the existing per-IP limit.
+- **S-M1** — No per-account session cap; `revokeAccountSession` was O(N) scan. Fixed: `MAX_SESSIONS_PER_ACCOUNT = 50` with LRU-evict in `issueTokens`; revoke uses `LIKE 'handle%'` on the indexed PK.
+- **S-M2** — `sessionIpPepper` silently disabled when unset in production. Fixed: fails loudly at startup when `OSN_SESSION_IP_PEPPER` is missing/short in non-local env. — see [[sessions]]
+- **S-M4** — Session revoke returned distinct "Session not found" — handle-existence oracle. Fixed: idempotent `revokedSelf: false` on miss (matches `/logout` posture).
+- **S-L1** — Step-up and email-change OTPs were tagged `purpose: "login"` on `osn.auth.otp.sent`. Fixed: extended `OtpSentAttrs.purpose` union with `"step_up"` and `"email_change"`.
+- **S-L4** — Origin guard warning-only when allowlist empty. Fixed: throws at startup in non-local envs.
+- **S-L5** — Email-change OTP message was phishing-friendly at misdelivered inboxes. Fixed: reframed with explicit "someone requested this on your account" so a mistaken recipient reads it as junk.
 
 ## Critical
 

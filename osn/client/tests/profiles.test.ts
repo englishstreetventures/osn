@@ -22,7 +22,6 @@ function seedSession(profileId = "usr_aaaaaaaaaaaa") {
   return Effect.flatMap(OsnAuth, (auth) =>
     auth.setSession({
       accessToken: fakeJwt(profileId),
-      refreshToken: "ref_account",
       idToken: null,
       expiresAt: Date.now() + 60_000,
       scopes: ["openid", "profile"],
@@ -61,7 +60,7 @@ it.effect("getSession returns a Session reconstructed from the account session",
     yield* seedSession("usr_aaaaaaaaaaaa");
     const session = yield* auth.getSession();
     expect(session).not.toBeNull();
-    expect(session?.refreshToken).toBe("ref_account");
+    expect(session?.accessToken).toBeTruthy();
     expect(session?.scopes).toEqual(["openid", "profile"]);
   }).pipe(Effect.provide(createTestLayer())),
 );

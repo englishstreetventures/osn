@@ -75,7 +75,8 @@ describe("createLoginClient", () => {
       const result = await client.passkeyComplete("alice", { id: "cred" });
       expect(result.profile).toEqual(sampleProfile);
       expect(result.session.accessToken).toBe("acc_abc");
-      expect(result.session.refreshToken).toBe("ref_xyz");
+      // Session no longer exposes refreshToken (Copenhagen Book C3).
+      expect("refreshToken" in result.session).toBe(false);
     });
   });
 

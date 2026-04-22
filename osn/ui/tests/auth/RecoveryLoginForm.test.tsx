@@ -41,7 +41,6 @@ const asClient = (s: ClientStub): RecoveryClient => s as unknown as RecoveryClie
 
 const sampleSession = {
   accessToken: "acc_x",
-  refreshToken: null,
   idToken: null,
   expiresAt: Date.now() + 60_000,
   scopes: [],
