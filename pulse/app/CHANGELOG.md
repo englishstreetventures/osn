@@ -1,5 +1,14 @@
 # @osn/pulse
 
+## 0.8.14
+
+### Patch Changes
+
+- Updated dependencies [811eda4]
+  - @osn/client@0.10.0
+  - @osn/ui@0.10.0
+  - @pulse/api@0.11.7
+
 ## 0.8.13
 
 ### Patch Changes
