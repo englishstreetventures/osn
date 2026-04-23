@@ -29,6 +29,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 - [ ] "What's on today" default view
 - [ ] Prompt for max event duration when creating events without an endTime
 - [ ] Event discovery (location, category, datetime, friends, interests)
+- [ ] Add `price` field to events schema (`text`, nullable — free events = null, otherwise display string like "$18" or "$8 entry")
 - [ ] Recurring events (series + instances)
 - [ ] Event group chats (via Zap once M2 lands — placeholder shipped)
 - [ ] Organizer tools (moderation, blacklists)
@@ -311,6 +312,11 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [x] P-W26 — `publicKeyCache` hit path used Map delete+re-insert for LRU touch (O(log n) + allocation on hot path). **Fixed** — replaced with `publicKeyLastAccess.set(kid, Date.now())` (single map write) — see [[arc-tokens]]
 - [x] P-W27 — `allowedScopes` stored as raw comma-separated string; split+includes on every cache-hit scope check. **Fixed** — stored as `Set<string>` parsed once at DB-miss time; hit path uses `Set.has()` O(1) — see [[arc-tokens]]
 - [x] P-I16 — `tokenCache` used FIFO eviction (insertion-order head eviction). **Fixed** — `tokenLastAccess` side-map added; `getOrCreateArcToken` evicts true LRU entry on overflow; sweep/clear functions maintain the side map — see [[arc-tokens]]
+- [x] P-W1 (explore) — `ExplorePage` not lazy-loaded despite being the heaviest route. **Fixed** — wrapped in `lazy()` for route-level code splitting
+- [x] P-W2 (explore) — Render-blocking Google Fonts `@import` in CSS. **Fixed** — moved to `<link>` tags in `index.html` with `preconnect` hints
+- [ ] P-W3 (explore) — Canvas heatmap + SVG map redraw on every `ResizeObserver` frame without throttle — debounce `setSize` ~100ms
+- [ ] P-W4 (explore) — `StyleMap` SVG recalculates grid lines on every resize — throttle or cache
+- [ ] P-W5 (explore) — `isDark()` reads DOM classList on every access without reactive signal — use `MutationObserver` + `createMemo`
 - [ ] P-W23 — `tailwind-merge` (~12-14 KB) in initial bundle — see [[component-library]]
 - [ ] P-W24 — `cn()` with signal reads replaces `classList` — avoid in `<For>` loops — see [[component-library]]
 - [x] P-W3 (org) — Sequential queries in `removeMember` and `updateOrganisation` could be parallelised. **Fixed** — `callerMember`+`targetMember` in `removeMember` and `orgRows`+`memberRows` in `updateOrganisation` now use `Effect.all({ concurrency: 2 })`. `resolveOrg`+`resolveHandle` in the three member routes now run via `Promise.all`

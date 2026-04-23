@@ -1,0 +1,130 @@
+/* ===== Explore page — custom styles that don't map to Tailwind ===== */
+
+/* Brand pulse animation */
+@keyframes brand-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.6); opacity: 0.6; }
+}
+.brand-pulse {
+  animation: brand-pulse 2s infinite ease-out;
+}
+
+/* Live badge pulse */
+@keyframes live-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px oklch(0.72 0.17 22 / 0.4); }
+  50% { box-shadow: 0 0 0 5px oklch(0.72 0.17 22 / 0.15); }
+}
+.live-dot {
+  animation: live-pulse 1.8s infinite;
+}
+
+/* Tab active underline */
+.explore-tab-active::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -15px;
+  height: 2px;
+  background: var(--pulse-accent);
+  border-radius: 2px 2px 0 0;
+}
+
+/* Filter rail — hide scrollbar */
+.filter-rail {
+  scrollbar-width: none;
+}
+.filter-rail::-webkit-scrollbar {
+  display: none;
+}
+
+/* Event card placeholder gradients */
+.ph-1 { background: linear-gradient(120deg, oklch(0.7 0.14 40), oklch(0.55 0.16 15)); }
+.ph-2 { background: linear-gradient(120deg, oklch(0.82 0.08 160), oklch(0.55 0.15 200)); }
+.ph-3 { background: linear-gradient(120deg, oklch(0.78 0.12 90), oklch(0.62 0.14 30)); }
+.ph-4 { background: linear-gradient(120deg, oklch(0.72 0.13 300), oklch(0.5 0.15 260)); }
+.ph-5 { background: linear-gradient(120deg, oklch(0.75 0.11 60), oklch(0.55 0.15 25)); }
+.ph-6 { background: linear-gradient(120deg, oklch(0.68 0.15 20), oklch(0.48 0.16 350)); }
+.ph-7 { background: linear-gradient(120deg, oklch(0.8 0.1 120), oklch(0.55 0.14 150)); }
+.ph-8 { background: linear-gradient(120deg, oklch(0.74 0.11 240), oklch(0.5 0.15 280)); }
+
+/* Pattern overlay for event card media */
+.ph-pattern {
+  position: absolute;
+  inset: 0;
+  opacity: 0.22;
+  background-image:
+    radial-gradient(circle at 20% 30%, oklch(1 0 0 / 0.6) 0%, transparent 30%),
+    radial-gradient(circle at 80% 70%, oklch(0 0 0 / 0.25) 0%, transparent 40%);
+  mix-blend-mode: overlay;
+}
+
+/* Date stamp on card */
+.date-stamp .mo {
+  color: var(--pulse-accent-strong);
+}
+
+/* Custom range slider for time scrubber */
+.explore-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+.explore-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--foreground);
+  border: 3px solid var(--card);
+  box-shadow: var(--shadow-md);
+  cursor: grab;
+}
+.explore-slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+}
+.explore-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--foreground);
+  border: 3px solid var(--card);
+  box-shadow: var(--shadow-md);
+  cursor: grab;
+  border: none;
+}
+
+/* Map pin popup arrow */
+.pin-pop::after {
+  content: "";
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 8px;
+  height: 8px;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Heatmap legend gradient bar */
+.legend-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, oklch(0.85 0.05 250), oklch(0.75 0.15 80), oklch(0.67 0.2 45), oklch(0.58 0.23 25));
+}
+
+/* Responsive: collapse map below 1180px */
+@media (max-width: 1180px) {
+  .explore-body {
+    grid-template-columns: 1fr !important;
+  }
+  .explore-map-pane {
+    display: none;
+  }
+}
