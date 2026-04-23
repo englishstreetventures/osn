@@ -1,5 +1,16 @@
 # @osn/ui
 
+## 1.1.0
+
+### Minor Changes
+
+- 1d68593: Let users add additional biometrics (passkeys) after registration. Registration already required enrolling a first passkey; Settings now exposes a Security tab with an "Add passkey" button that runs the step-up-gated WebAuthn registration ceremony, plus the existing list / rename / delete surface. `PasskeysClient` gains `registerBegin` / `registerComplete` so the Settings surface can call `/passkey/register/begin` + `/complete` directly.
+
+### Patch Changes
+
+- Updated dependencies [1d68593]
+  - @osn/client@2.1.0
+
 ## 1.0.1
 
 ### Patch Changes
