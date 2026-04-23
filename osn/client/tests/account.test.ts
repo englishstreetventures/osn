@@ -2,6 +2,12 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
 import { createAccountClient, AccountError } from "../src/account";
 
+const ok = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+
 describe("createAccountClient", () => {
   const client = createAccountClient({ issuerUrl: "https://osn.example.com" });
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -14,12 +20,6 @@ describe("createAccountClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
-
-  const ok = (body: unknown, status = 200) =>
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { "content-type": "application/json" },
-    });
 
   it("changeEmailBegin POSTs the new email with Bearer auth", async () => {
     fetchMock.mockResolvedValue(ok({ sent: true }));

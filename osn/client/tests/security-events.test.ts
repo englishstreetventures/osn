@@ -2,6 +2,12 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
 import { createSecurityEventsClient, SecurityEventsError } from "../src/security-events";
 
+const okResponse = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+
 describe("createSecurityEventsClient", () => {
   const client = createSecurityEventsClient({ issuerUrl: "https://osn.example.com" });
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -14,12 +20,6 @@ describe("createSecurityEventsClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
-
-  const okResponse = (body: unknown, status = 200) =>
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { "content-type": "application/json" },
-    });
 
   it("list() GETs /account/security-events with Bearer auth and returns the payload", async () => {
     const events = [

@@ -21,7 +21,7 @@ const INDICES = Array.from({ length: LENGTH });
 
 const OtpInput: Component<OtpInputProps> = (props) => {
   const [local] = splitProps(props, ["value", "onChange", "status", "disabled", "autofocus"]);
-  let inputs: HTMLInputElement[] = [];
+  const inputs: HTMLInputElement[] = [];
   const [focusedIndex, setFocusedIndex] = createSignal(-1);
 
   const digits = () => local.value.split("");

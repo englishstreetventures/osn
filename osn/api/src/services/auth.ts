@@ -35,7 +35,7 @@ import type {
   PublicKeyCredentialCreationOptionsJSON,
   PublicKeyCredentialRequestOptionsJSON,
 } from "@simplewebauthn/server";
-import { and, count as countFn, desc, eq, gte, isNull, like, ne } from "drizzle-orm";
+import { and, count as countFn, desc, eq, gte, inArray, isNull, like, ne } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 import { SignJWT, jwtVerify } from "jose";
 
@@ -1118,9 +1118,7 @@ export function createAuthService(config: AuthConfig) {
             .limit(MAX_SESSIONS_PER_ACCOUNT + 1);
           if (rows.length >= MAX_SESSIONS_PER_ACCOUNT) {
             const evictIds = rows.slice(MAX_SESSIONS_PER_ACCOUNT - 1).map((r) => r.id);
-            for (const id of evictIds) {
-              await db.delete(sessions).where(eq(sessions.id, id));
-            }
+            await db.delete(sessions).where(inArray(sessions.id, evictIds));
           }
         },
         catch: (cause) => new DatabaseError({ cause }),

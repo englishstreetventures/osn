@@ -40,16 +40,18 @@ export interface SessionsClient {
   revokeAllOther(input: { accessToken: string }): Promise<{ success: true }>;
 }
 
-export function createSessionsClient(config: SessionsClientConfig): SessionsClient {
-  const base = config.issuerUrl.replace(/\/$/, "");
-
-  const withAuth = (accessToken: string): RequestInit => ({
+function withAuth(accessToken: string): RequestInit {
+  return {
     credentials: "include",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-  });
+  };
+}
+
+export function createSessionsClient(config: SessionsClientConfig): SessionsClient {
+  const base = config.issuerUrl.replace(/\/$/, "");
 
   return {
     list: async (input) => {

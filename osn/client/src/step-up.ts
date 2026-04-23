@@ -59,13 +59,15 @@ async function postJson<T>(url: string, bearer: string, body: unknown): Promise<
   return json;
 }
 
-export function createStepUpClient(config: StepUpClientConfig): StepUpClient {
-  const base = config.issuerUrl.replace(/\/$/, "");
-
-  const toToken = (raw: { step_up_token: string; expires_in: number }): StepUpToken => ({
+function toToken(raw: { step_up_token: string; expires_in: number }): StepUpToken {
+  return {
     token: raw.step_up_token,
     expiresIn: raw.expires_in,
-  });
+  };
+}
+
+export function createStepUpClient(config: StepUpClientConfig): StepUpClient {
+  const base = config.issuerUrl.replace(/\/$/, "");
 
   return {
     passkeyBegin: (input) =>

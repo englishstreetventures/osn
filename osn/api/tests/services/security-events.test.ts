@@ -140,7 +140,7 @@ describe("consumeRecoveryCode → security_events (S-H1)", () => {
       yield* auth.consumeRecoveryCode("sev-consume@example.com", codes[0]!);
       const afterConsume = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
       expect(afterConsume.events).toHaveLength(2);
-      expect(afterConsume.events.map((e) => e.kind).sort()).toEqual([
+      expect(afterConsume.events.map((e) => e.kind).toSorted()).toEqual([
         "recovery_code_consume",
         "recovery_code_generate",
       ]);

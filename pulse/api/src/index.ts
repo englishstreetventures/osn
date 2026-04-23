@@ -35,8 +35,15 @@ if (process.env.NODE_ENV !== "test") {
   // Register our ephemeral public key with osn/api and schedule automatic
   // rotation. Exits the process if INTERNAL_SERVICE_SECRET is unset.
   void startKeyRotation().catch((err: unknown) => {
-    console.error("pulse-api: failed to start ARC key rotation", err);
-    process.exit(1);
+    void Effect.runPromise(
+      Effect.logError("pulse-api: failed to start ARC key rotation", err).pipe(
+        Effect.annotateLogs({ service: SERVICE_NAME }),
+        Effect.provide(Logger.pretty),
+        Effect.provide(observabilityLayer),
+      ),
+    )
+      .catch(() => {})
+      .finally(() => process.exit(1));
   });
 
   // One structured info log at boot, routed through the observability layer

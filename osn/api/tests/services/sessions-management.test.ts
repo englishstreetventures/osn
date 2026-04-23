@@ -53,7 +53,10 @@ describe("listAccountSessions", () => {
       expect(sessions.some((s) => s.isCurrent)).toBe(true);
       expect(sessions.every((s) => /^[0-9a-f]{16}$/.test(s.id))).toBe(true);
       // Metadata surfaced.
-      expect(sessions.map((s) => s.uaLabel).sort()).toEqual(["Firefox on macOS", "Safari on iOS"]);
+      expect(sessions.map((s) => s.uaLabel).toSorted()).toEqual([
+        "Firefox on macOS",
+        "Safari on iOS",
+      ]);
       void t2;
     }).pipe(Effect.provide(createTestLayer())),
   );

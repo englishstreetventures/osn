@@ -2,6 +2,17 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
 import { createStepUpClient, StepUpError } from "../src/step-up";
 
+const okResponse = (body: unknown) =>
+  new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+const errResponse = (body: unknown) =>
+  new Response(JSON.stringify(body), {
+    status: 400,
+    headers: { "content-type": "application/json" },
+  });
+
 describe("createStepUpClient", () => {
   const client = createStepUpClient({ issuerUrl: "https://osn.example.com" });
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -14,17 +25,6 @@ describe("createStepUpClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
-
-  const okResponse = (body: unknown) =>
-    new Response(JSON.stringify(body), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
-  const errResponse = (body: unknown) =>
-    new Response(JSON.stringify(body), {
-      status: 400,
-      headers: { "content-type": "application/json" },
-    });
 
   describe("passkeyBegin", () => {
     it("POSTs /step-up/passkey/begin with Bearer auth and returns the challenge options", async () => {

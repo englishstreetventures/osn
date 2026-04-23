@@ -13,6 +13,11 @@ import { toast } from "solid-toast";
 import { orgClient } from "../lib/api";
 import { safeAvatarUrl } from "../lib/utils";
 
+function parseKey(key: string): { token: string; id: string } {
+  const sep = key.indexOf("|");
+  return { token: key.slice(0, sep), id: key.slice(sep + 1) };
+}
+
 export function OrgDetailPage() {
   const params = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -29,19 +34,14 @@ export function OrgDetailPage() {
     return t && id ? `${t}|${id}` : false;
   });
 
-  const parseKey = (key: string): { token: string; id: string } => {
-    const sep = key.indexOf("|");
-    return { token: key.slice(0, sep), id: key.slice(sep + 1) };
-  };
-
   const [org, { refetch: refetchOrg }] = createResource(resourceKey, (key) => {
-    const { token, id } = parseKey(key as string);
-    return orgClient.getOrg(token, id);
+    const { token: keyToken, id } = parseKey(key as string);
+    return orgClient.getOrg(keyToken, id);
   });
 
   const [members, { refetch: refetchMembers }] = createResource(resourceKey, (key) => {
-    const { token, id } = parseKey(key as string);
-    return orgClient.listMembers(token, id);
+    const { token: keyToken, id } = parseKey(key as string);
+    return orgClient.listMembers(keyToken, id);
   });
 
   const [showEdit, setShowEdit] = createSignal(false);

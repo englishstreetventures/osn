@@ -54,18 +54,20 @@ export interface SecurityEventsClient {
   }): Promise<{ acknowledged: number }>;
 }
 
-export function createSecurityEventsClient(
-  config: SecurityEventsClientConfig,
-): SecurityEventsClient {
-  const base = config.issuerUrl.replace(/\/$/, "");
-
-  const withAuth = (accessToken: string): RequestInit => ({
+function withAuth(accessToken: string): RequestInit {
+  return {
     credentials: "include",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-  });
+  };
+}
+
+export function createSecurityEventsClient(
+  config: SecurityEventsClientConfig,
+): SecurityEventsClient {
+  const base = config.issuerUrl.replace(/\/$/, "");
 
   return {
     list: async (input) => {

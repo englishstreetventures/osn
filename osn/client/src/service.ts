@@ -48,6 +48,19 @@ function sessionToAccountSession(session: Session): AccountSession {
   };
 }
 
+/**
+ * Returns the Authorization header value for the active profile's
+ * access token, or null if no valid token is available.
+ */
+function authHeader(account: AccountSession): Record<string, string> | null {
+  const pt = account.profileTokens[account.activeProfileId];
+  if (!pt || Date.now() >= pt.expiresAt) return null;
+  return {
+    Authorization: `Bearer ${pt.accessToken}`,
+    "Content-Type": "application/json",
+  };
+}
+
 /** Remove expired profile tokens from an AccountSession, except the active profile. (S-M2, P-W3) */
 function pruneExpiredTokens(account: AccountSession): void {
   const now = Date.now();
@@ -281,19 +294,6 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       // S-H1: Profile endpoints authenticate via Bearer access token (not
       // refresh token in body). The access token's `sub` claim identifies
       // the caller's profile; the server resolves the owning account.
-
-      /**
-       * Returns the Authorization header value for the active profile's
-       * access token, or null if no valid token is available.
-       */
-      function authHeader(account: AccountSession): Record<string, string> | null {
-        const pt = account.profileTokens[account.activeProfileId];
-        if (!pt || Date.now() >= pt.expiresAt) return null;
-        return {
-          Authorization: `Bearer ${pt.accessToken}`,
-          "Content-Type": "application/json",
-        };
-      }
 
       const listProfiles = () =>
         Effect.gen(function* () {

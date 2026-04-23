@@ -49,13 +49,15 @@ export interface PasskeysClient {
   }): Promise<{ success: true; remaining: number }>;
 }
 
-export function createPasskeysClient(config: PasskeysClientConfig): PasskeysClient {
-  const base = config.issuerUrl.replace(/\/$/, "");
-
-  const authHeaders = (accessToken: string): HeadersInit => ({
+function authHeaders(accessToken: string): HeadersInit {
+  return {
     Authorization: `Bearer ${accessToken}`,
     "Content-Type": "application/json",
-  });
+  };
+}
+
+export function createPasskeysClient(config: PasskeysClientConfig): PasskeysClient {
+  const base = config.issuerUrl.replace(/\/$/, "");
 
   return {
     list: async (input) => {

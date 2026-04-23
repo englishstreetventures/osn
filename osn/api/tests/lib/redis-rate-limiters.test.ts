@@ -45,7 +45,7 @@ describe("createRedisAuthRateLimiters", () => {
 
     // Catch additions to the bundle that aren't reflected in expectedKeys —
     // a new slot without a matching entry here means the test is stale.
-    expect(Object.keys(limiters).sort()).toEqual([...expectedKeys].sort());
+    expect(Object.keys(limiters).toSorted()).toEqual([...expectedKeys].toSorted());
   });
 
   it("enforces begin-endpoint limits (5 req/min)", async () => {

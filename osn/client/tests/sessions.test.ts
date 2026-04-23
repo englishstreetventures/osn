@@ -2,6 +2,12 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
 import { createSessionsClient, SessionsError } from "../src/sessions";
 
+const okResponse = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+
 describe("createSessionsClient", () => {
   const client = createSessionsClient({ issuerUrl: "https://osn.example.com" });
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -14,12 +20,6 @@ describe("createSessionsClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
-
-  const okResponse = (body: unknown, status = 200) =>
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { "content-type": "application/json" },
-    });
 
   it("list() GETs /sessions with Bearer auth and returns the payload", async () => {
     const sessions = [

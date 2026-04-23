@@ -14,6 +14,86 @@ beforeAll(async () => {
   config = await makeTestAuthConfig();
 });
 
+/** Drive the full register+verify flow and return an access token. */
+async function registerAndGetAccessToken(
+  freshApp: ReturnType<typeof createAuthRoutes>,
+  captured: { code?: string },
+  email: string,
+  handle: string,
+): Promise<string> {
+  await freshApp.handle(
+    new Request("http://localhost/register/begin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, handle }),
+    }),
+  );
+  const completeRes = await freshApp.handle(
+    new Request("http://localhost/register/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, code: captured.code }),
+    }),
+  );
+  const json = (await completeRes.json()) as {
+    session: { access_token: string };
+  };
+  return json.session.access_token;
+}
+
+async function mintStepUpToken(
+  freshApp: ReturnType<typeof createAuthRoutes>,
+  accessToken: string,
+  captured: { last?: string },
+): Promise<string> {
+  await freshApp.handle(
+    new Request("http://localhost/step-up/otp/begin", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }),
+  );
+  const completeRes = await freshApp.handle(
+    new Request("http://localhost/step-up/otp/complete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ code: captured.last }),
+    }),
+  );
+  const json = (await completeRes.json()) as { step_up_token: string };
+  return json.step_up_token;
+}
+
+// Step-up `jti`s are single-use, so each ack call needs its own token.
+async function mintStepUp(
+  freshApp: ReturnType<typeof createAuthRoutes>,
+  accessToken: string,
+  captured: string[],
+): Promise<string> {
+  await freshApp.handle(
+    new Request("http://localhost/step-up/otp/begin", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }),
+  );
+  const stepUpRes = await freshApp.handle(
+    new Request("http://localhost/step-up/otp/complete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ code: captured[captured.length - 1] }),
+    }),
+  );
+  const { step_up_token: stepUpToken } = (await stepUpRes.json()) as {
+    step_up_token: string;
+  };
+  return stepUpToken;
+}
+
 describe("auth routes", () => {
   let app: ReturnType<typeof createAuthRoutes>;
   let layer: ReturnType<typeof createTestLayer>;
@@ -1403,33 +1483,6 @@ describe("auth routes", () => {
   // begin-needs-passkeys failure mode.
   // ---------------------------------------------------------------------------
   describe("step-up routes", () => {
-    /** Drive the full register+verify flow and return an access token. */
-    async function registerAndGetAccessToken(
-      freshApp: ReturnType<typeof createAuthRoutes>,
-      captured: { code?: string },
-      email: string,
-      handle: string,
-    ): Promise<string> {
-      await freshApp.handle(
-        new Request("http://localhost/register/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, handle }),
-        }),
-      );
-      const completeRes = await freshApp.handle(
-        new Request("http://localhost/register/complete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, code: captured.code }),
-        }),
-      );
-      const json = (await completeRes.json()) as {
-        session: { access_token: string };
-      };
-      return json.session.access_token;
-    }
-
     function appWithCapturingEmail(): {
       app: ReturnType<typeof createAuthRoutes>;
       captured: { code?: string; all: string[] };
@@ -1717,31 +1770,6 @@ describe("auth routes", () => {
       return { app: freshApp, accessToken: json.session.access_token, captured };
     }
 
-    async function mintStepUpToken(
-      freshApp: ReturnType<typeof createAuthRoutes>,
-      accessToken: string,
-      captured: { last?: string },
-    ): Promise<string> {
-      await freshApp.handle(
-        new Request("http://localhost/step-up/otp/begin", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-      );
-      const completeRes = await freshApp.handle(
-        new Request("http://localhost/step-up/otp/complete", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ code: captured.last }),
-        }),
-      );
-      const json = (await completeRes.json()) as { step_up_token: string };
-      return json.step_up_token;
-    }
-
     it("POST /account/email/begin requires Bearer auth", async () => {
       const res = await app.handle(
         new Request("http://localhost/account/email/begin", {
@@ -1838,34 +1866,6 @@ describe("auth routes", () => {
   // Security events (M-PK1b)
   // ---------------------------------------------------------------------------
   describe("security events routes", () => {
-    // Step-up `jti`s are single-use, so each ack call needs its own token.
-    async function mintStepUp(
-      freshApp: ReturnType<typeof createAuthRoutes>,
-      accessToken: string,
-      captured: string[],
-    ): Promise<string> {
-      await freshApp.handle(
-        new Request("http://localhost/step-up/otp/begin", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-      );
-      const stepUpRes = await freshApp.handle(
-        new Request("http://localhost/step-up/otp/complete", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ code: captured[captured.length - 1] }),
-        }),
-      );
-      const { step_up_token: stepUpToken } = (await stepUpRes.json()) as {
-        step_up_token: string;
-      };
-      return stepUpToken;
-    }
-
     async function setupWithRecovery(): Promise<{
       app: ReturnType<typeof createAuthRoutes>;
       accessToken: string;
@@ -2039,7 +2039,9 @@ describe("auth routes", () => {
       const { app: freshApp, accessToken, captured } = await setupWithRecovery();
       // Generate two more events so there are 3 unacked rows.
       for (const _ of [1, 2]) {
+        // eslint-disable-next-line no-await-in-loop -- step-up OTP capture is sequential
         const freshStepUp = await mintStepUp(freshApp, accessToken, captured);
+        // eslint-disable-next-line no-await-in-loop -- each generate depends on the prior step-up mint
         await freshApp.handle(
           new Request("http://localhost/recovery/generate", {
             method: "POST",

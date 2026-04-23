@@ -13,6 +13,6 @@
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.5"
   }
 }
