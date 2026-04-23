@@ -33,18 +33,36 @@ if (process.env.NODE_ENV !== "test") {
   app.listen({ port, reusePort: false });
 
   // Register our ephemeral public key with osn/api and schedule automatic
-  // rotation. Exits the process if INTERNAL_SERVICE_SECRET is unset.
-  void startKeyRotation().catch((err: unknown) => {
-    void Effect.runPromise(
-      Effect.logError("pulse-api: failed to start ARC key rotation", err).pipe(
-        Effect.annotateLogs({ service: SERVICE_NAME }),
-        Effect.provide(Logger.pretty),
-        Effect.provide(observabilityLayer),
-      ),
+  // rotation. Exits the process if INTERNAL_SERVICE_SECRET is unset in a
+  // non-local environment; in local dev a missing secret logs a warning
+  // and lets the server boot so unrelated work isn't blocked by S2S setup.
+  void startKeyRotation()
+    .then((registered) =>
+      registered
+        ? undefined
+        : Effect.runPromise(
+            Effect.logWarning(
+              "pulse-api: ARC key registration skipped — INTERNAL_SERVICE_SECRET is unset. " +
+                "S2S calls to osn/api will fail until you set INTERNAL_SERVICE_SECRET in pulse/api/.env " +
+                "(matching the value in osn/api/.env).",
+            ).pipe(
+              Effect.annotateLogs({ service: SERVICE_NAME }),
+              Effect.provide(Logger.pretty),
+              Effect.provide(observabilityLayer),
+            ),
+          ).catch(() => undefined),
     )
-      .catch(() => {})
-      .finally(() => process.exit(1));
-  });
+    .catch((err: unknown) => {
+      void Effect.runPromise(
+        Effect.logError("pulse-api: failed to start ARC key rotation", err).pipe(
+          Effect.annotateLogs({ service: SERVICE_NAME }),
+          Effect.provide(Logger.pretty),
+          Effect.provide(observabilityLayer),
+        ),
+      )
+        .catch(() => {})
+        .finally(() => process.exit(1));
+    });
 
   // One structured info log at boot, routed through the observability layer
   // so it picks up resource attributes + redaction. Using Effect.runPromise

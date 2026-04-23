@@ -248,7 +248,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [x] S-L40 — `publicKeyCacheSize`, `_setPublicKeyCacheMaxSizeForTest`, `_resetPublicKeyCacheMaxSize` re-exported from `@shared/crypto` public index.ts (test-only symbols in public API). **Fixed** — removed from `index.ts`; tests import direct from `../src/arc` — see [[arc-tokens]]
 - [ ] S-L14 — `assertion: t.Any()` on passkey routes — add TypeBox shape validation
 - [ ] S-L15 — No reserved-handle blocklist in DB
-- [x] S-L101 — `registerWithOsnApi()` silently returned early when `INTERNAL_SERVICE_SECRET` unset. **Fixed** — now throws, caught at startup by `index.ts` — see [[arc-tokens]]
+- [x] S-L101 — `registerWithOsnApi()` silently returned early when `INTERNAL_SERVICE_SECRET` unset. **Fixed** — throws in non-local envs (`OSN_ENV != "local"`) so misconfiguration is caught at boot; in local dev logs a warning and boots anyway to unblock developer workflows — see [[arc-tokens]]
 - [x] S-M1 (auth) — ~~`pkceStore` unbounded + no expiry sweep~~ — **Obsolete**: `pkceStore` deleted with PKCE cleanup (Phase 5b)
 - [x] S-M2 (auth) — ~~`/authorize` has no rate limiter~~ — **Obsolete**: `/authorize` route deleted with PKCE cleanup (Phase 5b)
 - [ ] S-M4 (auth) — No startup assertion that `OSN_JWT_PRIVATE_KEY` has `sign` usage — assert `key.usages.includes("sign")` after import in `loadJwtKeyPair`

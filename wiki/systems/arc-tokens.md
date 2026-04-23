@@ -186,7 +186,10 @@ Ephemeral key auto-rotation is the only supported strategy. Pre-distributed stab
 4. Schedules rotation `KEY_ROTATION_BUFFER_HOURS` (default 2h) before expiry
 5. On rotation: registers the new key BEFORE swapping the signing singleton — zero downtime
 
-Throws at startup if `INTERNAL_SERVICE_SECRET` is unset — misconfiguration is surfaced immediately rather than failing silently on the first S2S call.
+Behaviour when `INTERNAL_SERVICE_SECRET` is unset:
+
+- **Non-local env** (`OSN_ENV != "local"`): throws at startup so misconfiguration is caught immediately rather than failing silently on the first S2S call.
+- **Local dev** (`OSN_ENV` unset or `"local"`): registration is skipped, a warning is logged, and the server still boots. Any S2S call to `osn/api` will fail until the secret is configured — useful for unrelated local work that doesn't need the social graph bridge.
 
 Env vars: `INTERNAL_SERVICE_SECRET`, `KEY_TTL_HOURS` (default 24), `KEY_ROTATION_BUFFER_HOURS` (default 2).
 

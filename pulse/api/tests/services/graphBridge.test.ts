@@ -203,9 +203,26 @@ describe("startKeyRotation", () => {
     vi.useRealTimers();
   });
 
-  it("throws when INTERNAL_SERVICE_SECRET is unset", async () => {
+  it("throws when INTERNAL_SERVICE_SECRET is unset in a non-local environment", async () => {
     vi.unstubAllEnvs(); // undo beforeEach stub so the env var is absent
+    vi.stubEnv("OSN_ENV", "production");
     await expect(startKeyRotation()).rejects.toThrow("INTERNAL_SERVICE_SECRET must be set");
+  });
+
+  it("returns false (and makes no HTTP call) when the secret is unset in local dev", async () => {
+    vi.unstubAllEnvs(); // remove the SECRET stub
+    // OSN_ENV unset → treated as local
+    const spy = vi.spyOn(globalThis, "fetch");
+    await expect(startKeyRotation()).resolves.toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("returns false when OSN_ENV=local and the secret is unset", async () => {
+    vi.unstubAllEnvs();
+    vi.stubEnv("OSN_ENV", "local");
+    const spy = vi.spyOn(globalThis, "fetch");
+    await expect(startKeyRotation()).resolves.toBe(false);
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it("makes a POST to /graph/internal/register-service with correct shape", async () => {
@@ -216,7 +233,7 @@ describe("startKeyRotation", () => {
       }),
     );
 
-    await startKeyRotation();
+    await expect(startKeyRotation()).resolves.toBe(true);
 
     expect(spy).toHaveBeenCalledOnce();
     const [url, init] = spy.mock.calls[0]!;

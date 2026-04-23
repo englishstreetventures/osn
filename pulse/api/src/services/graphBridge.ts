@@ -130,13 +130,27 @@ async function osPost<T>(path: string, body: unknown): Promise<T> {
 // ---------------------------------------------------------------------------
 
 /**
- * Registers the current public key with osn/api on startup.
- * Requires INTERNAL_SERVICE_SECRET — throws if unset so the misconfiguration
- * is caught immediately at boot rather than failing silently (S-L101).
+ * True when the process is running in a local developer environment
+ * (`OSN_ENV` unset or `"local"`). Mirrors the convention used elsewhere
+ * in osn/api so all services agree on what counts as "local".
  */
-async function registerWithOsnApi(): Promise<void> {
+function isLocalEnv(): boolean {
+  return !process.env.OSN_ENV || process.env.OSN_ENV === "local";
+}
+
+/**
+ * Registers the current public key with osn/api on startup.
+ *
+ * Returns `false` when `INTERNAL_SERVICE_SECRET` is unset in a local dev
+ * environment — the caller logs a warning and the process continues so
+ * developers can boot pulse-api without a fully wired osn/api. Throws in
+ * any non-local environment so misconfiguration is caught immediately at
+ * boot rather than failing silently on the first S2S call (S-L101).
+ */
+async function registerWithOsnApi(): Promise<boolean> {
   const secret = process.env.INTERNAL_SERVICE_SECRET;
   if (!secret) {
+    if (isLocalEnv()) return false;
     throw new Error(
       "INTERNAL_SERVICE_SECRET must be set — pulse-api cannot register its ARC key without it",
     );
@@ -162,6 +176,8 @@ async function registerWithOsnApi(): Promise<void> {
   if (!res.ok) {
     throw new Error(`pulse-api failed to register with osn/api: HTTP ${res.status}`);
   }
+
+  return true;
 }
 
 /**
@@ -221,13 +237,19 @@ async function rotateKey(): Promise<void> {
  * Registers the service's ephemeral public key with osn/api and schedules
  * automatic key rotation. Call once at startup.
  *
- * Throws if `INTERNAL_SERVICE_SECRET` is unset — misconfiguration is surfaced
- * immediately at boot rather than failing silently on the first S2S call.
+ * Returns `true` on success, `false` when registration was skipped because
+ * `INTERNAL_SERVICE_SECRET` is unset in a local dev environment (caller
+ * should log a warning so the developer knows S2S calls will fail until
+ * they configure the shared secret). Throws in any non-local environment
+ * — misconfiguration must be surfaced immediately at boot rather than
+ * failing silently on the first S2S call.
  */
-export async function startKeyRotation(): Promise<void> {
-  await registerWithOsnApi();
+export async function startKeyRotation(): Promise<boolean> {
+  const registered = await registerWithOsnApi();
+  if (!registered) return false;
   const { expiresAt } = await initKeys();
   scheduleRotation(expiresAt);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
