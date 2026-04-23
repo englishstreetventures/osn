@@ -2,6 +2,9 @@
 title: Review Finding IDs
 description: Tagging system for security, performance, and test review findings
 tags: [convention, review]
+related:
+  - "[[contributing]]"
+last-reviewed: 2026-04-23
 ---
 
 # Review Finding IDs

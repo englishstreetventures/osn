@@ -1,108 +1,127 @@
 ---
 title: Auth Flow Failure
-description: Runbook for diagnosing authentication failures across all auth methods
+description: Runbook for diagnosing authentication failures
 tags: [runbook, auth, incident]
 severity: high
+related:
+  - "[[passkey-primary]]"
+  - "[[recovery-codes]]"
+  - "[[step-up]]"
+  - "[[sessions]]"
+  - "[[rate-limiting]]"
+last-reviewed: 2026-04-23
 ---
 
 # Auth Flow Failure Runbook
 
 ## Symptoms
 
-- 401 responses on `/login/*` endpoints
-- OTP codes not arriving via email
-- Passkey registration or login fails
-- Magic link expired or invalid
-- PKCE state mismatch errors
+- 401 / 400 responses from `/login/passkey/*`, `/login/recovery/complete`, `/register/*`, `/token`, or `/passkey/register/*`
 - Users unable to register or sign in
+- Step-up actions (`/recovery/generate`, `/account/email/*`, `/account/security-events/ack*`, `DELETE /passkeys/:id`) returning 401 or 400
+- 429 spike on the `osn.auth.rate_limited` metric
+- "Sign out everywhere else" appearing to fail silently
 
-## Diagnosis Steps
+## Auth surface (cheat sheet)
 
-### 1. Check Rate Limiting
+Primary login is **passkey-only**. OTP and magic link are step-up / verification factors only — they no longer mint a primary session. See [[passkey-primary]].
 
-Is the user's IP being rate-limited?
+| Flow | Endpoints |
+|---|---|
+| Register | `POST /register/{begin,complete}` → mandatory `POST /passkey/register/{begin,complete}` |
+| Login (passkey) | `POST /login/passkey/{begin,complete}` (identifier-bound or discoverable) |
+| Login (recovery) | `POST /login/recovery/complete` |
+| Refresh | `POST /token` (HttpOnly cookie only — body fallback removed) |
+| Step-up | `POST /step-up/{passkey,otp}/{begin,complete}` |
 
-- Check the `osn.auth.rate_limited` metric for recent spikes
-- Look at the endpoint breakdown in the metric attributes to identify which flow is blocked
-- Current limits: 5 req/IP/min for begin endpoints (OTP/magic link send), 10 req/IP/min for complete/verify endpoints
+## Diagnosis flow
 
-If rate-limited, the response will be HTTP 429. See [[rate-limiting]] for full details on limits and configuration.
+```mermaid
+flowchart TD
+  start([Auth failing]) --> rl{HTTP 429?}
+  rl -- yes --> ratelimited[See &#91;&#91;rate-limit-incident&#93;&#93;]
+  rl -- no --> origin{Origin header rejected?<br/>S-M1 guard}
+  origin -- yes --> originfix[Allowlist the calling origin<br/>or check the cookie path]
+  origin -- no --> flow{Which flow?}
+  flow -- "/login/passkey" --> passkey[Step 1: Passkey checks]
+  flow -- "/login/recovery" --> recovery[Step 2: Recovery checks]
+  flow -- "/register" --> register[Step 3: Registration checks]
+  flow -- "/token" --> refresh[Step 4: Refresh checks]
+  flow -- "/step-up" --> stepup[Step 5: Step-up checks]
+```
 
-### 2. Check Auth Method
+## 1. Passkey login
 
-#### OTP
+| Symptom | Likely cause | Action |
+|---|---|---|
+| `400 invalid_request` on `/login/passkey/complete` | Challenge expired or never persisted | Re-initiate `/begin`; check that the unknown-identifier branch isn't being hit (S-M1 enumeration safety returns synthetic options) |
+| `400` on Tauri webview | Platform doesn't support WebAuthn | Hand the user the FIDO2 / cross-device fallback or recovery-code path |
+| Repeated 401 on first ceremony after enrollment | Counter mismatch / signing key replaced | Inspect `passkeys` table, confirm the `credentialId` registered matches the one being asserted |
+| `400 invalid_request` for known-good identifier | Account has 0 passkeys (legacy / corrupt) | Recover the account via recovery-code login and re-enroll a passkey |
 
-- Does the OTP store entry exist? OTP entries have a **10-minute TTL** and are deleted after successful verification
-- Is the OTP code correct? Check for typos (codes are numeric)
-- Has the user requested multiple OTPs? Only the most recent code is valid
+Discoverable login (no `identifier`) returns identical-shape options for unknown and known accounts so the namespace can't be probed — see the "Enumeration safety (S-M1)" section in [[passkey-primary]].
 
-#### Magic Link
+## 2. Recovery-code login
 
-- Is the magic link token still valid? Tokens expire after a configured TTL
-- Has the link already been used? Magic link tokens are single-use
-- Is the email delivery service operational? Check email provider logs
+| Symptom | Likely cause | Action |
+|---|---|---|
+| `400 invalid_request` for valid-looking code | Code already consumed, or wrong identifier | Codes are single-use; check `recovery_codes.used_at`. Failure surface is intentionally uniform (S-M2 timing parity) |
+| `429` after a few attempts | 5/hour/IP cap (recoveryComplete) | Wait the window or unblock at the proxy |
+| Login succeeds but other devices stay signed in | Expected | Recovery login revokes all sessions in the same transaction (`security_invalidation{trigger=recovery_code_consume}`) — only the new session survives |
 
-#### Passkey
+## 3. Registration
 
-- Is the passkey credential registered in the database? Check the `passkeys` table
-- Is the WebAuthn challenge still valid? Challenges are short-lived
-- Is the user's browser/webview compatible? Tauri webview passkey support varies by platform
-- Check the `authenticatorData` and `clientDataJSON` for format issues
+| Symptom | Likely cause | Action |
+|---|---|---|
+| `/register/complete` succeeds but UI refuses to dismiss | `/passkey/register/complete` did not run | This is by design — the account-level invariant is "≥1 passkey at all times". Drive the user back into the registration flow |
+| `/passkey/register/begin` returns 401 with `step_up_required` | Account already has ≥1 passkey (S-H1) | Caller must present a fresh `X-Step-Up-Token` (passkey or otp amr) — bootstrap path is only for the very first passkey |
+| `409 handle_taken` on `/register/begin` | Handle namespace clash with users **or** organisations | Prompt for a new handle |
 
-#### Refresh Token
+## 4. Refresh / `/token`
 
-- Is the JWT secret configured? Check `JWT_SECRET` or equivalent env var
-- Is the token expired? Decode the JWT and check `exp` claim
-- Does the token include the `handle` claim?
+| Symptom | Likely cause | Action |
+|---|---|---|
+| 401 with `missing_refresh_token` | Cookie not sent | Confirm the client is using `credentials: "include"`; cookie name is `__Host-osn_session` (non-local) or `osn_session` (local). Body fallback is intentionally removed (S-M1) |
+| 401 with `family_revoked` | Reuse detection (C2) tripped | An old/leaked refresh token replayed; the entire family is revoked. The user must sign in again |
+| 401 with `expired` on a token <30 days old | Sliding window not extending | Check the rotated-session store metric `osn.auth.session.rotated_store.operations{result=error}` — Redis outage degrades reuse detection but should not block valid tokens |
+| Access token rejected with `aud_mismatch` | Token issued by a different audience | Verify the caller is using the JWKS at `/.well-known/jwks.json` and asserting `aud: "osn-access"` (S-M2) |
 
-### 3. Check JWT Configuration
+## 5. Step-up
 
-- Is the JWT signing secret set in the environment?
-- Is the token expired? Check the `exp` claim against current time
-- Does the token contain the required claims (`sub`, `handle`, `iat`, `exp`)?
-- Is the `handle` claim present? Some flows depend on it
+| Symptom | Likely cause | Action |
+|---|---|---|
+| `step_up_required` on `/recovery/generate`, `/account/email/complete`, `/account/security-events/ack*`, `DELETE /passkeys/:id` | Token missing or wrong amr | Mint via `POST /step-up/{passkey,otp}/{begin,complete}`; check the route's `allowedAmr` config |
+| Token rejected with `replay` | `jti` already consumed (`StepUpJtiStore`) | Mint a fresh token — they're single-use |
+| Token rejected with `aud_mismatch` | Cross-used as access token (or vice versa) | Step-up JWTs carry `aud: "osn-step-up"` |
+| Repeated `replay` errors after a Redis hiccup | Fail-closed design — outage blocks step-up | Restore Redis; observe `osn.auth.step_up.verified{result}` |
 
-### 4. Check PKCE Flow (Third-party OAuth)
+## Useful queries
 
-PKCE is used by the hosted `/authorize` page for third-party OAuth clients. First-party apps do not use PKCE.
-
-- Does the `state` parameter match between the authorization request and callback?
-- Is the `code_verifier` correct? It must match the `code_challenge` sent in the initial request
-- Does the `redirect_uri` match the stored value exactly (including trailing slashes)?
-- Is the authorization code still valid? Codes are short-lived and single-use
-
-## Common Causes
-
-| Cause | Symptom | Resolution |
-|-------|---------|------------|
-| Rate limit hit | 429 on login/register | Wait for window to expire (1 minute) or check if IP is shared (NAT/corporate) |
-| OTP expired | "Invalid code" after 10+ minutes | Request a new OTP |
-| Email delivery failure | OTP/magic link never arrives | Check email provider status, spam folders, delivery logs |
-| Passkey not supported in Tauri webview | Registration/login silently fails | Check platform compatibility; fall back to OTP/magic link |
-| PKCE state mismatch | "Invalid state" error on callback | Ensure state is preserved across the redirect (check session storage) |
-| JWT secret missing | 500 on token creation | Set the JWT secret in environment variables |
-| Clock skew | Token appears expired immediately | Sync server clocks; check for timezone issues |
-| Multiple OTP requests | Earlier code rejected | Only the most recent OTP is valid; use the latest code |
-
-## Useful Queries
-
-### Check rate limit state
-
-The rate limiter is in-memory, so state is lost on restart. Check the `osn.auth.rate_limited` metric in Grafana for historical data.
-
-### Check user's passkey registrations
-
-Query the `passkeys` table for the user's ID to see registered credentials.
-
-### Decode a JWT
+### Decode a JWT payload
 
 ```bash
-# Decode the payload (base64)
 echo "<token-payload-section>" | base64 -d | jq .
+```
+
+### Inspect a user's passkeys
+
+```sql
+SELECT id, label, last_used_at, backup_eligible, backup_state
+FROM passkeys WHERE account_id = '<acc_…>';
+```
+
+### Inspect security events surfaced to the user
+
+```sql
+SELECT id, kind, created_at, acknowledged_at
+FROM security_events WHERE account_id = '<acc_…>' ORDER BY created_at DESC LIMIT 50;
 ```
 
 ## Related
 
-- [[rate-limiting]] -- rate limit configuration and known limitations
-- [[arc-tokens]] -- S2S auth (not used for user-facing auth)
-- [[osn-core]] -- OSN Core architecture and auth flows
+- [[passkey-primary]] — primary login contract (the only primary factor)
+- [[recovery-codes]] — recovery-code generation, consumption, and audit
+- [[step-up]] — sudo token model and allowed AMR config
+- [[sessions]] — server-side sessions, rotation, reuse detection
+- [[rate-limiting]] — current limits and 429 diagnosis
+- [[arc-tokens]] — S2S auth (not user auth — included for contrast)

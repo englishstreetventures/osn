@@ -15,14 +15,14 @@ related:
   - "[[osn-core]]"
   - "[[event-access]]"
 packages:
-  - "@osn/core"
+  - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-04-16
+last-reviewed: 2026-04-23
 ---
 
 # Social Graph
 
-The social graph is OSN's core relationship system. It manages connections between users, close-friend designations, and blocks. All graph logic lives in `@osn/core` with the schema in `@osn/db`.
+The social graph is OSN's core relationship system. It manages connections between users, close-friend designations, and blocks. All graph logic lives in `@osn/api` with the schema in `@osn/db`.
 
 ## Relationship Types
 
@@ -53,8 +53,8 @@ The `is-blocked` route only checks whether the caller has blocked the target (`i
 ## Architecture
 
 ```
-osn/core/src/services/graph.ts     # Graph service (Effect-based)
-osn/core/src/routes/graph.ts       # Graph routes (Elysia)
+osn/api/src/services/graph.ts     # Graph service (Effect-based)
+osn/api/src/routes/graph.ts       # Graph routes (Elysia)
 osn/db/src/schema.ts               # connections, close_friends, blocks tables
 ```
 
@@ -125,11 +125,11 @@ Rate-limited at 20 req/user/min via `createRedisRecommendationRateLimiter` — s
 
 ## Source Files
 
-- [osn/core/src/services/graph.ts](../osn/core/src/services/graph.ts) -- graph service
-- [osn/core/src/services/recommendations.ts](../osn/core/src/services/recommendations.ts) -- FOF recommendations
-- [osn/core/src/routes/graph.ts](../osn/core/src/routes/graph.ts) -- graph routes
-- [osn/core/src/routes/recommendations.ts](../osn/core/src/routes/recommendations.ts) -- `/recommendations/connections`
-- [osn/db/src/schema.ts](../osn/db/src/schema.ts) -- schema (connections, close_friends, blocks)
-- [osn/core/tests/services/graph.test.ts](../osn/core/tests/services/graph.test.ts) -- service tests
-- [osn/core/tests/services/recommendations.test.ts](../osn/core/tests/services/recommendations.test.ts) -- recommendations tests
-- [osn/core/tests/routes/graph.test.ts](../osn/core/tests/routes/graph.test.ts) -- route tests
+- [osn/api/src/services/graph.ts](../../osn/api/src/services/graph.ts) -- graph service
+- [osn/api/src/services/recommendations.ts](../../osn/api/src/services/recommendations.ts) -- FOF recommendations
+- [osn/api/src/routes/graph.ts](../../osn/api/src/routes/graph.ts) -- graph routes
+- [osn/api/src/routes/recommendations.ts](../../osn/api/src/routes/recommendations.ts) -- `/recommendations/connections`
+- [osn/db/src/schema.ts](../../osn/db/src/schema.ts) -- schema (connections, close_friends, blocks)
+- [osn/api/tests/services/graph.test.ts](../../osn/api/tests/services/graph.test.ts) -- service tests
+- [osn/api/tests/services/recommendations.test.ts](../../osn/api/tests/services/recommendations.test.ts) -- recommendations tests
+- [osn/api/tests/routes/graph.test.ts](../../osn/api/tests/routes/graph.test.ts) -- route tests

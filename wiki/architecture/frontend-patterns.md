@@ -19,7 +19,7 @@ related:
 packages:
   - "@pulse/app"
   - "@osn/ui"
-last-reviewed: 2026-04-14
+last-reviewed: 2026-04-23
 ---
 
 # Frontend Patterns
@@ -63,11 +63,15 @@ The `RsvpAvatar` test asserts that the constant flows to the DOM, so you can ver
 
 Sign-in and registration UI lives in `@osn/ui/auth/*` (not in individual apps). These components use Zaidan primitives (Button, Input, Label) internally and receive an injected client prop to stay app-agnostic:
 
-- `<Register />` — multi-step registration flow (email + handle + display name, OTP verification, passkey enrollment)
-- `<SignIn />` — login form supporting passkey, OTP, and magic link methods
-- `<MagicLinkHandler />` — deep-link handler for magic link callbacks
+- `<Register />` — multi-step registration flow (email + handle + display name, OTP verification, **mandatory** passkey enrollment)
+- `<SignIn />` — passkey-only login (identifier-bound or discoverable). Routes to `<RecoveryLoginForm>` via the "Lost your passkey?" link
+- `<RecoveryLoginForm />` — recovery-code login (lost-device escape hatch)
+- `<StepUpDialog />` — sudo ceremony for sensitive actions (recovery generate, email change, passkey delete)
+- `<SessionsView />` — per-device session list + "sign out everywhere else"
+- `<PasskeysView />` — passkey rename / delete (step-up gated)
+- `<RecoveryCodesView />`, `<SecurityEventsBanner />`, `<ChangeEmailForm />`, `<ProfileSwitcher />`, `<CreateProfileForm />`, `<ProfileOnboarding />`
 
-Any OSN app (Pulse, Zap, future apps) imports these from `@osn/ui/auth/*` and injects a client from `@osn/client`.
+Any OSN app (Pulse, Zap, Social, future apps) imports these from `@osn/ui/auth/*` and injects a client from `@osn/client`.
 
 ## Lazy Loading
 

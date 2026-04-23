@@ -2,9 +2,11 @@
 title: Step-up (sudo) tokens
 tags: [systems, auth, security]
 related:
-  - identity-model
-  - recovery-codes
-last-reviewed: 2026-04-22
+  - "[[identity-model]]"
+  - "[[recovery-codes]]"
+  - "[[passkey-primary]]"
+  - "[[sessions]]"
+last-reviewed: 2026-04-23
 ---
 
 # Step-up (sudo) tokens

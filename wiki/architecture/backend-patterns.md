@@ -16,9 +16,9 @@ related:
   - "[[observability/overview]]"
 packages:
   - "@pulse/api"
-  - "@osn/core"
   - "@osn/api"
-last-reviewed: 2026-04-12
+  - "@zap/api"
+last-reviewed: 2026-04-23
 ---
 
 # Backend Code Patterns
@@ -93,14 +93,14 @@ Key points:
 
 ## Route Factory Pattern
 
-Both `@osn/core` and `@pulse/api` use route factories that accept dependency layers:
+Every backend uses route factories that accept dependency layers, so tests can swap in `createTestLayer()` without touching production wiring:
 
 ```typescript
-// osn/core exports factories (library pattern)
+// osn/api/src/routes/auth.ts — factory definition
 export const createAuthRoutes = (config: AuthConfig, dbLayer?: Layer) => { ... }
 export const createGraphRoutes = (dbLayer?: Layer) => { ... }
 
-// osn/app composes them into a running server (binary pattern)
+// osn/api/src/index.ts — composition root
 const app = new Elysia()
   .use(createAuthRoutes(authConfig))
   .use(createGraphRoutes())
@@ -167,7 +167,7 @@ export const login = (input: LoginInput) =>
 
 ## Source Files
 
-- [CLAUDE.md](../CLAUDE.md) -- "Backend Code Patterns" section
-- [pulse/api/src/routes/events.ts](../pulse/api/src/routes/events.ts) -- canonical route example
-- [pulse/api/src/services/events.ts](../pulse/api/src/services/events.ts) -- canonical service example
-- [osn/core/src/routes/auth.ts](../osn/core/src/routes/auth.ts) -- auth route factory
+- [CLAUDE.md](../../CLAUDE.md) — "Backend Code Patterns" section
+- [pulse/api/src/routes/events.ts](../../pulse/api/src/routes/events.ts) — canonical route example
+- [pulse/api/src/services/events.ts](../../pulse/api/src/services/events.ts) — canonical service example
+- [osn/api/src/routes/auth.ts](../../osn/api/src/routes/auth.ts) — auth route factory

@@ -2,6 +2,10 @@
 title: CLI Commands Reference
 description: Full reference for all CLI commands used in the OSN monorepo
 tags: [convention, reference]
+related:
+  - "[[contributing]]"
+  - "[[testing-patterns]]"
+last-reviewed: 2026-04-23
 ---
 
 # CLI Commands Reference
@@ -21,7 +25,7 @@ bun run test                              # Run all tests (turbo, skips packages
 
 # Package-specific (run once)
 bun run --cwd pulse/api test:run          # Pulse API tests
-bun run --cwd osn/core test:run           # OSN Core tests
+bun run --cwd osn/api test:run            # OSN API (auth + graph + orgs) tests
 bun run --cwd osn/client test:run         # OSN Client SDK tests
 bun run --cwd osn/ui test:run             # Shared UI component tests
 bun run --cwd pulse/db test:run           # Pulse DB schema tests

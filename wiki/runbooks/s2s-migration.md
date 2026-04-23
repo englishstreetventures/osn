@@ -1,191 +1,48 @@
 ---
-title: S2S Migration
-description: Runbook for migrating from direct package import to HTTP+ARC for service-to-service calls
-tags: [runbook, s2s, arc, migration]
+title: S2S Migration (historical)
+description: Historical record of the direct-import → HTTP+ARC S2S migration. Migration is complete.
+tags: [runbook, s2s, arc, migration, historical]
 severity: low
-status: planned
+status: completed
+related:
+  - "[[arc-tokens]]"
+  - "[[s2s-patterns]]"
+  - "[[arc-token-debugging]]"
+last-reviewed: 2026-04-23
 ---
 
-# S2S Migration Runbook
+# S2S Migration — Historical Record
 
-## Overview
+> **Status: complete.** `@pulse/api` reaches `@osn/api` exclusively via HTTP + ARC tokens through `pulse/api/src/services/graphBridge.ts`. There is no longer a direct-import path. This page is retained as the post-mortem of the migration; for the live architecture, read [[s2s-patterns]] and [[arc-tokens]].
 
-This runbook covers the migration from direct package import to HTTP + ARC token authentication for service-to-service calls. This is **future work** -- currently Pulse imports `createGraphService()` from `@osn/core` directly with zero network overhead.
+## What changed
 
-All cross-boundary calls go through `pulse/api/src/services/graphBridge.ts` -- see [[s2s-patterns]].
+| Before | After |
+|---|---|
+| `@pulse/api` imported `createGraphService()` from a separate `@osn/core` library | `@osn/core` is gone; `@osn/api` is the only OSN runtime |
+| In-process function calls; no network, no token | HTTP calls to `@osn/api` `/graph/internal/*` with `Authorization: ARC <jwt>` |
+| Rate limits worked only inside one process | Redis-backed per-IP / per-user limiters cross-process |
+| No audit surface for cross-domain reads | Every call has an `iss`, an `aud`, a scope, and a kid logged on the receiver |
 
-## When to Migrate
+## Why it mattered
 
-| Trigger | Action |
-|---------|--------|
-| Multi-process deployment | Migrate graphBridge to HTTP + ARC |
-| Third-party app needs graph data | They use ARC tokens against `/graph/internal/*` |
-| Horizontal scaling needed | Separate OSN Core and Pulse API processes |
+- **Multi-process / horizontal scaling** — a direct import only works when both packages run in the same Bun process.
+- **Third-party callers** — once the boundary is HTTP + ARC, third-party services slot in with the same auth contract.
+- **Observability** — distributed traces now link the call across services because `instrumentedFetch` injects `traceparent`.
 
-## Current State
+## Bridge pattern, retained
 
-**Direct package import (current approach):**
+The `graphBridge.ts` indirection survives the migration intact: every cross-boundary call still routes through that one file. The transport changed; the seam did not. That seam is what made the migration a single-file edit and what now makes adding a new cross-domain function a one-file change.
 
-```
-@pulse/api
-  └── imports createGraphService() from @osn/core
-  └── imports @osn/db for Effect Layer
-  └── Single file: pulse/api/src/services/graphBridge.ts
-```
+## If you need to re-do something like this
 
-All cross-service calls are in-process function calls. No network, no tokens, no latency. This works because both run in the same Bun process.
-
-## Future State
-
-**HTTP + ARC tokens:**
-
-```
-@pulse/api
-  └── HTTP call to @osn/api (port 4000)
-      └── /graph/internal/* endpoints
-      └── Authorization: ARC <token>
-      └── ARC token signed by pulse-api's private key
-      └── Verified by osn-core using pulse-api's public key from service_accounts
-```
-
-## Prerequisites
-
-Before starting the migration:
-
-1. **ARC verification middleware on internal routes**: `/graph/internal/*` endpoints must verify ARC tokens before processing requests. The middleware pattern is documented in [[arc-tokens]].
-
-2. **Redis for rate limiting** (optional but recommended): if internal endpoints are rate-limited, the in-memory rate limiter will not work across processes. See [[rate-limiting]] for known limitations.
-
-3. **Service account registration**: the calling service must be registered in the `service_accounts` table.
-
-4. **Key pair generated and deployed**: private key in the calling service's environment, public key in the database.
-
-5. **Observability wiring**: `instrumentedFetch` from `@shared/observability/fetch` must be used for all outbound HTTP to inject `traceparent` headers and preserve distributed traces.
-
-## Migration Steps
-
-### Step 1: Register the Service
-
-Generate a key pair and register the calling service:
-
-```typescript
-import { generateArcKeyPair, exportKeyToJwk } from "@osn/crypto/arc";
-
-const keyPair = await generateArcKeyPair();
-const privateKeyJwk = await exportKeyToJwk(keyPair.privateKey);
-const publicKeyJwk = await exportKeyToJwk(keyPair.publicKey);
-
-// Store privateKeyJwk in env/secret store (e.g. ARC_PRIVATE_KEY_JWK)
-```
-
-Insert the public key into the database:
-
-```sql
-INSERT INTO service_accounts (service_id, public_key_jwk, allowed_scopes)
-VALUES ('pulse-api', '<public-key-jwk>', 'graph:read');
-```
-
-### Step 2: Add ARC Middleware to Internal Routes
-
-On the receiving service (`@osn/core`), add ARC verification to `/graph/internal/*` routes:
-
-```typescript
-import { verifyArcToken, resolvePublicKey } from "@osn/crypto/arc";
-
-const arcMiddleware = (requiredScope: string) => async (ctx) => {
-  const auth = ctx.headers.authorization;
-  if (!auth?.startsWith("ARC ")) {
-    ctx.set.status = 401;
-    return { error: "missing_arc_token" };
-  }
-
-  const token = auth.slice(4);
-  const publicKey = await Effect.runPromise(
-    resolvePublicKey(/* iss */, [requiredScope]).pipe(Effect.provide(DbLive))
-  );
-  const claims = await verifyArcToken(token, publicKey, "osn-core", requiredScope);
-  // claims.iss, claims.aud, claims.scope are now verified
-};
-```
-
-### Step 3: Update graphBridge.ts
-
-Replace direct imports with HTTP calls. This is the **single-file change** -- the entire point of the bridge pattern:
-
-**Before (direct import):**
-
-```typescript
-import { createGraphService } from "@osn/core";
-
-export const getConnectionIds = (userId: string) =>
-  createGraphService().getConnections(userId);
-```
-
-**After (HTTP + ARC):**
-
-```typescript
-import { getOrCreateArcToken, importKeyFromJwk } from "@osn/crypto/arc";
-import { instrumentedFetch } from "@shared/observability/fetch";
-
-const privateKey = await importKeyFromJwk(process.env.ARC_PRIVATE_KEY_JWK!);
-
-export const getConnectionIds = async (userId: string) => {
-  const token = await getOrCreateArcToken(privateKey, {
-    iss: "pulse-api",
-    aud: "osn-core",
-    scope: "graph:read",
-  });
-
-  const res = await instrumentedFetch(
-    `http://localhost:4000/graph/internal/connections/${userId}`,
-    { headers: { Authorization: `ARC ${token}` } }
-  );
-
-  if (!res.ok) {
-    throw new GraphBridgeError({
-      cause: `HTTP ${res.status}: ${await res.text()}`,
-    });
-  }
-
-  return res.json();
-};
-```
-
-### Step 4: Test
-
-- Verify all graph bridge functions work via HTTP
-- Check that ARC tokens are being cached (low `arc.token.issued` rate)
-- Verify distributed traces link across services (check `traceparent` propagation)
-- Run the full Pulse API test suite against the HTTP-backed bridge
-- Verify rate limiting on internal endpoints works across processes
-
-### Step 5: Clean Up
-
-- Remove direct `@osn/core` and `@osn/db` imports from `pulse/api`
-- Update workspace dependencies in `package.json`
-- Add `@osn/crypto` as a dependency if not already present
-
-## Validation Checklist
-
-After migration, verify:
-
-- [ ] All graph bridge functions return the same data as before
-- [ ] ARC token caching works (no per-request key generation)
-- [ ] Distributed traces show parent-child spans across services
-- [ ] Rate limiting works across processes (requires Redis)
-- [ ] Error mapping produces the same `GraphBridgeError` tags as before
-
-## Rollback
-
-Since `graphBridge.ts` is the single import surface, rollback is straightforward:
-
-1. Revert `graphBridge.ts` to the direct import version
-2. Restore `@osn/core` and `@osn/db` as workspace dependencies
-3. Redeploy
+1. Establish the bridge pattern *before* you need it — one file owning every cross-boundary call.
+2. Wire ARC verification middleware on the receiver first; reject anything anonymous on internal routes.
+3. Switch the bridge from in-process to HTTP. Keep the same exported function shapes so callers don't move.
+4. Confirm `traceparent` propagation by inspecting a single trace end-to-end before declaring done.
 
 ## Related
 
-- [[arc-tokens]] -- ARC token architecture, API, and verification
-- [[s2s-patterns]] -- cross-service communication patterns and the graphBridge design
-- [[arc-token-debugging]] -- troubleshooting ARC token issues
-- [[redis]] -- shared state backend for multi-process rate limiting
+- [[arc-tokens]] — the live ARC token architecture and verification contract
+- [[s2s-patterns]] — the live `graphBridge` design
+- [[arc-token-debugging]] — operational runbook when ARC verification fails

@@ -21,10 +21,10 @@ finding-ids:
   - P-I4
   - P-W16
 packages:
-  - "@osn/core"
+  - "@osn/api"
   - "@pulse/api"
   - "@pulse/app"
-last-reviewed: 2026-04-12
+last-reviewed: 2026-04-23
 ---
 
 # Close Friends
@@ -83,7 +83,7 @@ See [[frontend-patterns]] for the full UI token system.
 
 ## Graph Helpers
 
-The following helpers exist in `@osn/core` for close-friend operations:
+The following helpers exist in `@osn/api` for close-friend operations:
 
 - `addCloseFriend(userId, friendId)` -- create a one-way close-friend edge
 - `removeCloseFriend(userId, friendId)` -- remove the edge
@@ -112,7 +112,7 @@ Pulse accesses close-friend data through the graph bridge (see [[s2s-patterns]])
 getCloseFriendsOf(viewerId, attendeeIds[])  // attendees who marked viewer as CF
 ```
 
-This was originally a raw SQL query in the Pulse codebase; it was migrated to use the `getCloseFriendsOfBatch` service helper from `@osn/core` once that helper was added.
+This was originally a raw SQL query in the Pulse codebase; it was migrated to use the `getCloseFriendsOfBatch` service helper from `@osn/api` once that helper was added.
 
 ## Security Finding History
 
@@ -125,8 +125,8 @@ This was originally a raw SQL query in the Pulse codebase; it was migrated to us
 
 ## Source Files
 
-- [osn/core/src/services/graph.ts](../osn/core/src/services/graph.ts) -- close-friend service functions
-- [osn/db/src/schema.ts](../osn/db/src/schema.ts) -- `close_friends` table
-- [pulse/api/src/services/graphBridge.ts](../pulse/api/src/services/graphBridge.ts) -- bridge to graph service
-- [pulse/api/src/services/rsvps.ts](../pulse/api/src/services/rsvps.ts) -- RSVP visibility filtering
-- [pulse/app/src/lib/ui.ts](../pulse/app/src/lib/ui.ts) -- `CLOSE_FRIEND_RING_CLASS` token
+- [osn/api/src/services/graph.ts](../../osn/api/src/services/graph.ts) -- close-friend service functions
+- [osn/db/src/schema.ts](../../osn/db/src/schema.ts) -- `close_friends` table
+- [pulse/api/src/services/graphBridge.ts](../../pulse/api/src/services/graphBridge.ts) -- bridge to graph service
+- [pulse/api/src/services/rsvps.ts](../../pulse/api/src/services/rsvps.ts) -- RSVP visibility filtering
+- [pulse/app/src/lib/ui.ts](../../pulse/app/src/lib/ui.ts) -- `CLOSE_FRIEND_RING_CLASS` token

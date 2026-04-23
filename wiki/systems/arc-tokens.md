@@ -22,7 +22,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-04-17
+last-reviewed: 2026-04-23
 security-fixes:
   - S-H100
   - S-H101
@@ -45,7 +45,38 @@ perf-fixes:
 
 # ARC Tokens (S2S Auth)
 
-ARC is OSN's service-to-service authentication token -- an ASAP-style self-issued JWT for backend-to-backend calls (e.g. Pulse API querying OSN Core's social graph).
+ARC is OSN's service-to-service authentication token — an ASAP-style self-issued JWT for backend-to-backend calls (e.g. `@pulse/api` querying `@osn/api`'s social graph).
+
+## Token issuance + verification flow
+
+```mermaid
+sequenceDiagram
+  participant Caller as Calling service<br/>(@pulse/api)
+  participant Cache as In-process token cache
+  participant Receiver as Receiving service<br/>(@osn/api)
+  participant DB as service_account_keys
+
+  Note over Caller,Receiver: One-time bootstrap
+  Caller->>Caller: generateArcKeyPair() (ephemeral)
+  Caller->>Receiver: POST /graph/internal/register-service<br/>{ serviceId, keyId, publicKeyJwk, allowedScopes, expiresAt }<br/>Authorization: Bearer INTERNAL_SERVICE_SECRET
+  Receiver->>DB: insert key row (kid, publicKeyJwk, expiresAt)
+  Caller->>Caller: schedule rotation 2 h before expiry
+
+  Note over Caller,Receiver: Per request
+  Caller->>Cache: getOrCreateArcToken({iss, aud, scope, kid})
+  alt cache hit (and >30 s TTL remaining)
+    Cache-->>Caller: cached JWT
+  else miss / near expiry
+    Caller->>Caller: createArcToken (ES256, kid in header)
+    Caller->>Cache: store
+  end
+  Caller->>Receiver: GET /graph/internal/connections<br/>Authorization: ARC <jwt>
+  Receiver->>Receiver: peekClaims → kid, iss
+  Receiver->>DB: resolvePublicKey(kid, iss, [scope])
+  DB-->>Receiver: publicKey (rejects revoked / expired)
+  Receiver->>Receiver: verifyArcToken(token, publicKey, "osn-api", scope)
+  Receiver-->>Caller: 200 { ... }
+```
 
 ## Key Properties
 
@@ -81,25 +112,25 @@ evictExpiredTokens()                                           // → force-swee
 
 | Scenario | Use ARC? | Why |
 |----------|----------|-----|
-| Pulse API -> OSN Core graph | **Yes** | HTTP call to `/graph/internal/*` must prove caller identity |
+| `@pulse/api` -> `@osn/api` graph | **Yes** | HTTP call to `/graph/internal/*` must prove caller identity |
 | Third-party app -> any OSN endpoint | **Yes** | Caller has no shared secret; presents its public key via JWKS |
-| User-facing API call | No | Use user JWT (Bearer token); ARC is machine-to-machine only |
-| Background job -> OSN Core | **Yes** | Job acts as a service, not a user |
+| User-facing API call | No | Use user JWT (Bearer access token); ARC is machine-to-machine only |
+| Background job -> `@osn/api` | **Yes** | Job acts as a service, not a user |
 
 ## Calling Service (Token Issuer) — Typical Pattern
 
 ```typescript
-import { getOrCreateArcToken, generateArcKeyPair, exportKeyToJwk } from "@osn/crypto";
+import { getOrCreateArcToken, generateArcKeyPair, exportKeyToJwk } from "@shared/crypto";
 
 // Boot-time: either load pre-distributed private key or generate ephemeral pair
 // See pulse/api/src/services/graphBridge.ts for the Promise-singleton pattern.
 const pair = await generateArcKeyPair();
-// Register public key with osn/api using INTERNAL_SERVICE_SECRET...
+// Register public key with @osn/api using INTERNAL_SERVICE_SECRET...
 
 // Per-request: get a cached or fresh token
 const token = await getOrCreateArcToken(pair.privateKey, {
   iss: "pulse-api",      // this service's service_id
-  aud: "osn-core",       // target service
+  aud: "osn-api",        // target service
   scope: "graph:read",   // minimal required scope
 });
 
@@ -112,21 +143,20 @@ fetch("http://localhost:4000/graph/internal/connections", {
 ## Receiving Service (Token Verifier) -- Typical Pattern
 
 ```typescript
-import { verifyArcToken } from "@osn/crypto/arc";
-import { resolvePublicKey } from "@osn/crypto/arc";
+import { verifyArcToken, resolvePublicKey } from "@shared/crypto";
 import { Effect } from "effect";
 
-// In an Elysia route guard or middleware:
+// In an Elysia route guard or middleware (canonical: osn/api/src/lib/arc-middleware.ts):
 const arcMiddleware = (requiredScope: string) => async (ctx) => {
   const auth = ctx.headers.authorization;
   if (!auth?.startsWith("ARC ")) return ctx.set.status = 401;
 
   const token = auth.slice(4);
-  // resolvePublicKey looks up the issuer in service_accounts table + validates allowed_scopes
+  // resolvePublicKey looks up the kid + issuer and validates allowed_scopes
   const publicKey = await Effect.runPromise(
-    resolvePublicKey(/* iss from token */, [requiredScope]).pipe(Effect.provide(DbLive))
+    resolvePublicKey(kid, iss, [requiredScope]).pipe(Effect.provide(DbLive))
   );
-  const claims = await verifyArcToken(token, publicKey, "osn-core", requiredScope);
+  const claims = await verifyArcToken(token, publicKey, "osn-api", requiredScope);
   // claims.iss, claims.aud, claims.scope are now verified
 };
 ```
@@ -173,7 +203,7 @@ INTERNAL_SERVICE_SECRET=<shared-random-string>
 
 ## Current S2S Strategy
 
-Pulse API calls `osn/api`'s `/graph/internal/*` endpoints over HTTP, authenticated with ARC tokens. ARC token verification middleware (`requireArc` in `osn/core/src/lib/arc-middleware.ts`) protects all inbound calls. The [[s2s-patterns|graphBridge]] in `pulse/api` is the only file that makes these calls.
+`@pulse/api` calls `@osn/api`'s `/graph/internal/*` endpoints over HTTP, authenticated with ARC tokens. ARC token verification middleware (`requireArc` in `osn/api/src/lib/arc-middleware.ts`) protects all inbound calls. The [[s2s-patterns|graphBridge]] in `pulse/api` is the only file that makes these calls.
 
 ## Security Notes
 
@@ -188,17 +218,17 @@ Pulse API calls `osn/api`'s `/graph/internal/*` endpoints over HTTP, authenticat
 
 ## Metrics
 
-ARC token metrics live in `osn/crypto/src/arc-metrics.ts`:
-- `arc.token.issued` -- counter by issuer/audience
-- `arc.token.verification` -- counter by result (ok, expired, bad_signature, etc.)
+ARC token metrics live in `shared/crypto/src/arc-metrics.ts`:
+- `arc.token.issued` — counter by issuer/audience
+- `arc.token.verification` — counter by result (ok, expired, bad_signature, etc.)
 - All issuer/audience values pass through `safeIssuer()` to prevent cardinality explosion
 
 ## Source Files
 
-- [osn/crypto/src/arc.ts](../osn/crypto/src/arc.ts) -- ARC token implementation (`kid`, `resolvePublicKey`, rotation cache)
-- [osn/crypto/src/arc-metrics.ts](../osn/crypto/src/arc-metrics.ts) -- ARC metrics
-- [osn/core/src/lib/arc-middleware.ts](../osn/core/src/lib/arc-middleware.ts) -- `requireArc` Elysia middleware (reads `kid` from header)
-- [osn/core/src/routes/graph-internal.ts](../osn/core/src/routes/graph-internal.ts) -- Internal graph routes + `/register-service` + `/service-keys/:keyId` (revoke)
-- [osn/db/src/schema/index.ts](../osn/db/src/schema/index.ts) -- `service_accounts` + `service_account_keys` table definitions
-- [pulse/api/src/services/graphBridge.ts](../pulse/api/src/services/graphBridge.ts) -- `startKeyRotation()`, ephemeral key auto-rotation
-- [CLAUDE.md](../CLAUDE.md) -- "ARC Tokens (S2S Auth)" section
+- [shared/crypto/src/arc.ts](../../shared/crypto/src/arc.ts) — ARC token implementation (`kid`, `resolvePublicKey`, rotation cache)
+- [shared/crypto/src/arc-metrics.ts](../../shared/crypto/src/arc-metrics.ts) — ARC metrics
+- [osn/api/src/lib/arc-middleware.ts](../../osn/api/src/lib/arc-middleware.ts) — `requireArc` Elysia middleware (reads `kid` from header)
+- [osn/api/src/routes/graph-internal.ts](../../osn/api/src/routes/graph-internal.ts) — internal graph routes + `/register-service` + `/service-keys/:keyId` (revoke)
+- [osn/db/src/schema/index.ts](../../osn/db/src/schema/index.ts) — `service_accounts` + `service_account_keys` table definitions
+- [pulse/api/src/services/graphBridge.ts](../../pulse/api/src/services/graphBridge.ts) — `startKeyRotation()`, ephemeral key auto-rotation
+- [CLAUDE.md](../../CLAUDE.md) — "ARC Tokens (S2S Auth)" section

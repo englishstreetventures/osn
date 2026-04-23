@@ -2,6 +2,11 @@
 title: Contributing
 description: PR workflow, conventions, and development practices for the OSN monorepo
 tags: [convention, workflow]
+related:
+  - "[[commands]]"
+  - "[[review-findings]]"
+  - "[[testing-patterns]]"
+last-reviewed: 2026-04-23
 ---
 
 # Contributing
@@ -74,7 +79,7 @@ bun run changeset
 | Correct | Wrong |
 |---------|-------|
 | `"@pulse/app"` | `"pulse"` |
-| `"@osn/core"` | `"osn-core"` |
+| `"@osn/api"` | `"osn-api"` |
 | `"@shared/db-utils"` | `"db-utils"` |
 
 The Changeset Check workflow runs `bunx changeset status` to catch typos before merge. A bad package reference will pass the check but fail the Release workflow on main, blocking all subsequent versioning.

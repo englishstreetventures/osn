@@ -2,6 +2,11 @@
 title: Testing Patterns
 description: Test conventions, patterns, and examples for the OSN monorepo
 tags: [convention, testing]
+related:
+  - "[[backend-patterns]]"
+  - "[[schema-layers]]"
+  - "[[commands]]"
+last-reviewed: 2026-04-23
 ---
 
 # Testing Patterns
@@ -16,9 +21,9 @@ pulse/api/
     helpers/db.ts                  # createTestLayer() -- shared test utility
     services/events.test.ts        # Effect service tests
     routes/events.test.ts          # HTTP integration tests
-osn/core/
+osn/api/
   tests/
-    helpers/db.ts                  # createTestLayer() for osn/db (users + passkeys)
+    helpers/db.ts                  # createTestLayer() for osn/db (accounts, profiles, passkeys, sessions)
     services/auth.test.ts          # Effect service tests
     routes/auth.test.ts            # HTTP integration tests
 pulse/db/
@@ -26,9 +31,12 @@ pulse/db/
     schema.test.ts                 # Schema smoke tests
 osn/ui/
   tests/
-    auth/Register.test.tsx         # Shared Register component (Solid + happy-dom)
-    auth/SignIn.test.tsx            # Shared SignIn component
-    auth/MagicLinkHandler.test.tsx  # Magic-link deep-link helper
+    auth/Register.test.tsx          # Shared Register component (Solid + happy-dom)
+    auth/SignIn.test.tsx            # Shared SignIn component (passkey-only)
+    auth/RecoveryLoginForm.test.tsx # Lost-passkey recovery flow
+    auth/StepUpDialog.test.tsx      # Sudo-token ceremony for sensitive actions
+    auth/SessionsView.test.tsx      # Session list / revoke
+    auth/PasskeysView.test.tsx      # Passkey management
 ```
 
 ## Service Test Pattern
@@ -91,7 +99,7 @@ describe("events routes", () => {
 
 - **Route tests: `createXxxRoutes(createTestLayer())` in `beforeEach`.** Full isolation per test. The route factory accepts an optional `dbLayer` param for injection; the default is `DbLive`.
 
-- **OSN Core auth routes use `createAuthRoutes(authConfig, dbLayer?)`.** The `authConfig` parameter is required (no global default). `dbLayer` defaults to `DbLive`.
+- **OSN auth routes use `createAuthRoutes(authConfig, dbLayer?)`.** The `authConfig` parameter is required (no global default). `dbLayer` defaults to `DbLive`.
 
 - **Use `bunx --bun vitest`** (not plain `vitest`) -- required for `bun:sqlite` module access. The `test:run` scripts in `package.json` are already configured correctly.
 
@@ -105,10 +113,12 @@ bun run test
 
 # Package-specific (run once)
 bun run --cwd pulse/api test:run
-bun run --cwd osn/core test:run
+bun run --cwd osn/api test:run
 bun run --cwd osn/client test:run
 bun run --cwd osn/ui test:run
 bun run --cwd pulse/db test:run
+bun run --cwd zap/api test:run
+bun run --cwd zap/db test:run
 
 # Watch mode
 bun run --cwd pulse/api test

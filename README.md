@@ -16,14 +16,17 @@ OSN decouples the social graph from applications. Users own their identity and r
 ## Applications
 
 ### OSN Core
-The identity and social graph layer. Acts as an OAuth/OIDC provider that other apps authenticate against.
+The identity and social graph layer. Acts as the OIDC issuer that other apps authenticate against.
 
 **Key Features:**
-- User identity management
+- Passkey-only primary login (WebAuthn / FIDO2). OTP survives only as a step-up factor; magic-link / PKCE primary surfaces removed
+- Server-side session store with rotation + reuse detection (Copenhagen Book C1/C2/C3)
+- Per-device session list, "sign out everywhere else", per-passkey rename / delete
+- Recovery codes for lost-device escape (Copenhagen Book M2)
+- Step-up "sudo" tokens for sensitive actions (recovery code generation, email change)
 - Social graph (connections, close friends, blocked users)
-- Granular blocking (OSN-wide or per-app)
-- Third-party app authorization
-- Interest profiles (explicit selection + behavioral refinement)
+- Multi-profile per account (one login → multiple public handles)
+- Friends-of-friends recommendations
 
 ### Pulse (Events)
 A unified events platform combining the social ease of Facebook Events, the fun of Partiful/Luma, and the comprehensive tooling of Eventbrite.
@@ -58,7 +61,7 @@ overbearing, modern, secure, transparent.
 - Stickers and GIFs
 - Polls
 - AI model conversations (dedicated view)
-- E2E encryption via Signal Protocol (`@osn/crypto`)
+- E2E encryption via Signal Protocol (`@shared/crypto`, planned)
 - Event group chats accessible from both Pulse and Zap
 - Event overview visible in group chat settings
 - Backup options: encrypted cloud, self-hosted cloud, local-only
@@ -83,9 +86,10 @@ overbearing, modern, secure, transparent.
   directly. AI-assisted queries route citizens to authoritative answers
   ("where's the nearest relief centre?") in real time.
 
-Implementation lives under `zap/` (`@zap/app`, `@zap/api`, `@zap/db`).
-The directory is currently a placeholder — see [TODO.md](TODO.md) for
-the build plan.
+Implementation lives under `zap/`. `@zap/api` and `@zap/db` are
+scaffolded (M0 done; M1 in flight); `@zap/app` (Tauri + SolidJS client)
+has not been started yet. See [`wiki/TODO.md`](wiki/TODO.md) and
+[`wiki/apps/zap.md`](wiki/apps/zap.md) for the milestone roadmap.
 
 ### Social Media Platform (Spec Only - Deferred)
 Multi-format social content with opt-out granularity.
@@ -107,12 +111,11 @@ workspace prefix each:
 
 ```
 osn/              # @osn/* — identity stack
-  app/              # Bun/Elysia auth server (port 4000)
-  core/             # Auth + social graph library (services, routes, hosted HTML)
+  api/              # Bun/Elysia identity server (port 4000) — auth, graph, orgs, recommendations
   client/           # Client SDK (Effect-based + SolidJS bindings)
-  crypto/           # ARC S2S tokens (Signal Protocol to come)
-  db/               # Drizzle schema — users, passkeys, graph, service accounts
-  ui/               # Shared SolidJS auth components (<SignIn>, <Register>)
+  db/               # Drizzle schema — accounts, profiles, passkeys, sessions, graph, service accounts
+  ui/               # Shared SolidJS auth components (<SignIn>, <Register>, <SessionsView>, etc.)
+  social/           # SolidJS web app for identity + social-graph management (port 1422)
   landing/          # Marketing site (Astro + Solid)
 
 pulse/            # @pulse/* — events stack
@@ -120,24 +123,26 @@ pulse/            # @pulse/* — events stack
   api/              # Elysia + Eden events server (port 3001)
   db/               # Drizzle schema — events, RSVPs
 
-zap/              # @zap/* — messaging stack (placeholder, see TODO.md)
-  app/              # planned: Tauri + SolidJS messaging client
-  api/              # planned: Elysia + Eden messaging server
-  db/               # planned: Drizzle schema — chats, messages, group state
+zap/              # @zap/* — messaging stack (M0 scaffolded; client app planned)
+  api/              # Elysia messaging server (port 3002)
+  db/               # Drizzle schema — chats, messages, group state
 
 shared/           # @shared/* — cross-cutting utilities
-  db-utils/         # createDrizzleClient, makeDbLive
+  crypto/            # ARC tokens, recovery-code helpers (Signal Protocol planned)
+  db-utils/          # createDrizzleClient, makeDbLive
+  observability/     # OpenTelemetry helpers, Elysia plugin, instrumentedFetch
+  rate-limit/        # in-memory + interface for per-IP / per-user limiters
+  redis/             # Redis client wrapper, rate-limiter Lua, JTI / rotated-session stores
   typescript-config/ # base / node / solid tsconfigs
 ```
 
 Each Tauri app follows the standard structure:
-- `src/` - SolidJS frontend
-- `src-tauri/` - Rust native layer with iOS/Android targets
+- `src/` — SolidJS frontend
+- `src-tauri/` — Rust native layer with iOS/Android targets
 
 **Prefix rule:** every workspace lives under exactly one of `osn/`,
 `pulse/`, `zap/`, or `shared/`, and its `package.json` `name` field uses
-the matching prefix. There are no cross-domain prefixes — `@osn/api` etc.
-are gone for good.
+the matching prefix.
 
 ### Backend
 - **Single unified API** serving all apps with domain modules
@@ -181,7 +186,7 @@ This allows Pulse users to participate in event chats without requiring a full Z
 | Monorepo | Turborepo |
 | Linting | oxlint |
 | Formatting | oxfmt |
-| Validation | Elysia built-in + Valibot |
+| Validation | Elysia TypeBox at HTTP boundary, Effect Schema in services |
 
 ## Data Models (Conceptual)
 
@@ -238,8 +243,9 @@ Select the packages affected, choose the bump type (patch/minor/major), and writ
 On merge, CI automatically runs `changeset version` to bump package versions and update changelogs, then commits the result directly to `main`.
 
 See also:
-- `TODO.md` - Current progress, task checklists, deferred decisions
-- `CLAUDE.md` - AI assistant reference, code patterns, commands
+- [`wiki/TODO.md`](wiki/TODO.md) — current progress, task checklists, deferred decisions
+- [`CLAUDE.md`](CLAUDE.md) — AI assistant reference, code patterns, commands
+- [`wiki/index.md`](wiki/index.md) — full Map of Content for the knowledge base
 
 ## License
 

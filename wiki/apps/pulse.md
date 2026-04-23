@@ -28,14 +28,13 @@ Pulse is OSN's event management app. Users create, discover, and RSVP to events 
   ├── iCal export
   ├── Communications
   ├── Eden treaty client (@pulse/api/client)
+  ├── graphBridge → @osn/api (HTTP + ARC)
   └── @pulse/db (Drizzle + SQLite)
 ```
 
-### @pulse/api vs @osn/core
+### `@pulse/api` and `@osn/api`
 
-`@pulse/api` **is** the binary -- it runs its own Elysia process on port 3001 and exposes `@pulse/api/client` (an Eden treaty wrapper) for the Pulse frontend. It imports `@pulse/db` and has no direct relationship with OSN identity except through the graph bridge.
-
-This contrasts with `@osn/core`, which is a library that never calls `listen()`.
+`@pulse/api` runs its own Elysia process on port 3001 and exposes `@pulse/api/client` (an Eden treaty wrapper) for the Pulse frontend. It imports `@pulse/db` and reaches OSN identity / graph data only through the bridge in `services/graphBridge.ts` (HTTP + ARC → `@osn/api` on port 4000). See [[s2s-patterns]].
 
 ## Key Features
 
@@ -90,7 +89,7 @@ Event group chats are planned via the Zap messaging backend. Users will not need
 
 ### Graph Bridge
 
-All calls from Pulse to OSN identity/graph data go through a single file: `pulse/api/src/services/graphBridge.ts`. This is the only import surface for `@osn/core` + `@osn/db` inside Pulse.
+All calls from Pulse to OSN identity / graph data go through a single file: `pulse/api/src/services/graphBridge.ts`. This is the only call surface that reaches `@osn/api` from Pulse — every cross-boundary read is HTTP + [[arc-tokens|ARC token]].
 
 Exports:
 
@@ -104,8 +103,8 @@ OsnDbLayer                                     // Effect Layer for routes
 
 Benefits:
 
-- Eventual S2S migration (direct import -> HTTP + ARC) is a single-file change
-- `grep '@osn/core' pulse/api/src` shows every cross-boundary call in one place
+- One file owns auth, URL construction, and retry logic for every cross-boundary call
+- `grep 'OSN_API_URL\|graphBridge' pulse/api/src` shows every cross-boundary call site
 - Bridge maps OSN errors onto `GraphBridgeError` so callers catch one tag
 
 See [[s2s-patterns]] for the full cross-service architecture.

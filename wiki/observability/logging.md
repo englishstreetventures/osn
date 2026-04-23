@@ -75,13 +75,13 @@ Redaction is non-negotiable, but the deny-list is kept minimal. The logger layer
 | `handle` | No | User-chosen identifier, treated as PII |
 | `email` | No | PII -- always redacted |
 
-## Dev-mode OTP/magic-link logging
+## Dev-mode OTP logging
 
-Dev-mode OTP/magic-link logging uses `Effect.logDebug` gated on `OSN_ENV` being unset or `"dev"` (S-L2). The guard excludes both staging and production, providing defence in depth alongside the log-level minimum. The OTP code, email, and magic link URL are interpolated into the message string (not annotations) so the redacting logger doesn't scrub them -- the whole point of the dev log is to expose those values to the developer. In production these branches never run because `config.sendEmail` is wired up.
+Dev-mode step-up OTP logging uses `Effect.logDebug` gated on `OSN_ENV` being unset or `"dev"` (S-L2). The guard excludes both staging and production, providing defence in depth alongside the log-level minimum. The OTP code is interpolated into the message string (not annotations) so the redacting logger doesn't scrub it — the whole point of the dev log is to expose the value to the developer. In production these branches never run because `config.sendEmail` is wired up.
 
 ## Route-level logger wiring
 
-`createAuthRoutes` and `createGraphRoutes` accept an optional `loggerLayer: Layer.Layer<never>` parameter (default `Layer.empty`). The host application (`osn/app/src/index.ts`) passes its `observabilityLayer` from `initObservability()` so that `Effect.logDebug` / `Effect.logError` calls inside service pipelines actually fire through the configured logger + redactor.
+`createAuthRoutes` and `createGraphRoutes` accept an optional `loggerLayer: Layer.Layer<never>` parameter (default `Layer.empty`). The host application (`osn/api/src/index.ts`) passes its `observabilityLayer` from `initObservability()` so that `Effect.logDebug` / `Effect.logError` calls inside service pipelines actually fire through the configured logger + redactor.
 
 Without this wiring, per-request Effect pipelines use Effect's default logger (which drops `Debug` and doesn't redact).
 

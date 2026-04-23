@@ -2,14 +2,41 @@
 title: Session introspection + revocation
 tags: [systems, auth, security]
 related:
-  - identity-model
-  - step-up
-last-reviewed: 2026-04-22
+  - "[[identity-model]]"
+  - "[[step-up]]"
+  - "[[passkey-primary]]"
+last-reviewed: 2026-04-23
 ---
 
 # Session introspection + revocation
 
 Per-device session management surface exposed to end users in Settings. Builds on the server-side session store introduced in Copenhagen Book C1/C2/C3.
+
+## Refresh-token rotation chain (C2)
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant API as @osn/api /token
+  participant DB as sessions table
+  participant Store as RotatedSessionStore<br/>(Redis or in-memory)
+
+  Client->>API: POST /token (refresh cookie)
+  API->>DB: lookup hash(token)
+  alt token unknown / expired
+    API-->>Client: 401 (force re-auth)
+  else token rotated previously (Store hit)
+    API->>DB: DELETE WHERE family_id = ?
+    API->>Store: revokeFamily(familyId)
+    API-->>Client: 401 family_revoked
+  else token current
+    API->>API: mint new session token (same family)
+    API->>DB: insert new row, copy ua_label + ip_hash
+    API->>Store: track(oldHash → familyId)
+    API->>DB: DELETE old row
+    API-->>Client: 200 + new HttpOnly cookie + access token
+  end
+```
 
 Per-account hard cap: `MAX_SESSIONS_PER_ACCOUNT = 50`. `issueTokens` LRU-evicts the oldest rows once the cap is reached so an attacker can't inflate the revocation surface. The public revocation handle (first 16 hex of the SHA-256) is collision-safe inside that bounded population.
 

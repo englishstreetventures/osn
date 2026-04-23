@@ -16,8 +16,9 @@ related:
   - "[[platform-limits]]"
 packages:
   - "@pulse/api"
-  - "@osn/core"
-last-reviewed: 2026-04-17
+  - "@osn/api"
+  - "@shared/crypto"
+last-reviewed: 2026-04-23
 security-fixes:
   - S-H100
   - S-H101
@@ -43,7 +44,7 @@ Three reasons for the indirection:
 
 ## Current Architecture
 
-Pulse API calls `@osn/api`'s `/graph/internal/*` HTTP endpoints, authenticated with [[arc-tokens|ARC tokens]]. No direct import of `@osn/core` or `@osn/db` from Pulse.
+`@pulse/api` calls `@osn/api`'s `/graph/internal/*` HTTP endpoints, authenticated with [[arc-tokens|ARC tokens]]. There is no direct package import of OSN code from Pulse.
 
 ```
 pulse/api --[ARC token HTTP]--> osn/api /graph/internal/*
@@ -100,10 +101,10 @@ See [[arc-tokens]] for the full ARC token system, `kid`-based key lookup, and `s
 2. Wrap in `Effect.tryPromise` catching to `GraphBridgeError`
 3. Export the function
 4. Consume in the Pulse service that needs the data
-5. Never import `@osn/core` or `@osn/db` directly from any other Pulse file
+5. Never import `@osn/api` or `@osn/db` directly from any other Pulse file (the bridge is the only seam)
 
 ## Source Files
 
-- [pulse/api/src/services/graphBridge.ts](../pulse/api/src/services/graphBridge.ts) — the bridge module
-- [osn/core/src/routes/graph-internal.ts](../osn/core/src/routes/graph-internal.ts) — internal graph routes (`/register-service` + graph reads)
-- [CLAUDE.md](../CLAUDE.md) — "Cross-package S2S patterns" section
+- [pulse/api/src/services/graphBridge.ts](../../pulse/api/src/services/graphBridge.ts) — the bridge module
+- [osn/api/src/routes/graph-internal.ts](../../osn/api/src/routes/graph-internal.ts) — internal graph routes (`/register-service` + graph reads)
+- [CLAUDE.md](../../CLAUDE.md) — "Cross-package S2S patterns" section

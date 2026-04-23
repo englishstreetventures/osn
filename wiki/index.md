@@ -2,7 +2,7 @@
 title: OSN Wiki
 aliases: [home, map of content, MOC]
 tags: [index]
-last-reviewed: 2026-04-14
+last-reviewed: 2026-04-23
 ---
 
 # OSN Wiki
@@ -12,6 +12,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 ## Quick Links
 
 - [[TODO]] — progress tracking, backlogs, deferred decisions
+- [`../CLAUDE.md`](../CLAUDE.md) — slim repo-root entry point (lives outside the vault)
 
 ## Architecture
 
@@ -27,6 +28,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[arc-tokens]] — S2S authentication protocol (ES256, scoped JWTs)
 - [[rate-limiting]] — per-IP fixed-window rate limiting on auth endpoints
 - [[identity-model]] — accounts, profiles (users), organisations, multi-account
+- [[passkey-primary]] — passkey-only login contract (the only primary factor)
 - [[recovery-codes]] — single-use account-recovery tokens (Copenhagen Book M2)
 - [[step-up]] — short-lived sudo tokens gating sensitive endpoints (M-PK1)
 - [[sessions]] — session introspection, per-device revocation, "sign out everywhere else"
@@ -34,7 +36,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[close-friends]] — one-way graph edge, RSVP visibility, UI treatment
 - [[event-access]] — loadVisibleEvent, public/private visibility gate
 - [[platform-limits]] — MAX_EVENT_GUESTS and other caps
-- [[redis]] — Redis migration plan (rate limiters + auth state)
+- [[redis]] — Redis-backed rate limiters + cluster-safe auth state stores
 
 ## Observability
 
@@ -46,11 +48,11 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 
 ## Apps
 
-- [[osn-core]] — identity/auth stack (@osn/core + @osn/api)
-- [[social]] — identity & social-graph management UI (@osn/social)
-- [[pulse]] — events app (@pulse/app + @pulse/api + @pulse/db)
-- [[zap]] — messaging app (placeholder, M0-M5 roadmap)
-- [[landing]] — marketing site (@osn/landing)
+- [[osn-core]] — identity / auth stack (`@osn/api` + SDK + UI)
+- [[social]] — identity & social-graph management UI (`@osn/social`)
+- [[pulse]] — events app (`@pulse/app` + `@pulse/api` + `@pulse/db`)
+- [[zap]] — messaging app (`@zap/api` + `@zap/db` scaffolded; client app planned)
+- [[landing]] — marketing site (`@osn/landing`)
 
 ## Conventions
 
@@ -67,9 +69,9 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 
 ## Runbooks
 
-- [[auth-failure]] — OTP/passkey/magic-link/PKCE debugging
-- [[rate-limit-incident]] — false positives, tuning, Redis failover
+- [[auth-failure]] — passkey / recovery / refresh / step-up debugging
+- [[rate-limit-incident]] — false positives, tuning, Redis health
 - [[observability-setup]] — Grafana Cloud provisioning, OTEL wiring
 - [[arc-token-debugging]] — verification failures, key rotation
 - [[event-visibility-bug]] — private event leaks, loadVisibleEvent
-- [[s2s-migration]] — direct import to HTTP+ARC migration
+- [[s2s-migration]] — historical record (HTTP+ARC migration is complete)

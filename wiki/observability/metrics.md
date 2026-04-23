@@ -8,9 +8,9 @@ related:
   - "[[logging]]"
   - "[[tracing]]"
   - "[[feature-checklist]]"
-packages: ["@shared/observability", "@osn/core", "@pulse/api", "@osn/crypto"]
+packages: ["@shared/observability", "@osn/api", "@pulse/api", "@shared/crypto"]
 finding-ids: [S-C1, S-C2, S-C3]
-last-reviewed: 2026-04-12
+last-reviewed: 2026-04-23
 ---
 
 # Metrics
@@ -50,8 +50,8 @@ Every metric is declared **exactly once**, in a `metrics.ts` file co-located wit
 | File | Scope |
 |------|-------|
 | `pulse/api/src/metrics.ts` | Pulse API domain metrics |
-| `osn/core/src/metrics.ts` | OSN Core auth + graph metrics |
-| `osn/crypto/src/arc-metrics.ts` | ARC token metrics |
+| `osn/api/src/metrics.ts` | OSN auth + graph metrics |
+| `shared/crypto/src/arc-metrics.ts` | ARC token metrics |
 | `shared/observability/src/metrics/http.ts` | Shared HTTP RED metrics (used by Elysia plugin) |
 
 Each file exports:
@@ -80,7 +80,7 @@ More than that and you're probably modelling what should be two metrics.
 
 ### Free-text to bounded bucket
 
-When an attribute value comes from user input or a runtime registry whose set can't be known at compile time (e.g. event category, ARC service ID), do NOT type it as `string`. Define a closed allow-list and a `bucketX()` / `safeX()` helper that collapses unknown values to `"other"` or `"unknown"` before emission. See `bucketCategory()` in `pulse/api/src/metrics.ts` and `safeIssuer()` in `osn/crypto/src/arc-metrics.ts` for the canonical pattern. This is the runtime analogue of the compile-time string-literal-union rule.
+When an attribute value comes from user input or a runtime registry whose set can't be known at compile time (e.g. event category, ARC service ID), do NOT type it as `string`. Define a closed allow-list and a `bucketX()` / `safeX()` helper that collapses unknown values to `"other"` or `"unknown"` before emission. See `bucketCategory()` in `pulse/api/src/metrics.ts` and `safeIssuer()` in `shared/crypto/src/arc-metrics.ts` for the canonical pattern. This is the runtime analogue of the compile-time string-literal-union rule.
 
 ### Route attributes default to a fixed sentinel (S-C1)
 
@@ -125,13 +125,13 @@ export const LATENCY_BUCKETS_S = [
 
 ```typescript
 export type Result = "ok" | "error" | "unauthorized" | "rate_limited" | "not_found";
-export type AuthMethod = "passkey" | "otp" | "magic_link" | "refresh";
+export type AuthMethod = "passkey" | "recovery_code" | "refresh";
 export type ArcVerifyResult =
   | "ok" | "expired" | "bad_signature" | "unknown_issuer"
   | "scope_denied" | "audience_mismatch";
 ```
 
-### Domain metrics (`osn/core/src/metrics.ts`)
+### Domain metrics (`osn/api/src/metrics.ts`)
 
 ```typescript
 import { createCounter, createHistogram, LATENCY_BUCKETS_S } from "@shared/observability/metrics";
@@ -173,7 +173,7 @@ export const authLoginDuration = createHistogram<LoginAttrs>({
 });
 ```
 
-### Call site (`osn/core/src/services/auth.ts`)
+### Call site (`osn/api/src/services/auth.ts`)
 
 ```typescript
 import { authLoginAttempts } from "../metrics";

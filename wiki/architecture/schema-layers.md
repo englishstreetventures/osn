@@ -15,9 +15,9 @@ related:
   - "[[testing-patterns]]"
 packages:
   - "@pulse/api"
-  - "@osn/core"
+  - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-04-14
+last-reviewed: 2026-04-23
 ---
 
 # Schema Layers
@@ -127,7 +127,7 @@ export const createEvent = (data: unknown) =>
 
 ## Source Files
 
-- [CLAUDE.md](../CLAUDE.md) -- "Schema Layers" section
-- [pulse/api/src/routes/events.ts](../pulse/api/src/routes/events.ts) -- TypeBox usage
-- [pulse/api/src/services/events.ts](../pulse/api/src/services/events.ts) -- Effect Schema usage
-- [osn/client/src/tokens.ts](../osn/client/src/tokens.ts) -- Effect Schema in client SDK (decodeUnknownSync)
+- [CLAUDE.md](../../CLAUDE.md) — "Schema Layers" section
+- [pulse/api/src/routes/events.ts](../../pulse/api/src/routes/events.ts) — TypeBox usage
+- [pulse/api/src/services/events.ts](../../pulse/api/src/services/events.ts) — Effect Schema usage
+- [osn/client/src/tokens.ts](../../osn/client/src/tokens.ts) — Effect Schema in client SDK (decodeUnknownSync)

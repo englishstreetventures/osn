@@ -3,6 +3,12 @@ title: Observability Setup
 description: Runbook for setting up Grafana Cloud observability and troubleshooting common issues
 tags: [runbook, observability, grafana, setup]
 severity: medium
+related:
+  - "[[observability/overview]]"
+  - "[[observability/metrics]]"
+  - "[[observability/logging]]"
+  - "[[observability/tracing]]"
+last-reviewed: 2026-04-23
 ---
 
 # Observability Setup Runbook
@@ -133,14 +139,14 @@ echo -n "<instance-id>:<api-token>" | base64
 
 ### Debug Logs Appearing in Production
 
-**Symptom:** Verbose debug output (OTP codes, magic-link URLs) visible in prod logs.
+**Symptom:** Verbose debug output (e.g. step-up OTP codes in dev paths) visible in prod logs.
 
 **Cause:** The observability layer's minimum log level is `Info` by default, but if overridden or misconfigured, `Debug` entries can leak.
 
 **Fix:**
 - Verify `NODE_ENV` is set to `"production"` in the deploy environment
 - Check that `initObservability()` is not configured with a debug override
-- `Effect.logDebug` calls are only emitted when the minimum level is `Debug` -- the default `Info` minimum suppresses them
+- `Effect.logDebug` calls are only emitted when the minimum level is `Debug` — the default `Info` minimum suppresses them
 
 ### Traces Not Linked Across Services
 

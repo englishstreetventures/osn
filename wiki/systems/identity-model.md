@@ -8,9 +8,9 @@ related:
   - "[[arc-tokens]]"
 packages:
   - "@osn/db"
-  - "@osn/core"
+  - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-04-22
+last-reviewed: 2026-04-23
 p4-completed: 2026-04-14
 p2-completed: 2026-04-14
 p3-completed: 2026-04-14
@@ -34,23 +34,28 @@ OSN uses a two-tier identity model inspired by Meta's Accounts Center. A single 
 
 ## Architecture
 
+```mermaid
+flowchart TD
+  user(["User<br/>(real human)"])
+  account["accounts<br/>acc_xxxx · email · passkeyUserId<br/><i>login identity — never exposed</i>"]
+  profileA["users (profile)<br/>usr_aaaa · handle: @alice<br/><i>public identity</i>"]
+  profileB["users (profile)<br/>usr_bbbb · handle: @alice_work<br/><i>public identity</i>"]
+  graph["social graph<br/>connections · close-friends · blocks"]
+  pulse["pulse/*<br/>events · RSVPs"]
+  zap["zap/*<br/>chats · messages"]
+
+  user -.owns.-> account
+  account -- "1:N (private link)" --> profileA
+  account -- "1:N (private link)" --> profileB
+  profileA --> graph
+  profileA --> pulse
+  profileA --> zap
+  profileB --> graph
+  profileB --> pulse
+  profileB --> zap
 ```
-┌─────────────────────────────────────┐
-│           accounts                  │  ← Login identity (invisible externally)
-│  acc_xxxx | email | passkeyUserId   │
-└──────────────┬──────────────────────┘
-               │ 1:N (private link)
-               │
-┌──────────────▼──────────────────────┐
-│     users table (= profiles)        │  ← Public-facing identity / handle
-│  usr_xxxx | accountId | handle | …  │
-└──────────────┬──────────────────────┘
-               │ (canonical entity everywhere)
-               │
-    ┌──────────┼──────────┐
-    ▼          ▼          ▼
-connections  pulse/*    zap/*
-```
+
+Key invariant: every cross-domain reference (RSVP, chat membership, connection edge) keys on `profileId`. `accountId` never leaves the auth boundary — see Privacy Rules below.
 
 ## Accounts
 
@@ -178,18 +183,26 @@ interface AccountSession {
 
 ## Registration Flow
 
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant API as @osn/api
+  participant DB as accounts + users + passkeys
+
+  U->>API: POST /register/begin<br/>{ email, handle, displayName }
+  API->>U: 200 (OTP emailed)
+  U->>API: POST /register/complete { otp }
+  API->>DB: tx { insert account, insert profile }
+  API-->>U: 200 + access token + HttpOnly session cookie
+  Note over U,API: UI refuses to advance until passkey enrollment completes
+  U->>API: POST /passkey/register/begin<br/>Authorization: Bearer <access>
+  API-->>U: WebAuthn options
+  U->>API: POST /passkey/register/complete { attestation }
+  API->>DB: insert passkey row
+  API-->>U: 200 — account now has ≥1 WebAuthn credential
 ```
-POST /register/begin    → email + handle + displayName → OTP sent
-POST /register/complete → OTP →
-  1. Creates account (acc_*) with email
-  2. Creates profile (usr_*) with accountId, handle (in a transaction)
-  3. Issues access + refresh tokens scoped to the profile
-POST /passkey/register/{begin,complete}  → authenticated via the access token
-  4. Enrolls the account's first WebAuthn credential (passkey or security key).
-     This step is MANDATORY; the UI refuses to dismiss registration until it
-     completes. `deletePasskey` refuses to drop below 1, giving the account-
-     level invariant "every live account has ≥1 WebAuthn credential".
-```
+
+Passkey enrollment is **mandatory**; `deletePasskey` refuses to drop below 1 credential. This gives the account-level invariant "every live account has ≥1 WebAuthn credential at all times".
 
 Passkey (or security key) is the only primary login factor. OTP and magic-
 link primary-login surfaces were removed; OTP survives as the step-up and

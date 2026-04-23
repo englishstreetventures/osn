@@ -1,8 +1,13 @@
 ---
 title: Event Visibility Bug
-description: Runbook for investigating event visibility issues -- unauthorized access or incorrect access denial
+description: Runbook for investigating event visibility issues — unauthorized access or incorrect access denial
 tags: [runbook, events, security, incident]
 severity: high
+related:
+  - "[[event-access]]"
+  - "[[close-friends]]"
+  - "[[pulse]]"
+last-reviewed: 2026-04-23
 ---
 
 # Event Visibility Bug Runbook

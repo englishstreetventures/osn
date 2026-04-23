@@ -1,9 +1,10 @@
 # Zap
 
-OSN's messaging app. **Not yet built** — this directory is a placeholder
-that pins the name and the planned workspace layout. Implementation is
-tracked under the **Zap (`zap/app` + `zap/api` + `zap/db`)** section in
-[TODO.md](../TODO.md).
+OSN's end-to-end encrypted messaging app. `@zap/api` and `@zap/db` are
+scaffolded (M0 done; M1 — 1:1 DMs over Signal — in flight on port
+3002). The Tauri client `@zap/app` has not been started yet.
+Implementation is tracked in [`../wiki/TODO.md`](../wiki/TODO.md) and
+[`../wiki/apps/zap.md`](../wiki/apps/zap.md).
 
 ## Vibe
 
@@ -15,13 +16,13 @@ overbearing. Modern, secure, transparent.
 It mirrors `pulse/`. Each user-facing OSN app gets its own domain
 directory + workspace prefix:
 
-- `@zap/app` — Tauri + SolidJS frontend
-- `@zap/api` — Elysia + Eden messaging backend (port TBD)
+- `@zap/app` — Tauri + SolidJS frontend (planned)
+- `@zap/api` — Elysia messaging backend (port 3002)
 - `@zap/db` — Drizzle + SQLite schema (chats, messages, group state)
 
-The Signal Protocol implementation lives in `@osn/crypto` (next to ARC
-tokens), not in `zap/` — every OSN app that needs E2E messaging consumes
-it from there.
+The Signal Protocol implementation lives in `@shared/crypto` (next to
+ARC tokens), not in `zap/` — every OSN app that needs E2E messaging
+consumes it from there.
 
 ## Planned features
 
@@ -34,7 +35,7 @@ it from there.
 - Stickers and GIFs
 - Polls
 - AI model conversations (dedicated view)
-- E2E security (Signal Protocol via `@osn/crypto`)
+- E2E security (Signal Protocol via `@shared/crypto`)
 
 ### Differentiator — Organisation chats
 
@@ -78,11 +79,11 @@ Same as Pulse unless a real reason emerges:
 | ORM / DB        | Drizzle + SQLite (→ Supabase later)                 |
 | Functional core | Effect.ts                                           |
 | Real-time       | WebSockets                                          |
-| E2E             | Signal Protocol (`@osn/crypto`)                     |
-| S2S auth        | ARC tokens (`@osn/crypto/arc`)                      |
-| Identity        | OSN Core (`@osn/client`)                            |
-| Shared UI       | `@osn/ui`                                           |
-| Validation      | TypeBox at HTTP boundary, Effect Schema in services |
+| E2E             | Signal Protocol (`@shared/crypto`, planned)          |
+| S2S auth        | ARC tokens (`@shared/crypto`)                        |
+| Identity        | `@osn/api` via `@osn/client`                         |
+| Shared UI       | `@osn/ui`                                            |
+| Validation      | TypeBox at HTTP boundary, Effect Schema in services  |
 
 The DB layer may diverge later (messages have very different access
 patterns to events and users), but we'll cross that bridge when message
@@ -90,6 +91,6 @@ volume forces it.
 
 ## Build plan
 
-See [TODO.md](../TODO.md) — the **Zap (`zap/app` + `zap/api` + `zap/db`)**
-section breaks the work into phases (M0 scaffold → M1 1:1 DMs → M2
-groups → M3 organisation chats → M4 polish + AI view).
+See [`../wiki/TODO.md`](../wiki/TODO.md) — the **Zap** section breaks
+the work into phases (M0 scaffold → M1 1:1 DMs → M2 groups →
+M3 organisation chats → M4 polish + AI view).

@@ -15,7 +15,7 @@ related:
   - "[[pulse]]"
 packages:
   - "@pulse/api"
-last-reviewed: 2026-04-12
+last-reviewed: 2026-04-23
 ---
 
 # Platform Limits
@@ -34,7 +34,7 @@ The 1000 guest cap is the hard ceiling for event attendance across the Pulse pla
 
 - **Bulk invite:** the maximum number of users that can be invited to a single event
 - **Graph bridge:** `getConnectionIds` and `getCloseFriendIds` in [[s2s-patterns|graphBridge.ts]] cap their result sets at this value (raised from 100 after S-M28/P-W13)
-- **Batch lookups:** `getCloseFriendsOfBatch` in `@osn/core` is clamped to `MAX_BATCH_SIZE` (1000) which aligns with this limit (see [[close-friends]])
+- **Batch lookups:** `getCloseFriendsOfBatch` in `@osn/api` is clamped to `MAX_BATCH_SIZE` (1000) which aligns with this limit (see [[close-friends]])
 
 ## Beyond 1000 Guests
 
@@ -56,6 +56,6 @@ Events with more than 1000 guests belong to a future **verified-organisation tie
 
 ## Source Files
 
-- [pulse/api/src/lib/limits.ts](../pulse/api/src/lib/limits.ts) -- limits constants
-- [pulse/api/src/services/graphBridge.ts](../pulse/api/src/services/graphBridge.ts) -- consumes MAX_EVENT_GUESTS
-- [CLAUDE.md](../CLAUDE.md) -- "Platform limits" section
+- [pulse/api/src/lib/limits.ts](../../pulse/api/src/lib/limits.ts) -- limits constants
+- [pulse/api/src/services/graphBridge.ts](../../pulse/api/src/services/graphBridge.ts) -- consumes MAX_EVENT_GUESTS
+- [CLAUDE.md](../../CLAUDE.md) — "Platform limits" section

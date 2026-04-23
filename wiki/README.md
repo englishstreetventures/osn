@@ -1,3 +1,11 @@
+---
+title: OSN Wiki — vault README
+tags: [wiki, meta]
+related:
+  - "[[index]]"
+last-reviewed: 2026-04-23
+---
+
 # OSN Wiki
 
 This directory is an [Obsidian](https://obsidian.md/) vault containing the OSN project's knowledge graph.

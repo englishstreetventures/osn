@@ -1,102 +1,68 @@
 ---
 title: Zap
-description: Zap messaging app -- currently placeholder
-tags: [app, messaging, planned]
-status: planned
+description: Zap messaging app — API + DB scaffolded; client app planned
+tags: [app, messaging]
+status: in-progress
 packages:
-  - "@zap/app"
   - "@zap/api"
   - "@zap/db"
+related:
+  - "[[social-graph]]"
+  - "[[arc-tokens]]"
+  - "[[monorepo-structure]]"
+last-reviewed: 2026-04-23
 ---
 
 # Zap
 
-Zap is OSN's end-to-end encrypted messaging app. It is currently a **placeholder** -- the `zap/` directory exists but contains no implementation yet.
+Zap is OSN's end-to-end encrypted messaging app. The backend (`@zap/api`, `@zap/db`) is scaffolded and runs on **port 3002**. The Tauri client (`@zap/app`) has not been started yet — see `wiki/TODO.md` for milestone status.
 
-## Planned Architecture
+## Status by package
 
-The stack matches Pulse:
+| Package | Purpose | Status |
+|---|---|---|
+| `@zap/api` | Elysia messaging server (port 3002) | M0 scaffolded — routes/services skeleton in place; M1 (1:1 DMs over Signal) in flight |
+| `@zap/db` | Drizzle + SQLite schema (chats, messages, group state) | M0 scaffolded |
+| `@zap/app` | Tauri + SolidJS messaging client | Not started |
 
-- **@zap/app** -- Tauri + SolidJS messaging client
-- **@zap/api** -- Elysia + Eden messaging server
-- **@zap/db** -- Drizzle + SQLite (chats, messages, group state)
+The Signal Protocol implementation lives in `@shared/crypto` (alongside ARC tokens), not in `zap/` — every OSN app that needs E2E messaging consumes it from there.
 
-Additional dependencies:
+### Shared messaging backend
 
-- **Bun** runtime
-- **Effect.ts** for service layer
-- **Signal Protocol** (lives in `@osn/crypto`, not `zap/`)
+`@zap/api` is a **shared service**:
 
-### Shared Messaging Backend
+- **Zap** consumes it directly as its primary interface.
+- **Pulse** uses it indirectly for event group chats.
+- Users do **not** need a Zap install to participate in event group chats.
 
-The messaging backend (`@zap/api`) is a **shared service**:
+## Milestone roadmap
 
-- **Zap** consumes it directly as its primary interface
-- **Pulse** uses it indirectly for event group chats
-- Users do **not** need a Zap install to participate in event group chats
+| Milestone | Scope |
+|---|---|
+| **M0 – Scaffold** | Tauri / API / DB skeletons, OSN auth integration, test infra, Turbo pipeline |
+| **M1 – 1:1 DMs** | Signal Protocol (Double Ratchet, X3DH), message CRUD, WebSocket transport, read/delivery receipts, disappearing messages |
+| **M2 – Group chats** | MLS or Sender Keys for group encryption, roles, invites; Pulse event-chat hookup |
+| **M3 – Organisation chats** | Verified accounts, dashboards, embeddable widget, e-commerce hooks |
+| **M4 – Locality / government channels** | Location-based + institutional channels |
+| **M5 – Polish + AI view + native** | AI message views, native polish, perf |
 
-## Milestone Roadmap
-
-### M0: Scaffold
-
-- Tauri app scaffolding (`bunx create-tauri-app`)
-- API server scaffolding (Elysia + Eden)
-- DB schema setup (Drizzle + SQLite)
-- Auth integration with OSN Core
-- Test infrastructure
-- Turbo pipeline configuration
-
-### M1: 1:1 DMs
-
-- Signal Protocol integration (Double Ratchet, X3DH key agreement)
-- Database schema for conversations and messages
-- API routes for message CRUD
-- WebSocket transport for real-time delivery
-- Read receipts and delivery receipts
-- Disappearing messages (timer-based)
-
-### M2: Group Chats
-
-- MLS or Sender Keys for group encryption
-- Group roles (admin, member)
-- Group invites and membership management
-- Event chat linking (Pulse integration point)
-
-### M3: Organisation Chats
-
-- Verified organisation accounts
-- Organisation dashboards
-- Embeddable chat widget
-- E-commerce integrations
-
-### M4: Locality / Government Channels
-
-- Location-based channels
-- Government/institutional communication channels
-
-### M5: Polish + AI View + Native
-
-- AI-powered message views and summaries
-- Native platform polish
-- Performance optimisation
-
-## Open Questions
-
-These are tracked in the Deferred Decisions section of TODO.md:
+## Open questions (deferred)
 
 | Question | Options | Notes |
 |----------|---------|-------|
-| Signal vs MLS | Signal Protocol (1:1), MLS (group) | Could use Signal for 1:1 and MLS for groups |
-| Storage backend | SQLite (local), server-side storage | E2E means server stores ciphertext only |
+| Signal vs MLS | Signal Protocol (1:1), MLS (group) | Likely Signal for 1:1 + MLS for groups |
+| Storage backend | Local SQLite vs server-side | E2E means the server stores ciphertext only |
 | Media handling | Direct upload, CDN, P2P | Encrypted media blobs need a delivery mechanism |
-| Spam / abuse | Content moderation on ciphertext? | E2E makes server-side moderation impossible; need client-side reporting |
+| Spam / abuse | Content moderation on ciphertext? | E2E forecloses server-side moderation; need client-side reporting |
 
-## WebSocket Spans
+Tracked in the Deferred Decisions section of `wiki/TODO.md`.
 
-WebSocket per-message spans are out of scope for the initial observability rollout. They are flagged to be added when `@zap/api` lands (M1).
+## Observability
+
+WebSocket per-message spans are out of scope for the initial observability rollout — they land alongside M1.
 
 ## Related
 
-- [[social-graph]] -- user relationships drive messaging visibility
-- [[arc-tokens]] -- S2S auth for Zap API to OSN Core calls
-- [[monorepo-structure]] -- workspace layout and the `@zap/*` prefix
+- [[social-graph]] — user relationships drive messaging visibility
+- [[arc-tokens]] — S2S auth for Zap API → OSN API calls
+- [[monorepo-structure]] — workspace layout and the `@zap/*` prefix

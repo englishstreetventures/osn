@@ -5,108 +5,103 @@ tags: [app, auth, identity]
 status: active
 packages:
   - "@osn/api"
-  - "@osn/core"
   - "@osn/client"
-  - "@osn/crypto"
   - "@osn/db"
   - "@osn/ui"
+  - "@shared/crypto"
+related:
+  - "[[identity-model]]"
+  - "[[passkey-primary]]"
+  - "[[social-graph]]"
+  - "[[arc-tokens]]"
+  - "[[rate-limiting]]"
+  - "[[auth-failure]]"
 port: 4000
+last-reviewed: 2026-04-23
 ---
 
 # OSN Core
 
-OSN Core is the identity and authentication stack for the OSN platform. It provides auth flows, social graph management, and the handle system that all other apps build on.
+OSN Core is the identity stack every other OSN app builds on. It owns auth (passkey-primary), the social graph, organisations, recommendations, and the handle namespace. The runtime is a single Bun/Elysia binary — `@osn/api` on port 4000 — that ships ARC-protected internal routes for service-to-service callers and Bearer-protected public routes for end users.
 
-## Architecture
-
-**`@osn/core` is a library -- it never calls `listen()`.** It exports Elysia route factories (`createAuthRoutes`, `createGraphRoutes`) and Effect services. The actual running server is `@osn/api`, which imports `@osn/core` and listens on port 4000.
-
-This distinction matters: `@osn/core` can be imported by other packages (e.g. Pulse imports `createGraphService()` directly for zero-overhead graph queries), while `@osn/api` is the deployable binary.
-
-```
-@osn/api (binary, port 4000)
-  └── @osn/core (library)
-        ├── Auth routes + services
-        ├── Graph routes + services
-        ├── Hosted /authorize HTML (PKCE, third-party OAuth)
-        └── @osn/db (Drizzle + SQLite)
-```
-
-## Auth Flows
-
-OSN Core supports four authentication methods:
-
-- **Passkey** -- WebAuthn-based passwordless auth. Registration and login via `/register/begin`, `/register/complete`, `/login/passkey/begin`, `/login/passkey/complete`. Preferred method.
-- **OTP** -- One-time password sent via email. `/otp/begin` sends the code, `/otp/complete` verifies it. 10-minute TTL.
-- **Magic Link** -- Clickable email link. `/magic/begin` sends the link, `/magic/verify` handles the callback.
-- **PKCE** -- Authorization Code flow with Proof Key for Code Exchange. Used by the hosted `/authorize` HTML page for third-party OAuth clients. First-party apps (like Pulse) use the direct `/login/*` + `/register/*` endpoints instead.
-- **JWT** -- Session tokens issued on successful auth. Includes `handle` claim. Refresh via `/login/refresh`.
-
-### First-party vs Third-party
-
-First-party apps (Pulse, Zap) call `/login/*` and `/register/*` endpoints directly and receive `{ session, user }` responses. No PKCE overhead.
-
-Third-party OAuth clients go through the hosted `/authorize` page and the full PKCE flow.
-
-## Social Graph
-
-The social graph service manages user relationships with three relationship types:
-
-- **Connections** -- Mutual follow. Request/accept model.
-- **Close Friends** -- One-directional flag on an existing connection. The other user is not notified.
-- **Blocks** -- Prevents all interaction. Blocked user cannot see blocker's content.
-
-The graph service has 209 tests covering all edge cases. Routes are exposed via `createGraphRoutes()`.
-
-### Graph Bridge
-
-Other services access graph data through a bridge pattern. Pulse uses `graphBridge.ts` as the single import surface for `@osn/core` + `@osn/db`, keeping cross-boundary calls traceable and making the eventual migration to HTTP+ARC a single-file change. See [[s2s-patterns]] for details.
-
-## Handle System
-
-Every user has a unique handle. The system provides:
-
-- Real-time availability checking via `/handle/:handle`
-- Validation rules enforced at the schema layer
-- Handle claim included in JWT for downstream use
-
-## Shared UI Components
-
-Both `<Register />` and `<SignIn />` live in `@osn/ui/auth/*`. They:
-
-- Receive an injected client prop (from `@osn/client`)
-- Talk to first-party `/login/*` + `/register/*` endpoints
-- Return `{ session, user }` directly (no PKCE)
-- Are consumed by Pulse and will be consumed by Zap
-
-Additional shared components:
-- `<MagicLinkHandler />` -- handles magic link deep-link callbacks
-
-## Related Packages
+## Packages
 
 | Package | Role |
-|---------|------|
-| `@osn/api` | Binary server (port 4000) |
-| `@osn/core` | Library: route factories + Effect services |
-| `@osn/client` | SDK: `createRegistrationClient`, `createLoginClient`, `OsnAuthService`; `@osn/client/solid` for `AuthProvider` + `useAuth` |
-| `@osn/crypto` | ARC tokens (S2S auth); Signal protocol (pending) |
-| `@osn/db` | Drizzle + SQLite (users, passkeys, social graph, service accounts) |
-| `@osn/ui` | Shared SolidJS components for auth flows |
+|---|---|
+| `@osn/api` | Binary server (port 4000). Hosts auth, graph, organisations, recommendations, S2S routes, and JWKS. |
+| `@osn/client` | Browser/SDK: `OsnAuthService`, `useAuth`, plus typed graph / organisation / recommendation clients. |
+| `@osn/db` | Drizzle + SQLite schema (accounts, profiles, passkeys, sessions, social graph, organisations, service accounts). |
+| `@osn/ui` | Shared SolidJS components for auth flows: `<SignIn>`, `<Register>`, `<RecoveryCodesView>`, `<RecoveryLoginForm>`, `<SessionsView>`, `<SecurityEventsBanner>`, `<StepUpDialog>`, `<ChangeEmailForm>`. |
+| `@shared/crypto` | ARC token primitives + recovery-code helpers. |
+
+## Authentication model
+
+Passkey-only primary login. OTP and magic-link primary surfaces were removed; OTP survives only as a step-up / email-change verification factor. See [[passkey-primary]] for the full contract.
+
+| Factor | Where it's used |
+|---|---|
+| WebAuthn passkey or security key | Primary login (`POST /login/passkey/*`), required at register |
+| Recovery code | Lost-device escape hatch (`POST /login/recovery/complete`) |
+| Step-up passkey ceremony | Sudo gate for sensitive endpoints — see [[step-up]] |
+| Step-up OTP (to verified email) | Step-up fallback factor — see [[step-up]] |
+
+### Public route surface
+
+| Route | Purpose |
+|---|---|
+| `POST /register/{begin,complete}` | New account + first profile (issues access + session cookie) |
+| `POST /passkey/register/{begin,complete}` | Bind a passkey (mandatory at signup; step-up gated thereafter) |
+| `POST /login/passkey/{begin,complete}` | Identifier-bound or discoverable WebAuthn login |
+| `POST /login/recovery/complete` | Recovery-code login |
+| `POST /token` | Refresh-grant rotation (refresh token read **only** from HttpOnly cookie) |
+| `POST /logout` | Server-side session destruction |
+| `POST /step-up/{passkey,otp}/{begin,complete}` | Mint a single-use sudo token |
+| `GET/DELETE /sessions[/:id]`, `POST /sessions/revoke-all-other` | Per-device session management |
+| `POST /recovery/generate` | Mint 10 single-use recovery codes (requires step-up) |
+| `POST /account/email/{begin,complete}` | Step-up gated email change |
+| `GET /account/security-events`, `POST .../ack[-all]` | Audit banner + acknowledgement (step-up gated) |
+| `GET/PATCH/DELETE /passkeys[/:id]` | Settings-surface passkey management |
+| `POST /profiles/{list,switch}` | Multi-profile session operations |
+| `GET /handle/:handle` | Real-time handle availability |
+| `GET /.well-known/{jwks.json,openid-configuration}` | JWKS for downstream JWT verification |
+
+### Internal route surface
+
+`/graph/internal/*` and `/organisation-internal/*` are ARC-token gated and reserved for service-to-service callers (e.g. `@pulse/api`). See [[arc-tokens]] and [[s2s-patterns]].
+
+## Social graph
+
+Three relationship types backed by `@osn/db`:
+
+| Relationship | Direction | Notes |
+|---|---|---|
+| **Connection** | Mutual | Request / accept model |
+| **Close friend** | One-directional | One-way flag on an existing connection; not notified |
+| **Block** | One-directional | Hard wall on all interaction |
+
+Cross-domain consumers reach the graph through the bridge pattern in `pulse/api/src/services/graphBridge.ts` — see [[s2s-patterns]].
+
+## Handle system
+
+Handles live in a single namespace shared with organisations. They are immutable, validated at the schema layer, and surfaced via `GET /handle/:handle` for real-time availability.
 
 ## Testing
 
 ```bash
-bun run --cwd osn/core test:run    # Run OSN core tests once
-bun run --cwd osn/client test:run  # Run client SDK tests once
-bun run --cwd osn/ui test:run      # Run shared UI tests once
+bun run --cwd osn/api test:run     # auth + graph + organisation routes and services
+bun run --cwd osn/client test:run  # client SDK
+bun run --cwd osn/ui test:run      # shared auth components
 ```
 
-Auth routes use `createAuthRoutes(authConfig, dbLayer?)` -- config is required, `dbLayer` defaults to `DbLive`.
+Auth routes use `createAuthRoutes(authConfig, dbLayer?)` — `authConfig` is required, `dbLayer` defaults to `DbLive`.
 
 ## Related
 
-- [[social-graph]] -- social graph architecture details
-- [[arc-tokens]] -- service-to-service authentication
-- [[rate-limiting]] -- per-IP rate limiting on auth endpoints
-- [[auth-failure]] -- auth flow debugging runbook
-- [[monorepo-structure]] -- workspace layout and naming conventions
+- [[identity-model]] — accounts, profiles, organisations, token model
+- [[passkey-primary]] — primary login contract
+- [[recovery-codes]] — Copenhagen Book M2 recovery flow
+- [[sessions]] — per-device session management
+- [[step-up]] — sudo token gating
+- [[social-graph]] — connection / close-friend / block semantics
+- [[arc-tokens]] — S2S token model used on internal routes
+- [[auth-failure]] — debugging runbook
