@@ -199,7 +199,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [x] S-M3 — No "resend code" button after registration OTP; SMTP failure = claimed handle with no recovery — **Fixed**: OTP input component now shows "Resend code" button on error with 30s cooldown
 - [ ] S-M4 — Legacy `POST /register` returns raw `String(catch)` — extend `publicError()` mapper
 - [ ] S-M5 — `displayName` in JWT (1h TTL) — stale after profile update
-- [ ] S-M6 — Wildcard CORS on auth server — restrict to known client origins before deployment
+- [x] S-M6 — Wildcard CORS on auth server. **Fixed** — `cors()` consumes `OSN_CORS_ORIGIN`; local dev falls back to the monorepo Tauri dev ports (`http://localhost:1420`, `http://localhost:1422`); non-local deploys fail-closed at boot via `assertCorsOriginsConfigured` — see `[[arc-tokens]]`
 - [ ] S-M11 — Magic-link tokens use `crypto.randomUUID` without additional entropy hardening
 - [ ] S-M13 — Photon geocoding sends keystrokes to third-party with no user notice — add consent UI or proxy
 - [ ] S-M14 — Pulse `REDIRECT_URI` falls back to `window.location.origin` — validate allowed redirect URIs server-side (see S-H3)
@@ -237,7 +237,9 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-L3 — Tauri CSP is `null` — allowlist `photon.komoot.io`, `maps.google.com`, `*.tile.openstreetmap.org`
 - [ ] S-L4 — `createdByAvatar` always null — no avatar claim in JWT
 - [x] S-L7 — `jwtSecret` falls back to `"dev-secret"` — **Superseded**: symmetric `OSN_JWT_SECRET` removed entirely; replaced by ES256 key pair (`OSN_JWT_PRIVATE_KEY`/`OSN_JWT_PUBLIC_KEY`); startup guard uses `OSN_ENV` — see [[arc-tokens]]
-- [x] S-L29 — `/graph/internal/*` mounted under open CORS. **Fixed** — `cors()` now uses `OSN_CORS_ORIGIN` env var (falls back to `authConfig.origin`); wildcard removed — see [[arc-tokens]]
+- [x] S-L29 — `/graph/internal/*` mounted under open CORS. **Fixed** — `cors()` now uses `OSN_CORS_ORIGIN`; local dev fallback = monorepo Tauri dev ports (`:1420`, `:1422`); wildcard removed; derivation extracted to `resolveCorsOrigins` (see `osn/api/src/lib/cors-config.ts`) — see `[[arc-tokens]]`
+- [x] S-L1 (cors) — `resolveCorsOrigins` initially tied the local-dev fallback to `OSN_ENV`, so a non-local deploy missing both `OSN_ENV` and `OSN_CORS_ORIGIN` would silently pick up dev ports instead of failing closed. **Fixed** — fallback now gated on the same `cookieConfig.secure` signal used for cookie hardening; the S-L4 boot-time check covers both predicates.
+- [x] S-L2 (cors) — `OSN_CORS_ORIGIN` entries matched browser `Origin` headers byte-for-byte, so `"HTTPS://App.Example.com/"` (trailing slash / mixed case) would reject legitimate requests and push ops toward widening the allowlist. **Fixed** — entries are lowercased and stripped of a single trailing slash in `resolveCorsOrigins`.
 - [x] S-L32 — `OSN_JWT_SECRET` in `osn/api` fell back to `"dev-secret-change-in-prod"` at startup. **Superseded**: symmetric secret removed; ES256 key pair required in non-local envs (guarded via `OSN_ENV`) — see [[arc-tokens]]
 - [x] S-L8 — OTP codes and magic link URLs logged to stdout. **Fixed** — guard tightened to `OSN_ENV` (excludes staging); dev log level defaults to debug so codes are visible without manual config.
 - [ ] S-L9 — `imageUrl` allows `data:` URIs — add CSP `img-src` header

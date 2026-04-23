@@ -85,4 +85,22 @@ describe("createOriginGuard", () => {
     const result = devGuard(ctx);
     expect(result).toBeUndefined();
   });
+
+  it("admits the monorepo dev ports (@pulse/app:1420, @osn/social:1422) when configured", () => {
+    const devGuard = createOriginGuard({
+      allowedOrigins: new Set(["http://localhost:1420", "http://localhost:1422"]),
+    });
+    for (const origin of ["http://localhost:1420", "http://localhost:1422"]) {
+      const ctx = makeContext("POST", "http://localhost:4000/handle/alice", origin);
+      expect(devGuard(ctx)).toBeUndefined();
+    }
+    const stale = makeContext(
+      "POST",
+      "http://localhost:4000/handle/alice",
+      "http://localhost:5173",
+    );
+    const result = devGuard(stale) as { error: string };
+    expect(stale.set.status).toBe(403);
+    expect(result.error).toBe("forbidden");
+  });
 });
