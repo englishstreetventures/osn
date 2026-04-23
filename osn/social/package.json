@@ -1,6 +1,6 @@
 {
   "name": "@osn/social",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "private": true,
   "description": "OSN Social - Identity and social network management",
   "type": "module",
