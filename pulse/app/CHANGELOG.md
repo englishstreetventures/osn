@@ -1,5 +1,11 @@
 # @osn/pulse
 
+## 0.9.0
+
+### Minor Changes
+
+- 516c579: Add Explore page with editorial nav, category-filtered event cards, and heatmap map pane. Replaces EventList as home route. Extends design tokens with warm oklch accents and Instrument Serif typography.
+
 ## 0.8.20
 
 ### Patch Changes
