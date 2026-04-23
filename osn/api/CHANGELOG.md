@@ -1,5 +1,35 @@
 # @osn/osn
 
+## 3.1.0
+
+### Minor Changes
+
+- 31957b4: In-range minor bumps:
+
+  - `effect` 3.19.19 → 3.21.2 (11 workspaces)
+  - `elysia` 1.2.0 → 1.4.28 + `@elysiajs/eden` 1.2.0 → 1.4.9
+  - `@simplewebauthn/server` 13.1.1 → 13.3.0
+  - `ioredis` 5.6.0 → 5.10.1
+  - `happy-dom` 20.8.4 → 20.9.0
+  - `better-sqlite3` 12.5.0 → 12.9.0 (SQLite 3.51.1 → 3.53.0)
+  - OpenTelemetry stable cluster 2.0.0 → 2.7.0 (`resources`, `sdk-metrics`, `sdk-trace-base`, `sdk-trace-node`) — note: `OTEL_RESOURCE_ATTRIBUTES` parsing tightened in 2.6.0 (the entire env var is dropped on any invalid entry; whitespace must be percent-encoded). Audit deployment configs.
+  - `@opentelemetry/semantic-conventions` 1.34.0 → 1.40.0
+  - Root tooling: `turbo` 2.9.6, `oxlint` 1.61.0, `lefthook` 2.1.6, `@changesets/cli` 2.31.0
+
+### Patch Changes
+
+- 31957b4: Fix oxlint warnings: hoist helpers that don't capture parent scope, replace `Array#sort()` with `Array#toSorted()` in tests, parallelise independent session evictions, route pulse-api boot error through the observability layer, and de-shadow `token` in `OrgDetailPage`.
+- 31957b4: Bump `drizzle-orm` 0.45.0 → 0.45.2 (SQL injection fix in `sql.identifier()` / `sql.as()` escaping) and `astro` 6.1.5 → 6.1.9 (unsafe HTML insertion + prototype-key safeguards in error handling).
+- 31957b4: In-range patch bumps: `drizzle-kit` 0.31.10, `vitest` + `@vitest/coverage-istanbul` 4.1.5, `@elysiajs/cors` 1.4.1, `@opentelemetry/api` 1.9.1, `solid-js` 1.9.12, `@solidjs/router` 0.16.1, `@tailwindcss/vite` + `tailwindcss` 4.2.4, `vite` 8.0.9, `vite-plugin-solid` 2.11.12, `@types/leaflet` 1.9.21. Adds `vite-plugin-solid` to `@osn/client` (the vitest 4.1.5 + vite 8.0.9 combo enforces stricter import-analysis on transitively imported `.tsx` files).
+- Updated dependencies [31957b4]
+- Updated dependencies [31957b4]
+- Updated dependencies [31957b4]
+  - @osn/db@0.14.1
+  - @shared/crypto@0.6.7
+  - @shared/observability@0.8.0
+  - @shared/rate-limit@0.2.1
+  - @shared/redis@0.3.0
+
 ## 3.0.0
 
 ### Major Changes
