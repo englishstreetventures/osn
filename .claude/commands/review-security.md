@@ -8,7 +8,30 @@ Read all changed source files in the affected workspaces and examine them for th
 
 - New Elysia routes missing auth middleware or guards
 - Endpoints that allow a user to read/mutate another user's resources without ownership checks
-- JWT or session token handling issues (missing expiry, insecure storage, token leakage in logs)
+
+## Tokens & Sessions (OWASP A07)
+
+- New server-side tokens (session IDs, verification codes, password-reset tokens, recovery codes, CSRF tokens) generated with fewer than 112 bits of entropy from a CSPRNG — flag `Math.random`, short `randomBytes` calls, and weak encodings
+- Sensitive server-side tokens (session, password-reset, recovery) stored as plaintext rather than SHA-256 hashes at rest — OSN convention is hashed storage
+- Single-use tokens (email verification, password reset, recovery code, OTP step-up) where the delete is not atomic with the validation read
+- New sign-in flows that reuse a pre-auth session instead of rotating to a fresh one (session fixation)
+- Flows that verify/change email, change password, enrol or remove MFA, or escalate a role without revoking the user's other sessions
+- Session or access tokens accepted from URL query strings or form fields (should only come from cookies or `Authorization` headers)
+- New routes that embed a token in the URL path/query without setting `Referrer-Policy: strict-origin`
+
+## Password & MFA Flows
+
+- Passwords stored with fast hashes (MD5, SHA-1, SHA-256, etc.) rather than Argon2id / Scrypt / Bcrypt
+- Hash or token equality checks using `===` / `==` / string equality instead of constant-time comparison
+- Login, register, password-change, or MFA-verify endpoints missing rate limiting (password hashing is a DoS vector as well as a brute-force target)
+- Auth error messages that distinguish "user not found" from "wrong password", or registration/password-reset responses that reveal whether an email is registered, unless this is an intentional product decision
+- TOTP/OTP verify endpoints lacking their own throttle (lockout after N failed attempts), independent of IP-based rate limiting
+
+## WebAuthn
+
+- Challenges that are not single-use and server-bound (accepted more than once, or not tied to server state)
+- Verification code that skips checking the RP ID hash, the user-present flag, or the user-verified flag when user verification is required
+- Registration flows that don't pass `excludeCredentials`, allowing the same authenticator to be registered twice
 
 ## Injection (OWASP A03)
 
@@ -18,9 +41,11 @@ Read all changed source files in the affected workspaces and examine them for th
 
 ## Cryptography (OWASP A02)
 
-- Use of weak algorithms: MD5, SHA1, DES — anywhere in `osn/crypto` or elsewhere
+- Use of weak algorithms: MD5, SHA-1, DES — anywhere in `@shared/crypto` or elsewhere
+- SHA-256 is acceptable for hashing long random server-side tokens, but NOT for passwords — passwords must use Argon2id / Scrypt / Bcrypt
 - Hardcoded secrets, API keys, or credentials committed to source files (not `.env`)
 - `Math.random()` used for security-sensitive purposes (tokens, nonces, IDs)
+- Modulo bias when deriving a bounded integer from random bytes (e.g. `bytes[i] % N` in verification-code or token generators) without rejection sampling or a sufficiently large source
 - Message payloads that should be E2E encrypted per project spec but are stored or transmitted in plaintext
 
 ## Sensitive Data Exposure (OWASP A04)
@@ -28,6 +53,14 @@ Read all changed source files in the affected workspaces and examine them for th
 - API responses that leak internal fields (password hashes, full user records, internal IDs beyond what the caller needs)
 - Missing Valibot `parse()` before DB operations on user-supplied data
 - Personally identifiable information written to logs
+
+## Redirects
+
+- User-controlled redirect parameters (`redirect_to`, `next`, `return_url`, etc.) reflected verbatim rather than validated against an allowlist of internal paths or known origins
+
+## Post-Quantum Exposure
+
+- New code that encrypts data with long-term relevance (E2E message payloads, encrypted backups, archived key material, sealed long-lived credentials) using a classical-only KEM or key agreement (X25519, ECDH, plain RSA-OAEP) without a post-quantum hybrid (e.g. ML-KEM-768 + X25519). Harvest-now-decrypt-later makes durable ciphertext the one place this matters — short-lived primitives (JWTs with minute-scale TTLs, TLS session keys, WebAuthn challenges) are explicitly out of scope
 
 ## Dependency & Supply Chain (OWASP A06)
 

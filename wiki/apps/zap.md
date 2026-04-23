@@ -40,8 +40,8 @@ The Signal Protocol implementation lives in `@shared/crypto` (alongside ARC toke
 | Milestone | Scope |
 |---|---|
 | **M0 – Scaffold** | Tauri / API / DB skeletons, OSN auth integration, test infra, Turbo pipeline |
-| **M1 – 1:1 DMs** | Signal Protocol (Double Ratchet, X3DH), message CRUD, WebSocket transport, read/delivery receipts, disappearing messages |
-| **M2 – Group chats** | MLS or Sender Keys for group encryption, roles, invites; Pulse event-chat hookup |
+| **M1 – 1:1 DMs** | Signal Protocol (Double Ratchet, **PQXDH** — X25519 + ML-KEM-768 hybrid; classical-only X3DH is HNDL-exposed), message CRUD, WebSocket transport, read/delivery receipts, disappearing messages |
+| **M2 – Group chats** | MLS or Sender Keys for group encryption (hybrid PQ KEM required either way), roles, invites; Pulse event-chat hookup |
 | **M3 – Organisation chats** | Verified accounts, dashboards, embeddable widget, e-commerce hooks |
 | **M4 – Locality / government channels** | Location-based + institutional channels |
 | **M5 – Polish + AI view + native** | AI message views, native polish, perf |
@@ -50,7 +50,7 @@ The Signal Protocol implementation lives in `@shared/crypto` (alongside ARC toke
 
 | Question | Options | Notes |
 |----------|---------|-------|
-| Signal vs MLS | Signal Protocol (1:1), MLS (group) | Likely Signal for 1:1 + MLS for groups |
+| Signal vs MLS | Signal Protocol (1:1), MLS (group) | Likely Signal for 1:1 + MLS for groups. Hybrid PQ KEM (ML-KEM-768 + X25519) required either way — durable message ciphertext is HNDL-exposed |
 | Storage backend | Local SQLite vs server-side | E2E means the server stores ciphertext only |
 | Media handling | Direct upload, CDN, P2P | Encrypted media blobs need a delivery mechanism |
 | Spam / abuse | Content moderation on ciphertext? | E2E forecloses server-side moderation; need client-side reporting |

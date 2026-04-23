@@ -72,7 +72,7 @@ OSN's messaging app. Stack matches Pulse (Bun, Tauri+Solid, Elysia+Eden, Drizzle
 
 ### M1 — 1:1 DMs (E2E)
 
-- [ ] Signal Protocol primitives in `@osn/crypto/signal` (X3DH handshake, double ratchet)
+- [ ] Signal Protocol primitives in `@shared/crypto/signal` — **PQXDH** handshake (post-quantum hybrid: X25519 + ML-KEM-768) and double ratchet. Classical-only X3DH is HNDL-exposed and must not ship for durable message ciphertext
 - [ ] WebSocket transport for live message delivery (`@zap/api`)
 - [ ] Push receipt + read receipt model (defer push notifications to M4)
 - [ ] `@zap/app` Socials view: chat list + message thread UI
@@ -387,7 +387,7 @@ Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenha
 | Decision | Context | Revisit When |
 |----------|---------|--------------|
 | Social media platform name | Need a catchy name | Before starting Phase 3 |
-| Signal vs MLS for Zap group chats — see [[zap]] | Sender-keys is simpler; MLS scales past ~50 members | Before Zap M2 |
+| Signal vs MLS for Zap group chats — see [[zap]] | Sender-keys is simpler; MLS scales past ~50 members. **Hard constraint either way:** hybrid PQ KEM (classical + ML-KEM-768) — messages are durable and HNDL-exposed | Before Zap M2 |
 | Zap media storage (images / voice / video) | Needs E2E-friendly blob storage; SQLite-only won't cut it | When Zap M2 lands |
 | Effect.ts adoption | Trial underway in `pulse/api` | After more service coverage |
 | Supabase migration | Currently SQLite | When scaling needed |
