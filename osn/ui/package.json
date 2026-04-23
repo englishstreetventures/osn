@@ -12,7 +12,6 @@
     "./auth/SignIn": "./src/auth/SignIn.tsx",
     "./auth/StepUpDialog": "./src/auth/StepUpDialog.tsx",
     "./auth/CreateProfileForm": "./src/auth/CreateProfileForm.tsx",
-    "./auth/MagicLinkHandler": "./src/auth/MagicLinkHandler.tsx",
     "./auth/ProfileOnboarding": "./src/auth/ProfileOnboarding.tsx",
     "./auth/ProfileSwitcher": "./src/auth/ProfileSwitcher.tsx",
     "./lib/utils": "./src/lib/utils.ts",

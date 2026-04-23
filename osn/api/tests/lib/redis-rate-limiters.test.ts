@@ -15,9 +15,6 @@ describe("createRedisAuthRateLimiters", () => {
       "registerBegin",
       "registerComplete",
       "handleCheck",
-      "otpBegin",
-      "otpComplete",
-      "magicBegin",
       "passkeyLoginBegin",
       "passkeyLoginComplete",
       "passkeyRegisterBegin",
@@ -84,8 +81,8 @@ describe("createRedisAuthRateLimiters", () => {
     }
     expect(await limiters.registerBegin.check("ip1")).toBe(false);
 
-    // otpBegin should still have its own quota
-    expect(await limiters.otpBegin.check("ip1")).toBe(true);
+    // A different slot should still have its own quota
+    expect(await limiters.passkeyLoginBegin.check("ip1")).toBe(true);
   });
 
   it("check() returns a Promise (async-compatible)", () => {

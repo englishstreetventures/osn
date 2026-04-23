@@ -19,7 +19,7 @@ import { A, useLocation } from "@solidjs/router";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
-import { registrationClient, loginClient } from "../lib/authClients";
+import { registrationClient, loginClient, recoveryClient } from "../lib/authClients";
 import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
 
 interface NavItem {
@@ -258,6 +258,7 @@ export function Sidebar() {
         <DialogContent class="max-w-sm p-0">
           <SignIn
             client={loginClient}
+            recoveryClient={recoveryClient}
             onCancel={() => setShowSignIn(false)}
             onSuccess={() => setShowSignIn(false)}
           />

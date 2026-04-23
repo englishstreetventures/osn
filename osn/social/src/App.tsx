@@ -1,12 +1,10 @@
 import { AuthProvider } from "@osn/client/solid";
-import { MagicLinkHandler } from "@osn/ui/auth/MagicLinkHandler";
 import { Route, Router } from "@solidjs/router";
 import { lazy } from "solid-js";
 import { Toaster } from "solid-toast";
 
 import { Sidebar } from "./components/Sidebar";
 import { OSN_ISSUER_URL } from "./lib/auth";
-import { loginClient } from "./lib/authClients";
 
 import "./App.css";
 
@@ -30,10 +28,7 @@ function Layout(props: { children?: import("solid-js").JSX.Element }) {
   return (
     <div class="flex h-screen overflow-hidden">
       <Sidebar />
-      <div class="flex flex-1 flex-col overflow-y-auto">
-        <MagicLinkHandler client={loginClient} />
-        {props.children}
-      </div>
+      <div class="flex flex-1 flex-col overflow-y-auto">{props.children}</div>
       <Toaster position="bottom-right" />
     </div>
   );

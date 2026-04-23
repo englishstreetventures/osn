@@ -21,8 +21,8 @@ export type Result =
   | "validation_error"
   | "conflict";
 
-/** Auth methods supported by OSN Core. */
-export type AuthMethod = "passkey" | "otp" | "magic_link" | "recovery_code" | "refresh";
+/** Auth methods supported by OSN Core. Passkey (incl. security keys) is the only primary login factor; recovery_code is the "lost device" escape hatch; refresh tracks token refresh cycles. */
+export type AuthMethod = "passkey" | "recovery_code" | "refresh";
 
 /** Registration funnel steps. */
 export type RegisterStep = "begin" | "otp_verify" | "passkey_enroll" | "complete";
@@ -124,6 +124,7 @@ export type RecoveryCodeConsumeResult = "success" | "invalid" | "used";
 export type SecurityEventKind =
   | "recovery_code_generate"
   | "recovery_code_consume"
+  | "passkey_register"
   | "passkey_delete";
 
 /**
@@ -144,9 +145,6 @@ export type AuthRateLimitedEndpoint =
   | "register_begin"
   | "register_complete"
   | "handle_check"
-  | "otp_begin"
-  | "otp_complete"
-  | "magic_begin"
   | "passkey_login_begin"
   | "passkey_login_complete"
   | "passkey_register_begin"

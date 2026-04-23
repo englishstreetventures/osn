@@ -1,5 +1,6 @@
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
+import { SignJWT } from "jose";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
 import { createAuthRoutes, createDefaultAuthRateLimiters } from "../../src/routes/auth";
@@ -82,8 +83,9 @@ describe("auth routes", () => {
       const checkRes = await verifiedApp.handle(new Request("http://localhost/handle/verifyme"));
       expect(((await checkRes.json()) as { available: boolean }).available).toBe(true);
 
-      // Complete: with the right code, user is created and a Session +
-      // enrollment_token are returned directly (no /token round-trip).
+      // Complete: with the right code, user is created and a Session is
+      // returned directly. The UI drives /passkey/register/* with the same
+      // access token to complete the mandatory first-passkey enrollment.
       const completeRes = await verifiedApp.handle(
         new Request("http://localhost/register/complete", {
           method: "POST",
@@ -98,11 +100,10 @@ describe("auth routes", () => {
         email: string;
         session: {
           access_token: string;
-          refresh_token: string;
+          refresh_token?: string;
           token_type: string;
           expires_in: number;
         };
-        enrollment_token: string;
       };
       expect(json.profileId).toMatch(/^usr_/);
       expect(json.handle).toBe("verifyme");
@@ -112,10 +113,9 @@ describe("auth routes", () => {
       expect(json.session.refresh_token).toBeUndefined();
       expect(json.session.token_type).toBe("Bearer");
       expect(json.session.expires_in).toBeGreaterThan(0);
-      // Verify Set-Cookie header is present
       expect(completeRes.headers.get("set-cookie")).toContain("osn_session=");
       expect(completeRes.headers.get("set-cookie")).toContain("HttpOnly");
-      expect(json.enrollment_token.length).toBeGreaterThan(0);
+      expect("enrollment_token" in json).toBe(false);
 
       // Handle now taken.
       const checkRes2 = await verifiedApp.handle(new Request("http://localhost/handle/verifyme"));
@@ -434,227 +434,35 @@ describe("auth routes", () => {
   // -------------------------------------------------------------------------
   // Direct-session login (/login/*)
   // -------------------------------------------------------------------------
-  describe("POST /login/otp/begin", () => {
-    it("returns sent:true for a known user", async () => {
-      await app.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "nia@example.com", handle: "nia" }),
-        }),
-      );
-      const res = await app.handle(
-        new Request("http://localhost/login/otp/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "nia@example.com" }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ sent: true });
-    });
-
-    it("still returns sent:true for an unknown user (enumeration-safe)", async () => {
-      const res = await app.handle(
-        new Request("http://localhost/login/otp/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "ghost@example.com" }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ sent: true });
-    });
-  });
-
-  describe("POST /login/otp/complete", () => {
-    it("returns a session + public user on a valid code", async () => {
-      let capturedCode: string | undefined;
-      const authHelper = createAuthService({
-        ...config,
-        sendEmail: async (_to, _subject, body) => {
-          const m = body.match(/\b(\d{6})\b/);
-          if (m) capturedCode = m[1];
-        },
+  describe("OTP / magic-link primary-login surface (removed)", () => {
+    for (const path of [
+      "/login/otp/begin",
+      "/login/otp/complete",
+      "/login/magic/begin",
+      "/login/magic/verify",
+    ]) {
+      it(`${path} returns 404 — WebAuthn is the only primary login factor`, async () => {
+        const res = await app.handle(
+          new Request(`http://localhost${path}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ identifier: "anyone@example.com", code: "000000" }),
+          }),
+        );
+        expect(res.status).toBe(404);
       });
-      await Effect.runPromise(
-        authHelper
-          .registerProfile("otp-direct@example.com", "otpdirect")
-          .pipe(Effect.provide(layer)),
-      );
-      await Effect.runPromise(
-        authHelper.beginOtp("otp-direct@example.com").pipe(Effect.provide(layer)),
-      );
-
-      const res = await app.handle(
-        new Request("http://localhost/login/otp/complete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "otp-direct@example.com", code: capturedCode }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      const json = (await res.json()) as {
-        session: { access_token: string; expires_in: number };
-        profile: { id: string; handle: string; email: string };
-      };
-      expect(json.session.access_token).toBeTruthy();
-      // C3: refresh_token in cookie, not body
-      expect(res.headers.get("set-cookie")).toContain("osn_session=");
-      expect(json.profile.handle).toBe("otpdirect");
-      expect(json.profile.email).toBe("otp-direct@example.com");
-    });
-
-    it("returns 400 for a wrong code", async () => {
-      await app.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "oscar@example.com", handle: "oscar" }),
-        }),
-      );
-      await app.handle(
-        new Request("http://localhost/login/otp/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "oscar@example.com" }),
-        }),
-      );
-      const res = await app.handle(
-        new Request("http://localhost/login/otp/complete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "oscar@example.com", code: "000000" }),
-        }),
-      );
-      expect(res.status).toBe(400);
-    });
-  });
-
-  describe("POST /login/magic/begin", () => {
-    it("returns sent:true for a known user", async () => {
-      await app.handle(
-        new Request("http://localhost/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "pip@example.com", handle: "pip" }),
-        }),
-      );
-      const res = await app.handle(
-        new Request("http://localhost/login/magic/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "pip@example.com" }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ sent: true });
-    });
-
-    it("still returns sent:true for an unknown user (enumeration-safe)", async () => {
-      const res = await app.handle(
-        new Request("http://localhost/login/magic/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "ghost2@example.com" }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ sent: true });
-    });
-  });
-
-  describe("POST /login/magic/verify", () => {
-    it("returns a session + public user for a valid magic token", async () => {
-      let capturedToken: string | undefined;
-      const authHelper = createAuthService({
-        ...config,
-        sendEmail: async (_to, _subject, body) => {
-          const m = body.match(/token=([^\s]+)/);
-          if (m) capturedToken = m[1];
-        },
-      });
-      await Effect.runPromise(
-        authHelper
-          .registerProfile("magic-direct@example.com", "magicdirect")
-          .pipe(Effect.provide(layer)),
-      );
-      await Effect.runPromise(
-        authHelper.beginMagic("magic-direct@example.com").pipe(Effect.provide(layer)),
-      );
-
-      const res = await app.handle(
-        new Request("http://localhost/login/magic/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: capturedToken }),
-        }),
-      );
-      expect(res.status).toBe(200);
-      const json = (await res.json()) as {
-        session: { access_token: string };
-        profile: { handle: string; email: string };
-      };
-      expect(json.session.access_token).toBeTruthy();
-      expect(json.profile.handle).toBe("magicdirect");
-    });
-
-    it("returns 400 for an unknown token", async () => {
-      const res = await app.handle(
-        new Request("http://localhost/login/magic/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: "bogus" }),
-        }),
-      );
-      expect(res.status).toBe(400);
-    });
-
-    it("S-H1: emailed URL points at the frontend origin, not the API", async () => {
-      // Lockstep check: beginMagic emits a URL whose origin must be
-      // `config.origin` (the frontend RP origin) — putting the access token
-      // on the API domain would render it in the browser window and burn it
-      // to email-scanner pre-fetchers.
-      let capturedUrl: string | undefined;
-      const emailSpy = async (_to: string, _subject: string, body: string) => {
-        const m = body.match(/https?:\/\/\S+/);
-        if (m) capturedUrl = m[0];
-      };
-      const spyApp = createAuthRoutes({ ...config, sendEmail: emailSpy }, layer);
-      const seedSvc = createAuthService(config);
-      await Effect.runPromise(
-        seedSvc.registerProfile("lockstep@example.com", "lockstep").pipe(Effect.provide(layer)),
-      );
-      await spyApp.handle(
-        new Request("http://localhost/login/magic/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier: "lockstep@example.com" }),
-        }),
-      );
-      expect(capturedUrl).toBeTruthy();
-      const parsed = new URL(capturedUrl!);
-      // Frontend origin (config.origin), NOT the API (config.issuerUrl).
-      expect(parsed.origin).toBe(config.origin);
-      expect(parsed.origin).not.toBe(config.issuerUrl);
-      expect(parsed.searchParams.get("token")).toBeTruthy();
-
-      // The token extracted from the emitted URL must verify successfully
-      // when POSTed to the API — that's the path MagicLinkHandler drives.
-      const token = parsed.searchParams.get("token")!;
-      const verifyRes = await spyApp.handle(
-        new Request("http://localhost/login/magic/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token }),
-        }),
-      );
-      expect(verifyRes.status).toBe(200);
-    });
+    }
   });
 
   describe("POST /login/passkey/begin", () => {
-    it("returns 400 for an unknown identifier", async () => {
+    // S-M1: begin is enumeration-safe. Unknown identifier, known-with-
+    // zero-passkeys, and known-with-passkeys all return 200 with the same
+    // envelope shape `{ options: { …, allowCredentials: [...] } }`. An
+    // attacker cannot probe the handle / email namespace through this
+    // endpoint. (A subsequent /login/passkey/complete on the synthetic
+    // branches fails at the challenge-lookup guard, indistinguishable
+    // from a legitimate timeout.)
+    it("returns 200 with synthetic options for an unknown identifier (S-M1)", async () => {
       const res = await app.handle(
         new Request("http://localhost/login/passkey/begin", {
           method: "POST",
@@ -662,10 +470,15 @@ describe("auth routes", () => {
           body: JSON.stringify({ identifier: "nobody@example.com" }),
         }),
       );
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        options: { allowCredentials: { id: string }[]; userVerification: string };
+      };
+      expect(body.options.allowCredentials).toHaveLength(1);
+      expect(body.options.userVerification).toBe("required");
     });
 
-    it("returns 400 when the user has no registered passkey", async () => {
+    it("returns 200 with synthetic options when the account has no passkey (S-M1)", async () => {
       const svc = createAuthService(config);
       await Effect.runPromise(
         svc.registerProfile("pk-begin@example.com", "pkbegin").pipe(Effect.provide(layer)),
@@ -677,8 +490,11 @@ describe("auth routes", () => {
           body: JSON.stringify({ identifier: "pk-begin@example.com" }),
         }),
       );
-      // Service surfaces "No passkey registered" → 400.
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        options: { allowCredentials: { id: string }[] };
+      };
+      expect(body.options.allowCredentials).toHaveLength(1);
     });
   });
 
@@ -800,26 +616,40 @@ describe("auth routes", () => {
   // -------------------------------------------------------------------------
   describe("POST /passkey/register/begin (Authorization gating)", () => {
     /**
-     * Helper: register a user via the legacy path, then mint an enrollment
-     * token directly via the service. Mirrors what completeRegistration does
-     * in the new flow.
+     * Helper: register a user, then mint an access token directly via the
+     * service. The UI uses the access token returned by `/register/complete`
+     * for the same purpose — this helper covers both that path and the
+     * "existing user adding another passkey" path.
      */
-    async function setupProfileAndEnrollmentToken(): Promise<{
+    async function setupProfileAndAccessToken(): Promise<{
       profileId: string;
       accountId: string;
-      enrollmentToken: string;
+      accessToken: string;
     }> {
       const svc = createAuthService(config);
       const profile = await Effect.runPromise(
         svc.registerProfile("paul@example.com", "paul").pipe(Effect.provide(layer)),
       );
-      // Enrollment token sub = accountId (passkeys belong to accounts)
-      const enrollmentToken = await Effect.runPromise(svc.issueEnrollmentToken(profile.accountId));
-      return { profileId: profile.id, accountId: profile.accountId, enrollmentToken };
+      const tokens = await Effect.runPromise(
+        svc
+          .issueTokens(
+            profile.id,
+            profile.accountId,
+            profile.email,
+            profile.handle,
+            profile.displayName,
+          )
+          .pipe(Effect.provide(layer)),
+      );
+      return {
+        profileId: profile.id,
+        accountId: profile.accountId,
+        accessToken: tokens.accessToken,
+      };
     }
 
-    it("S-C1: rejects with 401 when Authorization header is present but invalid", async () => {
-      const { profileId } = await setupProfileAndEnrollmentToken();
+    it("rejects with 401 when Authorization header is present but invalid", async () => {
+      const { profileId } = await setupProfileAndAccessToken();
       const res = await app.handle(
         new Request("http://localhost/passkey/register/begin", {
           method: "POST",
@@ -833,14 +663,14 @@ describe("auth routes", () => {
       expect(res.status).toBe(401);
     });
 
-    it("S-C1: rejects with 401 when enrollment token's sub mismatches body.profileId", async () => {
-      const { enrollmentToken } = await setupProfileAndEnrollmentToken();
+    it("rejects with 401 when access token's sub mismatches body.profileId", async () => {
+      const { accessToken } = await setupProfileAndAccessToken();
       const res = await app.handle(
         new Request("http://localhost/passkey/register/begin", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${enrollmentToken}`,
+            Authorization: `Bearer ${accessToken}`,
           },
           body: JSON.stringify({ profileId: "usr_someoneelse" }),
         }),
@@ -848,54 +678,24 @@ describe("auth routes", () => {
       expect(res.status).toBe(401);
     });
 
-    it("accepts a valid enrollment token whose sub matches body.profileId's account", async () => {
-      const { profileId, enrollmentToken } = await setupProfileAndEnrollmentToken();
+    it("accepts a valid access token whose sub matches body.profileId", async () => {
+      const { profileId, accessToken } = await setupProfileAndAccessToken();
       const res = await app.handle(
         new Request("http://localhost/passkey/register/begin", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${enrollmentToken}`,
+            Authorization: `Bearer ${accessToken}`,
           },
           body: JSON.stringify({ profileId }),
         }),
       );
-      // 200 OK (WebAuthn options blob) — not 401, not 400.
       expect(res.status).toBe(200);
       const json = (await res.json()) as { challenge?: string };
       expect(json.challenge).toBeTruthy();
     });
 
-    it("accepts a normal access token (existing user adding a passkey)", async () => {
-      const svc = createAuthService(config);
-      const profile = await Effect.runPromise(
-        svc.registerProfile("quinn@example.com", "quinn").pipe(Effect.provide(layer)),
-      );
-      const tokens = await Effect.runPromise(
-        svc
-          .issueTokens(
-            profile.id,
-            profile.accountId,
-            profile.email,
-            profile.handle,
-            profile.displayName,
-          )
-          .pipe(Effect.provide(layer)),
-      );
-      const res = await app.handle(
-        new Request("http://localhost/passkey/register/begin", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${tokens.accessToken}`,
-          },
-          body: JSON.stringify({ profileId: profile.id }),
-        }),
-      );
-      expect(res.status).toBe(200);
-    });
-
-    it("rejects requests without Authorization header (S-H5: legacy path removed)", async () => {
+    it("rejects requests without Authorization header", async () => {
       const svc = createAuthService(config);
       const profile = await Effect.runPromise(
         svc.registerProfile("rita@example.com", "rita").pipe(Effect.provide(layer)),
@@ -909,42 +709,100 @@ describe("auth routes", () => {
       );
       expect(res.status).toBe(401);
     });
-  });
 
-  describe("POST /passkey/register/complete (enrollment token consumption)", () => {
-    it("rejects when the enrollment token has already been consumed", async () => {
+    // Regression pin: the enrollmentToken JWT machinery was deleted, but
+    // the test config still signs with a real ES256 key. If a future change
+    // relaxes `verifyAccessToken`'s claim check, a legacy `type:"passkey-
+    // enroll"` token would silently regain access. This test forges one and
+    // asserts the route rejects it — independent of the implementation
+    // accident that currently does the rejecting.
+    it("rejects a legacy passkey-enrollment JWT (type: 'passkey-enroll')", async () => {
       const svc = createAuthService(config);
       const profile = await Effect.runPromise(
-        svc.registerProfile("sam@example.com", "samuser").pipe(Effect.provide(layer)),
+        svc.registerProfile("tess@example.com", "tess").pipe(Effect.provide(layer)),
       );
-      const enrollmentToken = await Effect.runPromise(svc.issueEnrollmentToken(profile.id));
 
-      // First call: consumes the token. The attestation is bogus so the
-      // service will fail downstream — but the *consumption* happens in the
-      // route guard before that, so this still marks the token used.
-      await app.handle(
-        new Request("http://localhost/passkey/register/complete", {
+      const forged = await new SignJWT({
+        sub: profile.accountId,
+        type: "passkey-enroll",
+        jti: crypto.randomUUID(),
+      })
+        .setProtectedHeader({ alg: "ES256", kid: config.jwtKid })
+        .setIssuedAt()
+        .setExpirationTime(Math.floor(Date.now() / 1000) + 300)
+        .sign(config.jwtPrivateKey);
+
+      const res = await app.handle(
+        new Request("http://localhost/passkey/register/begin", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${enrollmentToken}`,
+            Authorization: `Bearer ${forged}`,
           },
-          body: JSON.stringify({ profileId: profile.id, attestation: { id: "x" } }),
+          body: JSON.stringify({ profileId: profile.id }),
         }),
       );
+      expect(res.status).toBe(401);
+    });
 
-      // Second call with the same token must be rejected at the auth layer.
-      const second = await app.handle(
-        new Request("http://localhost/passkey/register/complete", {
+    // S-H1: begin requires a step-up token once the account has ≥1
+    // passkey. A bare access token is insufficient — a stolen token
+    // (XSS) cannot silently enroll a new authenticator.
+    it("S-H1: rejects when account has ≥1 passkey and no step-up token", async () => {
+      const svc = createAuthService(config);
+      const profile = await Effect.runPromise(
+        svc.registerProfile("ulla@example.com", "ulla").pipe(Effect.provide(layer)),
+      );
+      const tokens = await Effect.runPromise(
+        svc
+          .issueTokens(
+            profile.id,
+            profile.accountId,
+            profile.email,
+            profile.handle,
+            profile.displayName,
+          )
+          .pipe(Effect.provide(layer)),
+      );
+      // Seed one passkey to flip the account out of the bootstrap path.
+      const { passkeys: passkeysTable } = await import("@osn/db/schema");
+      const { Db } = await import("@osn/db/service");
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          yield* Effect.tryPromise(() =>
+            db.insert(passkeysTable).values({
+              id: "pk_shonenollafg",
+              accountId: profile.accountId,
+              credentialId: "cred-ulla-seed",
+              publicKey: "AAAA",
+              counter: 0,
+              transports: null,
+              createdAt: new Date(),
+              label: null,
+              lastUsedAt: null,
+              aaguid: null,
+              backupEligible: false,
+              backupState: false,
+              updatedAt: null,
+            }),
+          );
+        }).pipe(Effect.provide(layer)),
+      );
+      const res = await app.handle(
+        new Request("http://localhost/passkey/register/begin", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${enrollmentToken}`,
+            Authorization: `Bearer ${tokens.accessToken}`,
           },
-          body: JSON.stringify({ profileId: profile.id, attestation: { id: "x" } }),
+          body: JSON.stringify({ profileId: profile.id }),
         }),
       );
-      expect(second.status).toBe(401);
+      // The service throws AuthError("Step-up required"); publicError maps
+      // it to a 400 with a masked body. 400 or 403 are both acceptable
+      // shapes for "missing step-up"; we care that it's NOT 200.
+      expect([400, 403]).toContain(res.status);
     });
   });
 
@@ -1028,13 +886,13 @@ describe("auth routes", () => {
       expect(blocked.status).toBe(429);
     });
 
-    it("returns 429 on /login/otp/begin when rate-limited", async () => {
+    it("returns 429 on /login/passkey/begin when rate-limited", async () => {
       const freshApp = createAuthRoutes(config, layer);
-      // otp/begin allows 5 req/min — shared with /login/otp/begin
-      for (let i = 0; i < 5; i++) {
+      // passkey_login_begin allows 10 req/min
+      for (let i = 0; i < 10; i++) {
         // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
         await freshApp.handle(
-          new Request("http://localhost/login/otp/begin", {
+          new Request("http://localhost/login/passkey/begin", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-forwarded-for": "6.6.6.6" },
             body: JSON.stringify({ identifier: `u${i}@example.com` }),
@@ -1042,7 +900,7 @@ describe("auth routes", () => {
         );
       }
       const blocked = await freshApp.handle(
-        new Request("http://localhost/login/otp/begin", {
+        new Request("http://localhost/login/passkey/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-forwarded-for": "6.6.6.6" },
           body: JSON.stringify({ identifier: "extra@example.com" }),
@@ -1051,28 +909,6 @@ describe("auth routes", () => {
       expect(blocked.status).toBe(429);
       const json = (await blocked.json()) as { error: string };
       expect(json.error).toBe("rate_limited");
-    });
-
-    it("returns 429 on /login/magic/begin when rate-limited", async () => {
-      const freshApp = createAuthRoutes(config, layer);
-      for (let i = 0; i < 5; i++) {
-        // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
-        await freshApp.handle(
-          new Request("http://localhost/login/magic/begin", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-forwarded-for": "7.7.7.7" },
-            body: JSON.stringify({ identifier: `u${i}@example.com` }),
-          }),
-        );
-      }
-      const blocked = await freshApp.handle(
-        new Request("http://localhost/login/magic/begin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-forwarded-for": "7.7.7.7" },
-          body: JSON.stringify({ identifier: "extra@example.com" }),
-        }),
-      );
-      expect(blocked.status).toBe(429);
     });
   });
 

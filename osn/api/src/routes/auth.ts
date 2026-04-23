@@ -26,9 +26,6 @@ export type AuthRateLimiters = Readonly<{
   registerBegin: RateLimiterBackend;
   registerComplete: RateLimiterBackend;
   handleCheck: RateLimiterBackend;
-  otpBegin: RateLimiterBackend;
-  otpComplete: RateLimiterBackend;
-  magicBegin: RateLimiterBackend;
   passkeyLoginBegin: RateLimiterBackend;
   passkeyLoginComplete: RateLimiterBackend;
   passkeyRegisterBegin: RateLimiterBackend;
@@ -78,9 +75,6 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     registerBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
     registerComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     handleCheck: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-    otpBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
-    otpComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-    magicBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
     passkeyLoginBegin: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     passkeyLoginComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     passkeyRegisterBegin: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
@@ -246,52 +240,23 @@ export function createAuthRoutes(
   }
 
   /**
-   * Resolves the authenticated principal for /passkey/register/* calls (S-H5).
-   * Authorization header is REQUIRED — the legacy unauth'd path has been removed.
-   * The caller must present either a normal access token or an enrollment token.
-   *
-   * Body sends `profileId` (the client's known identity). The principal resolves
-   * to `accountId` (what passkeys are keyed on) via:
-   * - Enrollment token path: token sub = accountId. We verify the profile belongs
-   *   to that account by looking it up in the DB.
-   * - Access token path: token sub = profileId. We look up accountId from the DB.
+   * Resolves the authenticated principal for /passkey/register/* calls.
+   * The caller must present a Bearer access token whose `sub` matches the
+   * body `profileId`; we resolve `accountId` via a DB lookup. New users
+   * enroll their first passkey using the access token issued by
+   * `/register/complete`; existing users add additional passkeys using a
+   * normal session access token.
    */
   type Principal = { unauthorized: true } | { unauthorized: false; accountId: string };
   async function resolvePasskeyEnrollPrincipal(
     authHeader: string | undefined,
     bodyProfileId: string,
-    options: { consume: boolean } = { consume: false },
   ): Promise<Principal> {
-    if (!authHeader || !/^Bearer\s+/i.test(authHeader)) {
-      return { unauthorized: true };
-    }
-
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-
-    // Try as a normal access token first (existing user adding passkey from settings).
-    const accessResult = await Effect.runPromise(Effect.either(auth.verifyAccessToken(token)));
-    if (accessResult._tag === "Right") {
-      if (accessResult.right.profileId !== bodyProfileId) return { unauthorized: true };
-      // Resolve profileId → accountId via DB
-      const profile = await run(auth.findProfileById(bodyProfileId));
-      if (!profile) return { unauthorized: true };
-      return { unauthorized: false, accountId: profile.accountId };
-    }
-
-    // Otherwise try as an enrollment token (new user from registration flow).
-    const enrollResult = await Effect.runPromise(
-      Effect.either(auth.verifyEnrollmentToken(token, options)),
-    );
-    if (enrollResult._tag === "Right") {
-      // Enrollment token sub = accountId. Verify the profile belongs to this account.
-      const profile = await run(auth.findProfileById(bodyProfileId));
-      if (!profile || profile.accountId !== enrollResult.right.accountId) {
-        return { unauthorized: true };
-      }
-      return { unauthorized: false, accountId: enrollResult.right.accountId };
-    }
-
-    return { unauthorized: true };
+    const claims = await resolveAccessTokenPrincipal(auth, authHeader);
+    if (!claims || claims.profileId !== bodyProfileId) return { unauthorized: true };
+    const profile = await run(auth.findProfileById(bodyProfileId));
+    if (!profile) return { unauthorized: true };
+    return { unauthorized: false, accountId: profile.accountId };
   }
 
   return (
@@ -353,9 +318,10 @@ export function createAuthRoutes(
       // -------------------------------------------------------------------------
       // Email-verified registration: complete (verifies OTP, creates account + profile)
       //
-      // Returns access + refresh tokens directly (no `/token` round-trip) plus
-      // a single-use enrollment_token the client uses to authenticate the
-      // subsequent passkey-enrolment calls.
+      // Returns access + refresh tokens directly. The UI immediately uses the
+      // returned access token to drive `/passkey/register/{begin,complete}`
+      // and attests the user's first passkey. The UI refuses to dismiss
+      // until enrollment succeeds; `deletePasskey` refuses to drop below 1.
       // -------------------------------------------------------------------------
       .post(
         "/register/complete",
@@ -376,7 +342,6 @@ export function createAuthRoutes(
               handle: result.handle,
               email: result.email,
               session: toTokenResponseCookieOnly(result),
-              enrollment_token: result.enrollmentToken,
             };
           } catch (e) {
             const { status, body: errBody } = handleError(e);
@@ -429,13 +394,15 @@ export function createAuthRoutes(
         },
       )
       // -------------------------------------------------------------------------
-      // Passkey: begin registration (S-H5: Authorization header required)
+      // Passkey: begin registration
       //
-      // Client sends `Authorization: Bearer <token>`. Token is either a
-      // normal access token (existing user adding a passkey from a settings
-      // screen) or an enrollment token (new user from the registration flow).
-      // The principal's accountId is resolved from the token + body profileId.
-      // Unauthenticated requests return 401.
+      // Authenticated via `Authorization: Bearer <access_token>`. S-H1:
+      // when the account already has ≥1 passkey, a fresh step-up token
+      // (via `X-Step-Up-Token` header or `step_up_token` body field) is
+      // REQUIRED — a stolen access token alone cannot bind a new
+      // authenticator. First-passkey enrollment (bootstrap) bypasses the
+      // gate because no step-up ceremony is reachable before the account
+      // has any credentials.
       // -------------------------------------------------------------------------
       .post(
         "/passkey/register/begin",
@@ -454,7 +421,11 @@ export function createAuthRoutes(
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const result = await run(auth.beginPasskeyRegistration(principal.accountId));
+            const headerToken = headers["x-step-up-token"];
+            const stepUpToken = body.step_up_token ?? headerToken;
+            const result = await run(
+              auth.beginPasskeyRegistration(principal.accountId, stepUpToken),
+            );
             return result.options;
           } catch (e) {
             const { status, body: errBody } = handleError(e);
@@ -463,11 +434,19 @@ export function createAuthRoutes(
           }
         },
         {
-          body: t.Object({ profileId: t.String() }),
+          body: t.Object({
+            profileId: t.String(),
+            step_up_token: t.Optional(t.String()),
+          }),
         },
       )
       // -------------------------------------------------------------------------
-      // Passkey: complete registration (S-H5: Authorization header required)
+      // Passkey: complete registration
+      //
+      // S-H1: the caller's session token is derived from the HttpOnly
+      // cookie — NOT from optional body input — so H1 invalidation (every
+      // other session on the account gets revoked) cannot be silently
+      // skipped by a malicious caller.
       // -------------------------------------------------------------------------
       .post(
         "/passkey/register/complete",
@@ -485,20 +464,18 @@ export function createAuthRoutes(
             const principal = await resolvePasskeyEnrollPrincipal(
               headers.authorization,
               body.profileId,
-              { consume: true },
             );
             if (principal.unauthorized) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            // H1: Pass raw session_token to the service — it handles hashing
-            // internally (S-H2). On the enrollment path (new user) there is
-            // typically only one session, so session_token is optional.
+            const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
             const result = await run(
               auth.completePasskeyRegistration(
                 principal.accountId,
                 body.attestation,
-                body.session_token,
+                cookieToken,
+                sessionMetaFrom(headers),
               ),
             );
             return result;
@@ -512,19 +489,18 @@ export function createAuthRoutes(
           body: t.Object({
             profileId: t.String(),
             attestation: t.Any(),
-            session_token: t.Optional(t.String()),
           }),
         },
       )
       // =========================================================================
       // First-party direct-session login endpoints
       //
-      // These return a Session + PublicProfile directly.
-      //
-      // Enumeration safety: /login/otp/begin and /login/magic/begin always
-      // return { sent: true } regardless of whether the identifier exists, so
-      // an attacker can't probe the handle/email namespace through them. The
-      // legitimate existence-check channel remains GET /handle/:handle.
+      // Passkey (and security key) is the only primary login factor. The
+      // `/login/recovery/complete` endpoint lower in this file is the
+      // "lost your device" escape hatch — it issues a session directly
+      // from a recovery code + identifier. OTP and magic link remain
+      // only as step-up and email-change factors, never as a primary
+      // login.
       // =========================================================================
       .post(
         "/login/passkey/begin",
@@ -594,103 +570,6 @@ export function createAuthRoutes(
             challengeId: t.Optional(t.String()),
             assertion: t.Any(),
           }),
-        },
-      )
-      .post(
-        "/login/otp/begin",
-        async ({ body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "otp_begin", rl.otpBegin);
-          if (rlErr) {
-            set.status = 429;
-            return rlErr;
-          }
-          // Always opaque: on unknown identifier, the service throws, we
-          // swallow the error, and the client still gets { sent: true }. This
-          // prevents the endpoint from doubling as a user-existence oracle.
-          try {
-            await run(auth.beginOtp(body.identifier));
-          } catch {
-            /* swallowed on purpose */
-          }
-          return { sent: true as const };
-        },
-        {
-          body: t.Object({ identifier: t.String() }),
-        },
-      )
-      .post(
-        "/login/otp/complete",
-        async ({ body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "otp_complete", rl.otpComplete);
-          if (rlErr) {
-            set.status = 429;
-            return rlErr;
-          }
-          try {
-            const result = await run(
-              auth.completeOtpDirect(body.identifier, body.code, sessionMetaFrom(headers)),
-            );
-            set.headers["set-cookie"] = buildSessionCookie(
-              result.session.refreshToken,
-              cookieConfig,
-            );
-            return {
-              session: toTokenResponseCookieOnly(result.session),
-              profile: result.profile,
-            };
-          } catch (e) {
-            set.status = 400;
-            return { error: String(e) };
-          }
-        },
-        {
-          body: t.Object({ identifier: t.String(), code: t.String() }),
-        },
-      )
-      .post(
-        "/login/magic/begin",
-        async ({ body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "magic_begin", rl.magicBegin);
-          if (rlErr) {
-            set.status = 429;
-            return rlErr;
-          }
-          // Same enumeration-safety treatment as /login/otp/begin.
-          try {
-            await run(auth.beginMagic(body.identifier));
-          } catch {
-            /* swallowed on purpose */
-          }
-          return { sent: true as const };
-        },
-        {
-          body: t.Object({ identifier: t.String() }),
-        },
-      )
-      // S-H1: POST-only. Token arrives in the request body via the frontend's
-      // MagicLinkHandler — never in a URL the browser navigates to top-level.
-      // Closes three issues: access-token JSON rendered in browser window,
-      // email-scanner pre-fetch burning the token, and token-in-URL logging.
-      .post(
-        "/login/magic/verify",
-        async ({ body, headers, set }) => {
-          try {
-            const result = await run(auth.verifyMagicDirect(body.token, sessionMetaFrom(headers)));
-            set.headers["set-cookie"] = buildSessionCookie(
-              result.session.refreshToken,
-              cookieConfig,
-            );
-            return {
-              session: toTokenResponseCookieOnly(result.session),
-              profile: result.profile,
-            };
-          } catch (e) {
-            set.status = 400;
-            return { error: String(e) };
-          }
-        },
-        {
-          body: t.Object({ token: t.String() }),
         },
       )
       // -------------------------------------------------------------------------

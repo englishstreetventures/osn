@@ -1,6 +1,5 @@
 export { ChangeEmailForm } from "./ChangeEmailForm";
 export { CreateProfileForm } from "./CreateProfileForm";
-export { MagicLinkHandler } from "./MagicLinkHandler";
 export { PasskeysView } from "./PasskeysView";
 export { ProfileOnboarding } from "./ProfileOnboarding";
 export { ProfileSwitcher } from "./ProfileSwitcher";

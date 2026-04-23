@@ -14,6 +14,7 @@ last-reviewed: 2026-04-22
 p4-completed: 2026-04-14
 p2-completed: 2026-04-14
 p3-completed: 2026-04-14
+m-pk-completed: 2026-04-22
 ---
 
 # Identity Model
@@ -53,7 +54,7 @@ connections  pulse/*    zap/*
 
 ## Accounts
 
-The `accounts` table is the **authentication principal** — the entity that logs in, owns passkeys, and receives OTP/magic-link emails.
+The `accounts` table is the **authentication principal** — the entity that logs in, owns passkeys, and receives step-up / email-change OTPs.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -178,13 +179,22 @@ interface AccountSession {
 ## Registration Flow
 
 ```
-POST /register/begin  → email + handle + displayName → OTP sent
+POST /register/begin    → email + handle + displayName → OTP sent
 POST /register/complete → OTP →
   1. Creates account (acc_*) with email
   2. Creates profile (usr_*) with accountId, handle (in a transaction)
   3. Issues access + refresh tokens scoped to the profile
-  4. Issues enrollment token scoped to the account (for passkey setup)
+POST /passkey/register/{begin,complete}  → authenticated via the access token
+  4. Enrolls the account's first WebAuthn credential (passkey or security key).
+     This step is MANDATORY; the UI refuses to dismiss registration until it
+     completes. `deletePasskey` refuses to drop below 1, giving the account-
+     level invariant "every live account has ≥1 WebAuthn credential".
 ```
+
+Passkey (or security key) is the only primary login factor. OTP and magic-
+link primary-login surfaces were removed; OTP survives as the step-up and
+email-change verification factor. The recovery-code path is the single
+"lost device" escape hatch — see `[[recovery-codes]]`.
 
 ## Cross-Service Impact
 
@@ -199,7 +209,7 @@ POST /register/complete → OTP →
 
 ## Privacy Rules
 
-1. **`accountId` never appears in**: API responses, JWT claims (except refresh/enrollment tokens, which are only seen by the account holder), log entries (enforced via redaction deny-list), metric attributes, span attributes, or any data sent to other services.
+1. **`accountId` never appears in**: API responses, JWT claims (except refresh tokens, which are only seen by the account holder), log entries (enforced via redaction deny-list), metric attributes, span attributes, or any data sent to other services.
 2. **`passkeyUserId` (not `accountId`)** is used as the WebAuthn `user.id` to prevent passkey-based profile correlation.
 3. **Rate limiting is per-profile** for API calls, **per-IP for auth** — per-account rate limits would correlate profiles. Exception: profile-switch rate limiting is per-account (acceptable because the endpoint inherently requires the account-scoped refresh token).
 4. **Block independence** — blocking on one profile does NOT affect other profiles on the same account.

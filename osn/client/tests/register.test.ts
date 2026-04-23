@@ -93,7 +93,7 @@ describe("createRegistrationClient", () => {
   });
 
   describe("completeRegistration", () => {
-    it("POSTs JSON to /register/complete and parses session + enrollment token", async () => {
+    it("POSTs JSON to /register/complete and parses the session", async () => {
       const { calls } = stubFetch(() =>
         jsonResponse(
           {
@@ -102,12 +102,10 @@ describe("createRegistrationClient", () => {
             email: "alice@example.com",
             session: {
               access_token: "acc_999",
-              refresh_token: "ref_999",
               token_type: "Bearer",
               expires_in: 3600,
               scope: "openid profile",
             },
-            enrollment_token: "enroll_xyz",
           },
           { status: 201 },
         ),
@@ -119,15 +117,11 @@ describe("createRegistrationClient", () => {
       expect(result.profileId).toBe("usr_abc");
       expect(result.handle).toBe("alice");
       expect(result.email).toBe("alice@example.com");
-      expect(result.enrollmentToken).toBe("enroll_xyz");
-
-      // The session is parsed via the same parseTokenResponse used for the
-      // OAuth callback flow.
       expect(result.session.accessToken).toBe("acc_999");
-      // C3: Session no longer carries refreshToken — cookie-only.
       expect("refreshToken" in result.session).toBe(false);
       expect(result.session.scopes).toEqual(["openid", "profile"]);
       expect(result.session.expiresAt).toBeGreaterThan(Date.now());
+      expect("enrollmentToken" in result).toBe(false);
 
       expect(calls[0].url).toBe("https://osn.example.com/register/complete");
       expect(JSON.parse(calls[0].init?.body as string)).toEqual({
@@ -144,33 +138,33 @@ describe("createRegistrationClient", () => {
     });
   });
 
-  describe("passkeyRegisterBegin / passkeyRegisterComplete (Authorization-gated)", () => {
-    it("passkeyRegisterBegin sends Authorization: Bearer <enrollmentToken>", async () => {
+  describe("passkeyRegisterBegin / passkeyRegisterComplete (access-token-gated)", () => {
+    it("passkeyRegisterBegin sends Authorization: Bearer <accessToken>", async () => {
       const options = { challenge: "ch_123", rp: { name: "OSN" } };
       const { calls } = stubFetch(() => jsonResponse(options));
       const result = await client.passkeyRegisterBegin({
         profileId: "usr_abc",
-        enrollmentToken: "enroll_xyz",
+        accessToken: "acc_999",
       });
       expect(result).toEqual(options);
       expect(calls[0].url).toBe("https://osn.example.com/passkey/register/begin");
       const headers = new Headers(calls[0].init?.headers);
-      expect(headers.get("Authorization")).toBe("Bearer enroll_xyz");
+      expect(headers.get("Authorization")).toBe("Bearer acc_999");
       expect(JSON.parse(calls[0].init?.body as string)).toEqual({ profileId: "usr_abc" });
     });
 
-    it("passkeyRegisterComplete sends Authorization header and profileId+attestation body", async () => {
+    it("passkeyRegisterComplete sends access token + profileId+attestation", async () => {
       const { calls } = stubFetch(() => jsonResponse({ passkeyId: "pk_xyz" }));
       const attestation = { id: "cred_id", rawId: "raw" };
       const result = await client.passkeyRegisterComplete({
         profileId: "usr_abc",
-        enrollmentToken: "enroll_xyz",
+        accessToken: "acc_999",
         attestation,
       });
       expect(result).toEqual({ passkeyId: "pk_xyz" });
       expect(calls[0].url).toBe("https://osn.example.com/passkey/register/complete");
       const headers = new Headers(calls[0].init?.headers);
-      expect(headers.get("Authorization")).toBe("Bearer enroll_xyz");
+      expect(headers.get("Authorization")).toBe("Bearer acc_999");
       expect(JSON.parse(calls[0].init?.body as string)).toEqual({
         profileId: "usr_abc",
         attestation,
@@ -180,7 +174,7 @@ describe("createRegistrationClient", () => {
     it("propagates 401 from the server as a RegistrationError", async () => {
       stubFetch(() => jsonResponse({ error: "unauthorized" }, { status: 401 }));
       await expect(
-        client.passkeyRegisterBegin({ profileId: "usr_abc", enrollmentToken: "bad" }),
+        client.passkeyRegisterBegin({ profileId: "usr_abc", accessToken: "bad" }),
       ).rejects.toThrow("unauthorized");
     });
   });

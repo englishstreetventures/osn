@@ -54,7 +54,6 @@ export const OSN_METRICS = {
   authTokenRefresh: "osn.auth.token.refresh",
   authHandleCheck: "osn.auth.handle.check",
   authOtpSent: "osn.auth.otp.sent",
-  authMagicLinkSent: "osn.auth.magic_link.sent",
   authRateLimited: "osn.auth.rate_limited",
   authSessionRotations: "osn.auth.session.rotations",
   authSessionReuseDetected: "osn.auth.session.reuse_detected",
@@ -95,8 +94,7 @@ type RegisterAttrs = { step: RegisterStep; result: Result };
 type LoginAttrs = { method: AuthMethod; result: Result };
 type TokenRefreshAttrs = { result: Result };
 type HandleCheckAttrs = { result: "available" | "taken" | "invalid" };
-type OtpSentAttrs = { purpose: "registration" | "login" | "step_up" | "email_change" };
-type MagicLinkSentAttrs = { result: Result };
+type OtpSentAttrs = { purpose: "registration" | "step_up" | "email_change" };
 type AuthRateLimitAttrs = { endpoint: AuthRateLimitedEndpoint };
 type GraphConnectionAttrs = { action: GraphConnectionAction; result: Result };
 type GraphBlockAttrs = { action: GraphBlockAction; result: Result };
@@ -151,12 +149,6 @@ const authHandleCheck = createCounter<HandleCheckAttrs>({
 const authOtpSent = createCounter<OtpSentAttrs>({
   name: OSN_METRICS.authOtpSent,
   description: "OTP codes successfully sent",
-  unit: "{message}",
-});
-
-const authMagicLinkSent = createCounter<MagicLinkSentAttrs>({
-  name: OSN_METRICS.authMagicLinkSent,
-  description: "Magic-link emails",
   unit: "{message}",
 });
 
@@ -391,11 +383,8 @@ export const withGraphCloseFriendOp =
 export const metricAuthHandleCheck = (result: "available" | "taken" | "invalid"): void =>
   authHandleCheck.inc({ result });
 
-export const metricAuthOtpSent = (
-  purpose: "registration" | "login" | "step_up" | "email_change",
-): void => authOtpSent.inc({ purpose });
-
-export const metricAuthMagicLinkSent = (result: Result): void => authMagicLinkSent.inc({ result });
+export const metricAuthOtpSent = (purpose: "registration" | "step_up" | "email_change"): void =>
+  authOtpSent.inc({ purpose });
 
 export const withOrgOp =
   (action: OrgAction) =>

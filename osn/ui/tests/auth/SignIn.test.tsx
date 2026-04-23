@@ -3,10 +3,10 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-li
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 /**
- * SignIn.tsx drives all three first-party sign-in flows (passkey, OTP, magic
- * link) through an injected LoginClient. Same testing strategy as Register:
- * pass a stub client via props, mock the Solid auth context for
- * `adoptSession`, and mock @simplewebauthn/browser for the WebAuthn shim.
+ * SignIn.tsx drives WebAuthn (passkey / security key) primary login through
+ * an injected `LoginClient`, with a "Lost your passkey?" escape hatch that
+ * routes into `RecoveryLoginForm`. When WebAuthn is unsupported it shows an
+ * informational screen instead of a broken form.
  */
 
 const hoisted = vi.hoisted(() => ({
@@ -28,29 +28,32 @@ vi.mock("solid-toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-import type { LoginClient } from "@osn/client";
+import type { LoginClient, RecoveryClient } from "@osn/client";
 
 import { SignIn } from "../../src/auth/SignIn";
 
-interface ClientStub {
+interface LoginStub {
   passkeyBegin: ReturnType<typeof vi.fn>;
   passkeyComplete: ReturnType<typeof vi.fn>;
-  otpBegin: ReturnType<typeof vi.fn>;
-  otpComplete: ReturnType<typeof vi.fn>;
-  magicBegin: ReturnType<typeof vi.fn>;
-  magicVerify: ReturnType<typeof vi.fn>;
 }
 
-const makeStub = (): ClientStub => ({
+interface RecoveryStub {
+  generateRecoveryCodes: ReturnType<typeof vi.fn>;
+  loginWithRecoveryCode: ReturnType<typeof vi.fn>;
+}
+
+const makeLogin = (): LoginStub => ({
   passkeyBegin: vi.fn(),
   passkeyComplete: vi.fn(),
-  otpBegin: vi.fn(),
-  otpComplete: vi.fn(),
-  magicBegin: vi.fn(),
-  magicVerify: vi.fn(),
 });
 
-const asClient = (s: ClientStub): LoginClient => s as unknown as LoginClient;
+const makeRecovery = (): RecoveryStub => ({
+  generateRecoveryCodes: vi.fn(),
+  loginWithRecoveryCode: vi.fn(),
+});
+
+const asLogin = (s: LoginStub): LoginClient => s as unknown as LoginClient;
+const asRecovery = (s: RecoveryStub): RecoveryClient => s as unknown as RecoveryClient;
 
 const sampleSession = {
   accessToken: "acc_x",
@@ -73,10 +76,12 @@ function fillIdentifier(value: string) {
 }
 
 describe("SignIn component", () => {
-  let stub: ClientStub;
+  let login: LoginStub;
+  let recovery: RecoveryStub;
 
   beforeEach(() => {
-    stub = makeStub();
+    login = makeLogin();
+    recovery = makeRecovery();
     hoisted.webauthnSupported = true;
     hoisted.adoptSession.mockReset();
     hoisted.startAuthentication.mockReset();
@@ -86,177 +91,130 @@ describe("SignIn component", () => {
     cleanup();
   });
 
-  describe("passkey mode", () => {
+  describe("WebAuthn login (passkey or security key)", () => {
     it("happy path: begin → WebAuthn → complete → adoptSession", async () => {
-      stub.passkeyBegin.mockResolvedValue({ options: { challenge: "ch" } });
+      login.passkeyBegin.mockResolvedValue({ options: { challenge: "ch" } });
       hoisted.startAuthentication.mockResolvedValue({ id: "cred", rawId: "raw" });
-      stub.passkeyComplete.mockResolvedValue({ session: sampleSession, user: sampleUser });
+      login.passkeyComplete.mockResolvedValue({ session: sampleSession, user: sampleUser });
       hoisted.adoptSession.mockResolvedValue(undefined);
 
-      render(() => <SignIn client={asClient(stub)} />);
+      render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
       fillIdentifier("alice");
-      fireEvent.click(screen.getByRole("button", { name: /Continue with passkey/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
 
       await waitFor(() => {
         expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession);
       });
-      expect(stub.passkeyBegin).toHaveBeenCalledWith("alice");
+      expect(login.passkeyBegin).toHaveBeenCalledWith("alice");
       expect(hoisted.startAuthentication).toHaveBeenCalledWith({
         optionsJSON: { challenge: "ch" },
       });
-      expect(stub.passkeyComplete).toHaveBeenCalledWith({
+      expect(login.passkeyComplete).toHaveBeenCalledWith({
         identifier: "alice",
         assertion: { id: "cred", rawId: "raw" },
       });
     });
 
     it("surfaces errors from passkeyComplete and doesn't adopt a session", async () => {
-      stub.passkeyBegin.mockResolvedValue({ options: {} });
+      login.passkeyBegin.mockResolvedValue({ options: {} });
       hoisted.startAuthentication.mockResolvedValue({ id: "cred" });
-      stub.passkeyComplete.mockRejectedValue(new Error("Passkey verification failed"));
+      login.passkeyComplete.mockRejectedValue(new Error("Passkey verification failed"));
 
-      render(() => <SignIn client={asClient(stub)} />);
+      render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
       fillIdentifier("alice");
-      fireEvent.click(screen.getByRole("button", { name: /Continue with passkey/i }));
+      fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
 
       await waitFor(() => {
         expect(screen.getByText(/Passkey verification failed/)).toBeTruthy();
       });
       expect(hoisted.adoptSession).not.toHaveBeenCalled();
     });
-
-    it("hides the passkey tab and defaults to OTP when WebAuthn is unsupported", async () => {
-      hoisted.webauthnSupported = false;
-      render(() => <SignIn client={asClient(stub)} defaultMethod="passkey" />);
-      await waitFor(() => {
-        // Passkey tab should not be rendered at all.
-        expect(screen.queryByRole("tab", { name: /Passkey/i })).toBeNull();
-      });
-      // OTP tab should be active (the "Send verification code" button belongs to OTP).
-      expect(screen.getByRole("button", { name: /Send verification code/i })).toBeTruthy();
-    });
-
-    // T-S3: discoverable / conditional-UI on-mount path. Fails silently by
-    // design — without an explicit assertion, a regression that breaks the
-    // mount trigger goes unnoticed.
-    describe("conditional-UI / discoverable login on mount", () => {
-      it("kicks off passkeyBegin() (no identifier) → passkeyComplete({ challengeId, assertion })", async () => {
-        // Stub the WebAuthn conditional-mediation feature detection.
-        const isAvail = vi.fn(async () => true);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- happy-dom shim
-        (window as any).PublicKeyCredential = { isConditionalMediationAvailable: isAvail };
-
-        stub.passkeyBegin.mockResolvedValue({
-          options: { challenge: "ch-disc" },
-          challengeId: "cid-1",
-        });
-        hoisted.startAuthentication.mockResolvedValue({ id: "cred-disc", rawId: "raw-disc" });
-        stub.passkeyComplete.mockResolvedValue({ session: sampleSession, user: sampleUser });
-        hoisted.adoptSession.mockResolvedValue(undefined);
-
-        render(() => <SignIn client={asClient(stub)} />);
-
-        await waitFor(() => expect(stub.passkeyBegin).toHaveBeenCalledWith());
-        // Browser-autofill flag must be set so the assertion runs in the
-        // background instead of popping a modal.
-        await waitFor(() =>
-          expect(hoisted.startAuthentication).toHaveBeenCalledWith({
-            optionsJSON: { challenge: "ch-disc" },
-            useBrowserAutofill: true,
-          }),
-        );
-        await waitFor(() =>
-          expect(stub.passkeyComplete).toHaveBeenCalledWith({
-            challengeId: "cid-1",
-            assertion: { id: "cred-disc", rawId: "raw-disc" },
-          }),
-        );
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- cleanup
-        delete (window as any).PublicKeyCredential;
-      });
-
-      it("does nothing when isConditionalMediationAvailable is missing", async () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- cleanup
-        delete (window as any).PublicKeyCredential;
-
-        render(() => <SignIn client={asClient(stub)} />);
-
-        // Give the on-mount tick a chance to fire.
-        await new Promise((r) => setTimeout(r, 10));
-        expect(stub.passkeyBegin).not.toHaveBeenCalled();
-        expect(stub.passkeyComplete).not.toHaveBeenCalled();
-      });
-    });
   });
 
-  describe("OTP mode", () => {
-    function fillOtpDigits(digits: string) {
-      for (let i = 0; i < digits.length && i < 6; i++) {
-        const input = screen.getByLabelText(`Digit ${i + 1}`) as HTMLInputElement;
-        fireEvent.input(input, { target: { value: digits[i] } });
-      }
-    }
+  describe("conditional-UI / discoverable login on mount", () => {
+    it("kicks off passkeyBegin() (no identifier) → passkeyComplete({ challengeId, assertion })", async () => {
+      const isAvail = vi.fn(async () => true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- happy-dom shim
+      (window as any).PublicKeyCredential = { isConditionalMediationAvailable: isAvail };
 
-    it("happy path: begin → code entry → complete → adoptSession", async () => {
-      stub.otpBegin.mockResolvedValue({ sent: true });
-      stub.otpComplete.mockResolvedValue({ session: sampleSession, user: sampleUser });
+      login.passkeyBegin.mockResolvedValue({
+        options: { challenge: "ch-disc" },
+        challengeId: "cid-1",
+      });
+      hoisted.startAuthentication.mockResolvedValue({ id: "cred-disc", rawId: "raw-disc" });
+      login.passkeyComplete.mockResolvedValue({ session: sampleSession, user: sampleUser });
       hoisted.adoptSession.mockResolvedValue(undefined);
 
-      render(() => <SignIn client={asClient(stub)} defaultMethod="otp" />);
-      fillIdentifier("alice@example.com");
-      fireEvent.click(screen.getByRole("button", { name: /Send verification code/i }));
+      render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
 
-      await waitFor(() => screen.getByLabelText("Digit 1"));
-      fillOtpDigits("123456");
-      fireEvent.click(screen.getByRole("button", { name: /^Sign in$/i }));
+      await waitFor(() => expect(login.passkeyBegin).toHaveBeenCalledWith());
+      await waitFor(() =>
+        expect(hoisted.startAuthentication).toHaveBeenCalledWith({
+          optionsJSON: { challenge: "ch-disc" },
+          useBrowserAutofill: true,
+        }),
+      );
+      await waitFor(() =>
+        expect(login.passkeyComplete).toHaveBeenCalledWith({
+          challengeId: "cid-1",
+          assertion: { id: "cred-disc", rawId: "raw-disc" },
+        }),
+      );
 
-      await waitFor(() => {
-        expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession);
-      });
-      expect(stub.otpBegin).toHaveBeenCalledWith("alice@example.com");
-      expect(stub.otpComplete).toHaveBeenCalledWith("alice@example.com", "123456");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- cleanup
+      delete (window as any).PublicKeyCredential;
     });
 
-    it("OTP input rejects non-digit characters", async () => {
-      stub.otpBegin.mockResolvedValue({ sent: true });
-      render(() => <SignIn client={asClient(stub)} defaultMethod="otp" />);
-      fillIdentifier("alice@example.com");
-      fireEvent.click(screen.getByRole("button", { name: /Send verification code/i }));
-      await waitFor(() => screen.getByLabelText("Digit 1"));
-      // Type non-digits into each box — otpComplete should never fire.
-      for (let i = 0; i < 6; i++) {
-        const input = screen.getByLabelText(`Digit ${i + 1}`) as HTMLInputElement;
-        fireEvent.input(input, { target: { value: "x" } });
-      }
-      expect(stub.otpComplete).not.toHaveBeenCalled();
+    it("does nothing when isConditionalMediationAvailable is missing", async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- cleanup
+      delete (window as any).PublicKeyCredential;
+
+      render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(login.passkeyBegin).not.toHaveBeenCalled();
+      expect(login.passkeyComplete).not.toHaveBeenCalled();
     });
   });
 
-  describe("Magic link mode", () => {
-    it("shows the 'check your email' state after a successful begin", async () => {
-      stub.magicBegin.mockResolvedValue({ sent: true });
-      render(() => <SignIn client={asClient(stub)} defaultMethod="magic" />);
-      fillIdentifier("alice@example.com");
-      fireEvent.click(screen.getByRole("button", { name: /Send magic link/i }));
+  describe("WebAuthn-unsupported fallback", () => {
+    it("shows the informational screen and routes to recovery on click", async () => {
+      hoisted.webauthnSupported = false;
+      render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
       await waitFor(() => {
-        expect(screen.getByText(/just emailed a sign-in/i)).toBeTruthy();
+        expect(screen.queryByLabelText(/Email or @handle/)).toBeNull();
       });
-      expect(hoisted.adoptSession).not.toHaveBeenCalled();
+      expect(screen.getByText(/needs a passkey or security key/i)).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: /Use a recovery code/i }));
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Recovery code/i)).toBeTruthy();
+      });
+    });
+  });
+
+  describe("Lost your passkey? escape hatch", () => {
+    it("surfaces the recovery form when the user clicks it", async () => {
+      render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
+      fireEvent.click(screen.getByRole("button", { name: /Lost your passkey/i }));
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Recovery code/i)).toBeTruthy();
+      });
     });
   });
 
   describe("onCancel", () => {
     it("renders a Cancel button only when onCancel is provided", () => {
       const onCancel = vi.fn();
-      render(() => <SignIn client={asClient(stub)} onCancel={onCancel} />);
-      fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
+      render(() => (
+        <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} onCancel={onCancel} />
+      ));
+      fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
       expect(onCancel).toHaveBeenCalled();
     });
 
     it("omits the Cancel button when no onCancel prop is given", () => {
-      render(() => <SignIn client={asClient(stub)} />);
-      expect(screen.queryByRole("button", { name: /Cancel/i })).toBeNull();
+      render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
+      expect(screen.queryByRole("button", { name: /^Cancel$/ })).toBeNull();
     });
   });
 });

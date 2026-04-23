@@ -83,57 +83,9 @@ describe("createLoginClient", () => {
     });
   });
 
-  describe("otpBegin", () => {
-    it("POSTs /login/otp/begin and returns { sent: true }", async () => {
-      const { calls } = stubFetch(() => jsonResponse({ sent: true }));
-      const result = await client.otpBegin("alice@example.com");
-      expect(result).toEqual({ sent: true });
-      expect(calls[0].url).toBe("https://osn.example.com/login/otp/begin");
-    });
-  });
-
-  describe("otpComplete", () => {
-    it("returns a parsed session + profile", async () => {
-      stubFetch(() => jsonResponse({ session: sampleSessionPayload, profile: sampleProfile }));
-      const result = await client.otpComplete("alice@example.com", "123456");
-      expect(result.profile).toEqual(sampleProfile);
-      expect(result.session.accessToken).toBe("acc_abc");
-    });
-
-    it("throws LoginError on invalid code", async () => {
-      stubFetch(() => jsonResponse({ error: "Invalid request" }, { status: 400 }));
-      await expect(client.otpComplete("alice@example.com", "000000")).rejects.toBeInstanceOf(
-        LoginError,
-      );
-    });
-  });
-
-  describe("magicBegin", () => {
-    it("POSTs /login/magic/begin and returns { sent: true }", async () => {
-      const { calls } = stubFetch(() => jsonResponse({ sent: true }));
-      await client.magicBegin("alice@example.com");
-      expect(calls[0].url).toBe("https://osn.example.com/login/magic/begin");
-      expect(JSON.parse(calls[0].init!.body as string)).toEqual({
-        identifier: "alice@example.com",
-      });
-    });
-  });
-
-  describe("magicVerify", () => {
-    it("POSTs /login/magic/verify with token in body (S-H1)", async () => {
-      const { calls } = stubFetch(() =>
-        jsonResponse({ session: sampleSessionPayload, profile: sampleProfile }),
-      );
-      const result = await client.magicVerify("mlnk_abc+def");
-      expect(calls[0].url).toBe("https://osn.example.com/login/magic/verify");
-      expect(calls[0].init?.method).toBe("POST");
-      expect(JSON.parse(calls[0].init!.body as string)).toEqual({ token: "mlnk_abc+def" });
-      expect(result.profile.handle).toBe("alice");
-    });
-
-    it("throws LoginError on bad token", async () => {
-      stubFetch(() => jsonResponse({ error: "Magic link expired or not found" }, { status: 400 }));
-      await expect(client.magicVerify("bogus")).rejects.toBeInstanceOf(LoginError);
+  describe("surface", () => {
+    it("only exposes passkey login methods", () => {
+      expect(new Set(Object.keys(client))).toEqual(new Set(["passkeyBegin", "passkeyComplete"]));
     });
   });
 });

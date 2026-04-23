@@ -46,7 +46,6 @@ import {
 import {
   classifyError,
   metricAuthHandleCheck,
-  metricAuthMagicLinkSent,
   metricAuthOtpSent,
   metricPasskeyLoginDiscoverable,
   metricRecoveryCodeConsumed,
@@ -103,19 +102,7 @@ export interface AuthConfig {
   origin: string;
   /** Issuer URL (JWT issuer) */
   issuerUrl: string;
-  /**
-   * Base URL (frontend origin) emails point magic links at. The token goes
-   * into `?token=…` on this URL; the app's `MagicLinkHandler` reads it from
-   * `window.location`, POSTs to `/login/magic/verify`, and clears the URL.
-   * Defaults to `origin` (the WebAuthn RP origin, which is the frontend) —
-   * callers with split-origin deployments can override.
-   *
-   * Keeping magic tokens OFF the API origin is a security control (S-H1):
-   * pointing the email at the API would render `access_token` JSON in the
-   * browser window and expose it to email-scanner pre-fetchers.
-   */
-  magicLinkBaseUrl?: string;
-  /** ES256 private key for signing access, refresh, and enrollment tokens */
+  /** ES256 private key for signing access and refresh tokens */
   jwtPrivateKey: CryptoKey;
   /** ES256 public key for verifying the above */
   jwtPublicKey: CryptoKey;
@@ -134,11 +121,9 @@ export interface AuthConfig {
   accessTokenTtl?: number;
   /** Refresh token TTL in seconds (default: 2592000 = 30 days) */
   refreshTokenTtl?: number;
-  /** OTP TTL in seconds (default: 600 = 10 min) */
+  /** OTP TTL in seconds (default: 600 = 10 min). Applies to registration, email change, and step-up OTP. */
   otpTtl?: number;
-  /** Magic link TTL in seconds (default: 600) */
-  magicTtl?: number;
-  /** Callback to send email (OTP code or magic link) */
+  /** Callback to send email (registration OTP, step-up OTP, email change OTP, security notifications). */
   sendEmail?: (to: string, subject: string, body: string) => Promise<void>;
   /**
    * Step-up (sudo) token TTL in seconds. Default: 300 (5 min). Short enough
@@ -168,6 +153,17 @@ export interface AuthConfig {
    */
   passkeyDeleteAllowedAmr?: readonly ("webauthn" | "otp")[];
   /**
+   * Permitted AMR values for `/passkey/register/{begin,complete}` step-up
+   * when the account already has ≥1 passkey (S-H1). First-passkey
+   * enrollment bypasses the gate entirely — no step-up ceremony is
+   * reachable before the account has any credentials. Defaults to
+   * `["webauthn", "otp"]` because a user who legitimately wants to add a
+   * second device may be doing so precisely because the original is hard
+   * to reach; forcing passkey-only step-up would create a chicken-and-
+   * egg.
+   */
+  passkeyRegisterAllowedAmr?: readonly ("webauthn" | "otp")[];
+  /**
    * Cluster-wide single-use guard for step-up token jtis (S-H1). Inject a
    * Redis-backed store in multi-pod deployments; otherwise the default
    * in-memory map means a captured token replays successfully once per pod.
@@ -188,18 +184,6 @@ export interface AuthConfig {
 
 interface ChallengeEntry {
   challenge: string;
-  expiresAt: number;
-}
-
-interface OtpEntry {
-  codeHash: string;
-  profileId: string;
-  attempts: number;
-  expiresAt: number;
-}
-
-interface MagicEntry {
-  profileId: string;
   expiresAt: number;
 }
 
@@ -249,13 +233,8 @@ function checkProfileSwitchLimit(accountId: string): boolean {
 // keyed by accountId for registration, by email for login
 const registrationChallenges = new Map<string, ChallengeEntry>();
 const loginChallenges = new Map<string, ChallengeEntry>();
-const otpStore = new Map<string, OtpEntry>();
-const magicStore = new Map<string, MagicEntry>();
 // Pending email-verification registrations, keyed by lowercased email.
 const pendingRegistrations = new Map<string, PendingRegistration>();
-// Single-use enrollment tokens that have already been consumed by a passkey
-// register/complete call. Cleared opportunistically by sweepEnrollmentTokens.
-const consumedEnrollmentTokens = new Map<string, number>();
 
 // Step-up passkey challenges — keyed by accountId (caller is already
 // authenticated, so identifier resolution is unnecessary and would risk
@@ -633,12 +612,14 @@ export function createAuthService(config: AuthConfig) {
   const accessTokenTtl = config.accessTokenTtl ?? 300;
   const refreshTokenTtl = config.refreshTokenTtl ?? 2592000;
   const otpTtl = config.otpTtl ?? 600;
-  const magicTtl = config.magicTtl ?? 600;
   const stepUpTokenTtl = config.stepUpTokenTtl ?? 300;
   const recoveryGenerateAllowedAmr = new Set<string>(
     config.recoveryGenerateAllowedAmr ?? ["webauthn", "otp"],
   );
   const passkeyDeleteAllowedAmr = new Set<string>(config.passkeyDeleteAllowedAmr ?? ["webauthn"]);
+  const passkeyRegisterAllowedAmr = new Set<string>(
+    config.passkeyRegisterAllowedAmr ?? ["webauthn", "otp"],
+  );
   const jtiStore = config.stepUpJtiStore ?? createInMemoryJtiStore();
   const rotatedSessionStore = config.rotatedSessionStore ?? createInMemoryRotatedSessionStore();
   const rotatedSessionStoreBackend = rotatedSessionStore.backend;
@@ -909,23 +890,25 @@ export function createAuthService(config: AuthConfig) {
 
   /**
    * Step 2 of email-verified registration. Verifies the OTP against the
-   * pending registration and, if valid, creates the account + profile rows, then returns a
-   * full Session (access + refresh tokens) AND a short-lived single-use
-   * enrollment token the client can use to add a passkey via the
-   * Authorization-gated `/passkey/register/*` routes.
+   * pending registration and, if valid, creates the account + profile rows
+   * and returns a full session (access + refresh tokens).
+   *
+   * The UI then immediately drives the `/passkey/register/*` flow using
+   * the returned access token to enroll the user's first passkey. Accounts
+   * without a passkey cannot make it past registration because the UI
+   * refuses to dismiss until enrollment succeeds, and `deletePasskey`
+   * refuses to drop below 1 — so every live account always has ≥1 passkey.
    *
    * Security properties:
    *  - Constant-time OTP comparison (S-M4 / `timingSafeEqualString`).
    *  - Per-entry attempt counter; after MAX_OTP_ATTEMPTS the entry is wiped,
-   *    capping brute-force probability at ~5/1_000_000 per registration (S-H1
-   *    partial; full rate-limit fix is tracked in the security backlog).
+   *    capping brute-force probability at ~5/1_000_000 per registration.
    *  - The pending entry is only deleted AFTER a successful insert. A losing
    *    race against another insert (TOCTOU) leaves the pending entry intact
    *    so the user can retry without burning their OTP (S-H4).
    *  - Insert relies on the DB-level UNIQUE constraint on email/handle as
    *    the source of truth, mapping constraint violations to a clean
    *    AuthError instead of leaking driver text (S-H4 / S-H5).
-   *  - Returns access + refresh tokens directly.
    */
   const completeRegistration = (
     email: string,
@@ -940,7 +923,6 @@ export function createAuthService(config: AuthConfig) {
       accessToken: string;
       refreshToken: string;
       expiresIn: number;
-      enrollmentToken: string;
     },
     AuthError | DatabaseError,
     Db
@@ -1024,7 +1006,6 @@ export function createAuthService(config: AuthConfig) {
         undefined,
         sessionMeta,
       );
-      const enrollmentToken = yield* issueEnrollmentToken(accountId);
 
       return {
         profileId: id,
@@ -1034,7 +1015,6 @@ export function createAuthService(config: AuthConfig) {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         expiresIn: tokens.expiresIn,
-        enrollmentToken,
       };
     }).pipe(withAuthRegister("complete"));
 
@@ -1062,6 +1042,12 @@ export function createAuthService(config: AuthConfig) {
   // Token issuance
   // -------------------------------------------------------------------------
 
+  // Access-token audience (S-M2). Asserted in `verifyAccessToken` so an
+  // ES256 token signed with the same key but minted for a different
+  // audience (step-up, or any future type) cannot authenticate access-
+  // token routes. Mirrors STEP_UP_AUDIENCE below.
+  const ACCESS_TOKEN_AUDIENCE = "osn-access";
+
   /**
    * Signs a short-lived ES256 access token JWT. Used by both initial login
    * (via `issueTokens`) and token refresh / profile switch (standalone).
@@ -1076,6 +1062,7 @@ export function createAuthService(config: AuthConfig) {
       try: () => {
         const payload: Record<string, unknown> = {
           sub: profileId,
+          aud: ACCESS_TOKEN_AUDIENCE,
           email,
           handle,
           scope: "openid profile",
@@ -1155,76 +1142,6 @@ export function createAuthService(config: AuthConfig) {
       });
 
       return { accessToken, refreshToken: sessionToken, expiresIn: accessTokenTtl };
-    });
-
-  // -------------------------------------------------------------------------
-  // Enrollment tokens
-  //
-  // Short-lived (5 min) single-use bearer tokens minted by completeRegistration
-  // (and only by completeRegistration) so that the new user can prove the
-  // server-side identity it just received over the same channel when it calls
-  // /passkey/register/{begin,complete}. The token's `sub` is the accountId of the
-  // account being enrolled. Calls to /passkey/register/* compare the token's sub
-  // against the request body's accountId; a mismatch is rejected.
-  //
-  // The "consumed" set tracks the JWT IDs (`jti`) of tokens that have already
-  // been used by /passkey/register/complete. /passkey/register/begin does NOT
-  // consume the token (the user may need to retry the WebAuthn ceremony).
-  // -------------------------------------------------------------------------
-
-  const enrollmentTokenTtl = 5 * 60; // seconds
-
-  const issueEnrollmentToken = (accountId: string) =>
-    Effect.tryPromise({
-      try: () => {
-        const jti = crypto.randomUUID();
-        return signJwt(
-          { sub: accountId, type: "passkey-enroll", jti },
-          config.jwtPrivateKey,
-          config.jwtKid,
-          enrollmentTokenTtl,
-        );
-      },
-      catch: (cause) => new AuthError({ message: String(cause) }),
-    });
-
-  /**
-   * Verifies an enrollment token. Returns the accountId on success.
-   * If `consume` is true (used by /passkey/register/complete) the token's jti
-   * is recorded in `consumedEnrollmentTokens` and any subsequent verification
-   * with the same jti will fail.
-   */
-  const verifyEnrollmentToken = (
-    token: string,
-    options: { consume: boolean } = { consume: false },
-  ): Effect.Effect<{ accountId: string }, AuthError> =>
-    Effect.gen(function* () {
-      const payload = yield* Effect.tryPromise({
-        try: () => verifyJwt(token, config.jwtPublicKey),
-        catch: () => new AuthError({ message: "Invalid or expired enrollment token" }),
-      });
-      if (
-        payload["type"] !== "passkey-enroll" ||
-        typeof payload["sub"] !== "string" ||
-        typeof payload["jti"] !== "string"
-      ) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid enrollment token" }));
-      }
-
-      // Sweep consumed tokens whose original TTL has elapsed (Date.now() ms).
-      const cutoff = Date.now() - enrollmentTokenTtl * 1000;
-      for (const [jti, ts] of consumedEnrollmentTokens) {
-        if (ts < cutoff) consumedEnrollmentTokens.delete(jti);
-      }
-
-      const jti = payload["jti"] as string;
-      if (consumedEnrollmentTokens.has(jti)) {
-        return yield* Effect.fail(new AuthError({ message: "Enrollment token already used" }));
-      }
-      if (options.consume) {
-        consumedEnrollmentTokens.set(jti, Date.now());
-      }
-      return { accountId: payload["sub"] as string };
     });
 
   // -------------------------------------------------------------------------
@@ -1573,8 +1490,12 @@ export function createAuthService(config: AuthConfig) {
       if (
         typeof payload["sub"] !== "string" ||
         typeof payload["email"] !== "string" ||
-        typeof payload["handle"] !== "string"
+        typeof payload["handle"] !== "string" ||
+        payload["aud"] !== ACCESS_TOKEN_AUDIENCE
       ) {
+        // S-M2: `aud` pinning ensures only tokens explicitly issued as
+        // access tokens authenticate these routes. Without it any ES256
+        // JWT with string sub/email/handle would be accepted.
         return yield* Effect.fail(new AuthError({ message: "Invalid token claims" }));
       }
       return {
@@ -1591,6 +1512,13 @@ export function createAuthService(config: AuthConfig) {
 
   const beginPasskeyRegistration = (
     accountId: string,
+    /**
+     * S-H1: required when the account already has ≥1 passkey. First-
+     * credential enrollment (bootstrap) bypasses the gate — no step-up
+     * ceremony is reachable before the account has any authenticators.
+     * Verified below after the existingPasskeys read.
+     */
+    stepUpToken?: string,
   ): Effect.Effect<
     { options: PublicKeyCredentialCreationOptionsJSON },
     AuthError | DatabaseError,
@@ -1622,13 +1550,23 @@ export function createAuthService(config: AuthConfig) {
         return yield* Effect.fail(new AuthError({ message: "Account not found" }));
       }
 
-      // P-I10: refuse to mint options past the per-account cap. The WebAuthn
-      // ceremony would still land DB-side at `complete` anyway; failing early
-      // avoids the user rehearsing a fingerprint / PIN for nothing.
+      // P-I10: refuse to mint options past the per-account cap. Checked
+      // BEFORE the step-up gate so a user who's already at the cap
+      // doesn't burn a single-use step-up token for nothing.
       if (existingPasskeys.length >= MAX_PASSKEYS_PER_ACCOUNT) {
         return yield* Effect.fail(
           new AuthError({ message: "Passkey limit reached for this account" }),
         );
+      }
+
+      // S-H1: once the account has any passkey, adding another requires a
+      // fresh step-up token. A stolen access token alone cannot bind a
+      // new authenticator.
+      if (existingPasskeys.length > 0) {
+        if (!stepUpToken) {
+          return yield* Effect.fail(new AuthError({ message: "Step-up required" }));
+        }
+        yield* verifyStepUpForPasskeyRegister(accountId, stepUpToken);
       }
 
       const options = yield* Effect.tryPromise({
@@ -1646,11 +1584,16 @@ export function createAuthService(config: AuthConfig) {
                 ? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
                 : undefined,
             })),
-            // M-PK: discoverable-credential login requires a resident key.
-            // `userVerification: required` forces a biometric or PIN, which
-            // is the Copenhagen Book requirement for passkey-primary auth.
+            // `residentKey: "preferred"` admits FIDO2 security keys without
+            // a resident-key slot (they register as non-discoverable and
+            // still work for identified login). `userVerification: "required"`
+            // keeps the factor strength at "something you have + something
+            // you are/know" — obsolete UP-only U2F tokens cannot register,
+            // which is intentional: they would subsequently fail the
+            // verifier's `requireUserVerification: true` anyway (S-H2 —
+            // options and verify must agree).
             authenticatorSelection: {
-              residentKey: "required",
+              residentKey: "preferred",
               userVerification: "required",
             },
           }),
@@ -1672,10 +1615,16 @@ export function createAuthService(config: AuthConfig) {
   const completePasskeyRegistration = (
     accountId: string,
     attestation: RegistrationResponseJSON,
-    /** Raw session token of the caller. When provided, hashed internally
-     *  and all OTHER sessions for this account are revoked (H1). Keeps
-     *  the raw-token → hash boundary inside the service (S-H2). */
-    currentSessionToken?: string,
+    /**
+     * Raw session token of the caller, hashed internally so all OTHER
+     * sessions for this account can be revoked (H1). The route layer
+     * derives this from the HttpOnly cookie — it is NOT user-supplied
+     * body input — so an attacker with only an access token cannot skip
+     * H1 invalidation by omitting a body field (S-H1).
+     */
+    currentSessionToken: string | null,
+    /** IP + UA for the security_events row (S-H1). Best-effort; omitted in tests. */
+    eventMeta?: SessionMeta,
   ): Effect.Effect<{ passkeyId: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const entry = registrationChallenges.get(accountId);
@@ -1716,6 +1665,19 @@ export function createAuthService(config: AuthConfig) {
       const ts = now();
       const nowSec = Math.floor(ts.getTime() / 1000);
 
+      // S-H1: write the audit row in the SAME transaction as the passkey
+      // insert so a signed-out attacker who skips the notification path
+      // still leaves a row in security_events for the user to discover.
+      const securityEventRow: typeof securityEvents.$inferInsert = {
+        id: genId("sev_"),
+        accountId,
+        kind: "passkey_register",
+        createdAt: nowSec,
+        acknowledgedAt: null,
+        ipHash: eventMeta?.ip ? hashIp(eventMeta.ip) : null,
+        uaLabel: eventMeta?.uaLabel ?? null,
+      };
+
       // P-W1 / P-I10: race-safe cap enforcement inside a single transaction.
       // `beginPasskeyRegistration` already refuses past the limit, but a pair
       // of `begin` calls racing `complete` would both pass the pre-check.
@@ -1749,6 +1711,7 @@ export function createAuthService(config: AuthConfig) {
               backupState: backedUp,
               updatedAt: nowSec,
             });
+            await tx.insert(securityEvents).values(securityEventRow);
           }),
         catch: (cause) =>
           cause instanceof Error && /limit reached/i.test(cause.message)
@@ -1756,12 +1719,24 @@ export function createAuthService(config: AuthConfig) {
             : new DatabaseError({ cause }),
       });
 
+      metricSecurityEventRecorded("passkey_register");
+
       // H1: Invalidate all other sessions on passkey registration.
       // An attacker who stole a session token cannot persist after the
       // legitimate user adds a passkey.
       if (currentSessionToken) {
         yield* invalidateOtherAccountSessions(accountId, hashSessionToken(currentSessionToken));
       }
+
+      // S-H1: best-effort email notification. Forked daemon — failure
+      // logged but never rolls back the enrolment. 10s timeout matches
+      // passkey_delete / recovery_code_* paths.
+      yield* Effect.forkDaemon(
+        notifyPasskeyRegisteredByAccountId(accountId).pipe(
+          Effect.timeout("10 seconds"),
+          Effect.catchAll(() => Effect.void),
+        ),
+      );
 
       return { passkeyId: id };
     });
@@ -1831,47 +1806,86 @@ export function createAuthService(config: AuthConfig) {
 
       const normalised = normaliseIdentifier(identifier);
       const profile = yield* resolveIdentifier(normalised);
-      if (!profile) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
-      }
 
+      // Resolve passkeys for the account when the identifier is known, or
+      // nothing when it isn't. Both branches run a DB SELECT so the query
+      // latency distribution is the same (S-M1: no timing oracle).
       const { db } = yield* Db;
-      const profilePasskeys = yield* Effect.tryPromise({
-        try: () => db.select().from(passkeys).where(eq(passkeys.accountId, profile.accountId)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
+      const profilePasskeys = profile
+        ? yield* Effect.tryPromise({
+            try: () => db.select().from(passkeys).where(eq(passkeys.accountId, profile.accountId)),
+            catch: (cause) => new DatabaseError({ cause }),
+          })
+        : yield* Effect.tryPromise({
+            // Burn-in query: hit the table with a never-matching accountId
+            // so an unknown identifier costs the same shape of work as a
+            // known one.
+            try: () => db.select().from(passkeys).where(eq(passkeys.accountId, "acc_enum_probe")),
+            catch: (cause) => new DatabaseError({ cause }),
+          });
 
-      if (profilePasskeys.length === 0) {
-        return yield* Effect.fail(
-          new AuthError({ message: "No passkeys registered for this account" }),
-        );
-      }
+      // S-M1: equalise the response envelope. Unknown identifier AND
+      // known-with-zero-passkeys return a single fabricated credentialId;
+      // known-with-passkeys returns the real allowCredentials. The wire
+      // shape — `{ options: { …, allowCredentials: [...], userVerification } }`
+      // — is identical in all three cases, so an anonymous caller can no
+      // longer probe the handle/email namespace through this endpoint.
+      // The "≥1 passkey" account invariant means the no-passkey branch is
+      // only reachable for legacy/corrupt data; it collapses into the
+      // unknown-identifier branch for free.
+      const realCredentials =
+        profile && profilePasskeys.length > 0
+          ? profilePasskeys.map((pk) => ({
+              id: pk.credentialId,
+              transports: pk.transports
+                ? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
+                : undefined,
+            }))
+          : null;
+      const allowCredentials = realCredentials ?? [
+        {
+          // Random bytes base64url-encoded — never corresponds to a real
+          // credential. A subsequent `/login/passkey/complete` with an
+          // assertion for this id will fail at the challenge lookup
+          // because we do NOT persist a challenge for the synthetic
+          // branch.
+          id: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
+        },
+      ];
 
       const options = yield* Effect.tryPromise({
         try: () =>
           generateAuthenticationOptions({
             rpID: config.rpId,
-            allowCredentials: profilePasskeys.map((pk) => ({
-              id: pk.credentialId,
-              transports: pk.transports
-                ? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
-                : undefined,
-            })),
+            allowCredentials,
+            // S-H2: `verifyAuthenticationResponse` sets
+            // `requireUserVerification: true`, so options and verify must
+            // agree. "required" here matches the verifier, matches the
+            // identifier-less flow, and makes the ceremony phishing-
+            // resistant with a second factor (UV) — the whole point of
+            // passkey-primary. Registration only admits UV-capable
+            // credentials, so this does not regress legitimate sign-ins.
             userVerification: "required",
           }),
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
 
       // Key challenge by normalised identifier so completePasskeyLoginDirect
-      // can check the in-memory guard before touching the DB.
-      sweepExpired(loginChallenges);
-      if (loginChallenges.size >= MAX_LOGIN_CHALLENGES) {
-        return yield* Effect.fail(new AuthError({ message: "Try again shortly" }));
+      // can check the in-memory guard before touching the DB. Skip the
+      // write on the synthetic branch: a subsequent complete call hits the
+      // "challenge not found" guard, which is indistinguishable from a
+      // legitimate timeout — preserves the enumeration safety into
+      // the complete step too.
+      if (realCredentials) {
+        sweepExpired(loginChallenges);
+        if (loginChallenges.size >= MAX_LOGIN_CHALLENGES) {
+          return yield* Effect.fail(new AuthError({ message: "Try again shortly" }));
+        }
+        loginChallenges.set(normalised, {
+          challenge: options.challenge,
+          expiresAt: Date.now() + 120_000,
+        });
       }
-      loginChallenges.set(normalised, {
-        challenge: options.challenge,
-        expiresAt: Date.now() + 120_000,
-      });
 
       return { options };
     }).pipe(Effect.withSpan("auth.login.passkey.begin"));
@@ -2055,221 +2069,6 @@ export function createAuthService(config: AuthConfig) {
       );
       return { session, profile: toPublicProfile(profile, profile.email) };
     }).pipe(withAuthLogin("passkey"));
-
-  // -------------------------------------------------------------------------
-  // OTP: begin (login only — user must already be registered)
-  // -------------------------------------------------------------------------
-
-  const beginOtp = (
-    identifier: string,
-  ): Effect.Effect<{ sent: boolean }, AuthError | ValidationError | DatabaseError, Db> =>
-    Effect.gen(function* () {
-      const normalised = normaliseIdentifier(identifier);
-      if (looksLikeEmail(normalised)) {
-        yield* Schema.decodeUnknown(EmailSchema)(normalised).pipe(
-          Effect.mapError((cause) => new ValidationError({ cause })),
-        );
-      } else {
-        yield* Schema.decodeUnknown(HandleSchema)(normalised).pipe(
-          Effect.mapError((cause) => new ValidationError({ cause })),
-        );
-      }
-
-      const profile = yield* resolveIdentifier(normalised);
-      if (!profile) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
-      }
-
-      const code = genOtpCode();
-
-      // Key by normalised identifier so completeOtpDirect can check in-memory first.
-      otpStore.set(normalised, {
-        codeHash: hashSessionToken(code),
-        profileId: profile.id,
-        attempts: 0,
-        expiresAt: Date.now() + otpTtl * 1000,
-      });
-
-      if (config.sendEmail) {
-        yield* Effect.tryPromise({
-          try: () =>
-            config.sendEmail!(
-              profile.email,
-              "Your OSN sign-in code",
-              `Your one-time sign-in code is: ${code}\n\nThis code expires in ${otpTtl / 60} minutes.`,
-            ),
-          catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
-        });
-      } else if (!process.env["OSN_ENV"] || process.env["OSN_ENV"] === "local") {
-        // Local-only fallback when no email sender is configured. Guard uses
-        // OSN_ENV (not NODE_ENV) so dev/staging/prod are excluded (S-L2). See
-        // the matching block in beginRegistration for the interpolation rationale.
-        yield* Effect.logDebug(`[OSN local] OTP for ${profile.email}: ${code}`);
-      }
-
-      metricAuthOtpSent("login");
-      return { sent: true };
-    }).pipe(Effect.withSpan("auth.otp.begin"));
-
-  // -------------------------------------------------------------------------
-  // OTP: verify code (extracted). Returns the full profile row so both the
-  // code-issuing and direct-session completion paths can read email/handle/
-  // displayName off it.
-  // -------------------------------------------------------------------------
-
-  const verifyOtpCode = (
-    identifier: string,
-    code: string,
-  ): Effect.Effect<ProfileWithEmail, AuthError | DatabaseError, Db> =>
-    Effect.gen(function* () {
-      // Check in-memory store first — no DB hit on expired/invalid attempts.
-      const normalised = normaliseIdentifier(identifier);
-      const entry = otpStore.get(normalised);
-      if (!entry || Date.now() > entry.expiresAt) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
-      }
-      if (!timingSafeEqualString(entry.codeHash, hashSessionToken(code))) {
-        entry.attempts++;
-        if (entry.attempts >= MAX_OTP_ATTEMPTS) {
-          otpStore.delete(normalised);
-        }
-        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
-      }
-      otpStore.delete(normalised);
-
-      const profile = yield* findProfileById(entry.profileId);
-      if (!profile) {
-        return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
-      }
-      return profile;
-    });
-
-  // -------------------------------------------------------------------------
-  // OTP: complete — returns a Session + PublicProfile directly.
-  // -------------------------------------------------------------------------
-
-  const completeOtpDirect = (
-    identifier: string,
-    code: string,
-    sessionMeta?: SessionMeta,
-  ): Effect.Effect<{ session: TokenSet; profile: PublicProfile }, AuthError | DatabaseError, Db> =>
-    Effect.gen(function* () {
-      const profile = yield* verifyOtpCode(identifier, code);
-      const session = yield* issueTokens(
-        profile.id,
-        profile.accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-        undefined,
-        sessionMeta,
-      );
-      return { session, profile: toPublicProfile(profile, profile.email) };
-    }).pipe(withAuthLogin("otp"));
-
-  // -------------------------------------------------------------------------
-  // Magic link: begin (login only — user must already be registered)
-  // -------------------------------------------------------------------------
-
-  const beginMagic = (
-    identifier: string,
-  ): Effect.Effect<{ sent: boolean }, AuthError | ValidationError | DatabaseError, Db> =>
-    Effect.gen(function* () {
-      const normalised = normaliseIdentifier(identifier);
-      if (looksLikeEmail(normalised)) {
-        yield* Schema.decodeUnknown(EmailSchema)(normalised).pipe(
-          Effect.mapError((cause) => new ValidationError({ cause })),
-        );
-      } else {
-        yield* Schema.decodeUnknown(HandleSchema)(normalised).pipe(
-          Effect.mapError((cause) => new ValidationError({ cause })),
-        );
-      }
-
-      const profile = yield* resolveIdentifier(normalised);
-      if (!profile) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
-      }
-
-      const token = genId("mlnk_") + crypto.randomUUID().replace(/-/g, "");
-      const hashedToken = hashSessionToken(token);
-
-      magicStore.set(hashedToken, {
-        profileId: profile.id,
-        expiresAt: Date.now() + magicTtl * 1000,
-      });
-
-      // S-H1: point at the frontend origin, NOT the API — the app's
-      // MagicLinkHandler consumes the token and POSTs it to /login/magic/verify.
-      // Landing on the API would render `access_token` JSON in the browser
-      // window and burn the token to any email-client pre-fetcher.
-      const magicUrl = `${config.magicLinkBaseUrl ?? config.origin}/?token=${token}`;
-
-      if (config.sendEmail) {
-        yield* Effect.tryPromise({
-          try: () =>
-            config.sendEmail!(
-              profile.email,
-              "Your OSN magic sign-in link",
-              `Click this link to sign in: ${magicUrl}\n\nThis link expires in ${magicTtl / 60} minutes.`,
-            ),
-          catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
-        });
-      } else if (!process.env["OSN_ENV"] || process.env["OSN_ENV"] === "local") {
-        // Local-only fallback when no email sender is configured. Guard uses
-        // OSN_ENV (not NODE_ENV) so dev/staging/prod are excluded (S-L2). See
-        // the matching block in beginRegistration for the interpolation rationale.
-        yield* Effect.logDebug(`[OSN local] Magic link for ${profile.email}: ${magicUrl}`);
-      }
-
-      metricAuthMagicLinkSent("ok");
-      return { sent: true };
-    }).pipe(Effect.withSpan("auth.magic_link.begin"));
-
-  // -------------------------------------------------------------------------
-  // Magic link: consume token. Atomically removes the entry and returns the
-  // profile.
-  // -------------------------------------------------------------------------
-
-  const consumeMagicToken = (
-    token: string,
-  ): Effect.Effect<ProfileWithEmail, AuthError | DatabaseError, Db> =>
-    Effect.gen(function* () {
-      const hashedToken = hashSessionToken(token);
-      const entry = magicStore.get(hashedToken);
-      if (!entry || Date.now() > entry.expiresAt) {
-        return yield* Effect.fail(new AuthError({ message: "Magic link expired or not found" }));
-      }
-      magicStore.delete(hashedToken);
-
-      const profile = yield* findProfileById(entry.profileId);
-      if (!profile) {
-        return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
-      }
-      return profile;
-    }).pipe(Effect.withSpan("auth.magic_link.verify"));
-
-  // -------------------------------------------------------------------------
-  // Magic link: verify — returns a Session + PublicProfile directly.
-  // -------------------------------------------------------------------------
-
-  const verifyMagicDirect = (
-    token: string,
-    sessionMeta?: SessionMeta,
-  ): Effect.Effect<{ session: TokenSet; profile: PublicProfile }, AuthError | DatabaseError, Db> =>
-    Effect.gen(function* () {
-      const profile = yield* consumeMagicToken(token);
-      const session = yield* issueTokens(
-        profile.id,
-        profile.accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-        undefined,
-        sessionMeta,
-      );
-      return { session, profile: toPublicProfile(profile, profile.email) };
-    }).pipe(withAuthLogin("magic_link"));
 
   // -------------------------------------------------------------------------
   // Profile switching (P2 — multi-account)
@@ -3157,6 +2956,21 @@ export function createAuthService(config: AuthConfig) {
       yield* verifyStepUpToken(stepUpToken, accountId, passkeyDeleteAllowedAmr);
     });
 
+  /**
+   * S-H1: step-up verifier for `/passkey/register/{begin,complete}` on
+   * accounts that already have ≥1 passkey. Without this gate, a stolen
+   * access token (XSS) could silently bind an attacker-controlled
+   * authenticator to the victim account — every other high-value auth
+   * mutation on the branch is step-up gated, and enroll must match.
+   */
+  const verifyStepUpForPasskeyRegister = (
+    accountId: string,
+    stepUpToken: string,
+  ): Effect.Effect<void, AuthError> =>
+    Effect.gen(function* () {
+      yield* verifyStepUpToken(stepUpToken, accountId, passkeyRegisterAllowedAmr);
+    });
+
   const verifyStepUpForRecoveryGenerate = (
     accountId: string,
     stepUpToken: string,
@@ -3618,10 +3432,12 @@ export function createAuthService(config: AuthConfig) {
    * a stale access token to keep working after the legitimate user
    * remediates.
    *
-   * Last-passkey guard: if this is the account's final passkey AND they
-   * have zero active recovery codes, we refuse. The alternative is a
-   * locked-out account — the user must generate recovery codes first, or
-   * add another passkey, before we let them delete.
+   * Last-passkey guard: refuses unconditionally if this would leave the
+   * account with zero passkeys. The account-level invariant is "every
+   * account always has ≥1 WebAuthn credential"; recovery codes are the
+   * "my device is gone" escape hatch, not a substitute credential. Users
+   * who want to rotate a compromised passkey enroll the replacement
+   * first, then delete the old one.
    */
   const deletePasskey = (
     accountId: string,
@@ -3647,12 +3463,7 @@ export function createAuthService(config: AuthConfig) {
       };
 
       // S-M1 / P-W1: gate-then-delete inside one transaction so two concurrent
-      // DELETEs cannot race past the last-passkey guard. P-I1: collapse the
-      // earlier 3-way SELECT into one passkey scan + one recovery-code scan.
-      // The guard refuses the delete when this is the last passkey AND there
-      // are no active recovery codes — the user must generate codes first.
-      // The transaction body returns a tagged result so Effect can fail with
-      // the right error class outside the tx.
+      // DELETEs cannot race past the last-passkey guard.
       type TxResult =
         | { ok: true; remaining: number }
         | { ok: false; reason: "not_found" | "lockout" };
@@ -3668,13 +3479,7 @@ export function createAuthService(config: AuthConfig) {
               return { ok: false, reason: "not_found" } as const;
             }
             if (accountPasskeys.length <= 1) {
-              const activeCodes = await tx
-                .select({ id: recoveryCodes.id })
-                .from(recoveryCodes)
-                .where(and(eq(recoveryCodes.accountId, accountId), isNull(recoveryCodes.usedAt)));
-              if (activeCodes.length === 0) {
-                return { ok: false, reason: "lockout" } as const;
-              }
+              return { ok: false, reason: "lockout" } as const;
             }
             await tx
               .delete(passkeys)
@@ -3691,8 +3496,7 @@ export function createAuthService(config: AuthConfig) {
         }
         return yield* Effect.fail(
           new AuthError({
-            message:
-              "Refusing to delete the last passkey without recovery codes — generate recovery codes first",
+            message: "Enroll another passkey before removing this one",
           }),
         );
       }
@@ -3734,6 +3538,57 @@ export function createAuthService(config: AuthConfig) {
    * never includes identifying material beyond "it was you if you did this,
    * otherwise investigate."
    */
+  /**
+   * Best-effort email notification that a passkey was added to the
+   * account. Codes never included — the body is a boilerplate "it was you
+   * or investigate" framing. Mirrors `notifyPasskeyDeletedByAccountId`.
+   */
+  const notifyPasskeyRegisteredByAccountId = (
+    accountId: string,
+  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () => db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const email = rows[0]?.email;
+      if (!email) {
+        metricSecurityEventNotified("passkey_register", "skipped");
+        return;
+      }
+      if (!config.sendEmail) {
+        yield* Effect.logDebug(`[OSN local] Passkey-added notice for ${email}: audit row written`);
+        metricSecurityEventNotified("passkey_register", "skipped");
+        return;
+      }
+      const start = Date.now();
+      yield* Effect.tryPromise({
+        try: () =>
+          config.sendEmail!(
+            email,
+            "A passkey was added to your OSN account",
+            `A passkey was just added to your OSN account. If that was you, no further action is needed.\n\nIf this wasn't you: sign in, remove the unexpected credential, and rotate your recovery codes.`,
+          ),
+        catch: () => new AuthError({ message: "notify_dispatch_failed" }),
+      }).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            metricSecurityEventNotifyDuration((Date.now() - start) / 1000, "ok");
+            metricSecurityEventNotified("passkey_register", "sent");
+          }),
+        ),
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            metricSecurityEventNotifyDuration((Date.now() - start) / 1000, "error");
+            metricSecurityEventNotified("passkey_register", "failed");
+          }),
+        ),
+      );
+    }).pipe(
+      Effect.withSpan("auth.security_event.notify", { attributes: { kind: "passkey_register" } }),
+    );
+
   const notifyPasskeyDeletedByAccountId = (
     accountId: string,
   ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
@@ -3803,8 +3658,6 @@ export function createAuthService(config: AuthConfig) {
     registerProfile,
     beginRegistration,
     completeRegistration,
-    issueEnrollmentToken,
-    verifyEnrollmentToken,
     checkHandle,
     issueTokens,
     refreshTokens,
@@ -3819,10 +3672,6 @@ export function createAuthService(config: AuthConfig) {
     listPasskeys,
     renamePasskey,
     deletePasskey,
-    beginOtp,
-    completeOtpDirect,
-    beginMagic,
-    verifyMagicDirect,
     invalidateSession,
     invalidateAccountSessions,
     invalidateOtherAccountSessions,
@@ -3844,6 +3693,7 @@ export function createAuthService(config: AuthConfig) {
     completeStepUpOtp,
     verifyStepUpForRecoveryGenerate,
     verifyStepUpForPasskeyDelete,
+    verifyStepUpForPasskeyRegister,
     listAccountSessions,
     revokeAccountSession,
     revokeAllOtherAccountSessions,

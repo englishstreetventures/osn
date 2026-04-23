@@ -19,7 +19,7 @@ import { A, useNavigate } from "@solidjs/router";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
-import { registrationClient, loginClient } from "../lib/authClients";
+import { registrationClient, loginClient, recoveryClient } from "../lib/authClients";
 import { setShowCreateForm } from "../lib/createEventSignal";
 import { getTokenClaims } from "../lib/utils";
 
@@ -170,6 +170,7 @@ export function Header() {
         <DialogContent class="max-w-sm p-0">
           <SignIn
             client={loginClient}
+            recoveryClient={recoveryClient}
             onCancel={() => setShowSignIn(false)}
             onSuccess={() => setShowSignIn(false)}
           />

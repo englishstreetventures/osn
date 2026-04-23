@@ -3,6 +3,7 @@ title: Recovery Codes (Copenhagen Book M2)
 tags: [identity, auth, recovery, security]
 related:
   - "[[identity-model]]"
+  - "[[passkey-primary]]"
   - "[[rate-limiting]]"
 packages:
   - "@shared/crypto"
@@ -16,7 +17,7 @@ updated: 2026-04-22
 
 # Recovery Codes
 
-Copenhagen Book **M2** — single-use, high-entropy, account-scoped recovery tokens. They're the escape hatch when a user loses every device enrolled with a passkey. Landing this unblocks the next phase ([[identity-model]] — passkey-primary login).
+Copenhagen Book **M2** — single-use, high-entropy, account-scoped recovery tokens. They're the "my device is gone" escape hatch in the passkey-primary model (`[[passkey-primary]]`). They are **not** a substitute credential: `deletePasskey` refuses to drop the account below 1 passkey regardless of recovery-code state.
 
 ## Shape
 
@@ -66,7 +67,7 @@ On success the server:
 2. **Revokes every session on the account** in the same transaction. The fresh session issued by the login step is the only one standing afterwards. Emits `osn.auth.session.security_invalidation{trigger="recovery_code_consume"}`.
 3. Sets the HttpOnly session cookie (C3) and returns the access token in the body.
 
-All failure modes — unknown identifier, bad code, used code — surface as `{ error: "invalid_request" }` with no distinguishing detail, preserving the no-enumeration posture from `/login/otp`. Both the known-identifier + wrong-code branch and the unknown-identifier branch execute the same set of DB + SHA-256 work so latency does not disclose user existence (S-M2).
+All failure modes — unknown identifier, bad code, used code — surface as `{ error: "invalid_request" }` with no distinguishing detail. Both the known-identifier + wrong-code branch and the unknown-identifier branch execute the same set of DB + SHA-256 work so latency does not disclose user existence (S-M2). Recovery login is the "lost device" escape hatch; see `[[passkey-primary]]` for the broader login model.
 
 ## Service layer
 

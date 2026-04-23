@@ -1,34 +1,41 @@
 import { parseTokenResponse, type Session } from "./tokens";
 
 /**
- * Plain-fetch helpers for the email-verified registration flow + passkey
- * enrolment. Kept separate from the Effect-based OsnAuth service so consumers
- * can use these directly from UI components without dragging in the Storage
+ * Plain-fetch helpers for the email-verified registration flow + first-
+ * passkey enrollment. Kept separate from the Effect-based `OsnAuth` service
+ * so UI components can use these directly without dragging in the Storage
  * layer.
  *
  * Flow:
- *  1. checkHandle(handle)             — front-end "is this @ free?" check
- *  2. beginRegistration(...)          — sends a 6-digit OTP to the email
- *  3. completeRegistration(...)       — verifies the OTP, creates the user,
- *                                       and returns { profileId, session,
- *                                       enrollmentToken } in a single
- *                                       response. The session is ready to
- *                                       hand to AuthProvider.adoptSession.
- *  4. passkeyRegisterBegin({profileId,enrollmentToken})  — fetch WebAuthn options
- *  5. passkeyRegisterComplete({profileId,enrollmentToken,attestation}) — submit
+ *  1. `checkHandle(handle)`                — front-end "is this @ free?" probe
+ *  2. `beginRegistration(...)`             — sends a 6-digit OTP to the email
+ *  3. `completeRegistration(...)`          — verifies the OTP, creates the
+ *                                            account + profile, and returns
+ *                                            `{ profileId, session }`. The
+ *                                            session is ready to hand to
+ *                                            `AuthProvider.adoptSession`.
+ *  4. `passkeyRegisterBegin({profileId, accessToken})`  — fetch WebAuthn
+ *                                            options. Pass the access
+ *                                            token returned in step 3.
+ *  5. `passkeyRegisterComplete({profileId,accessToken,attestation})` —
+ *                                            submit the attested
+ *                                            credential. The server
+ *                                            derives the caller's session
+ *                                            token from the HttpOnly
+ *                                            cookie (S-H1); no body field
+ *                                            for it here.
+ *
+ * Adding a SECOND passkey post-registration requires a `stepUpToken` on
+ * `passkeyRegisterBegin` (S-H1) — pass one minted by the step-up client.
+ * The first-passkey bootstrap flow from `completeRegistration` never
+ * needs it because the account has no credentials yet.
  *
  * The WebAuthn browser ceremony is intentionally not performed inside this
- * package — keeping it caller-side avoids adding @simplewebauthn/browser as a
- * dependency of @osn/client.
+ * package — keeping it caller-side avoids pulling in @simplewebauthn/browser.
  *
- * Notes:
- *  - There is NO `exchangeAuthCode` step. The previous design routed through
- *    /token with a literal `code_verifier: "registration"` and no `state`,
- *    which exploited a pre-existing PKCE bypass at /token. The bypass is now
- *    out of the registration code path entirely.
- *  - Both passkey calls require an Authorization: Bearer header carrying the
- *    enrollment token returned from completeRegistration. The server compares
- *    the token's `sub` against the body `profileId` and rejects mismatches.
+ * The UI MUST complete step 5 before dismissing the registration flow.
+ * Together with the last-passkey guard in `DELETE /passkeys/:id`, this
+ * maintains the invariant "every live account has ≥1 WebAuthn credential".
  */
 
 export interface RegistrationClientConfig {
@@ -68,8 +75,6 @@ export interface CompleteRegistrationResult {
   email: string;
   /** Ready to pass to AuthProvider.adoptSession. */
   session: Session;
-  /** Single-use bearer token for /passkey/register/{begin,complete}. */
-  enrollmentToken: string;
 }
 
 export interface RegistrationClient {
@@ -80,10 +85,20 @@ export interface RegistrationClient {
     displayName?: string;
   }): Promise<{ sent: boolean }>;
   completeRegistration(input: { email: string; code: string }): Promise<CompleteRegistrationResult>;
-  passkeyRegisterBegin(input: { profileId: string; enrollmentToken: string }): Promise<unknown>;
+  /** WebAuthn options for the first-passkey enrollment. `accessToken` is the one returned by `completeRegistration`. */
+  /**
+   * Fetch WebAuthn options. `stepUpToken` is REQUIRED by the server when
+   * the account already has ≥1 passkey (S-H1); the first-passkey
+   * bootstrap flow from `completeRegistration` can omit it.
+   */
+  passkeyRegisterBegin(input: {
+    profileId: string;
+    accessToken: string;
+    stepUpToken?: string;
+  }): Promise<unknown>;
   passkeyRegisterComplete(input: {
     profileId: string;
-    enrollmentToken: string;
+    accessToken: string;
     attestation: unknown;
   }): Promise<{ passkeyId: string }>;
 }
@@ -112,7 +127,6 @@ export function createRegistrationClient(config: RegistrationClientConfig): Regi
       handle: string;
       email: string;
       session: unknown;
-      enrollment_token: string;
     }>(`${base}/register/complete`, input);
     const session = parseTokenResponse(raw.session);
     return {
@@ -120,26 +134,31 @@ export function createRegistrationClient(config: RegistrationClientConfig): Regi
       handle: raw.handle,
       email: raw.email,
       session,
-      enrollmentToken: raw.enrollment_token,
     };
   };
 
-  const passkeyRegisterBegin = (input: { profileId: string; enrollmentToken: string }) =>
+  const passkeyRegisterBegin = (input: {
+    profileId: string;
+    accessToken: string;
+    stepUpToken?: string;
+  }) =>
     postJson<unknown>(
       `${base}/passkey/register/begin`,
-      { profileId: input.profileId },
-      { bearer: input.enrollmentToken },
+      input.stepUpToken !== undefined
+        ? { profileId: input.profileId, step_up_token: input.stepUpToken }
+        : { profileId: input.profileId },
+      { bearer: input.accessToken },
     );
 
   const passkeyRegisterComplete = (input: {
     profileId: string;
-    enrollmentToken: string;
+    accessToken: string;
     attestation: unknown;
   }) =>
     postJson<{ passkeyId: string }>(
       `${base}/passkey/register/complete`,
       { profileId: input.profileId, attestation: input.attestation },
-      { bearer: input.enrollmentToken },
+      { bearer: input.accessToken },
     );
 
   return {

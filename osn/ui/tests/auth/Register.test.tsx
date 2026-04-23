@@ -245,7 +245,6 @@ describe("Register component", () => {
       stub.completeRegistration.mockResolvedValue({
         profileId: "usr_abc",
         session: sampleSession,
-        enrollmentToken: "enroll_xyz",
       });
       await advanceToVerify();
       // Type non-digits into each box — completeRegistration should never fire.
@@ -257,7 +256,7 @@ describe("Register component", () => {
     });
   });
 
-  describe("passkey step (supported)", () => {
+  describe("passkey step (mandatory)", () => {
     function fillOtpDigits(digits: string) {
       for (let i = 0; i < digits.length && i < 6; i++) {
         const input = screen.getByLabelText(`Digit ${i + 1}`) as HTMLInputElement;
@@ -273,7 +272,6 @@ describe("Register component", () => {
         handle: "alice",
         email: "alice@example.com",
         session: sampleSession,
-        enrollmentToken: "enroll_xyz",
       });
       hoisted.adoptSession.mockResolvedValue(undefined);
       render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
@@ -284,93 +282,52 @@ describe("Register component", () => {
       await waitFor(() => screen.getByLabelText("Digit 1"));
       fillOtpDigits("123456");
       fireEvent.click(screen.getByRole("button", { name: /Verify email/i }));
-      await waitFor(() => screen.getByRole("button", { name: /Create passkey/i }));
+      await waitFor(() => screen.getByRole("button", { name: /Enroll credential/i }));
     }
 
-    it("adopts the session immediately after OTP verify, before any passkey work", async () => {
+    it("adopts the session immediately after OTP verify so the access token can drive enrollment", async () => {
       await reachPasskey();
-      // Crucial: adoptSession was called as soon as the OTP verified, NOT
-      // gated on the user clicking "Create passkey". This is the redesign
-      // that eliminates the "stranded between verified and logged in" UX
-      // dead-end.
       expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession);
       expect(stub.passkeyRegisterBegin).not.toHaveBeenCalled();
     });
 
-    it("happy path: enrolls a passkey using the enrollment token", async () => {
+    it("happy path: enrolls a WebAuthn credential using the freshly-issued access token", async () => {
       await reachPasskey();
       stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
       hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
       stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
 
-      fireEvent.click(screen.getByRole("button", { name: /Create passkey/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
 
       await waitFor(() => {
         expect(stub.passkeyRegisterComplete).toHaveBeenCalled();
       });
-      // Both passkey calls must carry the enrollment token.
       expect(stub.passkeyRegisterBegin).toHaveBeenCalledWith({
         profileId: "usr_abc",
-        enrollmentToken: "enroll_xyz",
+        accessToken: sampleSession.accessToken,
       });
       expect(hoisted.startRegistration).toHaveBeenCalledWith({ optionsJSON: { challenge: "ch" } });
       expect(stub.passkeyRegisterComplete).toHaveBeenCalledWith({
         profileId: "usr_abc",
-        enrollmentToken: "enroll_xyz",
+        accessToken: sampleSession.accessToken,
         attestation: { id: "cred", rawId: "raw" },
       });
     });
 
-    it("'Skip for now' advances to done — user already signed in", async () => {
+    it("there is no 'Skip' button — enrollment is required to finish the flow", async () => {
       await reachPasskey();
-      // Reset the call count from reachPasskey() so we only see clicks here.
-      hoisted.adoptSession.mockClear();
-
-      fireEvent.click(screen.getByRole("button", { name: /Skip for now/i }));
-
-      // No passkey calls, no second adoptSession (already adopted at OTP step).
-      expect(stub.passkeyRegisterBegin).not.toHaveBeenCalled();
-      expect(hoisted.startRegistration).not.toHaveBeenCalled();
-      expect(hoisted.adoptSession).not.toHaveBeenCalled();
+      expect(screen.queryByRole("button", { name: /Skip/i })).toBeNull();
     });
   });
 
-  describe("passkey step (unsupported environment)", () => {
-    it("submitOtp jumps straight to done; passkey APIs untouched", async () => {
+  describe("WebAuthn-unsupported environment", () => {
+    it("blocks the flow at the start with an informational screen", async () => {
       hoisted.webauthnSupported = false;
-      stub.checkHandle.mockResolvedValue({ available: true });
-      stub.beginRegistration.mockResolvedValue({ sent: true });
-      stub.completeRegistration.mockResolvedValue({
-        profileId: "usr_abc",
-        handle: "alice",
-        email: "alice@example.com",
-        session: sampleSession,
-        enrollmentToken: "enroll_xyz",
-      });
-      hoisted.adoptSession.mockResolvedValue(undefined);
-
       render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
-      fillEmail("alice@example.com");
-      fillHandle("alice");
-      await vi.advanceTimersByTimeAsync(350);
-      fireEvent.click(screen.getByRole("button", { name: /Send verification code/i }));
-      await waitFor(() => screen.getByLabelText("Digit 1"));
-      for (let i = 0; i < 6; i++) {
-        const input = screen.getByLabelText(`Digit ${i + 1}`) as HTMLInputElement;
-        fireEvent.input(input, { target: { value: "123456"[i] } });
-      }
-      fireEvent.click(screen.getByRole("button", { name: /Verify email/i }));
-
-      // adoptSession is called as part of submitOtp, then we jump to done.
-      await waitFor(() => {
-        expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession);
-      });
-
-      // Crucially, the passkey ceremony APIs were never touched and the
-      // "Create passkey" button never appeared in the DOM.
-      expect(stub.passkeyRegisterBegin).not.toHaveBeenCalled();
-      expect(hoisted.startRegistration).not.toHaveBeenCalled();
-      expect(screen.queryByRole("button", { name: /Create passkey/i })).toBeNull();
+      // No form fields render; only the fallback copy.
+      expect(screen.queryByLabelText(/Email/)).toBeNull();
+      expect(screen.getByText(/needs a passkey or security key/i)).toBeTruthy();
+      expect(stub.beginRegistration).not.toHaveBeenCalled();
     });
   });
 

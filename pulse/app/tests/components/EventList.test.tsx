@@ -66,10 +66,12 @@ vi.mock("../../src/lib/authClients", () => ({
     completeRegistration: vi.fn(),
   },
   loginClient: {
-    otpBegin: vi.fn(),
-    otpComplete: vi.fn(),
     passkeyBegin: vi.fn(),
-    magicBegin: vi.fn(),
+    passkeyComplete: vi.fn(),
+  },
+  recoveryClient: {
+    generateRecoveryCodes: vi.fn(),
+    loginWithRecoveryCode: vi.fn(),
   },
 }));
 

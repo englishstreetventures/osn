@@ -22,7 +22,7 @@ const ONE_MINUTE_MS = 60_000;
 const ONE_HOUR_MS = 3_600_000;
 
 /**
- * Build all 13 auth rate limiters backed by a shared Redis client.
+ * Build all auth rate limiters backed by a shared Redis client.
  * Namespace convention: `auth:{endpoint_name}` — produces Redis keys like
  * `rl:auth:register_begin:192.168.1.1`.
  */
@@ -34,9 +34,6 @@ export function createRedisAuthRateLimiters(client: RedisClient): AuthRateLimite
     registerBegin: rl("auth:register_begin", 5),
     registerComplete: rl("auth:register_complete", 10),
     handleCheck: rl("auth:handle_check", 10),
-    otpBegin: rl("auth:otp_begin", 5),
-    otpComplete: rl("auth:otp_complete", 10),
-    magicBegin: rl("auth:magic_begin", 5),
     passkeyLoginBegin: rl("auth:passkey_login_begin", 10),
     passkeyLoginComplete: rl("auth:passkey_login_complete", 10),
     passkeyRegisterBegin: rl("auth:passkey_register_begin", 10),

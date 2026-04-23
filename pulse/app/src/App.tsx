@@ -1,5 +1,4 @@
 import { AuthProvider } from "@osn/client/solid";
-import { MagicLinkHandler } from "@osn/ui/auth/MagicLinkHandler";
 import { Router, Route } from "@solidjs/router";
 import { lazy } from "solid-js";
 import { Toaster } from "solid-toast";
@@ -7,7 +6,6 @@ import { Toaster } from "solid-toast";
 import { EventList } from "./components/EventList";
 import { Header } from "./components/Header";
 import { OSN_ISSUER_URL } from "./lib/auth";
-import { loginClient } from "./lib/authClients";
 
 import "./App.css";
 
@@ -23,15 +21,9 @@ const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
 );
 
-/**
- * Root layout. Wraps every route in the AuthProvider and the magic-link
- * handler so auth context and magic-link deep links keep working
- * regardless of the initial URL.
- */
 function Layout(props: { children?: unknown }) {
   return (
     <>
-      <MagicLinkHandler client={loginClient} />
       <Header />
       {props.children}
       <Toaster position="bottom-right" />

@@ -54,6 +54,7 @@ The `wiki/` directory contains detailed reference pages. Use this index to find 
 | Add or use a UI component (Button, Card, Dialog…) | `[[wiki/architecture/component-library]]` |
 | Work on the social graph or close friends | `[[wiki/systems/social-graph]]`, `[[wiki/systems/close-friends]]` |
 | Gate a sensitive action behind step-up auth | `[[wiki/systems/step-up]]` |
+| Understand the passkey-only login model | `[[wiki/systems/passkey-primary]]` |
 | Surface session list / revoke per device | `[[wiki/systems/sessions]]` |
 | Understand cross-service calls | `[[wiki/architecture/s2s-patterns]]` |
 | Debug a production issue | Browse `wiki/runbooks/` |

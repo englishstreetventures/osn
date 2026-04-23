@@ -14,7 +14,7 @@ import { createTestLayer } from "../helpers/db";
  *   • list returns a public-safe shape (no publicKey / counter).
  *   • rename enforces label validation + scoping.
  *   • delete emits a security event, revokes other sessions, and refuses
- *     to delete the last passkey unless recovery codes are available.
+ *     to drop the account below one passkey under any circumstance.
  */
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
@@ -172,14 +172,14 @@ describe("deletePasskey", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("refuses to delete the last passkey when there are no recovery codes", () =>
+  it.effect("refuses to delete the last passkey unconditionally", () =>
     Effect.gen(function* () {
       const alice = yield* auth.registerProfile("pk-last@example.com", "pklast");
       const only = yield* seedPasskey(alice.accountId);
 
       const err = yield* Effect.flip(auth.deletePasskey(alice.accountId, only, null));
       expect(err._tag).toBe("AuthError");
-      expect((err as { message: string }).message).toMatch(/recovery codes/i);
+      expect((err as { message: string }).message).toMatch(/another passkey/i);
 
       // Row still there.
       const { passkeys: rows } = yield* auth.listPasskeys(alice.accountId);
@@ -187,14 +187,37 @@ describe("deletePasskey", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("allows deleting the last passkey once recovery codes exist", () =>
+  it.effect("still refuses the last-passkey delete even when recovery codes exist", () =>
     Effect.gen(function* () {
-      const alice = yield* auth.registerProfile("pk-last-ok@example.com", "pklastok");
+      // Regression guard: the prior version of this method allowed dropping
+      // the last passkey IF active recovery codes existed. That escape hatch
+      // was removed — recovery codes are for "lost device", not a substitute
+      // credential. This test pins the stricter contract so a future refactor
+      // can't quietly reintroduce the old branch.
+      const alice = yield* auth.registerProfile("pk-last-rc@example.com", "pklastrc");
       const only = yield* seedPasskey(alice.accountId);
 
+      // Recovery codes are the "device lost" escape hatch, not a substitute
+      // credential. The invariant "every account has ≥1 passkey" holds
+      // cradle-to-grave.
       yield* auth.generateRecoveryCodesForAccount(alice.accountId);
-      const result = yield* auth.deletePasskey(alice.accountId, only, null);
-      expect(result.remaining).toBe(0);
+      const err = yield* Effect.flip(auth.deletePasskey(alice.accountId, only, null));
+      expect(err._tag).toBe("AuthError");
+      expect((err as { message: string }).message).toMatch(/another passkey/i);
+
+      const { passkeys: rows } = yield* auth.listPasskeys(alice.accountId);
+      expect(rows).toHaveLength(1);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("allows deleting a passkey when another one remains", () =>
+    Effect.gen(function* () {
+      const alice = yield* auth.registerProfile("pk-two@example.com", "pktwo");
+      const first = yield* seedPasskey(alice.accountId);
+      yield* seedPasskey(alice.accountId);
+
+      const result = yield* auth.deletePasskey(alice.accountId, first, null);
+      expect(result.remaining).toBe(1);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -266,6 +289,50 @@ describe("listPasskeys public shape", () => {
   );
 });
 
+// S-H1: step-up gate on /passkey/register/* when the account already has
+// ≥1 passkey. First-passkey bootstrap is exempt (no ceremony reachable
+// before the account has credentials). Prevents silent passkey enrollment
+// via a stolen access token.
+describe("passkey register step-up gate (S-H1)", () => {
+  it.effect("first-passkey enrollment does not require step-up", () =>
+    Effect.gen(function* () {
+      const alice = yield* auth.registerProfile("pk-first@example.com", "pkfirst");
+      // No passkey seeded — bootstrap path.
+      const result = yield* auth.beginPasskeyRegistration(alice.accountId);
+      expect(result.options.challenge).toBeTruthy();
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("adding a second passkey without step-up fails with AuthError", () =>
+    Effect.gen(function* () {
+      const alice = yield* auth.registerProfile("pk-add@example.com", "pkadd");
+      yield* seedPasskey(alice.accountId);
+      const err = yield* Effect.flip(auth.beginPasskeyRegistration(alice.accountId));
+      expect(err._tag).toBe("AuthError");
+      expect((err as { message: string }).message).toMatch(/step.up/i);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("adding a second passkey with a valid step-up token succeeds", () =>
+    Effect.gen(function* () {
+      const alice = yield* auth.registerProfile("pk-add-ok@example.com", "pkaddok");
+      yield* seedPasskey(alice.accountId);
+      let capturedCode: string | undefined;
+      const svc = createAuthService({
+        ...config,
+        sendEmail: async (_to, _subject, body) => {
+          const m = body.match(/(\d{6})/);
+          if (m) capturedCode = m[1];
+        },
+      });
+      yield* svc.beginStepUpOtp(alice.accountId);
+      const { stepUpToken } = yield* svc.completeStepUpOtp(alice.accountId, capturedCode!);
+      const result = yield* auth.beginPasskeyRegistration(alice.accountId, stepUpToken);
+      expect(result.options.challenge).toBeTruthy();
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
 // T-U2: MAX_PASSKEYS_PER_ACCOUNT cap enforcement — begin refuses past the
 // limit; complete's race-guard refuses even if begin was passed concurrently.
 describe("passkey count cap (MAX_PASSKEYS_PER_ACCOUNT)", () => {
@@ -281,13 +348,25 @@ describe("passkey count cap (MAX_PASSKEYS_PER_ACCOUNT)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("still allows begin at count = 9", () =>
+  it.effect("still allows begin at count = 9 (with step-up)", () =>
     Effect.gen(function* () {
       const alice = yield* auth.registerProfile("pk-cap9@example.com", "pkcap9");
       for (let i = 0; i < 9; i++) {
         yield* seedPasskey(alice.accountId);
       }
-      const result = yield* auth.beginPasskeyRegistration(alice.accountId);
+      // S-H1: begin requires step-up once the account has ≥1 passkey.
+      // Mint one via the OTP ceremony.
+      let capturedCode: string | undefined;
+      const svc = createAuthService({
+        ...config,
+        sendEmail: async (_to, _subject, body) => {
+          const m = body.match(/(\d{6})/);
+          if (m) capturedCode = m[1];
+        },
+      });
+      yield* svc.beginStepUpOtp(alice.accountId);
+      const { stepUpToken } = yield* svc.completeStepUpOtp(alice.accountId, capturedCode!);
+      const result = yield* auth.beginPasskeyRegistration(alice.accountId, stepUpToken);
       expect(result.options.challenge).toBeTruthy();
     }).pipe(Effect.provide(createTestLayer())),
   );
