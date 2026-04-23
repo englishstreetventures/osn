@@ -37,7 +37,7 @@ No Tauri wrapper yet — the app ships as a web build only. Tauri wrapping is tr
 | `/discover` | `DiscoverPage` | Friends-of-friends recommendations (`GET /recommendations/connections`) |
 | `/organisations` | `OrganisationsPage` | Orgs the user owns or belongs to; create new |
 | `/organisations/:id` | `OrgDetailPage` | Org detail + member management |
-| `/settings` | `SettingsPage` | Profile management, account section, sessions, passkeys, security events |
+| `/settings` | `SettingsPage` | Profile / Account / **Security** (passkey add/rename/delete, step-up gated) / Connected apps tabs. The Security tab is lazy-loaded (`SecuritySection` chunk) so `@simplewebauthn/browser` only ships when opened. |
 
 ## Client surface
 

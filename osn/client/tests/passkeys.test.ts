@@ -174,4 +174,102 @@ describe("createPasskeysClient", () => {
       ).rejects.toBeInstanceOf(PasskeysError);
     });
   });
+
+  describe("registerBegin", () => {
+    it("POSTs /passkey/register/begin with bearer + X-Step-Up-Token + body step_up_token + profileId", async () => {
+      const options = { challenge: "chal_xyz" };
+      const { calls } = stubFetch(() => jsonResponse(options));
+      const result = await client.registerBegin({
+        accessToken: "acc_abc",
+        profileId: "prof_123",
+        stepUpToken: "stpup_xyz",
+      });
+      expect(result).toEqual(options);
+      expect(calls[0]!.url).toBe("https://osn.example.com/passkey/register/begin");
+      expect(calls[0]!.init?.method).toBe("POST");
+      const h = headerMap(calls[0]!.init);
+      expect(h["authorization"]).toBe("Bearer acc_abc");
+      expect(h["content-type"]).toBe("application/json");
+      expect(h["x-step-up-token"]).toBe("stpup_xyz");
+      expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({
+        profileId: "prof_123",
+        step_up_token: "stpup_xyz",
+      });
+      expect(calls[0]!.init?.credentials).toBe("include");
+    });
+
+    it("throws PasskeysError on 403 (step-up missing server-side)", async () => {
+      stubFetch(() => jsonResponse({ error: "step_up_required" }, { status: 403 }));
+      await expect(
+        client.registerBegin({
+          accessToken: "t",
+          profileId: "prof",
+          stepUpToken: "s",
+        }),
+      ).rejects.toBeInstanceOf(PasskeysError);
+    });
+
+    // T-U1: locks the pass-through contract — `registerBegin` does not
+    // validate the WebAuthn options shape, it just forwards whatever the
+    // server returns on 2xx. If we ever tighten that into a shape check
+    // (e.g. require a `challenge` field), this test fails loudly and
+    // forces the change to be intentional.
+    it("passes an empty 2xx body through unchanged (pass-through contract)", async () => {
+      stubFetch(() => jsonResponse({}));
+      const result = await client.registerBegin({
+        accessToken: "t",
+        profileId: "prof",
+        stepUpToken: "s",
+      });
+      expect(result).toEqual({});
+    });
+  });
+
+  describe("registerComplete", () => {
+    it("POSTs /passkey/register/complete with bearer and body { profileId, attestation }", async () => {
+      const attestation = { id: "cred_abc" };
+      const { calls } = stubFetch(() => jsonResponse({ passkeyId: "pk_new" }));
+      const result = await client.registerComplete({
+        accessToken: "acc_abc",
+        profileId: "prof_123",
+        attestation,
+      });
+      expect(result).toEqual({ passkeyId: "pk_new" });
+      expect(calls[0]!.url).toBe("https://osn.example.com/passkey/register/complete");
+      expect(calls[0]!.init?.method).toBe("POST");
+      const h = headerMap(calls[0]!.init);
+      expect(h["authorization"]).toBe("Bearer acc_abc");
+      expect(h["content-type"]).toBe("application/json");
+      expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({
+        profileId: "prof_123",
+        attestation,
+      });
+      expect(calls[0]!.init?.credentials).toBe("include");
+    });
+
+    it("throws PasskeysError when the body is missing passkeyId", async () => {
+      stubFetch(() => jsonResponse({ error: "bad_attestation" }, { status: 400 }));
+      await expect(
+        client.registerComplete({
+          accessToken: "t",
+          profileId: "prof",
+          attestation: {},
+        }),
+      ).rejects.toBeInstanceOf(PasskeysError);
+    });
+
+    // T-E1: the negative test above hits `!res.ok` before the missing-
+    // passkeyId guard is even reached. Cover the guard directly: a 2xx
+    // with a non-string `passkeyId` must still surface as PasskeysError.
+    it("throws PasskeysError on 2xx when passkeyId is absent / wrong type", async () => {
+      stubFetch(() => jsonResponse({ ok: true }, { status: 200 }));
+      await expect(
+        client.registerComplete({
+          accessToken: "t",
+          profileId: "prof",
+          attestation: {},
+        }),
+      ).rejects.toBeInstanceOf(PasskeysError);
+    });
+  });
 });

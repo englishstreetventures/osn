@@ -27,10 +27,22 @@ export interface PasskeysViewProps {
   stepUpClient: StepUpClient;
   accessToken: string;
   /**
+   * Profile ID used for passkey enrolment. Required to surface the "Add
+   * passkey" button; without it, enrolment stays hidden and only the
+   * list / rename / delete surface renders.
+   */
+  profileId?: string;
+  /**
    * Executes the browser-side WebAuthn assertion for the step-up ceremony.
    * Kept caller-side so `@osn/ui` doesn't pull `@simplewebauthn/browser`.
    */
   runPasskeyCeremony?: (options: unknown) => Promise<unknown>;
+  /**
+   * Executes the browser-side WebAuthn attestation ceremony for adding a
+   * new passkey. Same caller-side pattern as `runPasskeyCeremony` so this
+   * package doesn't pull in `@simplewebauthn/browser`.
+   */
+  runPasskeyRegistration?: (options: unknown) => Promise<unknown>;
 }
 
 function formatTs(ts: number | null): string {
@@ -44,7 +56,10 @@ function friendlyLabel(p: PasskeySummary): string {
   return "Device passkey";
 }
 
-type PendingAction = { kind: "rename"; id: string; label: string } | { kind: "delete"; id: string };
+type PendingAction =
+  | { kind: "rename"; id: string; label: string }
+  | { kind: "delete"; id: string }
+  | { kind: "add" };
 
 export function PasskeysView(props: PasskeysViewProps) {
   const [reloadKey, setReloadKey] = createSignal(0);
@@ -91,6 +106,13 @@ export function PasskeysView(props: PasskeysViewProps) {
     setPending({ kind: "delete", id });
   }
 
+  function requestAdd() {
+    if (locked()) return;
+    if (!props.profileId || !props.runPasskeyRegistration) return;
+    setError(null);
+    setPending({ kind: "add" });
+  }
+
   async function handleStepUp(token: StepUpToken) {
     const action = pending();
     if (!action) return;
@@ -105,17 +127,36 @@ export function PasskeysView(props: PasskeysViewProps) {
           stepUpToken: token.token,
         });
         cancelEdit();
-      } else {
+      } else if (action.kind === "delete") {
         await props.client.delete({
           accessToken: props.accessToken,
           id: action.id,
           stepUpToken: token.token,
         });
+      } else {
+        // kind === "add" — guarded by requestAdd().
+        const profileId = props.profileId!;
+        const runRegistration = props.runPasskeyRegistration!;
+        const options = await props.client.registerBegin({
+          accessToken: props.accessToken,
+          profileId,
+          stepUpToken: token.token,
+        });
+        const attestation = await runRegistration(options);
+        await props.client.registerComplete({
+          accessToken: props.accessToken,
+          profileId,
+          attestation,
+        });
       }
       setReloadKey((k) => k + 1);
     } catch (e) {
       const fallback =
-        action.kind === "rename" ? "Couldn't rename passkey" : "Couldn't delete passkey";
+        action.kind === "rename"
+          ? "Couldn't rename passkey"
+          : action.kind === "delete"
+            ? "Couldn't delete passkey"
+            : "Couldn't add passkey";
       setError(e instanceof Error ? e.message : fallback);
     } finally {
       setBusy(false);
@@ -131,6 +172,11 @@ export function PasskeysView(props: PasskeysViewProps) {
     <div class="flex flex-col gap-3">
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold">Passkeys</h2>
+        <Show when={props.profileId && props.runPasskeyRegistration}>
+          <Button size="sm" onClick={requestAdd} disabled={locked()}>
+            Add passkey
+          </Button>
+        </Show>
       </div>
       <Show when={error()}>{(msg) => <p class="text-destructive text-sm">{msg()}</p>}</Show>
       <Show when={passkeys.loading}>

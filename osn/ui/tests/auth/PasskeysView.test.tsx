@@ -17,6 +17,8 @@ interface PasskeysStub {
   list: ReturnType<typeof vi.fn>;
   rename: ReturnType<typeof vi.fn>;
   delete: ReturnType<typeof vi.fn>;
+  registerBegin: ReturnType<typeof vi.fn>;
+  registerComplete: ReturnType<typeof vi.fn>;
 }
 
 interface StepUpStub {
@@ -30,6 +32,8 @@ const makePasskeys = (): PasskeysStub => ({
   list: vi.fn(),
   rename: vi.fn(),
   delete: vi.fn(),
+  registerBegin: vi.fn(),
+  registerComplete: vi.fn(),
 });
 
 const makeStepUp = (): StepUpStub => ({
@@ -219,6 +223,168 @@ describe("PasskeysView", () => {
     fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
 
     await waitFor(() => expect(screen.getByText(/Passkey not found/)).toBeTruthy());
+  });
+
+  it("hides the Add-passkey button when profileId / runPasskeyRegistration are missing", async () => {
+    pk.list.mockResolvedValue({ passkeys: passkeyRows });
+    render(() => (
+      <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} accessToken="acc" />
+    ));
+    await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
+    expect(screen.queryByRole("button", { name: /Add passkey/i })).toBeNull();
+  });
+
+  it("add-passkey flow: step-up → registerBegin(stepUpToken) → browser ceremony → registerComplete → reload", async () => {
+    pk.list.mockResolvedValueOnce({ passkeys: passkeyRows });
+    pk.list.mockResolvedValueOnce({
+      passkeys: [
+        ...passkeyRows,
+        {
+          id: "pk_ccccccccccccc",
+          label: null,
+          aaguid: null,
+          transports: null,
+          backupEligible: false,
+          backupState: false,
+          createdAt: 1_700_001_000,
+          lastUsedAt: null,
+        },
+      ],
+    });
+    pk.registerBegin.mockResolvedValue({ challenge: "chal" });
+    pk.registerComplete.mockResolvedValue({ passkeyId: "pk_ccccccccccccc" });
+    su.otpBegin.mockResolvedValue({ sent: true });
+    su.otpComplete.mockResolvedValue(stepUpToken);
+
+    const runRegistration = vi.fn().mockResolvedValue({ id: "cred_abc" });
+
+    render(() => (
+      <PasskeysView
+        client={asPasskeys(pk)}
+        stepUpClient={asStepUp(su)}
+        accessToken="acc"
+        profileId="prof_123"
+        runPasskeyRegistration={runRegistration}
+      />
+    ));
+
+    await waitFor(() => screen.getByRole("button", { name: /Add passkey/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Add passkey/i }));
+
+    // Step-up dialog — use OTP factor.
+    await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+    const codeInput = await waitFor(() => screen.getByLabelText(/code/i) as HTMLInputElement);
+    fireEvent.input(codeInput, { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+
+    await waitFor(() =>
+      expect(pk.registerBegin).toHaveBeenCalledWith({
+        accessToken: "acc",
+        profileId: "prof_123",
+        stepUpToken: stepUpToken.token,
+      }),
+    );
+    expect(runRegistration).toHaveBeenCalledWith({ challenge: "chal" });
+    expect(pk.registerComplete).toHaveBeenCalledWith({
+      accessToken: "acc",
+      profileId: "prof_123",
+      attestation: { id: "cred_abc" },
+    });
+    // Reload after add.
+    await waitFor(() => expect(pk.list).toHaveBeenCalledTimes(2));
+  });
+
+  it("surfaces add-passkey errors in a destructive banner", async () => {
+    pk.list.mockResolvedValue({ passkeys: passkeyRows });
+    pk.registerBegin.mockRejectedValue(new Error("Attestation rejected"));
+    su.otpBegin.mockResolvedValue({ sent: true });
+    su.otpComplete.mockResolvedValue(stepUpToken);
+
+    render(() => (
+      <PasskeysView
+        client={asPasskeys(pk)}
+        stepUpClient={asStepUp(su)}
+        accessToken="acc"
+        profileId="prof_123"
+        runPasskeyRegistration={vi.fn()}
+      />
+    ));
+
+    await waitFor(() => screen.getByRole("button", { name: /Add passkey/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Add passkey/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+    const codeInput = await waitFor(() => screen.getByLabelText(/code/i) as HTMLInputElement);
+    fireEvent.input(codeInput, { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+
+    await waitFor(() => expect(screen.getByText(/Attestation rejected/)).toBeTruthy());
+    expect(pk.registerComplete).not.toHaveBeenCalled();
+  });
+
+  // T-E2: most likely real-world failure shape — the user dismisses the
+  // browser's WebAuthn prompt. registerBegin already resolved, so we must
+  // surface the error AND release the `busy` / `pending` lock so the Add
+  // button is clickable again.
+  it("re-enables Add passkey after the browser ceremony is cancelled", async () => {
+    pk.list.mockResolvedValue({ passkeys: passkeyRows });
+    pk.registerBegin.mockResolvedValue({ challenge: "chal" });
+    su.otpBegin.mockResolvedValue({ sent: true });
+    su.otpComplete.mockResolvedValue(stepUpToken);
+    const runRegistration = vi.fn().mockRejectedValue(new Error("NotAllowedError"));
+
+    render(() => (
+      <PasskeysView
+        client={asPasskeys(pk)}
+        stepUpClient={asStepUp(su)}
+        accessToken="acc"
+        profileId="prof_123"
+        runPasskeyRegistration={runRegistration}
+      />
+    ));
+
+    await waitFor(() => screen.getByRole("button", { name: /Add passkey/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Add passkey/i }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+    const codeInput = await waitFor(() => screen.getByLabelText(/code/i) as HTMLInputElement);
+    fireEvent.input(codeInput, { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+
+    await waitFor(() => expect(screen.getByText(/NotAllowedError/)).toBeTruthy());
+    expect(pk.registerComplete).not.toHaveBeenCalled();
+    // finally-block cleanup: the Add button must be clickable again.
+    const addButton = screen.getByRole("button", {
+      name: /Add passkey/i,
+    }) as HTMLButtonElement;
+    await waitFor(() => expect(addButton.disabled).toBe(false));
+  });
+
+  // T-S1: the S-L1 lock must cover the Add button too — a rename/delete
+  // step-up in flight must not allow a second ceremony to kick off.
+  it("disables Add passkey while a rename/delete step-up is in flight (T-S1)", async () => {
+    pk.list.mockResolvedValue({ passkeys: passkeyRows });
+    su.otpBegin.mockResolvedValue({ sent: true });
+
+    render(() => (
+      <PasskeysView
+        client={asPasskeys(pk)}
+        stepUpClient={asStepUp(su)}
+        accessToken="acc"
+        profileId="prof_123"
+        runPasskeyRegistration={vi.fn()}
+      />
+    ));
+
+    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+    await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
+
+    const addButton = screen.getByRole("button", {
+      name: /Add passkey/i,
+    }) as HTMLButtonElement;
+    expect(addButton.disabled).toBe(true);
   });
 
   // S-L1: while a step-up is in flight, every Rename / Delete button on the

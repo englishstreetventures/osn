@@ -34,7 +34,10 @@ holds cradle-to-grave:
   codes are NOT a substitute credential — they are the "my device is gone"
   escape hatch only.
 - **Rotation.** Users who want to remove a compromised passkey enroll the
-  replacement first, then delete the old one. No transitional states.
+  replacement first via Settings → Security → "Add passkey", then delete
+  the old one. The add-passkey flow is step-up gated (passkey or OTP AMR)
+  so a stolen access token can't silently bind a new authenticator — see
+  "Step-up gating on register" below.
 
 ## Login surface
 
@@ -58,6 +61,13 @@ UI surface (`@osn/ui/auth`):
 - `<Register>` — WebAuthn-gated. Registration is blocked at the start if the
   environment lacks WebAuthn support; completion is blocked until first-
   credential enrollment succeeds.
+- `<PasskeysView>` (`@osn/ui/auth/PasskeysView`) — Settings → Security
+  surface. Lists the account's credentials; supports rename (step-up
+  gated, S-M2), delete (last-passkey guarded), and **Add passkey** (step-up
+  gated via the same `/passkey/register/*` endpoints the registration
+  flow uses). `@osn/social` mounts it behind a lazy-loaded
+  `SecuritySection` so `@simplewebauthn/browser` only ships when the tab
+  is opened.
 
 ## Accepting security keys
 

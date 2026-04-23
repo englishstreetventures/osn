@@ -47,6 +47,24 @@ export interface PasskeysClient {
     id: string;
     stepUpToken: string;
   }): Promise<{ success: true; remaining: number }>;
+  /**
+   * Begin enrolment of an additional passkey for the signed-in account.
+   * Hits the same `/passkey/register/begin` endpoint used by first-passkey
+   * bootstrap; `stepUpToken` is REQUIRED here (S-H1) because the account
+   * already has ≥1 credential — a stolen access token alone must not
+   * bind a new authenticator.
+   */
+  registerBegin(input: {
+    accessToken: string;
+    profileId: string;
+    stepUpToken: string;
+  }): Promise<unknown>;
+  /** Submit the WebAuthn attestation produced by the browser ceremony. */
+  registerComplete(input: {
+    accessToken: string;
+    profileId: string;
+    attestation: unknown;
+  }): Promise<{ passkeyId: string }>;
 }
 
 function authHeaders(accessToken: string): HeadersInit {
@@ -106,6 +124,41 @@ export function createPasskeysClient(config: PasskeysClientConfig): PasskeysClie
         throw new PasskeysError(json.error ?? `Request failed: ${res.status}`);
       }
       return { success: true, remaining: typeof json.remaining === "number" ? json.remaining : 0 };
+    },
+    registerBegin: async (input) => {
+      const res = await fetch(`${base}/passkey/register/begin`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          ...authHeaders(input.accessToken),
+          "X-Step-Up-Token": input.stepUpToken,
+        },
+        body: JSON.stringify({
+          profileId: input.profileId,
+          step_up_token: input.stepUpToken,
+        }),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        throw new PasskeysError(json.error ?? `Request failed: ${res.status}`);
+      }
+      return json;
+    },
+    registerComplete: async (input) => {
+      const res = await fetch(`${base}/passkey/register/complete`, {
+        method: "POST",
+        credentials: "include",
+        headers: authHeaders(input.accessToken),
+        body: JSON.stringify({
+          profileId: input.profileId,
+          attestation: input.attestation,
+        }),
+      });
+      const json = (await res.json()) as { passkeyId?: string; error?: string };
+      if (!res.ok || typeof json.passkeyId !== "string") {
+        throw new PasskeysError(json.error ?? `Request failed: ${res.status}`);
+      }
+      return { passkeyId: json.passkeyId };
     },
   };
 }

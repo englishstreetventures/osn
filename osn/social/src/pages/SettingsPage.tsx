@@ -6,16 +6,21 @@ import { Button } from "@osn/ui/ui/button";
 import { Card } from "@osn/ui/ui/card";
 import { Input } from "@osn/ui/ui/input";
 import { Label } from "@osn/ui/ui/label";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, lazy, Show, Suspense } from "solid-js";
 
 import { registrationClient } from "../lib/authClients";
 import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
 
-type Section = "profile" | "account" | "apps";
+// Code-split the Security section so `@simplewebauthn/browser` is only
+// fetched when the user opens that tab (P-I1).
+const SecuritySection = lazy(() => import("../components/SecuritySection"));
+
+type Section = "profile" | "account" | "security" | "apps";
 
 const SECTIONS: { value: Section; label: string }[] = [
   { value: "profile", label: "Profile" },
   { value: "account", label: "Account" },
+  { value: "security", label: "Security" },
   { value: "apps", label: "Connected apps" },
 ];
 
@@ -139,6 +144,22 @@ export function SettingsPage() {
                 Delete account (coming soon)
               </Button>
             </div>
+          </Card>
+        </Show>
+
+        {/* Security section — manage passkeys (add / rename / delete). */}
+        <Show when={section() === "security"}>
+          <Card class="flex flex-col gap-3 p-5">
+            <Show
+              when={accessToken() && claims().profileId}
+              fallback={
+                <p class="text-muted-foreground text-sm">Sign in to manage your passkeys.</p>
+              }
+            >
+              <Suspense fallback={<p class="text-muted-foreground text-sm">Loading…</p>}>
+                <SecuritySection accessToken={accessToken()!} profileId={claims().profileId!} />
+              </Suspense>
+            </Show>
           </Card>
         </Show>
 
