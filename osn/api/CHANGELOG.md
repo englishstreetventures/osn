@@ -1,5 +1,18 @@
 # @osn/osn
 
+## 3.3.0
+
+### Minor Changes
+
+- ac7312b: Add cross-device login: QR-code mediated session transfer allowing authentication on a new device by scanning a QR code from an already-authenticated device.
+
+### Patch Changes
+
+- Updated dependencies [ac7312b]
+  - @shared/observability@0.8.1
+  - @shared/email@0.2.1
+  - @shared/crypto@0.6.8
+
 ## 3.2.0
 
 ### Minor Changes

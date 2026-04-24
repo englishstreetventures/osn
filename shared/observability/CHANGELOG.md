@@ -1,5 +1,11 @@
 # @shared/observability
 
+## 0.8.1
+
+### Patch Changes
+
+- ac7312b: Add cross-device login: QR-code mediated session transfer allowing authentication on a new device by scanning a QR code from an already-authenticated device.
+
 ## 0.8.0
 
 ### Minor Changes
