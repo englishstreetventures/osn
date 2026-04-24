@@ -332,6 +332,8 @@ describe("redact", () => {
       "attestation",
       "passkeylabel",
       "passkey_label",
+      "cdlsecret",
+      "cdl_secret",
       "privatekey",
       "private_key",
       "accountid",

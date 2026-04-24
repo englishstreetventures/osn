@@ -57,6 +57,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 - [x] Session introspection + per-device revocation — `GET /sessions`, `DELETE /sessions/:id`, `POST /sessions/revoke-all-other`, coarse UA labels, HMAC-peppered IP hash, `last_used_at` — see [[sessions]]
 - [x] Email-change ceremony — step-up gated, OTP to new address, transactional other-session revoke, 2-per-7-days cap, `email_changes` audit table
 - [x] Session + `AccountSession` types drop `refreshToken` — cookie-only first-party; `AccountSession.hasSession` replaces stored refresh token. `/logout` body no longer accepts `refresh_token`.
+- [x] Cross-device login — QR-code mediated session transfer (4 endpoints: begin, status, approve, reject). In-memory store, 256-bit secret, SHA-256 hashed at rest, security_events audit + email notification. Client SDK + UI deferred to follow-on — see [[sessions]]
 - [ ] Recommendations SQL aggregation + compound indexes (P-W7) — push FOF counting into DB, add `connections(status, requester_id)` + `connections(status, addressee_id)` — see [[social-graph]]
 - [ ] Unified `handles` reservation table (user + org handles share namespace; currently enforced at service layer — see Deferred Decisions)
 
@@ -225,6 +226,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [x] S-L2 (multi) — Email duplication between `accounts.email` and `users.email`. **Resolved** — `users` table has no `email` column; all email access via JOIN to `accounts`
 - [x] S-H1 (session) — In-memory `rotatedSessions` map did not survive restarts or scale across pods. **Fixed** — `RotatedSessionStore` abstraction with Redis-backed impl wired in `osn/api/src/index.ts`; fail-open on Redis error so outages can't manufacture false-positive family revocations — see [[sessions]]
 - [x] S-M2 (auth) — `resolveAccessTokenPrincipal` and `resolveAccountId` duplicated across `routes/auth.ts` and `routes/profile.ts`. Extract shared Elysia derive — see [[identity-model]]
+- [ ] S-M2 (cdl) — No per-entry failed-secret attempt counter on CDL poll/approve/reject — IP rate limiter is the only brute-force defence; 256-bit entropy makes this low-risk but breaks the MAX_OTP_ATTEMPTS defence-in-depth precedent — see [[sessions]]
 - [ ] S-H1 (org) — `listMembers` service returns full profile rows; route projects, but service should restrict
 - [ ] S-M1 (org) — `GET /organisations/:handle/members` has no membership gate
 - [ ] S-M3 (org) — `getOrganisation` returns `ownerId` internal ID
@@ -302,6 +304,7 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [ ] P-W3 — `sendConnectionRequest` two sequential independent DB reads — use `Effect.all` with `concurrency: "unbounded"`
 - [ ] P-W3 (jwks) — `extractClaims` in pulse/api serialises JWKS resolve before DB I/O on read-only routes — parallelise with `Promise.all` for anonymous-capable endpoints — see [[arc-tokens]]
 - [ ] P-W4 — Auth Maps (`otpStore`, `magicStore`) never evict expired entries — see [[redis]] (`pkceStore` removed with Phase 5b)
+- [ ] P-W1 (cdl) — `sweepExpired` runs O(n) on every `beginCrossDeviceLogin`; replace with lazy expiry + periodic sweep — see [[sessions]]
 - [ ] P-I4 (auth) — `/login/magic/verify` has no rate limiter — add `magicVerify: RateLimiterBackend` (10/60s per-IP, mirror `/login/otp/complete`). Pre-existing, not a regression; parity with the rest of `/login/*` — see [[rate-limiting]]
 - [ ] P-W1 (pulse) — Duplicate event DB load per RSVP route: `loadVisibleEvent` fetches the row for the access gate; `listRsvps`/`rsvpCounts` re-fetch the same row internally. Thread the loaded `Event` into service functions — see [[s2s-patterns]]
 - [ ] P-W3 (pulse) — `listTodayEvents` has no `LIMIT` clause; fetches all matching rows for the day into memory — see [[event-access]]

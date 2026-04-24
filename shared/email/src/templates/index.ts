@@ -13,6 +13,7 @@
 
 import { renderEmailChangeOtp, renderRegistrationOtp, renderStepUpOtp } from "./otp";
 import {
+  renderCrossDeviceLogin,
   renderPasskeyAdded,
   renderPasskeyRemoved,
   renderRecoveryConsumed,
@@ -27,7 +28,8 @@ export type EmailTemplate =
   | "recovery-generated"
   | "recovery-consumed"
   | "passkey-added"
-  | "passkey-removed";
+  | "passkey-removed"
+  | "cross-device-login";
 
 /** Typed data bag per template. Extend the map when adding a template. */
 export interface EmailTemplateDataMap {
@@ -38,6 +40,7 @@ export interface EmailTemplateDataMap {
   "recovery-consumed": Record<string, never>;
   "passkey-added": Record<string, never>;
   "passkey-removed": Record<string, never>;
+  "cross-device-login": Record<string, never>;
 }
 
 export type EmailTemplateData<T extends EmailTemplate> = EmailTemplateDataMap[T];
@@ -73,6 +76,8 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderPasskeyAdded();
     case "passkey-removed":
       return renderPasskeyRemoved();
+    case "cross-device-login":
+      return renderCrossDeviceLogin();
   }
   // Exhaustive — compile error if a template is added without a branch.
   const _exhaustive: never = template;
@@ -87,4 +92,5 @@ export {
   renderRecoveryConsumed,
   renderPasskeyAdded,
   renderPasskeyRemoved,
+  renderCrossDeviceLogin,
 };

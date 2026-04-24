@@ -16,6 +16,7 @@ import {
 import type {
   AuthMethod,
   AuthRateLimitedEndpoint,
+  CrossDeviceStep,
   EmailChangeStep,
   GraphBlockAction,
   GraphCloseFriendAction,
@@ -76,6 +77,8 @@ export const OSN_METRICS = {
   authPasskeyOps: "osn.auth.passkey.operations",
   authPasskeyDuration: "osn.auth.passkey.duration",
   authPasskeyLoginDiscoverable: "osn.auth.passkey.login_discoverable",
+  authCrossDeviceAttempts: "osn.auth.cross_device.attempts",
+  authCrossDeviceDuration: "osn.auth.cross_device.duration",
   graphConnectionOps: "osn.graph.connection.operations",
   graphBlockOps: "osn.graph.block.operations",
   graphCloseFriendOps: "osn.graph.close_friend.operations",
@@ -795,3 +798,46 @@ export const withPasskeyOp =
 
 export const metricPasskeyLoginDiscoverable = (result: Result): void =>
   authPasskeyLoginDiscoverable.inc({ result });
+
+// ---------------------------------------------------------------------------
+// Cross-device login
+// ---------------------------------------------------------------------------
+
+type CrossDeviceAttrs = { step: CrossDeviceStep; result: Result };
+type CrossDeviceDurationAttrs = { step: CrossDeviceStep; result: "ok" | "error" };
+
+const authCrossDeviceAttempts = createCounter<CrossDeviceAttrs>({
+  name: OSN_METRICS.authCrossDeviceAttempts,
+  description: "Cross-device login attempts by step and outcome",
+  unit: "{attempt}",
+});
+
+const authCrossDeviceDuration = createHistogram<CrossDeviceDurationAttrs>({
+  name: OSN_METRICS.authCrossDeviceDuration,
+  description: "Cross-device login step duration",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
+export const withCrossDeviceOp =
+  (step: CrossDeviceStep) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      measureSeconds((seconds, outcome) => {
+        authCrossDeviceDuration.record(seconds, {
+          step,
+          result: outcome === "ok" ? "ok" : "error",
+        });
+      }),
+      Effect.withSpan(`auth.cross_device.${step}`),
+      Effect.tap(() => Effect.sync(() => authCrossDeviceAttempts.inc({ step, result: "ok" }))),
+      Effect.tapError((e) =>
+        Effect.all([
+          Effect.sync(() => authCrossDeviceAttempts.inc({ step, result: classifyError(e) })),
+          Effect.logError("auth.cross_device operation failed", {
+            step,
+            ...safeErrorSummary(e),
+          }),
+        ]),
+      ),
+    );

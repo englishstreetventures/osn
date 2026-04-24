@@ -36,6 +36,10 @@ describe("createRedisAuthRateLimiters", () => {
       "passkeyList",
       "passkeyRename",
       "passkeyDelete",
+      "crossDeviceBegin",
+      "crossDevicePoll",
+      "crossDeviceApprove",
+      "crossDeviceReject",
     ] as const;
 
     for (const key of expectedKeys) {

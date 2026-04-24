@@ -43,3 +43,11 @@ export function renderPasskeyRemoved(): RenderedEmail {
   );
   return { subject: "A passkey was removed from your OSN account", text, html };
 }
+
+export function renderCrossDeviceLogin(): RenderedEmail {
+  const text = `A new device was just signed in to your OSN account using cross-device login. If that was you, no further action is needed.\n\nIf this wasn't you: sign in, review your active sessions, and revoke the unknown session.`;
+  const html = wrap(
+    `<h2>A new device signed in to your OSN account</h2><p>A new device was just signed in to your OSN account using cross-device login. If that was you, no further action is needed.</p><p>If this wasn't you: sign in, review your active sessions, and revoke the unknown session.</p>`,
+  );
+  return { subject: "A new device signed in to your OSN account", text, html };
+}

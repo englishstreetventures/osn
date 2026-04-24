@@ -163,6 +163,13 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     "passkeyLabel",
     "passkey_label",
 
+    // --- Cross-device login ---
+    // `cdlSecret` is the 256-bit random value shared via QR code between
+    // device A and device B during cross-device login. SHA-256 hashed at
+    // rest — the plaintext must never appear in operator logs.
+    "cdlSecret",
+    "cdl_secret",
+
     // --- ARC token signing keys ---
     // `privateKey` is the parameter name on createArcToken /
     // getOrCreateArcToken (osn/crypto/src/arc.ts). If a service ever logs

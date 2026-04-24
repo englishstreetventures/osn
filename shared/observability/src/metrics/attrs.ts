@@ -125,7 +125,8 @@ export type SecurityEventKind =
   | "recovery_code_generate"
   | "recovery_code_consume"
   | "passkey_register"
-  | "passkey_delete";
+  | "passkey_delete"
+  | "cross_device_login";
 
 /**
  * Caller-initiated passkey management actions (M-PK). Keep the list tight —
@@ -139,6 +140,9 @@ export type SecurityEventNotifyResult = "sent" | "failed" | "skipped";
 
 /** Origin guard CSRF rejection reasons (M1). */
 export type OriginGuardRejectionReason = "missing" | "mismatch";
+
+/** Cross-device login protocol steps. */
+export type CrossDeviceStep = "begin" | "poll" | "approve" | "reject";
 
 /** Auth endpoints subject to IP-based rate limiting (S-H1). */
 export type AuthRateLimitedEndpoint =
@@ -168,4 +172,8 @@ export type AuthRateLimitedEndpoint =
   | "security_event_ack"
   | "passkey_list"
   | "passkey_rename"
-  | "passkey_delete";
+  | "passkey_delete"
+  | "cross_device_begin"
+  | "cross_device_poll"
+  | "cross_device_approve"
+  | "cross_device_reject";

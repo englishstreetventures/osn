@@ -67,6 +67,10 @@ export function createRedisAuthRateLimiters(client: RedisClient): AuthRateLimite
     passkeyList: rl("auth:passkey_list", 30),
     passkeyRename: rl("auth:passkey_rename", 20),
     passkeyDelete: rl("auth:passkey_delete", 10),
+    crossDeviceBegin: rl("auth:cross_device_begin", 5),
+    crossDevicePoll: rl("auth:cross_device_poll", 60),
+    crossDeviceApprove: rl("auth:cross_device_approve", 10),
+    crossDeviceReject: rl("auth:cross_device_reject", 10),
   };
 }
 

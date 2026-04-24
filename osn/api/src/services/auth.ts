@@ -66,6 +66,7 @@ import {
   withAuthRecovery,
   withAuthRegister,
   withAuthTokenRefresh,
+  withCrossDeviceOp,
   withEmailChange,
   withPasskeyOp,
   withSessionOp,
@@ -197,6 +198,34 @@ interface PendingRegistration {
 
 // Bound on in-memory pending registrations to cap memory under abuse.
 const MAX_PENDING_REGISTRATIONS = 10_000;
+
+// ---------------------------------------------------------------------------
+// Cross-device login in-memory store
+// ---------------------------------------------------------------------------
+
+/** Hard ceiling on concurrent pending CDL requests (P-I2). */
+const MAX_PENDING_CDL = 1_000;
+/** CDL request TTL in seconds. */
+const CDL_TTL_SECONDS = 300; // 5 min
+
+interface CrossDeviceRequest {
+  requestId: string;
+  /** SHA-256 of the 256-bit secret — the plaintext never touches the server. */
+  secretHash: string;
+  status: "pending" | "approved" | "rejected" | "consumed";
+  /** Device B's coarse UA label. */
+  uaLabel: string | null;
+  /** Device B's peppered IP hash. */
+  ipHash: string | null;
+  expiresAt: number; // milliseconds (matches sweepExpired convention)
+  createdAt: number; // milliseconds
+  // Populated on approve:
+  accountId?: string;
+  session?: { accessToken: string; refreshToken: string; expiresIn: number };
+  profile?: PublicProfile;
+}
+
+const pendingCrossDeviceRequests = new Map<string, CrossDeviceRequest>();
 /**
  * Hard ceiling on concurrent unexpired passkey-login challenges (P-I2).
  * Rate limiting is the primary defence — this bound is the belt to the
@@ -3605,6 +3634,248 @@ export function createAuthService(config: AuthConfig) {
       Effect.withSpan("auth.security_event.notify", { attributes: { kind: "passkey_delete" } }),
     );
 
+  // -------------------------------------------------------------------------
+  // Cross-device login (QR-code mediated session transfer)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Device B calls this to create a pending login request. Returns a
+   * `requestId` + random `secret` (256-bit). Device B renders a QR code
+   * encoding `${issuerUrl}/login/cross-device/${requestId}#${secret}` and
+   * begins polling `/login/cross-device/:requestId/status`.
+   */
+  const beginCrossDeviceLogin = (
+    sessionMeta?: SessionMeta,
+  ): Effect.Effect<{ requestId: string; cdlSecret: string; expiresAt: number }, AuthError, never> =>
+    Effect.sync(() => {
+      // FIFO eviction — cap memory under abuse.
+      sweepExpired(pendingCrossDeviceRequests);
+      if (pendingCrossDeviceRequests.size >= MAX_PENDING_CDL) {
+        const oldest = pendingCrossDeviceRequests.keys().next().value;
+        if (oldest) pendingCrossDeviceRequests.delete(oldest);
+      }
+
+      const requestId = genId("cdl_");
+      const secretBytes = new Uint8Array(32);
+      crypto.getRandomValues(secretBytes);
+      const secret = Buffer.from(secretBytes).toString("hex");
+      const secretHash = createHash("sha256").update(secret).digest("hex");
+      const nowMs = Date.now();
+      const expiresAtMs = nowMs + CDL_TTL_SECONDS * 1000;
+
+      pendingCrossDeviceRequests.set(requestId, {
+        requestId,
+        secretHash,
+        status: "pending",
+        uaLabel: sessionMeta?.uaLabel ?? null,
+        ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
+        expiresAt: expiresAtMs,
+        createdAt: nowMs,
+      });
+
+      // API response uses Unix seconds for consistency with other endpoints.
+      // Field named `cdlSecret` to match the redaction deny-list entry.
+      return { requestId, cdlSecret: secret, expiresAt: Math.floor(expiresAtMs / 1000) };
+    }).pipe(withCrossDeviceOp("begin"));
+
+  /**
+   * Device B polls this to check whether device A has approved the request.
+   * Returns `{ status: "pending" }` until approved, then returns the session
+   * tokens exactly once (marks the request as consumed to prevent replay).
+   */
+  const getCrossDeviceLoginStatus = (
+    requestId: string,
+    secret: string,
+  ): Effect.Effect<
+    | { status: "pending"; uaLabel: string | null }
+    | { status: "approved"; session: TokenSet; profile: PublicProfile }
+    | { status: "rejected" }
+    | { status: "expired" },
+    AuthError,
+    never
+  > =>
+    Effect.gen(function* () {
+      const entry = pendingCrossDeviceRequests.get(requestId);
+      if (!entry) {
+        return { status: "expired" as const };
+      }
+
+      // Verify secret
+      const providedHash = createHash("sha256").update(secret).digest("hex");
+      if (!timingSafeEqualString(providedHash, entry.secretHash)) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid secret" }));
+      }
+
+      // Check expiry
+      if (Date.now() > entry.expiresAt) {
+        pendingCrossDeviceRequests.delete(requestId);
+        return { status: "expired" as const };
+      }
+
+      if (entry.status === "rejected") {
+        pendingCrossDeviceRequests.delete(requestId);
+        return { status: "rejected" as const };
+      }
+
+      if (entry.status === "approved" && entry.session && entry.profile) {
+        // One-time consumption — prevent replay.
+        pendingCrossDeviceRequests.delete(requestId);
+        return {
+          status: "approved" as const,
+          session: entry.session,
+          profile: entry.profile,
+        };
+      }
+
+      return { status: "pending" as const, uaLabel: entry.uaLabel };
+    }).pipe(withCrossDeviceOp("poll"));
+
+  /**
+   * Device A (authenticated) approves the request. The server issues a
+   * session for device B and records a `cross_device_login` security event.
+   */
+  const approveCrossDeviceLogin = (
+    requestId: string,
+    secret: string,
+    accountId: string,
+    sessionMeta?: SessionMeta,
+  ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
+    Effect.gen(function* () {
+      const entry = pendingCrossDeviceRequests.get(requestId);
+      if (!entry) {
+        return yield* Effect.fail(new AuthError({ message: "Request not found or expired" }));
+      }
+
+      if (entry.status !== "pending") {
+        return yield* Effect.fail(new AuthError({ message: "Request already processed" }));
+      }
+
+      // Verify secret
+      const providedHash = createHash("sha256").update(secret).digest("hex");
+      if (!timingSafeEqualString(providedHash, entry.secretHash)) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid secret" }));
+      }
+
+      // Check expiry
+      if (Date.now() > entry.expiresAt) {
+        pendingCrossDeviceRequests.delete(requestId);
+        return yield* Effect.fail(new AuthError({ message: "Request expired" }));
+      }
+
+      // Resolve the approver's default profile to issue session for device B.
+      const profile = yield* findDefaultProfile(accountId);
+      if (!profile) {
+        return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
+      }
+
+      // Issue session for device B using device B's session meta (from begin).
+      const session = yield* issueTokens(
+        profile.id,
+        accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+        undefined,
+        { uaLabel: entry.uaLabel, ip: null },
+      );
+
+      // Store the session + profile on the request for device B to pick up.
+      entry.status = "approved";
+      entry.accountId = accountId;
+      entry.session = session;
+      entry.profile = toPublicProfile(profile, profile.email);
+
+      // Audit trail — security event + best-effort email notification.
+      const { db } = yield* Db;
+      const nowSec = Math.floor(Date.now() / 1000);
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(securityEvents).values({
+            id: genId("sev_"),
+            accountId,
+            kind: "cross_device_login",
+            createdAt: nowSec,
+            uaLabel: sessionMeta?.uaLabel ?? null,
+            ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
+          }),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      metricSecurityEventRecorded("cross_device_login");
+
+      // Best-effort email notification (forked daemon, 10s timeout).
+      yield* Effect.forkDaemon(
+        notifyCrossDeviceLoginByAccountId(accountId).pipe(
+          Effect.timeout("10 seconds"),
+          Effect.catchAll(() => Effect.void),
+        ),
+      );
+    }).pipe(withCrossDeviceOp("approve"));
+
+  /**
+   * Device A explicitly rejects the request — the next poll from device B
+   * will see `{ status: "rejected" }`.
+   */
+  const rejectCrossDeviceLogin = (
+    requestId: string,
+    secret: string,
+  ): Effect.Effect<void, AuthError, never> =>
+    Effect.gen(function* () {
+      const entry = pendingCrossDeviceRequests.get(requestId);
+      if (!entry) {
+        return yield* Effect.fail(new AuthError({ message: "Request not found or expired" }));
+      }
+
+      if (entry.status !== "pending") {
+        return yield* Effect.fail(new AuthError({ message: "Request already processed" }));
+      }
+
+      const providedHash = createHash("sha256").update(secret).digest("hex");
+      if (!timingSafeEqualString(providedHash, entry.secretHash)) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid secret" }));
+      }
+
+      entry.status = "rejected";
+    }).pipe(withCrossDeviceOp("reject"));
+
+  /**
+   * Best-effort email notification for cross-device login approval.
+   * Mirrors `notifyPasskeyRegisteredByAccountId`.
+   */
+  const notifyCrossDeviceLoginByAccountId = (
+    accountId: string,
+  ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () => db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const recipient = rows[0]?.email;
+      if (!recipient) {
+        metricSecurityEventNotified("cross_device_login", "skipped");
+        return;
+      }
+      const email = yield* EmailService;
+      const start = Date.now();
+      yield* email.send({ template: "cross-device-login", to: recipient, data: {} }).pipe(
+        Effect.mapError(() => new AuthError({ message: "notify_dispatch_failed" })),
+        Effect.tap(() =>
+          Effect.sync(() => {
+            metricSecurityEventNotifyDuration((Date.now() - start) / 1000, "ok");
+            metricSecurityEventNotified("cross_device_login", "sent");
+          }),
+        ),
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            metricSecurityEventNotifyDuration((Date.now() - start) / 1000, "error");
+            metricSecurityEventNotified("cross_device_login", "failed");
+          }),
+        ),
+      );
+    }).pipe(
+      Effect.withSpan("auth.security_event.notify", { attributes: { kind: "cross_device_login" } }),
+    );
+
   /** Returns the count of unused recovery codes for the account. */
   const countActiveRecoveryCodes = (
     accountId: string,
@@ -3669,6 +3940,10 @@ export function createAuthService(config: AuthConfig) {
     revokeAllOtherAccountSessions,
     beginEmailChange,
     completeEmailChange,
+    beginCrossDeviceLogin,
+    getCrossDeviceLoginStatus,
+    approveCrossDeviceLogin,
+    rejectCrossDeviceLogin,
     hashSessionToken: (token: string) => hashSessionToken(token),
   };
 }

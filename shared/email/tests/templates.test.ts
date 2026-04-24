@@ -75,6 +75,7 @@ describe("renderTemplate", () => {
       "recovery-consumed",
       "passkey-added",
       "passkey-removed",
+      "cross-device-login",
     ];
     for (const t of templates) {
       const data = t.startsWith("otp-") ? { code: "000000", ttlMinutes: 10 } : {};

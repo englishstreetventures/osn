@@ -63,6 +63,14 @@ export type AuthRateLimiters = Readonly<{
   passkeyRename: RateLimiterBackend;
   /** Passkey delete (authenticated, per-user — step-up is the primary gate). */
   passkeyDelete: RateLimiterBackend;
+  /** Cross-device login begin (unauthenticated, per-IP). */
+  crossDeviceBegin: RateLimiterBackend;
+  /** Cross-device login poll (unauthenticated, per-IP — higher budget for 2s polling). */
+  crossDevicePoll: RateLimiterBackend;
+  /** Cross-device login approve (authenticated, per-IP). */
+  crossDeviceApprove: RateLimiterBackend;
+  /** Cross-device login reject (authenticated, per-IP). */
+  crossDeviceReject: RateLimiterBackend;
 }>;
 
 /**
@@ -115,6 +123,10 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     passkeyList: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
     passkeyRename: createRateLimiter({ maxRequests: 20, windowMs: 60_000 }),
     passkeyDelete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    crossDeviceBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
+    crossDevicePoll: createRateLimiter({ maxRequests: 60, windowMs: 60_000 }),
+    crossDeviceApprove: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    crossDeviceReject: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
   };
 }
 
@@ -1309,6 +1321,135 @@ export function createAuthRoutes(
         {
           params: t.Object({ id: t.String({ pattern: "^pk_[a-f0-9]{12}$" }) }),
           body: t.Optional(t.Object({ step_up_token: t.Optional(t.String()) })),
+        },
+      )
+      // -------------------------------------------------------------------------
+      // Cross-device login (QR-code mediated session transfer)
+      //
+      // `POST /login/cross-device/begin` — unauthenticated. Creates a pending
+      //   request and returns { requestId, secret, expiresAt }.
+      //
+      // `POST /login/cross-device/:requestId/status` — unauthenticated. Polls
+      //   for approval. Returns session tokens exactly once on approved.
+      //
+      // `POST /login/cross-device/:requestId/approve` — authenticated. Device A
+      //   approves the request; server issues a session for device B.
+      //
+      // `POST /login/cross-device/:requestId/reject` — authenticated. Device A
+      //   explicitly rejects the request.
+      // -------------------------------------------------------------------------
+      .post("/login/cross-device/begin", async ({ set, headers }) => {
+        const rlErr = await rateLimit(headers, "cross_device_begin", rl.crossDeviceBegin);
+        if (rlErr) {
+          set.status = 429;
+          return rlErr;
+        }
+        try {
+          const result = await run(auth.beginCrossDeviceLogin(sessionMetaFrom(headers)));
+          return result;
+        } catch (e) {
+          const { status, body: errBody } = handleError(e);
+          set.status = status;
+          return errBody;
+        }
+      })
+      .post(
+        "/login/cross-device/:requestId/status",
+        async ({ params, body, set, headers }) => {
+          const rlErr = await rateLimit(headers, "cross_device_poll", rl.crossDevicePoll);
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const result = await run(auth.getCrossDeviceLoginStatus(params.requestId, body.secret));
+            if (result.status === "approved") {
+              set.headers["set-cookie"] = buildSessionCookie(
+                result.session.refreshToken,
+                cookieConfig,
+              );
+              return {
+                status: result.status,
+                session: toTokenResponseCookieOnly(result.session),
+                profile: result.profile,
+              };
+            }
+            return result;
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          params: t.Object({ requestId: t.String({ pattern: "^cdl_[a-f0-9]{12}$" }) }),
+          body: t.Object({ secret: t.String() }),
+        },
+      )
+      .post(
+        "/login/cross-device/:requestId/approve",
+        async ({ params, body, set, headers }) => {
+          const rlErr = await rateLimit(headers, "cross_device_approve", rl.crossDeviceApprove);
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            await run(
+              auth.approveCrossDeviceLogin(
+                params.requestId,
+                body.secret,
+                profile.accountId,
+                sessionMetaFrom(headers),
+              ),
+            );
+            return { success: true };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          params: t.Object({ requestId: t.String({ pattern: "^cdl_[a-f0-9]{12}$" }) }),
+          body: t.Object({ secret: t.String() }),
+        },
+      )
+      .post(
+        "/login/cross-device/:requestId/reject",
+        async ({ params, body, set, headers }) => {
+          const rlErr = await rateLimit(headers, "cross_device_reject", rl.crossDeviceReject);
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            await run(auth.rejectCrossDeviceLogin(params.requestId, body.secret));
+            return { success: true };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          params: t.Object({ requestId: t.String({ pattern: "^cdl_[a-f0-9]{12}$" }) }),
+          body: t.Object({ secret: t.String() }),
         },
       )
       // -------------------------------------------------------------------------

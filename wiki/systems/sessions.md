@@ -5,7 +5,7 @@ related:
   - "[[identity-model]]"
   - "[[step-up]]"
   - "[[passkey-primary]]"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-04-24
 ---
 
 # Session introspection + revocation
@@ -49,6 +49,21 @@ Per-account hard cap: `MAX_SESSIONS_PER_ACCOUNT = 50`. `issueTokens` LRU-evicts 
 | `POST /sessions/revoke-all-other` | Revoke every session EXCEPT the caller's current one |
 
 All endpoints authenticate via `Authorization: Bearer <access_token>` and resolve `accountId` server-side. A session handle from account A's log cannot be replayed to revoke a session in account B — the DELETE is scoped to the caller's own account.
+
+### Cross-device login
+
+QR-code mediated session transfer — authenticate on a new device by scanning a code from an already-authenticated device.
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `POST /login/cross-device/begin` | None | Create a pending request; returns `requestId` + `cdlSecret` |
+| `POST /login/cross-device/:requestId/status` | None | Poll for approval; returns session tokens once on approval |
+| `POST /login/cross-device/:requestId/approve` | Bearer | Device A approves; issues session for device B |
+| `POST /login/cross-device/:requestId/reject` | Bearer | Device A explicitly rejects |
+
+**Protocol:** Device B calls `begin`, renders a QR code encoding the `requestId` + `cdlSecret`, and polls `status` at ~2s intervals. Device A scans the QR, calls `approve` with its access token + the secret from the QR fragment. The server issues a session for device B and records a `cross_device_login` security event + email notification.
+
+**Security properties:** 256-bit CSPRNG secret, SHA-256 hashed at rest, constant-time comparison, one-time session consumption, 5-minute TTL, rate-limited on all endpoints. The secret never appears in URL query strings (all endpoints use POST bodies). In-memory store with FIFO eviction at 1000 entries — Redis migration deferred to Phase 4.
 
 ## Metadata captured at issue time
 
