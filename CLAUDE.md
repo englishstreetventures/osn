@@ -65,6 +65,7 @@ The `wiki/` directory contains detailed reference pages. Use this index to find 
 | Work on the social graph or close friends | `[[wiki/systems/social-graph]]`, `[[wiki/systems/close-friends]]` |
 | Gate a sensitive action behind step-up auth | `[[wiki/systems/step-up]]` |
 | Understand the passkey-only login model | `[[wiki/systems/passkey-primary]]` |
+| Send a transactional email (OTP, security notice) | `[[wiki/systems/email]]` |
 | Surface session list / revoke per device | `[[wiki/systems/sessions]]` |
 | Understand cross-service calls | `[[wiki/architecture/s2s-patterns]]` |
 | Work on the OSN identity / social UI | `[[wiki/apps/osn-core]]`, `[[wiki/apps/social]]` |
@@ -119,7 +120,7 @@ Monorepo organised by domain. Four directories, four prefixes — see `[[wiki/ar
 | `osn/` | `@osn/*` | Identity stack (auth, graph, organisations, recommendations, SDK, landing, social app) — crypto moved to `@shared/crypto` |
 | `pulse/` | `@pulse/*` | Events stack (app, API, DB) |
 | `zap/` | `@zap/*` | Messaging stack (API on port 3002, DB) |
-| `shared/` | `@shared/*` | Cross-cutting utilities (`@shared/crypto` for ARC tokens, `@shared/observability`, `@shared/rate-limit`) |
+| `shared/` | `@shared/*` | Cross-cutting utilities (`@shared/crypto` for ARC tokens, `@shared/email` for transactional mail, `@shared/observability`, `@shared/rate-limit`) |
 
 ## Tech (one-liner)
 
@@ -139,6 +140,7 @@ One-line summaries — open the wiki page for the full contract, current API sur
 | Recovery Codes | Copenhagen Book M2 — 10 × 64-bit single-use codes, hashed at rest. Generate / consume both inserted into `security_events` and surfaced via the in-app banner. | `[[wiki/systems/recovery-codes]]` |
 | Session Introspection | `GET/DELETE /sessions[/:id]`, `POST /sessions/revoke-all-other`. Coarse UA labels + HMAC-peppered IP hashes. | `[[wiki/systems/sessions]]` |
 | Email Change | Step-up gated; OTP to the NEW address; atomically swaps email and revokes other sessions. Cap 2 changes / 7 days. | `[[wiki/systems/identity-model]]` |
+| Email Transport | Transactional-only (OTPs + security notices). `EmailService` Effect Tag in `@shared/email`; `CloudflareEmailLive` POSTs directly to Cloudflare Email Service REST API (bearer-authed); `LogEmailLive` captures in-memory for dev + tests. | `[[wiki/systems/email]]` |
 | Origin Guard (M1) | Origin header validation on POST/PUT/PATCH/DELETE. ARC-protected internal routes are exempt. | `osn/api/src/lib/origin-guard.ts` |
 | Rate Limiting | Per-IP on auth endpoints; per-user on graph/org writes and `/recommendations/connections`. Redis-backed when `REDIS_URL` set, in-memory fallback for local dev. Fail-closed. | `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]` |
 | Observability | OpenTelemetry → Grafana Cloud. Three rules: no `console.*`, no raw OTel constructors, no unbounded metric attributes. | `[[wiki/observability/overview]]` |

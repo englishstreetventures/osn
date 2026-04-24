@@ -1,0 +1,25 @@
+{
+  "name": "@shared/email",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./metrics": "./src/metrics.ts",
+    "./templates": "./src/templates/index.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run"
+  },
+  "dependencies": {
+    "@shared/observability": "workspace:*",
+    "effect": "^3.21.2"
+  },
+  "devDependencies": {
+    "@effect/vitest": "^0.29.0",
+    "@shared/typescript-config": "workspace:*",
+    "vitest": "^4.1.5"
+  }
+}

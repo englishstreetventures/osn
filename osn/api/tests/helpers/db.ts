@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 
 import * as schema from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { EmailService, makeLogEmailLive } from "@shared/email";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Layer } from "effect";
 
@@ -178,5 +179,25 @@ export function createTestLayer() {
   sqlite.run(`CREATE INDEX org_members_org_idx ON organisation_members (organisation_id)`);
   sqlite.run(`CREATE INDEX org_members_profile_idx ON organisation_members (profile_id)`);
   const db = drizzle(sqlite, { schema });
-  return Layer.succeed(Db, { db });
+  const dbLayer = Layer.succeed(Db, { db });
+  const emailLayer = makeLogEmailLive().layer;
+  return Layer.merge(dbLayer, emailLayer);
 }
+
+/**
+ * Variant of `createTestLayer()` that exposes the email recorder so
+ * tests can assert on captured sends. Replaces the old pattern of
+ * setting a `sendEmail` callback in `AuthConfig`.
+ */
+export function createTestLayerWithEmailRecorder() {
+  const inner = createTestLayer();
+  const email = makeLogEmailLive();
+  return {
+    layer: Layer.merge(inner, email.layer),
+    recorded: email.recorded,
+    reset: email.reset,
+  };
+}
+
+// Re-export for tests that want to build their own capture recorder.
+export { EmailService, makeLogEmailLive };

@@ -1,13 +1,31 @@
 import { it, expect, describe } from "@effect/vitest";
 import { passkeys, recoveryCodes, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { makeLogEmailLive } from "@shared/email";
 import { eq } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
+
+/** Fresh email recorder + merged test layer. Replaces the old sendEmail callback. */
+function makeEmailCapture() {
+  const email = makeLogEmailLive();
+  return {
+    layer: Layer.merge(createTestLayer(), email.layer),
+    latest: (): string | undefined => {
+      const all = email.recorded();
+      for (let i = all.length - 1; i >= 0; i--) {
+        const m = all[i].text.match(/(\d{6})/);
+        if (m) return m[1];
+      }
+      return undefined;
+    },
+    all: () => email.recorded(),
+  };
+}
 
 /**
  * Passkey management service tests (M-PK):
@@ -132,6 +150,24 @@ describe("renamePasskey", () => {
 });
 
 describe("deletePasskey", () => {
+  it.effect("T-M3: sends passkey-removed notification email on successful delete", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const alice = yield* auth.registerProfile("pk-del-notify@example.com", "pkdelnotify");
+      yield* seedPasskey(alice.accountId);
+      const toDelete = yield* seedPasskey(alice.accountId);
+      yield* auth.deletePasskey(alice.accountId, toDelete, null);
+
+      // The notification is forkDaemon'd — wait for the fiber to complete.
+      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 50)));
+
+      const emails = cap
+        .all()
+        .filter((e) => e.template === "passkey-removed" && e.to === "pk-del-notify@example.com");
+      expect(emails).toHaveLength(1);
+    }).pipe(Effect.provide(cap.layer));
+  });
+
   it.effect("removes one passkey, records a security event, and revokes other sessions", () =>
     Effect.gen(function* () {
       const alice = yield* auth.registerProfile("pk-del@example.com", "pkdel");
@@ -313,24 +349,17 @@ describe("passkey register step-up gate (S-H1)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("adding a second passkey with a valid step-up token succeeds", () =>
-    Effect.gen(function* () {
+  it.effect("adding a second passkey with a valid step-up token succeeds", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
       const alice = yield* auth.registerProfile("pk-add-ok@example.com", "pkaddok");
       yield* seedPasskey(alice.accountId);
-      let capturedCode: string | undefined;
-      const svc = createAuthService({
-        ...config,
-        sendEmail: async (_to, _subject, body) => {
-          const m = body.match(/(\d{6})/);
-          if (m) capturedCode = m[1];
-        },
-      });
-      yield* svc.beginStepUpOtp(alice.accountId);
-      const { stepUpToken } = yield* svc.completeStepUpOtp(alice.accountId, capturedCode!);
+      yield* auth.beginStepUpOtp(alice.accountId);
+      const { stepUpToken } = yield* auth.completeStepUpOtp(alice.accountId, cap.latest()!);
       const result = yield* auth.beginPasskeyRegistration(alice.accountId, stepUpToken);
       expect(result.options.challenge).toBeTruthy();
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(cap.layer));
+  });
 });
 
 // T-U2: MAX_PASSKEYS_PER_ACCOUNT cap enforcement — begin refuses past the
@@ -348,28 +377,21 @@ describe("passkey count cap (MAX_PASSKEYS_PER_ACCOUNT)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("still allows begin at count = 9 (with step-up)", () =>
-    Effect.gen(function* () {
+  it.effect("still allows begin at count = 9 (with step-up)", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
       const alice = yield* auth.registerProfile("pk-cap9@example.com", "pkcap9");
       for (let i = 0; i < 9; i++) {
         yield* seedPasskey(alice.accountId);
       }
       // S-H1: begin requires step-up once the account has ≥1 passkey.
       // Mint one via the OTP ceremony.
-      let capturedCode: string | undefined;
-      const svc = createAuthService({
-        ...config,
-        sendEmail: async (_to, _subject, body) => {
-          const m = body.match(/(\d{6})/);
-          if (m) capturedCode = m[1];
-        },
-      });
-      yield* svc.beginStepUpOtp(alice.accountId);
-      const { stepUpToken } = yield* svc.completeStepUpOtp(alice.accountId, capturedCode!);
+      yield* auth.beginStepUpOtp(alice.accountId);
+      const { stepUpToken } = yield* auth.completeStepUpOtp(alice.accountId, cap.latest()!);
       const result = yield* auth.beginPasskeyRegistration(alice.accountId, stepUpToken);
       expect(result.options.challenge).toBeTruthy();
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(cap.layer));
+  });
 });
 
 // Guard against silent drift: deleting a passkey must leave recovery codes

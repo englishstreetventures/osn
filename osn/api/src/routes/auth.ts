@@ -1,4 +1,5 @@
 import { DbLive, type Db } from "@osn/db/service";
+import { EmailService, makeLogEmailLive } from "@shared/email";
 import type { AuthRateLimitedEndpoint } from "@shared/observability/metrics";
 import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
@@ -133,7 +134,12 @@ function toTokenResponseCookieOnly(ts: { accessToken: string; expiresIn: number 
 
 export function createAuthRoutes(
   authConfig: AuthConfig,
-  dbLayer: Layer.Layer<Db> = DbLive,
+  /**
+   * Service layer supplying `Db` and `EmailService`. Defaults to
+   * `DbLive` merged with a fresh `LogEmailLive` (local dev + tests).
+   * Production callers compose `DbLive` with `makeCloudflareEmailLive(...)`.
+   */
+  dbLayer: Layer.Layer<Db | EmailService> = Layer.merge(DbLive, makeLogEmailLive().layer),
   /**
    * Optional observability layer. When provided, per-request Effect pipelines
    * (including `Effect.logDebug` in the dev-mode OTP / magic-link branches
@@ -185,7 +191,7 @@ export function createAuthRoutes(
 
   const auth = createAuthService(authConfig);
 
-  const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
+  const run = <A, E>(eff: Effect.Effect<A, E, Db | EmailService>): Promise<A> =>
     Effect.runPromise(
       eff.pipe(Effect.provide(dbLayer), Effect.provide(loggerLayer)) as Effect.Effect<
         A,

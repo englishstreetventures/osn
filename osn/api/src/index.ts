@@ -1,9 +1,10 @@
 import { cors } from "@elysiajs/cors";
 import { DbLive } from "@osn/db/service";
 import { generateArcKeyPair, importKeyFromJwk, thumbprintKid } from "@shared/crypto";
+import { makeCloudflareEmailLive, makeLogEmailLive } from "@shared/email";
 import { healthRoutes, initObservability, observabilityPlugin } from "@shared/observability";
 import { sanitizeCause } from "@shared/redis";
-import { Effect, Logger } from "effect";
+import { Effect, Layer, Logger } from "effect";
 import { Elysia } from "elysia";
 
 import type { CookieSessionConfig } from "./lib/cookie-session";
@@ -157,6 +158,38 @@ const cookieConfig: CookieSessionConfig = {
   secure: !!process.env.OSN_ENV && process.env.OSN_ENV !== "local",
 };
 
+// ---------------------------------------------------------------------------
+// Email transport (@shared/email)
+//
+// Production/staging: POST directly to Cloudflare's Email Service REST API.
+//   - CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_EMAIL_API_TOKEN required
+//   - OSN_EMAIL_FROM is the verified sender address (e.g. noreply@osn.app)
+//
+// Local dev / tests: no env vars → LogEmailLive records sends to an
+// in-memory ring, so an operator sees `[email:log] template=...` lines
+// but no OTP codes end up in logs. Test code reads the recorder
+// directly via `makeLogEmailLive()` in its own composition.
+// ---------------------------------------------------------------------------
+
+const cfAccountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+const cfEmailToken = process.env.CLOUDFLARE_EMAIL_API_TOKEN;
+if (envNonLocal && (!cfAccountId || !cfEmailToken)) {
+  throw new Error(
+    "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_EMAIL_API_TOKEN must be set in non-local environments",
+  );
+}
+
+const emailLayer =
+  cfAccountId && cfEmailToken
+    ? makeCloudflareEmailLive({
+        accountId: cfAccountId,
+        apiToken: cfEmailToken,
+        fromAddress: process.env.OSN_EMAIL_FROM,
+      })
+    : makeLogEmailLive().layer;
+
+const dbAndEmailLayer = Layer.merge(DbLive, emailLayer);
+
 // S-L1: Restrict CORS to the known app origin instead of the open wildcard.
 // Derivation + S-L4 fail-closed invariant live in `./lib/cors-config` so they
 // can be unit-tested without booting the whole app. `cookieConfig.secure` is
@@ -175,7 +208,7 @@ const app = new Elysia()
   .use(
     createAuthRoutes(
       { ...authConfig, stepUpJtiStore, rotatedSessionStore },
-      DbLive,
+      dbAndEmailLayer,
       observabilityLayer,
       authRateLimiters,
       cookieConfig,

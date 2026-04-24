@@ -1,6 +1,7 @@
 import { passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { Effect } from "effect";
+import { makeLogEmailLive } from "@shared/email";
+import { Effect, Layer } from "effect";
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 
 import { createAuthRoutes } from "../../src/routes/auth";
@@ -58,14 +59,10 @@ describe("passkey management routes", () => {
    * step-up ceremony and hands back a fresh step-up token each call.
    */
   async function setupStepUp() {
-    const captured: string[] = [];
-    const sendEmail = async (_to: string, _subject: string, body: string) => {
-      const m = body.match(/\b(\d{6})\b/);
-      if (m) captured.push(m[1]!);
-    };
+    const email = makeLogEmailLive();
     const appWithOtp = createAuthRoutes(
-      { ...config, sendEmail, passkeyDeleteAllowedAmr: ["webauthn", "otp"] },
-      layer,
+      { ...config, passkeyDeleteAllowedAmr: ["webauthn", "otp"] },
+      Layer.merge(layer, email.layer),
     );
     const { profile, tokens } = await seedAccount();
     const accessToken = tokens.accessToken;
@@ -80,7 +77,9 @@ describe("passkey management routes", () => {
           },
         }),
       );
-      const code = captured[captured.length - 1]!;
+      const all = email.recorded();
+      const latest = all[all.length - 1]?.text.match(/\b(\d{6})\b/);
+      const code = latest![1]!;
       const stepUpRes = await appWithOtp.handle(
         new Request("http://localhost/step-up/otp/complete", {
           method: "POST",
@@ -262,12 +261,8 @@ describe("passkey management routes", () => {
     // S-L4: default config rejects OTP step-up for delete. The dedicated
     // passkey-only AMR config knob is the intended production posture.
     it("rejects OTP step-up when passkeyDeleteAllowedAmr omits it", async () => {
-      const captured: string[] = [];
-      const sendEmail = async (_to: string, _subject: string, body: string) => {
-        const m = body.match(/\b(\d{6})\b/);
-        if (m) captured.push(m[1]!);
-      };
-      const strictApp = createAuthRoutes({ ...config, sendEmail }, layer);
+      const email = makeLogEmailLive();
+      const strictApp = createAuthRoutes(config, Layer.merge(layer, email.layer));
       const { tokens, profile } = await seedAccount();
       const pk = await seedPasskey(profile.accountId);
       await seedPasskey(profile.accountId);
@@ -281,7 +276,11 @@ describe("passkey management routes", () => {
           },
         }),
       );
-      const code = captured[captured.length - 1]!;
+      const latest = email
+        .recorded()
+        .at(-1)
+        ?.text.match(/\b(\d{6})\b/);
+      const code = latest![1]!;
       const stepUpRes = await strictApp.handle(
         new Request("http://localhost/step-up/otp/complete", {
           method: "POST",

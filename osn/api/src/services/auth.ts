@@ -16,6 +16,7 @@ import {
   hashRecoveryCode,
   RECOVERY_CODE_COUNT,
 } from "@shared/crypto";
+import { EmailError, EmailService } from "@shared/email";
 import type {
   SecurityEventKind,
   SecurityInvalidationTrigger,
@@ -123,8 +124,6 @@ export interface AuthConfig {
   refreshTokenTtl?: number;
   /** OTP TTL in seconds (default: 600 = 10 min). Applies to registration, email change, and step-up OTP. */
   otpTtl?: number;
-  /** Callback to send email (registration OTP, step-up OTP, email change OTP, security notifications). */
-  sendEmail?: (to: string, subject: string, body: string) => Promise<void>;
   /**
    * Step-up (sudo) token TTL in seconds. Default: 300 (5 min). Short enough
    * that a stolen step-up JWT grants only a narrow window for sensitive
@@ -809,7 +808,11 @@ export function createAuthService(config: AuthConfig) {
     email: string,
     handle: string,
     displayName?: string,
-  ): Effect.Effect<{ sent: boolean }, AuthError | ValidationError | DatabaseError, Db> =>
+  ): Effect.Effect<
+    { sent: boolean },
+    AuthError | ValidationError | DatabaseError,
+    Db | EmailService
+  > =>
     Effect.gen(function* () {
       yield* Schema.decodeUnknown(EmailSchema)(email).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
@@ -865,24 +868,24 @@ export function createAuthService(config: AuthConfig) {
         expiresAt: Date.now() + otpTtl * 1000,
       });
 
-      if (config.sendEmail) {
-        yield* Effect.tryPromise({
-          try: () =>
-            config.sendEmail!(
-              normalisedEmail,
-              "Verify your OSN email",
-              `Your OSN verification code is: ${code}\n\nThis code expires in ${otpTtl / 60} minutes.`,
-            ),
-          catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
-        });
-      } else if (!process.env["OSN_ENV"] || process.env["OSN_ENV"] === "local") {
-        // S-M3: only print the OTP to logs in local environments. The guard
-        // uses OSN_ENV (not NODE_ENV) so dev/staging/prod are excluded — defence in
-        // depth alongside the log-level minimum (S-L2). Values are
-        // interpolated into the message string (not annotations) so the
-        // redacting logger doesn't scrub them.
-        yield* Effect.logDebug(`[OSN local] Registration OTP for ${normalisedEmail}: ${code}`);
-      }
+      // S-M3: the EmailService layer decides whether to actually dispatch
+      // or just log. `LogEmailLive` (local dev + tests) captures the
+      // rendered body in-memory for operator inspection without opening
+      // a network connection; `CloudflareEmailLive` (staging / prod)
+      // POSTs directly to the Cloudflare Email Service REST API.
+      const emailSvc = yield* EmailService;
+      yield* emailSvc
+        .send({
+          template: "otp-registration",
+          to: normalisedEmail,
+          data: { code, ttlMinutes: otpTtl / 60 },
+        })
+        .pipe(
+          Effect.mapError(
+            (cause: EmailError) =>
+              new AuthError({ message: `Failed to send email: ${cause.reason}` }),
+          ),
+        );
 
       metricAuthOtpSent("registration");
       return { sent: true };
@@ -1623,7 +1626,7 @@ export function createAuthService(config: AuthConfig) {
     currentSessionToken: string | null,
     /** IP + UA for the security_events row (S-H1). Best-effort; omitted in tests. */
     eventMeta?: SessionMeta,
-  ): Effect.Effect<{ passkeyId: string }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<{ passkeyId: string }, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
       const entry = registrationChallenges.get(accountId);
       if (!entry || Date.now() > entry.expiresAt) {
@@ -2216,7 +2219,7 @@ export function createAuthService(config: AuthConfig) {
   const generateRecoveryCodesForAccount = (
     accountId: string,
     eventMeta?: SessionMeta,
-  ): Effect.Effect<{ recoveryCodes: string[] }, DatabaseError, Db> =>
+  ): Effect.Effect<{ recoveryCodes: string[] }, DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const codes = cryptoGenerateRecoveryCodes(RECOVERY_CODE_COUNT);
@@ -2287,7 +2290,7 @@ export function createAuthService(config: AuthConfig) {
   const notifyRecoveryByAccountId = (
     accountId: string,
     kind: SecurityEventKind,
-  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const rows = yield* Effect.tryPromise({
@@ -2314,7 +2317,7 @@ export function createAuthService(config: AuthConfig) {
   const notifyRecovery = (
     recipientEmail: string | null,
     kind: SecurityEventKind,
-  ): Effect.Effect<void, AuthError> =>
+  ): Effect.Effect<void, AuthError, EmailService> =>
     Effect.gen(function* () {
       if (!recipientEmail) {
         // Defensive: account row fully evicted between commit and dispatch.
@@ -2322,46 +2325,30 @@ export function createAuthService(config: AuthConfig) {
         return;
       }
 
-      if (!config.sendEmail) {
-        // Local dev with no configured mailer — log the notification for
-        // parity with the OTP dev-log path.
-        yield* Effect.logDebug(
-          `[OSN local] Recovery-${kind} notice for ${recipientEmail}: audit row written`,
-        );
-        metricSecurityEventNotified(kind, "skipped");
-        return;
-      }
-
-      const subject =
-        kind === "recovery_code_generate"
-          ? "Your OSN recovery codes were regenerated"
-          : "An OSN recovery code was used on your account";
-      const body =
-        kind === "recovery_code_generate"
-          ? `Somebody generated a new set of OSN account recovery codes on your account. If that was you, no further action is needed — your previous codes are no longer valid.\n\nIf this wasn't you: sign in and review your active sessions at the Sessions tab, then acknowledge the alert.`
-          : `An OSN recovery code was used to regain access to your account. If that was you, no further action is needed.\n\nIf this wasn't you: your account may be compromised. Change any shared passwords, review your active sessions, and acknowledge the alert.`;
-
+      const template =
+        kind === "recovery_code_generate" ? "recovery-generated" : "recovery-consumed";
+      const email = yield* EmailService;
       const start = Date.now();
-      yield* Effect.tryPromise({
-        try: () => config.sendEmail!(recipientEmail, subject, body),
+      yield* email
+        .send({ template, to: recipientEmail, data: {} })
         // S-L2: bounded error class name in the log annotation; the email
         // provider's response body (which may echo the recipient) is never
         // embedded in the logged message.
-        catch: () => new AuthError({ message: "notify_dispatch_failed" }),
-      }).pipe(
-        Effect.tap(() =>
-          Effect.sync(() => {
-            metricSecurityEventNotifyDuration((Date.now() - start) / 1000, "ok");
-            metricSecurityEventNotified(kind, "sent");
-          }),
-        ),
-        Effect.tapError(() =>
-          Effect.sync(() => {
-            metricSecurityEventNotifyDuration((Date.now() - start) / 1000, "error");
-            metricSecurityEventNotified(kind, "failed");
-          }),
-        ),
-      );
+        .pipe(
+          Effect.mapError(() => new AuthError({ message: "notify_dispatch_failed" })),
+          Effect.tap(() =>
+            Effect.sync(() => {
+              metricSecurityEventNotifyDuration((Date.now() - start) / 1000, "ok");
+              metricSecurityEventNotified(kind, "sent");
+            }),
+          ),
+          Effect.tapError(() =>
+            Effect.sync(() => {
+              metricSecurityEventNotifyDuration((Date.now() - start) / 1000, "error");
+              metricSecurityEventNotified(kind, "failed");
+            }),
+          ),
+        );
     }).pipe(Effect.withSpan("auth.security_event.notify", { attributes: { kind } }));
 
   /**
@@ -2534,7 +2521,7 @@ export function createAuthService(config: AuthConfig) {
     identifier: string,
     code: string,
     eventMeta?: SessionMeta,
-  ): Effect.Effect<{ profile: ProfileWithEmail }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<{ profile: ProfileWithEmail }, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
       const normalised = normaliseIdentifier(identifier);
       const profile = yield* resolveIdentifier(normalised);
@@ -2650,7 +2637,11 @@ export function createAuthService(config: AuthConfig) {
     identifier: string,
     code: string,
     sessionMeta?: SessionMeta,
-  ): Effect.Effect<{ session: TokenSet; profile: PublicProfile }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<
+    { session: TokenSet; profile: PublicProfile },
+    AuthError | DatabaseError,
+    Db | EmailService
+  > =>
     Effect.gen(function* () {
       const { profile } = yield* consumeRecoveryCode(identifier, code, sessionMeta);
       const session = yield* issueTokens(
@@ -2884,7 +2875,7 @@ export function createAuthService(config: AuthConfig) {
    */
   const beginStepUpOtp = (
     accountId: string,
-  ): Effect.Effect<{ sent: boolean }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<{ sent: boolean }, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const accountRow = yield* Effect.tryPromise({
@@ -2903,19 +2894,19 @@ export function createAuthService(config: AuthConfig) {
         attempts: 0,
         expiresAt: Date.now() + otpTtl * 1000,
       });
-      if (config.sendEmail) {
-        yield* Effect.tryPromise({
-          try: () =>
-            config.sendEmail!(
-              account.email,
-              "Confirm a sensitive action",
-              `Your OSN step-up code is: ${code}\n\nUse this to confirm a security-sensitive action. Expires in ${otpTtl / 60} minutes.`,
-            ),
-          catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
-        });
-      } else if (!process.env["OSN_ENV"] || process.env["OSN_ENV"] === "local") {
-        yield* Effect.logDebug(`[OSN local] Step-up OTP for ${account.email}: ${code}`);
-      }
+      const email = yield* EmailService;
+      yield* email
+        .send({
+          template: "otp-step-up",
+          to: account.email,
+          data: { code, ttlMinutes: otpTtl / 60 },
+        })
+        .pipe(
+          Effect.mapError(
+            (cause: EmailError) =>
+              new AuthError({ message: `Failed to send email: ${cause.reason}` }),
+          ),
+        );
       // S-L1: distinguish step-up OTPs from login OTPs on the dashboard.
       metricAuthOtpSent("step_up");
       return { sent: true };
@@ -3096,7 +3087,11 @@ export function createAuthService(config: AuthConfig) {
   const beginEmailChange = (
     accountId: string,
     newEmail: string,
-  ): Effect.Effect<{ sent: boolean }, AuthError | ValidationError | DatabaseError, Db> =>
+  ): Effect.Effect<
+    { sent: boolean },
+    AuthError | ValidationError | DatabaseError,
+    Db | EmailService
+  > =>
     Effect.gen(function* () {
       yield* Schema.decodeUnknown(EmailSchema)(newEmail).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
@@ -3183,22 +3178,21 @@ export function createAuthService(config: AuthConfig) {
         expiresAt: Date.now() + otpTtl * 1000,
       });
 
-      if (config.sendEmail) {
-        yield* Effect.tryPromise({
-          try: () =>
-            config.sendEmail!(
-              normalised,
-              "Confirm your new OSN email",
-              // S-L5: explicit "somebody asked for this on your account"
-              // framing so a mistakenly-delivered message is clearly junk
-              // to the recipient and useless as a phishing template.
-              `An OSN account holder requested this email address be associated with their account. If that wasn't you, you can ignore this message safely.\n\nYour OSN email change code is: ${code}\n\nExpires in ${otpTtl / 60} minutes.`,
-            ),
-          catch: (cause) => new AuthError({ message: `Failed to send email: ${String(cause)}` }),
-        });
-      } else if (!process.env["OSN_ENV"] || process.env["OSN_ENV"] === "local") {
-        yield* Effect.logDebug(`[OSN local] Email-change OTP for ${normalised}: ${code}`);
-      }
+      // S-L5 framing lives in the template itself
+      // (shared/email/src/templates/otp.ts → renderEmailChangeOtp).
+      const email = yield* EmailService;
+      yield* email
+        .send({
+          template: "otp-email-change",
+          to: normalised,
+          data: { code, ttlMinutes: otpTtl / 60 },
+        })
+        .pipe(
+          Effect.mapError(
+            (cause: EmailError) =>
+              new AuthError({ message: `Failed to send email: ${cause.reason}` }),
+          ),
+        );
 
       metricAuthOtpSent("email_change");
       return { sent: true };
@@ -3442,7 +3436,7 @@ export function createAuthService(config: AuthConfig) {
     passkeyId: string,
     currentSessionHash: string | null,
     eventMeta?: SessionMeta,
-  ): Effect.Effect<{ remaining: number }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<{ remaining: number }, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
       if (!/^pk_[a-f0-9]{12}$/.test(passkeyId)) {
         return yield* Effect.fail(new AuthError({ message: "Passkey not found" }));
@@ -3543,33 +3537,22 @@ export function createAuthService(config: AuthConfig) {
    */
   const notifyPasskeyRegisteredByAccountId = (
     accountId: string,
-  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const rows = yield* Effect.tryPromise({
         try: () => db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      const email = rows[0]?.email;
-      if (!email) {
+      const recipient = rows[0]?.email;
+      if (!recipient) {
         metricSecurityEventNotified("passkey_register", "skipped");
         return;
       }
-      if (!config.sendEmail) {
-        yield* Effect.logDebug(`[OSN local] Passkey-added notice for ${email}: audit row written`);
-        metricSecurityEventNotified("passkey_register", "skipped");
-        return;
-      }
+      const email = yield* EmailService;
       const start = Date.now();
-      yield* Effect.tryPromise({
-        try: () =>
-          config.sendEmail!(
-            email,
-            "A passkey was added to your OSN account",
-            `A passkey was just added to your OSN account. If that was you, no further action is needed.\n\nIf this wasn't you: sign in, remove the unexpected credential, and rotate your recovery codes.`,
-          ),
-        catch: () => new AuthError({ message: "notify_dispatch_failed" }),
-      }).pipe(
+      yield* email.send({ template: "passkey-added", to: recipient, data: {} }).pipe(
+        Effect.mapError(() => new AuthError({ message: "notify_dispatch_failed" })),
         Effect.tap(() =>
           Effect.sync(() => {
             metricSecurityEventNotifyDuration((Date.now() - start) / 1000, "ok");
@@ -3589,33 +3572,22 @@ export function createAuthService(config: AuthConfig) {
 
   const notifyPasskeyDeletedByAccountId = (
     accountId: string,
-  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const rows = yield* Effect.tryPromise({
         try: () => db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      const email = rows[0]?.email;
-      if (!email) {
+      const recipient = rows[0]?.email;
+      if (!recipient) {
         metricSecurityEventNotified("passkey_delete", "skipped");
         return;
       }
-      if (!config.sendEmail) {
-        yield* Effect.logDebug(`[OSN local] Passkey-delete notice for ${email}: audit row written`);
-        metricSecurityEventNotified("passkey_delete", "skipped");
-        return;
-      }
+      const email = yield* EmailService;
       const start = Date.now();
-      yield* Effect.tryPromise({
-        try: () =>
-          config.sendEmail!(
-            email,
-            "A passkey was removed from your OSN account",
-            `A passkey was just removed from your OSN account. If that was you, no further action is needed.\n\nIf this wasn't you: sign in, review your active sessions, and rotate any remaining credentials.`,
-          ),
-        catch: () => new AuthError({ message: "notify_dispatch_failed" }),
-      }).pipe(
+      yield* email.send({ template: "passkey-removed", to: recipient, data: {} }).pipe(
+        Effect.mapError(() => new AuthError({ message: "notify_dispatch_failed" })),
         Effect.tap(() =>
           Effect.sync(() => {
             metricSecurityEventNotifyDuration((Date.now() - start) / 1000, "ok");

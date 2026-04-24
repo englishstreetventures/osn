@@ -1,5 +1,6 @@
 import { it, expect, describe } from "@effect/vitest";
-import { Effect } from "effect";
+import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
+import { Effect, Layer } from "effect";
 import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
@@ -18,14 +19,41 @@ import { createTestLayer } from "../helpers/db";
  *     first, with the coarse UA label we threaded in from the route.
  *   • acknowledgeSecurityEvent is step-up gated (S-M1), idempotent on missing
  *     / already-acked IDs, and scoped to the owning account.
- *   • If `sendEmail` rejects, the recovery codes still commit — the email is
- *     forked + timed-out defence in depth, not the primary signal.
+ *   • If the email transport rejects, the recovery codes still commit — the
+ *     notification is forked + timed-out defence in depth, not the primary
+ *     signal.
  */
 
 let baseConfig: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 
 beforeAll(async () => {
   baseConfig = await makeTestAuthConfig();
+});
+
+/** Fresh email recorder + merged test layer (replaces the old sendEmail callback). */
+function makeEmailCapture() {
+  const email = makeLogEmailLive();
+  return {
+    layer: Layer.merge(createTestLayer(), email.layer),
+    latest: (): string | undefined => {
+      const all = email.recorded();
+      for (let i = all.length - 1; i >= 0; i--) {
+        const m = all[i].text.match(/(?:step-up code is|code is): (\d{6})/);
+        if (m) return m[1];
+      }
+      return undefined;
+    },
+  };
+}
+
+/**
+ * Layer that makes every email send fail with `dispatch_failed` — replaces
+ * the old `sendEmail: async () => { throw ... }` test knob so we still
+ * exercise the "mailer broken, audit row must survive" branch.
+ */
+const failingEmailLayer = Layer.succeed(EmailService, {
+  send: () =>
+    Effect.fail(new EmailError({ reason: "dispatch_failed", cause: "simulated SMTP failure" })),
 });
 
 const registered = (auth: ReturnType<typeof createAuthService>, email: string, handle: string) =>
@@ -42,26 +70,14 @@ const registered = (auth: ReturnType<typeof createAuthService>, email: string, h
 const mintStepUp = (
   auth: ReturnType<typeof createAuthService>,
   accountId: string,
-  captured: string[],
+  capture: ReturnType<typeof makeEmailCapture>,
 ) =>
   Effect.gen(function* () {
     yield* auth.beginStepUpOtp(accountId);
-    const code = captured[captured.length - 1]!;
+    const code = capture.latest()!;
     const { stepUpToken } = yield* auth.completeStepUpOtp(accountId, code);
     return stepUpToken;
   });
-
-const makeCapturingAuth = () => {
-  const captured: string[] = [];
-  const auth = createAuthService({
-    ...baseConfig,
-    sendEmail: async (_to, _subject, body) => {
-      const m = body.match(/(?:code is|OSN step-up code is): (\d{6})/);
-      if (m) captured.push(m[1]!);
-    },
-  });
-  return { auth, captured };
-};
 
 describe("generateRecoveryCodesForAccount → security_events", () => {
   it.effect("creates exactly one unacked row per generate call", () =>
@@ -97,17 +113,12 @@ describe("generateRecoveryCodesForAccount → security_events", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // The email notification is forked + timed out. A failing sendEmail must
-  // not roll back the generate — that would let an attacker DoS the recovery
-  // surface by making the inbox reject mail.
-  it.effect("generate still succeeds when sendEmail rejects", () =>
+  // The email notification is forked + timed out. A failing email dispatch
+  // must not roll back the generate — that would let an attacker DoS the
+  // recovery surface by making the inbox reject mail.
+  it.effect("generate still succeeds when the email transport rejects", () =>
     Effect.gen(function* () {
-      const auth = createAuthService({
-        ...baseConfig,
-        sendEmail: async () => {
-          throw new Error("simulated SMTP failure");
-        },
-      });
+      const auth = createAuthService(baseConfig);
       const profile = yield* registered(auth, "sev-mailfail@example.com", "sevmailfail");
 
       const { recoveryCodes: codes } = yield* auth.generateRecoveryCodesForAccount(
@@ -118,7 +129,7 @@ describe("generateRecoveryCodesForAccount → security_events", () => {
       // Audit row still committed.
       const { events } = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
       expect(events).toHaveLength(1);
-    }).pipe(Effect.provide(createTestLayer())),
+    }).pipe(Effect.provide(Layer.merge(createTestLayer(), failingEmailLayer))),
   );
 });
 
@@ -231,9 +242,10 @@ describe("listUnacknowledgedSecurityEvents", () => {
   );
 
   // T-S1: ack + list mixed state — only unacked rows survive the filter.
-  it.effect("excludes acknowledged rows when mixed with unacked rows", () =>
-    Effect.gen(function* () {
-      const { auth, captured } = makeCapturingAuth();
+  it.effect("excludes acknowledged rows when mixed with unacked rows", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
       const profile = yield* registered(auth, "sev-mix@example.com", "sevmix");
 
       yield* auth.generateRecoveryCodesForAccount(profile.accountId);
@@ -244,14 +256,14 @@ describe("listUnacknowledgedSecurityEvents", () => {
       expect(beforeAck.events).toHaveLength(3);
 
       // Ack the newest row; the other two must still surface.
-      const stepUpToken = yield* mintStepUp(auth, profile.accountId, captured);
+      const stepUpToken = yield* mintStepUp(auth, profile.accountId, cap);
       yield* auth.acknowledgeSecurityEvent(profile.accountId, beforeAck.events[0]!.id, stepUpToken);
       const afterAck = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
       expect(afterAck.events).toHaveLength(2);
       const ids = new Set(afterAck.events.map((e) => e.id));
       expect(ids.has(beforeAck.events[0]!.id)).toBe(false);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(cap.layer));
+  });
 });
 
 // T-S2: the defensive branches in notifyRecovery are unreachable in production
@@ -268,9 +280,9 @@ describe("notifyRecovery (defensive branches)", () => {
       }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("notifyRecovery resolves without error when sendEmail is not configured", () =>
+  it.effect("notifyRecovery resolves without error when the transport swallows the send", () =>
     Effect.gen(function* () {
-      const auth = createAuthService(baseConfig); // no sendEmail
+      const auth = createAuthService(baseConfig);
       yield* auth.notifyRecovery("somebody@example.com", "recovery_code_consume");
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -284,16 +296,17 @@ describe("notifyRecovery (defensive branches)", () => {
 });
 
 describe("acknowledgeSecurityEvent (S-M1 step-up gated)", () => {
-  it.effect("acking a row with a valid step-up token removes it from the unacked list", () =>
-    Effect.gen(function* () {
-      const { auth, captured } = makeCapturingAuth();
+  it.effect("acking a row with a valid step-up token removes it from the unacked list", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
       const profile = yield* registered(auth, "sev-ack@example.com", "sevack");
 
       yield* auth.generateRecoveryCodesForAccount(profile.accountId);
       const { events } = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
       expect(events).toHaveLength(1);
 
-      const stepUpToken = yield* mintStepUp(auth, profile.accountId, captured);
+      const stepUpToken = yield* mintStepUp(auth, profile.accountId, cap);
       const result = yield* auth.acknowledgeSecurityEvent(
         profile.accountId,
         events[0]!.id,
@@ -303,8 +316,8 @@ describe("acknowledgeSecurityEvent (S-M1 step-up gated)", () => {
 
       const after = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
       expect(after.events).toHaveLength(0);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(cap.layer));
+  });
 
   it.effect("rejects an invalid step-up token with AuthError", () =>
     Effect.gen(function* () {
@@ -320,28 +333,30 @@ describe("acknowledgeSecurityEvent (S-M1 step-up gated)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("rejects a step-up token issued for a different account", () =>
-    Effect.gen(function* () {
-      const { auth, captured } = makeCapturingAuth();
+  it.effect("rejects a step-up token issued for a different account", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
       const owner = yield* registered(auth, "sev-owner2@example.com", "sevowner2");
       const other = yield* registered(auth, "sev-other2@example.com", "sevother2");
       yield* auth.generateRecoveryCodesForAccount(owner.accountId);
       const { events } = yield* auth.listUnacknowledgedSecurityEvents(owner.accountId);
 
       // Mint a step-up for `other`, then try to use it against `owner`'s event.
-      const stepUpToken = yield* mintStepUp(auth, other.accountId, captured);
+      const stepUpToken = yield* mintStepUp(auth, other.accountId, cap);
       const err = yield* Effect.flip(
         auth.acknowledgeSecurityEvent(owner.accountId, events[0]!.id, stepUpToken),
       );
       expect(err._tag).toBe("AuthError");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(cap.layer));
+  });
 
-  it.effect("acking a nonexistent id returns { acknowledged: false }", () =>
-    Effect.gen(function* () {
-      const { auth, captured } = makeCapturingAuth();
+  it.effect("acking a nonexistent id returns { acknowledged: false }", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
       const profile = yield* registered(auth, "sev-miss@example.com", "sevmiss");
-      const stepUpToken = yield* mintStepUp(auth, profile.accountId, captured);
+      const stepUpToken = yield* mintStepUp(auth, profile.accountId, cap);
 
       const result = yield* auth.acknowledgeSecurityEvent(
         profile.accountId,
@@ -349,12 +364,13 @@ describe("acknowledgeSecurityEvent (S-M1 step-up gated)", () => {
         stepUpToken,
       );
       expect(result.acknowledged).toBe(false);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(cap.layer));
+  });
 
-  it.effect("acking an id scoped to another account is a no-op (step-up consumed anyway)", () =>
-    Effect.gen(function* () {
-      const { auth, captured } = makeCapturingAuth();
+  it.effect("acking an id scoped to another account is a no-op (step-up consumed anyway)", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
       const owner = yield* registered(auth, "sev-owner@example.com", "sevowner");
       const other = yield* registered(auth, "sev-other@example.com", "sevother");
 
@@ -365,7 +381,7 @@ describe("acknowledgeSecurityEvent (S-M1 step-up gated)", () => {
       // up is for `other`'s account, so the subject check fails before the
       // row lookup — test asserts the cross-account attempt fails at the
       // step-up gate (AuthError), not silently.
-      const stepUpToken = yield* mintStepUp(auth, other.accountId, captured);
+      const stepUpToken = yield* mintStepUp(auth, other.accountId, cap);
       const err = yield* Effect.flip(
         auth.acknowledgeSecurityEvent(owner.accountId, events[0]!.id, stepUpToken),
       );
@@ -374,14 +390,15 @@ describe("acknowledgeSecurityEvent (S-M1 step-up gated)", () => {
       // Owner's list is untouched.
       const stillThere = yield* auth.listUnacknowledgedSecurityEvents(owner.accountId);
       expect(stillThere.events).toHaveLength(1);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(cap.layer));
+  });
 
-  it.effect("malformed ids are rejected after step-up verify without hitting the DB", () =>
-    Effect.gen(function* () {
-      const { auth, captured } = makeCapturingAuth();
+  it.effect("malformed ids are rejected after step-up verify without hitting the DB", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
       const profile = yield* registered(auth, "sev-malformed@example.com", "sevmalformed");
-      const stepUpToken = yield* mintStepUp(auth, profile.accountId, captured);
+      const stepUpToken = yield* mintStepUp(auth, profile.accountId, cap);
 
       const result = yield* auth.acknowledgeSecurityEvent(
         profile.accountId,
@@ -389,38 +406,40 @@ describe("acknowledgeSecurityEvent (S-M1 step-up gated)", () => {
         stepUpToken,
       );
       expect(result.acknowledged).toBe(false);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(cap.layer));
+  });
 });
 
 describe("acknowledgeAllSecurityEvents (S-M1 bulk path)", () => {
-  it.effect("dismisses every unacked event for the account in one call", () =>
-    Effect.gen(function* () {
-      const { auth, captured } = makeCapturingAuth();
+  it.effect("dismisses every unacked event for the account in one call", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
       const profile = yield* registered(auth, "sev-ackall@example.com", "sevackall");
 
       yield* auth.generateRecoveryCodesForAccount(profile.accountId);
       yield* auth.generateRecoveryCodesForAccount(profile.accountId);
       yield* auth.generateRecoveryCodesForAccount(profile.accountId);
 
-      const stepUpToken = yield* mintStepUp(auth, profile.accountId, captured);
+      const stepUpToken = yield* mintStepUp(auth, profile.accountId, cap);
       const result = yield* auth.acknowledgeAllSecurityEvents(profile.accountId, stepUpToken);
       expect(result.acknowledged).toBe(3);
 
       const after = yield* auth.listUnacknowledgedSecurityEvents(profile.accountId);
       expect(after.events).toHaveLength(0);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(cap.layer));
+  });
 
-  it.effect("returns { acknowledged: 0 } when there's nothing to dismiss", () =>
-    Effect.gen(function* () {
-      const { auth, captured } = makeCapturingAuth();
+  it.effect("returns { acknowledged: 0 } when there's nothing to dismiss", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
       const profile = yield* registered(auth, "sev-ackall-empty@example.com", "sevackallempty");
-      const stepUpToken = yield* mintStepUp(auth, profile.accountId, captured);
+      const stepUpToken = yield* mintStepUp(auth, profile.accountId, cap);
       const result = yield* auth.acknowledgeAllSecurityEvents(profile.accountId, stepUpToken);
       expect(result.acknowledged).toBe(0);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(cap.layer));
+  });
 
   it.effect("rejects a missing / invalid step-up token", () =>
     Effect.gen(function* () {
@@ -435,19 +454,20 @@ describe("acknowledgeAllSecurityEvents (S-M1 bulk path)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("does not touch events scoped to another account", () =>
-    Effect.gen(function* () {
-      const { auth, captured } = makeCapturingAuth();
+  it.effect("does not touch events scoped to another account", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
       const owner = yield* registered(auth, "sev-ownerbulk@example.com", "sevownerbulk");
       const other = yield* registered(auth, "sev-otherbulk@example.com", "sevotherbulk");
       yield* auth.generateRecoveryCodesForAccount(owner.accountId);
       yield* auth.generateRecoveryCodesForAccount(other.accountId);
 
-      const otherStepUp = yield* mintStepUp(auth, other.accountId, captured);
+      const otherStepUp = yield* mintStepUp(auth, other.accountId, cap);
       yield* auth.acknowledgeAllSecurityEvents(other.accountId, otherStepUp);
 
       const ownerList = yield* auth.listUnacknowledgedSecurityEvents(owner.accountId);
       expect(ownerList.events).toHaveLength(1);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(cap.layer));
+  });
 });

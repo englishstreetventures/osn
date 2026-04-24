@@ -1,3 +1,4 @@
+import { makeLogEmailLive, type RecordedEmail } from "@shared/email";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { SignJWT } from "jose";
@@ -7,6 +8,33 @@ import { createAuthRoutes, createDefaultAuthRateLimiters } from "../../src/route
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
+
+/**
+ * Builds a `LogEmailLive` + merged test layer + a lazy OTP accessor
+ * that pulls the latest 6-digit code out of the rendered email text.
+ * Replaces the old `sendEmail` capture callback pattern.
+ */
+function buildEmailCapture(baseLayer: ReturnType<typeof createTestLayer>) {
+  const rec = makeLogEmailLive();
+  return {
+    layer: Layer.merge(baseLayer, rec.layer),
+    /** Latest captured 6-digit OTP across all recorded sends. */
+    code: () => {
+      const all = rec.recorded();
+      for (let i = all.length - 1; i >= 0; i--) {
+        const m = all[i].text.match(/code is: (\d{6})/);
+        if (m) return m[1];
+      }
+      return undefined;
+    },
+    /** Array of captured codes in order. */
+    codes: () =>
+      rec
+        .recorded()
+        .map((e: RecordedEmail) => e.text.match(/code is: (\d{6})/)?.[1])
+        .filter((c): c is string => !!c),
+  };
+}
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 
@@ -70,7 +98,7 @@ async function mintStepUpToken(
 async function mintStepUp(
   freshApp: ReturnType<typeof createAuthRoutes>,
   accessToken: string,
-  captured: string[],
+  latestCode: () => string | undefined,
 ): Promise<string> {
   await freshApp.handle(
     new Request("http://localhost/step-up/otp/begin", {
@@ -85,7 +113,7 @@ async function mintStepUp(
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ code: captured[captured.length - 1] }),
+      body: JSON.stringify({ code: latestCode() }),
     }),
   );
   const { step_up_token: stepUpToken } = (await stepUpRes.json()) as {
@@ -133,15 +161,8 @@ describe("auth routes", () => {
   // -------------------------------------------------------------------------
   describe("POST /register/begin + /register/complete", () => {
     it("does not create the user until the OTP is verified", async () => {
-      let captured: string | undefined;
-      const verifiedConfig = {
-        ...config,
-        sendEmail: async (_to: string, _subject: string, body: string) => {
-          const m = body.match(/code is: (\d{6})/);
-          if (m) captured = m[1];
-        },
-      };
-      const verifiedApp = createAuthRoutes(verifiedConfig, layer);
+      const capture = buildEmailCapture(layer);
+      const verifiedApp = createAuthRoutes(config, capture.layer);
 
       // Begin: should send a code but NOT create the user yet.
       const beginRes = await verifiedApp.handle(
@@ -157,7 +178,7 @@ describe("auth routes", () => {
       );
       expect(beginRes.status).toBe(200);
       expect(((await beginRes.json()) as { sent: boolean }).sent).toBe(true);
-      expect(captured).toMatch(/^\d{6}$/);
+      expect(capture.code()).toMatch(/^\d{6}$/);
 
       // Handle should still be free, since user wasn't created.
       const checkRes = await verifiedApp.handle(new Request("http://localhost/handle/verifyme"));
@@ -170,7 +191,7 @@ describe("auth routes", () => {
         new Request("http://localhost/register/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "verify-me@example.com", code: captured! }),
+          body: JSON.stringify({ email: "verify-me@example.com", code: capture.code()! }),
         }),
       );
       expect(completeRes.status).toBe(201);
@@ -289,15 +310,8 @@ describe("auth routes", () => {
     });
 
     it("rejects /register/complete on replay (single-use OTP)", async () => {
-      let captured: string | undefined;
-      const verifiedConfig = {
-        ...config,
-        sendEmail: async (_to: string, _subject: string, body: string) => {
-          const m = body.match(/code is: (\d{6})/);
-          if (m) captured = m[1];
-        },
-      };
-      const verifiedApp = createAuthRoutes(verifiedConfig, layer);
+      const capture = buildEmailCapture(layer);
+      const verifiedApp = createAuthRoutes(config, capture.layer);
 
       await verifiedApp.handle(
         new Request("http://localhost/register/begin", {
@@ -311,7 +325,7 @@ describe("auth routes", () => {
         new Request("http://localhost/register/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "replay-route@example.com", code: captured! }),
+          body: JSON.stringify({ email: "replay-route@example.com", code: capture.code()! }),
         }),
       );
       expect(first.status).toBe(201);
@@ -320,7 +334,7 @@ describe("auth routes", () => {
         new Request("http://localhost/register/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "replay-route@example.com", code: captured! }),
+          body: JSON.stringify({ email: "replay-route@example.com", code: capture.code()! }),
         }),
       );
       expect(second.status).toBe(400);
@@ -389,17 +403,8 @@ describe("auth routes", () => {
       // coverage already exercises the detector in isolation; this one
       // locks in the Elysia derive + cookie-reader glue so a regression in
       // cookie handling or rate-limit ordering can't silently downgrade C2.
-      let captured: string | undefined;
-      const verifiedApp = createAuthRoutes(
-        {
-          ...config,
-          sendEmail: async (_to, _subject, body) => {
-            const m = body.match(/code is: (\d{6})/);
-            if (m) captured = m[1];
-          },
-        },
-        layer,
-      );
+      const capture = buildEmailCapture(layer);
+      const verifiedApp = createAuthRoutes(config, capture.layer);
 
       await verifiedApp.handle(
         new Request("http://localhost/register/begin", {
@@ -412,7 +417,7 @@ describe("auth routes", () => {
         new Request("http://localhost/register/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "reuse-route@example.com", code: captured! }),
+          body: JSON.stringify({ email: "reuse-route@example.com", code: capture.code()! }),
         }),
       );
       expect(completeRes.status).toBe(201);
@@ -467,17 +472,8 @@ describe("auth routes", () => {
       // The body fallback was removed: any refresh_token submitted outside
       // the HttpOnly cookie must fail with invalid_request, independent of
       // whether the token itself would be valid.
-      let captured: string | undefined;
-      const cookieOnlyApp = createAuthRoutes(
-        {
-          ...config,
-          sendEmail: async (_to, _subject, body) => {
-            const m = body.match(/code is: (\d{6})/);
-            if (m) captured = m[1];
-          },
-        },
-        layer,
-      );
+      const capture = buildEmailCapture(layer);
+      const cookieOnlyApp = createAuthRoutes(config, capture.layer);
 
       await cookieOnlyApp.handle(
         new Request("http://localhost/register/begin", {
@@ -490,7 +486,7 @@ describe("auth routes", () => {
         new Request("http://localhost/register/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "cookie-only@example.com", code: captured! }),
+          body: JSON.stringify({ email: "cookie-only@example.com", code: capture.code()! }),
         }),
       );
       expect(completeRes.status).toBe(201);
@@ -1077,15 +1073,8 @@ describe("auth routes", () => {
 
   describe("GET /profiles/list", () => {
     async function getAccessToken(): Promise<{ accessToken: string; profileId: string }> {
-      let captured: string | undefined;
-      const verifiedConfig = {
-        ...config,
-        sendEmail: async (_to: string, _subject: string, body: string) => {
-          const m = body.match(/code is: (\d{6})/);
-          if (m) captured = m[1];
-        },
-      };
-      const verifiedApp = createAuthRoutes(verifiedConfig, layer);
+      const capture = buildEmailCapture(layer);
+      const verifiedApp = createAuthRoutes(config, capture.layer);
       await verifiedApp.handle(
         new Request("http://localhost/register/begin", {
           method: "POST",
@@ -1101,7 +1090,7 @@ describe("auth routes", () => {
         new Request("http://localhost/register/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "profiles@example.com", code: captured }),
+          body: JSON.stringify({ email: "profiles@example.com", code: capture.code() }),
         }),
       );
       const json = (await completeRes.json()) as {
@@ -1153,15 +1142,8 @@ describe("auth routes", () => {
       accessToken: string;
       profileId: string;
     }> {
-      let captured: string | undefined;
-      const verifiedConfig = {
-        ...config,
-        sendEmail: async (_to: string, _subject: string, body: string) => {
-          const m = body.match(/code is: (\d{6})/);
-          if (m) captured = m[1];
-        },
-      };
-      const verifiedApp = createAuthRoutes(verifiedConfig, layer);
+      const capture = buildEmailCapture(layer);
+      const verifiedApp = createAuthRoutes(config, capture.layer);
       await verifiedApp.handle(
         new Request("http://localhost/register/begin", {
           method: "POST",
@@ -1177,7 +1159,7 @@ describe("auth routes", () => {
         new Request("http://localhost/register/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "switch@example.com", code: captured }),
+          body: JSON.stringify({ email: "switch@example.com", code: capture.code() }),
         }),
       );
       const json = (await completeRes.json()) as {
@@ -1266,15 +1248,8 @@ describe("auth routes", () => {
     }> {
       // Buffer every captured code so we can distinguish register-OTP from
       // the subsequent step-up OTP emailed after we've already logged in.
-      const captured: string[] = [];
-      const verifiedConfig = {
-        ...config,
-        sendEmail: async (_to: string, _subject: string, body: string) => {
-          const m = body.match(/(?:code is|OSN step-up code is): (\d{6})/);
-          if (m) captured.push(m[1]!);
-        },
-      };
-      const verifiedApp = createAuthRoutes(verifiedConfig, layer);
+      const capture = buildEmailCapture(layer);
+      const verifiedApp = createAuthRoutes(config, capture.layer);
       await verifiedApp.handle(
         new Request("http://localhost/register/begin", {
           method: "POST",
@@ -1290,7 +1265,7 @@ describe("auth routes", () => {
         new Request("http://localhost/register/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "recovery-user@example.com", code: captured[0]! }),
+          body: JSON.stringify({ email: "recovery-user@example.com", code: capture.codes()[0]! }),
         }),
       );
       const json = (await completeRes.json()) as {
@@ -1309,7 +1284,7 @@ describe("auth routes", () => {
           },
         }),
       );
-      const stepUpCode = captured[captured.length - 1]!;
+      const stepUpCode = capture.code()!;
       const stepUpRes = await verifiedApp.handle(
         new Request("http://localhost/step-up/otp/complete", {
           method: "POST",
@@ -1485,23 +1460,21 @@ describe("auth routes", () => {
   describe("step-up routes", () => {
     function appWithCapturingEmail(): {
       app: ReturnType<typeof createAuthRoutes>;
-      captured: { code?: string; all: string[] };
+      captured: { readonly code: string | undefined; readonly all: readonly string[] };
     } {
-      const captured: { code?: string; all: string[] } = { all: [] };
-      const verifiedConfig = {
-        ...config,
-        sendEmail: async (_to: string, _subject: string, body: string) => {
-          // Matches register-OTP ("code is: NNNNNN"), step-up-OTP
-          // ("step-up code is: NNNNNN"), and email-change-OTP ("code is:") —
-          // the single shared regex lets tests grab whichever code was last sent.
-          const m = body.match(/(?:step-up code is|code is): (\d{6})/);
-          if (m) {
-            captured.code = m[1];
-            captured.all.push(m[1]!);
-          }
+      const cap = buildEmailCapture(layer);
+      // Matches register-OTP ("code is: NNNNNN"), step-up-OTP
+      // ("step-up code is: NNNNNN"), and email-change-OTP ("code is:") —
+      // a single shared regex lets tests grab whichever code was last sent.
+      const captured = {
+        get code(): string | undefined {
+          return cap.code();
+        },
+        get all(): readonly string[] {
+          return cap.codes();
         },
       };
-      return { app: createAuthRoutes(verifiedConfig, layer), captured };
+      return { app: createAuthRoutes(config, cap.layer), captured };
     }
 
     it("POST /step-up/otp/begin returns 401 without Bearer auth", async () => {
@@ -1602,15 +1575,8 @@ describe("auth routes", () => {
       accessToken: string;
       cookieHeader: string;
     }> {
-      const captured: { code?: string } = {};
-      const verifiedConfig = {
-        ...config,
-        sendEmail: async (_to: string, _subject: string, body: string) => {
-          const m = body.match(/code is: (\d{6})/);
-          if (m) captured.code = m[1];
-        },
-      };
-      const freshApp = createAuthRoutes(verifiedConfig, layer);
+      const capture = buildEmailCapture(layer);
+      const freshApp = createAuthRoutes(config, capture.layer);
       await freshApp.handle(
         new Request("http://localhost/register/begin", {
           method: "POST",
@@ -1622,7 +1588,7 @@ describe("auth routes", () => {
         new Request("http://localhost/register/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "sess-route@example.com", code: captured.code }),
+          body: JSON.stringify({ email: "sess-route@example.com", code: capture.code() }),
         }),
       );
       const json = (await completeRes.json()) as {
@@ -1741,15 +1707,13 @@ describe("auth routes", () => {
       accessToken: string;
       captured: { last?: string };
     }> {
-      const captured: { last?: string } = {};
-      const verifiedConfig = {
-        ...config,
-        sendEmail: async (_to: string, _subject: string, body: string) => {
-          const m = body.match(/(?:step-up code is|code is): (\d{6})/);
-          if (m) captured.last = m[1];
+      const cap = buildEmailCapture(layer);
+      const captured = {
+        get last(): string | undefined {
+          return cap.code();
         },
       };
-      const freshApp = createAuthRoutes(verifiedConfig, layer);
+      const freshApp = createAuthRoutes(config, cap.layer);
       await freshApp.handle(
         new Request("http://localhost/register/begin", {
           method: "POST",
@@ -1869,21 +1833,15 @@ describe("auth routes", () => {
     async function setupWithRecovery(): Promise<{
       app: ReturnType<typeof createAuthRoutes>;
       accessToken: string;
-      captured: string[];
+      /** Live getter — returns the latest captured 6-digit OTP. */
+      latestCode: () => string | undefined;
       generatedEventId: string;
     }> {
       // Drive the full register → step-up → /recovery/generate ceremony so
       // there's exactly one unacked recovery_code_generate event on the
       // account by the time we hit GET /account/security-events.
-      const captured: string[] = [];
-      const verifiedConfig = {
-        ...config,
-        sendEmail: async (_to: string, _subject: string, body: string) => {
-          const m = body.match(/(?:step-up code is|code is): (\d{6})/);
-          if (m) captured.push(m[1]!);
-        },
-      };
-      const freshApp = createAuthRoutes(verifiedConfig, layer);
+      const cap = buildEmailCapture(layer);
+      const freshApp = createAuthRoutes(config, cap.layer);
 
       await freshApp.handle(
         new Request("http://localhost/register/begin", {
@@ -1896,14 +1854,14 @@ describe("auth routes", () => {
         new Request("http://localhost/register/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "sev-route@example.com", code: captured[0] }),
+          body: JSON.stringify({ email: "sev-route@example.com", code: cap.codes()[0] }),
         }),
       );
       const {
         session: { access_token: accessToken },
       } = (await completeRes.json()) as { session: { access_token: string } };
 
-      const stepUpToken = await mintStepUp(freshApp, accessToken, captured);
+      const stepUpToken = await mintStepUp(freshApp, accessToken, cap.code);
 
       // Generate recovery codes — this records the security_events row.
       await freshApp.handle(
@@ -1926,7 +1884,12 @@ describe("auth routes", () => {
       const { events } = (await listRes.json()) as {
         events: Array<{ id: string; kind: string }>;
       };
-      return { app: freshApp, accessToken, captured, generatedEventId: events[0]!.id };
+      return {
+        app: freshApp,
+        accessToken,
+        latestCode: cap.code,
+        generatedEventId: events[0]!.id,
+      };
     }
 
     it("GET /account/security-events requires Bearer auth", async () => {
@@ -1975,8 +1938,13 @@ describe("auth routes", () => {
     });
 
     it("POST /account/security-events/:id/ack with a valid step-up token hides the event from subsequent lists", async () => {
-      const { app: freshApp, accessToken, captured, generatedEventId } = await setupWithRecovery();
-      const stepUpToken = await mintStepUp(freshApp, accessToken, captured);
+      const {
+        app: freshApp,
+        accessToken,
+        latestCode,
+        generatedEventId,
+      } = await setupWithRecovery();
+      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode);
       const ackRes = await freshApp.handle(
         new Request(`http://localhost/account/security-events/${generatedEventId}/ack`, {
           method: "POST",
@@ -2001,8 +1969,8 @@ describe("auth routes", () => {
     });
 
     it("POST /account/security-events/:id/ack rejects malformed ids via path regex", async () => {
-      const { app: freshApp, accessToken, captured } = await setupWithRecovery();
-      const stepUpToken = await mintStepUp(freshApp, accessToken, captured);
+      const { app: freshApp, accessToken, latestCode } = await setupWithRecovery();
+      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode);
       const res = await freshApp.handle(
         new Request("http://localhost/account/security-events/not-a-valid-id/ack", {
           method: "POST",
@@ -2019,8 +1987,8 @@ describe("auth routes", () => {
     });
 
     it("POST /account/security-events/:id/ack for a nonexistent id returns 200 with acknowledged:false", async () => {
-      const { app: freshApp, accessToken, captured } = await setupWithRecovery();
-      const stepUpToken = await mintStepUp(freshApp, accessToken, captured);
+      const { app: freshApp, accessToken, latestCode } = await setupWithRecovery();
+      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode);
       const res = await freshApp.handle(
         new Request("http://localhost/account/security-events/sev_000000000000/ack", {
           method: "POST",
@@ -2036,11 +2004,11 @@ describe("auth routes", () => {
     });
 
     it("POST /account/security-events/ack-all dismisses every unacked event in one call", async () => {
-      const { app: freshApp, accessToken, captured } = await setupWithRecovery();
+      const { app: freshApp, accessToken, latestCode } = await setupWithRecovery();
       // Generate two more events so there are 3 unacked rows.
       for (const _ of [1, 2]) {
         // eslint-disable-next-line no-await-in-loop -- step-up OTP capture is sequential
-        const freshStepUp = await mintStepUp(freshApp, accessToken, captured);
+        const freshStepUp = await mintStepUp(freshApp, accessToken, latestCode);
         // eslint-disable-next-line no-await-in-loop -- each generate depends on the prior step-up mint
         await freshApp.handle(
           new Request("http://localhost/recovery/generate", {
@@ -2054,7 +2022,7 @@ describe("auth routes", () => {
         );
       }
 
-      const stepUpToken = await mintStepUp(freshApp, accessToken, captured);
+      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode);
       const ackAllRes = await freshApp.handle(
         new Request("http://localhost/account/security-events/ack-all", {
           method: "POST",

@@ -1,12 +1,45 @@
 import { it, expect, describe } from "@effect/vitest";
 import { passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { Effect, Logger, LogLevel } from "effect";
+import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
+import { Effect, Layer, Logger, LogLevel } from "effect";
 import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
+
+/**
+ * Build a fresh auth service + OTP-capturing email recorder + merged
+ * test layer. Replaces the old `sendEmail` callback in `AuthConfig`.
+ *
+ * Usage:
+ *   it.effect("...", () => {
+ *     const { svc, captured, layer } = makeAuth();
+ *     return Effect.gen(function* () {
+ *       yield* svc.beginRegistration(...);
+ *       expect(captured.code).toMatch(/.../);
+ *     }).pipe(Effect.provide(layer));
+ *   });
+ */
+function makeAuth() {
+  const email = makeLogEmailLive();
+  const svc = createAuthService(config);
+  const layer = Layer.merge(createTestLayer(), email.layer);
+  const captured = {
+    get code(): string | undefined {
+      const all = email.recorded();
+      for (let i = all.length - 1; i >= 0; i--) {
+        const m = all[i].text.match(/code is: (\d{6})/);
+        if (m) return m[1];
+      }
+      return undefined;
+    },
+    /** Clear the capture ring — use when a test asserts the absence of a send. */
+    reset: () => email.reset(),
+  };
+  return { svc, captured, layer };
+}
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
@@ -111,25 +144,12 @@ describe("checkHandle", () => {
 // ---------------------------------------------------------------------------
 
 describe("beginRegistration + completeRegistration", () => {
-  /**
-   * Each test gets its own auth service with a fresh in-memory `sendEmail`
-   * capture so the OTP sent in step 1 can be replayed in step 2.
-   */
-  function makeAuth() {
-    const captured: { code?: string } = {};
-    const svc = createAuthService({
-      ...config,
-      sendEmail: async (_to, _subject, body) => {
-        const m = body.match(/code is: (\d{6})/);
-        if (m) captured.code = m[1];
-      },
-    });
-    return { svc, captured };
-  }
+  // Each test gets a fresh makeAuth() via the module-scope helper so the
+  // OTP captured in begin can be replayed in complete.
 
-  it.effect("happy path: begin → complete creates user and returns session", () =>
-    Effect.gen(function* () {
-      const { svc, captured } = makeAuth();
+  it.effect("happy path: begin → complete creates user and returns session", () => {
+    const { svc, captured, layer } = makeAuth();
+    return Effect.gen(function* () {
       yield* svc.beginRegistration("verify@example.com", "verifyme", "Verify Me");
       expect(captured.code).toMatch(/^\d{6}$/);
 
@@ -146,12 +166,12 @@ describe("beginRegistration + completeRegistration", () => {
       const found = yield* svc.findProfileByEmail("verify@example.com");
       expect(found?.handle).toBe("verifyme");
       expect(found?.displayName).toBe("Verify Me");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 
-  it.effect("S-H3: email is normalised to lowercase across the pipeline", () =>
-    Effect.gen(function* () {
-      const { svc, captured } = makeAuth();
+  it.effect("S-H3: email is normalised to lowercase across the pipeline", () => {
+    const { svc, captured, layer } = makeAuth();
+    return Effect.gen(function* () {
       yield* svc.beginRegistration("MixedCase@Example.com", "mixedcase");
       // The OTP is captured from the email body which is sent to the
       // lowercased address; complete must also accept the lowercased form.
@@ -161,12 +181,12 @@ describe("beginRegistration + completeRegistration", () => {
       // Lookups by either casing find the same row.
       const a = yield* svc.findProfileByEmail("mixedcase@example.com");
       expect(a?.id).toBe(result.profileId);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 
-  it.effect("does not create the user before the OTP is verified", () =>
-    Effect.gen(function* () {
-      const { svc } = makeAuth();
+  it.effect("does not create the user before the OTP is verified", () => {
+    const { svc, layer } = makeAuth();
+    return Effect.gen(function* () {
       yield* svc.beginRegistration("pending@example.com", "pendinguser");
 
       // No DB row yet.
@@ -175,62 +195,62 @@ describe("beginRegistration + completeRegistration", () => {
       // Handle still free.
       const status = yield* svc.checkHandle("pendinguser");
       expect(status.available).toBe(true);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 
-  it.effect("rejects begin with ValidationError on bad email", () =>
-    Effect.gen(function* () {
-      const { svc } = makeAuth();
+  it.effect("rejects begin with ValidationError on bad email", () => {
+    const { svc, layer } = makeAuth();
+    return Effect.gen(function* () {
       const error = yield* Effect.flip(svc.beginRegistration("not-an-email", "okhandle"));
       expect(error._tag).toBe("ValidationError");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 
-  it.effect("rejects begin with ValidationError on bad handle format", () =>
-    Effect.gen(function* () {
-      const { svc } = makeAuth();
+  it.effect("rejects begin with ValidationError on bad handle format", () => {
+    const { svc, layer } = makeAuth();
+    return Effect.gen(function* () {
       const error = yield* Effect.flip(svc.beginRegistration("ok@example.com", "Bad Handle!"));
       expect(error._tag).toBe("ValidationError");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 
-  it.effect("rejects begin with AuthError on a reserved handle", () =>
-    Effect.gen(function* () {
-      const { svc } = makeAuth();
+  it.effect("rejects begin with AuthError on a reserved handle", () => {
+    const { svc, layer } = makeAuth();
+    return Effect.gen(function* () {
       const error = yield* Effect.flip(svc.beginRegistration("ok@example.com", "admin"));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("reserved");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 
-  it.effect("S-M1: begin returns sent:true silently when email is already taken", () =>
-    Effect.gen(function* () {
-      const { svc, captured } = makeAuth();
+  it.effect("S-M1: begin returns sent:true silently when email is already taken", () => {
+    const { svc, captured, layer } = makeAuth();
+    return Effect.gen(function* () {
       yield* svc.registerProfile("taken@example.com", "takenuser");
       // No throw — and crucially, no email sent (otherwise enumeration is
       // possible via timing or via observing outbound mail).
       const result = yield* svc.beginRegistration("taken@example.com", "newhandle");
       expect(result.sent).toBe(true);
       expect(captured.code).toBeUndefined();
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 
-  it.effect("S-M1: begin returns sent:true silently when handle is already taken", () =>
-    Effect.gen(function* () {
-      const { svc, captured } = makeAuth();
+  it.effect("S-M1: begin returns sent:true silently when handle is already taken", () => {
+    const { svc, captured, layer } = makeAuth();
+    return Effect.gen(function* () {
       yield* svc.registerProfile("first@example.com", "duphandle");
       const result = yield* svc.beginRegistration("second@example.com", "duphandle");
       expect(result.sent).toBe(true);
       expect(captured.code).toBeUndefined();
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 
-  it.effect("S-M2: begin refuses to overwrite a non-expired pending entry", () =>
-    Effect.gen(function* () {
-      const { svc, captured } = makeAuth();
+  it.effect("S-M2: begin refuses to overwrite a non-expired pending entry", () => {
+    const { svc, captured, layer } = makeAuth();
+    return Effect.gen(function* () {
       yield* svc.beginRegistration("dup@example.com", "dupuser");
       const firstCode = captured.code;
-      captured.code = undefined;
+      captured.reset();
       // Second call within the TTL should not send another email and should
       // not change the stored OTP.
       yield* svc.beginRegistration("dup@example.com", "differenthandle");
@@ -238,18 +258,18 @@ describe("beginRegistration + completeRegistration", () => {
       // The original code must still verify.
       const result = yield* svc.completeRegistration("dup@example.com", firstCode!);
       expect(result.profileId).toMatch(/^usr_/);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 
-  it.effect("complete fails with AuthError when the OTP is wrong", () =>
-    Effect.gen(function* () {
-      const { svc } = makeAuth();
+  it.effect("complete fails with AuthError when the OTP is wrong", () => {
+    const { svc, layer } = makeAuth();
+    return Effect.gen(function* () {
       yield* svc.beginRegistration("wrong@example.com", "wronguser");
       const error = yield* Effect.flip(svc.completeRegistration("wrong@example.com", "000000"));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Invalid or expired code");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 
   it.effect("complete fails with AuthError when there is no pending registration", () =>
     Effect.gen(function* () {
@@ -262,9 +282,9 @@ describe("beginRegistration + completeRegistration", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("complete is single-use: a replayed code fails", () =>
-    Effect.gen(function* () {
-      const { svc, captured } = makeAuth();
+  it.effect("complete is single-use: a replayed code fails", () => {
+    const { svc, captured, layer } = makeAuth();
+    return Effect.gen(function* () {
       yield* svc.beginRegistration("replay@example.com", "replayuser");
       yield* svc.completeRegistration("replay@example.com", captured.code!);
 
@@ -273,12 +293,12 @@ describe("beginRegistration + completeRegistration", () => {
         svc.completeRegistration("replay@example.com", captured.code!),
       );
       expect(error._tag).toBe("AuthError");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 
-  it.effect("S-H1: brute-force is capped — pending entry is wiped after 5 wrong guesses", () =>
-    Effect.gen(function* () {
-      const { svc, captured } = makeAuth();
+  it.effect("S-H1: brute-force is capped — pending entry is wiped after 5 wrong guesses", () => {
+    const { svc, captured, layer } = makeAuth();
+    return Effect.gen(function* () {
       yield* svc.beginRegistration("brute@example.com", "bruteuser");
       // 5 wrong guesses
       for (let i = 0; i < 5; i++) {
@@ -289,12 +309,12 @@ describe("beginRegistration + completeRegistration", () => {
       const err = yield* Effect.flip(svc.completeRegistration("brute@example.com", captured.code!));
       expect(err._tag).toBe("AuthError");
       expect(err.message).toContain("Invalid or expired code");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 
-  it.effect("S-H4: a TOCTOU loss against the legacy /register doesn't burn the OTP", () =>
-    Effect.gen(function* () {
-      const { svc, captured } = makeAuth();
+  it.effect("S-H4: a TOCTOU loss against the legacy /register doesn't burn the OTP", () => {
+    const { svc, captured, layer } = makeAuth();
+    return Effect.gen(function* () {
       yield* svc.beginRegistration("toctou@example.com", "toctouuser");
       // Simulate someone winning the race via the legacy registerProfile path.
       yield* svc.registerProfile("toctou@example.com", "toctouuser");
@@ -306,7 +326,23 @@ describe("beginRegistration + completeRegistration", () => {
       );
       expect(err._tag).toBe("AuthError");
       expect(err.message).toContain("already registered");
-    }).pipe(Effect.provide(createTestLayer())),
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect(
+    "T-M2: begin fails with AuthError (not EmailError) when email transport rejects",
+    () => {
+      const failingEmailLayer = Layer.succeed(EmailService, {
+        send: () =>
+          Effect.fail(new EmailError({ reason: "dispatch_failed", cause: "simulated failure" })),
+      });
+      const layer = Layer.merge(createTestLayer(), failingEmailLayer);
+      return Effect.gen(function* () {
+        const err = yield* Effect.flip(auth.beginRegistration("fail@example.com", "failmail"));
+        expect(err._tag).toBe("AuthError");
+        expect(err.message).toContain("dispatch_failed");
+      }).pipe(Effect.provide(layer));
+    },
   );
 });
 
@@ -596,23 +632,21 @@ describe("verifyAccessToken", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Dev-mode Effect.logDebug fallback (S-H21 / S-M3 / T-U1)
+// Local-mode LogEmailLive behaviour (replaces the old in-auth.ts debug log)
 // ---------------------------------------------------------------------------
-// When sendEmail is unset (local dev) the begin* paths emit the OTP code /
-// magic link URL via Effect.logDebug. The invariant these tests lock:
+// The EmailService layer decides whether to actually dispatch or just log.
+// In local dev + tests we provide `LogEmailLive`, which:
 //
-//   1. Exactly one debug line is emitted per call.
-//   2. The literal OTP / URL appears in the captured message — the values
-//      are interpolated into the message STRING on purpose, because the
-//      redacting logger walks annotation objects by key name but passes
-//      message strings through unchanged. Putting the value in annotations
-//      would scrub it via the PII deny-list ("email" is in REDACT_KEYS) and
-//      defeat the whole point of the dev-mode log.
-//   3. "[REDACTED]" never appears in the captured message — defence against
-//      a future PR that wraps the call with Effect.annotateLogs({ code }).
+//   1. Emits a single `Effect.logDebug` line with `template`, `subject`, `to`
+//      — no OTP code in the log message.
+//   2. Records the full rendered payload (including the code) into an
+//      in-memory ring buffer readable via `recorded()` — that's how test
+//      helpers extract the code without relying on log parsing.
+//   3. Never emits "[REDACTED]" — defence against a future PR that
+//      accidentally annotates `Effect.annotateLogs({ code })`.
 // ---------------------------------------------------------------------------
 
-describe("local-mode Effect.logDebug fallback", () => {
+describe("LogEmailLive local-mode behaviour", () => {
   /**
    * Install a capture logger in place of Effect's default, returning an
    * array that will be populated with every emitted message string.
@@ -629,20 +663,27 @@ describe("local-mode Effect.logDebug fallback", () => {
     return { captured, loggerLayer };
   }
 
-  it.effect("beginRegistration logs the OTP via Effect.logDebug when sendEmail is unset", () =>
-    Effect.gen(function* () {
-      const { captured, loggerLayer } = captureLogs();
-      const svc = createAuthService(config);
-
+  it.effect("beginRegistration logs template+subject+to, and records the rendered body", () => {
+    const { svc, captured: emailCap, layer } = makeAuth();
+    const { captured: logLines, loggerLayer } = captureLogs();
+    return Effect.gen(function* () {
       yield* svc
         .beginRegistration("dev@example.com", "devuser", "Dev User")
         .pipe(Effect.provide(loggerLayer), Logger.withMinimumLogLevel(LogLevel.Debug));
 
-      expect(captured.length).toBe(1);
-      expect(captured[0]).toMatch(/Registration OTP for dev@example\.com: \d{6}/);
-      expect(captured[0]).not.toContain("[REDACTED]");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+      // Log line: template + subject + to, no OTP code.
+      const emailLogs = logLines.filter((l) => l.includes("[email:log]"));
+      expect(emailLogs.length).toBe(1);
+      expect(emailLogs[0]).toContain("template=otp-registration");
+      expect(emailLogs[0]).toContain('subject="Verify your OSN email"');
+      expect(emailLogs[0]).toContain("to=dev@example.com");
+      expect(emailLogs[0]).not.toMatch(/\d{6}/); // no OTP code in logs
+      expect(emailLogs[0]).not.toContain("[REDACTED]");
+
+      // Recorder has the code for test-side replay.
+      expect(emailCap.code).toMatch(/^\d{6}$/);
+    }).pipe(Effect.provide(layer));
+  });
 });
 
 // ---------------------------------------------------------------------------

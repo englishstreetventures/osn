@@ -15,6 +15,7 @@
     "@elysiajs/cors": "^1.4.1",
     "@osn/db": "workspace:*",
     "@shared/crypto": "workspace:*",
+    "@shared/email": "workspace:*",
     "@shared/observability": "workspace:*",
     "@shared/rate-limit": "workspace:*",
     "@shared/redis": "workspace:*",
