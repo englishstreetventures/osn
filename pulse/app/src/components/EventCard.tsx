@@ -4,6 +4,7 @@ import { Card } from "@osn/ui/ui/card";
 import { A } from "@solidjs/router";
 import { Show } from "solid-js";
 
+import { formatPrice } from "../lib/formatPrice";
 import type { EventItem } from "../lib/types";
 import { formatTime } from "../lib/utils";
 
@@ -55,6 +56,9 @@ export function EventCard(props: {
                 {props.event.category}
               </Badge>
             </Show>
+            <Badge variant="outline">
+              {formatPrice(props.event.priceAmount, props.event.priceCurrency)}
+            </Badge>
             <span
               class={`text-xs ${
                 props.event.status === "ongoing"

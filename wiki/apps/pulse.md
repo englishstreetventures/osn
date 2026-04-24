@@ -86,6 +86,21 @@ Every direct-fetch route (`GET /events/:id`, `/ics`, `/comms`, `/rsvps`, `/rsvps
 
 Events can be exported in iCal format for calendar integration.
 
+### Pricing
+
+Events can optionally carry a price. Two columns on `events`:
+
+- `price_amount` — `integer`, nullable. Stored in **minor units** (cents/pence/yen) so `$18.50 = 1850`. Never a float.
+- `price_currency` — `text`, nullable. ISO 4217 code from a curated allowlist: `USD, EUR, GBP, CAD, AUD, JPY`.
+
+Invariant: both columns set, or both null. Enforced in the Effect Schema `priceInvariant` filter in `pulse/api/src/services/events.ts` — the HTTP boundary also validates via TypeBox, but the service-layer filter is the authoritative check.
+
+Display rule: `price_amount` null **or** `0` → render `"Free"`. Otherwise format via `Intl.NumberFormat` using the stored currency. The `formatPrice` helper in `pulse/app/src/lib/formatPrice.ts` caches formatters so long feeds don't pay per-render allocation.
+
+Max price: `99999.99` in major units (= `9_999_999` minor for 2dp currencies; = `99999` for JPY after the cap-before-conversion check). Over that → HTTP 422.
+
+Currency allowlist and caps live in `pulse/api/src/lib/currency.ts` — see `SUPPORTED_CURRENCIES`, `MAX_PRICE_MAJOR`, and `toMinorUnits` / `fromMinorUnits`.
+
 ### Communications
 
 Event organisers can send communications to attendees.

@@ -29,6 +29,12 @@ export const events = sqliteTable(
       .notNull()
       .default("upcoming"),
     imageUrl: text("image_url"),
+    // ── Price ─────────────────────────────────────────────────────────────
+    // Stored in minor units (cents/pence/etc.) so "$18.50" = 1850. Use a
+    // currency-aware formatter at display time. Both columns set or both
+    // null — enforced at the service layer. null OR 0 → "Free".
+    priceAmount: integer("price_amount"),
+    priceCurrency: text("price_currency"),
     // ── Discovery ─────────────────────────────────────────────────────────
     // "public"  → surfaces in discovery / algorithm feeds
     // "private" → only reachable via direct link or invite

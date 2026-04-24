@@ -240,6 +240,66 @@ describe("CreateEventForm", () => {
     expect(body.commsChannels).toEqual(expect.arrayContaining(["email", "sms"]));
   });
 
+  it("price blank → submit omits priceAmount/priceCurrency", async () => {
+    mockPost.mockResolvedValue({ error: null });
+    const { getByLabelText, getByText } = render(() => (
+      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+    ));
+    fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
+    fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
+    fireEvent.submit(getByText("Create").closest("form")!);
+    await Promise.resolve();
+    await Promise.resolve();
+    const [body] = mockPost.mock.calls[0] as [Record<string, unknown>];
+    expect(body.priceAmount).toBeUndefined();
+    expect(body.priceCurrency).toBeUndefined();
+  });
+
+  it("price 0 → submit omits priceAmount/priceCurrency (free)", async () => {
+    mockPost.mockResolvedValue({ error: null });
+    const { getByLabelText, getByText } = render(() => (
+      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+    ));
+    fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
+    fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
+    fireEvent.input(getByLabelText("Price"), { target: { value: "0" } });
+    fireEvent.submit(getByText("Create").closest("form")!);
+    await Promise.resolve();
+    await Promise.resolve();
+    const [body] = mockPost.mock.calls[0] as [Record<string, unknown>];
+    expect(body.priceAmount).toBeUndefined();
+    expect(body.priceCurrency).toBeUndefined();
+  });
+
+  it("price 18.50 + default currency → submit includes priceAmount + priceCurrency", async () => {
+    mockPost.mockResolvedValue({ error: null });
+    const { getByLabelText, getByText } = render(() => (
+      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+    ));
+    fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
+    fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
+    fireEvent.input(getByLabelText("Price"), { target: { value: "18.50" } });
+    fireEvent.submit(getByText("Create").closest("form")!);
+    await Promise.resolve();
+    await Promise.resolve();
+    const [body] = mockPost.mock.calls[0] as [Record<string, unknown>];
+    expect(body.priceAmount).toBe(18.5);
+    expect(body.priceCurrency).toBe("USD");
+  });
+
+  it("price > 99999.99 → validation error shown, does NOT call api.events.post", async () => {
+    const { getByLabelText, getByText, queryByText } = render(() => (
+      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+    ));
+    fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
+    fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
+    fireEvent.input(getByLabelText("Price"), { target: { value: "100000" } });
+    expect(queryByText(/Max price/)).toBeTruthy();
+    fireEvent.submit(getByText("Create").closest("form")!);
+    await Promise.resolve();
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
   it("button shows 'Creating…' while mockPost is pending", async () => {
     // Never-resolving promise
     mockPost.mockReturnValue(new Promise(() => {}));

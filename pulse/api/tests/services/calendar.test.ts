@@ -17,6 +17,8 @@ function makeEvent(overrides: Partial<Event> = {}): Event {
     endTime: null,
     status: "upcoming",
     imageUrl: null,
+    priceAmount: null,
+    priceCurrency: null,
     visibility: "public",
     guestListVisibility: "public",
     joinPolicy: "open",

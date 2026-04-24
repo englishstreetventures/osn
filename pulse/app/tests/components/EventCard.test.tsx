@@ -249,4 +249,46 @@ describe("EventCard", () => {
     fireEvent.click(getByText("Deleting…"));
     expect(onDelete).not.toHaveBeenCalled();
   });
+
+  it("renders 'Free' badge when priceAmount is null", () => {
+    const { getByText } = render(() => (
+      <EventCard
+        event={{ ...mockEvent, priceAmount: null, priceCurrency: null }}
+        onDelete={() => {}}
+      />
+    ));
+    expect(getByText("Free")).toBeTruthy();
+  });
+
+  it("renders 'Free' badge when priceAmount is 0", () => {
+    const { getByText } = render(() => (
+      <EventCard
+        event={{ ...mockEvent, priceAmount: 0, priceCurrency: "USD" }}
+        onDelete={() => {}}
+      />
+    ));
+    expect(getByText("Free")).toBeTruthy();
+  });
+
+  it("renders formatted USD price from minor units", () => {
+    const { getByText } = render(() => (
+      <EventCard
+        event={{ ...mockEvent, priceAmount: 1850, priceCurrency: "USD" }}
+        onDelete={() => {}}
+      />
+    ));
+    // Intl output varies by locale but USD always uses the $ glyph + 18.50
+    const badge = getByText(/\$18\.50/);
+    expect(badge).toBeTruthy();
+  });
+
+  it("renders JPY as zero-decimal", () => {
+    const { getByText } = render(() => (
+      <EventCard
+        event={{ ...mockEvent, priceAmount: 500, priceCurrency: "JPY" }}
+        onDelete={() => {}}
+      />
+    ));
+    expect(getByText(/500/)).toBeTruthy();
+  });
 });

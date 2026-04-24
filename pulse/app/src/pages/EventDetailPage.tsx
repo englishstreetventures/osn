@@ -10,6 +10,7 @@ import { EventChatPlaceholder } from "../components/EventChatPlaceholder";
 import { MapPreview } from "../components/MapPreview";
 import { RsvpSection } from "../components/RsvpSection";
 import { api } from "../lib/api";
+import { formatPrice } from "../lib/formatPrice";
 import { apiBaseUrl } from "../lib/rsvps";
 import { formatTime, getProfileIdFromToken } from "../lib/utils";
 
@@ -30,6 +31,8 @@ interface EventDetail {
   guestListVisibility: "public" | "connections" | "private";
   joinPolicy: "open" | "guest_list";
   allowInterested: boolean;
+  priceAmount: number | null;
+  priceCurrency: string | null;
   seriesId: string | null;
   createdByProfileId: string;
   createdByName: string | null;
@@ -85,6 +88,7 @@ export function EventDetailPage() {
                       {e().category}
                     </Badge>
                   </Show>
+                  <Badge variant="outline">{formatPrice(e().priceAmount, e().priceCurrency)}</Badge>
                   <span
                     class={`text-xs ${
                       e().status === "ongoing"

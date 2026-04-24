@@ -30,14 +30,13 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 - [ ] "What's on today" default view
 - [x] Prompt for max event duration when creating events without an endTime — duration presets + `maybe_finished` status at 8h, auto-close at 12h, 48h defence-in-depth cap on explicit endTimes (moved to `[[changelog/completed-features]]`)
 - [ ] Event discovery (location, category, datetime, friends, interests)
-- [ ] Add `price` field to events schema (`text`, nullable — free events = null, otherwise display string like "$18" or "$8 entry")
 - [x] Recurring events (series + instances) — shipped on `claude/add-recurring-events-11qp9`: `event_series` schema, RRULE expander, `/series` routes, seed fixtures, `SeriesDetailPage`
 - [ ] Event group chats (via Zap once M2 lands — placeholder shipped)
 - [ ] Organizer tools (moderation, blacklists)
 - [ ] Venue pages
 - [ ] Real SMS/email comms providers — `sendBlast` is stubbed (writes to `event_comms`); plug in actual delivery
 - [ ] Tighten Tauri CSP to allowlist `*.tile.openstreetmap.org` for Leaflet tile loads (rolls into S-L3)
-- [ ] Drizzle: extract shared `createSchemaSql()` helper so adding a column is a one-file change (currently hand-rolled in 3 places)
+- [ ] Drizzle: extract shared `createSchemaSql()` helper so adding a column is a one-file change (currently hand-rolled in 4 places — `pulse/db/tests/schema.test.ts`, `pulse/db/tests/seed.test.ts`, `pulse/api/tests/helpers/db.ts`, `pulse/api/tests/services/zapBridge.test.ts`)
 - [ ] Verified-organisation tier (Phase 2): org accounts can run events over `MAX_EVENT_GUESTS` (1000) via per-event support flow
 
 ---

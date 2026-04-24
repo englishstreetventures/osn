@@ -707,3 +707,125 @@ it.effect("listEvents shows private events to their own creator", () =>
     }),
   ),
 );
+
+// ---------------------------------------------------------------------------
+// Price fields
+// ---------------------------------------------------------------------------
+
+it.effect("createEvent stores price as minor units (USD 18.50 → 1850)", () =>
+  provide(
+    Effect.gen(function* () {
+      const event = yield* createEvent(
+        { title: "Paid", startTime: FUTURE, priceAmount: 18.5, priceCurrency: "USD" },
+        ALICE,
+      );
+      expect(event.priceAmount).toBe(1850);
+      expect(event.priceCurrency).toBe("USD");
+    }),
+  ),
+);
+
+it.effect("createEvent stores JPY as minor units at 0 exponent (¥500 → 500)", () =>
+  provide(
+    Effect.gen(function* () {
+      const event = yield* createEvent(
+        { title: "Yen", startTime: FUTURE, priceAmount: 500, priceCurrency: "JPY" },
+        ALICE,
+      );
+      expect(event.priceAmount).toBe(500);
+      expect(event.priceCurrency).toBe("JPY");
+    }),
+  ),
+);
+
+it.effect("createEvent leaves price null when omitted", () =>
+  provide(
+    Effect.gen(function* () {
+      const event = yield* createEvent({ title: "Free", startTime: FUTURE }, ALICE);
+      expect(event.priceAmount).toBeNull();
+      expect(event.priceCurrency).toBeNull();
+    }),
+  ),
+);
+
+it.effect("createEvent rejects priceAmount > 99999.99", () =>
+  provide(
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        createEvent(
+          { title: "Too pricey", startTime: FUTURE, priceAmount: 100000, priceCurrency: "USD" },
+          ALICE,
+        ),
+      );
+      expect(error._tag).toBe("ValidationError");
+    }),
+  ),
+);
+
+it.effect("createEvent rejects priceAmount without priceCurrency", () =>
+  provide(
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        createEvent({ title: "Dangling price", startTime: FUTURE, priceAmount: 10 }, ALICE),
+      );
+      expect(error._tag).toBe("ValidationError");
+    }),
+  ),
+);
+
+it.effect("createEvent rejects priceCurrency without priceAmount", () =>
+  provide(
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        createEvent({ title: "Dangling currency", startTime: FUTURE, priceCurrency: "USD" }, ALICE),
+      );
+      expect(error._tag).toBe("ValidationError");
+    }),
+  ),
+);
+
+it.effect("createEvent rejects unsupported currency", () =>
+  provide(
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        createEvent(
+          { title: "Bad ccy", startTime: FUTURE, priceAmount: 10, priceCurrency: "XYZ" },
+          ALICE,
+        ),
+      );
+      expect(error._tag).toBe("ValidationError");
+    }),
+  ),
+);
+
+it.effect("updateEvent clears price when both fields set to null", () =>
+  provide(
+    Effect.gen(function* () {
+      const created = yield* createEvent(
+        { title: "Paid", startTime: FUTURE, priceAmount: 10, priceCurrency: "USD" },
+        ALICE,
+      );
+      const updated = yield* updateEvent(
+        created.id,
+        { priceAmount: null, priceCurrency: null },
+        "usr_alice",
+      );
+      expect(updated.priceAmount).toBeNull();
+      expect(updated.priceCurrency).toBeNull();
+    }),
+  ),
+);
+
+it.effect("updateEvent leaves price unchanged when fields omitted", () =>
+  provide(
+    Effect.gen(function* () {
+      const created = yield* createEvent(
+        { title: "Paid", startTime: FUTURE, priceAmount: 10, priceCurrency: "USD" },
+        ALICE,
+      );
+      const updated = yield* updateEvent(created.id, { title: "Still paid" }, "usr_alice");
+      expect(updated.priceAmount).toBe(1000);
+      expect(updated.priceCurrency).toBe("USD");
+    }),
+  ),
+);

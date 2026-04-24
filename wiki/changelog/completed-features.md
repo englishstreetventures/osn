@@ -15,6 +15,11 @@ last-reviewed: 2026-04-24
 
 Archived completed feature work from [[TODO]]. For open work see [[TODO]].
 
+## Pulse event pricing (2026-04-24)
+
+- **Price + currency on events.** New `price_amount` (integer, minor units, nullable) + `price_currency` (ISO 4217 text, nullable) columns on the Pulse `events` table. Effect Schema invariant enforces "both set or both null"; service converts major→minor units before insert. Curated currency allowlist `[USD, EUR, GBP, CAD, AUD, JPY]` lives in `pulse/api/src/lib/currency.ts`. Cap: `99999.99` major units.
+- **UI.** `CreateEventForm` gets a price input + currency select with live "Free"/formatted preview. `EventCard` and `EventDetailPage` render a badge: "Free" when null or 0, otherwise `Intl.NumberFormat`-formatted. Helper memoises formatters so long feeds don't reconstruct on every render (P-I1 from perf review). See `[[pulse]]`.
+
 ## Auth improvements — Phase 5b (passkey-primary, M-PK, 2026-04-22)
 
 - **Passkey-primary login.** WebAuthn (passkey or security key) is the only primary login factor. `POST /login/otp/{begin,complete}` and `POST /login/magic/{begin,verify}` removed. `AuthMethod` union narrowed to `"passkey" | "recovery_code" | "refresh"`; `AuthRateLimitedEndpoint` dropped `otp_begin`/`otp_complete`/`magic_begin`; `osn.auth.magic_link.sent` counter deleted. — see `[[passkey-primary]]`.

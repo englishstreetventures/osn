@@ -9,6 +9,7 @@ import { createSignal, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { api } from "../lib/api";
+import { formatPrice } from "../lib/formatPrice";
 import { LocationInput } from "../lib/LocationInput";
 import { toDatetimeLocal, isEndBeforeOrAtStart, deriveEndFromDuration } from "../lib/utils";
 import { InfoPopover } from "./InfoPopover";
@@ -25,6 +26,10 @@ type Visibility = "public" | "private";
 type GuestListVisibility = "public" | "connections" | "private";
 type JoinPolicy = "open" | "guest_list";
 type CommsChannel = "sms" | "email";
+
+const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"] as const;
+type Currency = (typeof CURRENCIES)[number];
+const MAX_PRICE_MAJOR = 99999.99;
 
 export function CreateEventForm(props: {
   accessToken: string | null;
@@ -43,7 +48,30 @@ export function CreateEventForm(props: {
   const [joinPolicy, setJoinPolicy] = createSignal<JoinPolicy>("open");
   const [allowInterested, setAllowInterested] = createSignal(true);
   const [commsChannels, setCommsChannels] = createSignal<Set<CommsChannel>>(new Set(["email"]));
+  const [priceInput, setPriceInput] = createSignal("");
+  const [priceCurrency, setPriceCurrency] = createSignal<Currency>("USD");
   const [submitting, setSubmitting] = createSignal(false);
+
+  const parsedPrice = createMemo(() => {
+    const raw = priceInput().trim();
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : NaN;
+  });
+  const priceError = createMemo(() => {
+    const p = parsedPrice();
+    if (p === null) return "";
+    if (Number.isNaN(p)) return "Enter a valid number";
+    if (p < 0) return "Price cannot be negative";
+    if (p > MAX_PRICE_MAJOR) return `Max price is ${MAX_PRICE_MAJOR}`;
+    return "";
+  });
+  const pricePreview = createMemo(() => {
+    const p = parsedPrice();
+    if (p === null || Number.isNaN(p) || p === 0) return "Free";
+    const exp = priceCurrency() === "JPY" ? 0 : 2;
+    return formatPrice(Math.round(p * 10 ** exp), priceCurrency());
+  });
 
   const endTimeError = createMemo(() =>
     isEndBeforeOrAtStart(startTime(), endTime()) ? "End time must be after start time" : "",
@@ -63,11 +91,13 @@ export function CreateEventForm(props: {
 
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
-    if (endTimeError() || commsError()) return;
+    if (endTimeError() || commsError() || priceError()) return;
     setSubmitting(true);
     try {
       const headers: Record<string, string> = {};
       if (props.accessToken) headers["Authorization"] = `Bearer ${props.accessToken}`;
+      const p = parsedPrice();
+      const includePrice = p !== null && !Number.isNaN(p) && p > 0;
       const { error } = await api.events.post(
         {
           title: title(),
@@ -82,6 +112,8 @@ export function CreateEventForm(props: {
           joinPolicy: joinPolicy(),
           allowInterested: allowInterested(),
           commsChannels: Array.from(commsChannels()),
+          priceAmount: includePrice ? p : undefined,
+          priceCurrency: includePrice ? priceCurrency() : undefined,
         },
         { headers },
       );
@@ -200,6 +232,45 @@ export function CreateEventForm(props: {
             onInput={(e) => setDescription(e.currentTarget.value)}
             class="resize-none"
           />
+        </div>
+
+        {/* Price */}
+        <div class="flex flex-col gap-1">
+          <div class="flex items-center">
+            <Label for="priceAmount">Price</Label>
+            <InfoPopover
+              label="About event price"
+              body="Optional. Leave blank (or 0) for free events. Shown as a badge on the event card."
+            />
+          </div>
+          <div class="flex gap-2">
+            <Input
+              id="priceAmount"
+              type="number"
+              inputmode="decimal"
+              min={0}
+              max={MAX_PRICE_MAJOR}
+              step={priceCurrency() === "JPY" ? 1 : 0.01}
+              placeholder="0"
+              value={priceInput()}
+              onInput={(e) => setPriceInput(e.currentTarget.value)}
+              class={priceError() ? "border-destructive flex-1" : "flex-1"}
+            />
+            <select
+              aria-label="Currency"
+              class="border-input bg-background rounded-md border px-2 text-sm"
+              value={priceCurrency()}
+              onChange={(e) => setPriceCurrency(e.currentTarget.value as Currency)}
+            >
+              {CURRENCIES.map((c) => (
+                <option value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <p class="text-muted-foreground text-xs">Preview: {pricePreview()}</p>
+          <Show when={priceError()}>
+            {(err) => <p class="text-destructive text-xs">{err()}</p>}
+          </Show>
         </div>
 
         {/* Event visibility */}

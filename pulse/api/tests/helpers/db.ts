@@ -52,6 +52,8 @@ export function createTestLayer() {
       end_time INTEGER,
       status TEXT NOT NULL DEFAULT 'upcoming',
       image_url TEXT,
+      price_amount INTEGER,
+      price_currency TEXT,
       latitude REAL,
       longitude REAL,
       visibility TEXT NOT NULL DEFAULT 'public',
@@ -127,6 +129,8 @@ export interface SeedEventInput {
   allowInterested?: boolean;
   commsChannels?: ("sms" | "email")[];
   chatId?: string;
+  priceAmount?: number | null;
+  priceCurrency?: string | null;
 }
 
 export const seedEvent = (input: SeedEventInput): Effect.Effect<Event, never, Db> =>
@@ -147,6 +151,8 @@ export const seedEvent = (input: SeedEventInput): Effect.Effect<Event, never, Db
       endTime: input.endTime ? new Date(input.endTime) : null,
       status: input.status ?? "upcoming",
       imageUrl: null,
+      priceAmount: input.priceAmount ?? null,
+      priceCurrency: input.priceCurrency ?? null,
       visibility: input.visibility ?? "public",
       guestListVisibility: input.guestListVisibility ?? "public",
       joinPolicy: input.joinPolicy ?? "open",

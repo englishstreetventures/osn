@@ -51,6 +51,8 @@ function createTestDb() {
       end_time INTEGER,
       status TEXT NOT NULL DEFAULT 'upcoming',
       image_url TEXT,
+      price_amount INTEGER,
+      price_currency TEXT,
       latitude REAL,
       longitude REAL,
       visibility TEXT NOT NULL DEFAULT 'public',
@@ -163,10 +165,30 @@ describe("events schema", () => {
     expect(row!.category).toBeNull();
     expect(row!.endTime).toBeNull();
     expect(row!.imageUrl).toBeNull();
+    expect(row!.priceAmount).toBeNull();
+    expect(row!.priceCurrency).toBeNull();
     expect(row!.latitude).toBeNull();
     expect(row!.longitude).toBeNull();
     expect(row!.createdByName).toBeNull();
     expect(row!.createdByAvatar).toBeNull();
+  });
+
+  it("round-trips priceAmount + priceCurrency", async () => {
+    const db = createTestDb();
+    const now = new Date();
+    await db.insert(schema.events).values({
+      id: "evt_price",
+      title: "Paid Event",
+      startTime: now,
+      priceAmount: 1850,
+      priceCurrency: "USD",
+      createdByProfileId: "usr_alice",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const [row] = await db.select().from(schema.events).where(eq(schema.events.id, "evt_price"));
+    expect(row!.priceAmount).toBe(1850);
+    expect(row!.priceCurrency).toBe("USD");
   });
 
   it("visibility/guestListVisibility/joinPolicy/allowInterested/commsChannels default correctly", async () => {

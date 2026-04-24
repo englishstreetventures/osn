@@ -28,6 +28,8 @@ function createDualTestLayer() {
       end_time INTEGER,
       status TEXT NOT NULL DEFAULT 'upcoming',
       image_url TEXT,
+      price_amount INTEGER,
+      price_currency TEXT,
       latitude REAL,
       longitude REAL,
       visibility TEXT NOT NULL DEFAULT 'public',

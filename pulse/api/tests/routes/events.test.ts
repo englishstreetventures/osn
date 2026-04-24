@@ -147,6 +147,88 @@ describe("events routes", () => {
     expect(body.event.imageUrl).toBe("https://example.com/image.jpg");
   });
 
+  it("POST /events stores price as minor units", async () => {
+    const res = await post(
+      app,
+      "/events",
+      {
+        title: "Paid event",
+        startTime: FUTURE,
+        priceAmount: 18.5,
+        priceCurrency: "USD",
+      },
+      aliceToken,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      event: { priceAmount: number | null; priceCurrency: string | null };
+    };
+    expect(body.event.priceAmount).toBe(1850);
+    expect(body.event.priceCurrency).toBe("USD");
+  });
+
+  it("POST /events returns null price fields when omitted", async () => {
+    const res = await post(app, "/events", { title: "Free event", startTime: FUTURE }, aliceToken);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      event: { priceAmount: number | null; priceCurrency: string | null };
+    };
+    expect(body.event.priceAmount).toBeNull();
+    expect(body.event.priceCurrency).toBeNull();
+  });
+
+  it("POST /events returns 422 for priceAmount > 99999.99", async () => {
+    const res = await post(
+      app,
+      "/events",
+      {
+        title: "Too pricey",
+        startTime: FUTURE,
+        priceAmount: 100000,
+        priceCurrency: "USD",
+      },
+      aliceToken,
+    );
+    expect(res.status).toBe(422);
+  });
+
+  it("POST /events returns 422 for unsupported currency", async () => {
+    const res = await post(
+      app,
+      "/events",
+      {
+        title: "Bad ccy",
+        startTime: FUTURE,
+        priceAmount: 10,
+        priceCurrency: "XYZ",
+      },
+      aliceToken,
+    );
+    expect(res.status).toBe(422);
+  });
+
+  it("PATCH /events/:id clears price when both fields null", async () => {
+    const createRes = await post(
+      app,
+      "/events",
+      { title: "Paid", startTime: FUTURE, priceAmount: 10, priceCurrency: "USD" },
+      aliceToken,
+    );
+    const { event } = (await createRes.json()) as { event: { id: string } };
+    const res = await patch(
+      app,
+      `/events/${event.id}`,
+      { priceAmount: null, priceCurrency: null },
+      aliceToken,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      event: { priceAmount: number | null; priceCurrency: string | null };
+    };
+    expect(body.event.priceAmount).toBeNull();
+    expect(body.event.priceCurrency).toBeNull();
+  });
+
   it("PATCH /events/:id updates event and returns 200", async () => {
     const createRes = await post(
       app,

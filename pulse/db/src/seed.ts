@@ -82,6 +82,8 @@ export function buildSeedEvents(now: Date): NewEvent[] {
       startTime: d(-3),
       endTime: new Date(dMs(-3) + 3 * 3_600_000),
       status: "finished",
+      priceAmount: 1800,
+      priceCurrency: "USD",
     }),
     evt("evt_seed_finished2", U.omar, {
       title: "Vintage Vinyl Swap Meet",
@@ -158,6 +160,8 @@ export function buildSeedEvents(now: Date): NewEvent[] {
       startTime: d(2),
       endTime: new Date(dMs(2) + 3 * 3_600_000),
       status: "upcoming",
+      priceAmount: 2500,
+      priceCurrency: "USD",
     }),
     evt("evt_seed_upcoming2", U.bob, {
       title: "Community 5K Run",
@@ -182,6 +186,8 @@ export function buildSeedEvents(now: Date): NewEvent[] {
       startTime: d(8),
       endTime: new Date(dMs(8) + 4 * 3_600_000),
       status: "upcoming",
+      priceAmount: 1500,
+      priceCurrency: "USD",
     }),
     evt("evt_seed_upcoming4", U.bob, {
       title: "Photography Walk – Street Portraits",
@@ -207,6 +213,8 @@ export function buildSeedEvents(now: Date): NewEvent[] {
       startTime: d(18),
       endTime: new Date(dMs(18) + 2.5 * 3_600_000),
       status: "upcoming",
+      priceAmount: 1200,
+      priceCurrency: "USD",
     }),
     evt("evt_seed_upcoming6", U.charlie, {
       title: "Board Game Night",
@@ -255,6 +263,8 @@ export function buildSeedEvents(now: Date): NewEvent[] {
       startTime: d(7),
       endTime: new Date(dMs(7) + 5 * 3_600_000),
       status: "upcoming",
+      priceAmount: 3500,
+      priceCurrency: "USD",
     }),
   ];
 }
