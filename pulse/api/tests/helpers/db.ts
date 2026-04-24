@@ -9,6 +9,38 @@ import { Effect, Layer } from "effect";
 export function createTestLayer() {
   const sqlite = new Database(":memory:");
   sqlite.run(`
+    CREATE TABLE event_series (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      location TEXT,
+      venue TEXT,
+      latitude REAL,
+      longitude REAL,
+      category TEXT,
+      image_url TEXT,
+      duration_minutes INTEGER,
+      visibility TEXT NOT NULL DEFAULT 'public',
+      guest_list_visibility TEXT NOT NULL DEFAULT 'public',
+      join_policy TEXT NOT NULL DEFAULT 'open',
+      allow_interested INTEGER NOT NULL DEFAULT 1,
+      comms_channels TEXT NOT NULL DEFAULT '["email"]',
+      rrule TEXT NOT NULL,
+      dtstart INTEGER NOT NULL,
+      until INTEGER,
+      materialized_through INTEGER NOT NULL,
+      timezone TEXT NOT NULL DEFAULT 'UTC',
+      status TEXT NOT NULL DEFAULT 'active',
+      chat_id TEXT,
+      created_by_profile_id TEXT NOT NULL,
+      created_by_name TEXT,
+      created_by_avatar TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+  sqlite.run(`CREATE INDEX event_series_created_by_idx ON event_series (created_by_profile_id)`);
+  sqlite.run(`
     CREATE TABLE events (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -28,6 +60,8 @@ export function createTestLayer() {
       allow_interested INTEGER NOT NULL DEFAULT 1,
       comms_channels TEXT NOT NULL DEFAULT '["email"]',
       chat_id TEXT,
+      series_id TEXT REFERENCES event_series(id),
+      instance_override INTEGER NOT NULL DEFAULT 0,
       created_by_profile_id TEXT NOT NULL,
       created_by_name TEXT,
       created_by_avatar TEXT,
@@ -36,6 +70,7 @@ export function createTestLayer() {
     )
   `);
   sqlite.run(`CREATE INDEX events_visibility_idx ON events (visibility)`);
+  sqlite.run(`CREATE INDEX events_series_id_idx ON events (series_id, start_time)`);
   sqlite.run(`
     CREATE TABLE event_rsvps (
       id TEXT PRIMARY KEY,
@@ -118,6 +153,8 @@ export const seedEvent = (input: SeedEventInput): Effect.Effect<Event, never, Db
       allowInterested: input.allowInterested ?? true,
       commsChannels: JSON.stringify(input.commsChannels ?? ["email"]),
       chatId: input.chatId ?? null,
+      seriesId: null,
+      instanceOverride: false,
       createdByProfileId: input.createdByProfileId ?? "usr_alice",
       createdByName: input.createdByName ?? "Alice",
       createdByAvatar: input.createdByAvatar ?? null,

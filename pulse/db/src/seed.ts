@@ -1,7 +1,7 @@
 import { Effect, Data } from "effect";
 
-import { events, eventRsvps } from "./schema";
-import type { NewEvent, NewEventRsvp } from "./schema";
+import { events, eventRsvps, eventSeries } from "./schema";
+import type { NewEvent, NewEventRsvp, NewEventSeries } from "./schema";
 import { DbLive, Db } from "./service";
 
 /**
@@ -260,6 +260,182 @@ export function buildSeedEvents(now: Date): NewEvent[] {
 }
 
 // ---------------------------------------------------------------------------
+// Seed series
+// ---------------------------------------------------------------------------
+
+/**
+ * Two example series that exercise the recurring-events surfaces end-to-end:
+ *
+ *  - srs_seed_yoga: WEEKLY, owned by "me", 8 weekly Tuesday 6pm instances
+ *    spread across finished/ongoing/upcoming so the Series page has
+ *    populated Past and Upcoming tabs out of the box. Instance w3 is
+ *    flagged `instanceOverride=true` with a different title; w5 is
+ *    `cancelled` to demo that rendering path.
+ *  - srs_seed_book_club: MONTHLY, owned by Alice, 6 first-Thursday
+ *    instances. First is `finished`, rest `upcoming`, none overridden.
+ */
+export function buildSeedSeries(now: Date): NewEventSeries[] {
+  const dayMs = 86_400_000;
+  // dtstart for yoga = Tuesday 6pm UTC, 3 weeks ago (so past/present/future)
+  const yogaStart = new Date(now.getTime() - 21 * dayMs);
+  yogaStart.setUTCHours(18, 0, 0, 0);
+  // dtstart for book club = 1 month ago (puts first occurrence in the past)
+  const bookStart = new Date(now.getTime() - 30 * dayMs);
+  bookStart.setUTCHours(19, 0, 0, 0);
+
+  return [
+    {
+      id: "srs_seed_yoga",
+      title: "Sunset Rooftop Yoga — Weekly",
+      description: "Vinyasa flow every Tuesday. Drop in any week.",
+      location: "Midtown, New York",
+      venue: "The High Line Hotel",
+      latitude: 40.7473,
+      longitude: -74.0027,
+      category: "wellness",
+      imageUrl: null,
+      durationMinutes: 75,
+      visibility: "public",
+      guestListVisibility: "public",
+      joinPolicy: "open",
+      allowInterested: true,
+      commsChannels: '["email"]',
+      rrule: "FREQ=WEEKLY;BYDAY=TU;COUNT=8",
+      dtstart: yogaStart,
+      until: null,
+      materializedThrough: new Date(yogaStart.getTime() + 7 * 8 * dayMs),
+      timezone: "America/New_York",
+      status: "active",
+      chatId: null,
+      createdByProfileId: U.me.id,
+      createdByName: U.me.name,
+      createdByAvatar: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "srs_seed_book_club",
+      title: "Book Club — First Thursdays",
+      description: "Monthly fiction pick. Wine + discussion.",
+      location: "Echo Park, Los Angeles",
+      venue: "Stories Books & Cafe",
+      latitude: 34.0786,
+      longitude: -118.2608,
+      category: "community",
+      imageUrl: null,
+      durationMinutes: 120,
+      visibility: "public",
+      guestListVisibility: "public",
+      joinPolicy: "open",
+      allowInterested: true,
+      commsChannels: '["email"]',
+      rrule: "FREQ=MONTHLY;COUNT=6",
+      dtstart: bookStart,
+      until: null,
+      materializedThrough: new Date(bookStart.getTime() + 30 * 6 * dayMs),
+      timezone: "America/Los_Angeles",
+      status: "active",
+      chatId: null,
+      createdByProfileId: U.alice.id,
+      createdByName: U.alice.name,
+      createdByAvatar: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
+
+/**
+ * Materialised instance rows for the seed series. Exported so tests can
+ * assert without hitting a real DB, and so the seed script inserts a
+ * predictable fixture set.
+ */
+export function buildSeedSeriesInstances(now: Date): NewEvent[] {
+  const dayMs = 86_400_000;
+  const yogaStart = new Date(now.getTime() - 21 * dayMs);
+  yogaStart.setUTCHours(18, 0, 0, 0);
+  const bookStart = new Date(now.getTime() - 30 * dayMs);
+  bookStart.setUTCHours(19, 0, 0, 0);
+
+  const yogaInstances: NewEvent[] = Array.from({ length: 8 }, (_, i) => {
+    const start = new Date(yogaStart.getTime() + i * 7 * dayMs);
+    const end = new Date(start.getTime() + 75 * 60_000);
+    const status: NewEvent["status"] =
+      i === 4
+        ? "cancelled"
+        : end.getTime() < now.getTime()
+          ? "finished"
+          : start.getTime() <= now.getTime()
+            ? "ongoing"
+            : "upcoming";
+    const override = i === 2;
+    return {
+      id: `evt_seed_yoga_w${i + 1}`,
+      title: override ? "Sunset Rooftop Yoga — Guest Instructor" : "Sunset Rooftop Yoga",
+      description: "Vinyasa flow with panoramic city views.",
+      location: "Midtown, New York",
+      venue: override ? "The High Line Hotel (Studio B)" : "The High Line Hotel",
+      latitude: 40.7473,
+      longitude: -74.0027,
+      category: "wellness",
+      startTime: start,
+      endTime: end,
+      status,
+      imageUrl: null,
+      visibility: "public",
+      guestListVisibility: "public",
+      joinPolicy: "open",
+      allowInterested: true,
+      commsChannels: '["email"]',
+      chatId: null,
+      seriesId: "srs_seed_yoga",
+      instanceOverride: override,
+      createdByProfileId: U.me.id,
+      createdByName: U.me.name,
+      createdByAvatar: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  });
+
+  const bookInstances: NewEvent[] = Array.from({ length: 6 }, (_, i) => {
+    const start = new Date(bookStart);
+    start.setUTCMonth(start.getUTCMonth() + i);
+    const end = new Date(start.getTime() + 120 * 60_000);
+    const status: NewEvent["status"] = end.getTime() < now.getTime() ? "finished" : "upcoming";
+    return {
+      id: `evt_seed_book_m${i + 1}`,
+      title: "Book Club",
+      description: "Monthly fiction pick.",
+      location: "Echo Park, Los Angeles",
+      venue: "Stories Books & Cafe",
+      latitude: 34.0786,
+      longitude: -118.2608,
+      category: "community",
+      startTime: start,
+      endTime: end,
+      status,
+      imageUrl: null,
+      visibility: "public",
+      guestListVisibility: "public",
+      joinPolicy: "open",
+      allowInterested: true,
+      commsChannels: '["email"]',
+      chatId: null,
+      seriesId: "srs_seed_book_club",
+      instanceOverride: false,
+      createdByProfileId: U.alice.id,
+      createdByName: U.alice.name,
+      createdByAvatar: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  });
+
+  return [...yogaInstances, ...bookInstances];
+}
+
+// ---------------------------------------------------------------------------
 // Seed RSVPs
 // ---------------------------------------------------------------------------
 
@@ -387,6 +563,22 @@ export function buildSeedRsvps(): NewEventRsvp[] {
     rsvp("evt_seed_upcoming9", U.charlie.id),
     rsvp("evt_seed_upcoming9", U.kai.id),
     rsvp("evt_seed_upcoming9", U.omar.id),
+
+    // ── Weekly yoga series — next upcoming instance has friend attendance ─
+    rsvp("evt_seed_yoga_w6", U.me.id),
+    rsvp("evt_seed_yoga_w6", U.alice.id),
+    rsvp("evt_seed_yoga_w6", U.dana.id),
+    rsvp("evt_seed_yoga_w6", U.hana.id),
+    rsvp("evt_seed_yoga_w7", U.me.id),
+    rsvp("evt_seed_yoga_w7", U.faye.id),
+    rsvp("evt_seed_yoga_w8", U.me.id, "interested"),
+
+    // ── Monthly book club — spread across a few upcoming instances ───────
+    rsvp("evt_seed_book_m2", U.alice.id),
+    rsvp("evt_seed_book_m2", U.charlie.id),
+    rsvp("evt_seed_book_m2", U.me.id),
+    rsvp("evt_seed_book_m3", U.alice.id),
+    rsvp("evt_seed_book_m3", U.eli.id),
   ];
 }
 
@@ -398,8 +590,15 @@ const seed = Effect.gen(function* () {
   const { db } = yield* Db;
   const now = new Date();
 
+  // Order: series (parent FK target) → one-off events + series instances → RSVPs.
   yield* Effect.tryPromise({
-    try: () => db.insert(events).values(buildSeedEvents(now)).onConflictDoNothing(),
+    try: () => db.insert(eventSeries).values(buildSeedSeries(now)).onConflictDoNothing(),
+    catch: (cause) => new SeedError({ cause }),
+  });
+
+  const allEvents = [...buildSeedEvents(now), ...buildSeedSeriesInstances(now)];
+  yield* Effect.tryPromise({
+    try: () => db.insert(events).values(allEvents).onConflictDoNothing(),
     catch: (cause) => new SeedError({ cause }),
   });
 
@@ -409,7 +608,9 @@ const seed = Effect.gen(function* () {
   });
 
   // eslint-disable-next-line no-console -- CLI seed script output
-  console.log("Seed complete — 15 events + 73 RSVPs inserted (existing rows skipped).");
+  console.log(
+    `Seed complete — 2 series, ${allEvents.length} events, ${buildSeedRsvps().length} RSVPs inserted (existing rows skipped).`,
+  );
 }).pipe(Effect.provide(DbLive));
 
 // eslint-disable-next-line no-console -- CLI seed script error handler

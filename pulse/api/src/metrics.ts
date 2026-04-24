@@ -41,6 +41,12 @@ export const PULSE_METRICS = {
   settingsUpdated: "pulse.settings.updated",
   // JWKS public key cache
   authJwksCacheLookups: "pulse.auth.jwks_cache.lookups",
+  // Recurring event series
+  seriesCreated: "pulse.series.created",
+  seriesUpdated: "pulse.series.updated",
+  seriesCancelled: "pulse.series.cancelled",
+  seriesInstancesMaterialized: "pulse.series.instances_materialized",
+  seriesRruleRejected: "pulse.series.rrule.rejected",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -186,6 +192,46 @@ type SettingsUpdatedAttrs = {
 
 type JwksCacheLookupAttrs = {
   result: JwksCacheResult;
+};
+
+// --- Recurring event series ---
+
+/** Scope of a series-level update operation. */
+type SeriesUpdateScope = "this_only" | "this_and_following" | "all_future";
+
+/** Trigger that caused a materialization batch to run. */
+type SeriesMaterializeTrigger = "create" | "extend_window";
+
+/** Bucketed reason an RRULE was rejected. All unknown reasons collapse to `"parse_error"`. */
+type SeriesRruleRejectReason =
+  | "unsupported_freq"
+  | "too_many_instances"
+  | "missing_termination"
+  | "parse_error";
+
+type SeriesCreatedAttrs = {
+  /** Bounded category bucket — see `bucketCategory`. */
+  category: AllowedCategory;
+  /** Whether an `UNTIL` bound was provided. */
+  has_until: "true" | "false";
+};
+
+type SeriesUpdatedAttrs = {
+  scope: SeriesUpdateScope;
+  result: Result;
+};
+
+type SeriesCancelledAttrs = {
+  result: Result;
+};
+
+type SeriesMaterializedAttrs = {
+  trigger: SeriesMaterializeTrigger;
+  result: Result;
+};
+
+type SeriesRruleRejectedAttrs = {
+  reason: SeriesRruleRejectReason;
 };
 
 // ---------------------------------------------------------------------------
@@ -398,3 +444,58 @@ const authJwksCacheLookups = createCounter<JwksCacheLookupAttrs>({
 
 export const metricJwksCacheLookup = (result: JwksCacheResult): void =>
   authJwksCacheLookups.inc({ result });
+
+// --- Series instruments ---
+
+const seriesCreated = createCounter<SeriesCreatedAttrs>({
+  name: PULSE_METRICS.seriesCreated,
+  description: "Recurring event series created",
+  unit: "{series}",
+});
+
+const seriesUpdated = createCounter<SeriesUpdatedAttrs>({
+  name: PULSE_METRICS.seriesUpdated,
+  description: "Series-level update operations, by scope and outcome",
+  unit: "{update}",
+});
+
+const seriesCancelled = createCounter<SeriesCancelledAttrs>({
+  name: PULSE_METRICS.seriesCancelled,
+  description: "Series cancellations (sets status=cancelled and cancels future instances)",
+  unit: "{cancellation}",
+});
+
+const seriesInstancesMaterialized = createHistogram<SeriesMaterializedAttrs>({
+  name: PULSE_METRICS.seriesInstancesMaterialized,
+  description: "Instances produced per materialization batch",
+  unit: "{instance}",
+  // Weekly series tends to produce 12–52; monthly 6–12. Buckets emphasise
+  // the small-to-medium end; long tail caught by the last bucket.
+  boundaries: [1, 4, 12, 26, 52, 104, 260],
+});
+
+const seriesRruleRejected = createCounter<SeriesRruleRejectedAttrs>({
+  name: PULSE_METRICS.seriesRruleRejected,
+  description: "RRULE inputs rejected by the series parser, by bucketed reason",
+  unit: "{rejection}",
+});
+
+export const metricSeriesCreated = (category: string | null, hasUntil: boolean): void =>
+  seriesCreated.inc({
+    category: bucketCategory(category),
+    has_until: hasUntil ? "true" : "false",
+  });
+
+export const metricSeriesUpdated = (scope: SeriesUpdateScope, result: Result): void =>
+  seriesUpdated.inc({ scope, result });
+
+export const metricSeriesCancelled = (result: Result): void => seriesCancelled.inc({ result });
+
+export const metricSeriesInstancesMaterialized = (
+  count: number,
+  trigger: SeriesMaterializeTrigger,
+  result: Result,
+): void => seriesInstancesMaterialized.record(count, { trigger, result });
+
+export const metricSeriesRruleRejected = (reason: SeriesRruleRejectReason): void =>
+  seriesRruleRejected.inc({ reason });

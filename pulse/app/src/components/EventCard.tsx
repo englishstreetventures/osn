@@ -66,6 +66,30 @@ export function EventCard(props: {
             >
               {props.event.status === "maybe_finished" ? "maybe finished" : props.event.status}
             </span>
+            <Show when={(props.event as { seriesId?: string | null }).seriesId}>
+              <span
+                class="text-muted-foreground inline-flex items-center"
+                title="Part of a series"
+                aria-label="Part of a series"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M17 1l4 4-4 4" />
+                  <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                  <path d="M7 23l-4-4 4-4" />
+                  <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                </svg>
+              </span>
+            </Show>
           </div>
           <h2 class="text-foreground mb-1 text-base font-semibold">{props.event.title}</h2>
         </div>

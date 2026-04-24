@@ -36,6 +36,8 @@ function createDualTestLayer() {
       allow_interested INTEGER NOT NULL DEFAULT 1,
       comms_channels TEXT NOT NULL DEFAULT '["email"]',
       chat_id TEXT,
+      series_id TEXT,
+      instance_override INTEGER NOT NULL DEFAULT 0,
       created_by_profile_id TEXT NOT NULL,
       created_by_name TEXT,
       created_by_avatar TEXT,

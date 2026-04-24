@@ -4,10 +4,46 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { describe, it, expect } from "vitest";
 
 import * as schema from "../src/schema";
-import { buildSeedEvents, buildSeedRsvps } from "../src/seed";
+import {
+  buildSeedEvents,
+  buildSeedRsvps,
+  buildSeedSeries,
+  buildSeedSeriesInstances,
+} from "../src/seed";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
+  sqlite.run(`
+    CREATE TABLE event_series (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      location TEXT,
+      venue TEXT,
+      latitude REAL,
+      longitude REAL,
+      category TEXT,
+      image_url TEXT,
+      duration_minutes INTEGER,
+      visibility TEXT NOT NULL DEFAULT 'public',
+      guest_list_visibility TEXT NOT NULL DEFAULT 'public',
+      join_policy TEXT NOT NULL DEFAULT 'open',
+      allow_interested INTEGER NOT NULL DEFAULT 1,
+      comms_channels TEXT NOT NULL DEFAULT '["email"]',
+      rrule TEXT NOT NULL,
+      dtstart INTEGER NOT NULL,
+      until INTEGER,
+      materialized_through INTEGER NOT NULL,
+      timezone TEXT NOT NULL DEFAULT 'UTC',
+      status TEXT NOT NULL DEFAULT 'active',
+      chat_id TEXT,
+      created_by_profile_id TEXT NOT NULL,
+      created_by_name TEXT,
+      created_by_avatar TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
   sqlite.run(`
     CREATE TABLE events (
       id TEXT PRIMARY KEY,
@@ -28,6 +64,8 @@ function createTestDb() {
       allow_interested INTEGER NOT NULL DEFAULT 1,
       comms_channels TEXT NOT NULL DEFAULT '["email"]',
       chat_id TEXT,
+      series_id TEXT REFERENCES event_series(id),
+      instance_override INTEGER NOT NULL DEFAULT 0,
       created_by_profile_id TEXT,
       created_by_name TEXT,
       created_by_avatar TEXT,
@@ -159,9 +197,9 @@ describe("seed idempotency", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildSeedRsvps", () => {
-  it("returns 73 RSVPs", () => {
+  it("returns 85 RSVPs (73 one-off + 12 series-instance)", () => {
     const rsvps = buildSeedRsvps();
-    expect(rsvps).toHaveLength(73);
+    expect(rsvps).toHaveLength(85);
   });
 
   it("all IDs use rsvp_seed_ prefix", () => {
@@ -170,8 +208,12 @@ describe("buildSeedRsvps", () => {
     }
   });
 
-  it("all eventIds reference valid seed events", () => {
-    const eventIds = new Set(buildSeedEvents(new Date()).map((e) => e.id));
+  it("all eventIds reference a valid one-off event or series instance", () => {
+    const now = new Date();
+    const eventIds = new Set([
+      ...buildSeedEvents(now).map((e) => e.id),
+      ...buildSeedSeriesInstances(now).map((e) => e.id),
+    ]);
     for (const r of buildSeedRsvps()) {
       expect(eventIds.has(r.eventId)).toBe(true);
     }
@@ -209,13 +251,75 @@ describe("RSVP seed idempotency", () => {
   it("inserting RSVPs twice does not duplicate rows", async () => {
     const db = createTestDb();
     const now = new Date();
-    await db.insert(schema.events).values(buildSeedEvents(now)).onConflictDoNothing();
+    await db.insert(schema.eventSeries).values(buildSeedSeries(now)).onConflictDoNothing();
+    const allEvents = [...buildSeedEvents(now), ...buildSeedSeriesInstances(now)];
+    await db.insert(schema.events).values(allEvents).onConflictDoNothing();
     const rsvps = buildSeedRsvps();
 
     await db.insert(schema.eventRsvps).values(rsvps).onConflictDoNothing();
     await db.insert(schema.eventRsvps).values(rsvps).onConflictDoNothing();
 
     const rows = await db.select().from(schema.eventRsvps);
-    expect(rows).toHaveLength(73);
+    expect(rows).toHaveLength(85);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildSeedSeries + buildSeedSeriesInstances
+// ---------------------------------------------------------------------------
+
+describe("buildSeedSeries", () => {
+  it("returns 2 series with srs_seed_* ids", () => {
+    const series = buildSeedSeries(new Date());
+    expect(series).toHaveLength(2);
+    for (const s of series) expect(s.id).toMatch(/^srs_seed_/);
+  });
+
+  it("each series has a valid rrule and timezone", () => {
+    for (const s of buildSeedSeries(new Date())) {
+      expect(s.rrule.length).toBeGreaterThan(0);
+      expect((s.timezone ?? "").length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("buildSeedSeriesInstances", () => {
+  it("produces 14 instances (8 yoga + 6 book club)", () => {
+    expect(buildSeedSeriesInstances(new Date())).toHaveLength(14);
+  });
+
+  it("every instance has seriesId matching a seed series", () => {
+    const now = new Date();
+    const seriesIds = new Set(buildSeedSeries(now).map((s) => s.id));
+    for (const i of buildSeedSeriesInstances(now)) {
+      expect(seriesIds.has(i.seriesId!)).toBe(true);
+    }
+  });
+
+  it("includes at least one overridden instance", () => {
+    const overridden = buildSeedSeriesInstances(new Date()).filter((i) => i.instanceOverride);
+    expect(overridden.length).toBeGreaterThan(0);
+  });
+
+  it("includes at least one cancelled instance", () => {
+    const cancelled = buildSeedSeriesInstances(new Date()).filter((i) => i.status === "cancelled");
+    expect(cancelled.length).toBeGreaterThan(0);
+  });
+});
+
+describe("series seed idempotency", () => {
+  it("inserting series + instances twice does not duplicate rows", async () => {
+    const db = createTestDb();
+    const now = new Date();
+    const series = buildSeedSeries(now);
+    const instances = buildSeedSeriesInstances(now);
+
+    await db.insert(schema.eventSeries).values(series).onConflictDoNothing();
+    await db.insert(schema.eventSeries).values(series).onConflictDoNothing();
+    await db.insert(schema.events).values(instances).onConflictDoNothing();
+    await db.insert(schema.events).values(instances).onConflictDoNothing();
+
+    expect(await db.select().from(schema.eventSeries)).toHaveLength(2);
+    expect(await db.select().from(schema.events)).toHaveLength(14);
   });
 });

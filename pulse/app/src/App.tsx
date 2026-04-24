@@ -19,6 +19,9 @@ const EventDetailPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
 );
+const SeriesDetailPage = lazy(() =>
+  import("./pages/SeriesDetailPage").then((m) => ({ default: m.SeriesDetailPage })),
+);
 
 /**
  * Root layout. The Explore home page provides its own ExploreNav, so we
@@ -45,6 +48,7 @@ export default function App() {
       <Router root={Layout}>
         <Route path="/" component={ExplorePage} />
         <Route path="/events/:id" component={EventDetailPage} />
+        <Route path="/series/:id" component={SeriesDetailPage} />
         <Route path="/settings" component={SettingsPage} />
       </Router>
     </AuthProvider>

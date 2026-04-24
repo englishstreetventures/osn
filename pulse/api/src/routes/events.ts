@@ -1,9 +1,8 @@
 import { DbLive, type Db } from "@pulse/db/service";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
-import { decodeProtectedHeader, jwtVerify } from "jose";
 
-import { resolvePublicKeyForKid, refreshPublicKeyForKid } from "../lib/jwks-cache";
+import { DEFAULT_JWKS_URL, extractClaims } from "../lib/auth";
 import { MAX_EVENT_GUESTS } from "../lib/limits";
 import {
   metricCalendarIcsGenerated,
@@ -87,71 +86,6 @@ const statusEnum = t.Optional(
     t.Literal("cancelled"),
   ]),
 );
-
-type Claims = {
-  profileId: string;
-  email: string | null;
-  handle: string | null;
-  displayName: string | null;
-};
-
-/**
- * Verifies token signature with a pre-resolved key. Returns claims or null.
- * P-W1: accepts pre-decoded kid to avoid re-parsing the JWT header.
- */
-async function verifyTokenWithKey(token: string, key: CryptoKey): Promise<Claims | null> {
-  try {
-    const { payload } = await jwtVerify(token, key, { algorithms: ["ES256"] });
-    const profileId = typeof payload.sub === "string" ? payload.sub : null;
-    if (!profileId) return null;
-    return {
-      profileId,
-      email: typeof payload.email === "string" ? payload.email : null,
-      handle: typeof payload.handle === "string" ? payload.handle : null,
-      displayName: typeof payload.displayName === "string" ? payload.displayName : null,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** Extracts verified claims from a Bearer token. Returns null on any failure. */
-async function extractClaims(
-  authHeader: string | undefined,
-  jwksUrl: string,
-  _testKey?: CryptoKey,
-): Promise<Claims | null> {
-  if (!authHeader?.startsWith("Bearer ")) return null;
-  const token = authHeader.slice(7);
-
-  // P-W1: decode the JWT header exactly once regardless of code path.
-  let header: { kid?: string; alg?: string };
-  try {
-    header = decodeProtectedHeader(token);
-  } catch {
-    return null;
-  }
-  if (header.alg !== "ES256" || typeof header.kid !== "string") return null;
-  const kid = header.kid;
-
-  if (_testKey) {
-    return verifyTokenWithKey(token, _testKey);
-  }
-
-  // Try cached key first; on failure, refresh once (handles rotation).
-  const key = await resolvePublicKeyForKid(kid, jwksUrl);
-  if (key) {
-    const result = await verifyTokenWithKey(token, key);
-    if (result) return result;
-  }
-
-  // Verification failed — refresh key in case it was rotated, then retry.
-  const freshKey = await refreshPublicKeyForKid(kid, jwksUrl);
-  if (!freshKey) return null;
-  return verifyTokenWithKey(token, freshKey);
-}
-
-const DEFAULT_JWKS_URL = process.env.OSN_JWKS_URL ?? "http://localhost:4000/.well-known/jwks.json";
 
 export const createEventsRoutes = (
   dbLayer: Layer.Layer<Db> = DbLive,

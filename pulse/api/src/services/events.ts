@@ -367,8 +367,12 @@ export const updateEvent = (
 
     const now = new Date();
     const { commsChannels, ...rest } = validated;
+    // If this event is part of a series, flag it as a single-instance
+    // divergence so subsequent series-level bulk updates skip it.
+    const overrideFlag = existing.seriesId ? { instanceOverride: true as const } : {};
     const update = {
       ...rest,
+      ...overrideFlag,
       updatedAt: now,
       ...(commsChannels ? { commsChannels: JSON.stringify(commsChannels) } : {}),
     };

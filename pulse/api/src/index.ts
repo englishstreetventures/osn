@@ -4,6 +4,7 @@ import { Effect, Logger } from "effect";
 import { Elysia } from "elysia";
 
 import { eventsRoutes, settingsRoutes } from "./routes/events";
+import { seriesRoutes } from "./routes/series";
 import { startKeyRotation } from "./services/graphBridge";
 
 // Initialise observability (logger, tracing, metrics) before building the app.
@@ -17,6 +18,7 @@ const app = new Elysia()
   .use(healthRoutes({ serviceName: SERVICE_NAME }))
   .get("/", () => ({ status: "ok", service: "osn-api" }))
   .use(eventsRoutes)
+  .use(seriesRoutes)
   .use(settingsRoutes);
 
 const port = process.env.PORT || 3001;
