@@ -7,12 +7,16 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-22
+last-reviewed: 2026-04-24
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## Pulse ARC registration retry (2026-04-24)
+
+- **S-L1 (arc-retry)** — `isNetworkError` initially classified any `Error` with a string `code` property as a network-level fetch failure, which widened the "silent retry in local dev" surface beyond genuine connection errors (a parse error or AbortError with a `code` field would have been silently retried). The retry path is gated by `isLocalEnv()` + operator-controlled `OSN_ENV`, so the production blast radius was nil, but the JSDoc claim ("Bun populates `code` on network-level failures") over-sold the heuristic. Fixed: explicit allowlist of Bun/Node network codes (`ConnectionRefused`, `ECONNREFUSED`, `ECONNRESET`, `ENOTFOUND`, `ETIMEDOUT`, `EAI_AGAIN`, `EHOSTUNREACH`, `ENETUNREACH`, `UND_ERR_CONNECT_TIMEOUT`, `UND_ERR_SOCKET`); any other shape surfaces as a throw. Covered by a local-dev test that asserts `ERR_INVALID_JSON` does not trigger the retry loop — see [[arc-tokens]].
 
 ## Auth Phase 5b — PKCE cleanup (2026-04-22)
 

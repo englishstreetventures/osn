@@ -190,6 +190,79 @@ function scheduleRotation(expiresAtMs: number): void {
   setTimeout(() => void rotateKey(), delay).unref?.();
 }
 
+/**
+ * Allowlist of network-level fetch failure codes. Bun (and Node) surface
+ * these on the thrown `Error.code` for DNS / TCP failures; our own thrown
+ * HTTP-status errors have no `code` field. Keeping this as an explicit
+ * allowlist (rather than "any string code") makes the retry-vs-crash
+ * decision auditable and prevents an unrelated `code`-bearing error from
+ * accidentally landing in the retry bucket (S-L1).
+ */
+const NETWORK_ERROR_CODES = new Set([
+  "ConnectionRefused",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENOTFOUND",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
+
+function isNetworkError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === "string" && NETWORK_ERROR_CODES.has(code);
+}
+
+/** Initial delay before the first registration retry. Exposed for tests. */
+export const REGISTRATION_RETRY_BASE_MS = 5_000;
+/**
+ * Upper bound on the retry delay. Exponential backoff doubles the delay
+ * on each failure and caps here — matches the 5-min cadence that
+ * `rotateKey` uses for post-boot rotation failures so both retry paths
+ * are pressure-consistent (P-I1).
+ */
+export const REGISTRATION_RETRY_MAX_MS = 5 * 60 * 1000;
+/**
+ * Symmetric jitter applied to each retry delay (±). Prevents retry
+ * clustering if multiple pulse-api-like processes start against the
+ * same osn/api restart window (P-I2).
+ */
+export const REGISTRATION_RETRY_JITTER_MS = 1_000;
+
+let _registrationRetryAttempts = 0;
+
+function scheduleRegistrationRetry(): void {
+  const exp = REGISTRATION_RETRY_BASE_MS * 2 ** _registrationRetryAttempts;
+  const base = Math.min(exp, REGISTRATION_RETRY_MAX_MS);
+  const jitter = (Math.random() - 0.5) * 2 * REGISTRATION_RETRY_JITTER_MS;
+  _registrationRetryAttempts += 1;
+  setTimeout(() => void retryRegistration(), base + jitter).unref?.();
+}
+
+async function retryRegistration(): Promise<void> {
+  try {
+    const registered = await registerWithOsnApi();
+    if (!registered) {
+      _registrationRetryAttempts = 0; // secret unset — wait for next startup
+      return;
+    }
+    _registrationRetryAttempts = 0;
+    const { expiresAt } = await initKeys();
+    scheduleRotation(expiresAt);
+  } catch (err) {
+    // Keep retrying while osn/api is still unreachable. Any other failure
+    // is swallowed here — the server is already accepting traffic, so we
+    // let the next real S2S call surface the error via GraphBridgeError
+    // rather than crashing the process long after boot.
+    if (isLocalEnv() && isNetworkError(err)) scheduleRegistrationRetry();
+    else _registrationRetryAttempts = 0;
+  }
+}
+
 async function rotateKey(): Promise<void> {
   try {
     const pair = await generateArcKeyPair();
@@ -234,22 +307,50 @@ async function rotateKey(): Promise<void> {
 }
 
 /**
+ * Outcome of `startKeyRotation`. Three states because connection failures
+ * in local dev are legitimate (osn/api not up yet) and should be
+ * distinguishable from both success and "secret unset" in caller logs.
+ */
+export type KeyRotationStatus = "registered" | "skipped-secret-unset" | "pending-retry";
+
+/**
  * Registers the service's ephemeral public key with osn/api and schedules
  * automatic key rotation. Call once at startup.
  *
- * Returns `true` on success, `false` when registration was skipped because
- * `INTERNAL_SERVICE_SECRET` is unset in a local dev environment (caller
- * should log a warning so the developer knows S2S calls will fail until
- * they configure the shared secret). Throws in any non-local environment
- * — misconfiguration must be surfaced immediately at boot rather than
- * failing silently on the first S2S call.
+ * Return values:
+ *   - `"registered"` — registration succeeded and rotation is scheduled.
+ *   - `"skipped-secret-unset"` — `INTERNAL_SERVICE_SECRET` is unset in a
+ *     local dev environment. The caller should warn the developer that
+ *     S2S calls will fail until the secret is configured.
+ *   - `"pending-retry"` — osn/api was unreachable (ConnectionRefused /
+ *     DNS / reset) during a local dev boot. A background retry is
+ *     scheduled so pulse-api can come up while osn/api is still
+ *     starting; the caller should surface a warning but not exit.
+ *
+ * Throws in any non-local environment, or on non-network errors (HTTP
+ * 4xx/5xx, invalid JWK) — misconfiguration must be surfaced immediately
+ * at boot rather than failing silently on the first S2S call.
  */
-export async function startKeyRotation(): Promise<boolean> {
-  const registered = await registerWithOsnApi();
-  if (!registered) return false;
-  const { expiresAt } = await initKeys();
-  scheduleRotation(expiresAt);
-  return true;
+export async function startKeyRotation(): Promise<KeyRotationStatus> {
+  _registrationRetryAttempts = 0;
+  try {
+    const registered = await registerWithOsnApi();
+    if (!registered) return "skipped-secret-unset";
+    const { expiresAt } = await initKeys();
+    scheduleRotation(expiresAt);
+    return "registered";
+  } catch (err) {
+    // In local dev, osn/api may not be up yet when pulse-api boots
+    // (turbo launches both in parallel). Schedule a background retry
+    // instead of crashing so `bun run dev:pulse` is resilient to
+    // startup ordering. Non-local envs still fail fast — a missing
+    // osn/api in deployment is a misconfiguration, not a race.
+    if (isLocalEnv() && isNetworkError(err)) {
+      scheduleRegistrationRetry();
+      return "pending-retry";
+    }
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------

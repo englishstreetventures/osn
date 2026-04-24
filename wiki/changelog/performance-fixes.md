@@ -6,12 +6,17 @@ related:
   - "[[redis]]"
   - "[[arc-tokens]]"
   - "[[component-library]]"
-last-reviewed: 2026-04-22
+last-reviewed: 2026-04-24
 ---
 
 # Performance Fixes — Completed
 
 Archived completed performance findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Performance Backlog in [[TODO]].
+
+## Pulse ARC registration retry (2026-04-24)
+
+- **P-I1 (arc-retry)** — The initial fix for the pulse-api boot-time ConnectionRefused crash retried at a fixed 5 s + 0-1 s cadence with no cap, so a developer leaving pulse-api running against a permanently-down osn/api would issue ~720 fetch attempts/hour indefinitely. Local-dev only, timer `.unref()`-ed, one-in-flight — no real memory or production risk, but noisy logs and socket churn that mask the "osn/api is broken" state. Fixed: exponential backoff starting at 5 s, doubling to a 5-minute ceiling — the same ceiling `rotateKey` already uses for post-boot rotation failures. Retry counter resets on every fresh `startKeyRotation` call so restarts always begin at the base delay. Covered by a test that walks three successive retries (5 s → 10 s → 20 s windows) — see [[arc-tokens]].
+- **P-I2 (arc-retry)** — Jitter was one-sided (`Math.random() * JITTER`) so the effective window was `[base, base + jitter]`, never earlier. Cosmetic in practice, but the `rotateKey` comment specifies symmetric ±30 s jitter to avoid thundering-herd — the retry path should match that convention. Fixed: symmetric `(Math.random() - 0.5) * 2 * JITTER` gives `[base - jitter, base + jitter]` — see [[arc-tokens]].
 
 ## Auth Phase 5b (2026-04-22)
 
