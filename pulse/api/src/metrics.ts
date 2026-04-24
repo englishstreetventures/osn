@@ -110,7 +110,7 @@ type EventsStatusTransitionAttrs = {
 
 type EventsValidationFailureAttrs = {
   operation: "create" | "update";
-  reason: "schema" | "past_start_time";
+  reason: "schema" | "past_start_time" | "duration_exceeds_max";
 };
 
 // --- RSVP ---
@@ -329,7 +329,7 @@ export const metricEventStatusTransition = (from: EventStatus, to: EventStatus):
 
 export const metricEventValidationFailure = (
   operation: "create" | "update",
-  reason: "schema" | "past_start_time",
+  reason: "schema" | "past_start_time" | "duration_exceeds_max",
 ): void => eventValidationFailures.inc({ operation, reason });
 
 // --- RSVP recording helpers ---

@@ -8,7 +8,7 @@ related:
   - "[[zap]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-22
+last-reviewed: 2026-04-24
 ---
 
 # Completed Features
@@ -86,6 +86,7 @@ Archived completed feature work from [[TODO]]. For open work see [[TODO]].
 - Event chat placeholder
 - Hidden attendance option (`attendanceVisibility = "no_one"`)
 - `isCloseFriendOf`/`getCloseFriendsOfBatch` migrated from SQL to service helper
+- Max event duration prompt (2026-04-24) — duration presets (1h/2h/4h/8h/All day) in `CreateEventForm` when endTime is empty. New `maybe_finished` status (display-only projection; never persisted) at 8h past startTime; auto-close to `finished` at 12h. 48h defence-in-depth cap enforced server-side on explicit-endTime create/update. `EventStatus` union widened in `[[wiki/architecture/component-library]]`-adjacent surfaces; `events.status` column enum widened in `[[wiki/systems/event-access]]`-adjacent schema. See `MAX_EVENT_DURATION_HOURS` / `MAYBE_FINISHED_AFTER_HOURS` / `AUTO_CLOSE_NO_END_TIME_HOURS` in `pulse/api/src/lib/limits.ts`.
 
 ## OSN Core
 

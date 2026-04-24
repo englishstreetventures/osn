@@ -82,6 +82,7 @@ const statusEnum = t.Optional(
   t.Union([
     t.Literal("upcoming"),
     t.Literal("ongoing"),
+    t.Literal("maybe_finished"),
     t.Literal("finished"),
     t.Literal("cancelled"),
   ]),

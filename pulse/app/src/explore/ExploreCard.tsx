@@ -79,7 +79,7 @@ export function ExploreCard(props: {
   return (
     <A
       href={`/events/${e().id}`}
-      class="group relative grid cursor-pointer overflow-hidden rounded-2xl border border-border bg-card transition-all hover:-translate-y-px hover:border-foreground/20 hover:shadow-md"
+      class="group border-border bg-card hover:border-foreground/20 relative grid cursor-pointer overflow-hidden rounded-2xl border transition-all hover:-translate-y-px hover:shadow-md"
       classList={{
         "grid-cols-[180px_1fr]": !props.featured,
         "grid-cols-1": !!props.featured,
@@ -106,7 +106,7 @@ export function ExploreCard(props: {
             <>
               <div class="ph-pattern" />
               <div
-                class="absolute bottom-2 right-2.5 text-[42px] italic leading-none"
+                class="absolute right-2.5 bottom-2 text-[42px] leading-none italic"
                 style={{
                   "font-family": "var(--font-serif)",
                   color: "oklch(1 0 0 / 0.85)",
@@ -126,15 +126,15 @@ export function ExploreCard(props: {
         </Show>
 
         {/* Date stamp */}
-        <div class="date-stamp absolute left-3 top-3 w-[46px] rounded-[10px] border border-white/50 bg-card py-1 text-center shadow-sm">
+        <div class="date-stamp bg-card absolute top-3 left-3 w-[46px] rounded-[10px] border border-white/50 py-1 text-center shadow-sm">
           <div
-            class="text-[9px] font-semibold uppercase tracking-widest"
+            class="text-[9px] font-semibold tracking-widest uppercase"
             style={{ color: "var(--pulse-accent-strong)" }}
           >
             {dateParts().mo}
           </div>
-          <div class="mt-0.5 text-lg font-semibold leading-none">{dateParts().day}</div>
-          <div class="mt-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+          <div class="mt-0.5 text-lg leading-none font-semibold">{dateParts().day}</div>
+          <div class="text-muted-foreground mt-0.5 text-[9px] tracking-wider uppercase">
             {dateParts().dow}
           </div>
         </div>
@@ -161,7 +161,7 @@ export function ExploreCard(props: {
       <div class="relative flex min-w-0 flex-col gap-1.5 px-4 py-3.5">
         {/* Meta line */}
         <div
-          class="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wider"
+          class="flex items-center gap-1.5 text-[11.5px] tracking-wider uppercase"
           style={{ "font-family": "var(--font-mono)", color: "var(--pulse-accent-strong)" }}
         >
           <Icon name="clock" size={11} />
@@ -169,18 +169,18 @@ export function ExploreCard(props: {
         </div>
 
         {/* Title */}
-        <h3 class="m-0 line-clamp-2 text-[16.5px] font-semibold leading-tight tracking-tight">
+        <h3 class="m-0 line-clamp-2 text-[16.5px] leading-tight font-semibold tracking-tight">
           {e().title}
         </h3>
 
         {/* Location */}
-        <div class="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+        <div class="text-muted-foreground flex items-center gap-2 text-[12.5px]">
           <Icon name="map-pin" size={12} />
           <Show when={e().venue}>
             <span>{e().venue}</span>
           </Show>
           <Show when={e().venue && e().location}>
-            <span class="inline-block h-[3px] w-[3px] rounded-full bg-foreground/20" />
+            <span class="bg-foreground/20 inline-block h-[3px] w-[3px] rounded-full" />
           </Show>
           <Show when={e().location}>
             <span>{e().location}</span>
@@ -190,30 +190,34 @@ export function ExploreCard(props: {
         {/* Host */}
         <Show when={e().createdByName}>
           {(name) => (
-            <div class="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+            <div class="text-muted-foreground flex items-center gap-1.5 text-[11.5px]">
               <Avatar class="h-[18px] w-[18px]">
                 <Show when={e().createdByAvatar}>
                   {(avatar) => <AvatarImage src={avatar()} alt={name()} />}
                 </Show>
                 <AvatarFallback class="text-[8px]">{initials(name())}</AvatarFallback>
               </Avatar>
-              Hosted by <b class="font-semibold text-foreground">{name()}</b>
+              Hosted by <b class="text-foreground font-semibold">{name()}</b>
             </div>
           )}
         </Show>
 
         {/* Footer */}
-        <div class="mt-1.5 flex items-center justify-between gap-2.5 border-t border-dashed border-border pt-2.5">
+        <div class="border-border mt-1.5 flex items-center justify-between gap-2.5 border-t border-dashed pt-2.5">
           <Show when={e().category}>
-            <span class="text-[12px] font-medium uppercase tracking-wider text-muted-foreground">
+            <span class="text-muted-foreground text-[12px] font-medium tracking-wider uppercase">
               {e().category}
             </span>
           </Show>
           <span
-            class="text-[11.5px] text-muted-foreground"
+            class="text-muted-foreground text-[11.5px]"
             style={{ "font-family": "var(--font-mono)" }}
           >
-            {e().status === "ongoing" ? "Live" : e().status}
+            {e().status === "ongoing"
+              ? "Live"
+              : e().status === "maybe_finished"
+                ? "Maybe finished"
+                : e().status}
           </span>
         </div>
       </div>

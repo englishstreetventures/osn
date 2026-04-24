@@ -24,7 +24,7 @@ interface EventDetail {
   category: string | null;
   startTime: string;
   endTime: string | null;
-  status: "upcoming" | "ongoing" | "finished" | "cancelled";
+  status: "upcoming" | "ongoing" | "maybe_finished" | "finished" | "cancelled";
   imageUrl: string | null;
   visibility: "public" | "private";
   guestListVisibility: "public" | "connections" | "private";
@@ -93,7 +93,7 @@ export function EventDetailPage() {
                           : "text-muted-foreground"
                     }`}
                   >
-                    {e().status}
+                    {e().status === "maybe_finished" ? "maybe finished" : e().status}
                   </span>
                   <Show when={e().visibility === "private"}>
                     <span class="text-muted-foreground text-xs">· Private</span>

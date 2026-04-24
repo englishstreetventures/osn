@@ -81,7 +81,7 @@ export interface SeedEventInput {
   title: string;
   startTime: string | Date;
   endTime?: string | Date;
-  status?: "upcoming" | "ongoing" | "finished" | "cancelled";
+  status?: "upcoming" | "ongoing" | "maybe_finished" | "finished" | "cancelled";
   category?: string;
   createdByProfileId?: string;
   createdByName?: string | null;

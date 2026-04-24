@@ -28,7 +28,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 ## Pulse (`pulse/app` + `pulse/api` + `pulse/db`)
 
 - [ ] "What's on today" default view
-- [ ] Prompt for max event duration when creating events without an endTime
+- [x] Prompt for max event duration when creating events without an endTime — duration presets + `maybe_finished` status at 8h, auto-close at 12h, 48h defence-in-depth cap on explicit endTimes (moved to `[[changelog/completed-features]]`)
 - [ ] Event discovery (location, category, datetime, friends, interests)
 - [ ] Add `price` field to events schema (`text`, nullable — free events = null, otherwise display string like "$18" or "$8 entry")
 - [ ] Recurring events (series + instances)
@@ -408,7 +408,6 @@ Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenha
 | Payment handling | Deferred for Pulse ticketing | After core Pulse features |
 | Two-way calendar sync | Currently one-way (Pulse → external) | Phase 2 |
 | Community event-ended reporting | 15–20 attendees auto-finish; host notified | When attendee/messaging features land |
-| Max event duration | Prompt user when creating events without endTime | When Pulse event creation UI is built |
 | Redis provider — see [[redis]] | Upstash (serverless, free tier) vs Redis Cloud vs self-hosted | When deploying beyond localhost |
 | DB table rename `users` → `profiles` | Table represents profiles; renaming is migration-heavy for minimal benefit | Only if it causes genuine confusion |
 | S2S scaling — see [[s2s-patterns]], [[arc-tokens]], [[s2s-migration]] | `pulse/api` graphBridge now uses HTTP + ARC. Remaining: `zap/api` bridge still uses direct import | When `zap/api` needs horizontal scaling |

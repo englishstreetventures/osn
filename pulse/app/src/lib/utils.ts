@@ -41,6 +41,20 @@ export function isEndBeforeOrAtStart(start: string, end: string): boolean {
 }
 
 /**
+ * Given a start datetime-local string and a duration in hours, returns
+ * the corresponding end datetime-local string. Returns an empty string
+ * if `start` cannot be parsed, so the caller can leave `endTime` empty
+ * rather than emitting "Invalid Date".
+ */
+export function deriveEndFromDuration(start: string, hours: number): string {
+  if (!start) return "";
+  const startDate = new Date(start);
+  if (isNaN(startDate.getTime())) return "";
+  const end = new Date(startDate.getTime() + hours * 60 * 60 * 1000);
+  return toDatetimeLocal(end);
+}
+
+/**
  * Decodes a JWT payload without verifying the signature.
  * Safe for display-only purposes — the server verifies the signature on every write.
  */

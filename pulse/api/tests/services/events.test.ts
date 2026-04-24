@@ -1,6 +1,8 @@
 import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
+import { vi } from "vitest";
 
+import * as metrics from "../../src/metrics";
 import {
   createEvent,
   deleteEvent,
@@ -141,6 +143,231 @@ it.effect("createEvent fails with ValidationError for startTime equal to now", (
       const now = new Date().toISOString();
       const error = yield* Effect.flip(createEvent({ title: "Test", startTime: now }, ALICE));
       expect(error._tag).toBe("ValidationError");
+    }),
+  ),
+);
+
+it.effect("createEvent accepts endTime exactly at MAX_EVENT_DURATION_HOURS", () =>
+  provide(
+    Effect.gen(function* () {
+      const start = new Date("2030-06-01T10:00:00.000Z");
+      const end = new Date(start.getTime() + 48 * 60 * 60 * 1000);
+      const event = yield* createEvent(
+        { title: "Weekend party", startTime: start.toISOString(), endTime: end.toISOString() },
+        ALICE,
+      );
+      expect(event.endTime).toEqual(end);
+    }),
+  ),
+);
+
+it.effect(
+  "createEvent fails with ValidationError when duration exceeds MAX_EVENT_DURATION_HOURS",
+  () =>
+    provide(
+      Effect.gen(function* () {
+        const start = new Date("2030-06-01T10:00:00.000Z");
+        const end = new Date(start.getTime() + 48 * 60 * 60 * 1000 + 60 * 1000);
+        const error = yield* Effect.flip(
+          createEvent(
+            { title: "Too long", startTime: start.toISOString(), endTime: end.toISOString() },
+            ALICE,
+          ),
+        );
+        expect(error._tag).toBe("ValidationError");
+      }),
+    ),
+);
+
+it.effect("createEvent emits duration_exceeds_max validation-failure metric", () =>
+  provide(
+    Effect.gen(function* () {
+      const spy = vi.spyOn(metrics, "metricEventValidationFailure");
+      const start = new Date("2030-06-01T10:00:00.000Z");
+      const end = new Date(start.getTime() + 49 * 60 * 60 * 1000);
+      yield* Effect.flip(
+        createEvent(
+          { title: "Too long", startTime: start.toISOString(), endTime: end.toISOString() },
+          ALICE,
+        ),
+      );
+      expect(spy).toHaveBeenCalledWith("create", "duration_exceeds_max");
+      spy.mockRestore();
+    }),
+  ),
+);
+
+it.effect("updateEvent emits duration_exceeds_max validation-failure metric", () =>
+  provide(
+    Effect.gen(function* () {
+      const start = new Date("2030-06-01T10:00:00.000Z");
+      const created = yield* createEvent(
+        { title: "Dinner", startTime: start.toISOString() },
+        ALICE,
+      );
+      const spy = vi.spyOn(metrics, "metricEventValidationFailure");
+      const tooFar = new Date(start.getTime() + 49 * 60 * 60 * 1000).toISOString();
+      yield* Effect.flip(updateEvent(created.id, { endTime: tooFar }, "usr_alice"));
+      expect(spy).toHaveBeenCalledWith("update", "duration_exceeds_max");
+      spy.mockRestore();
+    }),
+  ),
+);
+
+it.effect("updateEvent rejects endTime-only patch that pushes duration over cap", () =>
+  provide(
+    Effect.gen(function* () {
+      const start = new Date("2030-06-01T10:00:00.000Z");
+      const created = yield* createEvent(
+        { title: "Dinner", startTime: start.toISOString() },
+        ALICE,
+      );
+      const tooFar = new Date(start.getTime() + 49 * 60 * 60 * 1000).toISOString();
+      const error = yield* Effect.flip(updateEvent(created.id, { endTime: tooFar }, "usr_alice"));
+      expect(error._tag).toBe("ValidationError");
+    }),
+  ),
+);
+
+it.effect("updateEvent rejects startTime-only patch that pushes duration over cap", () =>
+  provide(
+    Effect.gen(function* () {
+      // Seed an existing event with an explicit endTime 2h after startTime.
+      const start = new Date("2030-06-01T10:00:00.000Z");
+      const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+      const created = yield* createEvent(
+        { title: "Dinner", startTime: start.toISOString(), endTime: end.toISOString() },
+        ALICE,
+      );
+      // Patching only startTime 49h earlier makes the effective duration 51h.
+      const muchEarlier = new Date(start.getTime() - 49 * 60 * 60 * 1000).toISOString();
+      const error = yield* Effect.flip(
+        updateEvent(created.id, { startTime: muchEarlier }, "usr_alice"),
+      );
+      expect(error._tag).toBe("ValidationError");
+    }),
+  ),
+);
+
+it.effect(
+  "updateEvent accepts endTime moved to exactly MAX_EVENT_DURATION_HOURS past startTime",
+  () =>
+    provide(
+      Effect.gen(function* () {
+        const start = new Date("2030-06-01T10:00:00.000Z");
+        const created = yield* createEvent(
+          { title: "Dinner", startTime: start.toISOString() },
+          ALICE,
+        );
+        const atCap = new Date(start.getTime() + 48 * 60 * 60 * 1000).toISOString();
+        const updated = yield* updateEvent(created.id, { endTime: atCap }, "usr_alice");
+        expect(updated.endTime?.toISOString()).toBe(atCap);
+      }),
+    ),
+);
+
+it.effect("getEvent finishes events whose explicit endTime has passed", () =>
+  provide(
+    Effect.gen(function* () {
+      const startedAgo = new Date(Date.now() - 5 * 60 * 60 * 1000);
+      const endedAgo = new Date(Date.now() - 1 * 60 * 60 * 1000);
+      const seeded = yield* seedEvent({
+        title: "Already over",
+        startTime: startedAgo,
+        endTime: endedAgo,
+        status: "ongoing",
+      });
+      const fetched = yield* getEvent(seeded.id);
+      expect(fetched.status).toBe("finished");
+    }),
+  ),
+);
+
+it.effect("getEvent marks no-endTime events maybe_finished between 8h and 12h past startTime", () =>
+  provide(
+    Effect.gen(function* () {
+      const ninehAgo = new Date(Date.now() - 9 * 60 * 60 * 1000);
+      const seeded = yield* seedEvent({
+        title: "Soft grace",
+        startTime: ninehAgo,
+        status: "ongoing",
+      });
+      const fetched = yield* getEvent(seeded.id);
+      expect(fetched.status).toBe("maybe_finished");
+    }),
+  ),
+);
+
+it.effect("maybe_finished is display-only — the DB row stays 'ongoing'", () =>
+  provide(
+    Effect.gen(function* () {
+      const ninehAgo = new Date(Date.now() - 9 * 60 * 60 * 1000);
+      const seeded = yield* seedEvent({
+        title: "Not persisted",
+        startTime: ninehAgo,
+        status: "ongoing",
+      });
+      // First read projects maybe_finished in-memory.
+      const fetched = yield* getEvent(seeded.id);
+      expect(fetched.status).toBe("maybe_finished");
+      // But the DB row still says ongoing — a direct SELECT via a second
+      // getEvent re-derives from the stored ongoing row, not a persisted
+      // maybe_finished one. Count status_transitions: none should fire
+      // for maybe_finished (only ongoing → finished at 12h is persisted).
+      const spy = vi.spyOn(metrics, "metricEventStatusTransition");
+      const refetched = yield* getEvent(seeded.id);
+      expect(refetched.status).toBe("maybe_finished");
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    }),
+  ),
+);
+
+it.effect("getEvent auto-finishes no-endTime events after AUTO_CLOSE_NO_END_TIME_HOURS", () =>
+  provide(
+    Effect.gen(function* () {
+      const longAgo = new Date(Date.now() - 13 * 60 * 60 * 1000);
+      const seeded = yield* seedEvent({
+        title: "Stale ongoing",
+        startTime: longAgo,
+        status: "ongoing",
+      });
+      const fetched = yield* getEvent(seeded.id);
+      expect(fetched.status).toBe("finished");
+    }),
+  ),
+);
+
+it.effect("getEvent keeps no-endTime events ongoing before MAYBE_FINISHED_AFTER_HOURS", () =>
+  provide(
+    Effect.gen(function* () {
+      const recent = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const seeded = yield* seedEvent({
+        title: "Fresh ongoing",
+        startTime: recent,
+        status: "ongoing",
+      });
+      const fetched = yield* getEvent(seeded.id);
+      expect(fetched.status).toBe("ongoing");
+    }),
+  ),
+);
+
+it.effect("organiser can manually mark a maybe_finished event as finished", () =>
+  provide(
+    Effect.gen(function* () {
+      const ninehAgo = new Date(Date.now() - 9 * 60 * 60 * 1000);
+      const seeded = yield* seedEvent({
+        title: "Organiser closes early",
+        startTime: ninehAgo,
+        status: "maybe_finished",
+      });
+      const updated = yield* updateEvent(
+        seeded.id,
+        { status: "finished" },
+        seeded.createdByProfileId,
+      );
+      expect(updated.status).toBe("finished");
     }),
   ),
 );

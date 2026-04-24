@@ -7,6 +7,7 @@ import {
   isEndBeforeOrAtStart,
   getProfileIdFromToken,
   getDisplayNameFromToken,
+  deriveEndFromDuration,
   type PhotonFeature,
 } from "../src/lib/utils";
 
@@ -137,5 +138,25 @@ describe("formatTime", () => {
     const result = formatTime(new Date("2030-06-01T10:00:00.000Z"));
     expect(typeof result).toBe("string");
     expect(result.length).toBeGreaterThan(0);
+  });
+});
+
+describe("deriveEndFromDuration", () => {
+  it("returns an empty string when start is empty", () => {
+    expect(deriveEndFromDuration("", 2)).toBe("");
+  });
+
+  it("returns an empty string when start is unparseable", () => {
+    expect(deriveEndFromDuration("not-a-date", 2)).toBe("");
+  });
+
+  it("adds exactly N hours to start and returns a datetime-local string", () => {
+    const start = "2030-06-01T10:00";
+    const expected = toDatetimeLocal(new Date(new Date(start).getTime() + 2 * 60 * 60 * 1000));
+    expect(deriveEndFromDuration(start, 2)).toBe(expected);
+  });
+
+  it("matches YYYY-MM-DDTHH:mm format", () => {
+    expect(deriveEndFromDuration("2030-06-01T10:00", 4)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
   });
 });

@@ -47,7 +47,7 @@ export type GraphBlockAction = "add" | "remove";
 export type GraphCloseFriendAction = "add" | "remove";
 
 /** Event lifecycle states (mirrors Pulse events schema). */
-export type EventStatus = "upcoming" | "ongoing" | "finished" | "cancelled";
+export type EventStatus = "upcoming" | "ongoing" | "maybe_finished" | "finished" | "cancelled";
 
 /** Organisation CRUD actions. */
 export type OrgAction = "create" | "update" | "delete";

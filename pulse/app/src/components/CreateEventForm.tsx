@@ -5,13 +5,21 @@ import { Input } from "@osn/ui/ui/input";
 import { Label } from "@osn/ui/ui/label";
 import { RadioGroup, RadioGroupItem } from "@osn/ui/ui/radio-group";
 import { Textarea } from "@osn/ui/ui/textarea";
-import { createSignal, createMemo, Show } from "solid-js";
+import { createSignal, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { api } from "../lib/api";
 import { LocationInput } from "../lib/LocationInput";
-import { toDatetimeLocal, isEndBeforeOrAtStart } from "../lib/utils";
+import { toDatetimeLocal, isEndBeforeOrAtStart, deriveEndFromDuration } from "../lib/utils";
 import { InfoPopover } from "./InfoPopover";
+
+const DURATION_PRESETS: ReadonlyArray<{ label: string; hours: number }> = [
+  { label: "1h", hours: 1 },
+  { label: "2h", hours: 2 },
+  { label: "4h", hours: 4 },
+  { label: "8h", hours: 8 },
+  { label: "All day", hours: 24 },
+];
 
 type Visibility = "public" | "private";
 type GuestListVisibility = "public" | "connections" | "private";
@@ -131,6 +139,39 @@ export function CreateEventForm(props: {
             </Show>
           </div>
         </div>
+
+        {/* Duration prompt — only visible when the organiser hasn't picked an end time. */}
+        <Show when={!endTime()}>
+          <div class="flex flex-col gap-1">
+            <div class="flex items-center">
+              <Label>How long will it run?</Label>
+              <InfoPopover
+                label="About event duration"
+                body="Pick a rough length so we can show guests when it wraps. You can also set an exact end time above, or leave it open if you're not sure."
+              />
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <For each={DURATION_PRESETS}>
+                {(preset) => (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setEndTime(deriveEndFromDuration(startTime(), preset.hours))}
+                  >
+                    {preset.label}
+                  </Button>
+                )}
+              </For>
+            </div>
+            <p class="text-muted-foreground text-xs">
+              If you're not sure, your event will be marked as{" "}
+              <span class="font-medium">maybe finished</span> after 8 hours and{" "}
+              <span class="font-medium">automatically closed</span> after 12 hours. You can close it
+              manually any time.
+            </p>
+          </div>
+        </Show>
 
         {/* Location */}
         <div class="flex flex-col gap-1">

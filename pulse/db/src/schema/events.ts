@@ -13,7 +13,17 @@ export const events = sqliteTable(
     category: text("category"),
     startTime: integer("start_time", { mode: "timestamp" }).notNull(),
     endTime: integer("end_time", { mode: "timestamp" }),
-    status: text("status", { enum: ["upcoming", "ongoing", "finished", "cancelled"] })
+    // ── Status ────────────────────────────────────────────────────────────
+    // "upcoming"        → startTime in the future
+    // "ongoing"         → startTime past, endTime (explicit or implied) still in the future
+    // "maybe_finished"  → no explicit endTime + >= 8h past startTime; grace window
+    //                     before auto-closing (organiser can still mark finished early)
+    // "finished"        → endTime reached OR no-endTime event auto-closed after 12h
+    //                     OR organiser manually closed
+    // "cancelled"       → organiser cancelled
+    status: text("status", {
+      enum: ["upcoming", "ongoing", "maybe_finished", "finished", "cancelled"],
+    })
       .notNull()
       .default("upcoming"),
     imageUrl: text("image_url"),

@@ -8,6 +8,7 @@ packages:
   - "@pulse/api"
   - "@pulse/db"
 port: 3001
+last-reviewed: 2026-04-24
 ---
 
 # Pulse
@@ -49,7 +50,15 @@ Full event lifecycle management:
 
 ### Lifecycle Transitions
 
-Events move through statuses: `upcoming` -> `ongoing` -> `finished`. Events can also be `cancelled` at any point by the organiser.
+Events move through statuses: `upcoming` → `ongoing` → `finished`. Events can also be `cancelled` at any point by the organiser.
+
+Events created **without an explicit `endTime`** follow a tighter ladder so they don't linger as `ongoing` indefinitely:
+
+1. At `MAYBE_FINISHED_AFTER_HOURS` (8h) past `startTime`, `deriveStatus` projects them as **`maybe_finished`** — a display-only status shown to guests as "maybe finished". This projection is **not persisted**; `applyTransition` skips the DB write for this transition, so no-endTime events still only produce one stored write over their lifetime.
+2. At `AUTO_CLOSE_NO_END_TIME_HOURS` (12h) past `startTime`, the event auto-transitions to `finished` and the transition is persisted.
+3. The organiser can manually `PATCH /events/:id { status: "finished" }` at any time to close the event early.
+
+Events **with** an explicit `endTime` keep the original single-transition behaviour at `endTime`. A defence-in-depth cap of `MAX_EVENT_DURATION_HOURS` (48h) is enforced on both `POST /events` and `PATCH /events/:id` — excessive durations return 422 with `metricEventValidationFailure(op, "duration_exceeds_max")`.
 
 ### RSVP System
 

@@ -5,6 +5,11 @@ import { and, eq, gte, lte, or, type SQL } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
 import {
+  AUTO_CLOSE_NO_END_TIME_HOURS,
+  MAX_EVENT_DURATION_HOURS,
+  MAYBE_FINISHED_AFTER_HOURS,
+} from "../lib/limits";
+import {
   metricEventCreated,
   metricEventDeleted,
   metricEventStatusTransition,
@@ -12,6 +17,10 @@ import {
   metricEventValidationFailure,
   metricEventsListed,
 } from "../metrics";
+
+const MAX_EVENT_DURATION_MS = MAX_EVENT_DURATION_HOURS * 60 * 60 * 1000;
+const MAYBE_FINISHED_AFTER_MS = MAYBE_FINISHED_AFTER_HOURS * 60 * 60 * 1000;
+const AUTO_CLOSE_NO_END_TIME_MS = AUTO_CLOSE_NO_END_TIME_HOURS * 60 * 60 * 1000;
 
 export class EventNotFound extends Data.TaggedError("EventNotFound")<{
   readonly id: string;
@@ -29,7 +38,7 @@ export class NotEventOwner extends Data.TaggedError("NotEventOwner")<{
   readonly id: string;
 }> {}
 
-const StatusEnum = Schema.Literal("upcoming", "ongoing", "finished", "cancelled");
+const StatusEnum = Schema.Literal("upcoming", "ongoing", "maybe_finished", "finished", "cancelled");
 const VisibilityEnum = Schema.Literal("public", "private");
 const GuestListVisibilityEnum = Schema.Literal("public", "connections", "private");
 const JoinPolicyEnum = Schema.Literal("open", "guest_list");
@@ -103,7 +112,7 @@ const UpdateEventSchema = Schema.Struct({
 });
 
 interface ListEventsParams {
-  status?: "upcoming" | "ongoing" | "finished" | "cancelled";
+  status?: "upcoming" | "ongoing" | "maybe_finished" | "finished" | "cancelled";
   category?: string;
   limit?: string;
   /**
@@ -115,18 +124,44 @@ interface ListEventsParams {
 }
 
 const deriveStatus = (event: Event, now: Date): Event["status"] => {
+  // Terminal states never transition automatically. "cancelled" and a
+  // manually-set "finished" (organiser closed early) are sticky.
   if (event.status === "cancelled" || event.status === "finished") return event.status;
   const started = event.startTime <= now;
-  const ended = event.endTime !== null && event.endTime <= now;
-  if (ended) return "finished";
-  if (started) return "ongoing";
-  return "upcoming";
+  if (!started) return "upcoming";
+
+  // Explicit-endTime path: a single transition at endTime.
+  if (event.endTime !== null) {
+    return event.endTime <= now ? "finished" : "ongoing";
+  }
+
+  // No-endTime path: soft/hard ladder. The organiser agreed to a
+  // best-effort ceiling by not setting an endTime. Guests see a
+  // "maybe finished" label at 8h, and the event auto-closes at 12h
+  // (see AUTO_CLOSE_NO_END_TIME_HOURS) so open-ended events don't
+  // linger as "ongoing" forever.
+  const elapsedMs = now.getTime() - event.startTime.getTime();
+  if (elapsedMs >= AUTO_CLOSE_NO_END_TIME_MS) return "finished";
+  if (elapsedMs >= MAYBE_FINISHED_AFTER_MS) return "maybe_finished";
+  return "ongoing";
 };
 
 export const applyTransition = (event: Event): Effect.Effect<Event, DatabaseError, Db> => {
   const now = new Date();
   const derived = deriveStatus(event, now);
   if (derived === event.status) return Effect.succeed(event);
+
+  // "maybe_finished" is a display-only projection for no-endTime events
+  // between MAYBE_FINISHED_AFTER_HOURS and AUTO_CLOSE_NO_END_TIME_HOURS
+  // past startTime. We don't persist it so a no-endTime event's
+  // lifecycle path is a single DB write (ongoing → finished at 12h)
+  // instead of two (ongoing → maybe_finished at 8h → finished at 12h).
+  // Callers still see the derived status on read; `status_transitions`
+  // only fires on persisted transitions.
+  if (derived === "maybe_finished") {
+    return Effect.succeed({ ...event, status: derived });
+  }
+
   const previous = event.status;
   return Effect.gen(function* () {
     const { db } = yield* Db;
@@ -260,6 +295,18 @@ export const createEvent = (
       return yield* Effect.fail(new ValidationError({ cause: "startTime must be in the future" }));
     }
 
+    if (
+      validated.endTime &&
+      validated.endTime.getTime() - validated.startTime.getTime() > MAX_EVENT_DURATION_MS
+    ) {
+      metricEventValidationFailure("create", "duration_exceeds_max");
+      return yield* Effect.fail(
+        new ValidationError({
+          cause: `event duration must not exceed ${MAX_EVENT_DURATION_HOURS} hours`,
+        }),
+      );
+    }
+
     // Serialise the commsChannels array to JSON text for the DB column.
     // The schema default is `'["email"]'` so only overwrite when the
     // caller explicitly provided a value.
@@ -304,6 +351,20 @@ export const updateEvent = (
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 
+    // Compute the effective times that the event will have after this
+    // patch lands, so that patching only `endTime` still validates
+    // against the stored `startTime` (and vice versa).
+    const effectiveStart = validated.startTime ?? existing.startTime;
+    const effectiveEnd = validated.endTime ?? existing.endTime;
+    if (effectiveEnd && effectiveEnd.getTime() - effectiveStart.getTime() > MAX_EVENT_DURATION_MS) {
+      metricEventValidationFailure("update", "duration_exceeds_max");
+      return yield* Effect.fail(
+        new ValidationError({
+          cause: `event duration must not exceed ${MAX_EVENT_DURATION_HOURS} hours`,
+        }),
+      );
+    }
+
     const now = new Date();
     const { commsChannels, ...rest } = validated;
     const update = {
@@ -316,8 +377,6 @@ export const updateEvent = (
       catch: (cause) => new DatabaseError({ cause }),
     });
 
-    // Build the updated event in-memory rather than re-fetching from DB.
-    // applyTransition is still called in case startTime/endTime changed.
     // Build the updated event in-memory rather than re-fetching from DB.
     // applyTransition is still called in case startTime/endTime changed.
     const updated = { ...existing, ...update } as Event;

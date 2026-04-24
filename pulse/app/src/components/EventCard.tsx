@@ -56,9 +56,15 @@ export function EventCard(props: {
               </Badge>
             </Show>
             <span
-              class={`text-xs ${props.event.status === "ongoing" ? "font-semibold text-green-600" : props.event.status === "cancelled" ? "text-destructive" : "text-muted-foreground"}`}
+              class={`text-xs ${
+                props.event.status === "ongoing"
+                  ? "font-semibold text-green-600"
+                  : props.event.status === "cancelled"
+                    ? "text-destructive"
+                    : "text-muted-foreground"
+              }`}
             >
-              {props.event.status}
+              {props.event.status === "maybe_finished" ? "maybe finished" : props.event.status}
             </span>
           </div>
           <h2 class="text-foreground mb-1 text-base font-semibold">{props.event.title}</h2>

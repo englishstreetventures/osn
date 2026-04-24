@@ -230,6 +230,18 @@ describe("events routes", () => {
     expect(res.status).toBe(422);
   });
 
+  it("POST /events returns 422 when duration exceeds the max", async () => {
+    const start = new Date("2030-06-01T10:00:00.000Z");
+    const end = new Date(start.getTime() + 49 * 60 * 60 * 1000);
+    const res = await post(
+      app,
+      "/events",
+      { title: "Too long", startTime: start.toISOString(), endTime: end.toISOString() },
+      aliceToken,
+    );
+    expect(res.status).toBe(422);
+  });
+
   it("GET /events?limit=1 returns at most 1 event", async () => {
     await post(app, "/events", { title: "Event A", startTime: FUTURE }, aliceToken);
     await post(app, "/events", { title: "Event B", startTime: FUTURE }, aliceToken);
