@@ -17,7 +17,12 @@ const CATEGORIES = [
 
 export type CategoryId = (typeof CATEGORIES)[number]["id"];
 
-export function FilterRail(props: { active: string; onSelect: (id: string) => void }) {
+export function FilterRail(props: {
+  active: string;
+  onSelect: (id: string) => void;
+  onOpenMoreFilters?: () => void;
+  moreFiltersActive?: boolean;
+}) {
   return (
     <div class="filter-rail mb-3.5 flex items-center gap-2 overflow-x-auto pb-1">
       <For each={CATEGORIES}>
@@ -39,7 +44,12 @@ export function FilterRail(props: { active: string; onSelect: (id: string) => vo
       <span class="w-2 shrink-0" />
       <button
         type="button"
-        class="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[12.5px] font-medium text-muted-foreground hover:bg-secondary"
+        class={`inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[12.5px] font-medium transition-colors ${
+          props.moreFiltersActive
+            ? "border-foreground bg-foreground text-background"
+            : "border-border bg-card text-muted-foreground hover:bg-secondary"
+        }`}
+        onClick={() => props.onOpenMoreFilters?.()}
       >
         <Icon name="filter" size={12} />
         More filters

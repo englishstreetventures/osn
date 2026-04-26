@@ -47,6 +47,10 @@ export const PULSE_METRICS = {
   seriesCancelled: "pulse.series.cancelled",
   seriesInstancesMaterialized: "pulse.series.instances_materialized",
   seriesRruleRejected: "pulse.series.rrule.rejected",
+  // Event discovery
+  discoverySearched: "pulse.discovery.searched",
+  discoverySearchDuration: "pulse.discovery.search.duration",
+  discoveryFiltersApplied: "pulse.discovery.filters.applied",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -232,6 +236,27 @@ type SeriesMaterializedAttrs = {
 
 type SeriesRruleRejectedAttrs = {
   reason: SeriesRruleRejectReason;
+};
+
+// --- Discovery ---
+
+/** Which filter dimensions the caller engaged in a single discovery query. */
+type DiscoveryDimension = "category" | "datetime" | "location" | "friends" | "price";
+
+type DiscoverySearchedAttrs = {
+  scope: "public" | "authenticated";
+  friends_only: "true" | "false";
+  has_location_filter: "true" | "false";
+  has_price_filter: "true" | "false";
+  result_empty: "true" | "false";
+};
+
+type DiscoverySearchDurationAttrs = {
+  result: Result;
+};
+
+type DiscoveryFilterAppliedAttrs = {
+  dimension: DiscoveryDimension;
 };
 
 // ---------------------------------------------------------------------------
@@ -499,3 +524,33 @@ export const metricSeriesInstancesMaterialized = (
 
 export const metricSeriesRruleRejected = (reason: SeriesRruleRejectReason): void =>
   seriesRruleRejected.inc({ reason });
+
+// --- Discovery instruments ---
+
+const discoverySearched = createCounter<DiscoverySearchedAttrs>({
+  name: PULSE_METRICS.discoverySearched,
+  description: "Event discovery queries, by scope + which filter classes were engaged",
+  unit: "{query}",
+});
+
+const discoverySearchDuration = createHistogram<DiscoverySearchDurationAttrs>({
+  name: PULSE_METRICS.discoverySearchDuration,
+  description: "discoverEvents service latency (includes bbox prefilter + haversine + friends)",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
+const discoveryFiltersApplied = createCounter<DiscoveryFilterAppliedAttrs>({
+  name: PULSE_METRICS.discoveryFiltersApplied,
+  description: "Per-dimension filter usage — one inc per engaged dimension per query",
+  unit: "{filter}",
+});
+
+export const metricDiscoverySearched = (attrs: DiscoverySearchedAttrs): void =>
+  discoverySearched.inc(attrs);
+
+export const metricDiscoverySearchDuration = (durationSeconds: number, result: Result): void =>
+  discoverySearchDuration.record(durationSeconds, { result });
+
+export const metricDiscoveryFilterApplied = (dimension: DiscoveryDimension): void =>
+  discoveryFiltersApplied.inc({ dimension });

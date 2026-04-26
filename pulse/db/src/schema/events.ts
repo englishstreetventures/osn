@@ -92,7 +92,15 @@ export const events = sqliteTable(
   (t) => [
     index("events_start_time_idx").on(t.startTime),
     index("events_created_by_profile_id_idx").on(t.createdByProfileId),
-    index("events_visibility_idx").on(t.visibility),
+    // Discovery always ANDs visibility with a time window, so a compound
+    // (visibility, start_time) index lets the query planner use a single
+    // seek instead of visibility-filter + sort.
+    index("events_visibility_start_time_idx").on(t.visibility, t.startTime),
+    // Discovery filter dimension.
+    index("events_category_idx").on(t.category),
+    // Discovery bbox prefilter. SQLite has no geo extension by default, so
+    // radius search does a bbox range scan here + a JS haversine pass.
+    index("events_lat_lng_idx").on(t.latitude, t.longitude),
     // Powers `GET /series/:id/instances` — walk a single series by start time.
     index("events_series_id_idx").on(t.seriesId, t.startTime),
   ],

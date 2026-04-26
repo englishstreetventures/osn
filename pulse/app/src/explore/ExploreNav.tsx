@@ -86,14 +86,14 @@ export function ExploreNav(props: {
   return (
     <>
       <header
-        class="sticky top-0 z-30 border-b border-border"
+        class="border-border sticky top-0 z-30 border-b"
         style={{
           background: "color-mix(in oklab, var(--background) 88%, transparent)",
           "backdrop-filter": "blur(16px) saturate(140%)",
         }}
       >
         {/* Top row: brand + tabs + search + actions */}
-        <div class="flex items-center gap-6 border-b border-border px-8 py-3.5">
+        <div class="border-border flex items-center gap-6 border-b px-8 py-3.5">
           {/* Brand */}
           <div
             class="flex shrink-0 items-center gap-2.5"
@@ -139,17 +139,17 @@ export function ExploreNav(props: {
           {/* Right side */}
           <div class="ml-auto flex items-center gap-2.5">
             {/* Search */}
-            <div class="flex max-w-[360px] flex-1 items-center gap-2 rounded-full border border-border bg-background px-3.5 py-2 transition-shadow focus-within:border-foreground/20 focus-within:ring-4 focus-within:ring-ring/20">
+            <div class="border-border bg-background focus-within:border-foreground/20 focus-within:ring-ring/20 flex max-w-[360px] flex-1 items-center gap-2 rounded-full border px-3.5 py-2 transition-shadow focus-within:ring-4">
               <Icon name="search" size={14} />
               <input
                 type="text"
                 value={props.query}
                 onInput={(e) => props.onQueryChange(e.currentTarget.value)}
                 placeholder="Search events, people, venues…"
-                class="flex-1 border-0 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+                class="text-foreground placeholder:text-muted-foreground flex-1 border-0 bg-transparent text-[13px] outline-none"
               />
               <kbd
-                class="rounded-[5px] border border-border bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                class="border-border bg-card text-muted-foreground rounded-[5px] border px-1.5 py-0.5 text-[10px]"
                 style={{ "font-family": "var(--font-mono)" }}
               >
                 ⌘K
@@ -172,7 +172,7 @@ export function ExploreNav(props: {
               {/* Notifications */}
               <button
                 type="button"
-                class="relative inline-flex h-9 items-center gap-2 rounded-full border border-border bg-card px-3.5 text-[13px] font-medium hover:bg-secondary"
+                class="border-border bg-card hover:bg-secondary relative inline-flex h-9 items-center gap-2 rounded-full border px-3.5 text-[13px] font-medium"
                 title="Notifications"
               >
                 <Icon name="bell" size={14} />
@@ -191,7 +191,7 @@ export function ExploreNav(props: {
 
               {/* Avatar dropdown */}
               <DropdownMenu>
-                <DropdownMenuTrigger class="cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                <DropdownMenuTrigger class="focus-visible:ring-ring cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-offset-2">
                   <Avatar class="h-[34px] w-[34px]">
                     <Show when={activeProfile()?.avatarUrl}>
                       {(url) => <AvatarImage src={url()} alt={activeProfile()!.handle} />}
@@ -203,7 +203,7 @@ export function ExploreNav(props: {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
                   <DropdownMenuGroup>
-                    <DropdownMenuLabel class="font-normal text-muted-foreground">
+                    <DropdownMenuLabel class="text-muted-foreground font-normal">
                       @{claims().handle ?? "..."}
                     </DropdownMenuLabel>
                   </DropdownMenuGroup>
@@ -224,12 +224,12 @@ export function ExploreNav(props: {
 
         {/* Hero row */}
         <div
-          class="grid items-end gap-10 px-8 pb-6 pt-8"
+          class="grid items-end gap-10 px-8 pt-8 pb-6"
           style={{ "grid-template-columns": "1fr auto" }}
         >
           <div>
             <div
-              class="mb-2.5 inline-flex items-center gap-[7px] text-xs tracking-wider text-muted-foreground"
+              class="text-muted-foreground mb-2.5 inline-flex items-center gap-[7px] text-xs tracking-wider"
               style={{ "font-family": "var(--font-mono)" }}
             >
               <span
@@ -243,7 +243,7 @@ export function ExploreNav(props: {
                 {greeting}, {displayName()}
               </Show>
               {" · "}
-              <b class="font-semibold text-foreground">
+              <b class="text-foreground font-semibold">
                 {new Date().toLocaleDateString("en-US", {
                   weekday: "long",
                   month: "short",
@@ -279,7 +279,7 @@ export function ExploreNav(props: {
                   {props.eventCount}
                 </div>
                 <div
-                  class="mt-1 text-[10.5px] uppercase tracking-wider text-muted-foreground"
+                  class="text-muted-foreground mt-1 text-[10.5px] tracking-wider uppercase"
                   style={{ "font-family": "var(--font-mono)" }}
                 >
                   events nearby
@@ -295,7 +295,7 @@ export function ExploreNav(props: {
                   {props.liveCount}
                 </div>
                 <div
-                  class="mt-1 text-[10.5px] uppercase tracking-wider text-muted-foreground"
+                  class="text-muted-foreground mt-1 text-[10.5px] tracking-wider uppercase"
                   style={{ "font-family": "var(--font-mono)" }}
                 >
                   happening now
@@ -315,11 +315,11 @@ export function ExploreNav(props: {
             onCancel={() => setShowSignIn(false)}
             onSuccess={() => setShowSignIn(false)}
           />
-          <div class="border-t border-border px-6 py-4 text-center text-sm text-muted-foreground">
+          <div class="border-border text-muted-foreground border-t px-6 py-4 text-center text-sm">
             Don't have an account?{" "}
             <button
               type="button"
-              class="font-medium text-foreground hover:underline"
+              class="text-foreground font-medium hover:underline"
               onClick={() => {
                 setShowSignIn(false);
                 setShowRegister(true);
@@ -333,11 +333,11 @@ export function ExploreNav(props: {
       <Dialog open={showRegister() && !session()} onOpenChange={setShowRegister}>
         <DialogContent class="max-w-sm p-0">
           <Register client={registrationClient} onCancel={() => setShowRegister(false)} />
-          <div class="border-t border-border px-6 py-4 text-center text-sm text-muted-foreground">
+          <div class="border-border text-muted-foreground border-t px-6 py-4 text-center text-sm">
             Already have an account?{" "}
             <button
               type="button"
-              class="font-medium text-foreground hover:underline"
+              class="text-foreground font-medium hover:underline"
               onClick={() => {
                 setShowRegister(false);
                 setShowSignIn(true);
@@ -378,13 +378,13 @@ export function ExploreNav(props: {
                     <span class="flex-1 truncate">
                       @{profile.handle}
                       <Show when={profile.displayName}>
-                        <span class="ml-1 text-xs text-muted-foreground">
+                        <span class="text-muted-foreground ml-1 text-xs">
                           ({profile.displayName})
                         </span>
                       </Show>
                     </span>
                     <Show when={isActive()}>
-                      <span class="text-xs text-primary">&#10003;</span>
+                      <span class="text-primary text-xs">&#10003;</span>
                     </Show>
                   </button>
                 );

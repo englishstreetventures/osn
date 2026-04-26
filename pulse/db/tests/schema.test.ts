@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { getTableConfig } from "drizzle-orm/sqlite-core";
 import { describe, it, expect } from "vitest";
 
 import * as schema from "../src/schema";
@@ -121,6 +122,17 @@ describe("events schema", () => {
     expect(row!.joinPolicy).toBe("open");
     expect(row!.allowInterested).toBe(true);
     expect(row!.commsChannels).toBe('["email"]');
+  });
+
+  it("declares indexes required by discovery", () => {
+    const { indexes } = getTableConfig(schema.events);
+    const indexNames = new Set(indexes.map((i) => i.config.name));
+    // Powers `visibility = ?` + `start_time BETWEEN ?` under a single seek.
+    expect(indexNames.has("events_visibility_start_time_idx")).toBe(true);
+    // Single-column category filter.
+    expect(indexNames.has("events_category_idx")).toBe(true);
+    // Bbox range-scan prefilter for radius search.
+    expect(indexNames.has("events_lat_lng_idx")).toBe(true);
   });
 
   it("stores non-default event visibility config", async () => {

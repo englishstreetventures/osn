@@ -32,8 +32,11 @@ vi.mock("@osn/client/solid", () => ({
 vi.mock("../../src/lib/api", () => ({
   api: {
     events: Object.assign(({ id }: { id: string }) => ({ delete: vi.fn() }), {
-      get: (...args: unknown[]) => mockGet(...args),
+      get: vi.fn(),
       post: vi.fn(),
+      discover: {
+        get: (...args: unknown[]) => mockGet(...args),
+      },
     }),
   },
 }));
@@ -124,14 +127,20 @@ describe("ExplorePage", () => {
   // guard in ExplorePage.tsx.
 
   it("renders event cards when data loads", async () => {
-    mockGet.mockResolvedValue({ data: { events: sampleEvents }, error: null });
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
     const { findByText } = render(() => <ExplorePage />);
     expect(await findByText("Jazz Night")).toBeTruthy();
     expect(await findByText("Ceramics Open Studio")).toBeTruthy();
   });
 
   it("renders 'Happening now' section for ongoing events", async () => {
-    mockGet.mockResolvedValue({ data: { events: sampleEvents }, error: null });
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
     const { findByText, container } = render(() => <ExplorePage />);
     // Wait for any event card to appear first (data loaded)
     await findByText("Jazz Night");
@@ -140,46 +149,98 @@ describe("ExplorePage", () => {
   });
 
   it("renders 'On your radar' section", async () => {
-    mockGet.mockResolvedValue({ data: { events: sampleEvents }, error: null });
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
     const { findByText } = render(() => <ExplorePage />);
     expect(await findByText("On your radar")).toBeTruthy();
   });
 
   it("renders 'More this week' section with count", async () => {
-    mockGet.mockResolvedValue({ data: { events: sampleEvents }, error: null });
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
     const { findByText } = render(() => <ExplorePage />);
     expect(await findByText("More this week")).toBeTruthy();
   });
 
   it("shows empty state when no events returned", async () => {
-    mockGet.mockResolvedValue({ data: { events: [] }, error: null });
+    mockGet.mockResolvedValue({
+      data: { events: [], nextCursor: null, series: {} },
+      error: null,
+    });
     const { findByText } = render(() => <ExplorePage />);
     expect(await findByText("Nothing here yet.")).toBeTruthy();
   });
 
   it("renders filter rail", async () => {
-    mockGet.mockResolvedValue({ data: { events: sampleEvents }, error: null });
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
     const { findByText } = render(() => <ExplorePage />);
     expect(await findByText("For you")).toBeTruthy();
     expect(await findByText("Music")).toBeTruthy();
   });
 
-  it("filters events by category when chip clicked", async () => {
-    mockGet.mockResolvedValue({ data: { events: sampleEvents }, error: null });
-    const { findByText, queryByText } = render(() => <ExplorePage />);
-    // Wait for initial render
+  it("refetches with priceMax + currency when 'Free' chip clicked", async () => {
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
+    const { findByText } = render(() => <ExplorePage />);
     await findByText("Jazz Night");
-    // Click "Art & Design" filter
+    const initialCallCount = mockGet.mock.calls.length;
+    const freeChip = (await findByText("Free")).closest("button")!;
+    fireEvent.click(freeChip);
+    await vi.waitFor(() => expect(mockGet.mock.calls.length).toBeGreaterThan(initialCallCount));
+    const lastArgs = mockGet.mock.calls.at(-1)![0] as { query?: Record<string, string> };
+    expect(lastArgs.query?.priceMax).toBe("0");
+    expect(lastArgs.query?.currency).toBe("USD");
+  });
+
+  it("does NOT call geolocation on chip switches (P-W2)", async () => {
+    const geolocationSpy = vi.fn();
+    Object.defineProperty(globalThis.navigator ?? {}, "geolocation", {
+      value: { getCurrentPosition: geolocationSpy },
+      configurable: true,
+    });
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
+    const { findByText } = render(() => <ExplorePage />);
+    await findByText("Jazz Night");
+    fireEvent.click((await findByText("Music")).closest("button")!);
+    fireEvent.click((await findByText("Tonight")).closest("button")!);
+    expect(geolocationSpy).not.toHaveBeenCalled();
+  });
+
+  it("refetches with server-side category filter when chip clicked", async () => {
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
+    const { findByText } = render(() => <ExplorePage />);
+    await findByText("Jazz Night");
+    const initialCallCount = mockGet.mock.calls.length;
+    // Click "Art & Design" filter — triggers a new discovery request.
     const artChip = (await findByText("Art & Design")).closest("button")!;
     fireEvent.click(artChip);
-    // Art events should remain visible
-    expect(queryByText("Ceramics Open Studio")).toBeTruthy();
-    // Music event should be filtered out (not in the main card grid — may still be in map)
-    // Check the events pane specifically
+    // Wait for the re-fetch to fire
+    await vi.waitFor(() => expect(mockGet.mock.calls.length).toBeGreaterThan(initialCallCount));
+    const lastCall = mockGet.mock.calls.at(-1)!;
+    const lastArgs = lastCall[0] as { query?: Record<string, string> };
+    expect(lastArgs.query?.category).toBe("art");
   });
 
   it("search filters events by title", async () => {
-    mockGet.mockResolvedValue({ data: { events: sampleEvents }, error: null });
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
     const { findByText, container } = render(() => <ExplorePage />);
     await findByText("Jazz Night");
     const input = container.querySelector("input[type='text']") as HTMLInputElement;
@@ -189,7 +250,10 @@ describe("ExplorePage", () => {
   });
 
   it("search filters events by venue", async () => {
-    mockGet.mockResolvedValue({ data: { events: sampleEvents }, error: null });
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
     const { findByText, container } = render(() => <ExplorePage />);
     await findByText("Jazz Night");
     const input = container.querySelector("input[type='text']") as HTMLInputElement;
@@ -198,7 +262,10 @@ describe("ExplorePage", () => {
   });
 
   it("search filters events by host name", async () => {
-    mockGet.mockResolvedValue({ data: { events: sampleEvents }, error: null });
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
     const { findByText, container } = render(() => <ExplorePage />);
     await findByText("Jazz Night");
     const input = container.querySelector("input[type='text']") as HTMLInputElement;
@@ -207,7 +274,10 @@ describe("ExplorePage", () => {
   });
 
   it("shows empty state when search matches nothing", async () => {
-    mockGet.mockResolvedValue({ data: { events: sampleEvents }, error: null });
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
     const { findByText, container } = render(() => <ExplorePage />);
     await findByText("Jazz Night");
     const input = container.querySelector("input[type='text']") as HTMLInputElement;
@@ -216,14 +286,20 @@ describe("ExplorePage", () => {
   });
 
   it("renders map pane", async () => {
-    mockGet.mockResolvedValue({ data: { events: sampleEvents }, error: null });
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
     const { container, findByText } = render(() => <ExplorePage />);
     await findByText("Jazz Night");
     expect(container.querySelector(".explore-map-pane")).toBeTruthy();
   });
 
   it("renders two-pane layout", async () => {
-    mockGet.mockResolvedValue({ data: { events: sampleEvents }, error: null });
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
     const { container, findByText } = render(() => <ExplorePage />);
     await findByText("Jazz Night");
     expect(container.querySelector(".explore-body")).toBeTruthy();

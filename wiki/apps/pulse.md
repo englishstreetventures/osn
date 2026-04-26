@@ -80,7 +80,25 @@ Events can be **public** or **private**:
 
 Non-authorised viewers get `null` from `loadVisibleEvent` and the route returns **404** (not 403, to avoid disclosing existence). See [[event-access]] for the full visibility gate.
 
-Every direct-fetch route (`GET /events/:id`, `/ics`, `/comms`, `/rsvps`, `/rsvps/counts`, `/rsvps/latest`) MUST use `loadVisibleEvent`. Discovery (`listEvents`) uses an equivalent SQL predicate that must stay in sync.
+Every direct-fetch route (`GET /events/:id`, `/ics`, `/comms`, `/rsvps`, `/rsvps/counts`, `/rsvps/latest`) MUST use `loadVisibleEvent`. List / discovery surfaces (`listEvents`, `discoverEvents`) use the shared `buildVisibilityFilter` helper from `services/eventAccess.ts` — the single source of truth for the SQL predicate equivalent to `canViewEvent`.
+
+### Discovery
+
+`GET /events/discover` is the unified "What's on" feed. Powers the Explore page default view; filter chips and the More filters drawer translate into query params:
+
+- **`category`** — first-class filter, indexed (`events_category_idx`).
+- **`from` / `to`** — startTime window. Default `from = now` so past events never surface.
+- **`lat` / `lng` / `radiusKm`** — bbox range-scan (`events_lat_lng_idx`) plus a JS haversine pass to convert the bounding square into an actual circle. Max 500 km.
+- **`priceMin` / `priceMax` / `currency`** — price in minor units under the given currency. Events in other currencies drop out. `priceMax=0` keeps null-priced rows (`null` ≡ free); `priceMin > 0` excludes them.
+- **`friendsOnly=true`** — union of events hosted by a connection OR RSVPed by a connection. RSVPs are restricted to **positive engagement only** (`going`, `interested`); `invited` (organiser-only pre-RSVP marker) and `not_going` (explicit decline) never surface. The RSVP branch LEFT-JOINs `pulse_users` and respects `attendance_visibility = 'no_one'` (the viewer's own RSVP is excluded — it isn't a *friend* signal). When the viewer has zero connections, the predicate uses a sentinel ID so the SQL still runs and timing matches the populated case.
+
+Per-IP rate limited (60 req/min, in-memory; Redis-swappable at composition time). Visibility predicate consumed via `buildVisibilityFilter` in `services/eventVisibility.ts` — single source of truth shared with `listEvents`.
+
+Pagination is cursor-based on `(startTime, id)` — stable under concurrent inserts, same shape on web + mobile. Finished / cancelled events are excluded.
+
+Response shape includes a `series: Record<seriesId, { id, title }>` map so event cards can render a "Part of …" banner above each card without inlining the title on every row — the banner links through to the event detail page, where the series link lives.
+
+Observability: `pulse.discovery.search` span wraps the whole query with a nested `pulse.discovery.friends_lookup` around the graph call. Metrics in `pulse/api/src/metrics.ts`: `pulse.discovery.searched` counter (scope / friends_only / has_location_filter / has_price_filter / result_empty), `pulse.discovery.search.duration` histogram, and `pulse.discovery.filters.applied` counter per engaged dimension (`category | datetime | location | friends | price`). All attributes are bounded string-literal unions; no userId / eventId on metrics.
 
 ### iCal Export
 

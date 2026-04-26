@@ -24,7 +24,7 @@ finding-ids:
   - S-H16
 packages:
   - "@pulse/api"
-last-reviewed: 2026-04-12
+last-reviewed: 2026-04-24
 ---
 
 # Event Access Control
@@ -65,10 +65,15 @@ When adding a new event-scoped route, **always** load the event via `loadVisible
 
 ## Discovery vs Direct Fetch
 
-- **Discovery** (`listEvents`) uses an equivalent SQL predicate to filter out private events from non-owners at the DB level. This is a performance optimization -- filtering in SQL avoids loading rows only to discard them in JS.
+- **List / discovery** (`listEvents`, `discoverEvents`) consume the shared `buildVisibilityFilter(viewerId)` helper exported from `services/eventAccess.ts`. This is a SQL predicate mirror of `canViewEvent`, applied in the `WHERE` clause so post-LIMIT page sizes stay stable.
 - **Direct fetch** uses `loadVisibleEvent` which loads the event first, then checks visibility in JS.
 
-These two paths must be kept in sync. If the visibility rules change, both the SQL predicate in `listEvents` and the JS check in `canViewEvent` need updating.
+`buildVisibilityFilter` and `canViewEvent` must stay byte-for-byte equivalent. The predicate is:
+
+- Public events → visible to everyone.
+- Private events → visible to `createdByProfileId = viewerId` **or** `EXISTS (SELECT 1 FROM event_rsvps WHERE event_id = events.id AND profile_id = viewerId)`.
+
+Any code that SELECTs from `events` and returns multiple rows MUST consume `buildVisibilityFilter` — divergence re-opens the S-H12..S-H16 regression class. Do not reinvent the filter.
 
 The SQL predicate was pushed into the `WHERE` clause (P-W12) to fix unstable page sizes -- previously the `LIMIT` was applied before the JS visibility filter, causing the client to receive fewer rows than requested.
 
@@ -92,9 +97,16 @@ Non-authorised viewers receive 404, not 403. Returning 403 would confirm that th
 
 `listRsvps` has an additional gate beyond `loadVisibleEvent`: queries with `status: "invited"` return empty unless the viewer is the event organiser. Invitees never opted into being listed -- the public guest-list override applies only to people who have actually RSVPed.
 
+## Friends Discovery — Graph-Symmetry Assumption
+
+The `friendsOnly` discovery branch in `discoverEvents` interprets `pulse_users.attendance_visibility = "connections"` as "visible to people the *RSVPer* is connected to". Today this is equivalent to "people who claim the RSVPer as a connection" because the OSN social graph is **symmetric** (see `[[social-graph]]`). The predicate gates on the *viewer's* connection set without re-validating the friendship from the RSVPer's side.
+
+If asymmetric follows / blocks ever land, this predicate must additionally verify `viewerId ∈ RSVPer.connections`, not only `RSVPer ∈ viewerId.connections`. Tracked as a forward-compatibility note (S-M2 from the discovery PR security review).
+
 ## Source Files
 
-- [pulse/api/src/services/eventAccess.ts](../pulse/api/src/services/eventAccess.ts) -- `canViewEvent` + `loadVisibleEvent`
-- [pulse/api/src/services/events.ts](../pulse/api/src/services/events.ts) -- `listEvents` SQL predicate
+- [pulse/api/src/services/eventAccess.ts](../pulse/api/src/services/eventAccess.ts) -- `canViewEvent`, `loadVisibleEvent`, `buildVisibilityFilter`
+- [pulse/api/src/services/events.ts](../pulse/api/src/services/events.ts) -- `listEvents` (consumes `buildVisibilityFilter`)
+- [pulse/api/src/services/discovery.ts](../pulse/api/src/services/discovery.ts) -- `discoverEvents` (consumes `buildVisibilityFilter`)
 - [pulse/api/src/routes/events.ts](../pulse/api/src/routes/events.ts) -- route-level usage
 - [CLAUDE.md](../CLAUDE.md) -- "Shared visibility gate" section

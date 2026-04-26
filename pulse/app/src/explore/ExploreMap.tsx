@@ -264,7 +264,7 @@ function TimeScrubber(props: { hour: number; onHourChange: (h: number) => void }
     >
       <div class="mb-2.5 flex items-center justify-between text-[11.5px]">
         <span
-          class="uppercase tracking-wider text-muted-foreground"
+          class="text-muted-foreground tracking-wider uppercase"
           style={{ "font-family": "var(--font-mono)", "font-size": "11px" }}
         >
           HEAT AT
@@ -278,7 +278,7 @@ function TimeScrubber(props: { hour: number; onHourChange: (h: number) => void }
         >
           {displayHour()}{" "}
           <span
-            class="text-[12px] italic text-muted-foreground"
+            class="text-muted-foreground text-[12px] italic"
             style={{ "font-family": "var(--font-sans)" }}
           >
             · {label()}
@@ -298,7 +298,7 @@ function TimeScrubber(props: { hour: number; onHourChange: (h: number) => void }
         }}
       />
       <div
-        class="mt-1.5 flex justify-between text-[9.5px] uppercase tracking-wider text-muted-foreground"
+        class="text-muted-foreground mt-1.5 flex justify-between text-[9.5px] tracking-wider uppercase"
         style={{ "font-family": "var(--font-mono)" }}
       >
         <span>12AM</span>
@@ -321,12 +321,12 @@ function Legend() {
         "box-shadow": "var(--shadow-sm)",
       }}
     >
-      <div class="mb-1.5 text-[10.5px] font-semibold uppercase tracking-widest text-muted-foreground">
+      <div class="text-muted-foreground mb-1.5 text-[10.5px] font-semibold tracking-widest uppercase">
         Heat · people here
       </div>
       <div class="legend-bar" />
       <div
-        class="mt-[3px] flex justify-between text-[9.5px] tracking-wider text-muted-foreground"
+        class="text-muted-foreground mt-[3px] flex justify-between text-[9.5px] tracking-wider"
         style={{ "font-family": "var(--font-mono)" }}
       >
         <span>quiet</span>
@@ -412,7 +412,7 @@ export function ExploreMap(props: {
       <Show when={hoveredPin()}>
         {(pin) => (
           <div
-            class="pin-pop absolute z-[5] whitespace-nowrap rounded-[10px] border border-border bg-card px-2.5 py-2 text-xs shadow-lg"
+            class="pin-pop border-border bg-card absolute z-[5] rounded-[10px] border px-2.5 py-2 text-xs whitespace-nowrap shadow-lg"
             style={{
               left: pin().x + "px",
               top: pin().y + "px",
@@ -426,7 +426,7 @@ export function ExploreMap(props: {
                 : pin().event.title}
             </div>
             <div
-              class="mt-0.5 text-[10.5px] text-muted-foreground"
+              class="text-muted-foreground mt-0.5 text-[10.5px]"
               style={{ "font-family": "var(--font-mono)" }}
             >
               {pin().event.venue ?? ""} · {fmtTime(new Date(pin().event.startTime))}
@@ -436,7 +436,7 @@ export function ExploreMap(props: {
       </Show>
 
       {/* Controls overlay */}
-      <div class="absolute left-4 right-4 top-4 z-[3]">
+      <div class="absolute top-4 right-4 left-4 z-[3]">
         <TimeScrubber hour={hour()} onHourChange={setHour} />
       </div>
 
@@ -444,18 +444,18 @@ export function ExploreMap(props: {
       <Legend />
 
       {/* Zoom controls */}
-      <div class="absolute bottom-4 right-4 z-[3] flex flex-col overflow-hidden rounded-[10px] border border-border bg-card shadow-sm">
+      <div class="border-border bg-card absolute right-4 bottom-4 z-[3] flex flex-col overflow-hidden rounded-[10px] border shadow-sm">
         <button
           type="button"
-          class="grid h-[34px] w-[34px] place-items-center hover:bg-secondary"
+          class="hover:bg-secondary grid h-[34px] w-[34px] place-items-center"
           title="Zoom in"
         >
           <Icon name="plus" size={14} />
         </button>
-        <div class="h-px bg-border" />
+        <div class="bg-border h-px" />
         <button
           type="button"
-          class="grid h-[34px] w-[34px] place-items-center hover:bg-secondary"
+          class="hover:bg-secondary grid h-[34px] w-[34px] place-items-center"
           title="Layers"
         >
           <Icon name="layers" size={14} />

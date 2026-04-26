@@ -67,6 +67,14 @@ export function Icon(props: { name: string; size?: number }) {
         <path d="M13 3 4 14h7l-1 7 9-11h-7l1-7z" />
       </svg>
     ),
+    repeat: () => (
+      <svg {...s()} viewBox="0 0 24 24" {...common}>
+        <path d="m17 2 4 4-4 4" />
+        <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+        <path d="m7 22-4-4 4-4" />
+        <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+      </svg>
+    ),
   };
 
   return <>{icons[props.name]?.() ?? null}</>;

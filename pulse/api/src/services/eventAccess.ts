@@ -5,6 +5,8 @@ import { Effect } from "effect";
 
 import { DatabaseError, EventNotFound } from "./events";
 
+export { buildVisibilityFilter } from "./eventVisibility";
+
 /**
  * Single source of truth for "can this viewer see this event?".
  *

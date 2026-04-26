@@ -27,6 +27,11 @@ export const eventRsvps = sqliteTable(
     unique("event_rsvps_pair_idx").on(t.eventId, t.profileId),
     index("event_rsvps_event_idx").on(t.eventId),
     index("event_rsvps_profile_idx").on(t.profileId),
+    // P-W3: powers the visibility-filter EXISTS lookup, which keys on the
+    // constant `viewerId` first then the per-row `event_id`. The
+    // `event_rsvps_pair_idx` above has the wrong leading column for this
+    // shape (it's `(event_id, profile_id)`).
+    index("event_rsvps_profile_event_idx").on(t.profileId, t.eventId),
   ],
 );
 

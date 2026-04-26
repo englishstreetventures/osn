@@ -35,6 +35,8 @@ export interface SeedEventInput {
   chatId?: string;
   priceAmount?: number | null;
   priceCurrency?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export const seedEvent = (input: SeedEventInput): Effect.Effect<Event, never, Db> =>
@@ -48,8 +50,8 @@ export const seedEvent = (input: SeedEventInput): Effect.Effect<Event, never, Db
       description: null,
       location: null,
       venue: null,
-      latitude: null,
-      longitude: null,
+      latitude: input.latitude ?? null,
+      longitude: input.longitude ?? null,
       category: input.category ?? null,
       startTime: new Date(input.startTime),
       endTime: input.endTime ? new Date(input.endTime) : null,

@@ -77,6 +77,24 @@ describe("ExploreCard", () => {
     expect(getByText("music")).toBeTruthy();
   });
 
+  it("renders 'Part of …' series banner when series prop is provided", () => {
+    const { container, getByText } = render(() => (
+      <ExploreCard event={baseEvent} series={{ id: "series_yoga", title: "Sunrise Yoga" }} />
+    ));
+    expect(getByText("Part of Sunrise Yoga")).toBeTruthy();
+    // Banner sits above the card; the inner <a> drops its top rounding
+    // so the banner + card visually attach.
+    const card = container.querySelector("a[href='/events/evt_1']");
+    expect(card?.classList.contains("rounded-t-none")).toBe(true);
+  });
+
+  it("does not render the series banner when series prop is null/undefined", () => {
+    const { container } = render(() => <ExploreCard event={baseEvent} series={null} />);
+    expect(container.textContent).not.toContain("Part of");
+    const card = container.querySelector("a[href='/events/evt_1']");
+    expect(card?.classList.contains("rounded-t-none")).toBe(false);
+  });
+
   it("renders 'Happening now' tag for ongoing events", () => {
     const event = { ...baseEvent, status: "ongoing" as const };
     const { getByText } = render(() => <ExploreCard event={event} />);

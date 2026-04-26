@@ -1,7 +1,7 @@
 import { events } from "@pulse/db/schema";
 import type { Event } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
-import { and, eq, gte, lte, or, type SQL } from "drizzle-orm";
+import { and, eq, gte, lte, type SQL } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
 import {
@@ -23,6 +23,7 @@ import {
   metricEventValidationFailure,
   metricEventsListed,
 } from "../metrics";
+import { buildVisibilityFilter } from "./eventVisibility";
 
 const MAX_EVENT_DURATION_MS = MAX_EVENT_DURATION_HOURS * 60 * 60 * 1000;
 const MAYBE_FINISHED_AFTER_MS = MAYBE_FINISHED_AFTER_HOURS * 60 * 60 * 1000;
@@ -238,15 +239,10 @@ export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], Dat
     // Discovery rule: private events are filtered at the SQL layer so
     // (a) the page size returned to the client is stable (post-filtering
     // in JS would silently shrink the page), and (b) the
-    // `events_visibility_idx` index actually gets used.
-    //
-    // The viewer's own private events stay visible so they can manage
-    // them. A future enhancement will also include events the viewer
-    // has been invited to (requires a join with event_rsvps).
-    const visibilityFilter = params.viewerId
-      ? or(eq(events.visibility, "public"), eq(events.createdByProfileId, params.viewerId))
-      : eq(events.visibility, "public");
-    if (visibilityFilter) filters.push(visibilityFilter);
+    // `events_visibility_start_time_idx` index actually gets used.
+    // Shared predicate with `discoverEvents` and `canViewEvent` — any
+    // divergence re-opens the S-H12..S-H16 regression class.
+    filters.push(buildVisibilityFilter(params.viewerId ?? null));
 
     const results = yield* Effect.tryPromise({
       try: (): Promise<Event[]> =>
