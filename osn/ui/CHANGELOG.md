@@ -1,5 +1,12 @@
 # @osn/ui
 
+## 1.1.1
+
+### Patch Changes
+
+- Updated dependencies [073238d]
+  - @osn/client@2.1.1
+
 ## 1.1.0
 
 ### Minor Changes
