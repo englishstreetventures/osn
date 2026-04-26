@@ -116,25 +116,6 @@ export const connections = sqliteTable(
   ],
 );
 
-export const closeFriends = sqliteTable(
-  "close_friends",
-  {
-    id: text("id").primaryKey(), // "clf_" prefix
-    profileId: text("profile_id")
-      .notNull()
-      .references(() => users.id),
-    friendId: text("friend_id")
-      .notNull()
-      .references(() => users.id),
-    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-  },
-  (t) => [
-    unique("close_friends_pair_idx").on(t.profileId, t.friendId),
-    index("close_friends_profile_idx").on(t.profileId),
-    index("close_friends_friend_idx").on(t.friendId),
-  ],
-);
-
 export const blocks = sqliteTable(
   "blocks",
   {
@@ -156,8 +137,6 @@ export const blocks = sqliteTable(
 
 export type Connection = typeof connections.$inferSelect;
 export type NewConnection = typeof connections.$inferInsert;
-export type CloseFriend = typeof closeFriends.$inferSelect;
-export type NewCloseFriend = typeof closeFriends.$inferInsert;
 export type Block = typeof blocks.$inferSelect;
 export type NewBlock = typeof blocks.$inferInsert;
 

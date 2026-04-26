@@ -3,6 +3,7 @@ import { healthRoutes, initObservability, observabilityPlugin } from "@shared/ob
 import { Effect, Logger } from "effect";
 import { Elysia } from "elysia";
 
+import { closeFriendsRoutes } from "./routes/closeFriends";
 import { eventsRoutes, settingsRoutes } from "./routes/events";
 import { seriesRoutes } from "./routes/series";
 import { startKeyRotation } from "./services/graphBridge";
@@ -19,7 +20,8 @@ const app = new Elysia()
   .get("/", () => ({ status: "ok", service: "osn-api" }))
   .use(eventsRoutes)
   .use(seriesRoutes)
-  .use(settingsRoutes);
+  .use(settingsRoutes)
+  .use(closeFriendsRoutes);
 
 const port = process.env.PORT || 3001;
 

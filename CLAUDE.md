@@ -62,7 +62,8 @@ The `wiki/` directory contains detailed reference pages. Use this index to find 
 | Understand event visibility rules | `[[wiki/systems/event-access]]` |
 | Add or use a UI component (Button, Card, Dialog…) | `[[wiki/architecture/component-library]]` |
 | Understand Pulse visual design (tokens, typography, Explore layout) | `pulse/DESIGN.md` |
-| Work on the social graph or close friends | `[[wiki/systems/social-graph]]`, `[[wiki/systems/close-friends]]` |
+| Work on the social graph | `[[wiki/systems/social-graph]]` |
+| Work on Pulse close friends | `[[wiki/systems/pulse-close-friends]]` |
 | Gate a sensitive action behind step-up auth | `[[wiki/systems/step-up]]` |
 | Understand the passkey-only login model | `[[wiki/systems/passkey-primary]]` |
 | Send a transactional email (OTP, security notice) | `[[wiki/systems/email]]` |

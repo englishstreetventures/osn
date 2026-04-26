@@ -1,9 +1,9 @@
-import { users, connections, closeFriends, blocks } from "@osn/db/schema";
+import { users, connections, blocks } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { and, eq, inArray, or } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { withGraphBlockOp, withGraphCloseFriendOp, withGraphConnectionOp } from "../metrics";
+import { withGraphBlockOp, withGraphConnectionOp } from "../metrics";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -47,9 +47,6 @@ function now(): Date {
 function clampLimit(limit: number | undefined): number {
   return Math.min(Math.max(limit ?? 50, 1), 100);
 }
-
-/** Max items for batched `IN (...)` queries to stay within SQLite variable limits. */
-const MAX_BATCH_SIZE = 1000;
 
 // ---------------------------------------------------------------------------
 // Graph service factory
@@ -280,21 +277,9 @@ export function createGraphService() {
         return yield* Effect.fail(new NotFoundError({ message: "Connection not found" }));
       }
 
-      // Atomic: clean up close-friend entries + delete the connection
       const connId = rows[0].id;
       yield* Effect.tryPromise({
-        try: () =>
-          db.transaction(async (tx) => {
-            await tx
-              .delete(closeFriends)
-              .where(
-                or(
-                  and(eq(closeFriends.profileId, profileId), eq(closeFriends.friendId, otherId)),
-                  and(eq(closeFriends.profileId, otherId), eq(closeFriends.friendId, profileId)),
-                ),
-              );
-            await tx.delete(connections).where(eq(connections.id, connId));
-          }),
+        try: () => db.delete(connections).where(eq(connections.id, connId)),
         catch: (cause) => new DatabaseError({ cause }),
       });
     }).pipe(withGraphConnectionOp("remove"));
@@ -386,144 +371,6 @@ export function createGraphService() {
     });
 
   // -------------------------------------------------------------------------
-  // Close friends
-  // -------------------------------------------------------------------------
-
-  const addCloseFriend = (
-    profileId: string,
-    friendId: string,
-  ): Effect.Effect<void, GraphError | DatabaseError, Db> =>
-    Effect.gen(function* () {
-      if (profileId === friendId) {
-        return yield* Effect.fail(
-          new GraphError({ message: "Cannot add yourself as a close friend" }),
-        );
-      }
-
-      const status = yield* getConnectionStatus(profileId, friendId);
-      if (status !== "connected") {
-        return yield* Effect.fail(
-          new GraphError({ message: "Must be connected before adding as a close friend" }),
-        );
-      }
-
-      const { db } = yield* Db;
-      yield* Effect.tryPromise({
-        try: () =>
-          db
-            .insert(closeFriends)
-            .values({ id: genId("clf_"), profileId, friendId, createdAt: now() })
-            .onConflictDoNothing(),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-    }).pipe(withGraphCloseFriendOp("add"));
-
-  const removeCloseFriend = (
-    profileId: string,
-    friendId: string,
-  ): Effect.Effect<void, NotFoundError | DatabaseError, Db> =>
-    Effect.gen(function* () {
-      const { db } = yield* Db;
-      const rows = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select()
-            .from(closeFriends)
-            .where(and(eq(closeFriends.profileId, profileId), eq(closeFriends.friendId, friendId)))
-            .limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-
-      if (rows.length === 0) {
-        return yield* Effect.fail(new NotFoundError({ message: "Close friend not found" }));
-      }
-
-      yield* Effect.tryPromise({
-        try: () => db.delete(closeFriends).where(eq(closeFriends.id, rows[0].id)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-    }).pipe(withGraphCloseFriendOp("remove"));
-
-  const listCloseFriends = (
-    profileId: string,
-    options: ListOptions = {},
-  ): Effect.Effect<(typeof users.$inferSelect)[], DatabaseError, Db> =>
-    Effect.gen(function* () {
-      const { db } = yield* Db;
-      const limit = clampLimit(options.limit);
-      const offset = options.offset ?? 0;
-
-      const rows = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select()
-            .from(closeFriends)
-            .where(eq(closeFriends.profileId, profileId))
-            .limit(limit)
-            .offset(offset),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-
-      if (rows.length === 0) return [];
-
-      const friendIds = rows.map((r) => r.friendId);
-
-      const friends = yield* Effect.tryPromise({
-        try: () => db.select().from(users).where(inArray(users.id, friendIds)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-
-      return friends;
-    });
-
-  /**
-   * Directional check: has `profileId` marked `friendId` as a close friend?
-   */
-  const isCloseFriendOf = (
-    profileId: string,
-    friendId: string,
-  ): Effect.Effect<boolean, DatabaseError, Db> =>
-    Effect.gen(function* () {
-      const { db } = yield* Db;
-      const result = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select({ _: closeFriends.id })
-            .from(closeFriends)
-            .where(and(eq(closeFriends.profileId, profileId), eq(closeFriends.friendId, friendId)))
-            .limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      return result.length > 0;
-    }).pipe(Effect.withSpan("graph.close_friend.check"));
-
-  /**
-   * Batched reverse lookup: which of `profileIds` have marked `viewerId` as a
-   * close friend? Returns the subset of `profileIds` that have done so.
-   */
-  const getCloseFriendsOfBatch = (
-    viewerId: string,
-    profileIds: string[],
-  ): Effect.Effect<Set<string>, DatabaseError, Db> =>
-    Effect.gen(function* () {
-      if (profileIds.length === 0) return new Set<string>();
-      const clamped =
-        profileIds.length > MAX_BATCH_SIZE ? profileIds.slice(0, MAX_BATCH_SIZE) : profileIds;
-      const { db } = yield* Db;
-      const rows = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select({ profileId: closeFriends.profileId })
-            .from(closeFriends)
-            .where(
-              and(eq(closeFriends.friendId, viewerId), inArray(closeFriends.profileId, clamped)),
-            ),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      return new Set(rows.map((r) => r.profileId));
-    }).pipe(Effect.withSpan("graph.close_friend.batch_lookup"));
-
-  // -------------------------------------------------------------------------
   // Blocks
   // -------------------------------------------------------------------------
 
@@ -538,7 +385,7 @@ export function createGraphService() {
 
       const { db } = yield* Db;
 
-      // Atomic: remove connection + close-friends + insert block
+      // Atomic: remove connection + insert block
       yield* Effect.tryPromise({
         try: () =>
           db.transaction(async (tx) => {
@@ -554,14 +401,6 @@ export function createGraphService() {
                     eq(connections.requesterId, blockedId),
                     eq(connections.addresseeId, blockerId),
                   ),
-                ),
-              );
-            await tx
-              .delete(closeFriends)
-              .where(
-                or(
-                  and(eq(closeFriends.profileId, blockerId), eq(closeFriends.friendId, blockedId)),
-                  and(eq(closeFriends.profileId, blockedId), eq(closeFriends.friendId, blockerId)),
                 ),
               );
             await tx
@@ -641,11 +480,6 @@ export function createGraphService() {
     removeConnection,
     listConnections,
     listPendingRequests,
-    addCloseFriend,
-    removeCloseFriend,
-    listCloseFriends,
-    isCloseFriendOf,
-    getCloseFriendsOfBatch,
     blockProfile,
     unblockProfile,
     listBlocks,

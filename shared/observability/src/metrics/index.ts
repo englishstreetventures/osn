@@ -28,7 +28,6 @@ export {
   type ArcVerifyResult,
   type GraphConnectionAction,
   type GraphBlockAction,
-  type GraphCloseFriendAction,
   type OrgAction,
   type OrgMemberAction,
   type EventStatus,

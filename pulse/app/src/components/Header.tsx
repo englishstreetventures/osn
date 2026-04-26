@@ -151,6 +151,9 @@ export function Header() {
                 <DropdownMenuItem onSelect={() => setShowSwitcher(true)}>
                   Switch profile
                 </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate("/close-friends")}>
+                  Close friends
+                </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => navigate("/settings")}>Settings</DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => logout()}>Log out</DropdownMenuItem>

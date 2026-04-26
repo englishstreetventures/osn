@@ -42,7 +42,7 @@ describe("createGraphClient — listConnections", () => {
   });
 });
 
-describe("createGraphClient — listPendingRequests / listCloseFriends / listBlocks", () => {
+describe("createGraphClient — listPendingRequests / listBlocks", () => {
   it("hits the correct paths", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ pending: [] }) });
     await client.listPendingRequests(TOKEN);
@@ -50,17 +50,10 @@ describe("createGraphClient — listPendingRequests / listCloseFriends / listBlo
 
     vi.mocked(fetch).mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ closeFriends: [] }),
-    } as Response);
-    await client.listCloseFriends(TOKEN);
-    expect(vi.mocked(fetch).mock.calls[1]![0]).toBe(`${base}/close-friends`);
-
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
       json: () => Promise.resolve({ blocks: [] }),
     } as Response);
     await client.listBlocks(TOKEN);
-    expect(vi.mocked(fetch).mock.calls[2]![0]).toBe(`${base}/blocks`);
+    expect(vi.mocked(fetch).mock.calls[1]![0]).toBe(`${base}/blocks`);
   });
 });
 
@@ -109,21 +102,7 @@ describe("createGraphClient — connection mutations", () => {
   });
 });
 
-describe("createGraphClient — close friends & blocks", () => {
-  it("addCloseFriend POSTs /graph/close-friends/:handle", async () => {
-    mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
-    await client.addCloseFriend(TOKEN, "alice");
-    const call = vi.mocked(fetch).mock.calls[0]!;
-    expect(call[0]).toBe(`${base}/close-friends/alice`);
-    expect((call[1] as RequestInit).method).toBe("POST");
-  });
-
-  it("removeCloseFriend DELETEs /graph/close-friends/:handle", async () => {
-    mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
-    await client.removeCloseFriend(TOKEN, "alice");
-    expect((vi.mocked(fetch).mock.calls[0]![1] as RequestInit).method).toBe("DELETE");
-  });
-
+describe("createGraphClient — blocks", () => {
   it("blockProfile POSTs /graph/blocks/:handle", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
     await client.blockProfile(TOKEN, "alice");

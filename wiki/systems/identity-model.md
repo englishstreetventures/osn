@@ -40,7 +40,7 @@ flowchart TD
   account["accounts<br/>acc_xxxx · email · passkeyUserId<br/><i>login identity — never exposed</i>"]
   profileA["users (profile)<br/>usr_aaaa · handle: @alice<br/><i>public identity</i>"]
   profileB["users (profile)<br/>usr_bbbb · handle: @alice_work<br/><i>public identity</i>"]
-  graph["social graph<br/>connections · close-friends · blocks"]
+  graph["social graph<br/>connections · blocks"]
   pulse["pulse/*<br/>events · RSVPs"]
   zap["zap/*<br/>chats · messages"]
 

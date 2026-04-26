@@ -8,11 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   listConnections: vi.fn(),
   listPendingRequests: vi.fn(),
-  listCloseFriends: vi.fn(),
   listBlocks: vi.fn(),
   removeConnection: vi.fn(),
-  addCloseFriend: vi.fn(),
-  removeCloseFriend: vi.fn(),
   acceptConnection: vi.fn(),
   rejectConnection: vi.fn(),
   unblockProfile: vi.fn(),
@@ -68,7 +65,6 @@ async function renderConnectionsPage() {
     connections: [{ handle: "bob", displayName: "Bob Jones" }],
   });
   mocks.listPendingRequests.mockResolvedValue({ pending: [] });
-  mocks.listCloseFriends.mockResolvedValue({ closeFriends: [] });
   mocks.listBlocks.mockResolvedValue({ blocks: [] });
   mocks.removeConnection.mockResolvedValue(undefined);
 

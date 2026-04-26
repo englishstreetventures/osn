@@ -63,17 +63,6 @@ export function createTestLayer() {
   sqlite.run(`CREATE INDEX connections_requester_idx ON connections (requester_id)`);
   sqlite.run(`CREATE INDEX connections_addressee_idx ON connections (addressee_id)`);
   sqlite.run(`
-    CREATE TABLE close_friends (
-      id TEXT PRIMARY KEY,
-      profile_id TEXT NOT NULL REFERENCES users(id),
-      friend_id TEXT NOT NULL REFERENCES users(id),
-      created_at INTEGER NOT NULL,
-      UNIQUE (profile_id, friend_id)
-    )
-  `);
-  sqlite.run(`CREATE INDEX close_friends_profile_idx ON close_friends (profile_id)`);
-  sqlite.run(`CREATE INDEX close_friends_friend_idx ON close_friends (friend_id)`);
-  sqlite.run(`
     CREATE TABLE blocks (
       id TEXT PRIMARY KEY,
       blocker_id TEXT NOT NULL REFERENCES users(id),

@@ -49,6 +49,7 @@ describe("applySchema", () => {
       "event_rsvps",
       "event_series",
       "events",
+      "pulse_close_friends",
       "pulse_users",
     ]);
   });

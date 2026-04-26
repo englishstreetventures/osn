@@ -23,6 +23,10 @@ import {
   metricEventValidationFailure,
   metricEventsListed,
 } from "../metrics";
+import {
+  getCloseFriendIdsForViewer,
+  DatabaseError as CloseFriendsDatabaseError,
+} from "./closeFriends";
 import { buildVisibilityFilter } from "./eventVisibility";
 
 const MAX_EVENT_DURATION_MS = MAX_EVENT_DURATION_HOURS * 60 * 60 * 1000;
@@ -223,7 +227,9 @@ export const applyTransition = (event: Event): Effect.Effect<Event, DatabaseErro
   );
 };
 
-export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], DatabaseError, Db> =>
+export const listEvents = (
+  params: ListEventsParams,
+): Effect.Effect<Event[], DatabaseError | CloseFriendsDatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const filters: SQL[] = [];
@@ -257,14 +263,41 @@ export const listEvents = (params: ListEventsParams): Effect.Effect<Event[], Dat
       catch: (cause) => new DatabaseError({ cause }),
     });
 
-    // Bounded concurrency: 5 is enough parallelism to hide DB round-trip
-    // latency but avoids unleashing a burst of N in-flight UPDATEs (and
-    // N child spans) against SQLite for a page-size of 100 results.
-    const transitioned = yield* Effect.forEach(results, applyTransition, {
-      concurrency: 5,
-    });
-    metricEventsListed("all", transitioned.length);
-    return transitioned;
+    // Run the per-row transition stream and the viewer's close-friends
+    // lookup in parallel — neither depends on the other (P-W1).
+    // Bounded concurrency on transitions: 5 is enough parallelism to hide DB
+    // round-trip latency but avoids unleashing a burst of N in-flight
+    // UPDATEs (and N child spans) against SQLite for a page-size of 100
+    // results.
+    const [transitioned, closeFriendIds] = yield* Effect.all(
+      [
+        Effect.forEach(results, applyTransition, { concurrency: 5 }),
+        params.viewerId
+          ? getCloseFriendIdsForViewer(params.viewerId)
+          : Effect.succeed(new Set<string>()),
+      ] as const,
+      { concurrency: "unbounded" },
+    );
+
+    // Feed boost: events organised by a close friend of the viewer surface
+    // first. Stable partition preserves the underlying startTime ordering
+    // within each bucket, so the feed remains chronological within each
+    // group rather than reshuffling the whole list.
+    let ranked: Event[];
+    if (closeFriendIds.size === 0) {
+      ranked = transitioned;
+    } else {
+      const friends: Event[] = [];
+      const others: Event[] = [];
+      for (const event of transitioned) {
+        if (closeFriendIds.has(event.createdByProfileId)) friends.push(event);
+        else others.push(event);
+      }
+      ranked = [...friends, ...others];
+    }
+
+    metricEventsListed("all", ranked.length);
+    return ranked;
   }).pipe(Effect.withSpan("events.list"));
 
 export const listTodayEvents: Effect.Effect<Event[], DatabaseError, Db> = Effect.gen(function* () {

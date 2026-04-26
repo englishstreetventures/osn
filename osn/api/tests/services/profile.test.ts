@@ -169,9 +169,6 @@ describe("deleteProfile", () => {
       yield* graph.sendConnectionRequest(main.id, alt.id);
       yield* graph.acceptConnection(alt.id, main.id);
 
-      // Add close friend
-      yield* graph.addCloseFriend(main.id, alt.id);
-
       // Delete the alt profile
       yield* profile.deleteProfile(accountId, alt.id);
 

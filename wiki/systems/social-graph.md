@@ -10,19 +10,21 @@ tags:
   - identity
 status: current
 related:
-  - "[[close-friends]]"
+  - "[[pulse-close-friends]]"
   - "[[s2s-patterns]]"
   - "[[osn-core]]"
   - "[[event-access]]"
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-04-26
 ---
 
 # Social Graph
 
-The social graph is OSN's core relationship system. It manages connections between users, close-friend designations, and blocks. All graph logic lives in `@osn/api` with the schema in `@osn/db`.
+The social graph is OSN's core relationship system. It manages connections between users and blocks. All graph logic lives in `@osn/api` with the schema in `@osn/db`.
+
+> **Close friends moved to Pulse.** OSN core no longer owns a close-friends list — each app that wants one owns its own table and validates membership against this graph. See [[pulse-close-friends]].
 
 ## Relationship Types
 
@@ -37,14 +39,10 @@ A connection is a mutual relationship between two users. It requires both partie
 - The sender can cancel a pending request
 - Either party can remove an accepted connection
 
-### Close Friends (unidirectional)
-
-A close-friend marking is a one-way graph edge. A marks B as a close friend; B may not reciprocate and may not even know. See [[close-friends]] for the full implications and security history.
-
 ### Blocks (unidirectional)
 
 A block is a one-way action. When A blocks B:
-- All existing connections and close-friend markings between A and B are removed (wrapped in a DB transaction after P-W17)
+- The existing connection between A and B (if any) is removed (wrapped in a DB transaction after P-W17)
 - B cannot send connection requests to A
 - Blocks are currently global across all OSN apps (per-app blocking is a deferred decision)
 
@@ -55,21 +53,19 @@ The `is-blocked` route only checks whether the caller has blocked the target (`i
 ```
 osn/api/src/services/graph.ts     # Graph service (Effect-based)
 osn/api/src/routes/graph.ts       # Graph routes (Elysia)
-osn/db/src/schema.ts               # connections, close_friends, blocks tables
+osn/db/src/schema.ts               # connections, blocks tables
 ```
 
 The graph service exports functions like:
 - `sendConnectionRequest`, `acceptConnection`, `declineConnection`, `cancelConnection`, `removeConnection`
-- `addCloseFriend`, `removeCloseFriend`, `isCloseFriendOf`, `getCloseFriendsOfBatch`
 - `blockProfile`, `unblockProfile`, `isBlocked`, `eitherBlocked`
 - `getConnections`, `getPendingRequests`, `getBlocks`
 
 ## Test Coverage
 
-209 tests covering services and routes. Test areas include:
+Tests covering services and routes. Test areas include:
 - Connection lifecycle (request, accept, decline, cancel, remove)
-- Close-friend CRUD and batch lookups
-- Block behavior (mutual cleanup, directional checks)
+- Block behavior (directional checks)
 - Rate limiting on graph write endpoints
 - Error handling (not found, already exists, self-referential operations)
 - Input validation (handle regex, length bounds via TypeBox `HandleParam`)
@@ -82,10 +78,10 @@ All graph write endpoints are rate-limited at 60 requests per user per minute (S
 
 Other packages (notably `@pulse/api`) access the social graph through `graphBridge.ts` -- see [[s2s-patterns]] for the full pattern. The bridge exports:
 
-- `getConnectionIds(userId)` -- accepted connections set
-- `getCloseFriendIds(userId)` -- outbound close-friends set
-- `getCloseFriendsOf(viewerId, attendeeIds[])` -- attendees who marked viewer as close friend
-- `getUserDisplays(userIds[])` -- batched user metadata join
+- `getConnectionIds(profileId)` -- accepted connections set
+- `getProfileDisplays(profileIds[])` -- batched profile metadata join
+
+Apps that own a close-friends-style list (e.g. Pulse — see [[pulse-close-friends]]) call `getConnectionIds` to validate eligibility when adding a friend.
 
 ## Error Handling
 
@@ -100,7 +96,6 @@ The `:handle` route parameter uses TypeBox `HandleParam` with regex + length bou
 - N+1 queries in graph list functions replaced with `inArray` batch fetches (P-W6)
 - `eitherBlocked` collapsed from two sequential `isBlocked` calls to a single OR query (P-W7)
 - `blockProfile` replaced SELECT-then-DELETE with direct `DELETE WHERE OR` (P-W8)
-- Missing index on `close_friends.friend_id` added as `close_friends_friend_idx` (P-W16)
 - `removeConnection` and `blockProfile` wrapped in DB transactions (P-W17)
 
 ## Recommendations (friends-of-friends)
@@ -129,7 +124,7 @@ Rate-limited at 20 req/user/min via `createRedisRecommendationRateLimiter` — s
 - [osn/api/src/services/recommendations.ts](../../osn/api/src/services/recommendations.ts) -- FOF recommendations
 - [osn/api/src/routes/graph.ts](../../osn/api/src/routes/graph.ts) -- graph routes
 - [osn/api/src/routes/recommendations.ts](../../osn/api/src/routes/recommendations.ts) -- `/recommendations/connections`
-- [osn/db/src/schema.ts](../../osn/db/src/schema.ts) -- schema (connections, close_friends, blocks)
+- [osn/db/src/schema.ts](../../osn/db/src/schema.ts) -- schema (connections, blocks)
 - [osn/api/tests/services/graph.test.ts](../../osn/api/tests/services/graph.test.ts) -- service tests
 - [osn/api/tests/services/recommendations.test.ts](../../osn/api/tests/services/recommendations.test.ts) -- recommendations tests
 - [osn/api/tests/routes/graph.test.ts](../../osn/api/tests/routes/graph.test.ts) -- route tests

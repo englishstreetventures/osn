@@ -136,12 +136,12 @@ All calls from Pulse to OSN identity / graph data go through a single file: `pul
 Exports:
 
 ```typescript
-getConnectionIds(userId)                      // accepted connections set
-getCloseFriendIds(userId)                     // outbound close-friends set
-getCloseFriendsOf(viewerId, attendeeIds[])    // attendees who marked viewer as CF
-getUserDisplays(userIds[])                    // batched user metadata join
-OsnDbLayer                                     // Effect Layer for routes
+getConnectionIds(profileId)                   // accepted connections set
+getProfileDisplays(profileIds[])              // batched profile metadata join
+OsnDbLayer                                    // Effect Layer for routes
 ```
+
+Close-friend lookups are no longer routed through the bridge — they live in the Pulse-local table (see [[pulse-close-friends]]).
 
 Benefits:
 
@@ -160,7 +160,7 @@ CLOSE_FRIEND_RING_CLASS  // green outline on avatars
 avatarClasses(base, isCloseFriend)  // helper
 ```
 
-The `RsvpAvatar` component reads the constant, and both `RsvpSection` and `RsvpModal` use `RsvpAvatar`. See [[close-friends]] for details.
+The `RsvpAvatar` component reads the constant, and both `RsvpSection` and `RsvpModal` use `RsvpAvatar`. See [[pulse-close-friends]] for the full close-friends contract.
 
 ## Platform Limits
 
@@ -185,6 +185,6 @@ Route tests use `createEventsRoutes(createTestLayer())` in `beforeEach` for full
 ## Related
 
 - [[event-access]] -- visibility gate and access control
-- [[close-friends]] -- close-friend indicators and graph queries
+- [[pulse-close-friends]] -- Pulse-scoped close-friends list
 - [[s2s-patterns]] -- cross-service communication architecture
 - [[platform-limits]] -- MAX_EVENT_GUESTS and future caps

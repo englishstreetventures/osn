@@ -43,9 +43,6 @@ export type GraphConnectionAction = "request" | "accept" | "reject" | "remove";
 /** Social graph block actions. */
 export type GraphBlockAction = "add" | "remove";
 
-/** Social graph close-friend actions. */
-export type GraphCloseFriendAction = "add" | "remove";
-
 /** Event lifecycle states (mirrors Pulse events schema). */
 export type EventStatus = "upcoming" | "ongoing" | "maybe_finished" | "finished" | "cancelled";
 
@@ -62,7 +59,7 @@ export type ProfileSwitchAction = "switch" | "list";
 export type ProfileCrudAction = "create" | "delete" | "set_default";
 
 /** Tables affected by cascade profile delete (P3). */
-export type ProfileDeleteCascadeTable = "connections" | "close_friends" | "blocks" | "org_members";
+export type ProfileDeleteCascadeTable = "connections" | "blocks" | "org_members";
 
 /** JWKS public key cache lookup outcomes. */
 export type JwksCacheResult = "hit" | "miss" | "refresh";

@@ -5,9 +5,9 @@ tags: [runbook, events, security, incident]
 severity: high
 related:
   - "[[event-access]]"
-  - "[[close-friends]]"
+  - "[[pulse-close-friends]]"
   - "[[pulse]]"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-04-26
 ---
 
 # Event Visibility Bug Runbook
@@ -150,5 +150,5 @@ it("returns 200 for private event when user has RSVP", async () => {
 ## Related
 
 - [[event-access]] -- the `loadVisibleEvent` and `canViewEvent` implementation
-- [[close-friends]] -- close-friend visibility and RSVP ordering
+- [[pulse-close-friends]] -- close-friend RSVP ordering and feed boost
 - [[pulse]] -- Pulse events app overview

@@ -39,7 +39,6 @@ export {
   type ArcVerifyResult,
   type GraphConnectionAction,
   type GraphBlockAction,
-  type GraphCloseFriendAction,
   type EventStatus,
 } from "./metrics";
 

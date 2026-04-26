@@ -90,8 +90,8 @@ async function arcAuthHeader(): Promise<string> {
   const token = await getOrCreateArcToken(privateKey, {
     iss: "pulse-api",
     aud: "osn-api",
-    // POST endpoints (/close-friends-of, /profile-displays) are read-equivalent
-    // enrichment calls; graph:read is the correct scope for all four bridge calls.
+    // The POST endpoint (/profile-displays) is a read-equivalent enrichment
+    // call; graph:read is the correct scope for both bridge calls.
     // If a truly mutating S2S POST is ever added, introduce a new scope and a
     // separate osPost variant rather than expanding this one.
     scope: "graph:read",
@@ -374,48 +374,6 @@ export const getConnectionIds = (profileId: string): Effect.Effect<Set<string>, 
     },
     catch: (cause) => new GraphBridgeError({ cause }),
   });
-
-/**
- * The set of profile IDs `profileId` has marked as close friends. Bounded by
- * `MAX_EVENT_GUESTS` for the same reason as `getConnectionIds`.
- */
-export const getCloseFriendIds = (
-  profileId: string,
-): Effect.Effect<Set<string>, GraphBridgeError> =>
-  Effect.tryPromise({
-    try: async () => {
-      const data = await osGet<{ closeFriendIds: string[] }>(
-        `/graph/internal/close-friends?profileId=${encodeURIComponent(profileId)}&limit=${MAX_EVENT_GUESTS}`,
-      );
-      return new Set(data.closeFriendIds);
-    },
-    catch: (cause) => new GraphBridgeError({ cause }),
-  });
-
-/**
- * Returns the subset of `attendeeIds` that have marked `viewerId` as a
- * close friend — i.e. attendees who explicitly opted to let this viewer
- * into their close-friends circle.
- *
- * Used by `listRsvps` to stamp an `isCloseFriend` display flag on each
- * returned row. Display affordance only — close-friendship never gates access.
- */
-export const getCloseFriendsOf = (
-  viewerId: string,
-  attendeeIds: string[],
-): Effect.Effect<Set<string>, GraphBridgeError> =>
-  attendeeIds.length === 0
-    ? Effect.succeed(new Set())
-    : Effect.tryPromise({
-        try: async () => {
-          const data = await osPost<{ closeFriendIds: string[] }>(
-            "/graph/internal/close-friends-of",
-            { viewerId, profileIds: attendeeIds },
-          );
-          return new Set(data.closeFriendIds);
-        },
-        catch: (cause) => new GraphBridgeError({ cause }),
-      });
 
 /**
  * Fetches display metadata for a batch of OSN profile IDs. Used by the RSVP

@@ -10,18 +10,21 @@ export interface GraphClientConfig {
 }
 
 export interface ConnectionEntry {
+  id: string;
   handle: string;
   displayName: string | null;
   connectedAt: string;
 }
 
 export interface PendingRequestEntry {
+  id: string;
   handle: string;
   displayName: string | null;
   requestedAt: string;
 }
 
 export interface ProfileEntry {
+  id: string;
   handle: string;
   displayName: string | null;
 }
@@ -152,10 +155,6 @@ export interface GraphClient {
     token: string,
     options?: { limit?: number; offset?: number },
   ): Promise<{ pending: PendingRequestEntry[] }>;
-  listCloseFriends(
-    token: string,
-    options?: { limit?: number; offset?: number },
-  ): Promise<{ closeFriends: ProfileEntry[] }>;
   listBlocks(
     token: string,
     options?: { limit?: number; offset?: number },
@@ -165,8 +164,6 @@ export interface GraphClient {
   acceptConnection(token: string, handle: string): Promise<{ ok: true }>;
   rejectConnection(token: string, handle: string): Promise<{ ok: true }>;
   removeConnection(token: string, handle: string): Promise<{ ok: true }>;
-  addCloseFriend(token: string, handle: string): Promise<{ ok: true }>;
-  removeCloseFriend(token: string, handle: string): Promise<{ ok: true }>;
   blockProfile(token: string, handle: string): Promise<{ ok: true }>;
   unblockProfile(token: string, handle: string): Promise<{ ok: true }>;
 }
@@ -183,9 +180,6 @@ export function createGraphClient(config: GraphClientConfig): GraphClient {
         `${base}/connections/pending${qs(options)}`,
         token,
       ),
-
-    listCloseFriends: (token, options) =>
-      authGet<{ closeFriends: ProfileEntry[] }>(`${base}/close-friends${qs(options)}`, token),
 
     listBlocks: (token, options) =>
       authGet<{ blocks: ProfileEntry[] }>(`${base}/blocks${qs(options)}`, token),
@@ -208,12 +202,6 @@ export function createGraphClient(config: GraphClientConfig): GraphClient {
 
     removeConnection: (token, handle) =>
       authDelete<{ ok: true }>(`${base}/connections/${encodeURIComponent(handle)}`, token),
-
-    addCloseFriend: (token, handle) =>
-      authPost<{ ok: true }>(`${base}/close-friends/${encodeURIComponent(handle)}`, token),
-
-    removeCloseFriend: (token, handle) =>
-      authDelete<{ ok: true }>(`${base}/close-friends/${encodeURIComponent(handle)}`, token),
 
     blockProfile: (token, handle) =>
       authPost<{ ok: true }>(`${base}/blocks/${encodeURIComponent(handle)}`, token),

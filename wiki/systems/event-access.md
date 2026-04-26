@@ -13,7 +13,7 @@ tags:
 status: current
 related:
   - "[[social-graph]]"
-  - "[[close-friends]]"
+  - "[[pulse-close-friends]]"
   - "[[pulse]]"
   - "[[event-visibility-bug]]"
 finding-ids:

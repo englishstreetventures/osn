@@ -19,7 +19,6 @@ import type {
   CrossDeviceStep,
   EmailChangeStep,
   GraphBlockAction,
-  GraphCloseFriendAction,
   GraphConnectionAction,
   OrgAction,
   OrgMemberAction,
@@ -81,7 +80,6 @@ export const OSN_METRICS = {
   authCrossDeviceDuration: "osn.auth.cross_device.duration",
   graphConnectionOps: "osn.graph.connection.operations",
   graphBlockOps: "osn.graph.block.operations",
-  graphCloseFriendOps: "osn.graph.close_friend.operations",
   orgOps: "osn.org.operations",
   orgMemberOps: "osn.org.member.operations",
   profileSwitchAttempts: "osn.auth.profile_switch.attempts",
@@ -101,7 +99,6 @@ type OtpSentAttrs = { purpose: "registration" | "step_up" | "email_change" };
 type AuthRateLimitAttrs = { endpoint: AuthRateLimitedEndpoint };
 type GraphConnectionAttrs = { action: GraphConnectionAction; result: Result };
 type GraphBlockAttrs = { action: GraphBlockAction; result: Result };
-type GraphCloseFriendAttrs = { action: GraphCloseFriendAction; result: Result };
 type OrgAttrs = { action: OrgAction; result: Result };
 type OrgMemberAttrs = { action: OrgMemberAction; result: Result };
 type ProfileSwitchAttrs = { action: ProfileSwitchAction; result: Result };
@@ -170,12 +167,6 @@ const graphConnectionOps = createCounter<GraphConnectionAttrs>({
 const graphBlockOps = createCounter<GraphBlockAttrs>({
   name: OSN_METRICS.graphBlockOps,
   description: "Social graph block/unblock operations",
-  unit: "{operation}",
-});
-
-const graphCloseFriendOps = createCounter<GraphCloseFriendAttrs>({
-  name: OSN_METRICS.graphCloseFriendOps,
-  description: "Social graph close-friend add/remove operations",
   unit: "{operation}",
 });
 
@@ -356,23 +347,6 @@ export const withGraphBlockOp =
         Effect.all([
           Effect.sync(() => graphBlockOps.inc({ action, result: classifyError(e) })),
           Effect.logError("graph.block operation failed", { action, ...safeErrorSummary(e) }),
-        ]),
-      ),
-    );
-
-export const withGraphCloseFriendOp =
-  (action: GraphCloseFriendAction) =>
-  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
-    effect.pipe(
-      Effect.withSpan(`graph.close_friend.${action}`),
-      Effect.tap(() => Effect.sync(() => graphCloseFriendOps.inc({ action, result: "ok" }))),
-      Effect.tapError((e) =>
-        Effect.all([
-          Effect.sync(() => graphCloseFriendOps.inc({ action, result: classifyError(e) })),
-          Effect.logError("graph.close_friend operation failed", {
-            action,
-            ...safeErrorSummary(e),
-          }),
         ]),
       ),
     );

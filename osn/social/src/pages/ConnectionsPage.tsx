@@ -2,7 +2,6 @@ import type { ConnectionEntry, PendingRequestEntry, ProfileEntry } from "@osn/cl
 import { useAuth } from "@osn/client/solid";
 import { clsx } from "@osn/ui/lib/utils";
 import { Avatar, AvatarFallback } from "@osn/ui/ui/avatar";
-import { Badge } from "@osn/ui/ui/badge";
 import { Button } from "@osn/ui/ui/button";
 import {
   Dialog,
@@ -17,12 +16,11 @@ import { toast } from "solid-toast";
 
 import { graphClient } from "../lib/api";
 
-type Tab = "all" | "pending" | "close-friends" | "blocked";
+type Tab = "all" | "pending" | "blocked";
 
 const TABS: { value: Tab; label: string }[] = [
   { value: "all", label: "All" },
   { value: "pending", label: "Pending" },
-  { value: "close-friends", label: "Close friends" },
   { value: "blocked", label: "Blocked" },
 ];
 
@@ -38,7 +36,6 @@ export function ConnectionsPage() {
   type TabPayload =
     | { kind: "all"; data: Awaited<ReturnType<typeof graphClient.listConnections>> }
     | { kind: "pending"; data: Awaited<ReturnType<typeof graphClient.listPendingRequests>> }
-    | { kind: "close-friends"; data: Awaited<ReturnType<typeof graphClient.listCloseFriends>> }
     | { kind: "blocked"; data: Awaited<ReturnType<typeof graphClient.listBlocks>> };
 
   const [payload, { refetch: refetchPayload }] = createResource<
@@ -52,8 +49,6 @@ export function ConnectionsPage() {
           return { kind: "all", data: await graphClient.listConnections(tk) };
         case "pending":
           return { kind: "pending", data: await graphClient.listPendingRequests(tk) };
-        case "close-friends":
-          return { kind: "close-friends", data: await graphClient.listCloseFriends(tk) };
         case "blocked":
           return { kind: "blocked", data: await graphClient.listBlocks(tk) };
       }
@@ -69,10 +64,6 @@ export function ConnectionsPage() {
     payload()?.kind === "pending"
       ? (payload() as Extract<TabPayload, { kind: "pending" }>).data
       : undefined;
-  const closeFriends = () =>
-    payload()?.kind === "close-friends"
-      ? (payload() as Extract<TabPayload, { kind: "close-friends" }>).data
-      : undefined;
   const blocked = () =>
     payload()?.kind === "blocked"
       ? (payload() as Extract<TabPayload, { kind: "blocked" }>).data
@@ -80,7 +71,6 @@ export function ConnectionsPage() {
 
   const refetchConnections = refetchPayload;
   const refetchPending = refetchPayload;
-  const refetchCloseFriends = refetchPayload;
 
   // Two-step friend removal: clicking "Remove" on a row opens a confirmation
   // dialog rather than mutating immediately, guarding against accidental
@@ -122,21 +112,6 @@ export function ConnectionsPage() {
       refetchPending();
     } catch {
       toast.error("Failed to reject request");
-    }
-  }
-
-  async function toggleCloseFriend(handle: string, isClose: boolean) {
-    try {
-      if (isClose) {
-        await graphClient.removeCloseFriend(token(), handle);
-        toast.success(`Removed @${handle} from close friends`);
-      } else {
-        await graphClient.addCloseFriend(token(), handle);
-        toast.success(`Added @${handle} to close friends`);
-      }
-      refetchCloseFriends();
-    } catch {
-      toast.error("Failed to update close friend");
     }
   }
 
@@ -214,14 +189,6 @@ export function ConnectionsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          class="text-muted-foreground h-7 text-xs"
-                          onClick={() => toggleCloseFriend(conn.handle, false)}
-                        >
-                          Close friend
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
                           class="text-destructive h-7 text-xs"
                           onClick={() => requestRemove(conn)}
                         >
@@ -277,51 +244,6 @@ export function ConnectionsPage() {
                           Decline
                         </Button>
                       </div>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </Show>
-        </Show>
-
-        {/* Close friends */}
-        <Show when={tab() === "close-friends"}>
-          <Show when={!payload.loading} fallback={<LoadingSkeleton count={2} />}>
-            <Show
-              when={(closeFriends()?.closeFriends.length ?? 0) > 0}
-              fallback={
-                <EmptyState message="No close friends yet. Add connections as close friends to see them here." />
-              }
-            >
-              <div class="flex flex-col gap-1">
-                <For each={closeFriends()?.closeFriends}>
-                  {(friend: ProfileEntry) => (
-                    <div class="hover:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
-                      <Avatar class="h-9 w-9">
-                        <AvatarFallback class="text-xs">
-                          {friend.handle.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div class="min-w-0 flex-1">
-                        <p class="text-foreground text-sm font-medium">
-                          {friend.displayName || `@${friend.handle}`}
-                        </p>
-                        <Show when={friend.displayName}>
-                          <p class="text-muted-foreground text-xs">@{friend.handle}</p>
-                        </Show>
-                      </div>
-                      <Badge variant="secondary" class="text-[11px]">
-                        Close friend
-                      </Badge>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        class="text-muted-foreground h-7 text-xs"
-                        onClick={() => toggleCloseFriend(friend.handle, true)}
-                      >
-                        Remove
-                      </Button>
                     </div>
                   )}
                 </For>

@@ -63,6 +63,7 @@ const PaginationQuery = t.Object({
 // Shared projection for profile fields in list responses (L3: displayName typed as nullable)
 function profileProjection(u: Profile) {
   return {
+    id: u.id,
     handle: u.handle,
     displayName: u.displayName ?? null,
   };
@@ -84,8 +85,8 @@ export function createGraphRoutes(
   /** See `createAuthRoutes` — same semantics. */
   loggerLayer: Layer.Layer<never> = Layer.empty,
   /**
-   * Rate limiter backend for graph write operations (connections / close-friends /
-   * blocks mutations, keyed by user ID). Default is a fresh in-memory limiter;
+   * Rate limiter backend for graph write operations (connections / blocks
+   * mutations, keyed by user ID). Default is a fresh in-memory limiter;
    * supply a Redis-backed `RateLimiterBackend` here to share state across
    * processes (Phase 2 of the Redis migration plan).
    */
@@ -294,86 +295,6 @@ export function createGraphRoutes(
             if (!target) return { error: "Profile not found" };
             const status = await run(graph.getConnectionStatus(caller.profileId, target.id));
             return { status };
-          } catch (e) {
-            set.status = 500;
-            return { error: safeError(e) };
-          }
-        },
-        { params: HandleParam },
-      )
-      // -------------------------------------------------------------------------
-      // Close friends
-      // -------------------------------------------------------------------------
-      .post(
-        "/close-friends/:handle",
-        async ({ params, headers, set }) => {
-          const caller = await requireAuth(headers.authorization, set);
-          if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.profileId, set)))
-            return { error: "Too many requests" };
-
-          const friend = await resolveHandle(params.handle, set);
-          if (!friend) return { error: "Profile not found" };
-
-          try {
-            await run(graph.addCloseFriend(caller.profileId, friend.id));
-            set.status = 201;
-            return { ok: true };
-          } catch (e) {
-            set.status = 400;
-            return { error: safeError(e) };
-          }
-        },
-        { params: HandleParam },
-      )
-      .delete(
-        "/close-friends/:handle",
-        async ({ params, headers, set }) => {
-          const caller = await requireAuth(headers.authorization, set);
-          if (!caller) return { error: "Unauthorized" };
-          if (!(await requireRateLimit(caller.profileId, set)))
-            return { error: "Too many requests" };
-
-          const friend = await resolveHandle(params.handle, set);
-          if (!friend) return { error: "Profile not found" };
-
-          try {
-            await run(graph.removeCloseFriend(caller.profileId, friend.id));
-            return { ok: true };
-          } catch (e) {
-            set.status = 400;
-            return { error: safeError(e) };
-          }
-        },
-        { params: HandleParam },
-      )
-      .get(
-        "/close-friends",
-        async ({ query, headers, set }) => {
-          const caller = await requireAuth(headers.authorization, set);
-          if (!caller) return { error: "Unauthorized" };
-          try {
-            const list = await run(
-              graph.listCloseFriends(caller.profileId, parsePagination(query)),
-            );
-            return { closeFriends: list.map(profileProjection) };
-          } catch (e) {
-            set.status = 500;
-            return { error: safeError(e) };
-          }
-        },
-        { query: PaginationQuery },
-      )
-      .get(
-        "/close-friends/:handle",
-        async ({ params, headers, set }) => {
-          const caller = await requireAuth(headers.authorization, set);
-          if (!caller) return { error: "Unauthorized" };
-          try {
-            const target = await resolveHandle(params.handle, set);
-            if (!target) return { error: "Profile not found" };
-            const isCloseFriend = await run(graph.isCloseFriendOf(caller.profileId, target.id));
-            return { isCloseFriend };
           } catch (e) {
             set.status = 500;
             return { error: safeError(e) };

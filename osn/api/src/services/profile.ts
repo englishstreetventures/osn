@@ -1,7 +1,6 @@
 import {
   accounts,
   blocks,
-  closeFriends,
   connections,
   organisations,
   organisationMembers,
@@ -229,14 +228,6 @@ export function createProfileService(authService: AuthService) {
         try: () =>
           db.transaction(async (tx) => {
             await Promise.all([
-              tx
-                .delete(closeFriends)
-                .where(
-                  or(
-                    eq(closeFriends.profileId, targetProfileId),
-                    eq(closeFriends.friendId, targetProfileId),
-                  ),
-                ),
               tx
                 .delete(connections)
                 .where(

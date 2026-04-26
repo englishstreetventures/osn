@@ -11,19 +11,18 @@ import {
   rsvpCounts,
   upsertRsvp,
 } from "../../src/services/rsvps";
-import { createTestLayer, seedEvent } from "../helpers/db";
+import { createTestLayer, seedCloseFriend, seedEvent } from "../helpers/db";
 
 // graphBridge functions are mocked at the module level so rsvps.ts uses the
-// mocked implementations. Tests that exercise listRsvps/latestRsvps set up
-// per-test mock return values to control graph data.
+// mocked implementations. Close-friend lookups are NOT bridge calls anymore —
+// they're served by a local Pulse table; tests that need close-friend
+// stamping seed `pulse_close_friends` directly via `seedCloseFriend`.
 vi.mock("../../src/services/graphBridge", () => ({
   GraphBridgeError: class GraphBridgeError {
     _tag = "GraphBridgeError";
     constructor(public args: { cause: unknown }) {}
   },
   getConnectionIds: vi.fn(() => Effect.succeed(new Set<string>())),
-  getCloseFriendIds: vi.fn(() => Effect.succeed(new Set<string>())),
-  getCloseFriendsOf: vi.fn(() => Effect.succeed(new Set<string>())),
   getProfileDisplays: vi.fn(() => Effect.succeed(new Map<string, ProfileDisplay>())),
 }));
 
@@ -31,8 +30,6 @@ import * as bridge from "../../src/services/graphBridge";
 
 beforeEach(() => {
   vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set()));
-  vi.mocked(bridge.getCloseFriendIds).mockReturnValue(Effect.succeed(new Set()));
-  vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set()));
   vi.mocked(bridge.getProfileDisplays).mockReturnValue(Effect.succeed(new Map()));
 });
 
@@ -222,7 +219,8 @@ it.effect("rsvpCounts groups by status", () =>
 it.effect("listRsvps returns all rows for public guest list event", () =>
   Effect.gen(function* () {
     // Public event: no connection check — visible to everyone.
-    // getCloseFriendsOf and getProfileDisplays are called; set up stubs.
+    // The Pulse close-friends lookup runs against the local table; without
+    // any seeded rows it returns an empty Set, so isCloseFriend stays false.
     vi.mocked(bridge.getProfileDisplays).mockReturnValue(
       Effect.succeed(
         new Map([
@@ -401,8 +399,9 @@ it.effect("isCloseFriend flag is stamped when the attendee has marked the viewer
       if (profileId === "usr_dan") return Effect.succeed(new Set(["usr_bob"]));
       return Effect.succeed(new Set());
     });
-    // Bob (attendee) marked Dan (viewer) as a close friend.
-    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set(["usr_bob"])));
+    // Bob (attendee) marked Dan (viewer) as a close friend — seeded directly
+    // into the local Pulse table.
+    yield* seedCloseFriend("usr_bob", "usr_dan");
     vi.mocked(bridge.getProfileDisplays).mockReturnValue(
       Effect.succeed(new Map([["usr_bob", profile("usr_bob", "bob", "Bob")]])),
     );
@@ -427,8 +426,9 @@ it.effect("isCloseFriend flag is NOT stamped when only the viewer marked the att
       if (profileId === "usr_dan") return Effect.succeed(new Set(["usr_bob"]));
       return Effect.succeed(new Set());
     });
-    // Dan marked Bob — but Bob did NOT mark Dan. getCloseFriendsOf returns empty.
-    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set()));
+    // Dan marked Bob — but Bob did NOT mark Dan. The reverse lookup returns
+    // empty because the only seeded row is Dan→Bob.
+    yield* seedCloseFriend("usr_dan", "usr_bob");
     vi.mocked(bridge.getProfileDisplays).mockReturnValue(
       Effect.succeed(new Map([["usr_bob", profile("usr_bob", "bob", "Bob")]])),
     );
@@ -455,7 +455,7 @@ it.effect("listRsvps surfaces close-friend rows first, newest-within-bucket afte
       return Effect.succeed(new Set());
     });
     // Only Eve has marked Dan as a close friend.
-    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set(["usr_eve"])));
+    yield* seedCloseFriend("usr_eve", "usr_dan");
     vi.mocked(bridge.getProfileDisplays).mockReturnValue(
       Effect.succeed(
         new Map([

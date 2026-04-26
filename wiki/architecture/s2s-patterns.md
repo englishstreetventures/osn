@@ -30,7 +30,7 @@ security-fixes:
 
 # Cross-Package S2S Patterns
 
-When a Pulse service needs identity or graph data (RSVP visibility, user displays, close-friends lookups), **every call must go through `pulse/api/src/services/graphBridge.ts`**. That file is the single seam for all S2S calls from Pulse to `@osn/api`.
+When a Pulse service needs identity or graph data (RSVP visibility, profile displays, connection eligibility checks), **every call must go through `pulse/api/src/services/graphBridge.ts`**. That file is the single seam for all S2S calls from Pulse to `@osn/api`.
 
 ## Why a Bridge?
 
@@ -50,8 +50,6 @@ Three reasons for the indirection:
 pulse/api --[ARC token HTTP]--> osn/api /graph/internal/*
                                      |
                                      +--> /connections
-                                     +--> /close-friends
-                                     +--> /close-friends-of
                                      +--> /profile-displays
                                      +--> /register-service  (bootstrap only)
 ```
@@ -60,8 +58,6 @@ pulse/api --[ARC token HTTP]--> osn/api /graph/internal/*
 
 ```typescript
 getConnectionIds(profileId)                    // accepted connections set
-getCloseFriendIds(profileId)                   // outbound close-friends set
-getCloseFriendsOf(viewerId, attendeeIds[])     // attendees who marked viewer as CF
 getProfileDisplays(profileIds[])               // batched profile metadata join
 startKeyRotation()                             // startup: register key + schedule auto-rotation
 ```

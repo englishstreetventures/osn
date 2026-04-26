@@ -11,7 +11,7 @@ import {
   listTodayEvents,
   updateEvent,
 } from "../../src/services/events";
-import { createTestLayer, seedEvent } from "../helpers/db";
+import { createTestLayer, seedCloseFriend, seedEvent } from "../helpers/db";
 
 const FUTURE = "2030-06-01T10:00:00.000Z";
 const PAST = "2020-01-01T10:00:00.000Z";
@@ -83,6 +83,71 @@ it.effect("listEvents filters by category", () =>
       const events = yield* listEvents({ category: "music" });
       expect(events.length).toBe(1);
       expect(events[0]!.title).toBe("Music Event");
+    }),
+  ),
+);
+
+it.effect("listEvents boosts events organised by close friends to the top", () =>
+  provide(
+    Effect.gen(function* () {
+      // Stranger's event is earliest by startTime (would normally come first).
+      yield* seedEvent({
+        title: "Stranger's Show",
+        startTime: "2030-06-01T10:00:00.000Z",
+        createdByProfileId: "usr_stranger",
+      });
+      // Close-friend's event is later by startTime; should be boosted above.
+      yield* seedEvent({
+        title: "Friend's Party",
+        startTime: "2030-06-02T10:00:00.000Z",
+        createdByProfileId: "usr_friend",
+      });
+      yield* seedCloseFriend("usr_alice", "usr_friend");
+
+      const events = yield* listEvents({ viewerId: "usr_alice" });
+      expect(events.length).toBe(2);
+      expect(events[0]!.title).toBe("Friend's Party");
+      expect(events[1]!.title).toBe("Stranger's Show");
+    }),
+  ),
+);
+
+it.effect("listEvents preserves chronological order when no close friends are set", () =>
+  provide(
+    Effect.gen(function* () {
+      yield* seedEvent({
+        title: "Earlier",
+        startTime: "2030-06-01T10:00:00.000Z",
+        createdByProfileId: "usr_anyone",
+      });
+      yield* seedEvent({
+        title: "Later",
+        startTime: "2030-06-02T10:00:00.000Z",
+        createdByProfileId: "usr_other",
+      });
+      const events = yield* listEvents({ viewerId: "usr_alice" });
+      expect(events.map((e) => e.title)).toEqual(["Earlier", "Later"]);
+    }),
+  ),
+);
+
+it.effect("listEvents does not boost for anonymous viewers", () =>
+  provide(
+    Effect.gen(function* () {
+      yield* seedEvent({
+        title: "Stranger",
+        startTime: "2030-06-01T10:00:00.000Z",
+        createdByProfileId: "usr_stranger",
+      });
+      yield* seedEvent({
+        title: "Friend",
+        startTime: "2030-06-02T10:00:00.000Z",
+        createdByProfileId: "usr_friend",
+      });
+      // The seed exists but the viewer is anonymous — order stays chronological.
+      yield* seedCloseFriend("usr_alice", "usr_friend");
+      const events = yield* listEvents({});
+      expect(events.map((e) => e.title)).toEqual(["Stranger", "Friend"]);
     }),
   ),
 );

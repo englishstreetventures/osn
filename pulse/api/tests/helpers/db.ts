@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 
 import * as schema from "@pulse/db/schema";
-import { events, type Event } from "@pulse/db/schema";
+import { events, pulseCloseFriends, type Event } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { applySchema } from "@pulse/db/testing";
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -38,6 +38,30 @@ export interface SeedEventInput {
   latitude?: number | null;
   longitude?: number | null;
 }
+
+/**
+ * Insert a Pulse close-friends row directly, bypassing the eligibility
+ * check in `addCloseFriend`. Useful for setting up test fixtures without
+ * also having to mock the graph bridge.
+ */
+export const seedCloseFriend = (
+  profileId: string,
+  friendId: string,
+): Effect.Effect<void, never, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    yield* Effect.promise(() =>
+      db
+        .insert(pulseCloseFriends)
+        .values({
+          id: "pcf_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+          profileId,
+          friendId,
+          createdAt: new Date(),
+        })
+        .onConflictDoNothing(),
+    );
+  });
 
 export const seedEvent = (input: SeedEventInput): Effect.Effect<Event, never, Db> =>
   Effect.gen(function* () {

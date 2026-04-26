@@ -4,7 +4,6 @@ import {
   accounts,
   users,
   connections,
-  closeFriends,
   organisations,
   organisationMembers,
   serviceAccounts,
@@ -13,7 +12,6 @@ import type {
   NewAccount,
   NewProfile,
   NewConnection,
-  NewCloseFriend,
   NewOrganisation,
   NewOrganisationMember,
   NewServiceAccount,
@@ -249,19 +247,6 @@ export function buildSeedConnections(now: Date): NewConnection[] {
 }
 
 // ---------------------------------------------------------------------------
-// Seed close friends
-// ---------------------------------------------------------------------------
-
-export function buildSeedCloseFriends(now: Date): NewCloseFriend[] {
-  const ME = "usr_seed_me";
-  return [
-    { id: "clf_seed_1", profileId: ME, friendId: "usr_seed_alice", createdAt: now },
-    { id: "clf_seed_2", profileId: ME, friendId: "usr_seed_charlie", createdAt: now },
-    { id: "clf_seed_3", profileId: ME, friendId: "usr_seed_dana", createdAt: now },
-  ];
-}
-
-// ---------------------------------------------------------------------------
 // Seed service accounts + keys
 // ---------------------------------------------------------------------------
 
@@ -380,11 +365,6 @@ const seed = Effect.gen(function* () {
 
   yield* Effect.tryPromise({
     try: () => db.insert(connections).values(buildSeedConnections(now)).onConflictDoNothing(),
-    catch: (cause) => new SeedError({ cause }),
-  });
-
-  yield* Effect.tryPromise({
-    try: () => db.insert(closeFriends).values(buildSeedCloseFriends(now)).onConflictDoNothing(),
     catch: (cause) => new SeedError({ cause }),
   });
 

@@ -8,7 +8,6 @@ import {
   buildSeedAccounts,
   buildSeedUsers,
   buildSeedConnections,
-  buildSeedCloseFriends,
   buildSeedOrganisations,
   buildSeedOrgMembers,
   buildSeedServiceAccounts,
@@ -64,15 +63,6 @@ function createTestDb() {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       UNIQUE (requester_id, addressee_id)
-    )
-  `);
-  sqlite.run(`
-    CREATE TABLE close_friends (
-      id TEXT PRIMARY KEY,
-      profile_id TEXT NOT NULL REFERENCES users(id),
-      friend_id TEXT NOT NULL REFERENCES users(id),
-      created_at INTEGER NOT NULL,
-      UNIQUE (profile_id, friend_id)
     )
   `);
   sqlite.run(`
@@ -294,29 +284,6 @@ describe("buildSeedConnections", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildSeedCloseFriends
-// ---------------------------------------------------------------------------
-
-describe("buildSeedCloseFriends", () => {
-  it("returns 3 close friends", () => {
-    const cfs = buildSeedCloseFriends(new Date());
-    expect(cfs).toHaveLength(3);
-  });
-
-  it("all are for usr_seed_me", () => {
-    for (const cf of buildSeedCloseFriends(new Date())) {
-      expect(cf.profileId).toBe("usr_seed_me");
-    }
-  });
-
-  it("all IDs use clf_seed_ prefix", () => {
-    for (const cf of buildSeedCloseFriends(new Date())) {
-      expect(cf.id).toMatch(/^clf_seed_/);
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
 // buildSeedOrganisations
 // ---------------------------------------------------------------------------
 
@@ -409,7 +376,6 @@ describe("seed idempotency", () => {
     await db.insert(schema.accounts).values(buildSeedAccounts(now)).onConflictDoNothing();
     await db.insert(schema.users).values(buildSeedUsers(now)).onConflictDoNothing();
     await db.insert(schema.connections).values(buildSeedConnections(now)).onConflictDoNothing();
-    await db.insert(schema.closeFriends).values(buildSeedCloseFriends(now)).onConflictDoNothing();
     await db.insert(schema.organisations).values(buildSeedOrganisations(now)).onConflictDoNothing();
     await db
       .insert(schema.organisationMembers)
@@ -424,7 +390,6 @@ describe("seed idempotency", () => {
     await db.insert(schema.accounts).values(buildSeedAccounts(now)).onConflictDoNothing();
     await db.insert(schema.users).values(buildSeedUsers(now)).onConflictDoNothing();
     await db.insert(schema.connections).values(buildSeedConnections(now)).onConflictDoNothing();
-    await db.insert(schema.closeFriends).values(buildSeedCloseFriends(now)).onConflictDoNothing();
     await db.insert(schema.organisations).values(buildSeedOrganisations(now)).onConflictDoNothing();
     await db
       .insert(schema.organisationMembers)
@@ -438,7 +403,6 @@ describe("seed idempotency", () => {
     const accounts = await db.select().from(schema.accounts);
     const users = await db.select().from(schema.users);
     const connections = await db.select().from(schema.connections);
-    const closeFriends = await db.select().from(schema.closeFriends);
     const organisations = await db.select().from(schema.organisations);
     const orgMembers = await db.select().from(schema.organisationMembers);
     const serviceAccounts = await db.select().from(schema.serviceAccounts);
@@ -446,7 +410,6 @@ describe("seed idempotency", () => {
     expect(accounts).toHaveLength(21);
     expect(users).toHaveLength(23);
     expect(connections).toHaveLength(28);
-    expect(closeFriends).toHaveLength(3);
     expect(organisations).toHaveLength(2);
     expect(orgMembers).toHaveLength(6);
     expect(serviceAccounts).toHaveLength(1);

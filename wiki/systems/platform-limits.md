@@ -11,11 +11,11 @@ tags:
 status: current
 related:
   - "[[s2s-patterns]]"
-  - "[[close-friends]]"
+  - "[[pulse-close-friends]]"
   - "[[pulse]]"
 packages:
   - "@pulse/api"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-04-26
 ---
 
 # Platform Limits
@@ -26,15 +26,15 @@ Platform-wide caps live in a single `limits.ts` file per workspace. Schemas, rou
 
 | Constant | Value | Where it bites |
 |----------|-------|----------------|
-| `MAX_EVENT_GUESTS` | 1000 | Bulk-invite batch size; graph membership sets in `graphBridge.ts`; `getCloseFriendsOfBatch` clamp |
+| `MAX_EVENT_GUESTS` | 1000 | Bulk-invite batch size; graph membership set in `graphBridge.ts`; Pulse `getCloseFriendsOfBatch` clamp |
 
 ## MAX_EVENT_GUESTS
 
 The 1000 guest cap is the hard ceiling for event attendance across the Pulse platform. It affects:
 
 - **Bulk invite:** the maximum number of users that can be invited to a single event
-- **Graph bridge:** `getConnectionIds` and `getCloseFriendIds` in [[s2s-patterns|graphBridge.ts]] cap their result sets at this value (raised from 100 after S-M28/P-W13)
-- **Batch lookups:** `getCloseFriendsOfBatch` in `@osn/api` is clamped to `MAX_BATCH_SIZE` (1000) which aligns with this limit (see [[close-friends]])
+- **Graph bridge:** `getConnectionIds` in [[s2s-patterns|graphBridge.ts]] caps its result set at this value (raised from 100 after S-M28/P-W13)
+- **Batch lookups:** Pulse's `getCloseFriendsOfBatch` (in [[pulse-close-friends]]) is clamped to 1000 which aligns with this limit
 
 ## Beyond 1000 Guests
 

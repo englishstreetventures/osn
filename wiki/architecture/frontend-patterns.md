@@ -13,13 +13,13 @@ tags:
 status: current
 related:
   - "[[component-library]]"
-  - "[[close-friends]]"
+  - "[[pulse-close-friends]]"
   - "[[pulse]]"
   - "[[testing-patterns]]"
 packages:
   - "@pulse/app"
   - "@osn/ui"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-04-26
 ---
 
 # Frontend Patterns

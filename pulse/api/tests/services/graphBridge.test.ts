@@ -16,8 +16,6 @@ vi.mock("@shared/crypto", () => ({
 
 import { MAX_EVENT_GUESTS } from "../../src/lib/limits";
 import {
-  getCloseFriendIds,
-  getCloseFriendsOf,
   getConnectionIds,
   getProfileDisplays,
   startKeyRotation,
@@ -78,72 +76,6 @@ describe("getConnectionIds", () => {
   it("fails with GraphBridgeError on HTTP error", async () => {
     mockFetch({ error: "Unauthorized" }, 401);
     const err = await Effect.runPromise(Effect.flip(getConnectionIds("usr_alice")));
-    expect(err._tag).toBe("GraphBridgeError");
-  });
-});
-
-// ── getCloseFriendIds ────────────────────────────────────────────────────────
-
-describe("getCloseFriendIds", () => {
-  it("returns a Set of close friend IDs", async () => {
-    mockFetch({ closeFriendIds: ["usr_bob"] });
-    const result = await Effect.runPromise(getCloseFriendIds("usr_alice"));
-    expect(result).toBeInstanceOf(Set);
-    expect(result.has("usr_bob")).toBe(true);
-  });
-
-  it("returns an empty Set when API returns empty list", async () => {
-    mockFetch({ closeFriendIds: [] });
-    const result = await Effect.runPromise(getCloseFriendIds("usr_alice"));
-    expect(result.size).toBe(0);
-  });
-
-  it("fails with GraphBridgeError on HTTP error", async () => {
-    mockFetch({ error: "Unauthorized" }, 401);
-    const err = await Effect.runPromise(Effect.flip(getCloseFriendIds("usr_alice")));
-    expect(err._tag).toBe("GraphBridgeError");
-  });
-});
-
-// ── getCloseFriendsOf ────────────────────────────────────────────────────────
-
-describe("getCloseFriendsOf", () => {
-  it("short-circuits with empty Set when attendeeIds is empty (no HTTP call)", async () => {
-    const spy = vi.spyOn(globalThis, "fetch");
-    const result = await Effect.runPromise(getCloseFriendsOf("usr_alice", []));
-    expect(result.size).toBe(0);
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it("returns the subset of attendee IDs the API reports as close friends of viewerId", async () => {
-    mockFetch({ closeFriendIds: ["usr_bob", "usr_carol"] });
-    const result = await Effect.runPromise(
-      getCloseFriendsOf("usr_alice", ["usr_bob", "usr_carol", "usr_dan"]),
-    );
-    expect(result.size).toBe(2);
-    expect(result.has("usr_bob")).toBe(true);
-    expect(result.has("usr_carol")).toBe(true);
-    expect(result.has("usr_dan")).toBe(false);
-  });
-
-  it("sends a POST with viewerId and profileIds in the body", async () => {
-    const spy = mockFetch({ closeFriendIds: [] });
-    await Effect.runPromise(getCloseFriendsOf("usr_alice", ["usr_bob"]));
-    expect(spy.mock.calls[0]![1]?.method).toBe("POST");
-    const body = JSON.parse(spy.mock.calls[0]![1]?.body as string) as unknown;
-    expect(body).toMatchObject({ viewerId: "usr_alice", profileIds: ["usr_bob"] });
-  });
-
-  it("sends ARC Authorization header on POST requests", async () => {
-    const spy = mockFetch({ closeFriendIds: [] });
-    await Effect.runPromise(getCloseFriendsOf("usr_alice", ["usr_bob"]));
-    const headers = spy.mock.calls[0]![1]?.headers as Record<string, string>;
-    expect(headers["authorization"]).toMatch(/^ARC /);
-  });
-
-  it("fails with GraphBridgeError on HTTP error", async () => {
-    mockFetch({ error: "Unauthorized" }, 401);
-    const err = await Effect.runPromise(Effect.flip(getCloseFriendsOf("usr_alice", ["usr_bob"])));
     expect(err._tag).toBe("GraphBridgeError");
   });
 });

@@ -5,9 +5,9 @@ import { Data, Effect, Schema } from "effect";
 
 import { MAX_EVENT_GUESTS } from "../lib/limits";
 import { metricRsvpInviteBatch, metricRsvpListed, metricRsvpUpserted } from "../metrics";
+import { getCloseFriendsOfBatch, DatabaseError as CloseFriendsDatabaseError } from "./closeFriends";
 import { EventNotFound, DatabaseError, ValidationError } from "./events";
 import {
-  getCloseFriendsOf,
   getConnectionIds,
   getProfileDisplays,
   GraphBridgeError,
@@ -192,7 +192,11 @@ const filterByAttendeePrivacy = (
   event: Event,
   rows: RsvpWithProfile[],
   viewerId: string | null,
-): Effect.Effect<RsvpWithProfile[], DatabaseError | GraphBridgeError, Db> =>
+): Effect.Effect<
+  RsvpWithProfile[],
+  DatabaseError | GraphBridgeError | CloseFriendsDatabaseError,
+  Db
+> =>
   Effect.gen(function* () {
     const attendeeIds = Array.from(new Set(rows.map((r) => r.profileId)));
 
@@ -205,12 +209,14 @@ const filterByAttendeePrivacy = (
       viewerId !== event.createdByProfileId &&
       event.guestListVisibility !== "public";
 
-    // Fan out both graph calls in parallel when we need both; otherwise issue
-    // only the close-friends call. This cuts the hot path from three
-    // sequential HTTP RTTs to two.
+    // Fan out the two lookups in parallel when both are required: the
+    // close-friends lookup is local to Pulse (single SQL query) while the
+    // viewer-connections call is an S2S HTTP round-trip to OSN.
     const [closeFriendsOfViewer, viewerConnections] = yield* Effect.all(
       [
-        viewerId ? getCloseFriendsOf(viewerId, attendeeIds) : Effect.succeed(new Set<string>()),
+        viewerId
+          ? getCloseFriendsOfBatch(viewerId, attendeeIds)
+          : Effect.succeed(new Set<string>()),
         needsConnections && viewerId
           ? getConnectionIds(viewerId)
           : Effect.succeed(new Set<string>()),
@@ -425,7 +431,11 @@ export const listRsvps = (
     status?: EventRsvp["status"];
     limit?: number;
   } = {},
-): Effect.Effect<RsvpWithProfile[], EventNotFound | DatabaseError | GraphBridgeError, Db> =>
+): Effect.Effect<
+  RsvpWithProfile[],
+  EventNotFound | DatabaseError | GraphBridgeError | CloseFriendsDatabaseError,
+  Db
+> =>
   Effect.gen(function* () {
     const event = yield* loadEvent(eventId);
 
@@ -506,8 +516,11 @@ export const latestRsvps = (
   eventId: string,
   viewerId: string | null,
   limit = 5,
-): Effect.Effect<RsvpWithProfile[], EventNotFound | DatabaseError | GraphBridgeError, Db> =>
-  listRsvps(eventId, viewerId, { status: "going", limit });
+): Effect.Effect<
+  RsvpWithProfile[],
+  EventNotFound | DatabaseError | GraphBridgeError | CloseFriendsDatabaseError,
+  Db
+> => listRsvps(eventId, viewerId, { status: "going", limit });
 
 /**
  * Returns the counts per status. Counts are always visible (they don't

@@ -13,8 +13,6 @@ vi.mock("../../src/services/graphBridge", () => ({
     constructor(public args: { cause: unknown }) {}
   },
   getConnectionIds: vi.fn(),
-  getCloseFriendIds: vi.fn(),
-  getCloseFriendsOf: vi.fn(),
   getProfileDisplays: vi.fn(),
 }));
 
@@ -85,8 +83,6 @@ describe("events routes — new config fields", () => {
 
   beforeEach(async () => {
     vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set<string>()));
-    vi.mocked(bridge.getCloseFriendIds).mockReturnValue(Effect.succeed(new Set<string>()));
-    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set<string>()));
     vi.mocked(bridge.getProfileDisplays).mockReturnValue(
       Effect.succeed(new Map<string, ProfileDisplay>()),
     );
@@ -183,8 +179,6 @@ describe("RSVP routes", () => {
 
   beforeEach(async () => {
     vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set<string>()));
-    vi.mocked(bridge.getCloseFriendIds).mockReturnValue(Effect.succeed(new Set<string>()));
-    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set<string>()));
     vi.mocked(bridge.getProfileDisplays).mockReturnValue(
       Effect.succeed(
         new Map<string, ProfileDisplay>([
@@ -297,8 +291,6 @@ describe("ICS route", () => {
 
   beforeEach(async () => {
     vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set<string>()));
-    vi.mocked(bridge.getCloseFriendIds).mockReturnValue(Effect.succeed(new Set<string>()));
-    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set<string>()));
     vi.mocked(bridge.getProfileDisplays).mockReturnValue(
       Effect.succeed(new Map<string, ProfileDisplay>()),
     );
@@ -338,8 +330,6 @@ describe("Comms routes", () => {
 
   beforeEach(async () => {
     vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set<string>()));
-    vi.mocked(bridge.getCloseFriendIds).mockReturnValue(Effect.succeed(new Set<string>()));
-    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set<string>()));
     vi.mocked(bridge.getProfileDisplays).mockReturnValue(
       Effect.succeed(new Map<string, ProfileDisplay>()),
     );
@@ -423,8 +413,6 @@ describe("Private event visibility gate", () => {
 
   beforeEach(async () => {
     vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set<string>()));
-    vi.mocked(bridge.getCloseFriendIds).mockReturnValue(Effect.succeed(new Set<string>()));
-    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set<string>()));
     vi.mocked(bridge.getProfileDisplays).mockReturnValue(
       Effect.succeed(
         new Map<string, ProfileDisplay>([
@@ -588,8 +576,6 @@ describe("Event text field length caps (S-M3)", () => {
 
   beforeEach(async () => {
     vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set<string>()));
-    vi.mocked(bridge.getCloseFriendIds).mockReturnValue(Effect.succeed(new Set<string>()));
-    vi.mocked(bridge.getCloseFriendsOf).mockReturnValue(Effect.succeed(new Set<string>()));
     vi.mocked(bridge.getProfileDisplays).mockReturnValue(
       Effect.succeed(new Map<string, ProfileDisplay>()),
     );

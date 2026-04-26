@@ -22,6 +22,9 @@ const SettingsPage = lazy(() =>
 const SeriesDetailPage = lazy(() =>
   import("./pages/SeriesDetailPage").then((m) => ({ default: m.SeriesDetailPage })),
 );
+const CloseFriendsPage = lazy(() =>
+  import("./pages/CloseFriendsPage").then((m) => ({ default: m.CloseFriendsPage })),
+);
 
 /**
  * Root layout. The Explore home page provides its own ExploreNav, so we
@@ -50,6 +53,7 @@ export default function App() {
         <Route path="/events/:id" component={EventDetailPage} />
         <Route path="/series/:id" component={SeriesDetailPage} />
         <Route path="/settings" component={SettingsPage} />
+        <Route path="/close-friends" component={CloseFriendsPage} />
       </Router>
     </AuthProvider>
   );

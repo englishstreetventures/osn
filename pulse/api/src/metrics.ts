@@ -51,6 +51,12 @@ export const PULSE_METRICS = {
   discoverySearched: "pulse.discovery.searched",
   discoverySearchDuration: "pulse.discovery.search.duration",
   discoveryFiltersApplied: "pulse.discovery.filters.applied",
+  // Close friends (Pulse-scoped — see services/closeFriends.ts)
+  closeFriendsAdded: "pulse.close_friends.added",
+  closeFriendsRemoved: "pulse.close_friends.removed",
+  closeFriendsListed: "pulse.close_friends.listed",
+  closeFriendsListSize: "pulse.close_friends.list.size",
+  closeFriendsBatchSize: "pulse.close_friends.batch.size",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -258,6 +264,18 @@ type DiscoverySearchDurationAttrs = {
 type DiscoveryFilterAppliedAttrs = {
   dimension: DiscoveryDimension;
 };
+
+// --- Close friends (Pulse-scoped) ---
+
+/** Bounded outcome for an add operation. Cardinality is fixed by design. */
+type CloseFriendAddResult = "ok" | "duplicate" | "self" | "not_eligible" | "error";
+
+/** Bounded outcome for a remove operation. */
+type CloseFriendRemoveResult = "ok" | "not_found" | "error";
+
+type CloseFriendsAddedAttrs = { result: CloseFriendAddResult };
+type CloseFriendsRemovedAttrs = { result: CloseFriendRemoveResult };
+type CloseFriendsListedAttrs = { result_empty: "true" | "false" };
 
 // ---------------------------------------------------------------------------
 // Counters / histograms
@@ -554,3 +572,53 @@ export const metricDiscoverySearchDuration = (durationSeconds: number, result: R
 
 export const metricDiscoveryFilterApplied = (dimension: DiscoveryDimension): void =>
   discoveryFiltersApplied.inc({ dimension });
+
+// --- Close friends instruments ---
+
+const closeFriendsAdded = createCounter<CloseFriendsAddedAttrs>({
+  name: PULSE_METRICS.closeFriendsAdded,
+  description: "Close-friend add operations on the Pulse-scoped list, by outcome",
+  unit: "{operation}",
+});
+
+const closeFriendsRemoved = createCounter<CloseFriendsRemovedAttrs>({
+  name: PULSE_METRICS.closeFriendsRemoved,
+  description: "Close-friend remove operations on the Pulse-scoped list, by outcome",
+  unit: "{operation}",
+});
+
+const closeFriendsListed = createCounter<CloseFriendsListedAttrs>({
+  name: PULSE_METRICS.closeFriendsListed,
+  description:
+    "Close-friend list reads on the Pulse-scoped list, by whether any rows were returned",
+  unit: "{query}",
+});
+
+const closeFriendsListSize = createHistogram<Record<never, never>>({
+  name: PULSE_METRICS.closeFriendsListSize,
+  description: "Distribution of close-friend list sizes returned by listCloseFriends",
+  unit: "{friend}",
+  // Most lists are tiny (Instagram averages 10–50). Long tail caught by 500/1000.
+  boundaries: [0, 1, 5, 10, 25, 50, 100, 250, 500, 1000],
+});
+
+const closeFriendsBatchSize = createHistogram<Record<never, never>>({
+  name: PULSE_METRICS.closeFriendsBatchSize,
+  description: "Distribution of input batch sizes to getCloseFriendsOfBatch",
+  unit: "{profile}",
+  boundaries: [0, 1, 5, 10, 25, 50, 100, 250, 500, 1000],
+});
+
+export const metricCloseFriendAdded = (result: CloseFriendAddResult): void =>
+  closeFriendsAdded.inc({ result });
+
+export const metricCloseFriendRemoved = (result: CloseFriendRemoveResult): void =>
+  closeFriendsRemoved.inc({ result });
+
+export const metricCloseFriendsListed = (size: number): void => {
+  closeFriendsListed.inc({ result_empty: size === 0 ? "true" : "false" });
+  closeFriendsListSize.record(size, {});
+};
+
+export const metricCloseFriendsBatchSize = (size: number): void =>
+  closeFriendsBatchSize.record(size, {});
