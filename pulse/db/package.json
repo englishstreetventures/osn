@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./service": "./src/service.ts"
+    "./service": "./src/service.ts",
+    "./testing": "./src/testing.ts"
   },
   "scripts": {
     "db:migrate": "bunx drizzle-kit generate",

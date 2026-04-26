@@ -8,12 +8,19 @@ related:
   - "[[zap]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-24
+last-reviewed: 2026-04-26
 ---
 
 # Completed Features
 
 Archived completed feature work from [[TODO]]. For open work see [[TODO]].
+
+## Pulse `@pulse/db/testing` schema helper (2026-04-26)
+
+- **`@pulse/db/testing` export.** New `createSchemaSql()` derives `CREATE TABLE` + `CREATE INDEX` statements directly from the live Drizzle schema (`drizzle-orm/sqlite-core` `getTableConfig`), in foreign-key-respecting topological order. Companion `applySchema(sqlite)` runs the statements against an in-memory SQLite handle.
+- **Replaces hand-rolled DDL in 4 places.** `pulse/db/tests/schema.test.ts`, `pulse/db/tests/seed.test.ts`, `pulse/api/tests/helpers/db.ts`, and `pulse/api/tests/services/zapBridge.test.ts` (pulse side) now call `applySchema(sqlite)` instead of duplicating column-by-column `CREATE TABLE` blocks. Adding a column is now a one-file change in `pulse/db/src/schema/`.
+- **Drift-guard regression test.** `pulse/db/tests/testing.test.ts` asserts every schema table appears in the emitted SQL, that FK dependents come after their referents, and that every declared index materialises in a fresh DB.
+- Test infrastructure only — no runtime behaviour change.
 
 ## Pulse event pricing (2026-04-24)
 

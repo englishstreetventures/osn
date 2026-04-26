@@ -10,82 +10,11 @@ import {
   buildSeedSeries,
   buildSeedSeriesInstances,
 } from "../src/seed";
+import { applySchema } from "../src/testing";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
-  sqlite.run(`
-    CREATE TABLE event_series (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT,
-      location TEXT,
-      venue TEXT,
-      latitude REAL,
-      longitude REAL,
-      category TEXT,
-      image_url TEXT,
-      duration_minutes INTEGER,
-      visibility TEXT NOT NULL DEFAULT 'public',
-      guest_list_visibility TEXT NOT NULL DEFAULT 'public',
-      join_policy TEXT NOT NULL DEFAULT 'open',
-      allow_interested INTEGER NOT NULL DEFAULT 1,
-      comms_channels TEXT NOT NULL DEFAULT '["email"]',
-      rrule TEXT NOT NULL,
-      dtstart INTEGER NOT NULL,
-      until INTEGER,
-      materialized_through INTEGER NOT NULL,
-      timezone TEXT NOT NULL DEFAULT 'UTC',
-      status TEXT NOT NULL DEFAULT 'active',
-      chat_id TEXT,
-      created_by_profile_id TEXT NOT NULL,
-      created_by_name TEXT,
-      created_by_avatar TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
-  sqlite.run(`
-    CREATE TABLE events (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT,
-      location TEXT,
-      venue TEXT,
-      category TEXT,
-      start_time INTEGER NOT NULL,
-      end_time INTEGER,
-      status TEXT NOT NULL DEFAULT 'upcoming',
-      image_url TEXT,
-      price_amount INTEGER,
-      price_currency TEXT,
-      latitude REAL,
-      longitude REAL,
-      visibility TEXT NOT NULL DEFAULT 'public',
-      guest_list_visibility TEXT NOT NULL DEFAULT 'public',
-      join_policy TEXT NOT NULL DEFAULT 'open',
-      allow_interested INTEGER NOT NULL DEFAULT 1,
-      comms_channels TEXT NOT NULL DEFAULT '["email"]',
-      chat_id TEXT,
-      series_id TEXT REFERENCES event_series(id),
-      instance_override INTEGER NOT NULL DEFAULT 0,
-      created_by_profile_id TEXT,
-      created_by_name TEXT,
-      created_by_avatar TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
-  sqlite.run(`
-    CREATE TABLE event_rsvps (
-      id TEXT PRIMARY KEY,
-      event_id TEXT NOT NULL REFERENCES events(id),
-      profile_id TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'going',
-      invited_by_profile_id TEXT,
-      created_at INTEGER NOT NULL,
-      UNIQUE (event_id, profile_id)
-    )
-  `);
+  applySchema(sqlite);
   return drizzle(sqlite, { schema });
 }
 

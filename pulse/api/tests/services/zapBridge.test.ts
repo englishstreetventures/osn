@@ -4,6 +4,7 @@ import { it } from "@effect/vitest";
 import * as pulseSchema from "@pulse/db/schema";
 import { events } from "@pulse/db/schema";
 import { Db as PulseDb } from "@pulse/db/service";
+import { applySchema as applyPulseSchema } from "@pulse/db/testing";
 import * as zapSchema from "@zap/db/schema";
 import { chatMembers } from "@zap/db/schema";
 import { Db as ZapDb } from "@zap/db/service";
@@ -16,37 +17,7 @@ import { provisionEventChat, addEventChatMember } from "../../src/services/zapBr
 
 function createDualTestLayer() {
   const pulseSqlite = new Database(":memory:");
-  pulseSqlite.run(`
-    CREATE TABLE events (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT,
-      location TEXT,
-      venue TEXT,
-      category TEXT,
-      start_time INTEGER NOT NULL,
-      end_time INTEGER,
-      status TEXT NOT NULL DEFAULT 'upcoming',
-      image_url TEXT,
-      price_amount INTEGER,
-      price_currency TEXT,
-      latitude REAL,
-      longitude REAL,
-      visibility TEXT NOT NULL DEFAULT 'public',
-      guest_list_visibility TEXT NOT NULL DEFAULT 'public',
-      join_policy TEXT NOT NULL DEFAULT 'open',
-      allow_interested INTEGER NOT NULL DEFAULT 1,
-      comms_channels TEXT NOT NULL DEFAULT '["email"]',
-      chat_id TEXT,
-      series_id TEXT,
-      instance_override INTEGER NOT NULL DEFAULT 0,
-      created_by_profile_id TEXT NOT NULL,
-      created_by_name TEXT,
-      created_by_avatar TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
+  applyPulseSchema(pulseSqlite);
   const pulseDb = drizzle(pulseSqlite, { schema: pulseSchema });
 
   const zapSqlite = new Database(":memory:");

@@ -35,7 +35,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 - [ ] Organizer tools (moderation, blacklists)
 - [ ] Venue pages
 - [ ] Real SMS/email comms providers — `sendBlast` is stubbed (writes to `event_comms`); plug in actual delivery
-- [ ] Drizzle: extract shared `createSchemaSql()` helper so adding a column is a one-file change (currently hand-rolled in 4 places — `pulse/db/tests/schema.test.ts`, `pulse/db/tests/seed.test.ts`, `pulse/api/tests/helpers/db.ts`, `pulse/api/tests/services/zapBridge.test.ts`)
+- [x] Drizzle: extract shared `createSchemaSql()` helper so adding a column is a one-file change — shipped on `claude/drizzle-pulse-todo-cX5ps`: `@pulse/db/testing` export with `createSchemaSql()` + `applySchema()`, derived from the live Drizzle schema in FK-respecting order; replaces four hand-rolled DDL blocks across `pulse/db` and `pulse/api` tests; drift-guard regression test in `pulse/db/tests/testing.test.ts`
 - [ ] Verified-organisation tier (Phase 2): org accounts can run events over `MAX_EVENT_GUESTS` (1000) via per-event support flow
 
 ---
@@ -151,6 +151,7 @@ OSN's messaging app. Stack matches Pulse (Bun, Tauri+Solid, Elysia+Eden, Drizzle
 - [x] OSN Core: session schema — server-side sessions with SHA-256 hashed opaque tokens (Copenhagen Book C1)
 - [ ] Pulse: event series schema
 - [ ] Add indexes on `status` and `category` columns in pulse-db events schema
+- [ ] Mirror `@pulse/db/testing` (`createSchemaSql()` + `applySchema()`) into `@osn/db` and `@zap/db` so adding a column there is also a one-file change. Pattern: `pulse/db/src/testing.ts` derives DDL from the live Drizzle schema via `getTableConfig()` in FK-respecting topological order. `@zap/db` test fixtures (`pulse/api/tests/services/zapBridge.test.ts` zap side, plus any in `zap/api/tests/`) and `@osn/db` test fixtures should be migrated off hand-rolled `CREATE TABLE` blocks once the helpers exist.
 
 ### Crypto (`osn/crypto`)
 
