@@ -37,6 +37,7 @@ Phase 1 surfaces:
 | **Platform** (API, DB, Client, UI, Infra) | Shared package work and infrastructure. Same check-off rule. |
 | **Security Backlog** | Open security findings only, sorted H → M → L. When a finding is fixed, move it to `[[changelog/security-fixes]]`. |
 | **Performance Backlog** | Open perf findings only. When fixed, move to `[[changelog/performance-fixes]]`. |
+| **Compliance Backlog** | Open compliance findings only (`C-` prefix), sorted H → M → L. Each row links to `[[wiki/compliance/...]]`. When closed, move to a future `wiki/changelog/compliance-fixes.md` (created on first close). |
 | **Deferred Decisions** | Questions we're not answering yet. Add a row; remove it when the decision is made. |
 | **Future** | Phase 2/3 items. Vague is fine here — detail gets added when the phase starts. |
 
@@ -78,6 +79,11 @@ The `wiki/` directory contains detailed reference pages. Use this index to find 
 | Debug an event-visibility leak | `[[wiki/runbooks/event-visibility-bug]]` |
 | Wire a new service into observability | `[[wiki/runbooks/observability-setup]]` |
 | Check security or perf findings | `wiki/TODO.md` (Security Backlog / Performance Backlog sections) |
+| Check what compliance standards apply (GDPR, SOC 2, CCPA, DSA, COPPA, EAA, ePrivacy) | `[[wiki/compliance/index]]`, `[[wiki/compliance/scope-matrix]]` |
+| Add a personal-data field, processor, or retention rule | `[[wiki/compliance/data-map]]`, `[[wiki/compliance/subprocessors]]`, `[[wiki/compliance/retention]]` |
+| Build a DSAR / account-export / account-delete endpoint | `[[wiki/compliance/dsar]]` |
+| Respond to a security incident or breach | `[[wiki/compliance/breach-response]]` |
+| Set up production access / quarterly access review | `[[wiki/compliance/access-control]]` |
 | Track progress and priorities | `wiki/TODO.md` |
 
 ### Searching the wiki

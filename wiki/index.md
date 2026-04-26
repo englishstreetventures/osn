@@ -61,6 +61,25 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[review-findings]] — finding ID format (S-H1, P-W2, T-M1)
 - [[contributing]] — PR workflow, changesets, branching
 
+## Compliance
+
+- [[compliance/index]] — map of content for the compliance programme
+- [[compliance/scope-matrix]] — which laws apply to which user / surface
+- [[compliance/gdpr]] — GDPR + UK GDPR controls, gaps, and project changes
+- [[compliance/soc2]] — SOC 2 Trust Services Criteria, control inventory, audit prep
+- [[compliance/ccpa]] — CCPA / CPRA + state privacy law deltas
+- [[compliance/dsa]] — EU Digital Services Act notice-and-action + transparency
+- [[compliance/coppa]] — under-13 hard-gate strategy
+- [[compliance/eaa]] — European Accessibility Act / WCAG 2.1 AA
+- [[compliance/eprivacy]] — cookie law posture (compliant by absence)
+- [[compliance/data-map]] — Article 30 record of processing activities
+- [[compliance/subprocessors]] — third-party processor register + DPA status
+- [[compliance/retention]] — per-table retention schedule
+- [[compliance/dsar]] — DSAR runbook (access / erasure / portability / rectification)
+- [[compliance/breach-response]] — 72-hour notification clock + incident runbook
+- [[compliance/access-control]] — SOC 2 CC6 production access matrix
+- [[compliance/backup-dr]] — SOC 2 A1 backup + DR plan + restore drills
+
 ## Changelog
 
 - [[changelog/completed-features]] — archived completed feature work

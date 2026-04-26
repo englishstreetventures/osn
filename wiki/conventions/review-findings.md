@@ -27,6 +27,10 @@ All review skills (`/review-security`, `/review-performance`, `/review-tests`) t
 | `T-E` | review-tests | Error path |
 | `T-R` | review-tests | Route test |
 | `T-S` | review-tests | Suggestion |
+| `C-C` | review-security (compliance section) | Critical compliance — blocks deploy / triggers regulatory exposure |
+| `C-H` | review-security (compliance section) | High compliance — fix before next release |
+| `C-M` | review-security (compliance section) | Medium compliance — schedule into next sprint |
+| `C-L` | review-security (compliance section) | Low compliance — opportunistic fix or hardening |
 
 ## Numbering
 
