@@ -7,12 +7,16 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-24
+last-reviewed: 2026-04-25
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## Pulse Tauri CSP allowlist (2026-04-25)
+
+- **S-L3** — `pulse/app/src-tauri/tauri.conf.json` shipped with `app.security.csp = null`, so the webview ran without any Content-Security-Policy header. **Issue:** any compromise of the bundled JS, a leaked third-party dependency, or an injected iframe could exfiltrate to arbitrary origins; OS-level keychains and the `opener` plugin would happily forward whatever the page asked them to. **Why it mattered:** Pulse is a desktop/mobile shell that holds an OSN access token in memory, an HttpOnly session cookie at the API origin, and (in M2) E2E messaging keys; widening the loader's reach beyond the hosts the app actually contacts is the cheapest XSS-amplifier available. **Solution:** strict CSP object with explicit allowlists per directive — `connect-src` covers `'self'` + Tauri IPC (`ipc:`, `http://ipc.localhost`) + `https://photon.komoot.io` (geocoding) + `http://localhost:{3001,4000}` (dev API origins) + `https:` (production API origins, see Rationale below); `img-src` permits `'self'`, `data:` (Leaflet marker defaults), and `https://*.tile.openstreetmap.org` (map tiles); `style-src` includes `'unsafe-inline'` because Leaflet ships inline styles; `script-src` is `'self'` only; `object-src`, `frame-src`, `frame-ancestors`, `worker-src`, and `form-action` are `'none'` (defence-in-depth — Pulse uses no Workers, iframes, or native form actions; `<form>` submissions in Pulse are JS-handled with `preventDefault`). **Rationale:** the original S-L3 wording listed `maps.google.com` but those URLs are handed to `@tauri-apps/plugin-opener` (OS-level external open), not loaded inside the webview, so adding them would cargo-cult the allowlist wider for no defence benefit — they are intentionally omitted. The `https:` entry in `connect-src` is a transitional widening because production API origins aren't pinned in-repo; tracked as a follow-up to swap for the deployed `@osn/api` + `@pulse/api` hosts once they land in env. The `ipc:` + `http://ipc.localhost` entries are mandatory for Tauri v2 IPC — omitting them silently breaks `@tauri-apps/plugin-opener` and any future `invoke` calls.
 
 ## Pulse ARC registration retry (2026-04-24)
 

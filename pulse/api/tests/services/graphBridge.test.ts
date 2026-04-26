@@ -310,23 +310,30 @@ describe("startKeyRotation", () => {
   });
 
   it("uses exponential backoff across successive retry failures (P-I1)", async () => {
+    // Pin jitter to 0 so retry firing times are deterministic. The previous
+    // bounds-based assertion was flaky: with jitter ∈ [-1s, +1s] attempt 1
+    // fires in [4s, 6s] and attempt 2 schedules 10s±1s later, so attempt 2's
+    // absolute firing window is [13s, 17s] — overlapping the t=15.5s probe.
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+
     const netErr = Object.assign(new Error("Unable to connect"), { code: "ConnectionRefused" });
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(netErr);
 
     await expect(startKeyRotation()).resolves.toBe("pending-retry");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
-    // Attempt 1 fires at 5s ± 1s jitter. Advance past the upper bound.
-    await vi.advanceTimersByTimeAsync(7_000);
+    // Attempt 1: schedules at exactly 5s (jitter pinned to 0).
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
 
-    // Attempt 2 fires at 10s ± 1s. Advance 8.5s first (below min 9s) —
-    // no retry should have fired yet.
-    await vi.advanceTimersByTimeAsync(8_500);
+    // Attempt 2: 10s after attempt 1 fires → absolute t=15s. Stop just short.
+    await vi.advanceTimersByTimeAsync(9_997);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
 
-    // Now cross into the 10s ± 1s window.
-    await vi.advanceTimersByTimeAsync(3_000);
+    // Cross the threshold.
+    await vi.advanceTimersByTimeAsync(2);
     expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
 });

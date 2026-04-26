@@ -18,7 +18,28 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": ["'self'"],
+        "connect-src": [
+          "'self'",
+          "ipc:",
+          "http://ipc.localhost",
+          "https://photon.komoot.io",
+          "http://localhost:3001",
+          "http://localhost:4000",
+          "https:"
+        ],
+        "img-src": ["'self'", "data:", "https://*.tile.openstreetmap.org"],
+        "style-src": ["'self'", "'unsafe-inline'"],
+        "script-src": ["'self'"],
+        "font-src": ["'self'", "data:"],
+        "object-src": ["'none'"],
+        "frame-src": ["'none'"],
+        "frame-ancestors": ["'none'"],
+        "worker-src": ["'none'"],
+        "form-action": ["'none'"],
+        "base-uri": ["'self'"]
+      }
     }
   },
   "bundle": {
