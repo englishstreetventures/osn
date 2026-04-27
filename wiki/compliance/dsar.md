@@ -7,7 +7,7 @@ related:
   - "[[ccpa]]"
   - "[[data-map]]"
   - "[[retention]]"
-last-reviewed: 2026-04-26
+last-reviewed: 2026-04-27
 ---
 
 # DSAR Runbook
@@ -20,7 +20,7 @@ runbook, two regimes, because the operational steps overlap.
 
 | Channel | Who uses it | Where it lands | SLA |
 |---|---|---|---|
-| `GET /account/export` (planned C-H1) | The account holder, self-service | `@osn/api` — streams JSON | Immediate |
+| `GET /account/export` (C-H1, shipped) | The account holder, self-service | `@osn/api` — streams NDJSON | Immediate |
 | `DELETE /account` (planned C-H2) | The account holder, self-service | `@osn/api` — soft delete, then hard delete in 7 d | 7 d |
 | `dsar@osn.example` (planned, alias on landing) | Anyone via email | Identity team inbox | 30 d (GDPR) / 45 d (CCPA) |
 | Postal address (planned, on landing) | Anyone via mail | Identity team inbox | Same |
@@ -63,7 +63,7 @@ Use `GET /account/export`. The endpoint returns a JSON bundle:
 - `consents[]` — once consent records ship (C-L1).
 - `dsar_requests[]` — prior requests for this user.
 
-**Wire format (locked before C-H1 implementation starts):**
+**Wire format (shipped in C-H1 — see `osn/api/src/services/accountExport.ts`):**
 
 - **NDJSON envelope** — one JSON object per line, prefixed by a header line `{"version":1,"sections":[...]}` and terminated by `{"end":true}`. This lets the response stream via `ReadableStream` without ever materialising the full bundle in memory.
 - **Per-section keyset pagination** — every multi-row section (`security_events`, `sessions`, `connections`, `pulse.rsvps`, `pulse.events_hosted`, `zap.chats`) is fetched in batches of `LIMIT 500` ordered by `id` with `WHERE id > :cursor`. No `OFFSET` (degrades on large tables).
@@ -159,8 +159,26 @@ Default position: do the work. Refusals are exceptional and have to survive a DP
 
 Tracked with `C-` IDs, all rolled up under **C-M1** (DSAR runbook):
 
-1. `dsar_requests` table for audit log.
+1. ✅ `dsar_requests` table for audit log — shipped with C-H1.
 2. `dsar@osn.example` email alias + automated acknowledgement.
 3. Postal address published on `@osn/landing` legal page.
 4. Internal triage doc with the team rotation.
 5. SLA monitoring (alert when a request is >25 d unresponded).
+
+## Implementation references (C-H1)
+
+- Orchestrator + identity-section streamers: `osn/api/src/services/accountExport.ts`
+- Route + step-up + per-account daily limiter: `osn/api/src/routes/account-export.ts`
+- ARC bridges (osn → pulse, osn → zap): `osn/api/src/services/exportBridges.ts`
+- Pulse internal endpoint: `pulse/api/src/routes/accountExportInternal.ts`
+- Zap internal endpoint: `zap/api/src/routes/accountExportInternal.ts`
+- UI component (shared): `osn/ui/src/auth/DataExportView.tsx`
+
+> **S2S auth note:** the osn → pulse / osn → zap bridges currently use the
+> shared `INTERNAL_SERVICE_SECRET` bearer token (same secret that gates
+> `/graph/internal/register-service`). The reverse direction (pulse → osn,
+> zap → osn) already uses ARC tokens with a service-account registry in
+> `osn/db`. When bidirectional ARC infrastructure lands (service-account
+> registries in `pulse/db` + `zap/db`) the bridge call sites stay
+> unchanged — only `lib/internal-auth.ts` swaps from shared-secret to
+> ARC verification.

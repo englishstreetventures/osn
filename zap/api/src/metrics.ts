@@ -27,6 +27,7 @@ export const ZAP_METRICS = {
   wsConnections: "zap.ws.connections",
   wsMessagesDelivered: "zap.ws.messages.delivered",
   accessDenied: "zap.access.denied",
+  dsarExportRows: "zap.dsar.export.rows",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -164,3 +165,24 @@ export const metricAccessDenied = (
   surface: AccessDeniedSurface,
   reason: AccessDeniedReason,
 ): void => accessDenied.inc({ surface, reason });
+
+// ---------------------------------------------------------------------------
+// DSAR account-export internal endpoint (C-H1)
+//
+// Bounded section union — Zap only contributes chat membership; message
+// ciphertext is excluded (E2E-encrypted, undecryptable by the server).
+// ---------------------------------------------------------------------------
+
+type ZapDsarExportSection = "chats";
+type ZapDsarExportRowsAttrs = { section: ZapDsarExportSection };
+
+const dsarExportRows = createCounter<ZapDsarExportRowsAttrs>({
+  name: ZAP_METRICS.dsarExportRows,
+  description: "Rows streamed by Zap into a DSAR account-export bundle, by section",
+  unit: "{row}",
+});
+
+export const metricZapDsarExportRow = (section: ZapDsarExportSection, count = 1): void => {
+  if (count <= 0) return;
+  dsarExportRows.add(count, { section });
+};

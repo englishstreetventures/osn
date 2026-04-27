@@ -2997,6 +2997,23 @@ export function createAuthService(config: AuthConfig) {
       yield* verifyStepUpToken(stepUpToken, accountId, recoveryGenerateAllowedAmr);
     });
 
+  /**
+   * Step-up gate for `GET /account/export` (C-H1 — DSAR account export).
+   *
+   * Reuses the same allowed-AMR set as recovery-code generation: passkey
+   * OR OTP. The export bundles every piece of personal data tied to the
+   * account, so a stolen access token alone (XSS) must not exfiltrate
+   * it — equivalent destructive symmetry with recovery-generate where a
+   * stolen access token alone must not burn the user's existing codes.
+   */
+  const verifyStepUpForAccountExport = (
+    accountId: string,
+    stepUpToken: string,
+  ): Effect.Effect<void, AuthError> =>
+    Effect.gen(function* () {
+      yield* verifyStepUpToken(stepUpToken, accountId, recoveryGenerateAllowedAmr);
+    });
+
   // -------------------------------------------------------------------------
   // Session introspection + revocation
   // -------------------------------------------------------------------------
@@ -3935,6 +3952,7 @@ export function createAuthService(config: AuthConfig) {
     verifyStepUpForRecoveryGenerate,
     verifyStepUpForPasskeyDelete,
     verifyStepUpForPasskeyRegister,
+    verifyStepUpForAccountExport,
     listAccountSessions,
     revokeAccountSession,
     revokeAllOtherAccountSessions,

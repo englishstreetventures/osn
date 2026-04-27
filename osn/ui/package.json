@@ -12,6 +12,7 @@
     "./auth/SignIn": "./src/auth/SignIn.tsx",
     "./auth/StepUpDialog": "./src/auth/StepUpDialog.tsx",
     "./auth/CreateProfileForm": "./src/auth/CreateProfileForm.tsx",
+    "./auth/DataExportView": "./src/auth/DataExportView.tsx",
     "./auth/PasskeysView": "./src/auth/PasskeysView.tsx",
     "./auth/ProfileOnboarding": "./src/auth/ProfileOnboarding.tsx",
     "./auth/ProfileSwitcher": "./src/auth/ProfileSwitcher.tsx",

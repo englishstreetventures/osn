@@ -14,13 +14,18 @@ import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
 // Code-split the Security section so `@simplewebauthn/browser` is only
 // fetched when the user opens that tab (P-I1).
 const SecuritySection = lazy(() => import("../components/SecuritySection"));
+// Privacy section is also WebAuthn-dependent (step-up uses passkeys when
+// available); same code-split treatment so it doesn't bloat the initial
+// Settings bundle.
+const PrivacySection = lazy(() => import("../components/PrivacySection"));
 
-type Section = "profile" | "account" | "security" | "apps";
+type Section = "profile" | "account" | "security" | "privacy" | "apps";
 
 const SECTIONS: { value: Section; label: string }[] = [
   { value: "profile", label: "Profile" },
   { value: "account", label: "Account" },
   { value: "security", label: "Security" },
+  { value: "privacy", label: "Privacy & data" },
   { value: "apps", label: "Connected apps" },
 ];
 
@@ -158,6 +163,20 @@ export function SettingsPage() {
             >
               <Suspense fallback={<p class="text-muted-foreground text-sm">Loading…</p>}>
                 <SecuritySection accessToken={accessToken()!} profileId={claims().profileId!} />
+              </Suspense>
+            </Show>
+          </Card>
+        </Show>
+
+        {/* Privacy & data section — GDPR Art. 15/20 + CCPA right-to-know export. */}
+        <Show when={section() === "privacy"}>
+          <Card class="flex flex-col gap-3 p-5">
+            <Show
+              when={accessToken()}
+              fallback={<p class="text-muted-foreground text-sm">Sign in to manage your data.</p>}
+            >
+              <Suspense fallback={<p class="text-muted-foreground text-sm">Loading…</p>}>
+                <PrivacySection accessToken={accessToken()!} />
               </Suspense>
             </Show>
           </Card>

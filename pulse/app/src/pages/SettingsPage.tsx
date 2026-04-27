@@ -1,13 +1,15 @@
 import { useAuth } from "@osn/client/solid";
+import { DataExportView } from "@osn/ui/auth/DataExportView";
 import { ProfileOnboarding } from "@osn/ui/auth/ProfileOnboarding";
 import { Button } from "@osn/ui/ui/button";
 import { Card } from "@osn/ui/ui/card";
 import { Label } from "@osn/ui/ui/label";
 import { RadioGroup, RadioGroupItem } from "@osn/ui/ui/radio-group";
+import { startAuthentication } from "@simplewebauthn/browser";
 import { createSignal, Show } from "solid-js";
 import { toast } from "solid-toast";
 
-import { registrationClient } from "../lib/authClients";
+import { accountExportClient, registrationClient, stepUpClient } from "../lib/authClients";
 import { updateMySettings } from "../lib/rsvps";
 
 type Visibility = "connections" | "no_one";
@@ -90,6 +92,24 @@ export function SettingsPage() {
               {saving() ? "Saving…" : "Save"}
             </Button>
           </div>
+        </Card>
+
+        <Card class="mt-4 flex flex-col gap-3 p-4">
+          <Show
+            when={accessToken()}
+            fallback={<p class="text-muted-foreground text-sm">Sign in to manage your data.</p>}
+          >
+            <DataExportView
+              accountExportClient={accountExportClient}
+              stepUpClient={stepUpClient}
+              accessToken={accessToken()!}
+              runPasskeyCeremony={(options: unknown) =>
+                startAuthentication({
+                  optionsJSON: options as Parameters<typeof startAuthentication>[0]["optionsJSON"],
+                })
+              }
+            />
+          </Show>
         </Card>
       </Show>
     </main>

@@ -173,4 +173,62 @@ export type AuthRateLimitedEndpoint =
   | "cross_device_begin"
   | "cross_device_poll"
   | "cross_device_approve"
-  | "cross_device_reject";
+  | "cross_device_reject"
+  | "account_export"
+  | "account_export_status";
+
+/**
+ * DSAR account-export sections (C-H1). Each section corresponds to one
+ * domain of personal data in the streaming NDJSON bundle. Order matches
+ * `wiki/compliance/dsar.md` §"Per-right execution / Art. 15".
+ */
+export type DsarExportSection =
+  | "account"
+  | "profiles"
+  | "passkeys"
+  | "sessions"
+  | "security_events"
+  | "recovery_codes"
+  | "email_changes"
+  | "connections"
+  | "blocks"
+  | "organisations"
+  | "pulse_rsvps"
+  | "pulse_events_hosted"
+  | "pulse_close_friends"
+  | "pulse_users"
+  | "zap_chats"
+  | "dsar_requests";
+
+/** DSAR account-export pipeline stages, for funnel + duration counters. */
+export type DsarExportStep =
+  | "begin"
+  | "collect"
+  | "fanout_pulse"
+  | "fanout_zap"
+  | "stream"
+  | "complete";
+
+/** Outcome of a single ARC bridge call during a DSAR export fan-out. */
+export type DsarBridgeOutcome = "ok" | "degraded" | "error" | "timeout";
+
+/** Service the DSAR export bridge is calling out to. */
+export type DsarBridgeService = "pulse" | "zap";
+
+/** DSAR request regimes (GDPR vs CCPA — both apply if unclear). */
+export type DsarRegime = "gdpr" | "ccpa" | "both";
+
+/**
+ * Subset of GDPR / CCPA rights the `dsar_requests` audit row tracks.
+ * Mirrors `wiki/compliance/dsar.md` §"Per-right execution".
+ */
+export type DsarRight =
+  | "access"
+  | "erasure"
+  | "rectification"
+  | "portability"
+  | "restriction"
+  | "object";
+
+/** Closed-set decision for a DSAR row. Refusals carry an `exemption` field separately. */
+export type DsarDecision = "fulfilled" | "partial" | "refused";

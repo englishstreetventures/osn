@@ -3,6 +3,7 @@ import { healthRoutes, initObservability, observabilityPlugin } from "@shared/ob
 import { Effect, Logger } from "effect";
 import { Elysia } from "elysia";
 
+import { createAccountExportInternalRoutes } from "./routes/accountExportInternal";
 import { closeFriendsRoutes } from "./routes/closeFriends";
 import { eventsRoutes, settingsRoutes } from "./routes/events";
 import { seriesRoutes } from "./routes/series";
@@ -21,7 +22,8 @@ const app = new Elysia()
   .use(eventsRoutes)
   .use(seriesRoutes)
   .use(settingsRoutes)
-  .use(closeFriendsRoutes);
+  .use(closeFriendsRoutes)
+  .use(createAccountExportInternalRoutes());
 
 const port = process.env.PORT || 3001;
 

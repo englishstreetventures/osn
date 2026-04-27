@@ -167,6 +167,21 @@ export function createTestLayer() {
   `);
   sqlite.run(`CREATE INDEX org_members_org_idx ON organisation_members (organisation_id)`);
   sqlite.run(`CREATE INDEX org_members_profile_idx ON organisation_members (profile_id)`);
+  sqlite.run(`
+    CREATE TABLE dsar_requests (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      regime TEXT NOT NULL,
+      right TEXT NOT NULL,
+      opened_at INTEGER NOT NULL,
+      closed_at INTEGER,
+      decision TEXT,
+      exemption TEXT,
+      evidence_path TEXT
+    )
+  `);
+  sqlite.run(`CREATE INDEX dsar_requests_account_idx ON dsar_requests (account_id)`);
+  sqlite.run(`CREATE INDEX dsar_requests_opened_at_idx ON dsar_requests (opened_at)`);
   const db = drizzle(sqlite, { schema });
   const dbLayer = Layer.succeed(Db, { db });
   const emailLayer = makeLogEmailLive().layer;

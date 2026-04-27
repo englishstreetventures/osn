@@ -26,6 +26,18 @@ vi.mock("@osn/client/solid", () => ({
 
 vi.mock("../../src/lib/authClients", () => ({
   registrationClient: { checkHandle: vi.fn() },
+  // C-H1 stubs — DataExportView never reaches the network in this test;
+  // it just needs the clients to exist as imports.
+  stepUpClient: {
+    passkeyBegin: vi.fn(),
+    passkeyComplete: vi.fn(),
+    otpBegin: vi.fn(),
+    otpComplete: vi.fn(),
+  },
+  accountExportClient: {
+    status: vi.fn().mockResolvedValue({ lastExportAt: null, nextAvailableAt: null }),
+    download: vi.fn(),
+  },
 }));
 
 // Mock the rsvps lib so we can assert updateMySettings is called and stub

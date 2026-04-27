@@ -51,4 +51,11 @@ export {
   type EmailChangeStep,
   type PasskeyAction,
   type CrossDeviceStep,
+  type DsarExportSection,
+  type DsarExportStep,
+  type DsarBridgeOutcome,
+  type DsarBridgeService,
+  type DsarRegime,
+  type DsarRight,
+  type DsarDecision,
 } from "./attrs";

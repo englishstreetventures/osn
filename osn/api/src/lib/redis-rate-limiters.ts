@@ -20,6 +20,7 @@ import type { ProfileRateLimiters } from "../routes/profile";
 
 const ONE_MINUTE_MS = 60_000;
 const ONE_HOUR_MS = 3_600_000;
+const ONE_DAY_MS = 86_400_000;
 
 /**
  * Build all auth rate limiters backed by a shared Redis client.
@@ -126,4 +127,31 @@ export function createRedisProfileRateLimiters(client: RedisClient): ProfileRate
     profileDelete: rl("profile:delete", 5),
     profileSetDefault: rl("profile:set_default", 10),
   };
+}
+
+/**
+ * Per-account daily limiter for `GET /account/export` (C-H1, dsar.md
+ * §"Wire format / Rate-limit"). Keyed by `accountId`, not IP — IPs are
+ * user-controllable on mobile and a single export is the most data-
+ * sensitive endpoint we expose, so per-IP throttling is the wrong knob.
+ */
+export function createRedisAccountExportRateLimiter(client: RedisClient): RateLimiterBackend {
+  return createRedisRateLimiter(client, {
+    namespace: "account:export",
+    maxRequests: 1,
+    windowMs: ONE_DAY_MS,
+  });
+}
+
+/**
+ * Per-account read limiter for `GET /account/export/status`. Status
+ * checks must NOT consume the daily export budget — the UI polls this
+ * to render a countdown — so it gets its own counter.
+ */
+export function createRedisAccountExportStatusRateLimiter(client: RedisClient): RateLimiterBackend {
+  return createRedisRateLimiter(client, {
+    namespace: "account:export_status",
+    maxRequests: 60,
+    windowMs: ONE_MINUTE_MS,
+  });
 }

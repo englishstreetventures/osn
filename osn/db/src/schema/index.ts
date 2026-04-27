@@ -406,3 +406,79 @@ export type Organisation = typeof organisations.$inferSelect;
 export type NewOrganisation = typeof organisations.$inferInsert;
 export type OrganisationMember = typeof organisationMembers.$inferSelect;
 export type NewOrganisationMember = typeof organisationMembers.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// DSAR audit log (C-H1 / C-M1)
+//
+// One row per Data Subject Access / Verifiable Consumer Request — created
+// when a request opens, updated when it closes. Used for:
+//   • auditing the 30-day GDPR (45-day CCPA) response SLA
+//   • the prior-DSAR section in `GET /account/export` (so users see their
+//     own DSAR history when they re-export)
+//   • supervisory-authority evidence for refusals / partial fulfilment
+//
+// `regime`, `right`, `decision`, `exemption` are bounded enums — see
+// DsarRegime, DsarRight, DsarDecision in @shared/observability/metrics.
+// Enforced at the service layer (matching the existing security_events
+// pattern) so a new regime / right value doesn't require a migration.
+//
+// Retention: 24 months from `closedAt` (CCPA §999.317) — enforced by a
+// future C-M2 sweeper. Until then the table grows unbounded; volume is
+// expected to be ≤1 row per account per year.
+// ---------------------------------------------------------------------------
+
+export const dsarRequests = sqliteTable(
+  "dsar_requests",
+  {
+    id: text("id").primaryKey(), // "dsar_" prefix
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    /**
+     * Bounded enum — see DsarRegime in @shared/observability. "both" means
+     * we couldn't determine residency or applied the stricter rule.
+     */
+    regime: text("regime").notNull(),
+    /**
+     * Bounded enum — see DsarRight. For self-service `/account/export`
+     * always "access" (also satisfies "portability" because the wire
+     * format is structured + machine-readable).
+     */
+    right: text("right").notNull(),
+    /** Unix seconds — set when the request lands. */
+    openedAt: integer("opened_at").notNull(),
+    /**
+     * Unix seconds — null while the request is in-flight, set when the
+     * stream completes (either successfully or with bridge degradation).
+     */
+    closedAt: integer("closed_at"),
+    /**
+     * Bounded enum — see DsarDecision. Null while in-flight; "fulfilled"
+     * when every section streamed cleanly; "partial" when at least one
+     * bridge degraded (Pulse / Zap unreachable); "refused" only on
+     * explicit Art. 17(3) exemption (not used for self-service access).
+     */
+    decision: text("decision"),
+    /**
+     * GDPR article reference for refusals (e.g. "17(3)(b)"). Null for
+     * "fulfilled" / "partial" rows. Free-form text but bounded by the
+     * exemption taxonomy in dsar.md §"Refusals".
+     */
+    exemption: text("exemption"),
+    /**
+     * Optional opaque path / URL to evidence (notarised statement,
+     * authority subpoena, etc.). Always null for self-service rows.
+     */
+    evidencePath: text("evidence_path"),
+  },
+  (t) => [
+    index("dsar_requests_account_idx").on(t.accountId),
+    // P-W1: powers the in-flight check (one open request per account at a
+    // time) and the 24-month retention sweep — both of which key on
+    // openedAt / closedAt rather than the primary key.
+    index("dsar_requests_opened_at_idx").on(t.openedAt),
+  ],
+);
+
+export type DsarRequest = typeof dsarRequests.$inferSelect;
+export type NewDsarRequest = typeof dsarRequests.$inferInsert;

@@ -3,6 +3,7 @@ import { healthRoutes, initObservability, observabilityPlugin } from "@shared/ob
 import { Effect, Logger } from "effect";
 import { Elysia } from "elysia";
 
+import { createAccountExportInternalRoutes } from "./routes/accountExportInternal";
 import { chatsRoutes } from "./routes/chats";
 
 const SERVICE_NAME = "zap-api";
@@ -13,7 +14,8 @@ const app = new Elysia()
   .use(observabilityPlugin({ serviceName: SERVICE_NAME }))
   .use(healthRoutes({ serviceName: SERVICE_NAME }))
   .get("/", () => ({ status: "ok", service: "zap-api" }))
-  .use(chatsRoutes);
+  .use(chatsRoutes)
+  .use(createAccountExportInternalRoutes());
 
 const port = process.env.PORT || 3002;
 

@@ -11,6 +11,8 @@ import type { CookieSessionConfig } from "./lib/cookie-session";
 import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
 import { createOriginGuard } from "./lib/origin-guard";
 import {
+  createRedisAccountExportRateLimiter,
+  createRedisAccountExportStatusRateLimiter,
   createRedisAuthRateLimiters,
   createRedisGraphRateLimiter,
   createRedisOrgRateLimiter,
@@ -20,6 +22,7 @@ import {
 import { createRedisRotatedSessionStore } from "./lib/rotated-session-store";
 import { createRedisJtiStore } from "./lib/step-up-jti-store";
 import { initRedisClient } from "./redis";
+import { createAccountExportRoutes } from "./routes/account-export";
 import { createAuthRoutes } from "./routes/auth";
 import { createGraphRoutes } from "./routes/graph";
 import { createInternalGraphRoutes } from "./routes/graph-internal";
@@ -152,6 +155,10 @@ const graphRateLimiter = createRedisGraphRateLimiter(redisClient);
 const orgRateLimiter = createRedisOrgRateLimiter(redisClient);
 const profileRateLimiters = createRedisProfileRateLimiters(redisClient);
 const recommendationRateLimiter = createRedisRecommendationRateLimiter(redisClient);
+const accountExportRateLimiters = {
+  accountExport: createRedisAccountExportRateLimiter(redisClient),
+  accountExportStatus: createRedisAccountExportStatusRateLimiter(redisClient),
+};
 
 // C3: Cookie session config — Secure flag + __Host- prefix in non-local envs.
 const cookieConfig: CookieSessionConfig = {
@@ -221,6 +228,14 @@ const app = new Elysia()
   .use(createProfileRoutes(authConfig, DbLive, observabilityLayer, profileRateLimiters))
   .use(
     createRecommendationRoutes(authConfig, DbLive, observabilityLayer, recommendationRateLimiter),
+  )
+  .use(
+    createAccountExportRoutes(
+      authConfig,
+      dbAndEmailLayer,
+      observabilityLayer,
+      accountExportRateLimiters,
+    ),
   );
 
 if (process.env.NODE_ENV !== "test") {

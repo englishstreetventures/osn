@@ -57,6 +57,8 @@ export const PULSE_METRICS = {
   closeFriendsListed: "pulse.close_friends.listed",
   closeFriendsListSize: "pulse.close_friends.list.size",
   closeFriendsBatchSize: "pulse.close_friends.batch.size",
+  // DSAR account-export internal endpoint (C-H1) — fan-out target
+  dsarExportRows: "pulse.dsar.export.rows",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -622,3 +624,26 @@ export const metricCloseFriendsListed = (size: number): void => {
 
 export const metricCloseFriendsBatchSize = (size: number): void =>
   closeFriendsBatchSize.record(size, {});
+
+// ---------------------------------------------------------------------------
+// DSAR account-export internal endpoint (C-H1)
+//
+// Bounded section union — one entry per row category Pulse contributes to
+// the account-holder's NDJSON bundle. Mirrors `DsarExportSection` in
+// @shared/observability/metrics but scoped to Pulse's own rows so the
+// attribute cardinality stays minimal here.
+// ---------------------------------------------------------------------------
+
+type PulseDsarExportSection = "rsvps" | "events_hosted" | "close_friends" | "pulse_users";
+type PulseDsarExportRowsAttrs = { section: PulseDsarExportSection };
+
+const dsarExportRows = createCounter<PulseDsarExportRowsAttrs>({
+  name: PULSE_METRICS.dsarExportRows,
+  description: "Rows streamed by Pulse into a DSAR account-export bundle, by section",
+  unit: "{row}",
+});
+
+export const metricPulseDsarExportRow = (section: PulseDsarExportSection, count = 1): void => {
+  if (count <= 0) return;
+  dsarExportRows.add(count, { section });
+};

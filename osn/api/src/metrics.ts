@@ -17,6 +17,10 @@ import type {
   AuthMethod,
   AuthRateLimitedEndpoint,
   CrossDeviceStep,
+  DsarBridgeOutcome,
+  DsarBridgeService,
+  DsarExportSection,
+  DsarExportStep,
   EmailChangeStep,
   GraphBlockAction,
   GraphConnectionAction,
@@ -85,6 +89,10 @@ export const OSN_METRICS = {
   profileSwitchAttempts: "osn.auth.profile_switch.attempts",
   profileCrudOps: "osn.profile.crud.operations",
   profileCrudDuration: "osn.profile.crud.duration",
+  dsarExportRequests: "osn.dsar.export.requests",
+  dsarExportDuration: "osn.dsar.export.duration",
+  dsarExportRows: "osn.dsar.export.rows",
+  dsarBridgeOutcome: "osn.dsar.bridge.outcome",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -815,3 +823,81 @@ export const withCrossDeviceOp =
         ]),
       ),
     );
+
+// ---------------------------------------------------------------------------
+// DSAR account export (C-H1) — streaming NDJSON bundle assembly with ARC
+// fan-out to Pulse + Zap. Cardinality posture: zero unbounded attributes;
+// accountId / requestId stay in spans + structured logs only.
+// ---------------------------------------------------------------------------
+
+type DsarExportRequestAttrs = { step: DsarExportStep; result: Result };
+type DsarExportDurationAttrs = { step: DsarExportStep; result: "ok" | "error" };
+type DsarExportRowsAttrs = { section: DsarExportSection };
+type DsarBridgeOutcomeAttrs = {
+  service: DsarBridgeService;
+  outcome: DsarBridgeOutcome;
+};
+
+const dsarExportRequests = createCounter<DsarExportRequestAttrs>({
+  name: OSN_METRICS.dsarExportRequests,
+  description: "DSAR account-export pipeline events by stage and outcome (C-H1)",
+  unit: "{event}",
+});
+
+const dsarExportDuration = createHistogram<DsarExportDurationAttrs>({
+  name: OSN_METRICS.dsarExportDuration,
+  description: "DSAR account-export pipeline stage duration (C-H1)",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
+const dsarExportRows = createCounter<DsarExportRowsAttrs>({
+  name: OSN_METRICS.dsarExportRows,
+  description: "Rows streamed into a DSAR account-export bundle, by section",
+  unit: "{row}",
+});
+
+const dsarBridgeOutcome = createCounter<DsarBridgeOutcomeAttrs>({
+  name: OSN_METRICS.dsarBridgeOutcome,
+  description: "ARC bridge call outcomes during DSAR export fan-out",
+  unit: "{call}",
+});
+
+/**
+ * Curried wrapper that records a span + counter + histogram around a DSAR
+ * export pipeline stage. Mirrors the `withAuthLogin` / `withProfileCrud`
+ * shape so reviewers don't have to learn a new pattern.
+ *
+ * Usage:
+ *   const collectAccount = (accountId: string) =>
+ *     Effect.gen(function* () { ... }).pipe(withDsarExport("collect"));
+ */
+export const withDsarExport =
+  (step: DsarExportStep) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      measureSeconds((seconds, outcome) => {
+        dsarExportDuration.record(seconds, {
+          step,
+          result: outcome === "ok" ? "ok" : "error",
+        });
+      }),
+      Effect.withSpan(`dsar.export.${step}`),
+      Effect.tap(() => Effect.sync(() => dsarExportRequests.inc({ step, result: "ok" }))),
+      Effect.tapError((e) =>
+        Effect.all([
+          Effect.sync(() => dsarExportRequests.inc({ step, result: classifyError(e) })),
+          Effect.logError("dsar.export pipeline failed", { step, ...safeErrorSummary(e) }),
+        ]),
+      ),
+    );
+
+export const metricDsarExportRow = (section: DsarExportSection, count = 1): void => {
+  if (count <= 0) return;
+  dsarExportRows.add(count, { section });
+};
+
+export const metricDsarBridgeOutcome = (
+  service: DsarBridgeService,
+  outcome: DsarBridgeOutcome,
+): void => dsarBridgeOutcome.inc({ service, outcome });
