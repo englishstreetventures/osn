@@ -65,13 +65,21 @@ interface BridgeOpts {
   readonly profileIds: readonly string[];
   /** Optional override for tests — defaults to `process.env.INTERNAL_SERVICE_SECRET`. */
   readonly secret?: string;
+  /**
+   * Test-only override for the downstream URL. Production callers always
+   * use the env-derived `PULSE_API_URL` / `ZAP_API_URL` defaults set at
+   * module load — this field exists so the bridge test suite can point
+   * at an in-process Bun.serve fixture without re-loading the module.
+   */
+  readonly url?: string;
 }
 
 async function* iterateBridge(
   service: "pulse" | "zap",
-  url: string,
+  defaultUrl: string,
   opts: BridgeOpts,
 ): AsyncIterable<BridgeLine> {
+  const url = opts.url ?? defaultUrl;
   const secret = opts.secret ?? process.env.INTERNAL_SERVICE_SECRET;
   if (!secret) {
     metricDsarBridgeOutcome(service, "error");

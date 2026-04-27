@@ -647,6 +647,12 @@ export interface AccountExportOpts {
    * don't want to spin up downstream services.
    */
   readonly skipBridges?: boolean;
+  /**
+   * Override the per-bundle memory budget (default 32 MB). Tests pin this
+   * to a tiny value to exercise the truncation tombstone path; production
+   * callers should never set it.
+   */
+  readonly memoryBudgetBytes?: number;
 }
 
 export interface AccountExportResult {
@@ -702,12 +708,13 @@ export const streamAccountExport = (
 
     let bytesEmitted = 0;
     let degraded = false;
+    const budget = opts.memoryBudgetBytes ?? MEMORY_BUDGET_BYTES;
 
     const yieldLine = (l: ExportLine): ExportLine => {
       bytesEmitted += l.raw.length + 1;
       return l;
     };
-    const overBudget = () => bytesEmitted >= MEMORY_BUDGET_BYTES;
+    const overBudget = () => bytesEmitted >= budget;
     const truncate = (where: string): ExportLine =>
       yieldLine(line({ truncated: where, reason: "memory_budget" }));
 

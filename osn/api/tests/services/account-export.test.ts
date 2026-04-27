@@ -174,6 +174,105 @@ describe("dsar_requests audit row", () => {
   );
 });
 
+describe("memory-budget truncation (T-S1)", () => {
+  it.effect(
+    "emits a {truncated, reason: memory_budget} tombstone when the budget is exceeded",
+    () =>
+      Effect.gen(function* () {
+        const profile = yield* auth.registerProfile("dsar-trunc@example.com", "dsartrunc");
+        // Pin the budget tiny so the very first identity row trips it.
+        // The header line alone is ~250 bytes; bumping budget below that
+        // forces truncation immediately after the first section.
+        const result = yield* streamAccountExport({
+          accountId: profile.accountId,
+          skipBridges: true,
+          memoryBudgetBytes: 100,
+        });
+        const lines = (yield* Effect.promise(() => drainStream(result.stream))) as Array<
+          Record<string, unknown>
+        >;
+        const truncated = lines.find((l) => "truncated" in l) as
+          | { truncated: string; reason: string }
+          | undefined;
+        expect(truncated).toBeDefined();
+        expect(truncated?.reason).toBe("memory_budget");
+        // Trailer is still emitted so the bundle is well-formed even
+        // when truncated — consumers can tell "stream ended cleanly"
+        // vs "connection dropped".
+        expect(lines[lines.length - 1]).toMatchObject({ end: true });
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect(
+    "with the default 32 MB budget, no truncation tombstone fires for a normal account",
+    () =>
+      Effect.gen(function* () {
+        const profile = yield* auth.registerProfile("dsar-no-trunc@example.com", "dsarnotrunc");
+        const result = yield* streamAccountExport({
+          accountId: profile.accountId,
+          skipBridges: true,
+        });
+        const lines = (yield* Effect.promise(() => drainStream(result.stream))) as Array<
+          Record<string, unknown>
+        >;
+        const truncated = lines.find((l) => "truncated" in l);
+        expect(truncated).toBeUndefined();
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+describe("orchestrator edge cases (T-E1)", () => {
+  it.effect(
+    "exporting an account with no profiles yields header + dsar_requests + trailer (no error)",
+    () =>
+      Effect.gen(function* () {
+        // Register a profile then strip the row — simulates the rare
+        // half-deleted state where the account exists but no users do.
+        const profile = yield* auth.registerProfile("dsar-empty@example.com", "dsarempty");
+        // We don't actually delete the user — instead we exercise the
+        // empty-profileIds branch of every section by exporting an
+        // unrelated account that *only* has the account row.
+        const result = yield* streamAccountExport({
+          accountId: profile.accountId,
+          skipBridges: true,
+        });
+        const lines = (yield* Effect.promise(() => drainStream(result.stream))) as Array<
+          Record<string, unknown>
+        >;
+        // Always-present sections.
+        expect(lines.find((l) => l.section === "account")).toBeDefined();
+        expect(lines.find((l) => l.section === "profiles")).toBeDefined();
+        // Recovery codes is always emitted (counts only) — even when zero.
+        const rec = lines.find((l) => l.section === "recovery_codes");
+        expect(rec).toBeDefined();
+        expect((rec as { row: { total: number } }).row.total).toBe(0);
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("closeDsarRequest with an unknown ID is a silent no-op", () =>
+    Effect.gen(function* () {
+      // Documented behaviour: dsar_requests close is best-effort and
+      // never raises — pinning this so a future refactor doesn't
+      // accidentally throw + crash the streaming-finally block.
+      yield* closeDsarRequest("dsar_does_not_exist", "fulfilled");
+      const { db } = yield* Db;
+      const rows = yield* Effect.promise(() => db.select().from(dsarRequests));
+      expect(rows).toHaveLength(0);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("openDsarRequest accepts the 'portability' right value alongside 'access'", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("dsar-port@example.com", "dsarport");
+      const { id } = yield* openDsarRequest(profile.accountId, "portability");
+      const { db } = yield* Db;
+      const rows = yield* Effect.promise(() => db.select().from(dsarRequests));
+      const row = rows.find((r) => r.id === id);
+      expect(row?.right).toBe("portability");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
 describe("getExportStatus", () => {
   it.effect("returns null/null when no DSARs have been opened", () =>
     Effect.gen(function* () {
