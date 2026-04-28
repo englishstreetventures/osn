@@ -28,6 +28,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[arc-tokens]] — S2S authentication protocol (ES256, scoped JWTs)
 - [[rate-limiting]] — per-IP fixed-window rate limiting on auth endpoints
 - [[identity-model]] — accounts, profiles (users), organisations, multi-account
+- [[verified-identity]] — Yoti-style verified-attribute layer (Australian DVS / mDL / myID; SD-JWT VC) — design doc, not yet implemented
 - [[passkey-primary]] — passkey-only login contract (the only primary factor)
 - [[recovery-codes]] — single-use account-recovery tokens (Copenhagen Book M2)
 - [[step-up]] — short-lived sudo tokens gating sensitive endpoints (M-PK1)

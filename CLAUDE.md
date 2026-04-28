@@ -67,6 +67,7 @@ The `wiki/` directory contains detailed reference pages. Use this index to find 
 | Work on Pulse close friends | `[[wiki/systems/pulse-close-friends]]` |
 | Gate a sensitive action behind step-up auth | `[[wiki/systems/step-up]]` |
 | Understand the passkey-only login model | `[[wiki/systems/passkey-primary]]` |
+| Plan/extend the Yoti-style verified-identity layer (AU DVS / mDL / myID, SD-JWT VC) | `[[wiki/systems/verified-identity]]` |
 | Send a transactional email (OTP, security notice) | `[[wiki/systems/email]]` |
 | Surface session list / revoke per device | `[[wiki/systems/sessions]]` |
 | Understand cross-service calls | `[[wiki/architecture/s2s-patterns]]` |
