@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS guests (
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL DEFAULT '',
   sort_order INTEGER NOT NULL DEFAULT 0,
+  external_id TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -32,7 +33,16 @@ CREATE TABLE IF NOT EXISTS events (
   name TEXT NOT NULL,
   date TEXT NOT NULL,
   location TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT ''
+  description TEXT NOT NULL DEFAULT '',
+  start_at TEXT NOT NULL DEFAULT '',
+  end_at TEXT NOT NULL DEFAULT '',
+  timezone TEXT NOT NULL DEFAULT '',
+  address TEXT,
+  dress_code_description TEXT,
+  dress_code_palette TEXT,
+  pinterest_url TEXT,
+  maps_url TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS guest_events (
@@ -58,6 +68,19 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS imports (
+  id TEXT PRIMARY KEY,
+  uploaded_at INTEGER NOT NULL,
+  format TEXT NOT NULL,
+  events_r2_key TEXT NOT NULL,
+  guests_r2_key TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  status TEXT NOT NULL,
+  applied_at INTEGER,
+  reverted_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS imports_status_uploaded_at_idx ON imports(status, uploaded_at);
 `;
 
 export function createDb(path: string = ":memory:"): Db {
@@ -69,15 +92,24 @@ export function createDb(path: string = ":memory:"): Db {
 export function seedDb(db: Db): void {
   const now = new Date();
 
-  for (const [slug, event] of Object.entries(eventsData)) {
+  for (const event of Object.values(eventsData)) {
     db.insert(schema.events)
       .values({
         id: event.id,
-        slug,
+        slug: event.slug,
         name: event.name,
         date: event.date,
         location: event.location,
         description: event.description,
+        startAt: event.startAt,
+        endAt: event.endAt,
+        timezone: event.timezone,
+        address: event.address,
+        dressCodeDescription: event.dressCodeDescription,
+        dressCodePalette: JSON.stringify(event.dressCodePalette),
+        pinterestUrl: event.pinterestUrl,
+        mapsUrl: event.mapsUrl,
+        sortOrder: event.sortOrder,
       })
       .run();
   }
@@ -109,8 +141,8 @@ export function seedDb(db: Db): void {
         })
         .run();
 
-      for (const eventSlug of guest.events) {
-        db.insert(schema.guestEvents).values({ guestId, eventId: eventSlug }).run();
+      for (const eventId of guest.events) {
+        db.insert(schema.guestEvents).values({ guestId, eventId }).run();
       }
     });
   }

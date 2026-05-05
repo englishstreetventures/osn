@@ -1,23 +1,90 @@
 {
   "mehndi": {
-    "id": "mehndi",
+    "id": "9f7a2c14-1b3d-4e5f-8a01-000000000001",
+    "slug": "mehndi",
     "name": "Mehndi",
     "date": "2026-09-18",
+    "startAt": "2026-09-18T16:00:00+10:00",
+    "endAt": "2026-09-18T22:00:00+10:00",
+    "timezone": "Australia/Sydney",
     "location": "The Sharma Residence, Sydney",
-    "description": "An intimate evening of music, henna, and family. Traditional dress warmly welcomed."
+    "address": "12 Banksia Lane, Strathfield NSW 2135",
+    "description": "An intimate evening of music, henna, and family. Traditional dress warmly welcomed.",
+    "dressCodeDescription": "Bright, festive colours encouraged. Traditional or semi-formal Indian attire warmly welcomed.",
+    "dressCodePalette": [
+      { "name": "Marigold", "color": "oklch(76.36% 0.1533 75.16)" },
+      { "name": "Fuchsia", "color": "oklch(54.66% 0.2139 352.16)" },
+      { "name": "Emerald", "color": "oklch(46.05% 0.1156 153.58)" },
+      { "name": "Turquoise", "color": "oklch(70.15% 0.1115 186.68)" }
+    ],
+    "pinterestUrl": "https://www.pinterest.com/",
+    "mapsUrl": "https://maps.google.com/?q=12+Banksia+Lane+Strathfield+NSW+2135",
+    "sortOrder": 0
+  },
+  "sangeet": {
+    "id": "9f7a2c14-1b3d-4e5f-8a01-000000000002",
+    "slug": "sangeet",
+    "name": "Sangeet",
+    "date": "2026-09-19",
+    "startAt": "2026-09-19T18:30:00+10:00",
+    "endAt": "2026-09-19T23:30:00+10:00",
+    "timezone": "Australia/Sydney",
+    "location": "The Pavilion, Centennial Park, Sydney",
+    "address": "1 Grand Drive, Centennial Park NSW 2021",
+    "description": "An evening of music, dance, and celebration. Bring your dancing shoes!",
+    "dressCodeDescription": "Glamorous and bold — think sequins, rich fabrics, and jewel tones. This is the party night!",
+    "dressCodePalette": [
+      { "name": "Royal Blue", "color": "oklch(37.91% 0.1378 265.52)" },
+      { "name": "Gold", "color": "oklch(74.99% 0.0854 82.08)" },
+      { "name": "Plum", "color": "oklch(38.22% 0.1235 340.14)" },
+      { "name": "Champagne", "color": "oklch(93.01% 0.0380 81.51)" }
+    ],
+    "pinterestUrl": "https://www.pinterest.com/",
+    "mapsUrl": "https://maps.google.com/?q=The+Pavilion+Centennial+Park+Sydney",
+    "sortOrder": 1
   },
   "wedding": {
-    "id": "wedding",
+    "id": "9f7a2c14-1b3d-4e5f-8a01-000000000003",
+    "slug": "wedding",
     "name": "Wedding Ceremony",
     "date": "2026-09-20",
+    "startAt": "2026-09-20T16:00:00+10:00",
+    "endAt": "2026-09-20T18:00:00+10:00",
+    "timezone": "Australia/Sydney",
     "location": "Royal Botanic Garden, Sydney",
-    "description": "The ceremony will begin at 4 PM. Please be seated by 3:45 PM."
+    "address": "Mrs Macquaries Road, Sydney NSW 2000",
+    "description": "The ceremony will begin at 4 PM. Please be seated by 3:45 PM.",
+    "dressCodeDescription": "Elegant and formal. Please avoid wearing white or black. Traditional attire from any culture is welcome.",
+    "dressCodePalette": [
+      { "name": "Sage", "color": "oklch(72.88% 0.0585 128.92)" },
+      { "name": "Dusty Rose", "color": "oklch(78.63% 0.0634 48.93)" },
+      { "name": "Ivory", "color": "oklch(99.60% 0.0196 106.75)" },
+      { "name": "Burgundy", "color": "oklch(40.08% 0.0948 15.09)" }
+    ],
+    "pinterestUrl": "https://www.pinterest.com/",
+    "mapsUrl": "https://maps.google.com/?q=Royal+Botanic+Garden+Sydney",
+    "sortOrder": 2
   },
   "reception": {
-    "id": "reception",
+    "id": "9f7a2c14-1b3d-4e5f-8a01-000000000004",
+    "slug": "reception",
     "name": "Reception",
     "date": "2026-09-20",
+    "startAt": "2026-09-20T19:00:00+10:00",
+    "endAt": "2026-09-21T00:00:00+10:00",
+    "timezone": "Australia/Sydney",
     "location": "Doltone House, Pyrmont",
-    "description": "Dinner and dancing from 7 PM. Cocktail attire."
+    "address": "26 Pirrama Road, Pyrmont NSW 2009",
+    "description": "Dinner and dancing from 7 PM. Cocktail attire.",
+    "dressCodeDescription": "Cocktail attire — refined and celebratory. Soft metallics and deep jewel tones complement the evening palette.",
+    "dressCodePalette": [
+      { "name": "Midnight", "color": "oklch(28.50% 0.0612 268.82)" },
+      { "name": "Copper", "color": "oklch(64.20% 0.1082 47.20)" },
+      { "name": "Pearl", "color": "oklch(94.80% 0.0148 95.00)" },
+      { "name": "Sapphire", "color": "oklch(45.10% 0.1532 252.00)" }
+    ],
+    "pinterestUrl": "https://www.pinterest.com/",
+    "mapsUrl": "https://maps.google.com/?q=Doltone+House+Pyrmont",
+    "sortOrder": 3
   }
 }

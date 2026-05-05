@@ -5,8 +5,14 @@ import { claimService, InvalidCredentials } from "./claim";
 import { DbService } from "../db";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
+import eventsData from "../data/events.json";
 
 const withDb = effWith(TestDbLayer);
+
+const MEHNDI_ID = eventsData.mehndi.id;
+const SANGEET_ID = eventsData.sangeet.id;
+const WEDDING_ID = eventsData.wedding.id;
+const RECEPTION_ID = eventsData.reception.id;
 
 describe("claimService.lookup", () => {
   it(
@@ -16,17 +22,63 @@ describe("claimService.lookup", () => {
         const result = yield* claimService.lookup("SHARMA-IVY-QM42");
         expect(result.familyName).toBe("Sharma");
         expect(result.publicId).toBe("SHARMA-IVY-QM42");
-        expect(result.members).toEqual([
-          {
-            firstName: "Priya",
-            lastName: "Sharma",
-            eventIds: expect.arrayContaining(["mehndi", "wedding", "reception"]),
-          },
-        ]);
-        expect(result.events.map((e) => e.id)).toEqual(
-          expect.arrayContaining(["mehndi", "wedding", "reception"]),
+        expect(result.members).toHaveLength(1);
+        const priya = result.members[0]!;
+        expect(priya.firstName).toBe("Priya");
+        expect(priya.lastName).toBe("Sharma");
+        expect(typeof priya.guestId).toBe("string");
+        expect(priya.guestId.length).toBeGreaterThan(0);
+        expect([...priya.eventIds].sort()).toEqual([MEHNDI_ID, WEDDING_ID, RECEPTION_ID].sort());
+        expect(result.events.map((e) => e.id).sort()).toEqual(
+          [MEHNDI_ID, WEDDING_ID, RECEPTION_ID].sort(),
         );
         expect(result.rsvps).toEqual([]);
+      }),
+    ),
+  );
+
+  it(
+    "exposes guestId on every member",
+    withDb(
+      Effect.gen(function* () {
+        const result = yield* claimService.lookup("WILSON-OAK-7R2P");
+        for (const m of result.members) {
+          expect(typeof m.guestId).toBe("string");
+          expect(m.guestId.length).toBeGreaterThan(0);
+        }
+        // All guestIds within a family are unique
+        const ids = new Set(result.members.map((m) => m.guestId));
+        expect(ids.size).toBe(result.members.length);
+      }),
+    ),
+  );
+
+  it(
+    "surfaces extended event metadata (startAt, endAt, timezone, address, palette, urls)",
+    withDb(
+      Effect.gen(function* () {
+        const result = yield* claimService.lookup("SHARMA-IVY-QM42");
+        const mehndi = result.events.find((e) => e.id === MEHNDI_ID)!;
+        expect(mehndi.startAt).toBe(eventsData.mehndi.startAt);
+        expect(mehndi.endAt).toBe(eventsData.mehndi.endAt);
+        expect(mehndi.timezone).toBe("Australia/Sydney");
+        expect(mehndi.address).toBe(eventsData.mehndi.address);
+        expect(mehndi.dressCodeDescription).toBe(eventsData.mehndi.dressCodeDescription);
+        expect(mehndi.dressCodePalette).toEqual(eventsData.mehndi.dressCodePalette);
+        expect(mehndi.pinterestUrl).toBe(eventsData.mehndi.pinterestUrl);
+        expect(mehndi.mapsUrl).toBe(eventsData.mehndi.mapsUrl);
+        expect(mehndi.sortOrder).toBe(0);
+      }),
+    ),
+  );
+
+  it(
+    "orders events by sortOrder",
+    withDb(
+      Effect.gen(function* () {
+        const result = yield* claimService.lookup("SHARMA-IVY-QM42");
+        const orders = result.events.map((e) => e.sortOrder);
+        expect(orders).toEqual([...orders].sort((a, b) => a - b));
       }),
     ),
   );
@@ -38,11 +90,14 @@ describe("claimService.lookup", () => {
         const result = yield* claimService.lookup("WILSON-OAK-7R2P");
         expect(result.familyName).toBe("Wilson");
         const byName = new Map(result.members.map((m) => [m.firstName, m]));
-        expect(byName.get("James")?.eventIds.sort()).toEqual(["reception", "wedding"]);
-        expect(byName.get("Emma")?.eventIds.sort()).toEqual(["reception", "wedding"]);
-        expect(byName.get("Sophie")?.eventIds).toEqual(["wedding"]);
-        // Top-level events is the union across the family.
-        expect(result.events.map((e) => e.id).sort()).toEqual(["reception", "wedding"]);
+        expect([...(byName.get("James")?.eventIds ?? [])].sort()).toEqual(
+          [RECEPTION_ID, WEDDING_ID].sort(),
+        );
+        expect([...(byName.get("Emma")?.eventIds ?? [])].sort()).toEqual(
+          [RECEPTION_ID, WEDDING_ID].sort(),
+        );
+        expect(byName.get("Sophie")?.eventIds).toEqual([WEDDING_ID]);
+        expect(result.events.map((e) => e.id).sort()).toEqual([RECEPTION_ID, WEDDING_ID].sort());
       }),
     ),
   );
@@ -52,7 +107,7 @@ describe("claimService.lookup", () => {
     withDb(
       Effect.gen(function* () {
         const result = yield* claimService.lookup("PATEL-JOY-RK97");
-        expect(result.events.map((e) => e.id).sort()).toEqual(["reception", "wedding"]);
+        expect(result.events.map((e) => e.id).sort()).toEqual([RECEPTION_ID, WEDDING_ID].sort());
       }),
     ),
   );
@@ -93,6 +148,19 @@ describe("claimService.getAllGuests", () => {
   );
 
   it(
+    "each row exposes its guestId",
+    withDb(
+      Effect.gen(function* () {
+        const rows = yield* claimService.getAllGuests();
+        for (const row of rows) {
+          expect(typeof row.guestId).toBe("string");
+          expect(row.guestId.length).toBeGreaterThan(0);
+        }
+      }),
+    ),
+  );
+
+  it(
     "each guest has at least one event",
     withDb(
       Effect.gen(function* () {
@@ -126,4 +194,8 @@ describe("claimService.getAllGuests", () => {
       }),
     ),
   );
+
+  // Suppress "SANGEET imported but unused" — referenced for future tests once
+  // anyone in the seed is invited to it (currently no one is).
+  void SANGEET_ID;
 });

@@ -1,10 +1,43 @@
 import { Effect, Data } from "effect";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, inArray } from "drizzle-orm";
 import { families, guests, events, guestEvents, rsvps } from "@cire/db";
 import { DbService } from "../db";
-import type { ClaimResponse, OrganiserGuestRow } from "../schemas/claim";
+import type { ClaimResponse, OrganiserGuestRow, DressSwatch } from "../schemas/claim";
 
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
+
+/**
+ * Decode the JSON-encoded `dress_code_palette` column. Returns `palette: null`
+ * + `malformed: true` so the caller can emit a structured log line referencing
+ * the offending event id (kept out of this pure helper to preserve testability
+ * and avoid threading Effect through every call site).
+ */
+function decodePalette(raw: string | null): {
+  palette: readonly DressSwatch[] | null;
+  malformed: boolean;
+} {
+  if (!raw) return { palette: null, malformed: false };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { palette: null, malformed: true };
+  }
+  if (!Array.isArray(parsed)) return { palette: null, malformed: true };
+  const out: DressSwatch[] = [];
+  for (const item of parsed) {
+    if (
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as Record<string, unknown>).name === "string" &&
+      typeof (item as Record<string, unknown>).color === "string"
+    ) {
+      const t = item as { name: string; color: string };
+      out.push({ name: t.name, color: t.color });
+    }
+  }
+  return { palette: out, malformed: false };
+}
 
 export const claimService = {
   lookup(publicId: string): Effect.Effect<ClaimResponse, InvalidCredentials, DbService> {
@@ -14,40 +47,35 @@ export const claimService = {
       const [family] = db.select().from(families).where(eq(families.publicId, publicId)).all();
       if (!family) return yield* Effect.fail(new InvalidCredentials());
 
-      // Single join returning one row per (guest × invited event). Guests with
-      // no invites still appear via the leftJoin so members stays accurate.
-      const rows = db
+      // Two queries kept narrow to avoid the cartesian explosion of joining
+      // events into the per-guest rows (every event row was previously
+      // duplicated once per invited guest, including the JSON palette blob).
+      // (a) guests + their event-id memberships, (b) the unique events.
+      // Run independently; each shape is small.
+      const guestRows = db
         .select({
           guestId: guests.id,
           firstName: guests.firstName,
           lastName: guests.lastName,
           sortOrder: guests.sortOrder,
-          eventId: events.id,
-          eventName: events.name,
-          eventDate: events.date,
-          eventLocation: events.location,
-          eventDescription: events.description,
+          eventId: guestEvents.eventId,
         })
         .from(guests)
         .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
-        .leftJoin(events, eq(guestEvents.eventId, events.id))
         .where(eq(guests.familyId, family.id))
         .orderBy(asc(guests.sortOrder))
         .all();
 
       const memberMap = new Map<
         string,
-        {
-          firstName: string;
-          lastName: string;
-          eventIds: string[];
-        }
+        { guestId: string; firstName: string; lastName: string; eventIds: string[] }
       >();
-      const eventMap = new Map<string, ClaimResponse["events"][number]>();
-      for (const row of rows) {
+      const eventIds = new Set<string>();
+      for (const row of guestRows) {
         let member = memberMap.get(row.guestId);
         if (!member) {
           member = {
+            guestId: row.guestId,
             firstName: row.firstName,
             lastName: row.lastName,
             eventIds: [],
@@ -56,19 +84,44 @@ export const claimService = {
         }
         if (row.eventId !== null) {
           member.eventIds.push(row.eventId);
-          if (!eventMap.has(row.eventId)) {
-            eventMap.set(row.eventId, {
-              id: row.eventId,
-              name: row.eventName!,
-              date: row.eventDate!,
-              location: row.eventLocation!,
-              description: row.eventDescription!,
-            });
-          }
+          eventIds.add(row.eventId);
         }
       }
 
-      // Fetch existing RSVPs for this family
+      const eventRows =
+        eventIds.size === 0
+          ? []
+          : db
+              .select()
+              .from(events)
+              .where(inArray(events.id, [...eventIds]))
+              .all();
+
+      const eventList: ClaimResponse["events"] = [];
+      for (const e of eventRows) {
+        const { palette, malformed } = decodePalette(e.dressCodePalette);
+        if (malformed) {
+          yield* Effect.logWarning(`malformed dress_code_palette`, { eventId: e.id });
+        }
+        eventList.push({
+          id: e.id,
+          name: e.name,
+          date: e.date,
+          location: e.location,
+          description: e.description,
+          startAt: e.startAt,
+          endAt: e.endAt,
+          timezone: e.timezone,
+          address: e.address ?? null,
+          dressCodeDescription: e.dressCodeDescription ?? null,
+          dressCodePalette: palette,
+          pinterestUrl: e.pinterestUrl ?? null,
+          mapsUrl: e.mapsUrl ?? null,
+          sortOrder: e.sortOrder ?? 0,
+        });
+      }
+      eventList.sort((a, b) => a.sortOrder - b.sortOrder);
+
       const rsvpRows = db
         .select({
           guestId: rsvps.guestId,
@@ -85,7 +138,7 @@ export const claimService = {
         publicId: family.publicId,
         familyName: family.familyName,
         members: Array.from(memberMap.values()),
-        events: Array.from(eventMap.values()),
+        events: eventList,
         rsvps: rsvpRows,
       };
     });
@@ -95,9 +148,6 @@ export const claimService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      // One query joining families → guests → guestEvents.
-      // innerJoin on families ensures orphan guests (FK invariant violations)
-      // are skipped at the DB level without an in-memory filter.
       const rows = db
         .select({
           guestId: guests.id,
@@ -118,6 +168,7 @@ export const claimService = {
         let entry = byGuest.get(row.guestId);
         if (!entry) {
           entry = {
+            guestId: row.guestId,
             publicId: row.publicId,
             familyName: row.familyName,
             firstName: row.firstName,

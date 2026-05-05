@@ -10,6 +10,12 @@ export function formatDate(dateStr: string): string {
   });
 }
 
+function isDressSwatch(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.name === "string" && typeof v.color === "string";
+}
+
 export function isValidClaimResponse(data: unknown): data is ClaimResult {
   if (typeof data !== "object" || data === null) return false;
   const obj = data as Record<string, unknown>;
@@ -17,22 +23,37 @@ export function isValidClaimResponse(data: unknown): data is ClaimResult {
   if (typeof obj.familyName !== "string") return false;
   if (!Array.isArray(obj.members)) return false;
   if (!Array.isArray(obj.events)) return false;
-  const membersValid = obj.members.every(
-    (m: unknown) =>
-      typeof m === "object" &&
-      m !== null &&
-      typeof (m as Record<string, unknown>).firstName === "string" &&
-      typeof (m as Record<string, unknown>).lastName === "string" &&
-      Array.isArray((m as Record<string, unknown>).eventIds),
-  );
+  const membersValid = obj.members.every((m: unknown) => {
+    if (typeof m !== "object" || m === null) return false;
+    const mm = m as Record<string, unknown>;
+    return (
+      typeof mm.guestId === "string" &&
+      typeof mm.firstName === "string" &&
+      typeof mm.lastName === "string" &&
+      Array.isArray(mm.eventIds)
+    );
+  });
   if (!membersValid) return false;
-  return obj.events.every(
-    (e: unknown) =>
-      typeof e === "object" &&
-      e !== null &&
-      typeof (e as Record<string, unknown>).id === "string" &&
-      typeof (e as Record<string, unknown>).name === "string" &&
-      typeof (e as Record<string, unknown>).date === "string" &&
-      typeof (e as Record<string, unknown>).location === "string",
-  );
+  return obj.events.every((e: unknown) => {
+    if (typeof e !== "object" || e === null) return false;
+    const ev = e as Record<string, unknown>;
+    if (typeof ev.id !== "string") return false;
+    if (typeof ev.name !== "string") return false;
+    if (typeof ev.date !== "string") return false;
+    if (typeof ev.location !== "string") return false;
+    if (typeof ev.startAt !== "string") return false;
+    if (typeof ev.endAt !== "string") return false;
+    if (typeof ev.timezone !== "string") return false;
+    if (ev.address !== null && typeof ev.address !== "string") return false;
+    if (ev.dressCodeDescription !== null && typeof ev.dressCodeDescription !== "string")
+      return false;
+    if (ev.dressCodePalette !== null) {
+      if (!Array.isArray(ev.dressCodePalette)) return false;
+      if (!ev.dressCodePalette.every(isDressSwatch)) return false;
+    }
+    if (ev.pinterestUrl !== null && typeof ev.pinterestUrl !== "string") return false;
+    if (ev.mapsUrl !== null && typeof ev.mapsUrl !== "string") return false;
+    if (typeof ev.sortOrder !== "number") return false;
+    return true;
+  });
 }

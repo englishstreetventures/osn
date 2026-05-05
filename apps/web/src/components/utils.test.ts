@@ -27,22 +27,36 @@ describe("formatDate", () => {
 });
 
 describe("isValidClaimResponse", () => {
+  const baseEvent = {
+    id: "9f7a2c14-1b3d-4e5f-8a01-000000000001",
+    name: "Mehndi",
+    date: "2026-09-18",
+    location: "The Sharma Residence",
+    description: "An evening of henna",
+    startAt: "2026-09-18T16:00:00+10:00",
+    endAt: "2026-09-18T22:00:00+10:00",
+    timezone: "Australia/Sydney",
+    address: "12 Banksia Lane, Strathfield",
+    dressCodeDescription: "Bright, festive colours",
+    dressCodePalette: [{ name: "Marigold", color: "oklch(76% 0.15 75)" }],
+    pinterestUrl: "https://www.pinterest.com/",
+    mapsUrl: "https://maps.google.com/",
+    sortOrder: 0,
+  };
+
   const validResponse = {
     publicId: "SHARMA-JOY-RK97",
     familyName: "Sharma",
     members: [
-      { firstName: "Priya", lastName: "Sharma", eventIds: ["mehndi", "reception"] },
-      { firstName: "Raj", lastName: "Sharma", eventIds: ["reception"] },
-    ],
-    events: [
       {
-        id: "mehndi",
-        name: "Mehndi",
-        date: "2026-09-18",
-        location: "The Sharma Residence",
-        description: "An evening of henna",
+        guestId: "guest-1",
+        firstName: "Priya",
+        lastName: "Sharma",
+        eventIds: ["mehndi", "reception"],
       },
+      { guestId: "guest-2", firstName: "Raj", lastName: "Sharma", eventIds: ["reception"] },
     ],
+    events: [baseEvent],
   };
 
   it("accepts a valid response", () => {
@@ -56,6 +70,26 @@ describe("isValidClaimResponse", () => {
         familyName: "Test",
         members: [],
         events: [],
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts events with null optional fields", () => {
+    expect(
+      isValidClaimResponse({
+        publicId: "T",
+        familyName: "T",
+        members: [],
+        events: [
+          {
+            ...baseEvent,
+            address: null,
+            dressCodeDescription: null,
+            dressCodePalette: null,
+            pinterestUrl: null,
+            mapsUrl: null,
+          },
+        ],
       }),
     ).toBe(true);
   });
@@ -108,12 +142,23 @@ describe("isValidClaimResponse", () => {
     ).toBe(false);
   });
 
+  it("rejects members missing guestId", () => {
+    expect(
+      isValidClaimResponse({
+        publicId: "X",
+        familyName: "Test",
+        members: [{ firstName: "Jane", lastName: "Doe", eventIds: [] }],
+        events: [],
+      }),
+    ).toBe(false);
+  });
+
   it("rejects members with missing firstName", () => {
     expect(
       isValidClaimResponse({
         publicId: "X",
         familyName: "Test",
-        members: [{ lastName: "Doe", eventIds: [] }],
+        members: [{ guestId: "g1", lastName: "Doe", eventIds: [] }],
         events: [],
       }),
     ).toBe(false);
@@ -124,7 +169,7 @@ describe("isValidClaimResponse", () => {
       isValidClaimResponse({
         publicId: "X",
         familyName: "Test",
-        members: [{ firstName: "Jane", eventIds: [] }],
+        members: [{ guestId: "g1", firstName: "Jane", eventIds: [] }],
         events: [],
       }),
     ).toBe(false);
@@ -135,30 +180,32 @@ describe("isValidClaimResponse", () => {
       isValidClaimResponse({
         publicId: "X",
         familyName: "Test",
-        members: [{ firstName: "Jane", lastName: "Doe", eventIds: "bad" }],
+        members: [{ guestId: "g1", firstName: "Jane", lastName: "Doe", eventIds: "bad" }],
         events: [],
       }),
     ).toBe(false);
   });
 
   it("rejects events with missing id", () => {
+    const { id: _id, ...rest } = baseEvent;
     expect(
       isValidClaimResponse({
         publicId: "X",
         familyName: "Test",
         members: [],
-        events: [{ name: "X", date: "2026-01-01", location: "Y" }],
+        events: [rest],
       }),
     ).toBe(false);
   });
 
   it("rejects events with missing name", () => {
+    const { name: _name, ...rest } = baseEvent;
     expect(
       isValidClaimResponse({
         publicId: "X",
         familyName: "Test",
         members: [],
-        events: [{ id: "x", date: "2026-01-01", location: "Y" }],
+        events: [rest],
       }),
     ).toBe(false);
   });
@@ -169,7 +216,58 @@ describe("isValidClaimResponse", () => {
         publicId: "X",
         familyName: "Test",
         members: [],
-        events: [{ id: "x", name: "X", date: 123, location: "Y" }],
+        events: [{ ...baseEvent, date: 123 }],
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects events with missing startAt", () => {
+    const { startAt: _s, ...rest } = baseEvent;
+    expect(
+      isValidClaimResponse({ publicId: "X", familyName: "Test", members: [], events: [rest] }),
+    ).toBe(false);
+  });
+
+  it("rejects events with non-string timezone", () => {
+    expect(
+      isValidClaimResponse({
+        publicId: "X",
+        familyName: "Test",
+        members: [],
+        events: [{ ...baseEvent, timezone: 7 }],
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects events with non-string address (other than null)", () => {
+    expect(
+      isValidClaimResponse({
+        publicId: "X",
+        familyName: "Test",
+        members: [],
+        events: [{ ...baseEvent, address: 42 }],
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects events with malformed dressCodePalette", () => {
+    expect(
+      isValidClaimResponse({
+        publicId: "X",
+        familyName: "Test",
+        members: [],
+        events: [{ ...baseEvent, dressCodePalette: [{ name: "X" }] }],
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects events with non-number sortOrder", () => {
+    expect(
+      isValidClaimResponse({
+        publicId: "X",
+        familyName: "Test",
+        members: [],
+        events: [{ ...baseEvent, sortOrder: "0" }],
       }),
     ).toBe(false);
   });

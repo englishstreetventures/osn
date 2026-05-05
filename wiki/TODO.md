@@ -15,12 +15,14 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Current Status
 
-Monorepo built and functional. `packages/db` models families with a shareable `publicId` (e.g. `PATEL-JOY-RK97`) and per-family guests; `apps/api` exposes `POST /api/claim` (publicId-only auth), `POST /api/rsvp` (per-person per-event with dietary), `GET /api/organiser/guests`, plus rate-limit middleware on `/api/claim`. Organiser portal split into its own Astro app (`apps/organiser`) with `GuestTable` consuming the new shape. Backend is Effect-based with Effect Schema validation; tests co-located `*.test.ts` under `bun test`. Migrations: `0001_initial.sql`, `0002_add_rsvp_dietary.sql`. Next slice: spreadsheet upload that drives reconciliation against this schema, plus wiring the guest-app RSVP modal to the live endpoint.
+Monorepo built and functional. `packages/db` models families with a shareable `publicId` (e.g. `PATEL-JOY-RK97`) and per-family guests; `apps/api` exposes `POST /api/claim` (publicId-only auth), `POST /api/rsvp` (per-person per-event with dietary), `GET /api/organiser/guests`, plus rate-limit middleware on `/api/claim`. Organiser portal split into its own Astro app (`apps/organiser`) with `GuestTable` consuming the new shape. **PR-A** has now landed on top: events carry full calendar / venue / dress-code metadata (`startAt`, `endAt`, `timezone`, `address`, `dressCodeDescription`, `dressCodePalette`, `pinterestUrl`, `mapsUrl`, `sortOrder`); the claim response surfaces `guestId` per member and the new event fields; an `imports` table is in place for the upcoming spreadsheet flow; `guests.externalId` is forward-looking for spreadsheet stable IDs; `wrangler.toml` binds the `SHEETS` R2 bucket. Backend is Effect-based with Effect Schema validation; tests co-located `*.test.ts` under `bun test` (45 api, 48 web). Migrations: `0001_initial.sql`, `0002_add_rsvp_dietary.sql`, `0003_events_metadata_and_imports.sql`, `0004_perf_indices.sql`. Next slice: spreadsheet upload (PR-C) that drives reconciliation against this schema, plus wiring the guest-app RSVP modal (PR-F) to the live endpoint.
 
 ---
 
 ## Up Next
 
+- [ ] Rebase the 5 dependent feature branches (`spreadsheet-parser`, `pinterest-embeds`, `dress-code-swatches`, `rsvp-modal-wire`, `calendar-links`) onto this PR-A schema
+- [ ] PR-B — session cookie auth for guest claim (signed HttpOnly cookie)
 - [ ] Spreadsheet parser — accept CSV/TSV paste or .xlsx, group rows by `Family Name`, build canonical `ParsedFamily[]`
 - [ ] Diff + batched upsert service — empty-DB insert path and incremental reconciliation
 - [ ] Organiser auth — separate from guest claim flow (passkey + magic link)
@@ -29,8 +31,8 @@ Monorepo built and functional. `packages/db` models families with a shareable `p
 - [ ] Migrate runtime DB layer in `apps/api/src/index.ts` from 503 stub to real D1
 - [x] Per-person per-event RSVP with dietary requirements
 - [x] Rate-limit claim attempts to prevent brute force — see [[overview]] for logging rules
-- [ ] Wire guest-app RSVP modal to `POST /api/rsvp`
-- [ ] Add-to-calendar links on event cards (Google / Apple / .ics)
+- [ ] Wire guest-app RSVP modal to `POST /api/rsvp` (PR-F)
+- [ ] Add-to-calendar links on event cards (Google / Apple / .ics) (PR-G)
 
 ---
 
@@ -45,6 +47,7 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 - [ ] `schemas/import.ts` — Effect Schema for the parsed row shape and the import response
 - [ ] Plan should preserve generated `publicId` + password for existing families; only assign new ones to brand-new families
 - [ ] Per-guest event invitations from boolean columns drive `guestEvents` rows
+- [ ] When the source sheet adds a stable `Guest ID` column, populate `guests.externalId` from it (already in schema as of PR-A)
 
 ### Organiser portal (apps/web + apps/api)
 
@@ -58,21 +61,23 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 - [ ] Replace `bun:sqlite` runtime in `apps/api/src/index.ts` with `drizzle(env.DB)` on D1
 - [ ] `bunx wrangler d1 migrations apply cire-db --local` in dev script
 - [ ] `bunx wrangler types` after binding changes
+- [ ] **Provision R2 bucket `cire-sheets` (and `cire-sheets-preview`) before first deploy** — `bunx wrangler r2 bucket create cire-sheets`. Binding `SHEETS` is already declared in `apps/api/wrangler.toml` as of PR-A.
 - [ ] Batch import respects 50ms CPU / 30s wall-time Worker limits — chunk inserts to ~100 rows; consider Durable Objects or Queues for guest lists ≥ ~500 families
 
 ---
 
 ## apps/web
 
+- [x] Per-event metadata in `EventSummary` shape (calendar / dress-code / address / Pinterest / Maps fields landed in PR-A)
 - [x] Rework `OrganiserView` to consume the new `OrganiserGuestRow` shape — moved to `apps/organiser/src/components/GuestTable.tsx`
 - [ ] Replace hero photo placeholder with actual photo
 - [ ] Customise monogram with couple's initials
 - [ ] Write Our Story content
-- [ ] Populate dress code colour palette swatches
-- [ ] Embed actual Pinterest board URLs
-- [ ] Wire RSVP modal to `POST /api/rsvp`
-- [ ] "Open in Maps" button on event cards (Apple Maps / Google Maps)
-- [ ] Add-to-calendar links (Google Calendar, Apple Calendar, .ics)
+- [ ] Populate dress code colour palette swatches from `event.dressCodePalette` (PR-E)
+- [ ] Embed actual Pinterest board URLs via `event.pinterestUrl` (PR-D)
+- [ ] Wire RSVP modal to API using surfaced `guestId` per member (PR-F)
+- [ ] "Open in Maps" button on event cards driven by `event.mapsUrl`
+- [ ] Add-to-calendar links (Google Calendar, Apple Calendar, .ics) sourced from `event.startAt` / `endAt` / `timezone` (PR-G)
 - [ ] Passkey registration + login UI
 - [ ] Magic link email fallback UI
 
@@ -80,9 +85,11 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 
 ## apps/api
 
+- [x] Surface `guestId` on every claim member + extended event metadata (PR-A)
 - [ ] Spreadsheet parser + diff service + import endpoints (see Organiser Spreadsheet Import above)
 - [ ] Organiser auth middleware
-- [x] `POST /api/rsvp` — per-person per-event RSVP with dietary requirements
+- [ ] **Revert capability for applied imports** — admin endpoint that re-applies the previous snapshot. The `imports` table already stores `status: applied | reverted` and an R2 blob of the original sheet so the data is in place; needs a service + route.
+- [x] `POST /api/rsvp` — per-person per-event RSVP with dietary requirements (tighten with session check in PR-B)
 - [ ] `GET /api/events` — list events for the wedding
 - [ ] Drizzle D1 client wired in `src/index.ts` (currently 503 stub)
 - [ ] Auth middleware — validate passkey session or magic link token
@@ -96,8 +103,12 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 
 See [[monorepo-structure]] for how this package fits into the dependency graph.
 
+- [x] Events: `startAt`, `endAt`, `timezone`, `address`, `dressCodeDescription`, `dressCodePalette`, `pinterestUrl`, `mapsUrl`, `sortOrder` (PR-A)
+- [x] `imports` table for spreadsheet-upload tracking with R2 keys + status lifecycle (PR-A)
+- [x] `guests.externalId` nullable column for forward-looking spreadsheet stable IDs (PR-A)
 - [ ] Add `organisers` + `organiser_sessions` tables once auth lands
-- [x] Add `dietary_requirements` column to rsvps (added as `dietary` text NOT NULL DEFAULT '' in migration `0002_add_rsvp_dietary.sql`; per-event dietary lives on `rsvps` row, deferred-decision resolved)
+- [x] Add `dietary_requirements` column to rsvps (added as `dietary` text NOT NULL DEFAULT '' in migration `0002_add_rsvp_dietary.sql`; per-event dietary lives on `rsvps` row)
+- [ ] Retire deprecated `events.date` / `events.location` columns (kept in 0003 for backwards compatibility — D1 is forward-only so this needs a separate copy-and-drop migration)
 - [ ] Seed script for local development that exercises real `generatePublicId` / `generatePassword` (currently uses fixed JSON fixtures so tests stay deterministic)
 
 ---
@@ -122,12 +133,15 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 - [ ] RSVP endpoint must verify the session owns the family the guest belongs to
 - [ ] Invite token in URL (if any) must be opaque (UUID/random) — not a guest or family id
 - [ ] On password regeneration, invalidate existing sessions for that family
+- [x] `decodePalette` emits a structured warning (no PII) on malformed JSON or shape mismatch so corrupted rows don't fail silently (PR-A review)
 
 **Low**
 
 - [ ] Review Cloudflare Worker CSP headers on the web app
 - [ ] Confirm all D1 queries go through Drizzle (no raw SQL interpolation anywhere)
 - [ ] Expand passphrase wordlist to ≥1024 entries for ≥40 bits of entropy
+- [ ] CI guard: fail deploy if `apps/api/wrangler.toml` still has the literal `database_id = "placeholder-replace-after-d1-create"` (PR-A review)
+- [ ] Frontend `href` validator — when `pinterestUrl` / `mapsUrl` / `address` start being rendered as links, run them through `new URL(...)` + `protocol === 'https:'` to block `javascript:` URIs (PR-D / PR-E / PR-G)
 
 ---
 
@@ -135,8 +149,14 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 
 See [[review-findings]] for severity prefix conventions.
 
+- [x] Split joined events from per-guest rows in `claim.lookup` to drop the duplicated `dressCodePalette` payload (PR-A review)
+- [x] Drop redundant ownership `SELECT` in `rsvpService.submitRsvp` (route validates once for the bulk batch) (PR-A review)
+- [x] Add `events.sortOrder` and `(guests.familyId, guests.sortOrder)` indices (PR-A review, migration 0004)
+- [x] `lefthook` pre-push runs typecheck + test in parallel (PR-A review)
 - [ ] PBKDF2 100k iterations + dummy-hash-on-miss is ~20-40ms per request on Workers. Pairs with rate limiting (above) before public launch — once that's in place, consider lowering iterations to 25-50k for a wedding-scale threat model.
 - [ ] `getAllGuests` paginate / cursor once organiser UI is built — current single-join is fine at 100 guests, problematic past a few thousand
+- [ ] Batch `rsvpService.submitRsvp` upserts via `db.batch([...])` once D1 runtime is wired (currently still N round-trips, just no longer 2N) — PR-A review follow-up
+- [ ] `claim.lookup` could pipeline its 3 D1 queries via `Effect.all`; today they are sequential which adds ~2 round-trips of latency on the hot path — PR-A review follow-up
 - [ ] Landing page animations must not block LCP — defer Motion One until after first paint
 - [ ] Hero photo must be optimised (WebP/AVIF, responsive srcset)
 - [ ] Add-to-calendar data should not require a round-trip if event data is already hydrated in the page
@@ -153,7 +173,7 @@ See [[review-findings]] for severity prefix conventions.
 | Spreadsheet input format                  | TSV paste only / CSV / .xlsx via SheetJS                                                                  | Before upload UI is built                                           |
 | Organiser auth model                      | Reuse passkey infra with role flag vs. separate `organisers` table                                        | Before `/api/organiser/import` is hardened                          |
 | Surname collision handling in publicId    | Accept multiple `PATEL-*-*` IDs (different word/hash disambiguates) vs. enforce uniqueness on family_name | Stay on current accept-multiple unless aesthetic problem reported   |
-| Pinterest embed approach                  | oEmbed API vs. iframe vs. static images                                                                   | Before dress code section is wired up                               |
+| Astro → Solid Start migration             | Keep Astro+islands vs migrate guest-facing app to Solid Start for tighter SPA flows                       | Post-platformisation — only if SaaS direction is taken              |
 | Platformise Cire                          | Multi-tenant SaaS vs stay bespoke                                                                         | After friend's wedding ships                                        |
 | SMS OTP fallback                          | Twilio/similar vs email-only                                                                              | If magic link proves insufficient                                   |
 | Seating planner                           | D1 table arrangement feature                                                                              | Post-MVP                                                            |
@@ -162,10 +182,17 @@ See [[review-findings]] for severity prefix conventions.
 | Guest photo sharing                       | R2 + moderation                                                                                           | Post-MVP                                                            |
 | iPhone AirDrop sharing                    | Web Share API + custom payload                                                                            | After core invite is built                                          |
 
+### Resolved
+
+| Question                 | Resolution                                                                                                    | Resolved   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------- | ---------- |
+| Pinterest embed approach | iframe for MVP (good-enough preview, no API rate limits); upgrade to static-image board snapshots post-launch | 2026-05-05 |
+
 ---
 
 ## Future
 
+- Astro → Solid Start migration for the guest-facing app (post-platformisation, only if SaaS path is taken)
 - Apple Wallet pass generation for each event
 - Magic link email fallback (Resend)
 - D1 migration + wrangler deploy path

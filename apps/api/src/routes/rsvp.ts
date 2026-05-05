@@ -51,14 +51,14 @@ rsvpRoute.post("/", async (c) => {
         }
       }
 
-      // Upsert each RSVP
+      // Ownership already validated above against `familyGuestIds` — service
+      // method does not re-check.
       for (const rsvp of body.rsvps) {
         yield* rsvpService.submitRsvp({
           guestId: rsvp.guestId,
           eventId: rsvp.eventId,
           status: rsvp.status,
           dietary: rsvp.dietary,
-          familyId: family.id,
         });
       }
 
@@ -70,7 +70,6 @@ rsvpRoute.post("/", async (c) => {
       Effect.catchTag("ParseError", () =>
         Effect.succeed(c.json({ error: "Missing or invalid fields" }, 400)),
       ),
-      Effect.catchTag("RsvpError", (e) => Effect.succeed(c.json({ error: e.message }, 403))),
     ),
   );
 });

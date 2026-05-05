@@ -2,12 +2,16 @@ import { describe, it, expect } from "bun:test";
 import { Effect } from "effect";
 import { guests } from "@cire/db";
 import { eq } from "drizzle-orm";
-import { rsvpService, RsvpError } from "./rsvp";
+import { rsvpService } from "./rsvp";
 import { DbService } from "../db";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
+import eventsData from "../data/events.json";
 
 const withDb = effWith(TestDbLayer);
+
+const WEDDING_ID = eventsData.wedding.id;
+const RECEPTION_ID = eventsData.reception.id;
 
 // Helper to get a guestId + familyId by first name
 function lookupGuest(firstName: string) {
@@ -23,6 +27,10 @@ function lookupGuest(firstName: string) {
   });
 }
 
+// Cross-family rejection lives at the route layer (see routes/rsvp.test.ts);
+// the service trusts the caller's ownership validation to avoid duplicate D1
+// round-trips per RSVP in a bulk submission.
+
 describe("rsvpService.submitRsvp", () => {
   it(
     "inserts an RSVP for a valid guest+event",
@@ -31,16 +39,15 @@ describe("rsvpService.submitRsvp", () => {
         const priya = yield* lookupGuest("Priya");
         yield* rsvpService.submitRsvp({
           guestId: priya.id,
-          eventId: "wedding",
+          eventId: WEDDING_ID,
           status: "attending",
           dietary: "",
-          familyId: priya.familyId,
         });
 
         const rsvps = yield* rsvpService.getRsvpsForFamily(priya.familyId);
         expect(rsvps).toHaveLength(1);
         expect(rsvps[0]!.guestId).toBe(priya.id);
-        expect(rsvps[0]!.eventId).toBe("wedding");
+        expect(rsvps[0]!.eventId).toBe(WEDDING_ID);
         expect(rsvps[0]!.status).toBe("attending");
       }),
     ),
@@ -53,24 +60,21 @@ describe("rsvpService.submitRsvp", () => {
         const priya = yield* lookupGuest("Priya");
         yield* rsvpService.submitRsvp({
           guestId: priya.id,
-          eventId: "wedding",
+          eventId: WEDDING_ID,
           status: "attending",
           dietary: "",
-          familyId: priya.familyId,
         });
         yield* rsvpService.submitRsvp({
           guestId: priya.id,
-          eventId: "wedding",
+          eventId: WEDDING_ID,
           status: "declined",
           dietary: "",
-          familyId: priya.familyId,
         });
 
         const rsvps = yield* rsvpService.getRsvpsForFamily(priya.familyId);
-        const weddingRsvp = rsvps.find((r) => r.eventId === "wedding");
+        const weddingRsvp = rsvps.find((r) => r.eventId === WEDDING_ID);
         expect(weddingRsvp?.status).toBe("declined");
-        // Should still be only one row for this guest+event
-        expect(rsvps.filter((r) => r.eventId === "wedding")).toHaveLength(1);
+        expect(rsvps.filter((r) => r.eventId === WEDDING_ID)).toHaveLength(1);
       }),
     ),
   );
@@ -82,38 +86,14 @@ describe("rsvpService.submitRsvp", () => {
         const priya = yield* lookupGuest("Priya");
         yield* rsvpService.submitRsvp({
           guestId: priya.id,
-          eventId: "reception",
+          eventId: RECEPTION_ID,
           status: "attending",
           dietary: "Vegetarian, no nuts",
-          familyId: priya.familyId,
         });
 
         const rsvps = yield* rsvpService.getRsvpsForFamily(priya.familyId);
-        const receptionRsvp = rsvps.find((r) => r.eventId === "reception");
+        const receptionRsvp = rsvps.find((r) => r.eventId === RECEPTION_ID);
         expect(receptionRsvp?.dietary).toBe("Vegetarian, no nuts");
-      }),
-    ),
-  );
-
-  it(
-    "rejects RSVP for a guest not in the specified family",
-    withDb(
-      Effect.gen(function* () {
-        const priya = yield* lookupGuest("Priya");
-        const james = yield* lookupGuest("James");
-
-        // Try to submit RSVP for Priya using James's familyId
-        const error = yield* Effect.flip(
-          rsvpService.submitRsvp({
-            guestId: priya.id,
-            eventId: "wedding",
-            status: "attending",
-            dietary: "",
-            familyId: james.familyId,
-          }),
-        );
-        expect(error._tag).toBe("RsvpError");
-        expect(error).toBeInstanceOf(RsvpError);
       }),
     ),
   );
@@ -129,17 +109,15 @@ describe("rsvpService.getRsvpsForFamily", () => {
 
         yield* rsvpService.submitRsvp({
           guestId: james.id,
-          eventId: "wedding",
+          eventId: WEDDING_ID,
           status: "attending",
           dietary: "",
-          familyId: james.familyId,
         });
         yield* rsvpService.submitRsvp({
           guestId: emma.id,
-          eventId: "wedding",
+          eventId: WEDDING_ID,
           status: "maybe",
           dietary: "Gluten-free",
-          familyId: emma.familyId,
         });
 
         const rsvps = yield* rsvpService.getRsvpsForFamily(james.familyId);

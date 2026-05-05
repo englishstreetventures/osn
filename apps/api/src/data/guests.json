@@ -6,7 +6,11 @@
       {
         "firstName": "Priya",
         "lastName": "Sharma",
-        "events": ["mehndi", "wedding", "reception"]
+        "events": [
+          "9f7a2c14-1b3d-4e5f-8a01-000000000001",
+          "9f7a2c14-1b3d-4e5f-8a01-000000000003",
+          "9f7a2c14-1b3d-4e5f-8a01-000000000004"
+        ]
       }
     ]
   },
@@ -17,14 +21,18 @@
       {
         "firstName": "James",
         "lastName": "Wilson",
-        "events": ["wedding", "reception"]
+        "events": ["9f7a2c14-1b3d-4e5f-8a01-000000000003", "9f7a2c14-1b3d-4e5f-8a01-000000000004"]
       },
       {
         "firstName": "Emma",
         "lastName": "Wilson",
-        "events": ["wedding", "reception"]
+        "events": ["9f7a2c14-1b3d-4e5f-8a01-000000000003", "9f7a2c14-1b3d-4e5f-8a01-000000000004"]
       },
-      { "firstName": "Sophie", "lastName": "Wilson", "events": ["wedding"] }
+      {
+        "firstName": "Sophie",
+        "lastName": "Wilson",
+        "events": ["9f7a2c14-1b3d-4e5f-8a01-000000000003"]
+      }
     ]
   },
   {
@@ -34,7 +42,7 @@
       {
         "firstName": "Auntie",
         "lastName": "Meena",
-        "events": ["mehndi", "wedding"]
+        "events": ["9f7a2c14-1b3d-4e5f-8a01-000000000001", "9f7a2c14-1b3d-4e5f-8a01-000000000003"]
       }
     ]
   },
@@ -45,7 +53,7 @@
       {
         "firstName": "Dev",
         "lastName": "Patel",
-        "events": ["wedding", "reception"]
+        "events": ["9f7a2c14-1b3d-4e5f-8a01-000000000003", "9f7a2c14-1b3d-4e5f-8a01-000000000004"]
       }
     ]
   }

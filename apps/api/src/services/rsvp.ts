@@ -1,36 +1,24 @@
-import { Effect, Data } from "effect";
+import { Effect } from "effect";
 import { eq } from "drizzle-orm";
 import { rsvps, guests } from "@cire/db";
 import { DbService } from "../db";
 import type { RsvpRecord } from "../schemas/rsvp";
 
-export class RsvpError extends Data.TaggedError("RsvpError")<{
-  message: string;
-}> {}
-
 export const rsvpService = {
+  /**
+   * Upsert one RSVP. Caller MUST validate `guestId` belongs to the claimed
+   * family before invoking — this method does not re-check ownership. The
+   * route handler builds the family-guest set once and validates the whole
+   * batch up front, so a per-call SELECT here would be redundant.
+   */
   submitRsvp(input: {
     guestId: string;
     eventId: string;
     status: "attending" | "declined" | "maybe";
     dietary: string;
-    familyId: string;
-  }): Effect.Effect<void, RsvpError, DbService> {
+  }): Effect.Effect<void, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-
-      // Verify guestId belongs to the claimed family
-      const [guest] = db
-        .select({ id: guests.id, familyId: guests.familyId })
-        .from(guests)
-        .where(eq(guests.id, input.guestId))
-        .all();
-
-      if (!guest || guest.familyId !== input.familyId) {
-        return yield* Effect.fail(
-          new RsvpError({ message: "Guest does not belong to this family" }),
-        );
-      }
 
       const now = new Date();
       db.insert(rsvps)

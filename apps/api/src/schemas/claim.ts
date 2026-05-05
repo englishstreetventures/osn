@@ -9,16 +9,35 @@ export type ClaimBody = Schema.Schema.Type<typeof ClaimBody>;
 
 // ── Response shapes ───────────────────────────────────────────────────────────
 
+export const DressSwatch = Schema.Struct({
+  name: Schema.String,
+  color: Schema.String,
+});
+export type DressSwatch = Schema.Schema.Type<typeof DressSwatch>;
+
 export const EventSummary = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
+  // Deprecated: prefer startAt / endAt. Kept for one release while consumers
+  // migrate.
   date: Schema.String,
+  // Deprecated: prefer address. Kept while organiser portal still writes it.
   location: Schema.String,
   description: Schema.String,
+  startAt: Schema.String,
+  endAt: Schema.String,
+  timezone: Schema.String,
+  address: Schema.NullOr(Schema.String),
+  dressCodeDescription: Schema.NullOr(Schema.String),
+  dressCodePalette: Schema.NullOr(Schema.Array(DressSwatch)),
+  pinterestUrl: Schema.NullOr(Schema.String),
+  mapsUrl: Schema.NullOr(Schema.String),
+  sortOrder: Schema.Number,
 });
 export type EventSummary = Schema.Schema.Type<typeof EventSummary>;
 
 export const FamilyMember = Schema.Struct({
+  guestId: Schema.String,
   firstName: Schema.String,
   lastName: Schema.String,
   eventIds: Schema.Array(Schema.String),
@@ -43,6 +62,7 @@ export const ClaimResponse = Schema.Struct({
 export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>;
 
 export const OrganiserGuestRow = Schema.Struct({
+  guestId: Schema.String,
   publicId: Schema.String,
   familyName: Schema.String,
   firstName: Schema.String,

@@ -5,7 +5,10 @@ import { createApp } from "../app";
 import { createDb, seedDb } from "../db/setup";
 import { createRateLimiter } from "../services/rate-limit";
 import { eff } from "../test-helpers";
+import eventsData from "../data/events.json";
 import type { Db } from "../db";
+
+const WEDDING_ID = eventsData.wedding.id;
 
 interface RsvpOk {
   rsvps: Array<{
@@ -55,7 +58,7 @@ describe("POST /api/rsvp", () => {
           rsvps: [
             {
               guestId: sharmaGuestId,
-              eventId: "wedding",
+              eventId: WEDDING_ID,
               status: "attending",
               dietary: "Vegetarian",
             },
@@ -94,7 +97,7 @@ describe("POST /api/rsvp", () => {
           rsvps: [
             {
               guestId: wilsonJamesGuestId,
-              eventId: "wedding",
+              eventId: WEDDING_ID,
               status: "attending",
             },
           ],

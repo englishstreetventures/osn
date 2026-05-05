@@ -4,8 +4,10 @@ import { createApp } from "../app";
 import { createDb, seedDb } from "../db/setup";
 import { createRateLimiter } from "../services/rate-limit";
 import { eff } from "../test-helpers";
+import eventsData from "../data/events.json";
 
 interface FamilyMember {
+  guestId: string;
   firstName: string;
   lastName: string;
   eventIds: string[];
@@ -83,7 +85,10 @@ describe("POST /api/claim", () => {
         expect(data.familyName).toBe("Sharma");
         expect(data.members).toHaveLength(1);
         expect(data.members[0]!.firstName).toBe("Priya");
-        expect(data.members[0]!.eventIds.sort()).toEqual(["mehndi", "reception", "wedding"]);
+        expect(typeof data.members[0]!.guestId).toBe("string");
+        expect(data.members[0]!.eventIds.sort()).toEqual(
+          [eventsData.mehndi.id, eventsData.reception.id, eventsData.wedding.id].sort(),
+        );
         expect(data.events).toHaveLength(3);
       }),
     ),
