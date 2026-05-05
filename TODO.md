@@ -19,6 +19,7 @@ Monorepo built and functional. `packages/db` now models families (one per househ
 - [ ] Migrate runtime DB layer in `apps/api/src/index.ts` from 503 stub to real D1
 - [ ] Per-person per-event RSVP with dietary requirements
 - [ ] Rate-limit claim attempts to prevent brute force
+
 ---
 
 ## Organiser Spreadsheet Import
@@ -26,6 +27,7 @@ Monorepo built and functional. `packages/db` now models families (one per househ
 Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last Name, Family Name, Catholic Wedding, Hindu Wedding, Reception, Mehndi`. Row grouping is by `Family Name`; only the last row of each family carries a Family ID in the source sheet (we ignore that — Cire generates its own `publicId`). Each guest row has booleans per event.
 
 ### Schema (packages/db) ✓ this PR
+
 - [x] `families` (id, public_id, family_name, password_hash, timestamps)
 - [x] `guests` (id, family_id FK, first_name, last_name, sort_order, timestamps)
 - [x] `guest_events` retargeted to new `guests.id`
@@ -33,6 +35,7 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 - [x] First D1 migration `0001_initial.sql` + `meta/_journal.json`
 
 ### Generation service (apps/api) ✓ this PR
+
 - [x] `generatePublicId(familyName)` → `SURNAME-WORD-HASH` (Crockford Base32 hash, no I/L/O/U)
 - [x] `generatePassword()` → 4-word lowercase passphrase (`amber-cedar-violin-ridge`)
 - [x] `hashPassword` / `verifyPassword` via PBKDF2-SHA256 / WebCrypto, encoded as `pbkdf2$sha256$<iter>$<salt>$<hash>`
@@ -41,6 +44,7 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 - [x] Dummy hash on lookup miss derived at module load from `PBKDF2_ITERATIONS` so format never desyncs from real hashes
 
 ### Spreadsheet ingestion (apps/api)
+
 - [ ] `services/spreadsheet.ts` — `parseTsv` / `parseCsv` / `parseXlsx`; reject formula-injection cells (cells starting with `=`, `+`, `-`, `@`)
 - [ ] `services/import.ts` — `diffAgainstDb(parsed)` returns `ImportPlan` (creates / updates / removes per family + per guest); `applyImport(plan)` executes in batched D1 transactions
 - [ ] `schemas/import.ts` — Effect Schema for the parsed row shape and the import response
@@ -48,12 +52,14 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 - [ ] Per-guest event invitations from boolean columns drive `guestEvents` rows
 
 ### Organiser portal (apps/web + apps/api)
+
 - [ ] Organiser auth model (passkey + magic link, separate `organisers` table)
 - [ ] Auth middleware that rejects guest sessions on organiser endpoints
 - [ ] `/organiser/import` page — paste / upload, preview diff table, confirm
 - [ ] Extend `OrganiserView` to display family-grouped guests with shareable publicId + password (show password only at family creation, hash thereafter — surface a "regenerate password" action)
 
 ### Cloudflare wiring
+
 - [x] `migrations_dir = "../../packages/db/migrations"` added to `wrangler.toml`
 - [ ] Replace `bun:sqlite` runtime in `apps/api/src/index.ts` with `drizzle(env.DB)` on D1
 - [ ] `bunx wrangler d1 migrations apply cire-db --local` in dev script
@@ -65,6 +71,7 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 ## apps/web
 
 ### Done
+
 - [x] Astro + SolidJS project init
 - [x] View Transitions setup (page-level)
 - [x] Motion One integration (`@motionone/solid`)
@@ -81,6 +88,7 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 - [x] Animated modal enter/exit — backdrop fade + panel slide-up/scale with Motion One
 
 ### To Do
+
 - [ ] Rework `LoginSection` for two inputs (publicId + password) and update `types.ts` / `utils.ts` to consume the new claim response shape
 - [ ] Rework `OrganiserView` to consume the new `OrganiserGuestRow` shape (publicId / firstName / lastName instead of `name` + `code` + `claimed`)
 - [ ] Reconsider `parseMembers` — now redundant given `members` array in claim response
@@ -132,10 +140,12 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 ## Security Backlog
 
 **Critical**
+
 - [ ] `GET /api/organiser/guests` is currently unauthenticated and exposes every family's `publicId` — must be gated behind organiser auth (or removed from the deployed app) before any public launch. With ~32-bit passphrase entropy this halves the credential.
 - [ ] Rate-limit `POST /api/claim` (Turnstile / Cloudflare rate-limit binding / KV-backed limiter) — without it, the timing-flat dummy hash on miss also acts as a free PBKDF2 DoS amplifier.
 
 **High**
+
 - [x] Family `publicId` must be cryptographically random — never sequential or derivable from family_name alone (the SURNAME prefix is enumerable; entropy lives in the word + Crockford hash)
 - [x] Family password must be hashed with a Workers-compatible KDF (PBKDF2-SHA256 via WebCrypto, 100k iter)
 - [x] Constant-time hash comparison on verify (`verifyPassword`); dummy hash on lookup miss to avoid timing-based family enumeration (`claimService.lookup`, derived from `PBKDF2_ITERATIONS` at module load)
@@ -144,11 +154,13 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 - [ ] Magic link tokens must be single-use and expire (≤15 min)
 
 **Medium**
+
 - [ ] RSVP endpoint must verify the session owns the family the guest belongs to
 - [ ] Invite token in URL (if any) must be opaque (UUID/random) — not a guest or family id
 - [ ] On password regeneration, invalidate existing sessions for that family
 
 **Low**
+
 - [ ] Review Cloudflare Worker CSP headers on the web app
 - [ ] Confirm all D1 queries go through Drizzle (no raw SQL interpolation anywhere)
 - [ ] Expand passphrase wordlist to ≥1024 entries for ≥40 bits of entropy
@@ -172,21 +184,21 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 
 ## Deferred Decisions
 
-| Question | Options considered | Deadline / trigger |
-|---|---|---|
-| Event invitations per-family vs per-guest | Per-guest matches sheet exactly (current schema); per-family simpler but loses fidelity | After first import lands and real spreadsheet variation is observed |
-| Spreadsheet input format | TSV paste only / CSV / .xlsx via SheetJS | Before upload UI is built |
-| Organiser auth model | Reuse passkey infra with role flag vs. separate `organisers` table | Before `/api/organiser/import` is hardened |
-| Surname collision handling in publicId | Accept multiple `PATEL-*-*` IDs (different word/hash disambiguates) vs. enforce uniqueness on family_name | Stay on current accept-multiple unless aesthetic problem reported |
-| Per-event dietary storage | Column on rsvps vs. separate table | Before RSVP endpoint |
-| Pinterest embed approach | oEmbed API vs. iframe vs. static images | Before dress code section is wired up |
-| Platformise Cire | Multi-tenant SaaS vs stay bespoke | After friend's wedding ships |
-| SMS OTP fallback | Twilio/similar vs email-only | If magic link proves insufficient |
-| Seating planner | D1 table arrangement feature | Post-MVP |
-| Photo collections | Cloudflare R2 + upload UI | Post-MVP |
-| Wishing well | Payment processing (requires ABN) | After business is set up |
-| Guest photo sharing | R2 + moderation | Post-MVP |
-| iPhone AirDrop sharing | Web Share API + custom payload | After core invite is built |
+| Question                                  | Options considered                                                                                        | Deadline / trigger                                                  |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Event invitations per-family vs per-guest | Per-guest matches sheet exactly (current schema); per-family simpler but loses fidelity                   | After first import lands and real spreadsheet variation is observed |
+| Spreadsheet input format                  | TSV paste only / CSV / .xlsx via SheetJS                                                                  | Before upload UI is built                                           |
+| Organiser auth model                      | Reuse passkey infra with role flag vs. separate `organisers` table                                        | Before `/api/organiser/import` is hardened                          |
+| Surname collision handling in publicId    | Accept multiple `PATEL-*-*` IDs (different word/hash disambiguates) vs. enforce uniqueness on family_name | Stay on current accept-multiple unless aesthetic problem reported   |
+| Per-event dietary storage                 | Column on rsvps vs. separate table                                                                        | Before RSVP endpoint                                                |
+| Pinterest embed approach                  | oEmbed API vs. iframe vs. static images                                                                   | Before dress code section is wired up                               |
+| Platformise Cire                          | Multi-tenant SaaS vs stay bespoke                                                                         | After friend's wedding ships                                        |
+| SMS OTP fallback                          | Twilio/similar vs email-only                                                                              | If magic link proves insufficient                                   |
+| Seating planner                           | D1 table arrangement feature                                                                              | Post-MVP                                                            |
+| Photo collections                         | Cloudflare R2 + upload UI                                                                                 | Post-MVP                                                            |
+| Wishing well                              | Payment processing (requires ABN)                                                                         | After business is set up                                            |
+| Guest photo sharing                       | R2 + moderation                                                                                           | Post-MVP                                                            |
+| iPhone AirDrop sharing                    | Web Share API + custom payload                                                                            | After core invite is built                                          |
 
 ---
 

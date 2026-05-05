@@ -1,12 +1,12 @@
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 // ── Request bodies ────────────────────────────────────────────────────────────
 
 export const ClaimBody = Schema.Struct({
   publicId: Schema.NonEmptyString,
   password: Schema.NonEmptyString,
-})
-export type ClaimBody = Schema.Schema.Type<typeof ClaimBody>
+});
+export type ClaimBody = Schema.Schema.Type<typeof ClaimBody>;
 
 // ── Response shapes ───────────────────────────────────────────────────────────
 
@@ -16,23 +16,23 @@ export const EventSummary = Schema.Struct({
   date: Schema.String,
   location: Schema.String,
   description: Schema.String,
-})
-export type EventSummary = Schema.Schema.Type<typeof EventSummary>
+});
+export type EventSummary = Schema.Schema.Type<typeof EventSummary>;
 
 export const FamilyMember = Schema.Struct({
   firstName: Schema.String,
   lastName: Schema.String,
   eventIds: Schema.Array(Schema.String),
-})
-export type FamilyMember = Schema.Schema.Type<typeof FamilyMember>
+});
+export type FamilyMember = Schema.Schema.Type<typeof FamilyMember>;
 
 export const ClaimResponse = Schema.Struct({
   publicId: Schema.String,
   familyName: Schema.String,
   members: Schema.Array(FamilyMember),
   events: Schema.Array(EventSummary),
-})
-export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>
+});
+export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>;
 
 export const OrganiserGuestRow = Schema.Struct({
   publicId: Schema.String,
@@ -40,5 +40,5 @@ export const OrganiserGuestRow = Schema.Struct({
   firstName: Schema.String,
   lastName: Schema.String,
   events: Schema.Array(Schema.String),
-})
-export type OrganiserGuestRow = Schema.Schema.Type<typeof OrganiserGuestRow>
+});
+export type OrganiserGuestRow = Schema.Schema.Type<typeof OrganiserGuestRow>;

@@ -1,22 +1,19 @@
-import { For, Show } from "solid-js"
-import type { EventSummary, DressCodeInfo } from "./types"
-import { EVENT_DRESS_CODES } from "./dress-codes"
-import { AnimatedModal } from "./AnimatedModal"
+import { For, Show } from "solid-js";
+import type { EventSummary, DressCodeInfo } from "./types";
+import { EVENT_DRESS_CODES } from "./dress-codes";
+import { AnimatedModal } from "./AnimatedModal";
 
 interface DetailsModalProps {
-  event: EventSummary
-  onClose: () => void
+  event: EventSummary;
+  onClose: () => void;
 }
 
 export function DetailsModal(props: DetailsModalProps) {
-  const dressCode = (): DressCodeInfo | undefined =>
-    EVENT_DRESS_CODES[props.event.id]
+  const dressCode = (): DressCodeInfo | undefined => EVENT_DRESS_CODES[props.event.id];
 
   return (
     <AnimatedModal onClose={props.onClose}>
-      <p class="mb-3 font-body text-[0.72rem] uppercase tracking-[0.2em] text-gold">
-        Details
-      </p>
+      <p class="mb-3 font-body text-[0.72rem] uppercase tracking-[0.2em] text-gold">Details</p>
       <h3 class="mb-6 font-display text-[1.6rem] font-light italic text-text">
         {props.event.name}
       </h3>
@@ -63,5 +60,5 @@ export function DetailsModal(props: DetailsModalProps) {
         )}
       </Show>
     </AnimatedModal>
-  )
+  );
 }

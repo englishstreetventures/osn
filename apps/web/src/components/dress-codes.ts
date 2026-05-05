@@ -1,4 +1,4 @@
-import type { DressCodeInfo } from "./types"
+import type { DressCodeInfo } from "./types";
 
 /**
  * Per-event dress code data. Hardcoded for now — will move to the
@@ -36,4 +36,4 @@ export const EVENT_DRESS_CODES: Record<string, DressCodeInfo> = {
       { name: "Burgundy", color: "oklch(40.08% 0.0948 15.09)" },
     ],
   },
-}
+};

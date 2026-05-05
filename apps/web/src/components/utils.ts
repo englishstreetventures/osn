@@ -1,13 +1,13 @@
-import type { ClaimResult } from "./types"
+import type { ClaimResult } from "./types";
 
 export function formatDate(dateStr: string): string {
-  const date = new Date(`${dateStr}T00:00:00`)
+  const date = new Date(`${dateStr}T00:00:00`);
   return date.toLocaleDateString("en-AU", {
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
-  })
+  });
 }
 
 export function parseMembers(guestName: string): string[] {
@@ -15,16 +15,16 @@ export function parseMembers(guestName: string): string[] {
     return guestName
       .split("&")
       .map((n) => n.trim())
-      .filter(Boolean)
+      .filter(Boolean);
   }
-  return [guestName]
+  return [guestName];
 }
 
 export function isValidClaimResponse(data: unknown): data is ClaimResult {
-  if (typeof data !== "object" || data === null) return false
-  const obj = data as Record<string, unknown>
-  if (typeof obj.guestName !== "string") return false
-  if (!Array.isArray(obj.events)) return false
+  if (typeof data !== "object" || data === null) return false;
+  const obj = data as Record<string, unknown>;
+  if (typeof obj.guestName !== "string") return false;
+  if (!Array.isArray(obj.events)) return false;
   return obj.events.every(
     (e: unknown) =>
       typeof e === "object" &&
@@ -33,5 +33,5 @@ export function isValidClaimResponse(data: unknown): data is ClaimResult {
       typeof (e as Record<string, unknown>).name === "string" &&
       typeof (e as Record<string, unknown>).date === "string" &&
       typeof (e as Record<string, unknown>).location === "string",
-  )
+  );
 }

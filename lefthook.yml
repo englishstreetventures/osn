@@ -1,9 +1,15 @@
-pre-push:
-  parallel: false
+pre-commit:
+  parallel: true
   commands:
     lint:
-      run: bunx oxlint --ignore-pattern '*.astro' .
+      run: bunx oxlint --ignore-pattern '*.astro' {staged_files}
     format:
-      run: bunx oxfmt --check .
+      run: bunx oxfmt {staged_files}
+      stage_fixed: true
+
+pre-push:
+  commands:
+    typecheck:
+      run: bun run build
     test:
       run: bun run test

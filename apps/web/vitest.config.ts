@@ -1,5 +1,5 @@
-import { defineConfig } from "vitest/config"
-import solidPlugin from "vite-plugin-solid"
+import { defineConfig } from "vitest/config";
+import solidPlugin from "vite-plugin-solid";
 
 export default defineConfig({
   plugins: [solidPlugin()],
@@ -8,4 +8,4 @@ export default defineConfig({
     transformMode: { web: [/\.[jt]sx?$/] },
     passWithNoTests: true,
   },
-})
+});

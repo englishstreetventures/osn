@@ -1,51 +1,50 @@
-import { createSignal, Show, For } from "solid-js"
-import type { EventSummary } from "./types"
-import { parseMembers } from "./utils"
-import { AnimatedModal } from "./AnimatedModal"
+import { createSignal, Show, For } from "solid-js";
+import type { EventSummary } from "./types";
+import { parseMembers } from "./utils";
+import { AnimatedModal } from "./AnimatedModal";
 
 interface RsvpModalProps {
-  event: EventSummary
-  guestName: string
-  onClose: () => void
+  event: EventSummary;
+  guestName: string;
+  onClose: () => void;
 }
 
 export function RsvpModal(props: RsvpModalProps) {
-  const members = () => parseMembers(props.guestName)
+  const members = () => parseMembers(props.guestName);
 
-  const [responses, setResponses] = createSignal<Record<string, {
-    attending: boolean | null
-    dietary: string
-  }>>(
-    Object.fromEntries(
-      members().map((name) => [name, { attending: null, dietary: "" }]),
-    ),
-  )
+  const [responses, setResponses] = createSignal<
+    Record<
+      string,
+      {
+        attending: boolean | null;
+        dietary: string;
+      }
+    >
+  >(Object.fromEntries(members().map((name) => [name, { attending: null, dietary: "" }])));
 
   function setAttending(name: string, attending: boolean) {
     setResponses((prev) => ({
       ...prev,
       [name]: { ...prev[name], attending },
-    }))
+    }));
   }
 
   function setDietary(name: string, dietary: string) {
     setResponses((prev) => ({
       ...prev,
       [name]: { ...prev[name], dietary },
-    }))
+    }));
   }
 
   function handleSubmit(e: SubmitEvent) {
-    e.preventDefault()
+    e.preventDefault();
     // TODO: POST to /api/rsvp when endpoint is ready
-    props.onClose()
+    props.onClose();
   }
 
   return (
     <AnimatedModal onClose={props.onClose}>
-      <p class="mb-3 font-body text-[0.72rem] uppercase tracking-[0.2em] text-gold">
-        Respond
-      </p>
+      <p class="mb-3 font-body text-[0.72rem] uppercase tracking-[0.2em] text-gold">Respond</p>
       <h3 class="mb-6 font-display text-[1.6rem] font-light italic text-text">
         {props.event.name}
       </h3>
@@ -63,8 +62,7 @@ export function RsvpModal(props: RsvpModalProps) {
                   type="button"
                   class="flex-1 rounded-sm border px-3 py-2.5 font-body text-[0.82rem] uppercase tracking-[0.06em] transition-colors duration-200 cursor-pointer"
                   classList={{
-                    "border-gold text-gold bg-gold/8":
-                      responses()[name]?.attending === true,
+                    "border-gold text-gold bg-gold/8": responses()[name]?.attending === true,
                     "border-border text-text-muted hover:border-gold-dim hover:text-text":
                       responses()[name]?.attending !== true,
                   }}
@@ -76,8 +74,7 @@ export function RsvpModal(props: RsvpModalProps) {
                   type="button"
                   class="flex-1 rounded-sm border px-3 py-2.5 font-body text-[0.82rem] uppercase tracking-[0.06em] transition-colors duration-200 cursor-pointer"
                   classList={{
-                    "border-gold text-gold bg-gold/8":
-                      responses()[name]?.attending === false,
+                    "border-gold text-gold bg-gold/8": responses()[name]?.attending === false,
                     "border-border text-text-muted hover:border-gold-dim hover:text-text":
                       responses()[name]?.attending !== false,
                   }}
@@ -112,5 +109,5 @@ export function RsvpModal(props: RsvpModalProps) {
         </button>
       </form>
     </AnimatedModal>
-  )
+  );
 }

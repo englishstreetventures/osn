@@ -1,23 +1,23 @@
-import { onMount, type JSX } from "solid-js"
+import { onMount, type JSX } from "solid-js";
 
 interface AnimatedModalProps {
-  onClose: () => void
-  children: JSX.Element
+  onClose: () => void;
+  children: JSX.Element;
 }
 
 export function AnimatedModal(props: AnimatedModalProps) {
-  let backdropRef: HTMLDivElement
-  let panelRef: HTMLDivElement
+  let backdropRef: HTMLDivElement;
+  let panelRef: HTMLDivElement;
 
   onMount(async () => {
-    const { modalEnter } = await import("./Modal.motion")
-    modalEnter(backdropRef, panelRef)
-  })
+    const { modalEnter } = await import("./Modal.motion");
+    modalEnter(backdropRef, panelRef);
+  });
 
   async function handleClose() {
-    const { modalExit } = await import("./Modal.motion")
-    await modalExit(backdropRef, panelRef)
-    props.onClose()
+    const { modalExit } = await import("./Modal.motion");
+    await modalExit(backdropRef, panelRef);
+    props.onClose();
   }
 
   return (
@@ -43,5 +43,5 @@ export function AnimatedModal(props: AnimatedModalProps) {
         {props.children}
       </div>
     </div>
-  )
+  );
 }

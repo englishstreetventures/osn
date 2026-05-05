@@ -21,6 +21,7 @@ Run the following two agents **in parallel**:
 Explore the Cire monorepo and produce a concise implementation plan for the feature described in $ARGUMENTS.
 
 The plan should:
+
 - Identify relevant existing files and patterns (Hono route handlers in `apps/api/src/routes/`, service layer in `apps/api/src/services/`, Astro pages in `apps/web/src/pages/`, SolidJS islands, Drizzle schema in `packages/db/`)
 - List the files that need to be created or modified
 - Outline the implementation steps in order
@@ -32,6 +33,7 @@ The plan should:
 ---
 
 After both agents complete, summarise:
+
 - The branch that was created
 - The full implementation plan
 

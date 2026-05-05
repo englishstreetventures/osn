@@ -1,10 +1,4 @@
-import {
-  sqliteTable,
-  text,
-  integer,
-  primaryKey,
-  index,
-} from "drizzle-orm/sqlite-core"
+import { sqliteTable, text, integer, primaryKey, index } from "drizzle-orm/sqlite-core";
 
 export const families = sqliteTable(
   "families",
@@ -17,7 +11,7 @@ export const families = sqliteTable(
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [index("families_family_name_idx").on(t.familyName)],
-)
+);
 
 export const guests = sqliteTable(
   "guests",
@@ -33,7 +27,7 @@ export const guests = sqliteTable(
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [index("guests_family_id_idx").on(t.familyId)],
-)
+);
 
 export const events = sqliteTable("events", {
   id: text("id").primaryKey(),
@@ -42,7 +36,7 @@ export const events = sqliteTable("events", {
   date: text("date").notNull(),
   location: text("location").notNull(),
   description: text("description").notNull().default(""),
-})
+});
 
 export const guestEvents = sqliteTable(
   "guest_events",
@@ -58,7 +52,7 @@ export const guestEvents = sqliteTable(
     primaryKey({ columns: [t.guestId, t.eventId] }),
     index("guest_events_event_id_idx").on(t.eventId),
   ],
-)
+);
 
 export const rsvps = sqliteTable("rsvps", {
   id: text("id").primaryKey(),
@@ -72,7 +66,7 @@ export const rsvps = sqliteTable("rsvps", {
     enum: ["attending", "declined", "maybe"],
   }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-})
+});
 
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),
@@ -82,4 +76,4 @@ export const sessions = sqliteTable("sessions", {
   token: text("token").notNull().unique(),
   expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-})
+});

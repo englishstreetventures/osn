@@ -4,19 +4,19 @@ Set up the Cire development environment. Check each requirement in order and ins
 
 ## Project Stack
 
-| Layer | Technology |
-|---|---|
-| Runtime | Bun 1.x |
-| Edge runtime | Cloudflare Workers (via wrangler) |
-| Frontend | Astro + SolidJS + View Transitions |
-| Animations | Motion One (`@motionone/solid`) |
-| Backend | Hono on Cloudflare Workers |
-| Database | Cloudflare D1 + Drizzle ORM |
-| Testing | Vitest |
-| Linting | oxlint |
-| Formatting | oxfmt |
-| Git hooks | lefthook |
-| CI/CD | GitHub Actions → Cloudflare Pages + Workers |
+| Layer        | Technology                                  |
+| ------------ | ------------------------------------------- |
+| Runtime      | Bun 1.x                                     |
+| Edge runtime | Cloudflare Workers (via wrangler)           |
+| Frontend     | Astro + SolidJS + View Transitions          |
+| Animations   | Motion One (`@motionone/solid`)             |
+| Backend      | Hono on Cloudflare Workers                  |
+| Database     | Cloudflare D1 + Drizzle ORM                 |
+| Testing      | Vitest                                      |
+| Linting      | oxlint                                      |
+| Formatting   | oxfmt                                       |
+| Git hooks    | lefthook                                    |
+| CI/CD        | GitHub Actions → Cloudflare Pages + Workers |
 
 ---
 
@@ -38,6 +38,7 @@ Run `bunx wrangler --version`.
 - If not installed: `bun add -g wrangler`
 
 Then check Cloudflare authentication:
+
 1. `bunx wrangler whoami` — if not logged in: `bunx wrangler login`
 2. Confirm D1 access: `bunx wrangler d1 list` — the `cire-db` database should appear once created
 
@@ -48,6 +49,7 @@ Then check Cloudflare authentication:
 Run `gh --version`. If not installed: `brew install gh` (macOS).
 
 Verify:
+
 1. `gh auth status` — if not logged in: `gh auth login`
 2. `gh repo view` — confirm repo access
 
@@ -75,12 +77,12 @@ Verify:
 
 Check and apply the following settings:
 
-| Setting | Command | Why |
-|---|---|---|
-| `rerere.enabled true` | `git config --global rerere.enabled true` | Replay conflict resolutions on rebase |
+| Setting                     | Command                                         | Why                                           |
+| --------------------------- | ----------------------------------------------- | --------------------------------------------- |
+| `rerere.enabled true`       | `git config --global rerere.enabled true`       | Replay conflict resolutions on rebase         |
 | `push.autoSetupRemote true` | `git config --global push.autoSetupRemote true` | `git push` works on new branches without `-u` |
-| `pull.rebase false` | `git config --global pull.rebase false` | Use merge on pull for predictable history |
-| `commit.gpgsign true` | `git config --global commit.gpgsign true` | Sign all commits with SSH key |
+| `pull.rebase false`         | `git config --global pull.rebase false`         | Use merge on pull for predictable history     |
+| `commit.gpgsign true`       | `git config --global commit.gpgsign true`       | Sign all commits with SSH key                 |
 
 For each: check with `git config --global <key>`, explain what it does, ask to apply if not already set.
 
@@ -154,11 +156,11 @@ If all pass, the environment is ready.
 
 ## Summary of dependencies
 
-| Tool | Install | Required for |
-|---|---|---|
-| Bun | `curl -fsSL https://bun.sh/install \| bash` | Runtime, package manager |
-| Wrangler | `bun add -g wrangler` | Cloudflare Workers, D1, Pages deploy |
-| GitHub CLI | `brew install gh` | Repo access, pushing branches |
-| lefthook | via `bun install` | Pre-push git hooks |
-| oxlint | via `bun install` | Linting |
-| oxfmt | via `bun install` | Formatting |
+| Tool       | Install                                     | Required for                         |
+| ---------- | ------------------------------------------- | ------------------------------------ |
+| Bun        | `curl -fsSL https://bun.sh/install \| bash` | Runtime, package manager             |
+| Wrangler   | `bun add -g wrangler`                       | Cloudflare Workers, D1, Pages deploy |
+| GitHub CLI | `brew install gh`                           | Repo access, pushing branches        |
+| lefthook   | via `bun install`                           | Pre-push git hooks                   |
+| oxlint     | via `bun install`                           | Linting                              |
+| oxfmt      | via `bun install`                           | Formatting                           |

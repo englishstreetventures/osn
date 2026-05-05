@@ -1,13 +1,11 @@
-import { Effect, Data } from "effect"
-import { eq, asc } from "drizzle-orm"
-import { families, guests, events, guestEvents } from "@cire/db"
-import { DbService } from "../db"
-import { verifyPassword, DUMMY_HASH, type HashFailure } from "./family-id"
-import type { ClaimResponse, OrganiserGuestRow } from "../schemas/claim"
+import { Effect, Data } from "effect";
+import { eq, asc } from "drizzle-orm";
+import { families, guests, events, guestEvents } from "@cire/db";
+import { DbService } from "../db";
+import { verifyPassword, DUMMY_HASH, type HashFailure } from "./family-id";
+import type { ClaimResponse, OrganiserGuestRow } from "../schemas/claim";
 
-export class InvalidCredentials extends Data.TaggedError(
-  "InvalidCredentials",
-) {}
+export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
 
 export const claimService = {
   lookup(
@@ -15,20 +13,13 @@ export const claimService = {
     password: string,
   ): Effect.Effect<ClaimResponse, InvalidCredentials | HashFailure, DbService> {
     return Effect.gen(function* () {
-      const db = yield* DbService
+      const db = yield* DbService;
 
-      const [family] = db
-        .select()
-        .from(families)
-        .where(eq(families.publicId, publicId))
-        .all()
+      const [family] = db.select().from(families).where(eq(families.publicId, publicId)).all();
 
       // Hash even on miss so timing doesn't leak family existence.
-      const ok = yield* verifyPassword(
-        password,
-        family?.passwordHash ?? DUMMY_HASH,
-      )
-      if (!family || !ok) return yield* Effect.fail(new InvalidCredentials())
+      const ok = yield* verifyPassword(password, family?.passwordHash ?? DUMMY_HASH);
+      if (!family || !ok) return yield* Effect.fail(new InvalidCredentials());
 
       // Single join returning one row per (guest × invited event). Guests with
       // no invites still appear via the leftJoin so members stays accurate.
@@ -49,26 +40,29 @@ export const claimService = {
         .leftJoin(events, eq(guestEvents.eventId, events.id))
         .where(eq(guests.familyId, family.id))
         .orderBy(asc(guests.sortOrder))
-        .all()
+        .all();
 
-      const memberMap = new Map<string, {
-        firstName: string
-        lastName: string
-        eventIds: string[]
-      }>()
-      const eventMap = new Map<string, ClaimResponse["events"][number]>()
+      const memberMap = new Map<
+        string,
+        {
+          firstName: string;
+          lastName: string;
+          eventIds: string[];
+        }
+      >();
+      const eventMap = new Map<string, ClaimResponse["events"][number]>();
       for (const row of rows) {
-        let member = memberMap.get(row.guestId)
+        let member = memberMap.get(row.guestId);
         if (!member) {
           member = {
             firstName: row.firstName,
             lastName: row.lastName,
             eventIds: [],
-          }
-          memberMap.set(row.guestId, member)
+          };
+          memberMap.set(row.guestId, member);
         }
         if (row.eventId !== null) {
-          member.eventIds.push(row.eventId)
+          member.eventIds.push(row.eventId);
           if (!eventMap.has(row.eventId)) {
             eventMap.set(row.eventId, {
               id: row.eventId,
@@ -76,7 +70,7 @@ export const claimService = {
               date: row.eventDate!,
               location: row.eventLocation!,
               description: row.eventDescription!,
-            })
+            });
           }
         }
       }
@@ -86,13 +80,13 @@ export const claimService = {
         familyName: family.familyName,
         members: Array.from(memberMap.values()),
         events: Array.from(eventMap.values()),
-      }
-    })
+      };
+    });
   },
 
   getAllGuests(): Effect.Effect<OrganiserGuestRow[], never, DbService> {
     return Effect.gen(function* () {
-      const db = yield* DbService
+      const db = yield* DbService;
 
       // One query joining families → guests → guestEvents.
       // innerJoin on families ensures orphan guests (FK invariant violations)
@@ -110,11 +104,11 @@ export const claimService = {
         .innerJoin(families, eq(guests.familyId, families.id))
         .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
         .orderBy(asc(guests.sortOrder))
-        .all()
+        .all();
 
-      const byGuest = new Map<string, OrganiserGuestRow>()
+      const byGuest = new Map<string, OrganiserGuestRow>();
       for (const row of rows) {
-        let entry = byGuest.get(row.guestId)
+        let entry = byGuest.get(row.guestId);
         if (!entry) {
           entry = {
             publicId: row.publicId,
@@ -122,12 +116,12 @@ export const claimService = {
             firstName: row.firstName,
             lastName: row.lastName,
             events: [],
-          }
-          byGuest.set(row.guestId, entry)
+          };
+          byGuest.set(row.guestId, entry);
         }
-        if (row.eventId !== null) entry.events.push(row.eventId)
+        if (row.eventId !== null) entry.events.push(row.eventId);
       }
-      return Array.from(byGuest.values())
-    })
+      return Array.from(byGuest.values());
+    });
   },
-}
+};

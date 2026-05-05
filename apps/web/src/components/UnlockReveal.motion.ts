@@ -1,4 +1,4 @@
-import { animate, stagger } from "motion"
+import { animate, stagger } from "motion";
 
 /**
  * Plays the unlock reveal sequence:
@@ -16,38 +16,42 @@ export async function unlockRevealSequence(
     loginForm,
     { opacity: [1, 0], transform: ["translateY(0)", "translateY(-12px)"] },
     { duration: 0.35, easing: "ease-in" },
-  )
-  await fadeOut.finished
-  loginForm.style.display = "none"
+  );
+  await fadeOut.finished;
+  loginForm.style.display = "none";
 
   // 2. Reveal welcome message
-  welcomeEl.style.display = ""
+  welcomeEl.style.display = "";
   animate(
     welcomeEl,
     { opacity: [0, 1], transform: ["translateY(16px)", "translateY(0)"] },
     { duration: 0.5, easing: [0.22, 1, 0.36, 1] },
-  )
+  );
 
   // Gold shimmer on the heading
-  const heading = welcomeEl.querySelector("h2")
+  const heading = welcomeEl.querySelector("h2");
   if (heading) {
-    animate(heading, { opacity: [0.4, 1, 0.85, 1] }, {
-      duration: 1.2,
-      easing: "ease-in-out",
-    })
+    animate(
+      heading,
+      { opacity: [0.4, 1, 0.85, 1] },
+      {
+        duration: 1.2,
+        easing: "ease-in-out",
+      },
+    );
   }
 
   // 3. Reveal events section with staggered cards
-  eventsSection.style.display = ""
-  await new Promise((r) => setTimeout(r, 200))
+  eventsSection.style.display = "";
+  await new Promise((r) => setTimeout(r, 200));
 
   animate(
     eventsSection,
     { opacity: [0, 1], transform: ["translateY(32px)", "translateY(0)"] },
     { duration: 0.5, easing: [0.22, 1, 0.36, 1] },
-  )
+  );
 
-  const cards = eventsSection.querySelectorAll("[data-event-card]")
+  const cards = eventsSection.querySelectorAll("[data-event-card]");
   if (cards.length > 0) {
     animate(
       cards as NodeListOf<HTMLElement>,
@@ -57,6 +61,6 @@ export async function unlockRevealSequence(
         easing: [0.22, 1, 0.36, 1],
         delay: stagger(0.12, { start: 0.15 }),
       },
-    )
+    );
   }
 }

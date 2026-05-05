@@ -76,7 +76,7 @@ export const THREE_LETTER_WORDS: readonly string[] = [
   "WIN",
   "YAK",
   "YEW",
-]
+];
 
 export const PASSWORD_WORDS: readonly string[] = [
   "alder",
@@ -335,4 +335,4 @@ export const PASSWORD_WORDS: readonly string[] = [
   "timber",
   "topaz",
   "trail",
-]
+];

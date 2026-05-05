@@ -7,6 +7,7 @@ Prepare the current branch for pushing. Run the following steps in order.
 Run `git diff --name-only main...HEAD`.
 
 Map changed files to workspaces:
+
 - Files under `apps/web/` → workspace `apps/web`
 - Files under `apps/api/` → workspace `apps/api`
 - Files under `packages/db/` → workspace `packages/db`
@@ -21,6 +22,7 @@ Report the affected areas.
 Run `git status --porcelain`.
 
 If uncommitted changes exist:
+
 1. Show changed/untracked files.
 2. Propose logical commit groupings (e.g. schema changes, route handlers, frontend components, config).
 3. Present groupings and messages; ask user to confirm.

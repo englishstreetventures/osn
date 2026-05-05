@@ -1,40 +1,40 @@
-import { createSignal, onMount, Show, For } from "solid-js"
+import { createSignal, onMount, Show, For } from "solid-js";
 
 interface GuestWithEvents {
-  name: string
-  code: string
-  claimed: boolean
-  events: string[]
+  name: string;
+  code: string;
+  claimed: boolean;
+  events: string[];
 }
 
-const ALL_EVENTS = ["mehndi", "wedding", "reception"] as const
+const ALL_EVENTS = ["mehndi", "wedding", "reception"] as const;
 const EVENT_LABELS: Record<string, string> = {
   mehndi: "Mehndi",
   wedding: "Wedding",
   reception: "Reception",
-}
+};
 
 interface OrganiserViewProps {
-  apiUrl: string
+  apiUrl: string;
 }
 
 export default function OrganiserView(props: OrganiserViewProps) {
-  const [guests, setGuests] = createSignal<GuestWithEvents[]>([])
-  const [loading, setLoading] = createSignal(true)
-  const [error, setError] = createSignal<string | null>(null)
+  const [guests, setGuests] = createSignal<GuestWithEvents[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [error, setError] = createSignal<string | null>(null);
 
   onMount(async () => {
     try {
-      const res = await fetch(`${props.apiUrl}/api/organiser/guests`)
-      if (!res.ok) throw new Error("Failed to load")
-      const data = (await res.json()) as GuestWithEvents[]
-      setGuests(data)
+      const res = await fetch(`${props.apiUrl}/api/organiser/guests`);
+      if (!res.ok) throw new Error("Failed to load");
+      const data = (await res.json()) as GuestWithEvents[];
+      setGuests(data);
     } catch {
-      setError("Could not load guest list. Is the API running?")
+      setError("Could not load guest list. Is the API running?");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  })
+  });
 
   return (
     <div class="flex flex-col gap-8">
@@ -128,5 +128,5 @@ export default function OrganiserView(props: OrganiserViewProps) {
         </div>
       </Show>
     </div>
-  )
+  );
 }

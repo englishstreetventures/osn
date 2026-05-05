@@ -1,13 +1,11 @@
-import { Effect, Layer } from "effect"
+import { Effect, Layer } from "effect";
 
 /**
  * Wraps an Effect as a bun:test-compatible callback.
  * Usage: it('name', eff(Effect.gen(function*() { ... })))
  */
-export function eff<A>(
-  effect: Effect.Effect<A, unknown, never>,
-): () => Promise<A> {
-  return () => Effect.runPromise(effect)
+export function eff<A>(effect: Effect.Effect<A, unknown, never>): () => Promise<A> {
+  return () => Effect.runPromise(effect);
 }
 
 /**
@@ -15,7 +13,7 @@ export function eff<A>(
  * Usage: it('name', effWith(TestDbLayer)(Effect.gen(function*() { ... })))
  */
 export function effWith<R>(layer: Layer.Layer<R>) {
-  return <A>(effect: Effect.Effect<A, unknown, R>): () => Promise<A> =>
+  return <A>(effect: Effect.Effect<A, unknown, R>): (() => Promise<A>) =>
     () =>
-      Effect.runPromise(effect.pipe(Effect.provide(layer)))
+      Effect.runPromise(effect.pipe(Effect.provide(layer)));
 }

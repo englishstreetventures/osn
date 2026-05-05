@@ -2,17 +2,17 @@
 
 @theme {
   --color-bg: oklch(19.96% 0.0331 147.34);
-  --color-surface: oklch(22.70% 0.0275 152.78);
+  --color-surface: oklch(22.7% 0.0275 152.78);
   --color-surface-raised: oklch(27.87% 0.0393 149.62);
-  --color-border: oklch(85.51% 0.0690 144.94 / 0.10);
+  --color-border: oklch(85.51% 0.069 144.94 / 0.1);
   --color-text: oklch(94.62% 0.0111 89.72);
-  --color-text-muted: oklch(94.62% 0.0111 89.72 / 0.50);
+  --color-text-muted: oklch(94.62% 0.0111 89.72 / 0.5);
   --color-gold: oklch(74.99% 0.0854 82.08);
   --color-gold-dim: oklch(74.99% 0.0854 82.08 / 0.35);
   --color-error: oklch(67.56% 0.1401 21.48);
   --color-success: oklch(75.96% 0.1421 146.94);
-  --font-display: 'Cormorant Garamond', Georgia, serif;
-  --font-body: 'Lato', system-ui, sans-serif;
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-body: "Lato", system-ui, sans-serif;
   --default-font-family: var(--font-body);
 }
 

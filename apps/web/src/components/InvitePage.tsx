@@ -1,34 +1,32 @@
-import { createSignal, Show, For } from "solid-js"
-import { LoginSection } from "./LoginSection"
-import { EventCard } from "./EventCard"
-import { RsvpModal } from "./RsvpModal"
-import { DetailsModal } from "./DetailsModal"
-import type { ClaimResult, EventSummary } from "./types"
+import { createSignal, Show, For } from "solid-js";
+import { LoginSection } from "./LoginSection";
+import { EventCard } from "./EventCard";
+import { RsvpModal } from "./RsvpModal";
+import { DetailsModal } from "./DetailsModal";
+import type { ClaimResult, EventSummary } from "./types";
 
 interface InvitePageProps {
-  apiUrl: string
+  apiUrl: string;
 }
 
 export default function InvitePage(props: InvitePageProps) {
-  const [claimResult, setClaimResult] = createSignal<ClaimResult | null>(null)
-  const [rsvpEvent, setRsvpEvent] = createSignal<EventSummary | null>(null)
-  const [detailsEvent, setDetailsEvent] = createSignal<EventSummary | null>(
-    null,
-  )
+  const [claimResult, setClaimResult] = createSignal<ClaimResult | null>(null);
+  const [rsvpEvent, setRsvpEvent] = createSignal<EventSummary | null>(null);
+  const [detailsEvent, setDetailsEvent] = createSignal<EventSummary | null>(null);
 
-  let loginFormRef: HTMLDivElement
-  let welcomeRef: HTMLDivElement
-  let eventsSectionRef: HTMLElement
+  let loginFormRef: HTMLDivElement;
+  let welcomeRef: HTMLDivElement;
+  let eventsSectionRef: HTMLElement;
 
   async function handleClaimed(result: ClaimResult) {
-    setClaimResult(result)
+    setClaimResult(result);
 
     // Wait a tick so SolidJS renders the events section into the DOM
-    await new Promise((r) => setTimeout(r, 0))
+    await new Promise((r) => setTimeout(r, 0));
 
     if (loginFormRef && welcomeRef && eventsSectionRef) {
-      const { unlockRevealSequence } = await import("./UnlockReveal.motion")
-      unlockRevealSequence(loginFormRef, welcomeRef, eventsSectionRef)
+      const { unlockRevealSequence } = await import("./UnlockReveal.motion");
+      unlockRevealSequence(loginFormRef, welcomeRef, eventsSectionRef);
     }
   }
 
@@ -84,10 +82,8 @@ export default function InvitePage(props: InvitePageProps) {
       </Show>
 
       <Show when={detailsEvent()}>
-        {(event) => (
-          <DetailsModal event={event()} onClose={() => setDetailsEvent(null)} />
-        )}
+        {(event) => <DetailsModal event={event()} onClose={() => setDetailsEvent(null)} />}
       </Show>
     </>
-  )
+  );
 }

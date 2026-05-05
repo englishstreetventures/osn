@@ -26,28 +26,28 @@ cire/
 
 ## Apps & Services
 
-| Name | Description | Status |
-|---|---|---|
-| `apps/web` | Astro + SolidJS invite frontend with View Transitions and Motion One animations | Planned |
-| `apps/api` | Hono API on Cloudflare Workers — guest management, RSVP, auth, claim codes | Planned |
-| `packages/db` | Shared Drizzle ORM schema and D1 migration files | Planned |
+| Name          | Description                                                                     | Status  |
+| ------------- | ------------------------------------------------------------------------------- | ------- |
+| `apps/web`    | Astro + SolidJS invite frontend with View Transitions and Motion One animations | Planned |
+| `apps/api`    | Hono API on Cloudflare Workers — guest management, RSVP, auth, claim codes      | Planned |
+| `packages/db` | Shared Drizzle ORM schema and D1 migration files                                | Planned |
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Runtime | Bun + Cloudflare Workers |
-| Frontend | Astro + SolidJS + View Transitions |
-| Animations | Motion One (`@motionone/solid`) + Astro View Transitions |
-| Backend | Hono on Cloudflare Workers + Effect (service layer) |
-| Database | Cloudflare D1 + Drizzle ORM + Effect |
-| Storage | Cloudflare R2 (deferred) |
-| Auth | Passkey (WebAuthn) + magic link email fallback; claim code invite system |
-| Testing | Vitest |
-| Linting | oxlint |
-| Formatting | oxfmt |
-| Git hooks | lefthook |
-| CI/CD | GitHub Actions → Cloudflare Pages + Workers |
+| Layer      | Technology                                                               |
+| ---------- | ------------------------------------------------------------------------ |
+| Runtime    | Bun + Cloudflare Workers                                                 |
+| Frontend   | Astro + SolidJS + View Transitions                                       |
+| Animations | Motion One (`@motionone/solid`) + Astro View Transitions                 |
+| Backend    | Hono on Cloudflare Workers + Effect (service layer)                      |
+| Database   | Cloudflare D1 + Drizzle ORM + Effect                                     |
+| Storage    | Cloudflare R2 (deferred)                                                 |
+| Auth       | Passkey (WebAuthn) + magic link email fallback; claim code invite system |
+| Testing    | Vitest                                                                   |
+| Linting    | oxlint                                                                   |
+| Formatting | oxfmt                                                                    |
+| Git hooks  | lefthook                                                                 |
+| CI/CD      | GitHub Actions → Cloudflare Pages + Workers                              |
 
 ## Invite Access Model
 

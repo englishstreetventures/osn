@@ -14,17 +14,17 @@ Cire is a bespoke digital wedding invite — a single Astro + SolidJS site with 
 
 ## TODO.md Structure + Maintenance
 
-| Section | What goes here |
-|---|---|
-| Current Status | One-paragraph snapshot of what's built |
-| Up Next | ≤8 highest-priority items |
-| apps/web | Frontend feature work |
-| apps/api | Backend feature work |
-| packages/db | Schema and migration work |
-| Security Backlog | H/M/L security findings |
-| Performance Backlog | Performance concerns |
-| Deferred Decisions | Open questions with options and triggers |
-| Future | Vague post-MVP ideas |
+| Section             | What goes here                           |
+| ------------------- | ---------------------------------------- |
+| Current Status      | One-paragraph snapshot of what's built   |
+| Up Next             | ≤8 highest-priority items                |
+| apps/web            | Frontend feature work                    |
+| apps/api            | Backend feature work                     |
+| packages/db         | Schema and migration work                |
+| Security Backlog    | H/M/L security findings                  |
+| Performance Backlog | Performance concerns                     |
+| Deferred Decisions  | Open questions with options and triggers |
+| Future              | Vague post-MVP ideas                     |
 
 Update TODO.md when: a task is completed, a new concern is discovered, a deferred decision is resolved, or priorities shift.
 
@@ -60,32 +60,32 @@ TypeScript, Bun, Cloudflare Workers + Pages, Astro + SolidJS + Motion One, Hono,
 
 ```typescript
 // Vitest — unit test (service layer)
-import { describe, it, expect } from 'vitest'
-import { generateClaimCode } from '../services/claims'
+import { describe, it, expect } from "vitest";
+import { generateClaimCode } from "../services/claims";
 
-describe('generateClaimCode', () => {
-  it('produces an unguessable code matching expected format', () => {
-    const code = generateClaimCode()
-    expect(code).toMatch(/^[A-Z]+-[A-Z0-9]{4}$/)
-  })
-})
+describe("generateClaimCode", () => {
+  it("produces an unguessable code matching expected format", () => {
+    const code = generateClaimCode();
+    expect(code).toMatch(/^[A-Z]+-[A-Z0-9]{4}$/);
+  });
+});
 ```
 
 ```typescript
 // Vitest — Hono route integration test
-import { describe, it, expect } from 'vitest'
-import { app } from '../index'
+import { describe, it, expect } from "vitest";
+import { app } from "../index";
 
-describe('POST /claim', () => {
-  it('returns 401 for an unknown claim code', async () => {
-    const res = await app.request('/claim', {
-      method: 'POST',
-      body: JSON.stringify({ code: 'FAKE-0000' }),
-      headers: { 'Content-Type': 'application/json' },
-    })
-    expect(res.status).toBe(401)
-  })
-})
+describe("POST /claim", () => {
+  it("returns 401 for an unknown claim code", async () => {
+    const res = await app.request("/claim", {
+      method: "POST",
+      body: JSON.stringify({ code: "FAKE-0000" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(res.status).toBe(401);
+  });
+});
 ```
 
 - Test files live alongside source: `*.test.ts` co-located with the module

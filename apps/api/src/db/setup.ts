@@ -1,11 +1,11 @@
-import { Database } from "bun:sqlite"
-import { drizzle } from "drizzle-orm/bun-sqlite"
-import { Effect } from "effect"
-import * as schema from "@cire/db"
-import guestsData from "../data/guests.json"
-import eventsData from "../data/events.json"
-import { hashPassword } from "../services/family-id"
-import type { Db } from "./index"
+import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { Effect } from "effect";
+import * as schema from "@cire/db";
+import guestsData from "../data/guests.json";
+import eventsData from "../data/events.json";
+import { hashPassword } from "../services/family-id";
+import type { Db } from "./index";
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS families (
@@ -59,16 +59,16 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL
 );
-`
+`;
 
 export function createDb(path: string = ":memory:"): Db {
-  const sqlite = new Database(path)
-  sqlite.exec(DDL)
-  return drizzle(sqlite, { schema })
+  const sqlite = new Database(path);
+  sqlite.exec(DDL);
+  return drizzle(sqlite, { schema });
 }
 
 export async function seedDb(db: Db): Promise<void> {
-  const now = new Date()
+  const now = new Date();
 
   for (const [slug, event] of Object.entries(eventsData)) {
     db.insert(schema.events)
@@ -80,12 +80,12 @@ export async function seedDb(db: Db): Promise<void> {
         location: event.location,
         description: event.description,
       })
-      .run()
+      .run();
   }
 
   for (const family of guestsData) {
-    const familyId = crypto.randomUUID()
-    const passwordHash = await Effect.runPromise(hashPassword(family.password))
+    const familyId = crypto.randomUUID();
+    const passwordHash = await Effect.runPromise(hashPassword(family.password));
 
     db.insert(schema.families)
       .values({
@@ -96,10 +96,10 @@ export async function seedDb(db: Db): Promise<void> {
         createdAt: now,
         updatedAt: now,
       })
-      .run()
+      .run();
 
     family.guests.forEach((guest, index) => {
-      const guestId = crypto.randomUUID()
+      const guestId = crypto.randomUUID();
       db.insert(schema.guests)
         .values({
           id: guestId,
@@ -110,13 +110,11 @@ export async function seedDb(db: Db): Promise<void> {
           createdAt: now,
           updatedAt: now,
         })
-        .run()
+        .run();
 
       for (const eventSlug of guest.events) {
-        db.insert(schema.guestEvents)
-          .values({ guestId, eventId: eventSlug })
-          .run()
+        db.insert(schema.guestEvents).values({ guestId, eventId: eventSlug }).run();
       }
-    })
+    });
   }
 }
