@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "bun:test";
 import { Effect } from "effect";
 import { createApp } from "../app";
 import { createDb, seedDb } from "../db/setup";
+import { createRateLimiter } from "../services/rate-limit";
 import { eff } from "../test-helpers";
 
 interface FamilyMember {
@@ -23,7 +24,9 @@ const SHARMA = {
 };
 
 const db = createDb(":memory:");
-const app = createApp(db);
+const app = createApp(db, {
+  claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+});
 
 beforeAll(async () => {
   await seedDb(db);
