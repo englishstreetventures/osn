@@ -71,7 +71,8 @@ rg "- \[ \]" wiki/TODO.md
 ```
 cire/
 ├── apps/
-│   ├── web/          # Pending — Astro + SolidJS
+│   ├── web/          # Pending — Astro + SolidJS (guest-facing)
+│   ├── organiser/    # Astro + SolidJS organiser portal (port 4322)
 │   └── api/          # Pending — Hono on CF Workers
 ├── packages/
 │   └── db/           # Pending — Drizzle schema + D1 migrations

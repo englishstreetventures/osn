@@ -1,20 +1,28 @@
 ---
 import '../styles/global.css'
-import OrganiserView from '../components/OrganiserView'
+import GuestTable from '../components/GuestTable'
 ---
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Organiser — Cire</title>
+    <title>Organiser Dashboard — Cire</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
   </head>
   <body>
     <main class="mx-auto max-w-[1100px] px-8 py-12">
-      <OrganiserView client:load apiUrl={import.meta.env.PUBLIC_API_URL} />
+      <header class="mb-8 flex flex-col gap-2">
+        <p class="font-body text-[0.72rem] uppercase tracking-[0.2em] text-gold">
+          Organiser Portal
+        </p>
+        <h1 class="font-display text-[clamp(2rem,5vw,3.5rem)] font-light italic leading-[1.1] text-text">
+          Organiser Dashboard
+        </h1>
+      </header>
+      <GuestTable client:load apiUrl={import.meta.env.PUBLIC_API_URL} />
     </main>
   </body>
 </html>
