@@ -17,22 +17,37 @@ Report the affected areas.
 
 ---
 
-## Step 2 — Commit uncommitted changes
+## Step 2 — Update wiki/TODO.md
+
+Read `wiki/TODO.md` and check off any items the current branch completes:
+
+- Tick `- [ ]` → `- [x]` for items the diff (`git diff --name-only main...HEAD` plus working-tree changes) directly satisfies.
+- Audit other sections too — branches often complete items beyond the originating ticket (e.g. a security-backlog or performance-backlog entry, an "Up Next" item).
+- If the branch resolves a row in the **Deferred Decisions** table, remove the row and capture the decision in the relevant section / wiki page.
+- If the branch makes any TODO item obsolete (no longer relevant, superseded by a different approach), strike it through with a one-line note rather than deleting silently.
+- Update the **Current Status** paragraph if the branch shifts what's built or what the next slice is.
+- Update the wiki page `last-reviewed` to today's date.
+
+Stage `wiki/TODO.md` (and any wiki page touched) so the check-off lands in the same commits as the feature work.
+
+---
+
+## Step 3 — Commit uncommitted changes
 
 Run `git status --porcelain`.
 
 If uncommitted changes exist:
 
 1. Show changed/untracked files.
-2. Propose logical commit groupings (e.g. schema changes, route handlers, frontend components, config).
+2. Propose logical commit groupings (e.g. schema changes, route handlers, frontend components, config). Group `wiki/TODO.md` updates with the commit they describe — never as a trailing "update TODO" commit.
 3. Present groupings and messages; ask user to confirm.
 4. Stage and commit each group in order.
 
-Do not proceed to step 3 until the working tree is clean.
+Do not proceed to step 4 until the working tree is clean.
 
 ---
 
-## Step 3 — Build and test
+## Step 4 — Build and test
 
 Invoke the `review-tests` skill as an Agent subagent, passing the list of affected workspace paths.
 
@@ -42,13 +57,13 @@ If coverage gaps are reported, present them and ask whether the user wants to ad
 
 ---
 
-## Step 4 — Check for unrelated changes
+## Step 5 — Check for unrelated changes
 
 If changes span multiple clearly unrelated areas, present the concern and ask whether to split into a separate commit or branch.
 
 ---
 
-## Step 5 — Parallel reviews
+## Step 6 — Parallel reviews
 
 Run the following two agents **in parallel**:
 
@@ -62,7 +77,7 @@ Wait for both. Present both reports. Ask: "Do you want to address any findings b
 
 ---
 
-## Step 6 — Observability checklist
+## Step 7 — Observability checklist
 
 Check the changed files against wiki/observability/overview:
 
@@ -74,7 +89,7 @@ This step is advisory only — present findings but do not block.
 
 ---
 
-## Step 7 — Push and open PR
+## Step 8 — Push and open PR
 
 Run `git push -u origin HEAD`, then:
 

@@ -15,7 +15,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Current Status
 
-Monorepo built and functional. `packages/db` now models families (one per household, with a shared shareable `publicId` like `PRADHEEP-JOY-RK97` and a password hash) and per-family guests; `apps/api` exposes a credential-based `POST /api/claim` (publicId + passphrase) and a guest-listing `GET /api/organiser/guests`. Backend service layer is Effect-based with Effect Schema validation; tests are co-located `*.test.ts` running under `bun test` (38 passing across api, 40 in web). First D1 migration committed under `packages/db/migrations`. The next slice is the organiser-portal spreadsheet upload that drives reconciliation against this schema.
+Monorepo built and functional. `packages/db` models families with a shareable `publicId` (e.g. `PATEL-JOY-RK97`) and per-family guests; `apps/api` exposes `POST /api/claim` (publicId-only auth), `POST /api/rsvp` (per-person per-event with dietary), `GET /api/organiser/guests`, plus rate-limit middleware on `/api/claim`. Organiser portal split into its own Astro app (`apps/organiser`) with `GuestTable` consuming the new shape. Backend is Effect-based with Effect Schema validation; tests co-located `*.test.ts` under `bun test`. Migrations: `0001_initial.sql`, `0002_add_rsvp_dietary.sql`. Next slice: spreadsheet upload that drives reconciliation against this schema, plus wiring the guest-app RSVP modal to the live endpoint.
 
 ---
 
@@ -27,8 +27,10 @@ Monorepo built and functional. `packages/db` now models families (one per househ
 - [ ] `POST /api/organiser/import/{preview,apply}` endpoints
 - [ ] Organiser portal upload UI (paste sheet / upload .xlsx, preview diff, confirm)
 - [ ] Migrate runtime DB layer in `apps/api/src/index.ts` from 503 stub to real D1
-- [ ] Per-person per-event RSVP with dietary requirements
-- [ ] Rate-limit claim attempts to prevent brute force — see [[overview]] for logging rules
+- [x] Per-person per-event RSVP with dietary requirements
+- [x] Rate-limit claim attempts to prevent brute force — see [[overview]] for logging rules
+- [ ] Wire guest-app RSVP modal to `POST /api/rsvp`
+- [ ] Add-to-calendar links on event cards (Google / Apple / .ics)
 
 ---
 
@@ -62,13 +64,13 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 
 ## apps/web
 
-- [ ] Rework `OrganiserView` to consume the new `OrganiserGuestRow` shape (publicId / firstName / lastName instead of `name` + `code` + `claimed`)
+- [x] Rework `OrganiserView` to consume the new `OrganiserGuestRow` shape — moved to `apps/organiser/src/components/GuestTable.tsx`
 - [ ] Replace hero photo placeholder with actual photo
 - [ ] Customise monogram with couple's initials
 - [ ] Write Our Story content
 - [ ] Populate dress code colour palette swatches
 - [ ] Embed actual Pinterest board URLs
-- [ ] Wire RSVP modal to API (pending RSVP endpoint)
+- [ ] Wire RSVP modal to `POST /api/rsvp`
 - [ ] "Open in Maps" button on event cards (Apple Maps / Google Maps)
 - [ ] Add-to-calendar links (Google Calendar, Apple Calendar, .ics)
 - [ ] Passkey registration + login UI
@@ -80,7 +82,7 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 
 - [ ] Spreadsheet parser + diff service + import endpoints (see Organiser Spreadsheet Import above)
 - [ ] Organiser auth middleware
-- [ ] `POST /api/rsvp` — per-person per-event RSVP with dietary requirements
+- [x] `POST /api/rsvp` — per-person per-event RSVP with dietary requirements
 - [ ] `GET /api/events` — list events for the wedding
 - [ ] Drizzle D1 client wired in `src/index.ts` (currently 503 stub)
 - [ ] Auth middleware — validate passkey session or magic link token
@@ -95,7 +97,7 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 See [[monorepo-structure]] for how this package fits into the dependency graph.
 
 - [ ] Add `organisers` + `organiser_sessions` tables once auth lands
-- [ ] Add `dietary_requirements` column to rsvps (or separate table for per-event dietary)
+- [x] Add `dietary_requirements` column to rsvps (added as `dietary` text NOT NULL DEFAULT '' in migration `0002_add_rsvp_dietary.sql`; per-event dietary lives on `rsvps` row, deferred-decision resolved)
 - [ ] Seed script for local development that exercises real `generatePublicId` / `generatePassword` (currently uses fixed JSON fixtures so tests stay deterministic)
 
 ---
@@ -106,8 +108,8 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 
 **Critical**
 
-- [ ] `GET /api/organiser/guests` is currently unauthenticated and exposes every family's `publicId` — must be gated behind organiser auth (or removed from the deployed app) before any public launch. With ~32-bit passphrase entropy this halves the credential.
-- [ ] Rate-limit `POST /api/claim` (Turnstile / Cloudflare rate-limit binding / KV-backed limiter) — without it, the timing-flat dummy hash on miss also acts as a free PBKDF2 DoS amplifier.
+- [ ] `GET /api/organiser/guests` is currently unauthenticated and exposes every family's `publicId` — must be gated behind organiser auth (or removed from the deployed app) before any public launch.
+- [x] Rate-limit `POST /api/claim` — KV-backed limiter via `apps/api/src/middleware/rate-limit.ts`
 
 **High**
 
@@ -151,7 +153,6 @@ See [[review-findings]] for severity prefix conventions.
 | Spreadsheet input format                  | TSV paste only / CSV / .xlsx via SheetJS                                                                  | Before upload UI is built                                           |
 | Organiser auth model                      | Reuse passkey infra with role flag vs. separate `organisers` table                                        | Before `/api/organiser/import` is hardened                          |
 | Surname collision handling in publicId    | Accept multiple `PATEL-*-*` IDs (different word/hash disambiguates) vs. enforce uniqueness on family_name | Stay on current accept-multiple unless aesthetic problem reported   |
-| Per-event dietary storage                 | Column on rsvps vs. separate table                                                                        | Before RSVP endpoint                                                |
 | Pinterest embed approach                  | oEmbed API vs. iframe vs. static images                                                                   | Before dress code section is wired up                               |
 | Platformise Cire                          | Multi-tenant SaaS vs stay bespoke                                                                         | After friend's wedding ships                                        |
 | SMS OTP fallback                          | Twilio/similar vs email-only                                                                              | If magic link proves insufficient                                   |

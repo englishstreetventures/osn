@@ -70,7 +70,7 @@ export function LoginSection(props: LoginSectionProps) {
             <input
               type="text"
               class="w-full rounded-sm border border-border bg-transparent px-4 py-3.5 text-center font-body text-base uppercase tracking-[0.1em] text-text transition-colors duration-200 placeholder:normal-case placeholder:tracking-[0.04em] placeholder:text-text-muted focus:border-gold focus:outline-none disabled:opacity-50"
-              placeholder="e.g. SMITH-JOY-RK97"
+              placeholder="e.g. PATEL-JOY-RK97"
               value={code()}
               onInput={(e) => setCode(e.currentTarget.value)}
               autocapitalize="characters"
