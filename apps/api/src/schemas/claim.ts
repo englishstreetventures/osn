@@ -53,6 +53,10 @@ export const RsvpSummary = Schema.Struct({
 export type RsvpSummary = Schema.Schema.Type<typeof RsvpSummary>;
 
 export const ClaimResponse = Schema.Struct({
+  // Internal/operational. The frontend uses the session cookie for follow-up
+  // calls and never echoes this back, but exposing it keeps `/api/claim` a
+  // useful self-describing payload for organiser tooling and integration tests.
+  familyId: Schema.String,
   publicId: Schema.String,
   familyName: Schema.String,
   members: Schema.Array(FamilyMember),

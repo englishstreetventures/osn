@@ -135,6 +135,7 @@ export const claimService = {
         .all();
 
       return {
+        familyId: family.id,
         publicId: family.publicId,
         familyName: family.familyName,
         members: Array.from(memberMap.values()),

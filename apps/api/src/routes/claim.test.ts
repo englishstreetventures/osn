@@ -14,6 +14,7 @@ interface FamilyMember {
 }
 
 interface ClaimOk {
+  familyId: string;
   publicId: string;
   familyName: string;
   members: FamilyMember[];
@@ -122,6 +123,36 @@ describe("POST /api/claim", () => {
         expect(res.status).toBe(200);
         const data = yield* Effect.promise(() => res.json<ClaimOk>());
         expect(data.publicId).toBe("SHARMA-IVY-QM42");
+      }),
+    ),
+  );
+
+  it(
+    "sets a Set-Cookie session header on a successful claim",
+    eff(
+      Effect.gen(function* () {
+        const res = yield* post({ publicId: "SHARMA-IVY-QM42" });
+        expect(res.status).toBe(200);
+        const setCookie = res.headers.get("Set-Cookie");
+        expect(setCookie).not.toBeNull();
+        expect(setCookie).toContain("cire_session=");
+        expect(setCookie).toContain("HttpOnly");
+        expect(setCookie).toContain("SameSite=Lax");
+        expect(setCookie).toContain("Path=/");
+        expect(setCookie!.includes("Domain=")).toBe(false);
+      }),
+    ),
+  );
+
+  it(
+    "exposes familyId on the claim response",
+    eff(
+      Effect.gen(function* () {
+        const res = yield* post({ publicId: "SHARMA-IVY-QM42" });
+        expect(res.status).toBe(200);
+        const data = yield* Effect.promise(() => res.json<ClaimOk>());
+        expect(typeof data.familyId).toBe("string");
+        expect(data.familyId.length).toBeGreaterThan(0);
       }),
     ),
   );

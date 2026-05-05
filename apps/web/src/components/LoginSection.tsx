@@ -24,6 +24,9 @@ export function LoginSection(props: LoginSectionProps) {
       const res = await fetch(`${props.apiUrl}/api/claim`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Include cookies so the API's Set-Cookie response sticks for follow-up
+        // calls (e.g. /api/rsvp). Requires CORS `credentials: true` server-side.
+        credentials: "include",
         body: JSON.stringify({ publicId: code().trim().toUpperCase() }),
       });
 

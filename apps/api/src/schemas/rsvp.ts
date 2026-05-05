@@ -9,7 +9,6 @@ export const RsvpBody = Schema.Struct({
 export type RsvpBody = Schema.Schema.Type<typeof RsvpBody>;
 
 export const BulkRsvpBody = Schema.Struct({
-  familyPublicId: Schema.NonEmptyString,
   rsvps: Schema.Array(
     Schema.Struct({
       guestId: Schema.NonEmptyString,

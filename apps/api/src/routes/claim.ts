@@ -1,11 +1,13 @@
 import { Hono } from "hono";
 import { Effect, Schema } from "effect";
 import { claimService } from "../services/claim";
+import { sessionService } from "../services/session";
 import { ClaimBody } from "../schemas/claim";
+import { buildSessionCookie } from "../lib/cookie";
 import { DbService } from "../db";
-import type { Db } from "../db";
+import type { AppVariables } from "../app";
 
-type AppVariables = { db: Db };
+const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 export const claimRoute = new Hono<{ Variables: AppVariables }>();
 
@@ -21,6 +23,22 @@ claimRoute.post("/", async (c) => {
     Effect.gen(function* () {
       const { publicId } = yield* Schema.decodeUnknown(ClaimBody)(raw);
       const result = yield* claimService.lookup(publicId.trim().toUpperCase());
+      // Session write may fail (DB transient error) — we still hand the user
+      // their invite payload and skip Set-Cookie. Error is logged inside the
+      // service. They can re-login to mint a fresh session.
+      const session: { token: string; expiresAt: Date } | undefined = yield* sessionService
+        .create(result.familyId, SESSION_TTL_SECONDS)
+        .pipe(Effect.catchTag("SessionWriteError", () => Effect.succeed(undefined)));
+      if (session) {
+        const webOrigin = c.var.webOrigin;
+        c.header(
+          "Set-Cookie",
+          buildSessionCookie(session.token, {
+            secure: webOrigin.startsWith("https://"),
+            maxAgeSeconds: SESSION_TTL_SECONDS,
+          }),
+        );
+      }
       return c.json(result);
     }).pipe(
       Effect.provideService(DbService, c.var.db),

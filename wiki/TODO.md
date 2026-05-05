@@ -15,14 +15,14 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Current Status
 
-Monorepo built and functional. `packages/db` models families with a shareable `publicId` (e.g. `PATEL-JOY-RK97`) and per-family guests; `apps/api` exposes `POST /api/claim` (publicId-only auth), `POST /api/rsvp` (per-person per-event with dietary), `GET /api/organiser/guests`, plus rate-limit middleware on `/api/claim`. Organiser portal split into its own Astro app (`apps/organiser`) with `GuestTable` consuming the new shape. **PR-A** has now landed on top: events carry full calendar / venue / dress-code metadata (`startAt`, `endAt`, `timezone`, `address`, `dressCodeDescription`, `dressCodePalette`, `pinterestUrl`, `mapsUrl`, `sortOrder`); the claim response surfaces `guestId` per member and the new event fields; an `imports` table is in place for the upcoming spreadsheet flow; `guests.externalId` is forward-looking for spreadsheet stable IDs; `wrangler.toml` binds the `SHEETS` R2 bucket. Backend is Effect-based with Effect Schema validation; tests co-located `*.test.ts` under `bun test` (45 api, 48 web). Migrations: `0001_initial.sql`, `0002_add_rsvp_dietary.sql`, `0003_events_metadata_and_imports.sql`, `0004_perf_indices.sql`. Next slice: spreadsheet upload (PR-C) that drives reconciliation against this schema, plus wiring the guest-app RSVP modal (PR-F) to the live endpoint.
+Monorepo built and functional. `packages/db` models families with a shareable `publicId` (e.g. `PATEL-JOY-RK97`) and per-family guests; `apps/api` exposes `POST /api/claim` (publicId-only lookup, mints a session), `POST /api/rsvp` (session-cookie gated, per-person per-event with dietary), `GET /api/organiser/guests`, plus rate-limit middleware on `/api/claim`. Organiser portal split into its own Astro app (`apps/organiser`) with `GuestTable` consuming the new shape. **PR-A** landed events metadata + `imports` table + `guests.externalId`; **PR-B** has now landed session-cookie auth: a 256-bit `cire_session` token is minted on successful claim and set as `HttpOnly; SameSite=Lax; Path=/` (no `Domain=` — host-scoped); `/api/rsvp` is behind a `sessionAuth` middleware that derives `familyId` from the session, dropping `familyPublicId` from the body; CORS now echoes the configured origin with `credentials: true`. Backend is Effect-based with Effect Schema validation; tests co-located `*.test.ts` under `bun test` (70 api, 48 web). Migrations: `0001_initial.sql`, `0002_add_rsvp_dietary.sql`, `0003_events_metadata_and_imports.sql`, `0004_perf_indices.sql`. Next slice: spreadsheet upload (PR-C) that drives reconciliation against this schema, plus wiring the guest-app RSVP modal (PR-F) to the live endpoint.
 
 ---
 
 ## Up Next
 
 - [ ] Rebase the 5 dependent feature branches (`spreadsheet-parser`, `pinterest-embeds`, `dress-code-swatches`, `rsvp-modal-wire`, `calendar-links`) onto this PR-A schema
-- [ ] PR-B — session cookie auth for guest claim (signed HttpOnly cookie)
+- [x] PR-B — session cookie auth for guest claim (HttpOnly `cire_session` cookie, 30-day TTL)
 - [ ] Spreadsheet parser — accept CSV/TSV paste or .xlsx, group rows by `Family Name`, build canonical `ParsedFamily[]`
 - [ ] Diff + batched upsert service — empty-DB insert path and incremental reconciliation
 - [ ] Organiser auth — separate from guest claim flow (passkey + magic link)
@@ -86,10 +86,13 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 ## apps/api
 
 - [x] Surface `guestId` on every claim member + extended event metadata (PR-A)
+- [x] Session-cookie auth on `/api/rsvp`; `/api/claim` mints `cire_session` (PR-B)
+- [ ] Set `Domain=` on session cookie when production root domain lands; today host-scoped works for same-origin dev.
+- [ ] Cron-triggered `DELETE FROM sessions WHERE expires_at < now` — without this the sessions table grows unbounded as tokens expire but rows remain. Cloudflare cron trigger or a sweep on each `createSession`.
 - [ ] Spreadsheet parser + diff service + import endpoints (see Organiser Spreadsheet Import above)
 - [ ] Organiser auth middleware
 - [ ] **Revert capability for applied imports** — admin endpoint that re-applies the previous snapshot. The `imports` table already stores `status: applied | reverted` and an R2 blob of the original sheet so the data is in place; needs a service + route.
-- [x] `POST /api/rsvp` — per-person per-event RSVP with dietary requirements (tighten with session check in PR-B)
+- [x] `POST /api/rsvp` — per-person per-event RSVP with dietary requirements (gated behind `sessionAuth` cookie middleware as of PR-B)
 - [ ] `GET /api/events` — list events for the wedding
 - [ ] Drizzle D1 client wired in `src/index.ts` (currently 503 stub)
 - [ ] Auth middleware — validate passkey session or magic link token
@@ -130,10 +133,11 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 
 **Medium**
 
-- [ ] RSVP endpoint must verify the session owns the family the guest belongs to
+- [x] RSVP endpoint must verify the session owns the family the guest belongs to (PR-B: `sessionAuth` middleware sets `familyId` from cookie; route validates each `guestId` belongs to that family)
 - [ ] Invite token in URL (if any) must be opaque (UUID/random) — not a guest or family id
 - [ ] On password regeneration, invalidate existing sessions for that family
 - [x] `decodePalette` emits a structured warning (no PII) on malformed JSON or shape mismatch so corrupted rows don't fail silently (PR-A review)
+- [x] Session tokens hashed at rest — `sessions.token` stores SHA-256 hex of the raw token; cookie still carries the raw value (PR-B review)
 
 **Low**
 
