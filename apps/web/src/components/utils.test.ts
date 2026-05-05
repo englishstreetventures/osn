@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatDate, parseMembers, isValidClaimResponse } from "./utils";
+import { formatDate, isValidClaimResponse } from "./utils";
 
 describe("formatDate", () => {
   it("formats a date string to en-AU long format", () => {
@@ -26,35 +26,14 @@ describe("formatDate", () => {
   });
 });
 
-describe("parseMembers", () => {
-  it("returns a single name as a one-element array", () => {
-    expect(parseMembers("Priya Sharma")).toEqual(["Priya Sharma"]);
-  });
-
-  it("splits a couple name on ampersand", () => {
-    expect(parseMembers("James & Emma Wilson")).toEqual(["James", "Emma Wilson"]);
-  });
-
-  it("trims whitespace around names", () => {
-    expect(parseMembers("Alice  &  Bob")).toEqual(["Alice", "Bob"]);
-  });
-
-  it("handles multiple ampersands", () => {
-    expect(parseMembers("A & B & C")).toEqual(["A", "B", "C"]);
-  });
-
-  it("filters out empty strings from leading/trailing ampersands", () => {
-    expect(parseMembers("& Alice &")).toEqual(["Alice"]);
-  });
-
-  it("handles a name with no ampersand", () => {
-    expect(parseMembers("Auntie Meena")).toEqual(["Auntie Meena"]);
-  });
-});
-
 describe("isValidClaimResponse", () => {
   const validResponse = {
-    guestName: "Priya Sharma",
+    publicId: "SHARMA-JOY-RK97",
+    familyName: "Sharma",
+    members: [
+      { firstName: "Priya", lastName: "Sharma", eventIds: ["mehndi", "reception"] },
+      { firstName: "Raj", lastName: "Sharma", eventIds: ["reception"] },
+    ],
     events: [
       {
         id: "mehndi",
@@ -70,8 +49,15 @@ describe("isValidClaimResponse", () => {
     expect(isValidClaimResponse(validResponse)).toBe(true);
   });
 
-  it("accepts a response with empty events array", () => {
-    expect(isValidClaimResponse({ guestName: "Test", events: [] })).toBe(true);
+  it("accepts a response with empty members and events arrays", () => {
+    expect(
+      isValidClaimResponse({
+        publicId: "TEST-ABC-XY12",
+        familyName: "Test",
+        members: [],
+        events: [],
+      }),
+    ).toBe(true);
   });
 
   it("rejects null", () => {
@@ -82,26 +68,85 @@ describe("isValidClaimResponse", () => {
     expect(isValidClaimResponse("hello")).toBe(false);
   });
 
-  it("rejects missing guestName", () => {
-    expect(isValidClaimResponse({ events: [] })).toBe(false);
+  it("rejects missing publicId", () => {
+    expect(isValidClaimResponse({ familyName: "Test", members: [], events: [] })).toBe(false);
   });
 
-  it("rejects non-string guestName", () => {
-    expect(isValidClaimResponse({ guestName: 123, events: [] })).toBe(false);
+  it("rejects non-string publicId", () => {
+    expect(
+      isValidClaimResponse({ publicId: 123, familyName: "Test", members: [], events: [] }),
+    ).toBe(false);
+  });
+
+  it("rejects missing familyName", () => {
+    expect(isValidClaimResponse({ publicId: "X", members: [], events: [] })).toBe(false);
+  });
+
+  it("rejects non-string familyName", () => {
+    expect(isValidClaimResponse({ publicId: "X", familyName: 42, members: [], events: [] })).toBe(
+      false,
+    );
+  });
+
+  it("rejects missing members", () => {
+    expect(isValidClaimResponse({ publicId: "X", familyName: "Test", events: [] })).toBe(false);
+  });
+
+  it("rejects non-array members", () => {
+    expect(
+      isValidClaimResponse({ publicId: "X", familyName: "Test", members: "nope", events: [] }),
+    ).toBe(false);
   });
 
   it("rejects missing events", () => {
-    expect(isValidClaimResponse({ guestName: "Test" })).toBe(false);
+    expect(isValidClaimResponse({ publicId: "X", familyName: "Test", members: [] })).toBe(false);
   });
 
   it("rejects non-array events", () => {
-    expect(isValidClaimResponse({ guestName: "Test", events: "not-array" })).toBe(false);
+    expect(
+      isValidClaimResponse({ publicId: "X", familyName: "Test", members: [], events: "not-array" }),
+    ).toBe(false);
+  });
+
+  it("rejects members with missing firstName", () => {
+    expect(
+      isValidClaimResponse({
+        publicId: "X",
+        familyName: "Test",
+        members: [{ lastName: "Doe", eventIds: [] }],
+        events: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects members with missing lastName", () => {
+    expect(
+      isValidClaimResponse({
+        publicId: "X",
+        familyName: "Test",
+        members: [{ firstName: "Jane", eventIds: [] }],
+        events: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects members with non-array eventIds", () => {
+    expect(
+      isValidClaimResponse({
+        publicId: "X",
+        familyName: "Test",
+        members: [{ firstName: "Jane", lastName: "Doe", eventIds: "bad" }],
+        events: [],
+      }),
+    ).toBe(false);
   });
 
   it("rejects events with missing id", () => {
     expect(
       isValidClaimResponse({
-        guestName: "Test",
+        publicId: "X",
+        familyName: "Test",
+        members: [],
         events: [{ name: "X", date: "2026-01-01", location: "Y" }],
       }),
     ).toBe(false);
@@ -110,7 +155,9 @@ describe("isValidClaimResponse", () => {
   it("rejects events with missing name", () => {
     expect(
       isValidClaimResponse({
-        guestName: "Test",
+        publicId: "X",
+        familyName: "Test",
+        members: [],
         events: [{ id: "x", date: "2026-01-01", location: "Y" }],
       }),
     ).toBe(false);
@@ -119,7 +166,9 @@ describe("isValidClaimResponse", () => {
   it("rejects events with non-string date", () => {
     expect(
       isValidClaimResponse({
-        guestName: "Test",
+        publicId: "X",
+        familyName: "Test",
+        members: [],
         events: [{ id: "x", name: "X", date: 123, location: "Y" }],
       }),
     ).toBe(false);

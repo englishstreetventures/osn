@@ -4,7 +4,6 @@ import { Schema } from "effect";
 
 export const ClaimBody = Schema.Struct({
   publicId: Schema.NonEmptyString,
-  password: Schema.NonEmptyString,
 });
 export type ClaimBody = Schema.Schema.Type<typeof ClaimBody>;
 

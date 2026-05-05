@@ -18,18 +18,13 @@ interface ClaimOk {
   events: unknown[];
 }
 
-const SHARMA = {
-  publicId: "SHARMA-IVY-QM42",
-  password: "amber-cedar-violin-ridge",
-};
-
 const db = createDb(":memory:");
 const app = createApp(db, {
   claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
 });
 
-beforeAll(async () => {
-  await seedDb(db);
+beforeAll(() => {
+  seedDb(db);
 });
 
 const post = (body: unknown) =>
@@ -57,10 +52,10 @@ describe("POST /api/claim", () => {
   );
 
   it(
-    "returns 400 when password is empty",
+    "returns 400 when publicId is empty",
     eff(
       Effect.gen(function* () {
-        const res = yield* post({ publicId: SHARMA.publicId, password: "" });
+        const res = yield* post({ publicId: "" });
         expect(res.status).toBe(400);
       }),
     ),
@@ -70,10 +65,7 @@ describe("POST /api/claim", () => {
     "returns 401 for an unknown publicId",
     eff(
       Effect.gen(function* () {
-        const res = yield* post({
-          publicId: "FAKE-XYZ-9999",
-          password: "anything-here-ok-now",
-        });
+        const res = yield* post({ publicId: "FAKE-XYZ-9999" });
         expect(res.status).toBe(401);
         const data = yield* Effect.promise(() => res.json<{ error: string }>());
         expect(data.error).toBe("Invalid credentials");
@@ -82,23 +74,10 @@ describe("POST /api/claim", () => {
   );
 
   it(
-    "returns 401 for a known publicId with the wrong password",
+    "returns 200 with family details for valid publicId",
     eff(
       Effect.gen(function* () {
-        const res = yield* post({
-          publicId: SHARMA.publicId,
-          password: "wrong-words-ok-fine",
-        });
-        expect(res.status).toBe(401);
-      }),
-    ),
-  );
-
-  it(
-    "returns 200 with family details for valid credentials",
-    eff(
-      Effect.gen(function* () {
-        const res = yield* post(SHARMA);
+        const res = yield* post({ publicId: "SHARMA-IVY-QM42" });
         expect(res.status).toBe(200);
         const data = yield* Effect.promise(() => res.json<ClaimOk>());
         expect(data.familyName).toBe("Sharma");
@@ -134,13 +113,10 @@ describe("POST /api/claim", () => {
     "uppercases the publicId before lookup",
     eff(
       Effect.gen(function* () {
-        const res = yield* post({
-          publicId: SHARMA.publicId.toLowerCase(),
-          password: SHARMA.password,
-        });
+        const res = yield* post({ publicId: "sharma-ivy-qm42" });
         expect(res.status).toBe(200);
         const data = yield* Effect.promise(() => res.json<ClaimOk>());
-        expect(data.publicId).toBe(SHARMA.publicId);
+        expect(data.publicId).toBe("SHARMA-IVY-QM42");
       }),
     ),
   );

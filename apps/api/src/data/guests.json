@@ -1,7 +1,6 @@
 [
   {
     "publicId": "SHARMA-IVY-QM42",
-    "password": "amber-cedar-violin-ridge",
     "familyName": "Sharma",
     "guests": [
       {
@@ -13,7 +12,6 @@
   },
   {
     "publicId": "WILSON-OAK-7R2P",
-    "password": "river-marsh-clover-finch",
     "familyName": "Wilson",
     "guests": [
       {
@@ -31,7 +29,6 @@
   },
   {
     "publicId": "MEENA-DEW-K9X3",
-    "password": "moss-storm-pebble-otter",
     "familyName": "Meena",
     "guests": [
       {
@@ -43,7 +40,6 @@
   },
   {
     "publicId": "PATEL-JOY-RK97",
-    "password": "lemon-violet-thyme-eagle",
     "familyName": "Patel",
     "guests": [
       {

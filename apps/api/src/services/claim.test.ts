@@ -8,27 +8,14 @@ import { effWith } from "../test-helpers";
 
 const withDb = effWith(TestDbLayer);
 
-const SHARMA = {
-  publicId: "SHARMA-IVY-QM42",
-  password: "amber-cedar-violin-ridge",
-};
-const PATEL = {
-  publicId: "PATEL-JOY-RK97",
-  password: "lemon-violet-thyme-eagle",
-};
-const WILSON = {
-  publicId: "WILSON-OAK-7R2P",
-  password: "river-marsh-clover-finch",
-};
-
 describe("claimService.lookup", () => {
   it(
-    "returns family + members + events for valid credentials (single guest)",
+    "returns family + members + events for valid publicId (single guest)",
     withDb(
       Effect.gen(function* () {
-        const result = yield* claimService.lookup(SHARMA.publicId, SHARMA.password);
+        const result = yield* claimService.lookup("SHARMA-IVY-QM42");
         expect(result.familyName).toBe("Sharma");
-        expect(result.publicId).toBe(SHARMA.publicId);
+        expect(result.publicId).toBe("SHARMA-IVY-QM42");
         expect(result.members).toEqual([
           {
             firstName: "Priya",
@@ -48,7 +35,7 @@ describe("claimService.lookup", () => {
     "returns each member's own eventIds — Wilson kid is wedding-only",
     withDb(
       Effect.gen(function* () {
-        const result = yield* claimService.lookup(WILSON.publicId, WILSON.password);
+        const result = yield* claimService.lookup("WILSON-OAK-7R2P");
         expect(result.familyName).toBe("Wilson");
         const byName = new Map(result.members.map((m) => [m.firstName, m]));
         expect(byName.get("James")?.eventIds.sort()).toEqual(["reception", "wedding"]);
@@ -64,7 +51,7 @@ describe("claimService.lookup", () => {
     "returns only invited events for the Patels (wedding + reception)",
     withDb(
       Effect.gen(function* () {
-        const result = yield* claimService.lookup(PATEL.publicId, PATEL.password);
+        const result = yield* claimService.lookup("PATEL-JOY-RK97");
         expect(result.events.map((e) => e.id).sort()).toEqual(["reception", "wedding"]);
       }),
     ),
@@ -74,23 +61,9 @@ describe("claimService.lookup", () => {
     "fails with InvalidCredentials for an unknown publicId",
     withDb(
       Effect.gen(function* () {
-        const error = yield* Effect.flip(
-          claimService.lookup("FAKE-XYZ-9999", "anything-here-ok-now"),
-        );
+        const error = yield* Effect.flip(claimService.lookup("FAKE-XYZ-9999"));
         expect(error._tag).toBe("InvalidCredentials");
         expect(error).toBeInstanceOf(InvalidCredentials);
-      }),
-    ),
-  );
-
-  it(
-    "fails with InvalidCredentials when publicId matches but password is wrong",
-    withDb(
-      Effect.gen(function* () {
-        const error = yield* Effect.flip(
-          claimService.lookup(SHARMA.publicId, "wrong-words-ok-fine"),
-        );
-        expect(error._tag).toBe("InvalidCredentials");
       }),
     ),
   );

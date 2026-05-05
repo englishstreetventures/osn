@@ -6,8 +6,16 @@ export interface EventSummary {
   description: string;
 }
 
+export interface FamilyMember {
+  firstName: string;
+  lastName: string;
+  eventIds: string[];
+}
+
 export interface ClaimResult {
-  guestName: string;
+  publicId: string;
+  familyName: string;
+  members: FamilyMember[];
   events: EventSummary[];
 }
 

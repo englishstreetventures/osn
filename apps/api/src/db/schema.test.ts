@@ -10,7 +10,6 @@ CREATE TABLE families (
   id TEXT PRIMARY KEY,
   public_id TEXT NOT NULL UNIQUE,
   family_name TEXT NOT NULL,
-  password_hash TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -45,7 +44,6 @@ const insertFamily = (
       id,
       publicId,
       familyName,
-      passwordHash: "pbkdf2$sha256$1$AAAA$BBBB",
       createdAt: now,
       updatedAt: now,
     })

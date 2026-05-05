@@ -1,10 +1,8 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { Effect } from "effect";
 import * as schema from "@cire/db";
 import guestsData from "../data/guests.json";
 import eventsData from "../data/events.json";
-import { hashPassword } from "../services/family-id";
 import type { Db } from "./index";
 
 const DDL = `
@@ -12,7 +10,6 @@ CREATE TABLE IF NOT EXISTS families (
   id TEXT PRIMARY KEY,
   public_id TEXT NOT NULL UNIQUE,
   family_name TEXT NOT NULL,
-  password_hash TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -69,7 +66,7 @@ export function createDb(path: string = ":memory:"): Db {
   return drizzle(sqlite, { schema });
 }
 
-export async function seedDb(db: Db): Promise<void> {
+export function seedDb(db: Db): void {
   const now = new Date();
 
   for (const [slug, event] of Object.entries(eventsData)) {
@@ -87,14 +84,12 @@ export async function seedDb(db: Db): Promise<void> {
 
   for (const family of guestsData) {
     const familyId = crypto.randomUUID();
-    const passwordHash = await Effect.runPromise(hashPassword(family.password));
 
     db.insert(schema.families)
       .values({
         id: familyId,
         publicId: family.publicId,
         familyName: family.familyName,
-        passwordHash,
         createdAt: now,
         updatedAt: now,
       })

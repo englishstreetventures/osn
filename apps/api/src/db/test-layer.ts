@@ -4,9 +4,9 @@ import { createDb, seedDb } from "./setup";
 
 export const TestDbLayer = Layer.scoped(
   DbService,
-  Effect.gen(function* () {
+  Effect.sync(() => {
     const db = createDb(":memory:");
-    yield* Effect.promise(() => seedDb(db));
+    seedDb(db);
     return db;
   }),
 );

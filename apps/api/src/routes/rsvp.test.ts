@@ -3,13 +3,9 @@ import { Effect } from "effect";
 import { guests } from "@cire/db";
 import { createApp } from "../app";
 import { createDb, seedDb } from "../db/setup";
+import { createRateLimiter } from "../services/rate-limit";
 import { eff } from "../test-helpers";
 import type { Db } from "../db";
-
-const SHARMA = {
-  publicId: "SHARMA-IVY-QM42",
-  password: "amber-cedar-violin-ridge",
-};
 
 interface RsvpOk {
   rsvps: Array<{
@@ -25,10 +21,12 @@ let app: ReturnType<typeof createApp>;
 let sharmaGuestId: string;
 let wilsonJamesGuestId: string;
 
-beforeAll(async () => {
+beforeAll(() => {
   db = createDb(":memory:");
-  app = createApp(db);
-  await seedDb(db);
+  app = createApp(db, {
+    claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+  });
+  seedDb(db);
 
   const allGuests = db.select({ id: guests.id, firstName: guests.firstName }).from(guests).all();
 
@@ -49,12 +47,11 @@ const post = (body: unknown) =>
 
 describe("POST /api/rsvp", () => {
   it(
-    "returns 200 with valid credentials and RSVPs",
+    "returns 200 with valid publicId and RSVPs",
     eff(
       Effect.gen(function* () {
         const res = yield* post({
-          familyPublicId: SHARMA.publicId,
-          password: SHARMA.password,
+          familyPublicId: "SHARMA-IVY-QM42",
           rsvps: [
             {
               guestId: sharmaGuestId,
@@ -74,12 +71,11 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
-    "returns 401 with bad credentials",
+    "returns 401 for unknown publicId",
     eff(
       Effect.gen(function* () {
         const res = yield* post({
-          familyPublicId: SHARMA.publicId,
-          password: "wrong-wrong-wrong-wrong",
+          familyPublicId: "FAKE-XYZ-9999",
           rsvps: [],
         });
         expect(res.status).toBe(401);
@@ -94,8 +90,7 @@ describe("POST /api/rsvp", () => {
     eff(
       Effect.gen(function* () {
         const res = yield* post({
-          familyPublicId: SHARMA.publicId,
-          password: SHARMA.password,
+          familyPublicId: "SHARMA-IVY-QM42",
           rsvps: [
             {
               guestId: wilsonJamesGuestId,

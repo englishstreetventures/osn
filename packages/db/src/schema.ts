@@ -13,7 +13,6 @@ export const families = sqliteTable(
     id: text("id").primaryKey(),
     publicId: text("public_id").notNull().unique(),
     familyName: text("family_name").notNull(),
-    passwordHash: text("password_hash").notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },

@@ -2,24 +2,17 @@ import { Effect, Data } from "effect";
 import { eq, asc } from "drizzle-orm";
 import { families, guests, events, guestEvents, rsvps } from "@cire/db";
 import { DbService } from "../db";
-import { verifyPassword, DUMMY_HASH, type HashFailure } from "./family-id";
 import type { ClaimResponse, OrganiserGuestRow } from "../schemas/claim";
 
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
 
 export const claimService = {
-  lookup(
-    publicId: string,
-    password: string,
-  ): Effect.Effect<ClaimResponse, InvalidCredentials | HashFailure, DbService> {
+  lookup(publicId: string): Effect.Effect<ClaimResponse, InvalidCredentials, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
       const [family] = db.select().from(families).where(eq(families.publicId, publicId)).all();
-
-      // Hash even on miss so timing doesn't leak family existence.
-      const ok = yield* verifyPassword(password, family?.passwordHash ?? DUMMY_HASH);
-      if (!family || !ok) return yield* Effect.fail(new InvalidCredentials());
+      if (!family) return yield* Effect.fail(new InvalidCredentials());
 
       // Single join returning one row per (guest × invited event). Guests with
       // no invites still appear via the leftJoin so members stays accurate.

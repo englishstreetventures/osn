@@ -6,7 +6,6 @@ import { rsvpService } from "../services/rsvp";
 import { BulkRsvpBody } from "../schemas/rsvp";
 import { DbService } from "../db";
 import type { Db } from "../db";
-import { verifyPassword, DUMMY_HASH } from "../services/family-id";
 
 type AppVariables = { db: Db };
 
@@ -26,15 +25,14 @@ rsvpRoute.post("/", async (c) => {
 
       const db = yield* DbService;
 
-      // Authenticate
+      // Look up family by publicId
       const [family] = db
         .select()
         .from(families)
         .where(eq(families.publicId, body.familyPublicId.trim().toUpperCase()))
         .all();
 
-      const ok = yield* verifyPassword(body.password.trim(), family?.passwordHash ?? DUMMY_HASH);
-      if (!family || !ok) {
+      if (!family) {
         return c.json({ error: "Invalid credentials" }, 401);
       }
 
@@ -73,7 +71,6 @@ rsvpRoute.post("/", async (c) => {
         Effect.succeed(c.json({ error: "Missing or invalid fields" }, 400)),
       ),
       Effect.catchTag("RsvpError", (e) => Effect.succeed(c.json({ error: e.message }, 403))),
-      Effect.catchTag("HashFailure", () => Effect.succeed(c.json({ error: "Server error" }, 500))),
     ),
   );
 });

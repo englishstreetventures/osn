@@ -1,4 +1,4 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, Show, For } from "solid-js";
 import type { ClaimResult } from "./types";
 import { isValidClaimResponse } from "./utils";
 
@@ -24,7 +24,7 @@ export function LoginSection(props: LoginSectionProps) {
       const res = await fetch(`${props.apiUrl}/api/claim`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: code() }),
+        body: JSON.stringify({ publicId: code().trim().toUpperCase() }),
       });
 
       if (res.status === 401) {
@@ -70,14 +70,14 @@ export function LoginSection(props: LoginSectionProps) {
             <input
               type="text"
               class="w-full rounded-sm border border-border bg-transparent px-4 py-3.5 text-center font-body text-base uppercase tracking-[0.1em] text-text transition-colors duration-200 placeholder:normal-case placeholder:tracking-[0.04em] placeholder:text-text-muted focus:border-gold focus:outline-none disabled:opacity-50"
-              placeholder="e.g. DEV-JOY-RK97"
+              placeholder="e.g. SMITH-JOY-RK97"
               value={code()}
               onInput={(e) => setCode(e.currentTarget.value)}
               autocapitalize="characters"
               autocorrect="off"
               spellcheck={false}
               disabled={loading()}
-              maxLength={20}
+              maxLength={30}
               pattern="[A-Za-z0-9\\-]+"
             />
             <Show when={error()}>
@@ -98,11 +98,21 @@ export function LoginSection(props: LoginSectionProps) {
         {/* Welcome message — visible after claim */}
         <div ref={props.welcomeRef} style={{ display: props.result ? "" : "none" }}>
           <p class="mb-3 font-body text-[0.72rem] uppercase tracking-[0.2em] text-gold">Welcome</p>
-          <h2 class="mb-5 font-display text-[clamp(2rem,5vw,3rem)] font-light italic leading-[1.15] text-gold">
-            {props.result?.guestName}
+          <h2 class="mb-3 font-display text-[clamp(2rem,5vw,3rem)] font-light italic leading-[1.15] text-gold">
+            The {props.result?.familyName} Family
           </h2>
-          <p class="text-text-muted text-[0.92rem] font-light leading-[1.6] mb-8">
+          <p class="text-text-muted text-[0.92rem] font-light leading-[1.6] mb-2">
             We are delighted to invite you to celebrate with us.
+          </p>
+          <p class="text-text text-[0.88rem] font-light leading-[1.6] mb-8">
+            <For each={props.result?.members}>
+              {(member, i) => (
+                <>
+                  {i() > 0 && ", "}
+                  {member.firstName}
+                </>
+              )}
+            </For>
           </p>
         </div>
       </div>

@@ -75,7 +75,7 @@ export default function InvitePage(props: InvitePageProps) {
         {(event) => (
           <RsvpModal
             event={event()}
-            guestName={claimResult()!.guestName}
+            members={claimResult()!.members}
             onClose={() => setRsvpEvent(null)}
           />
         )}

@@ -19,8 +19,8 @@ claimRoute.post("/", async (c) => {
 
   return Effect.runPromise(
     Effect.gen(function* () {
-      const { publicId, password } = yield* Schema.decodeUnknown(ClaimBody)(raw);
-      const result = yield* claimService.lookup(publicId.trim().toUpperCase(), password.trim());
+      const { publicId } = yield* Schema.decodeUnknown(ClaimBody)(raw);
+      const result = yield* claimService.lookup(publicId.trim().toUpperCase());
       return c.json(result);
     }).pipe(
       Effect.provideService(DbService, c.var.db),
@@ -30,7 +30,6 @@ claimRoute.post("/", async (c) => {
       Effect.catchTag("InvalidCredentials", () =>
         Effect.succeed(c.json({ error: "Invalid credentials" }, 401)),
       ),
-      Effect.catchTag("HashFailure", () => Effect.succeed(c.json({ error: "Server error" }, 500))),
     ),
   );
 });

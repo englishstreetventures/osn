@@ -1,7 +1,11 @@
 ---
 title: "Cire TODO"
 tags: [todo, progress]
-related: [[index]], [[monorepo-structure]], [[overview]], [[contributing]]
+related:
+  - "[[index]]"
+  - "[[monorepo-structure]]"
+  - "[[overview]]"
+  - "[[contributing]]"
 last-reviewed: 2026-05-05
 ---
 
@@ -22,7 +26,6 @@ Monorepo built and functional. `packages/db` now models families (one per househ
 - [ ] Organiser auth — separate from guest claim flow (passkey + magic link)
 - [ ] `POST /api/organiser/import/{preview,apply}` endpoints
 - [ ] Organiser portal upload UI (paste sheet / upload .xlsx, preview diff, confirm)
-- [ ] Frontend rework — two-input login (publicId + password), family-aware welcome + RSVP, organiser table consuming new shape
 - [ ] Migrate runtime DB layer in `apps/api/src/index.ts` from 503 stub to real D1
 - [ ] Per-person per-event RSVP with dietary requirements
 - [ ] Rate-limit claim attempts to prevent brute force — see [[overview]] for logging rules
@@ -32,23 +35,6 @@ Monorepo built and functional. `packages/db` now models families (one per househ
 ## Organiser Spreadsheet Import
 
 Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last Name, Family Name, Catholic Wedding, Hindu Wedding, Reception, Mehndi`. Row grouping is by `Family Name`; only the last row of each family carries a Family ID in the source sheet (we ignore that — Cire generates its own `publicId`). Each guest row has booleans per event.
-
-### Schema (packages/db) ✓ this PR
-
-- [x] `families` (id, public_id, family_name, password_hash, timestamps)
-- [x] `guests` (id, family_id FK, first_name, last_name, sort_order, timestamps)
-- [x] `guest_events` retargeted to new `guests.id`
-- [x] `sessions` retargeted to `family_id`
-- [x] First D1 migration `0001_initial.sql` + `meta/_journal.json`
-
-### Generation service (apps/api) ✓ this PR
-
-- [x] `generatePublicId(familyName)` → `SURNAME-WORD-HASH` (Crockford Base32 hash, no I/L/O/U)
-- [x] `generatePassword()` → 4-word lowercase passphrase (`amber-cedar-violin-ridge`)
-- [x] `hashPassword` / `verifyPassword` via PBKDF2-SHA256 / WebCrypto, encoded as `pbkdf2$sha256$<iter>$<salt>$<hash>`
-- [x] Curated wordlists: 64 three-letter words for IDs, 256 4–7 letter words for passphrases (~32 bits entropy; expand to ≥1024 from EFF short list for ≥40 bits before launch)
-- [x] Constant-time hash comparison; constant-time equal-length check guarded by length prefix
-- [x] Dummy hash on lookup miss derived at module load from `PBKDF2_ITERATIONS` so format never desyncs from real hashes
 
 ### Spreadsheet ingestion (apps/api)
 
@@ -67,7 +53,6 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 
 ### Cloudflare wiring
 
-- [x] `migrations_dir = "../../packages/db/migrations"` added to `wrangler.toml`
 - [ ] Replace `bun:sqlite` runtime in `apps/api/src/index.ts` with `drizzle(env.DB)` on D1
 - [ ] `bunx wrangler d1 migrations apply cire-db --local` in dev script
 - [ ] `bunx wrangler types` after binding changes
@@ -77,36 +62,13 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 
 ## apps/web
 
-### Done
-
-- [x] Astro + SolidJS project init
-- [x] View Transitions setup (page-level)
-- [x] Motion One integration (`@motionone/solid`)
-- [x] Mobile-first scrollable page structure
-- [x] Hero section (photo placeholder + monogram overlay)
-- [x] Our Story section
-- [x] Guest login section (claim code entry, refactored from ClaimFlow)
-- [x] Conditional event sections (shown after auth, per invited events)
-- [x] Event cards with time, place, and RSVP button
-- [x] RSVP response modal (stub — invite group members + attendance + dietary)
-- [x] Dress code section (colour palette + Pinterest embed placeholder)
-- [x] Tailwind v4 migration — all CSS converted to utility classes, global.css with @theme tokens
-- [x] Unlock reveal animation — login form fades out, welcome fades in, events slide up with staggered cards
-- [x] Animated modal enter/exit — backdrop fade + panel slide-up/scale with Motion One
-
-### To Do
-
-- [ ] Rework `LoginSection` for two inputs (publicId + password) and update `types.ts` / `utils.ts` to consume the new claim response shape
 - [ ] Rework `OrganiserView` to consume the new `OrganiserGuestRow` shape (publicId / firstName / lastName instead of `name` + `code` + `claimed`)
-- [ ] Reconsider `parseMembers` — now redundant given `members` array in claim response
 - [ ] Replace hero photo placeholder with actual photo
 - [ ] Customise monogram with couple's initials
 - [ ] Write Our Story content
 - [ ] Populate dress code colour palette swatches
 - [ ] Embed actual Pinterest board URLs
-- [ ] Wire RSVP modal to API (pending invite group backend)
-- [ ] Show family members in RSVP modal from claim response
-- [ ] Per-person attendance toggle + dietary input in modal
+- [ ] Wire RSVP modal to API (pending RSVP endpoint)
 - [ ] "Open in Maps" button on event cards (Apple Maps / Google Maps)
 - [ ] Add-to-calendar links (Google Calendar, Apple Calendar, .ics)
 - [ ] Passkey registration + login UI
@@ -116,11 +78,6 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 
 ## apps/api
 
-- [x] Hono app scaffold with Cloudflare Workers wrangler config
-- [x] Effect Schema validation on request bodies
-- [x] `POST /api/claim` — validate (publicId, password), return family + members + events
-- [x] `GET /api/organiser/guests` — return one row per guest with family publicId, names, events
-- [x] Family ID + password generation service (PBKDF2 + WebCrypto)
 - [ ] Spreadsheet parser + diff service + import endpoints (see Organiser Spreadsheet Import above)
 - [ ] Organiser auth middleware
 - [ ] `POST /api/rsvp` — per-person per-event RSVP with dietary requirements
@@ -137,9 +94,6 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 
 See [[monorepo-structure]] for how this package fits into the dependency graph.
 
-- [x] Drizzle schema: `families`, `guests`, `events`, `guestEvents`, `rsvps`, `sessions`
-- [x] First D1 migration (`0001_initial.sql`)
-- [x] `drizzle.config.ts` for future migration generation
 - [ ] Add `organisers` + `organiser_sessions` tables once auth lands
 - [ ] Add `dietary_requirements` column to rsvps (or separate table for per-event dietary)
 - [ ] Seed script for local development that exercises real `generatePublicId` / `generatePassword` (currently uses fixed JSON fixtures so tests stay deterministic)
@@ -157,9 +111,6 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 
 **High**
 
-- [x] Family `publicId` must be cryptographically random — never sequential or derivable from family_name alone (the SURNAME prefix is enumerable; entropy lives in the word + Crockford hash)
-- [x] Family password must be hashed with a Workers-compatible KDF (PBKDF2-SHA256 via WebCrypto, 100k iter)
-- [x] Constant-time hash comparison on verify (`verifyPassword`); dummy hash on lookup miss to avoid timing-based family enumeration (`claimService.lookup`, derived from `PBKDF2_ITERATIONS` at module load)
 - [ ] Organiser import endpoints must require organiser session — never guest session
 - [ ] Spreadsheet parser must reject formula-injection cells (leading `=`, `+`, `-`, `@`)
 - [ ] Magic link tokens must be single-use and expire (≤15 min)
@@ -182,9 +133,6 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 
 See [[review-findings]] for severity prefix conventions.
 
-- [x] `claimService.lookup` collapsed from 4 D1 queries (incl. unbounded `guest_events` scan) to 2 via a single filtered join
-- [x] `claimService.getAllGuests` collapsed from 3 full-table fetches + in-memory join to one DB-side join
-- [x] `guest_events.event_id` index added for reverse lookups
 - [ ] PBKDF2 100k iterations + dummy-hash-on-miss is ~20-40ms per request on Workers. Pairs with rate limiting (above) before public launch — once that's in place, consider lowering iterations to 25-50k for a wedding-scale threat model.
 - [ ] `getAllGuests` paginate / cursor once organiser UI is built — current single-join is fine at 100 guests, problematic past a few thousand
 - [ ] Landing page animations must not block LCP — defer Motion One until after first paint
