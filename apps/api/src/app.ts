@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { claimRoute } from "./routes/claim";
 import { organiserRoute } from "./routes/organiser";
+import { rsvpRoute } from "./routes/rsvp";
 import { createRateLimiter } from "./services/rate-limit";
 import { rateLimitMiddleware } from "./middleware/rate-limit";
 import type { RateLimiter } from "./services/rate-limit";
@@ -42,6 +43,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
 
   app.route("/api/claim", claimRoute);
   app.route("/api/organiser", organiserRoute);
+  app.route("/api/rsvp", rsvpRoute);
   app.notFound((c) => c.json({ error: "Not found" }, 404));
 
   return app;

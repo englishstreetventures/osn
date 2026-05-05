@@ -1,6 +1,6 @@
 import { Effect, Data } from "effect";
 import { eq, asc } from "drizzle-orm";
-import { families, guests, events, guestEvents } from "@cire/db";
+import { families, guests, events, guestEvents, rsvps } from "@cire/db";
 import { DbService } from "../db";
 import { verifyPassword, DUMMY_HASH, type HashFailure } from "./family-id";
 import type { ClaimResponse, OrganiserGuestRow } from "../schemas/claim";
@@ -75,11 +75,25 @@ export const claimService = {
         }
       }
 
+      // Fetch existing RSVPs for this family
+      const rsvpRows = db
+        .select({
+          guestId: rsvps.guestId,
+          eventId: rsvps.eventId,
+          status: rsvps.status,
+          dietary: rsvps.dietary,
+        })
+        .from(rsvps)
+        .innerJoin(guests, eq(rsvps.guestId, guests.id))
+        .where(eq(guests.familyId, family.id))
+        .all();
+
       return {
         publicId: family.publicId,
         familyName: family.familyName,
         members: Array.from(memberMap.values()),
         events: Array.from(eventMap.values()),
+        rsvps: rsvpRows,
       };
     });
   },

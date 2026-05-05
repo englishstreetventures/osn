@@ -1,4 +1,11 @@
-import { sqliteTable, text, integer, primaryKey, index } from "drizzle-orm/sqlite-core";
+import {
+  sqliteTable,
+  text,
+  integer,
+  primaryKey,
+  index,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const families = sqliteTable(
   "families",
@@ -54,19 +61,24 @@ export const guestEvents = sqliteTable(
   ],
 );
 
-export const rsvps = sqliteTable("rsvps", {
-  id: text("id").primaryKey(),
-  guestId: text("guest_id")
-    .notNull()
-    .references(() => guests.id, { onDelete: "cascade" }),
-  eventId: text("event_id")
-    .notNull()
-    .references(() => events.id),
-  status: text("status", {
-    enum: ["attending", "declined", "maybe"],
-  }).notNull(),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-});
+export const rsvps = sqliteTable(
+  "rsvps",
+  {
+    id: text("id").primaryKey(),
+    guestId: text("guest_id")
+      .notNull()
+      .references(() => guests.id, { onDelete: "cascade" }),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id),
+    status: text("status", {
+      enum: ["attending", "declined", "maybe"],
+    }).notNull(),
+    dietary: text("dietary").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [uniqueIndex("rsvps_guest_event_uniq").on(t.guestId, t.eventId)],
+);
 
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),

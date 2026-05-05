@@ -49,8 +49,10 @@ CREATE TABLE IF NOT EXISTS rsvps (
   guest_id TEXT NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
   event_id TEXT NOT NULL REFERENCES events(id),
   status TEXT NOT NULL CHECK(status IN ('attending', 'declined', 'maybe')),
+  dietary TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS rsvps_guest_event_uniq ON rsvps(guest_id, event_id);
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,

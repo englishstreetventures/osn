@@ -39,6 +39,7 @@ describe("claimService.lookup", () => {
         expect(result.events.map((e) => e.id)).toEqual(
           expect.arrayContaining(["mehndi", "wedding", "reception"]),
         );
+        expect(result.rsvps).toEqual([]);
       }),
     ),
   );

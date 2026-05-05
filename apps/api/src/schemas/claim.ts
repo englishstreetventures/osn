@@ -26,11 +26,20 @@ export const FamilyMember = Schema.Struct({
 });
 export type FamilyMember = Schema.Schema.Type<typeof FamilyMember>;
 
+export const RsvpSummary = Schema.Struct({
+  guestId: Schema.String,
+  eventId: Schema.String,
+  status: Schema.String,
+  dietary: Schema.String,
+});
+export type RsvpSummary = Schema.Schema.Type<typeof RsvpSummary>;
+
 export const ClaimResponse = Schema.Struct({
   publicId: Schema.String,
   familyName: Schema.String,
   members: Schema.Array(FamilyMember),
   events: Schema.Array(EventSummary),
+  rsvps: Schema.Array(RsvpSummary),
 });
 export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>;
 
