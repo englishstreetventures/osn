@@ -26,6 +26,8 @@ The plan should:
 - Outline the implementation steps in order
 - Flag any Cloudflare-specific concerns (D1 migrations needed, wrangler binding changes, Worker CPU time, Cloudflare Pages routing)
 - Note whether a new Drizzle migration is required
+- Note observability requirements: error logging on failure paths, any new log fields needing redaction (PII, tokens, secrets)
+- Note if any wiki pages need updating (architecture changes, new system, new convention)
 
 ---
 

@@ -124,7 +124,23 @@ bunx wrangler d1 execute cire-db --local --command "SELECT name FROM sqlite_mast
 
 ---
 
-## Step 8 — Verify the setup
+## Step 8 — Obsidian (optional but recommended)
+
+The `wiki/` directory is an Obsidian vault for project documentation. It also works as plain markdown without Obsidian.
+
+To set up Obsidian:
+1. Install [Obsidian](https://obsidian.md) if not already installed
+2. Open `wiki/` as a vault (File → Open folder as vault)
+3. Recommended settings:
+   - Files & Links → Wikilinks: **ON**
+   - Files & Links → Shortest path when possible: **ON**
+   - Editor → Show frontmatter: **ON**
+
+Note: All wiki content is plain markdown and git-tracked. Obsidian is purely for a nicer editing experience — everything works without it.
+
+---
+
+## Step 9 — Verify the setup
 
 Run the following checks in parallel and report results:
 

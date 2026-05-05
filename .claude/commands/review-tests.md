@@ -34,6 +34,8 @@ For each changed module, check:
 - **Are edge cases covered?** (Boundary inputs, empty collections, invalid IDs)
 - **Are new Hono route handlers tested?** (Flag any route without an integration test using `app.request()`)
 - **Are new Drizzle schema changes covered?** (Flag if migration exists but no test exercises the new columns/tables)
+- **Observability check** — are new service functions instrumented (error logging on failure paths)?
+- **Wiki check** — if architecture changed, is wiki updated?
 
 ---
 

@@ -60,8 +60,33 @@ Wait for both. Present both reports. Ask: "Do you want to address any findings b
 
 ---
 
-## Step 6 — Push
+## Step 6 — Observability checklist
 
-Run `git push -u origin HEAD`.
+Check the changed files against wiki/observability/overview:
+- Are error paths logged?
+- Are any `console.*` calls introduced in backend code (should use structured logger)?
+- Is PII present in log output without redaction?
 
-Report the remote branch URL and remind the user they can merge directly to main when ready (no PR review required for this solo project).
+This step is advisory only — present findings but do not block.
+
+---
+
+## Step 7 — Push and open PR
+
+Run `git push -u origin HEAD`, then:
+
+```
+gh pr create --title "<title>" --body "$(cat <<'EOF'
+## Summary
+- <bullet points>
+
+## Workspaces affected
+- <list>
+
+## Test plan
+- <checklist>
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+```
