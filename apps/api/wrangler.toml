@@ -10,6 +10,7 @@ WEB_ORIGIN = "http://localhost:4321"
 binding = "DB"
 database_name = "cire-db"
 database_id = "placeholder-replace-after-d1-create"
+migrations_dir = "../../packages/db/migrations"
 
 [env.production.vars]
 WEB_ORIGIN = "https://cire.pages.dev"

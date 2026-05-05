@@ -9,12 +9,15 @@ type AppVariables = { db: Db }
 export const organiserRoute = new Hono<{ Variables: AppVariables }>()
 
 organiserRoute.get("/guests", (c) => {
-  return Effect.runSync(
+  return Effect.runPromise(
     claimService
       .getAllGuests()
       .pipe(
         Effect.provideService(DbService, c.var.db),
         Effect.map((guestList) => c.json(guestList)),
+        Effect.catchAllDefect(() =>
+          Effect.succeed(c.json({ error: "Internal error" }, 500)),
+        ),
       ),
   )
 })

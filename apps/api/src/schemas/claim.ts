@@ -3,7 +3,8 @@ import { Schema } from "effect"
 // ── Request bodies ────────────────────────────────────────────────────────────
 
 export const ClaimBody = Schema.Struct({
-  code: Schema.NonEmptyString,
+  publicId: Schema.NonEmptyString,
+  password: Schema.NonEmptyString,
 })
 export type ClaimBody = Schema.Schema.Type<typeof ClaimBody>
 
@@ -18,16 +19,26 @@ export const EventSummary = Schema.Struct({
 })
 export type EventSummary = Schema.Schema.Type<typeof EventSummary>
 
+export const FamilyMember = Schema.Struct({
+  firstName: Schema.String,
+  lastName: Schema.String,
+  eventIds: Schema.Array(Schema.String),
+})
+export type FamilyMember = Schema.Schema.Type<typeof FamilyMember>
+
 export const ClaimResponse = Schema.Struct({
-  guestName: Schema.String,
+  publicId: Schema.String,
+  familyName: Schema.String,
+  members: Schema.Array(FamilyMember),
   events: Schema.Array(EventSummary),
 })
 export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>
 
-export const GuestWithEvents = Schema.Struct({
-  name: Schema.String,
-  code: Schema.String,
-  claimed: Schema.Boolean,
+export const OrganiserGuestRow = Schema.Struct({
+  publicId: Schema.String,
+  familyName: Schema.String,
+  firstName: Schema.String,
+  lastName: Schema.String,
   events: Schema.Array(Schema.String),
 })
-export type GuestWithEvents = Schema.Schema.Type<typeof GuestWithEvents>
+export type OrganiserGuestRow = Schema.Schema.Type<typeof OrganiserGuestRow>

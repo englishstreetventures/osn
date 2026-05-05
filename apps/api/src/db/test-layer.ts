@@ -1,9 +1,12 @@
-import { Layer } from "effect"
+import { Layer, Effect } from "effect"
 import { DbService } from "./index"
 import { createDb, seedDb } from "./setup"
 
-export const TestDbLayer = Layer.sync(DbService, () => {
-  const db = createDb(":memory:")
-  seedDb(db)
-  return db
-})
+export const TestDbLayer = Layer.scoped(
+  DbService,
+  Effect.gen(function* () {
+    const db = createDb(":memory:")
+    yield* Effect.promise(() => seedDb(db))
+    return db
+  }),
+)

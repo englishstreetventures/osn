@@ -2,7 +2,7 @@ import { createApp } from "./app"
 import { createDb, seedDb } from "./db/setup"
 
 const db = createDb(":memory:")
-seedDb(db)
+await seedDb(db)
 
 const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:4321"
 const port = Number(process.env.PORT ?? 8787)

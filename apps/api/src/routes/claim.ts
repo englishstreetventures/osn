@@ -10,22 +10,31 @@ type AppVariables = { db: Db }
 export const claimRoute = new Hono<{ Variables: AppVariables }>()
 
 claimRoute.post("/", async (c) => {
-  const raw = await Effect.runPromise(
-    Effect.tryPromise({ try: () => c.req.json(), catch: () => null }),
-  )
+  let raw: unknown
+  try {
+    raw = await c.req.json()
+  } catch {
+    raw = null
+  }
 
   return Effect.runPromise(
     Effect.gen(function* () {
-      const { code } = yield* Schema.decodeUnknown(ClaimBody)(raw)
-      const result = yield* claimService.lookup(code.trim().toUpperCase())
+      const { publicId, password } = yield* Schema.decodeUnknown(ClaimBody)(raw)
+      const result = yield* claimService.lookup(
+        publicId.trim().toUpperCase(),
+        password.trim(),
+      )
       return c.json(result)
     }).pipe(
       Effect.provideService(DbService, c.var.db),
       Effect.catchTag("ParseError", () =>
         Effect.succeed(c.json({ error: "Missing or invalid fields" }, 400)),
       ),
-      Effect.catchTag("InvalidCode", () =>
-        Effect.succeed(c.json({ error: "Invalid code" }, 401)),
+      Effect.catchTag("InvalidCredentials", () =>
+        Effect.succeed(c.json({ error: "Invalid credentials" }, 401)),
+      ),
+      Effect.catchTag("HashFailure", () =>
+        Effect.succeed(c.json({ error: "Server error" }, 500)),
       ),
     ),
   )

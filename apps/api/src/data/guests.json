@@ -1,6 +1,56 @@
 [
-  { "code": "PRI-IVY-QM42", "name": "Priya Sharma" },
-  { "code": "JAM-OAK-7R2P", "name": "James & Emma Wilson" },
-  { "code": "AUN-DEW-K9X3", "name": "Auntie Meena" },
-  { "code": "DEV-JOY-RK97", "name": "Dev Patel" }
+  {
+    "publicId": "SHARMA-IVY-QM42",
+    "password": "amber-cedar-violin-ridge",
+    "familyName": "Sharma",
+    "guests": [
+      {
+        "firstName": "Priya",
+        "lastName": "Sharma",
+        "events": ["mehndi", "wedding", "reception"]
+      }
+    ]
+  },
+  {
+    "publicId": "WILSON-OAK-7R2P",
+    "password": "river-marsh-clover-finch",
+    "familyName": "Wilson",
+    "guests": [
+      {
+        "firstName": "James",
+        "lastName": "Wilson",
+        "events": ["wedding", "reception"]
+      },
+      {
+        "firstName": "Emma",
+        "lastName": "Wilson",
+        "events": ["wedding", "reception"]
+      },
+      { "firstName": "Sophie", "lastName": "Wilson", "events": ["wedding"] }
+    ]
+  },
+  {
+    "publicId": "MEENA-DEW-K9X3",
+    "password": "moss-storm-pebble-otter",
+    "familyName": "Meena",
+    "guests": [
+      {
+        "firstName": "Auntie",
+        "lastName": "Meena",
+        "events": ["mehndi", "wedding"]
+      }
+    ]
+  },
+  {
+    "publicId": "PATEL-JOY-RK97",
+    "password": "lemon-violet-thyme-eagle",
+    "familyName": "Patel",
+    "guests": [
+      {
+        "firstName": "Dev",
+        "lastName": "Patel",
+        "events": ["wedding", "reception"]
+      }
+    ]
+  }
 ]

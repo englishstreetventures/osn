@@ -1,17 +1,33 @@
 import { Database } from "bun:sqlite"
 import { drizzle } from "drizzle-orm/bun-sqlite"
+import { Effect } from "effect"
 import * as schema from "@cire/db"
 import guestsData from "../data/guests.json"
 import eventsData from "../data/events.json"
+import { hashPassword } from "../services/family-id"
 import type { Db } from "./index"
 
 const DDL = `
+CREATE TABLE IF NOT EXISTS families (
+  id TEXT PRIMARY KEY,
+  public_id TEXT NOT NULL UNIQUE,
+  family_name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS families_family_name_idx ON families(family_name);
+
 CREATE TABLE IF NOT EXISTS guests (
   id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  claim_code TEXT NOT NULL UNIQUE,
-  created_at INTEGER NOT NULL
+  family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS guests_family_id_idx ON guests(family_id);
 
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
@@ -23,14 +39,14 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE TABLE IF NOT EXISTS guest_events (
-  guest_id TEXT NOT NULL REFERENCES guests(id),
+  guest_id TEXT NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
   event_id TEXT NOT NULL REFERENCES events(id),
   PRIMARY KEY (guest_id, event_id)
 );
 
 CREATE TABLE IF NOT EXISTS rsvps (
   id TEXT PRIMARY KEY,
-  guest_id TEXT NOT NULL REFERENCES guests(id),
+  guest_id TEXT NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
   event_id TEXT NOT NULL REFERENCES events(id),
   status TEXT NOT NULL CHECK(status IN ('attending', 'declined', 'maybe')),
   created_at INTEGER NOT NULL
@@ -38,7 +54,7 @@ CREATE TABLE IF NOT EXISTS rsvps (
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
-  guest_id TEXT NOT NULL REFERENCES guests(id),
+  family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
   token TEXT NOT NULL UNIQUE,
   expires_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL
@@ -51,22 +67,8 @@ export function createDb(path: string = ":memory:"): Db {
   return drizzle(sqlite, { schema })
 }
 
-export function seedDb(db: Db): void {
+export async function seedDb(db: Db): Promise<void> {
   const now = new Date()
-  const guestIdByName = new Map<string, string>()
-
-  for (const guest of guestsData) {
-    const id = crypto.randomUUID()
-    guestIdByName.set(guest.name, id)
-    db.insert(schema.guests)
-      .values({
-        id,
-        name: guest.name,
-        claimCode: guest.code,
-        createdAt: now,
-      })
-      .run()
-  }
 
   for (const [slug, event] of Object.entries(eventsData)) {
     db.insert(schema.events)
@@ -79,14 +81,42 @@ export function seedDb(db: Db): void {
         description: event.description,
       })
       .run()
+  }
 
-    for (const guestName of event.guests) {
-      const guestId = guestIdByName.get(guestName)
-      if (guestId) {
+  for (const family of guestsData) {
+    const familyId = crypto.randomUUID()
+    const passwordHash = await Effect.runPromise(hashPassword(family.password))
+
+    db.insert(schema.families)
+      .values({
+        id: familyId,
+        publicId: family.publicId,
+        familyName: family.familyName,
+        passwordHash,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run()
+
+    family.guests.forEach((guest, index) => {
+      const guestId = crypto.randomUUID()
+      db.insert(schema.guests)
+        .values({
+          id: guestId,
+          familyId,
+          firstName: guest.firstName,
+          lastName: guest.lastName,
+          sortOrder: index,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run()
+
+      for (const eventSlug of guest.events) {
         db.insert(schema.guestEvents)
-          .values({ guestId, eventId: event.id })
+          .values({ guestId, eventId: eventSlug })
           .run()
       }
-    }
+    })
   }
 }
