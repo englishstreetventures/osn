@@ -6,3 +6,4 @@ apps/web/.astro/
 apps/web/dist/
 .env
 *.env.local
+wiki/.obsidian/

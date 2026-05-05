@@ -5,6 +5,7 @@ Audit project documentation for currency and completeness. $ARGUMENTS may contai
 ## Step 1 — Wiki pages
 
 For each file in wiki/:
+
 - Verify YAML frontmatter has: title, tags, related, last-reviewed
 - Flag pages with last-reviewed older than 90 days
 - Check for broken [[wiki links]] (target page doesn't exist)

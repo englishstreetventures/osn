@@ -65,6 +65,7 @@ Wait for both. Present both reports. Ask: "Do you want to address any findings b
 ## Step 6 — Observability checklist
 
 Check the changed files against wiki/observability/overview:
+
 - Are error paths logged?
 - Are any `console.*` calls introduced in backend code (should use structured logger)?
 - Is PII present in log output without redaction?

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-AI coding assistant reference. For full spec see README.md. For progress/decisions see TODO.md.
+AI coding assistant reference. For full spec see README.md. For progress/decisions see wiki/TODO.md.
 
 ## Quick Context
 
@@ -10,9 +10,10 @@ Cire is a bespoke digital wedding invite — a single Astro + SolidJS site with 
 
 - `README.md` → Human-readable spec, architecture, stack
 - `CLAUDE.md` → AI reference — patterns, conventions, commands
-- `TODO.md` → Progress tracking, backlog, deferred decisions
+- `wiki/TODO.md` → Progress tracking, backlog, deferred decisions
+- `wiki/` → Obsidian knowledge graph — architecture docs, conventions, observability, changelogs, runbooks
 
-## TODO.md Structure + Maintenance
+## wiki/TODO.md Structure + Maintenance
 
 | Section             | What goes here                           |
 | ------------------- | ---------------------------------------- |
@@ -26,7 +27,44 @@ Cire is a bespoke digital wedding invite — a single Astro + SolidJS site with 
 | Deferred Decisions  | Open questions with options and triggers |
 | Future              | Vague post-MVP ideas                     |
 
-Update TODO.md when: a task is completed, a new concern is discovered, a deferred decision is resolved, or priorities shift.
+Update wiki/TODO.md when: a task is completed, a new concern is discovered, a deferred decision is resolved, or priorities shift.
+
+## Wiki Navigation
+
+| If you need to...               | Read                                          |
+| ------------------------------- | --------------------------------------------- |
+| Understand monorepo layout      | `[[wiki/architecture/monorepo-structure]]`    |
+| Check PR/branch conventions     | `[[wiki/conventions/contributing]]`           |
+| Understand observability rules  | `[[wiki/observability/overview]]`             |
+| Look up review finding IDs      | `[[wiki/conventions/review-findings]]`        |
+| Debug a production issue        | Browse `wiki/runbooks/`                       |
+| Check security or perf findings | `wiki/TODO.md` (Security/Performance Backlog) |
+| Track progress and priorities   | `wiki/TODO.md`                                |
+
+### Querying the Wiki
+
+With Obsidian: open `wiki/` as a vault, use graph view and search.
+
+Without Obsidian (CLI):
+
+```bash
+# Find pages by tag
+rg "tags:.*security" wiki/ --glob "*.md"
+
+# Find all pages linking to a topic
+rg "\[\[contributing\]\]" wiki/
+
+# List open TODOs
+rg "- \[ \]" wiki/TODO.md
+```
+
+### Wiki Maintenance Rules
+
+1. **New system = new wiki page** — adding a service, integration, or tool? Create a wiki page for it.
+2. **Modify pattern = update wiki page** — changing a convention, flow, or architecture? Update the relevant wiki page.
+3. **Frontmatter required** — every wiki page must have `title`, `tags`, `related`, `last-reviewed` in YAML frontmatter.
+4. **Use `[[wiki links]]`** — all internal cross-references use Obsidian wiki link syntax.
+5. **Update `last-reviewed`** — set to today's date when you modify a wiki page.
 
 ## Current State
 
@@ -37,9 +75,10 @@ cire/
 │   └── api/          # Pending — Hono on CF Workers
 ├── packages/
 │   └── db/           # Pending — Drizzle schema + D1 migrations
+├── wiki/             # Obsidian knowledge graph
 ├── README.md         ✓
 ├── CLAUDE.md         ✓
-└── TODO.md           ✓
+└── TODO.md           → wiki/TODO.md
 ```
 
 ## Tech (one-liner)
@@ -55,6 +94,12 @@ TypeScript, Bun, Cloudflare Workers + Pages, Astro + SolidJS + Motion One, Hono,
 - Monorepo: bun workspaces; scope commands with `--cwd apps/web` or `--cwd apps/api`
 - No changesets or versioning scheme — solo project
 - Cloudflare bindings (D1, R2, KV) are typed via `wrangler types` — regenerate after schema or binding changes
+- **Observability** (see `[[wiki/observability/overview]]` for full guide):
+  - No `console.*` in backend — use Effect structured logger (`Effect.logInfo`, `Effect.logWarning`, `Effect.logError`)
+  - Log levels: debug (local only), info (happy path), warning (recoverable), error (unrecoverable)
+  - Never log PII (email, tokens, passwords, passphrase values)
+  - Redaction deny-list: `password`, `passphrase`, `token`, `email`, `sessionId`, `passwordHash`
+  - Always log error paths — every `catch` / `Effect.catchAll` must emit a log line
 
 ## Testing Patterns
 
