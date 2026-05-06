@@ -2,6 +2,7 @@ import { For, Show } from "solid-js";
 import type { EventSummary, DressCodeInfo } from "./types";
 import { EVENT_DRESS_CODES } from "./dress-codes";
 import { AnimatedModal } from "./AnimatedModal";
+import { PinterestBoard } from "./PinterestBoard";
 
 interface DetailsModalProps {
   event: EventSummary;
@@ -52,9 +53,19 @@ export function DetailsModal(props: DetailsModalProps) {
             </div>
 
             <div class="rounded-sm border border-dashed border-border p-6">
-              <p class="font-body text-[0.85rem] italic text-text-muted">
-                Pinterest inspiration board coming soon.
-              </p>
+              <h4 class="mb-3 font-body text-[0.72rem] font-normal uppercase tracking-[0.2em] text-gold">
+                Inspiration
+              </h4>
+              <Show
+                when={props.event.pinterestUrl}
+                fallback={
+                  <p class="font-body text-[0.85rem] italic text-text-muted">
+                    No inspiration board yet.
+                  </p>
+                }
+              >
+                {(url) => <PinterestBoard url={url()} eventName={props.event.name} />}
+              </Show>
             </div>
           </div>
         )}
