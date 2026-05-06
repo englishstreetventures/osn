@@ -23,6 +23,7 @@ export function isValidClaimResponse(data: unknown): data is ClaimResult {
   if (typeof obj.familyName !== "string") return false;
   if (!Array.isArray(obj.members)) return false;
   if (!Array.isArray(obj.events)) return false;
+  if (!Array.isArray(obj.rsvps)) return false;
   const membersValid = obj.members.every((m: unknown) => {
     if (typeof m !== "object" || m === null) return false;
     const mm = m as Record<string, unknown>;
@@ -34,6 +35,17 @@ export function isValidClaimResponse(data: unknown): data is ClaimResult {
     );
   });
   if (!membersValid) return false;
+  const rsvpsValid = obj.rsvps.every((r: unknown) => {
+    if (typeof r !== "object" || r === null) return false;
+    const rr = r as Record<string, unknown>;
+    return (
+      typeof rr.guestId === "string" &&
+      typeof rr.eventId === "string" &&
+      (rr.status === "attending" || rr.status === "declined" || rr.status === "maybe") &&
+      typeof rr.dietary === "string"
+    );
+  });
+  if (!rsvpsValid) return false;
   return obj.events.every((e: unknown) => {
     if (typeof e !== "object" || e === null) return false;
     const ev = e as Record<string, unknown>;

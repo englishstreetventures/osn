@@ -29,9 +29,17 @@ export interface FamilyMember {
   eventIds: string[];
 }
 
+export interface RsvpSummary {
+  guestId: string;
+  eventId: string;
+  status: "attending" | "declined" | "maybe";
+  dietary: string;
+}
+
 export interface ClaimResult {
   publicId: string;
   familyName: string;
   members: FamilyMember[];
   events: EventSummary[];
+  rsvps: RsvpSummary[];
 }

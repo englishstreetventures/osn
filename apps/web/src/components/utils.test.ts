@@ -57,6 +57,7 @@ describe("isValidClaimResponse", () => {
       { guestId: "guest-2", firstName: "Raj", lastName: "Sharma", eventIds: ["reception"] },
     ],
     events: [baseEvent],
+    rsvps: [{ guestId: "guest-1", eventId: "mehndi", status: "attending", dietary: "Vegetarian" }],
   };
 
   it("accepts a valid response", () => {
@@ -70,6 +71,7 @@ describe("isValidClaimResponse", () => {
         familyName: "Test",
         members: [],
         events: [],
+        rsvps: [],
       }),
     ).toBe(true);
   });
@@ -90,6 +92,7 @@ describe("isValidClaimResponse", () => {
             mapsUrl: null,
           },
         ],
+        rsvps: [],
       }),
     ).toBe(true);
   });
@@ -257,6 +260,48 @@ describe("isValidClaimResponse", () => {
         familyName: "Test",
         members: [],
         events: [{ ...baseEvent, dressCodePalette: [{ name: "X" }] }],
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects missing rsvps", () => {
+    expect(
+      isValidClaimResponse({ publicId: "X", familyName: "Test", members: [], events: [] }),
+    ).toBe(false);
+  });
+
+  it("rejects non-array rsvps", () => {
+    expect(
+      isValidClaimResponse({
+        publicId: "X",
+        familyName: "Test",
+        members: [],
+        events: [],
+        rsvps: "nope",
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects rsvps with unknown status", () => {
+    expect(
+      isValidClaimResponse({
+        publicId: "X",
+        familyName: "Test",
+        members: [],
+        events: [],
+        rsvps: [{ guestId: "g1", eventId: "e1", status: "yolo", dietary: "" }],
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects rsvps with non-string dietary", () => {
+    expect(
+      isValidClaimResponse({
+        publicId: "X",
+        familyName: "Test",
+        members: [],
+        events: [],
+        rsvps: [{ guestId: "g1", eventId: "e1", status: "attending", dietary: 42 }],
       }),
     ).toBe(false);
   });

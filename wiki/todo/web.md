@@ -17,7 +17,7 @@ Frontend feature work. Tick items as PRs land; add new entries when scope is dis
 - [ ] Write Our Story content
 - [x] Populate dress code colour palette swatches from `event.dressCodePalette` (PR-E)
 - [x] Embed actual Pinterest board URLs via `event.pinterestUrl` (PR-D)
-- [ ] Wire RSVP modal to API using surfaced `guestId` per member (PR-F)
+- [x] Wire RSVP modal to API using surfaced `guestId` per member (PR-F)
 - [ ] "Open in Maps" button on event cards driven by `event.mapsUrl`
 - [ ] Add-to-calendar links (Google Calendar, Apple Calendar, .ics) sourced from `event.startAt` / `endAt` / `timezone` (PR-G)
 - [ ] Passkey registration + login UI

@@ -3,7 +3,7 @@ import { LoginSection } from "./LoginSection";
 import { EventCard } from "./EventCard";
 import { RsvpModal } from "./RsvpModal";
 import { DetailsModal } from "./DetailsModal";
-import type { ClaimResult, EventSummary } from "./types";
+import type { ClaimResult, EventSummary, RsvpSummary } from "./types";
 
 interface InvitePageProps {
   apiUrl: string;
@@ -76,7 +76,14 @@ export default function InvitePage(props: InvitePageProps) {
           <RsvpModal
             event={event()}
             members={claimResult()!.members}
+            existingRsvps={claimResult()!.rsvps}
+            apiUrl={props.apiUrl}
             onClose={() => setRsvpEvent(null)}
+            onSubmitted={(updated: RsvpSummary[]) => {
+              const current = claimResult();
+              if (!current) return;
+              setClaimResult({ ...current, rsvps: updated });
+            }}
           />
         )}
       </Show>
