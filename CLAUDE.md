@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-AI coding assistant reference. For full spec see README.md. For progress/decisions see wiki/TODO.md.
+AI coding assistant reference. For full spec see README.md. For progress/decisions see `wiki/todo/` (the per-area shards) — `wiki/TODO.md` is now a thin index.
 
 ## Quick Context
 
@@ -10,24 +10,27 @@ Cire is a bespoke digital wedding invite — a single Astro + SolidJS site with 
 
 - `README.md` → Human-readable spec, architecture, stack
 - `CLAUDE.md` → AI reference — patterns, conventions, commands
-- `wiki/TODO.md` → Progress tracking, backlog, deferred decisions
+- `wiki/TODO.md` → Thin index of per-area TODO shards (no tracked items live here)
+- `wiki/todo/<area>.md` → Per-area progress + backlog (status, web, api, db, spreadsheet-import, security, perf, deferred, future)
 - `wiki/` → Obsidian knowledge graph — architecture docs, conventions, observability, changelogs, runbooks
 
-## wiki/TODO.md Structure + Maintenance
+## wiki/todo/ Shards + Maintenance
 
-| Section             | What goes here                           |
-| ------------------- | ---------------------------------------- |
-| Current Status      | One-paragraph snapshot of what's built   |
-| Up Next             | ≤8 highest-priority items                |
-| apps/web            | Frontend feature work                    |
-| apps/api            | Backend feature work                     |
-| packages/db         | Schema and migration work                |
-| Security Backlog    | H/M/L security findings                  |
-| Performance Backlog | Performance concerns                     |
-| Deferred Decisions  | Open questions with options and triggers |
-| Future              | Vague post-MVP ideas                     |
+Each shard tracks one area. Edit only the shard your diff touches — keeps PRs from conflicting on a single TODO file.
 
-Update wiki/TODO.md when: a task is completed, a new concern is discovered, a deferred decision is resolved, or priorities shift.
+| Shard                             | What goes here                                           |
+| --------------------------------- | -------------------------------------------------------- |
+| `wiki/todo/status.md`             | Current Status paragraph + Up Next priority list         |
+| `wiki/todo/web.md`                | `apps/web` frontend feature work                         |
+| `wiki/todo/api.md`                | `apps/api` backend feature work                          |
+| `wiki/todo/db.md`                 | `packages/db` schema + migrations                        |
+| `wiki/todo/spreadsheet-import.md` | Organiser spreadsheet upload (parser + diff + endpoints) |
+| `wiki/todo/security.md`           | H/M/L security findings                                  |
+| `wiki/todo/perf.md`               | Performance concerns                                     |
+| `wiki/todo/deferred.md`           | Open architectural decisions + Resolved log              |
+| `wiki/todo/future.md`             | Vague post-MVP ideas                                     |
+
+Update the relevant shard when: a task is completed, a new concern is discovered, a deferred decision is resolved, or priorities shift. Bump that shard's `last-reviewed` to today. Do **not** add tracked items to `wiki/TODO.md` — it's an index only.
 
 ## Wiki Navigation
 
@@ -38,8 +41,8 @@ Update wiki/TODO.md when: a task is completed, a new concern is discovered, a de
 | Understand observability rules  | `[[wiki/observability/overview]]`             |
 | Look up review finding IDs      | `[[wiki/conventions/review-findings]]`        |
 | Debug a production issue        | Browse `wiki/runbooks/`                       |
-| Check security or perf findings | `wiki/TODO.md` (Security/Performance Backlog) |
-| Track progress and priorities   | `wiki/TODO.md`                                |
+| Check security or perf findings | `wiki/todo/security.md` / `wiki/todo/perf.md` |
+| Track progress and priorities   | `wiki/todo/status.md` (status + Up Next)      |
 
 ### Querying the Wiki
 
@@ -54,8 +57,11 @@ rg "tags:.*security" wiki/ --glob "*.md"
 # Find all pages linking to a topic
 rg "\[\[contributing\]\]" wiki/
 
-# List open TODOs
-rg "- \[ \]" wiki/TODO.md
+# List open TODOs across all shards
+rg "- \[ \]" wiki/todo/
+
+# Open TODOs in one area
+rg "- \[ \]" wiki/todo/security.md
 ```
 
 ### Wiki Maintenance Rules
@@ -79,7 +85,7 @@ cire/
 ├── wiki/             # Obsidian knowledge graph
 ├── README.md         ✓
 ├── CLAUDE.md         ✓
-└── TODO.md           → wiki/TODO.md
+└── TODO.md           → wiki/TODO.md (thin index → wiki/todo/*.md)
 ```
 
 ## Tech (one-liner)
