@@ -15,7 +15,7 @@ Progress tracking and deferred decisions. For full spec see README.md. For code 
 
 ## Current Status
 
-Monorepo built and functional. `packages/db` models families with a shareable `publicId` (e.g. `PATEL-JOY-RK97`) and per-family guests; `apps/api` exposes `POST /api/claim` (publicId-only lookup, mints a session), `POST /api/rsvp` (session-cookie gated, per-person per-event with dietary), `GET /api/organiser/guests`, plus rate-limit middleware on `/api/claim`. Organiser portal split into its own Astro app (`apps/organiser`) with `GuestTable` consuming the new shape. **PR-A** landed events metadata + `imports` table + `guests.externalId`; **PR-B** has now landed session-cookie auth: a 256-bit `cire_session` token is minted on successful claim and set as `HttpOnly; SameSite=Lax; Path=/` (no `Domain=` — host-scoped); `/api/rsvp` is behind a `sessionAuth` middleware that derives `familyId` from the session, dropping `familyPublicId` from the body; CORS now echoes the configured origin with `credentials: true`. Backend is Effect-based with Effect Schema validation; tests co-located `*.test.ts` under `bun test` (70 api, 48 web). Migrations: `0001_initial.sql`, `0002_add_rsvp_dietary.sql`, `0003_events_metadata_and_imports.sql`, `0004_perf_indices.sql`. Next slice: spreadsheet upload (PR-C) that drives reconciliation against this schema, plus wiring the guest-app RSVP modal (PR-F) to the live endpoint.
+Monorepo built and functional. `packages/db` models families with a shareable `publicId` (e.g. `PATEL-JOY-RK97`) and per-family guests; `apps/api` exposes `POST /api/claim` (publicId-only lookup, mints a session), `POST /api/rsvp` (session-cookie gated, per-person per-event with dietary), `GET /api/organiser/guests`, plus rate-limit middleware on `/api/claim`. Organiser portal split into its own Astro app (`apps/organiser`) with `GuestTable` consuming the new shape. **PR-A** landed events metadata + `imports` table + `guests.externalId`. **PR-B** landed session-cookie auth: a 256-bit `cire_session` token is minted on successful claim and set as `HttpOnly; SameSite=Lax; Path=/` (no `Domain=` — host-scoped); `/api/rsvp` is behind a `sessionAuth` middleware that derives `familyId` from the session, dropping `familyPublicId` from the body; CORS now echoes the configured origin with `credentials: true`. **PR-C** is now in: hand-rolled RFC 4180 CSV parser with formula-injection guards, an Effect-based diff service that reconciles parsed sheets against the live DB (creates / updates / removes per family + per guest + per event-link, plus state-loss warnings for guests with non-default RSVPs), R2-versioned uploads keyed at `imports/<importId>/{events,guests}.csv`, and a `revertImport` path that re-applies a previous snapshot. Routes under `/api/organiser/import/{preview,apply,revert,list}` are gated behind a shared-secret `X-Organiser-Token` header (interim until passkey auth lands). Backend is Effect-based with Effect Schema validation; tests co-located `*.test.ts` under `bun test` (120 api, 48 web). Migrations: `0001_initial.sql`, `0002_add_rsvp_dietary.sql`, `0003_events_metadata_and_imports.sql`, `0004_perf_indices.sql`. Next slice: organiser portal upload UI + migrate from shared-secret to organiser passkey auth, plus wiring the guest-app RSVP modal (PR-F) to the live endpoint.
 
 ---
 
@@ -23,11 +23,12 @@ Monorepo built and functional. `packages/db` models families with a shareable `p
 
 - [ ] Rebase the 5 dependent feature branches (`spreadsheet-parser`, `pinterest-embeds`, `dress-code-swatches`, `rsvp-modal-wire`, `calendar-links`) onto this PR-A schema
 - [x] PR-B — session cookie auth for guest claim (HttpOnly `cire_session` cookie, 30-day TTL)
-- [ ] Spreadsheet parser — accept CSV/TSV paste or .xlsx, group rows by `Family Name`, build canonical `ParsedFamily[]`
-- [ ] Diff + batched upsert service — empty-DB insert path and incremental reconciliation
+- [x] Spreadsheet parser — CSV-only (xlsx deferred), group rows by `Family Name`, build canonical `ParsedFamily[]` (PR-C)
+- [x] Diff + batched upsert service — empty-DB insert path and incremental reconciliation (PR-C)
 - [ ] Organiser auth — separate from guest claim flow (passkey + magic link)
-- [ ] `POST /api/organiser/import/{preview,apply}` endpoints
-- [ ] Organiser portal upload UI (paste sheet / upload .xlsx, preview diff, confirm)
+- [x] `POST /api/organiser/import/{preview,apply,revert,list}` endpoints (PR-C; gated behind `X-Organiser-Token` shared secret)
+- [ ] Wire organiser portal upload UI to `/api/organiser/import/*` — preview diff table with warnings, apply, list, revert
+- [ ] Migrate from `X-Organiser-Token` shared secret to organiser passkey auth
 - [ ] Migrate runtime DB layer in `apps/api/src/index.ts` from 503 stub to real D1
 - [x] Per-person per-event RSVP with dietary requirements
 - [x] Rate-limit claim attempts to prevent brute force — see [[overview]] for logging rules
@@ -42,11 +43,13 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 
 ### Spreadsheet ingestion (apps/api)
 
-- [ ] `services/spreadsheet.ts` — `parseTsv` / `parseCsv` / `parseXlsx`; reject formula-injection cells (cells starting with `=`, `+`, `-`, `@`) — see [[overview]] for logging guidance
-- [ ] `services/import.ts` — `diffAgainstDb(parsed)` returns `ImportPlan` (creates / updates / removes per family + per guest); `applyImport(plan)` executes in batched D1 transactions
-- [ ] `schemas/import.ts` — Effect Schema for the parsed row shape and the import response
-- [ ] Plan should preserve generated `publicId` + password for existing families; only assign new ones to brand-new families
-- [ ] Per-guest event invitations from boolean columns drive `guestEvents` rows
+- [x] `services/spreadsheet.ts` — `parseEventsCsv` / `parseGuestsCsv` (hand-rolled RFC 4180); rejects formula-injection cells (cells starting with `=`, `+`, `-`, `@`) (PR-C)
+- [x] `services/import.ts` — `diffAgainstDb(parsed)` returns `ImportPlan` (creates / updates / removes per family + per guest); `applyImport(plan)` executes in dependency order with per-statement chunking (PR-C)
+- [x] `services/r2-imports.ts` — R2Service Context tag + `storeUpload` / `fetchUpload` (PR-C)
+- [x] `services/revert.ts` — `revertImport` re-fetches prior CSVs from R2, re-parses, re-diffs, re-applies (PR-C)
+- [x] `schemas/import.ts` — Effect Schema for `ParsedEvent`, `ParsedFamily`, `ImportPlan`, request/response shapes (PR-C)
+- [x] Plan preserves `publicId` for matched families (case+whitespace-insensitive on `family_name`); only mints new IDs for brand-new families (PR-C)
+- [x] Per-guest event invitations from boolean columns drive `guestEvents` rows (PR-C)
 - [ ] When the source sheet adds a stable `Guest ID` column, populate `guests.externalId` from it (already in schema as of PR-A)
 
 ### Organiser portal (apps/web + apps/api)
@@ -89,9 +92,9 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 - [x] Session-cookie auth on `/api/rsvp`; `/api/claim` mints `cire_session` (PR-B)
 - [ ] Set `Domain=` on session cookie when production root domain lands; today host-scoped works for same-origin dev.
 - [ ] Cron-triggered `DELETE FROM sessions WHERE expires_at < now` — without this the sessions table grows unbounded as tokens expire but rows remain. Cloudflare cron trigger or a sweep on each `createSession`.
-- [ ] Spreadsheet parser + diff service + import endpoints (see Organiser Spreadsheet Import above)
-- [ ] Organiser auth middleware
-- [ ] **Revert capability for applied imports** — admin endpoint that re-applies the previous snapshot. The `imports` table already stores `status: applied | reverted` and an R2 blob of the original sheet so the data is in place; needs a service + route.
+- [x] Spreadsheet parser + diff service + import endpoints (PR-C — see Organiser Spreadsheet Import above)
+- [ ] Organiser auth middleware (currently shared-secret `X-Organiser-Token`; passkey auth is the follow-up)
+- [x] **Revert capability for applied imports** — `POST /api/organiser/import/revert` re-fetches the prior `applied` import's CSVs from R2, re-parses, re-diffs, re-applies, and marks the current row `reverted` (PR-C)
 - [x] `POST /api/rsvp` — per-person per-event RSVP with dietary requirements (gated behind `sessionAuth` cookie middleware as of PR-B)
 - [ ] `GET /api/events` — list events for the wedding
 - [ ] Drizzle D1 client wired in `src/index.ts` (currently 503 stub)
@@ -127,8 +130,10 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 
 **High**
 
-- [ ] Organiser import endpoints must require organiser session — never guest session
-- [ ] Spreadsheet parser must reject formula-injection cells (leading `=`, `+`, `-`, `@`)
+- [ ] Organiser import endpoints must require organiser session — never guest session (currently gated behind shared-secret `X-Organiser-Token` as MVP interim — PR-C)
+- [x] Spreadsheet parser must reject formula-injection cells (leading `=`, `+`, `-`, `@`) (PR-C; trim-resilient as of PR-C review)
+- [x] X-Organiser-Token compared in constant time (PR-C review)
+- [x] Formula-injection guard checks trimmed cell, not raw cell (PR-C review)
 - [ ] Magic link tokens must be single-use and expire (≤15 min)
 
 **Medium**
@@ -138,6 +143,8 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 - [ ] On password regeneration, invalidate existing sessions for that family
 - [x] `decodePalette` emits a structured warning (no PII) on malformed JSON or shape mismatch so corrupted rows don't fail silently (PR-A review)
 - [x] Session tokens hashed at rest — `sessions.token` stores SHA-256 hex of the raw token; cookie still carries the raw value (PR-B review)
+- [x] `/preview` rejects > 1MB body via Content-Length pre-check (PR-C review)
+- [x] CSV parser enforces ≤5000 rows + ≤10_000 chars/cell + rejects unterminated-quote at EOF (PR-C review)
 
 **Low**
 
@@ -146,6 +153,7 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 - [ ] Expand passphrase wordlist to ≥1024 entries for ≥40 bits of entropy
 - [ ] CI guard: fail deploy if `apps/api/wrangler.toml` still has the literal `database_id = "placeholder-replace-after-d1-create"` (PR-A review)
 - [ ] Frontend `href` validator — when `pinterestUrl` / `mapsUrl` / `address` start being rendered as links, run them through `new URL(...)` + `protocol === 'https:'` to block `javascript:` URIs (PR-D / PR-E / PR-G)
+- [ ] Whitelist 422 `MalformedSpreadsheet` reason strings — currently safe (only static literals are surfaced) but document the constraint so future contributors don't interpolate cell contents into the `reason` field (PR-C review)
 
 ---
 
@@ -166,6 +174,8 @@ See [[review-findings]] for severity prefix conventions.
 - [ ] Add-to-calendar data should not require a round-trip if event data is already hydrated in the page
 - [ ] .ics generation can be client-side to avoid unnecessary Worker invocation
 - [ ] Spreadsheet import on Workers: chunk inserts (≤100 rows per batch) to stay under 50ms CPU per request; offload large diffs to a Queue-driven worker
+- [x] `/list` paginated with `limit` + `uploadedAt` cursor (PR-C review)
+- [ ] Cache the parsed `ImportPlan` on the imports row to avoid re-parse + re-diff on `/apply` and `/revert` (currently re-runs both as TOCTOU defence). Consider once organiser sheet exceeds ~600 rows or revert latency becomes user-visible (PR-C review)
 
 ---
 
@@ -174,7 +184,6 @@ See [[review-findings]] for severity prefix conventions.
 | Question                                  | Options considered                                                                                        | Deadline / trigger                                                  |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | Event invitations per-family vs per-guest | Per-guest matches sheet exactly (current schema); per-family simpler but loses fidelity                   | After first import lands and real spreadsheet variation is observed |
-| Spreadsheet input format                  | TSV paste only / CSV / .xlsx via SheetJS                                                                  | Before upload UI is built                                           |
 | Organiser auth model                      | Reuse passkey infra with role flag vs. separate `organisers` table                                        | Before `/api/organiser/import` is hardened                          |
 | Surname collision handling in publicId    | Accept multiple `PATEL-*-*` IDs (different word/hash disambiguates) vs. enforce uniqueness on family_name | Stay on current accept-multiple unless aesthetic problem reported   |
 | Astro → Solid Start migration             | Keep Astro+islands vs migrate guest-facing app to Solid Start for tighter SPA flows                       | Post-platformisation — only if SaaS direction is taken              |
@@ -188,9 +197,10 @@ See [[review-findings]] for severity prefix conventions.
 
 ### Resolved
 
-| Question                 | Resolution                                                                                                    | Resolved   |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------- | ---------- |
-| Pinterest embed approach | iframe for MVP (good-enough preview, no API rate limits); upgrade to static-image board snapshots post-launch | 2026-05-05 |
+| Question                 | Resolution                                                                                                                                              | Resolved   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| Pinterest embed approach | iframe for MVP (good-enough preview, no API rate limits); upgrade to static-image board snapshots post-launch                                           | 2026-05-05 |
+| Spreadsheet input format | CSV-only for MVP (two sheets: events + guests). `.xlsx` deferred — would need SheetJS, slower upload, and most organisers can export CSV from any tool. | 2026-05-05 |
 
 ---
 
