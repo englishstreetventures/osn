@@ -15,7 +15,7 @@ Frontend feature work. Tick items as PRs land; add new entries when scope is dis
 - [ ] Replace hero photo placeholder with actual photo
 - [ ] Customise monogram with couple's initials
 - [ ] Write Our Story content
-- [ ] Populate dress code colour palette swatches from `event.dressCodePalette` (PR-E)
+- [x] Populate dress code colour palette swatches from `event.dressCodePalette` (PR-E)
 - [x] Embed actual Pinterest board URLs via `event.pinterestUrl` (PR-D)
 - [ ] Wire RSVP modal to API using surfaced `guestId` per member (PR-F)
 - [ ] "Open in Maps" button on event cards driven by `event.mapsUrl`

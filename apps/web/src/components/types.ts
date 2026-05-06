@@ -35,8 +35,3 @@ export interface ClaimResult {
   members: FamilyMember[];
   events: EventSummary[];
 }
-
-export interface DressCodeInfo {
-  description: string;
-  palette: { name: string; color: string }[];
-}
