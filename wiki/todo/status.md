@@ -30,4 +30,4 @@ Monorepo built and functional. `packages/db` models families with a shareable `p
 - [x] Per-person per-event RSVP with dietary requirements
 - [x] Rate-limit claim attempts to prevent brute force — see [[overview]] for logging rules
 - [x] Wire guest-app RSVP modal to `POST /api/rsvp` (PR-F)
-- [ ] Add-to-calendar links on event cards (Google / Apple / .ics) (PR-G)
+- [x] Add-to-calendar links on event cards (Google / Apple / .ics) (PR-G)

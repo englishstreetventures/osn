@@ -1,8 +1,10 @@
 import type { EventSummary } from "./types";
 import { formatDate } from "./utils";
+import { AddToCalendar } from "./AddToCalendar";
 
 interface EventCardProps {
   event: EventSummary;
+  siteUrl: string;
   onRespond: (event: EventSummary) => void;
   onDetails: (event: EventSummary) => void;
 }
@@ -18,7 +20,7 @@ export function EventCard(props: EventCardProps) {
       <p class="mb-5 font-body text-[0.88rem] font-light leading-[1.65] text-text-muted">
         {props.event.description}
       </p>
-      <div class="flex gap-3">
+      <div class="flex flex-wrap gap-3">
         <button
           class="rounded-sm border border-gold bg-transparent px-5 py-2.5 font-body text-[0.82rem] uppercase tracking-[0.12em] text-gold transition-colors duration-200 hover:bg-gold hover:text-bg"
           onClick={() => props.onRespond(props.event)}
@@ -31,6 +33,7 @@ export function EventCard(props: EventCardProps) {
         >
           More Details
         </button>
+        <AddToCalendar event={props.event} siteUrl={props.siteUrl} />
       </div>
     </article>
   );

@@ -25,6 +25,10 @@ import InvitePage from '../components/InvitePage'
   <body>
     <Hero />
     <OurStory />
-    <InvitePage client:visible apiUrl={import.meta.env.PUBLIC_API_URL} />
+    <InvitePage
+      client:visible
+      apiUrl={import.meta.env.PUBLIC_API_URL}
+      siteUrl={import.meta.env.PUBLIC_SITE_URL}
+    />
   </body>
 </html>

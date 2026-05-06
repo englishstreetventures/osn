@@ -41,7 +41,7 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 - [ ] Confirm all D1 queries go through Drizzle (no raw SQL interpolation anywhere)
 - [ ] Expand passphrase wordlist to ≥1024 entries for ≥40 bits of entropy
 - [ ] CI guard: fail deploy if `apps/api/wrangler.toml` still has the literal `database_id = "placeholder-replace-after-d1-create"` (PR-A review)
-- [ ] Frontend `href` validator — Pinterest URLs go through an allowlist regex (`apps/web/src/components/pinterest.ts`) (PR-D); `mapsUrl` / `address` follow-ups still pending under PR-G
+- [ ] Frontend `href` validator — Pinterest URLs go through an allowlist regex (`apps/web/src/components/pinterest.ts`) (PR-D); Google Calendar URL is parsed via the `URL` constructor + `http(s)`-only protocol check before being surfaced (PR-G — see `isHttpUrl` in `apps/web/src/components/AddToCalendar.tsx`); `mapsUrl` / `address` validators still pending
 - [x] CSS colour validator — `dressCodePalette[].color` is server-supplied and rendered inline as `background-color`. `apps/web/src/components/dress-code-render.ts#isValidColor` allowlists hex / rgb[a] / hsl[a] / oklch and rejects `expression(...)` etc. (PR-E)
 - [ ] Whitelist 422 `MalformedSpreadsheet` reason strings — currently safe (only static literals are surfaced) but document the constraint so future contributors don't interpolate cell contents into the `reason` field (PR-C review)
 - [ ] CSP headers on `apps/web` — add `frame-src https://*.pinterest.com https://assets.pinterest.com` (and the rest of a baseline policy) once a Cloudflare Pages `_headers` file or Workers transform is set up. PR-D leaves the iframe unrestricted at the page level because no CSP exists yet.

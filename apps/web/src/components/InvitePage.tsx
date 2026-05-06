@@ -7,12 +7,16 @@ import type { ClaimResult, EventSummary, RsvpSummary } from "./types";
 
 interface InvitePageProps {
   apiUrl: string;
+  siteUrl?: string;
 }
 
 export default function InvitePage(props: InvitePageProps) {
   const [claimResult, setClaimResult] = createSignal<ClaimResult | null>(null);
   const [rsvpEvent, setRsvpEvent] = createSignal<EventSummary | null>(null);
   const [detailsEvent, setDetailsEvent] = createSignal<EventSummary | null>(null);
+
+  const siteUrl = () =>
+    props.siteUrl ?? (typeof window !== "undefined" ? window.location.origin : "");
 
   let loginFormRef: HTMLDivElement;
   let welcomeRef: HTMLDivElement;
@@ -59,6 +63,7 @@ export default function InvitePage(props: InvitePageProps) {
                     <div data-event-card>
                       <EventCard
                         event={event}
+                        siteUrl={siteUrl()}
                         onRespond={setRsvpEvent}
                         onDetails={setDetailsEvent}
                       />
