@@ -5,6 +5,7 @@ pre-commit:
       glob: "*.{ts,tsx,js,jsx,mjs,cjs}"
       run: bunx oxlint --ignore-pattern '*.astro' {staged_files}
     format:
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml}"
       run: bunx oxfmt {staged_files}
       stage_fixed: true
 

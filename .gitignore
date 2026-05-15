@@ -4,6 +4,8 @@ dist/
 worker-configuration.d.ts
 apps/web/.astro/
 apps/web/dist/
+apps/organiser/.astro/
+apps/organiser/dist/
 .env
 *.env.local
 wiki/.obsidian/
