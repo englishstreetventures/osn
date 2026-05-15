@@ -16,3 +16,23 @@ pre-push:
       run: bun run build
     test:
       run: bun run test
+    audit:
+      # Refuse to push if any installed package has a `high` or `critical`
+      # advisory. Pairs with `bunfig.toml`'s `minimumReleaseAge` — one stops
+      # fresh malice, this one stops known malice.
+      #
+      # --ignore list (remove an entry once the upstream fix is in main):
+      #   GHSA-737v-mqg7-c878  defu prototype pollution (via astro)
+      #   GHSA-v2wj-q39q-566r  Vite server.fs.deny bypass (via astro / vitest)
+      #   GHSA-p9ff-h696-f583  Vite dev-server WebSocket arbitrary file read (via astro / vitest)
+      #   GHSA-77vg-94rm-hx3p  devalue sparse-array DoS (via astro)
+      #   GHSA-c2c7-rcm5-vvqj  picomatch ReDoS (via astro / vitest)
+      # All five clear when Astro + Vite get a coordinated major bump — see
+      # wiki/todo/security.md follow-up.
+      run: >
+        bun audit --audit-level=high
+        --ignore=GHSA-737v-mqg7-c878
+        --ignore=GHSA-v2wj-q39q-566r
+        --ignore=GHSA-p9ff-h696-f583
+        --ignore=GHSA-77vg-94rm-hx3p
+        --ignore=GHSA-c2c7-rcm5-vvqj

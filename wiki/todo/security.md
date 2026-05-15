@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-05-05
+last-reviewed: 2026-05-15
 ---
 
 # Security Backlog
@@ -24,6 +24,9 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 - [x] X-Organiser-Token compared in constant time (PR-C review)
 - [x] Formula-injection guard checks trimmed cell, not raw cell (PR-C review)
 - [ ] Magic link tokens must be single-use and expire (≤15 min)
+- [x] `bun audit --audit-level=high` enforced on every push (lefthook pre-push); 5 transitive Astro/Vite advisories explicitly `--ignore`-listed pending the Astro+Vite coordinated bump
+- [ ] Upgrade Astro + Vite (coordinated major) and drop the 5 `--ignore` entries from `lefthook.yml`'s audit step: `GHSA-737v-mqg7-c878` (defu), `GHSA-v2wj-q39q-566r` + `GHSA-p9ff-h696-f583` (vite), `GHSA-77vg-94rm-hx3p` (devalue), `GHSA-c2c7-rcm5-vvqj` (picomatch)
+- [x] Bump drizzle-orm to ^0.45.2 to clear `GHSA-gpj5-g38j-94v9` (SQL injection via improperly escaped identifiers) — was `^0.41.0`
 
 ## Medium
 
