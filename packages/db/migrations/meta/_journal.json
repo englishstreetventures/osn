@@ -29,6 +29,13 @@
       "when": 1778198400000,
       "tag": "0004_perf_indices",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1778457600000,
+      "tag": "0005_drop_password_hash",
+      "breakpoints": true
     }
   ]
 }
