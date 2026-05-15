@@ -24,8 +24,12 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 - [x] X-Organiser-Token compared in constant time (PR-C review)
 - [x] Formula-injection guard checks trimmed cell, not raw cell (PR-C review)
 - [ ] Magic link tokens must be single-use and expire (≤15 min)
-- [x] `bun audit --audit-level=high` enforced on every push (lefthook pre-push); 5 transitive Astro/Vite advisories explicitly `--ignore`-listed pending the Astro+Vite coordinated bump
-- [ ] Upgrade Astro + Vite (coordinated major) and drop the 5 `--ignore` entries from `lefthook.yml`'s audit step: `GHSA-737v-mqg7-c878` (defu), `GHSA-v2wj-q39q-566r` + `GHSA-p9ff-h696-f583` (vite), `GHSA-77vg-94rm-hx3p` (devalue), `GHSA-c2c7-rcm5-vvqj` (picomatch)
+- [x] `bun audit --audit-level=high` enforced on every push (lefthook pre-push)
+- [x] Upgrade Astro 5 → 6 + Vitest 3 → 4 + @astrojs/solid-js 3 → 6; clears `GHSA-737v-mqg7-c878` (defu) directly; root `overrides` pin `vite ^7.3.2` and `picomatch ^4.0.4` to clear `GHSA-v2wj-q39q-566r` + `GHSA-p9ff-h696-f583` (vite) + `GHSA-c2c7-rcm5-vvqj` (picomatch)
+- [ ] Re-run `bun install` once devalue 5.8.1+ ages past `minimumReleaseAge` (3 days) and drop the last `--ignore=GHSA-77vg-94rm-hx3p` from `lefthook.yml`
+- [x] Bump hono to `^4.12.18` — closed cookie name validation, JSX HTML injection, serveStatic slash bypass, IPv4-mapped IPv6 in `ipRestriction()` (PR #25)
+- [ ] Bump transitive `smol-toml ^1.6.1+`, `postcss ^8.5.10+`, `esbuild >0.24.2` once their upstream dependents allow it — 3 remaining transitive `moderate` advisories. None affect production paths today (smol-toml is via wrangler, postcss via tailwind/vite, esbuild dev-server only) but worth tracking.
+- [ ] Revisit `overrides.vite` in root `package.json` when Astro publishes Vite 8 support — current `^7.3.2` pin would force-downgrade an Astro-with-Vite-8 install (see PR #25 perf review)
 - [x] Bump drizzle-orm to ^0.45.2 to clear `GHSA-gpj5-g38j-94v9` (SQL injection via improperly escaped identifiers) — was `^0.41.0`
 
 ## Medium
