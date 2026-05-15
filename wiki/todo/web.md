@@ -3,7 +3,7 @@ title: "Cire TODO — apps/web"
 tags: [todo, web]
 related:
   - "[[index]]"
-last-reviewed: 2026-05-05
+last-reviewed: 2026-05-15
 ---
 
 # apps/web
@@ -22,3 +22,4 @@ Frontend feature work. Tick items as PRs land; add new entries when scope is dis
 - [x] Add-to-calendar links (Google Calendar, Apple Calendar, .ics) sourced from `event.startAt` / `endAt` / `timezone` (PR-G)
 - [ ] Passkey registration + login UI
 - [ ] Magic link email fallback UI
+- [ ] z-index token map for `apps/web` — currently `AnimatedModal` is `z-100`, `AddToCalendar` popover is `z-90`, event cards default. No shared constants enforce the ordering, so a future overlay at `z-80..z-99` could silently occlude the popover. PR-G follow-up via PR #22 review.

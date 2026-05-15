@@ -1,10 +1,16 @@
-import { createMemo, createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, createUniqueId, onCleanup, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 import type { EventSummary } from "./types";
 import { googleCalendarUrl, icsObjectUrl } from "./calendar";
 
 interface AddToCalendarProps {
   event: EventSummary;
   siteUrl: string;
+}
+
+interface PopoverPosition {
+  top: number;
+  left: number;
 }
 
 /**
@@ -31,14 +37,13 @@ function isHttpUrl(s: string): boolean {
 
 export function AddToCalendar(props: AddToCalendarProps) {
   const [open, setOpen] = createSignal(false);
+  const [position, setPosition] = createSignal<PopoverPosition>({ top: 0, left: 0 });
   const popoverId = createUniqueId();
 
   let buttonRef: HTMLButtonElement | undefined;
   let popoverRef: HTMLDivElement | undefined;
   let firstItemRef: HTMLAnchorElement | undefined;
 
-  // Build the Google Calendar URL eagerly (cheap) and validate it parses
-  // before exposing it. Falls back to "#" if anything looks off.
   const googleHref = createMemo(() => {
     const url = googleCalendarUrl(props.event, props.siteUrl);
     return isHttpUrl(url) ? url : "#";
@@ -78,11 +83,23 @@ export function AddToCalendar(props: AddToCalendarProps) {
 
   function close() {
     setOpen(false);
+    detachListeners();
     buttonRef?.focus();
   }
 
+  /**
+   * Anchor the (portalled, position:fixed) popover beneath the button. The
+   * popover lives at document.body so it escapes the EventCard's stacking
+   * context — without that escape it gets painted under sibling cards
+   * regardless of z-index.
+   */
+  function updatePosition() {
+    if (!buttonRef) return;
+    const rect = buttonRef.getBoundingClientRect();
+    setPosition({ top: rect.bottom + 8, left: rect.left });
+  }
+
   function onKeyDown(e: KeyboardEvent) {
-    if (!open()) return;
     if (e.key === "Escape") {
       e.preventDefault();
       close();
@@ -90,7 +107,6 @@ export function AddToCalendar(props: AddToCalendarProps) {
   }
 
   function onDocumentPointer(e: MouseEvent) {
-    if (!open()) return;
     const target = e.target as Node | null;
     if (!target) return;
     if (popoverRef?.contains(target)) return;
@@ -98,31 +114,63 @@ export function AddToCalendar(props: AddToCalendarProps) {
     setOpen(false);
   }
 
-  onMount(() => {
-    document.addEventListener("keydown", onKeyDown);
-    document.addEventListener("mousedown", onDocumentPointer);
-    onCleanup(() => {
-      document.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("mousedown", onDocumentPointer);
-    });
-  });
-
-  function toggle() {
-    setOpen((v) => {
-      const next = !v;
-      if (next) {
-        // Allocate the .ics blob URL on first open — see comment near
-        // `icsHref`. Idempotent thereafter.
-        ensureIcsHref();
-        // Focus the first menu item once it renders.
-        queueMicrotask(() => firstItemRef?.focus());
-      }
-      return next;
+  // rAF-throttled reposition: scroll / resize can fire many times per frame on
+  // touch-momentum scroll, and each call would read layout (`getBoundingClientRect`)
+  // and write a signal. Coalesce into one update per frame.
+  let rafPending = false;
+  function onScrollOrResize() {
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => {
+      rafPending = false;
+      updatePosition();
     });
   }
 
+  // Listeners attach only while the popover is open. N event cards mounted at
+  // first paint don't each install 4 global handlers — they install zero. On
+  // close (or unmount via the `onCleanup` chain below) every listener detaches.
+  let listenersAttached = false;
+  function attachListeners() {
+    if (listenersAttached) return;
+    listenersAttached = true;
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousedown", onDocumentPointer);
+    // Capture-phase scroll catches nested scroll containers too — the popover
+    // is portalled, so any ancestor scroll would otherwise drift it away from
+    // the anchor button.
+    window.addEventListener("scroll", onScrollOrResize, { capture: true, passive: true });
+    window.addEventListener("resize", onScrollOrResize);
+  }
+  function detachListeners() {
+    if (!listenersAttached) return;
+    listenersAttached = false;
+    document.removeEventListener("keydown", onKeyDown);
+    document.removeEventListener("mousedown", onDocumentPointer);
+    window.removeEventListener("scroll", onScrollOrResize, { capture: true });
+    window.removeEventListener("resize", onScrollOrResize);
+  }
+
+  // Catch the rare case where the component unmounts while open (e.g. the
+  // parent EventCard is removed) — detach without firing close() since there
+  // is no button left to focus.
+  onCleanup(detachListeners);
+
+  function toggle() {
+    if (open()) {
+      setOpen(false);
+      detachListeners();
+      return;
+    }
+    ensureIcsHref();
+    updatePosition();
+    attachListeners();
+    setOpen(true);
+    queueMicrotask(() => firstItemRef?.focus());
+  }
+
   return (
-    <div class="relative inline-block">
+    <>
       <button
         ref={buttonRef}
         type="button"
@@ -135,35 +183,42 @@ export function AddToCalendar(props: AddToCalendarProps) {
         Add to Calendar
       </button>
       <Show when={open()}>
-        <div
-          ref={popoverRef}
-          id={popoverId}
-          role="menu"
-          aria-label="Add to calendar options"
-          class="absolute left-0 top-full z-50 mt-2 flex min-w-[14rem] flex-col gap-1 rounded-sm border border-border bg-surface-raised p-2 shadow-lg"
-        >
-          <a
-            ref={firstItemRef}
-            role="menuitem"
-            href={googleHref()}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="rounded-sm px-3 py-2 font-body text-[0.82rem] uppercase tracking-[0.12em] text-text-muted transition-colors duration-200 hover:bg-gold hover:text-bg focus:bg-gold focus:text-bg focus:outline-none"
-            onClick={() => setOpen(false)}
+        <Portal>
+          <div
+            ref={popoverRef}
+            id={popoverId}
+            role="menu"
+            aria-label="Add to calendar options"
+            // z-90 sits below AnimatedModal (z-100) — modals always win — and
+            // above every event card / page-level content. The popover is
+            // portalled to <body>, so this z-index isn't trapped inside the
+            // EventCard's stacking context.
+            class="fixed z-90 flex min-w-[14rem] flex-col gap-1 rounded-sm border border-border bg-surface-raised p-2 shadow-lg"
+            style={{ top: `${position().top}px`, left: `${position().left}px` }}
           >
-            Google Calendar
-          </a>
-          <a
-            role="menuitem"
-            href={icsHref() ?? "#"}
-            download={filename()}
-            class="rounded-sm px-3 py-2 font-body text-[0.82rem] uppercase tracking-[0.12em] text-text-muted transition-colors duration-200 hover:bg-gold hover:text-bg focus:bg-gold focus:text-bg focus:outline-none"
-            onClick={() => setOpen(false)}
-          >
-            Apple / Outlook (.ics)
-          </a>
-        </div>
+            <a
+              ref={firstItemRef}
+              role="menuitem"
+              href={googleHref()}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="rounded-sm px-3 py-2 font-body text-[0.82rem] uppercase tracking-[0.12em] text-text-muted transition-colors duration-200 hover:bg-gold hover:text-bg focus:bg-gold focus:text-bg focus:outline-none"
+              onClick={() => setOpen(false)}
+            >
+              Google Calendar
+            </a>
+            <a
+              role="menuitem"
+              href={icsHref() ?? "#"}
+              download={filename()}
+              class="rounded-sm px-3 py-2 font-body text-[0.82rem] uppercase tracking-[0.12em] text-text-muted transition-colors duration-200 hover:bg-gold hover:text-bg focus:bg-gold focus:text-bg focus:outline-none"
+              onClick={() => setOpen(false)}
+            >
+              Apple / Outlook (.ics)
+            </a>
+          </div>
+        </Portal>
       </Show>
-    </div>
+    </>
   );
 }

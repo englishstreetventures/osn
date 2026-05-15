@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, cleanup } from "@solidjs/testing-library";
+import { render, fireEvent, cleanup, screen } from "@solidjs/testing-library";
 import { AddToCalendar } from "./AddToCalendar";
 import type { EventSummary } from "./types";
 
@@ -69,11 +69,11 @@ describe("AddToCalendar", () => {
   });
 
   it("renders a Google Calendar link with the correct href when open", () => {
-    const { getByRole, getByText } = render(() => (
-      <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />
-    ));
+    const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
     fireEvent.click(getByRole("button", { name: /add to calendar/i }));
-    const link = getByText("Google Calendar") as HTMLAnchorElement;
+    // The popover is portalled to <body>, so query the whole document, not the
+    // render container.
+    const link = screen.getByText("Google Calendar") as HTMLAnchorElement;
     expect(link.href).toContain("https://calendar.google.com/calendar/render");
     expect(link.href).toContain("text=Reception%2C+Cocktail+Hour+%26+Dinner");
     expect(link.href).toContain("ctz=Australia%2FSydney");
@@ -83,16 +83,27 @@ describe("AddToCalendar", () => {
   });
 
   it("renders an .ics download link with a sanitised filename", () => {
-    const { getByRole, getByText } = render(() => (
-      <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />
-    ));
+    const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
     fireEvent.click(getByRole("button", { name: /add to calendar/i }));
-    const link = getByText("Apple / Outlook (.ics)") as HTMLAnchorElement;
+    const link = screen.getByText("Apple / Outlook (.ics)") as HTMLAnchorElement;
     // Download attribute must be sanitised to printable ASCII (no spaces, no
     // commas, no &). "Reception, Cocktail Hour & Dinner" -> underscores.
     expect(link.getAttribute("download")).toBe("Reception__Cocktail_Hour___Dinner.ics");
     expect(link.getAttribute("href")).toMatch(/^blob:mock-/);
     expect(createObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it("portals the popover to document.body so it escapes the EventCard stacking context", () => {
+    const { getByRole, container } = render(() => (
+      <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />
+    ));
+    fireEvent.click(getByRole("button", { name: /add to calendar/i }));
+    const menu = screen.getByRole("menu");
+    // Walk up from the menu — it must be a sibling of the render container,
+    // not a descendant. That's what guarantees z-index isn't trapped inside
+    // an ancestor stacking context.
+    expect(container.contains(menu)).toBe(false);
+    expect(document.body.contains(menu)).toBe(true);
   });
 
   it("closes when Escape is pressed", () => {
