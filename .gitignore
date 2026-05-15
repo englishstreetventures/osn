@@ -192,3 +192,6 @@ data/
 
 # Obsidian (wiki vault user state)
 wiki/.obsidian/
+
+# Caveman compress backups
+*.original.md
