@@ -16,6 +16,6 @@
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
     "@types/better-sqlite3": "^7.6.13",
-    "better-sqlite3": "^12.9.0"
+    "better-sqlite3": "^12.10.0"
   }
 }
