@@ -433,6 +433,47 @@ describe("internal graph routes (ARC-protected)", () => {
   });
 
   // -------------------------------------------------------------------------
+  // GET /graph/internal/profile-account
+  // -------------------------------------------------------------------------
+
+  describe("GET /graph/internal/profile-account", () => {
+    it("returns the accountId that owns the profile", async () => {
+      const { token } = await setupArcService();
+      const alice = await registerProfile("alice@example.com", "alice");
+
+      const res = await app.handle(
+        new Request(`http://localhost/graph/internal/profile-account?profileId=${alice}`, {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { accountId: string };
+      expect(typeof body.accountId).toBe("string");
+      expect(body.accountId).toMatch(/^acc_/);
+    });
+
+    it("returns 404 when profile does not exist", async () => {
+      const { token } = await setupArcService();
+
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-account?profileId=usr_missing", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(404);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("Profile not found");
+    });
+
+    it("rejects missing ARC token with 401", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-account?profileId=usr_x"),
+      );
+      expect(res.status).toBe(401);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // POST /graph/internal/register-service  (T-R1)
   // -------------------------------------------------------------------------
 

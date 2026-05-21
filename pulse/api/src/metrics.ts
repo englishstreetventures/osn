@@ -57,6 +57,11 @@ export const PULSE_METRICS = {
   closeFriendsListed: "pulse.close_friends.listed",
   closeFriendsListSize: "pulse.close_friends.list.size",
   closeFriendsBatchSize: "pulse.close_friends.batch.size",
+  // First-run onboarding (account-keyed; see services/onboarding.ts)
+  onboardingStatusFetched: "pulse.onboarding.status.fetched",
+  onboardingCompleted: "pulse.onboarding.completed",
+  onboardingInterestsSelected: "pulse.onboarding.interests.selected",
+  onboardingProfileAccountResolved: "pulse.onboarding.profile_account.resolved",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -276,6 +281,34 @@ type CloseFriendRemoveResult = "ok" | "not_found" | "error";
 type CloseFriendsAddedAttrs = { result: CloseFriendAddResult };
 type CloseFriendsRemovedAttrs = { result: CloseFriendRemoveResult };
 type CloseFriendsListedAttrs = { result_empty: "true" | "false" };
+
+// --- Onboarding ---
+
+/** Bucketed permission outcome. Mirrors `notifications_perm` / `location_perm`. */
+type PermOutcome = "granted" | "denied" | "prompt" | "unsupported";
+
+/** Bucketed selection size for the interest-picker step. */
+type InterestsBucket = "0" | "1-3" | "4-6" | "7-8";
+
+type OnboardingStatusFetchedAttrs = {
+  /** Whether this account had ever finished onboarding before this fetch. */
+  completed: "true" | "false";
+};
+
+type OnboardingCompletedAttrs = {
+  result: Result;
+  notifications_opt_in: "true" | "false";
+  event_reminders_opt_in: "true" | "false";
+  notifications_perm: PermOutcome;
+  location_perm: PermOutcome;
+  interests_bucket: InterestsBucket;
+};
+
+type OnboardingProfileAccountResolvedAttrs = {
+  /** `cache` = mapping table hit; `bridge` = S2S call to osn/api. */
+  source: "cache" | "bridge";
+  result: Result;
+};
 
 // ---------------------------------------------------------------------------
 // Counters / histograms
@@ -622,3 +655,67 @@ export const metricCloseFriendsListed = (size: number): void => {
 
 export const metricCloseFriendsBatchSize = (size: number): void =>
   closeFriendsBatchSize.record(size, {});
+
+// --- Onboarding instruments ---
+
+const onboardingStatusFetched = createCounter<OnboardingStatusFetchedAttrs>({
+  name: PULSE_METRICS.onboardingStatusFetched,
+  description: "Onboarding status reads (GET /me/onboarding) by completion state",
+  unit: "{fetch}",
+});
+
+const onboardingCompleted = createCounter<OnboardingCompletedAttrs>({
+  name: PULSE_METRICS.onboardingCompleted,
+  description: "POST /me/onboarding/complete outcomes",
+  unit: "{completion}",
+});
+
+const onboardingInterestsSelected = createHistogram<Record<never, never>>({
+  name: PULSE_METRICS.onboardingInterestsSelected,
+  description: "Number of interest categories selected at onboarding completion",
+  unit: "{interest}",
+  boundaries: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+});
+
+const onboardingProfileAccountResolved = createCounter<OnboardingProfileAccountResolvedAttrs>({
+  name: PULSE_METRICS.onboardingProfileAccountResolved,
+  description: "profileId → accountId resolutions, by source (cache or S2S bridge)",
+  unit: "{resolution}",
+});
+
+/** Bucket a raw count into the closed `InterestsBucket` union (S-C3 pattern). */
+const bucketInterests = (count: number): InterestsBucket => {
+  if (count <= 0) return "0";
+  if (count <= 3) return "1-3";
+  if (count <= 6) return "4-6";
+  return "7-8";
+};
+
+export const metricOnboardingStatusFetched = (completed: boolean): void =>
+  onboardingStatusFetched.inc({ completed: completed ? "true" : "false" });
+
+export const metricOnboardingCompleted = (params: {
+  result: Result;
+  notificationsOptIn: boolean;
+  eventRemindersOptIn: boolean;
+  notificationsPerm: PermOutcome;
+  locationPerm: PermOutcome;
+  interestsCount: number;
+}): void => {
+  onboardingCompleted.inc({
+    result: params.result,
+    notifications_opt_in: params.notificationsOptIn ? "true" : "false",
+    event_reminders_opt_in: params.eventRemindersOptIn ? "true" : "false",
+    notifications_perm: params.notificationsPerm,
+    location_perm: params.locationPerm,
+    interests_bucket: bucketInterests(params.interestsCount),
+  });
+  if (params.result === "ok") {
+    onboardingInterestsSelected.record(params.interestsCount, {});
+  }
+};
+
+export const metricOnboardingProfileAccountResolved = (
+  source: "cache" | "bridge",
+  result: Result,
+): void => onboardingProfileAccountResolved.inc({ source, result });

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 280" fill="none" aria-hidden="true">
+  <!-- Map vignette with a coral pin dropping onto the centre. Pin
+       translates and bounces via .location-pin-drop animation; ring
+       expands via .location-pin-ring animation (both in onboarding.css). -->
+  <defs>
+    <radialGradient id="lp-glow" cx="0.5" cy="0.62" r="0.5">
+      <stop offset="0" stop-color="var(--pulse-accent)" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="var(--pulse-accent)" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- Subtle map vignette using the same vocabulary as value-map but more abstract -->
+  <g fill="currentColor" opacity="0.06">
+    <rect x="36" y="80" width="50" height="40" rx="2"/>
+    <rect x="92" y="64" width="46" height="56" rx="2"/>
+    <rect x="144" y="80" width="56" height="40" rx="2"/>
+    <rect x="206" y="60" width="50" height="60" rx="2"/>
+    <rect x="262" y="84" width="40" height="36" rx="2"/>
+    <rect x="36" y="128" width="80" height="38" rx="2"/>
+    <rect x="122" y="128" width="46" height="50" rx="2"/>
+    <rect x="174" y="128" width="50" height="40" rx="2"/>
+    <rect x="230" y="128" width="72" height="44" rx="2"/>
+    <rect x="36" y="174" width="56" height="34" rx="2"/>
+    <rect x="98" y="186" width="64" height="22" rx="2"/>
+    <rect x="168" y="176" width="56" height="32" rx="2"/>
+    <rect x="230" y="180" width="72" height="28" rx="2"/>
+  </g>
+  <!-- Glow under pin -->
+  <ellipse cx="160" cy="172" rx="80" ry="34" fill="url(#lp-glow)"/>
+  <!-- Expanding ring -->
+  <circle cx="160" cy="172" r="36" stroke="var(--pulse-accent)" stroke-width="1.5" opacity="0.6" class="location-pin-ring"/>
+  <!-- Pin (anchored at base, translates from y=-220 → 0 in the animation) -->
+  <g class="location-pin-drop">
+    <path d="M160 92 C 142 92, 128 106, 128 124 C 128 144, 160 172, 160 172 C 160 172, 192 144, 192 124 C 192 106, 178 92, 160 92 Z"
+          fill="var(--pulse-accent-strong)"/>
+    <circle cx="160" cy="124" r="10" fill="var(--pulse-accent-fg)"/>
+  </g>
+</svg>

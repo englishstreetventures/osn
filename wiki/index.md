@@ -35,6 +35,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[sessions]] — session introspection, per-device revocation, "sign out everywhere else"
 - [[social-graph]] — connections, blocks
 - [[pulse-close-friends]] — Pulse-scoped close-friends list (feed boost + hosting affordance)
+- [[pulse-onboarding]] — Pulse first-run onboarding flow (account-keyed, themed illustrations)
 - [[event-access]] — loadVisibleEvent, public/private visibility gate
 - [[platform-limits]] — MAX_EVENT_GUESTS and other caps
 - [[redis]] — Redis-backed rate limiters + cluster-safe auth state stores

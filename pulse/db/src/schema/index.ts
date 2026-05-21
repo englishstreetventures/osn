@@ -4,3 +4,4 @@ export * from "./rsvps";
 export * from "./pulseUsers";
 export * from "./eventComms";
 export * from "./closeFriends";
+export * from "./onboarding";

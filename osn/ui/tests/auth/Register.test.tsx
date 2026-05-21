@@ -241,6 +241,30 @@ describe("Register component", () => {
       expect(submit.disabled).toBe(false);
     });
 
+    // Regression guard for commit 0deb3fa: resend used to be gated on
+    // `otpStatus() === "error"` so users only saw it after a wrong code.
+    // Now it must render the moment the verify step mounts.
+    it("renders the Resend code button as soon as the verify step mounts (no error required)", async () => {
+      await advanceToVerify();
+      expect(screen.getByRole("button", { name: /Resend code/i })).toBeTruthy();
+    });
+
+    // Companion guard: the first OTP send must also start the 30s
+    // cooldown so the button can't be mashed on arrival. Without this,
+    // server-side rate-limit errors would replace the intended UX.
+    it("starts the 30s cooldown on the first OTP send and re-enables after it elapses", async () => {
+      await advanceToVerify();
+      const disabled = screen.getByRole("button", {
+        name: /Resend code \(\d+s\)/,
+      }) as HTMLButtonElement;
+      expect(disabled.disabled).toBe(true);
+      await vi.advanceTimersByTimeAsync(31_000);
+      await waitFor(() => {
+        const ready = screen.getByRole("button", { name: /^Resend code$/ }) as HTMLButtonElement;
+        expect(ready.disabled).toBe(false);
+      });
+    });
+
     it("OTP input rejects non-digit characters", async () => {
       stub.completeRegistration.mockResolvedValue({
         profileId: "usr_abc",

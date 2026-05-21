@@ -376,6 +376,52 @@ export const getConnectionIds = (profileId: string): Effect.Effect<Set<string>, 
   });
 
 /**
+ * Resolves the OSN accountId that owns `profileId`. Used by the onboarding
+ * service to key its `pulse_account_onboarding` table by account so a user
+ * with multiple OSN profiles only onboards once.
+ *
+ * Privacy invariant: accountId is intentionally absent from access-token
+ * claims and any user-facing API response (osn/api/tests/privacy.test.ts).
+ * It crosses the trust boundary only over ARC (server-to-server, encrypted)
+ * and is persisted only in `pulse_profile_accounts` — never sent to clients.
+ *
+ * The result is cached locally in `pulse_profile_accounts` so this hits the
+ * network at most once per profile.
+ */
+export class ProfileNotFoundError extends Data.TaggedError("ProfileNotFoundError")<{
+  readonly profileId: string;
+}> {}
+
+export const getAccountIdForProfile = (
+  profileId: string,
+): Effect.Effect<string, ProfileNotFoundError | GraphBridgeError> =>
+  Effect.tryPromise({
+    try: async () => {
+      const res = await fetch(
+        `${OSN_API_URL}/graph/internal/profile-account?profileId=${encodeURIComponent(profileId)}`,
+        { headers: { authorization: await arcAuthHeader() } },
+      );
+      if (res.status === 404) {
+        // Distinguish "profile doesn't exist" from infra failures so the
+        // onboarding service can map cleanly to a 401-equivalent rather
+        // than a 500. The route still has the JWT-verified profileId so
+        // this should be unreachable in practice — surfacing it explicitly
+        // is for defence-in-depth.
+        throw new ProfileNotFoundError({ profileId });
+      }
+      if (!res.ok) {
+        throw new Error(`OSN API GET /graph/internal/profile-account returned ${res.status}`);
+      }
+      const data = (await res.json()) as { accountId: string };
+      return data.accountId;
+    },
+    catch: (cause) => {
+      if (cause instanceof ProfileNotFoundError) return cause;
+      return new GraphBridgeError({ cause });
+    },
+  });
+
+/**
  * Fetches display metadata for a batch of OSN profile IDs. Used by the RSVP
  * service to join names/avatars onto RSVP rows before returning to the client.
  * Names NEVER come from the JWT — always fresh from OSN.

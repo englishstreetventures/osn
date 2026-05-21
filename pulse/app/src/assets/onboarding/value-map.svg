@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240" fill="none" aria-hidden="true">
+  <!-- Editorial neighbourhood map. Mirrors the SVG-stylised vocabulary of
+       ExploreMap.tsx: blocks + river + park + heat blob + category pins.
+       All accent colour is via var(--pulse-accent*) so tokens drive theme. -->
+  <defs>
+    <radialGradient id="vm-heat" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="var(--pulse-accent)" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="var(--pulse-accent)" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- Background -->
+  <rect x="0" y="0" width="320" height="240" fill="var(--card)"/>
+  <!-- Park -->
+  <path d="M30 28 L120 28 L132 60 L120 104 L30 110 Z" fill="currentColor" opacity="0.06"/>
+  <!-- City blocks (warm-tinted neutral via currentColor opacity) -->
+  <g fill="currentColor" opacity="0.07">
+    <rect x="142" y="28" width="62" height="38" rx="2"/>
+    <rect x="212" y="28" width="76" height="48" rx="2"/>
+    <rect x="142" y="74" width="44" height="46" rx="2"/>
+    <rect x="194" y="84" width="50" height="36" rx="2"/>
+    <rect x="252" y="84" width="36" height="36" rx="2"/>
+    <rect x="40" y="124" width="68" height="42" rx="2"/>
+    <rect x="116" y="128" width="56" height="38" rx="2"/>
+    <rect x="180" y="128" width="38" height="38" rx="2"/>
+    <rect x="226" y="128" width="62" height="38" rx="2"/>
+    <rect x="40" y="174" width="92" height="36" rx="2"/>
+    <rect x="140" y="174" width="60" height="36" rx="2"/>
+    <rect x="208" y="174" width="80" height="36" rx="2"/>
+  </g>
+  <!-- River -->
+  <path d="M0 70 C 60 85, 90 60, 130 78 S 200 92, 240 70 S 300 50, 320 64 L 320 76 C 300 62, 260 80, 220 82 S 150 102, 110 88 S 30 96, 0 82 Z"
+        fill="currentColor" opacity="0.08"/>
+  <!-- Heat blob -->
+  <circle cx="180" cy="142" r="92" fill="url(#vm-heat)"/>
+  <!-- Pins (three categories: music / food / arts) -->
+  <g>
+    <circle cx="98" cy="80" r="9" fill="var(--pulse-accent-strong)"/>
+    <circle cx="98" cy="80" r="3" fill="var(--pulse-accent-fg)"/>
+  </g>
+  <g>
+    <circle cx="206" cy="120" r="9" fill="var(--pulse-accent)"/>
+    <circle cx="206" cy="120" r="3" fill="var(--pulse-accent-fg)"/>
+  </g>
+  <g>
+    <circle cx="240" cy="186" r="9" fill="oklch(0.66 0.16 145)"/>
+    <circle cx="240" cy="186" r="3" fill="var(--pulse-accent-fg)"/>
+  </g>
+</svg>

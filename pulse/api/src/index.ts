@@ -5,6 +5,7 @@ import { Elysia } from "elysia";
 
 import { closeFriendsRoutes } from "./routes/closeFriends";
 import { eventsRoutes, settingsRoutes } from "./routes/events";
+import { onboardingRoutes } from "./routes/onboarding";
 import { seriesRoutes } from "./routes/series";
 import { startKeyRotation } from "./services/graphBridge";
 
@@ -21,7 +22,8 @@ const app = new Elysia()
   .use(eventsRoutes)
   .use(seriesRoutes)
   .use(settingsRoutes)
-  .use(closeFriendsRoutes);
+  .use(closeFriendsRoutes)
+  .use(onboardingRoutes);
 
 const port = process.env.PORT || 3001;
 

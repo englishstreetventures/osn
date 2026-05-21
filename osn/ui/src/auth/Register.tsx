@@ -84,6 +84,7 @@ export function Register(props: RegisterProps) {
       });
       toast.success("Verification code sent");
       setStep("verify");
+      startResendCooldown();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not send code");
     } finally {
@@ -298,16 +299,14 @@ export function Register(props: RegisterProps) {
             <Button type="submit" disabled={otp().length !== 6 || busy()}>
               {busy() ? "Verifying…" : "Verify email"}
             </Button>
-            <Show when={otpStatus() === "error"}>
-              <button
-                type="button"
-                onClick={resendCode}
-                class="text-primary text-sm font-medium hover:underline disabled:opacity-50"
-                disabled={busy() || resendCooldown() > 0}
-              >
-                {resendCooldown() > 0 ? `Resend code (${resendCooldown()}s)` : "Resend code"}
-              </button>
-            </Show>
+            <button
+              type="button"
+              onClick={resendCode}
+              class="text-primary text-sm font-medium hover:underline disabled:opacity-50"
+              disabled={busy() || resendCooldown() > 0}
+            >
+              {resendCooldown() > 0 ? `Resend code (${resendCooldown()}s)` : "Resend code"}
+            </button>
             <Button variant="ghost" size="sm" onClick={() => setStep("details")}>
               ← Use a different email
             </Button>

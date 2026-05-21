@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 280" fill="none" aria-hidden="true">
+  <!-- Torn-ticket date stamp. Mirrors the date-stamp pattern used in
+       Event Cards (DESIGN.md §"Event Cards"). Ticket has serrated tear
+       on the right; stamp text uses Instrument Serif for the month and
+       the day, Geist Mono for the weekday eyebrow. The actual date is
+       injected via SolidJS prop in the step component, so this asset
+       intentionally exposes IDs we can target from JSX. -->
+  <defs>
+    <filter id="ds-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="oklch(0.2 0.01 60)" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <!-- Ticket body (with torn right edge via path) -->
+  <g filter="url(#ds-shadow)">
+    <path d="M40 60
+             L240 60
+             L240 76 L246 78 L240 80
+             L240 96 L246 98 L240 100
+             L240 116 L246 118 L240 120
+             L240 136 L246 138 L240 140
+             L240 156 L246 158 L240 160
+             L240 176 L246 178 L240 180
+             L240 196 L246 198 L240 200
+             L240 220
+             L40 220
+             Z"
+          fill="var(--card)" stroke="var(--pulse-accent-strong)" stroke-width="1.5"/>
+    <!-- Inner double rule -->
+    <line x1="56" y1="76" x2="224" y2="76" stroke="var(--pulse-accent-strong)" stroke-width="0.75" opacity="0.6"/>
+    <line x1="56" y1="204" x2="224" y2="204" stroke="var(--pulse-accent-strong)" stroke-width="0.75" opacity="0.6"/>
+  </g>
+  <!-- Eyebrow weekday (Geist Mono uppercase) — overridden by JSX prop -->
+  <text id="onb-finish-weekday" x="140" y="98" font-family="Geist Mono, ui-monospace, monospace"
+        font-size="11" letter-spacing="0.18em" text-anchor="middle"
+        fill="currentColor" opacity="0.7">SUN</text>
+  <!-- Day of month (Instrument Serif huge) -->
+  <text id="onb-finish-day" x="140" y="166" font-family="Instrument Serif, Georgia, serif"
+        font-size="76" font-style="italic" text-anchor="middle"
+        fill="var(--pulse-accent-strong)">26</text>
+  <!-- Month (Instrument Serif) -->
+  <text id="onb-finish-month" x="140" y="194" font-family="Instrument Serif, Georgia, serif"
+        font-size="20" text-anchor="middle"
+        fill="currentColor" opacity="0.85">April</text>
+</svg>

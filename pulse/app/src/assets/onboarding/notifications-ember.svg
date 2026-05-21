@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 280" fill="none" aria-hidden="true">
+  <!-- Coral envelope + radiating pulse ring. The folded-paper geometry
+       echoes Pulse's editorial direction (warm, hand-finished); the
+       radiating ring repeats the brand mark from welcome-pulse.svg. -->
+  <!-- Outer pulse ring -->
+  <circle cx="160" cy="148" r="118" stroke="var(--pulse-accent-soft)" stroke-width="1" class="ember-ring ember-ring-2"/>
+  <circle cx="160" cy="148" r="86" stroke="var(--pulse-accent)" stroke-width="1.5" opacity="0.55" class="ember-ring ember-ring-1"/>
+  <!-- Envelope body -->
+  <g>
+    <rect x="92" y="106" width="136" height="92" rx="3" fill="var(--pulse-accent-soft)" stroke="var(--pulse-accent-strong)" stroke-width="2"/>
+    <!-- Flap (top) -->
+    <path d="M92 109 L160 158 L228 109" stroke="var(--pulse-accent-strong)" stroke-width="2" fill="none"/>
+    <!-- Inner fold suggestion -->
+    <path d="M92 198 L150 148" stroke="var(--pulse-accent-strong)" stroke-width="1" opacity="0.45"/>
+    <path d="M228 198 L170 148" stroke="var(--pulse-accent-strong)" stroke-width="1" opacity="0.45"/>
+  </g>
+  <!-- Notification dot -->
+  <circle cx="220" cy="110" r="14" fill="var(--pulse-accent-strong)"/>
+  <circle cx="220" cy="110" r="14" stroke="var(--pulse-accent-fg)" stroke-width="2" fill="none"/>
+  <circle cx="220" cy="110" r="5" fill="var(--pulse-accent-fg)"/>
+</svg>

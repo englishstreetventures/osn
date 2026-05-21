@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" fill="none" aria-hidden="true">
+  <!-- Concentric coral pulse rings. CSS animations applied via .pulse-ring-* classes
+       in onboarding.css; SVG itself is static so it renders identically in browsers
+       that respect prefers-reduced-motion. -->
+  <circle cx="160" cy="160" r="148" stroke="var(--pulse-accent-soft)" stroke-width="1" class="pulse-ring pulse-ring-4"/>
+  <circle cx="160" cy="160" r="116" stroke="var(--pulse-accent-soft)" stroke-width="1.5" class="pulse-ring pulse-ring-3"/>
+  <circle cx="160" cy="160" r="84" stroke="var(--pulse-accent)" stroke-width="2" stroke-opacity="0.55" class="pulse-ring pulse-ring-2"/>
+  <circle cx="160" cy="160" r="52" stroke="var(--pulse-accent-strong)" stroke-width="2.25" stroke-opacity="0.78" class="pulse-ring pulse-ring-1"/>
+  <circle cx="160" cy="160" r="22" fill="var(--pulse-accent-strong)"/>
+  <circle cx="160" cy="160" r="9" fill="var(--pulse-accent-fg)"/>
+</svg>

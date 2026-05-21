@@ -322,6 +322,63 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
         },
       )
       // -----------------------------------------------------------------------
+      // Profile → account lookup
+      //
+      // Resolves the accountId that owns `profileId`. Used by Pulse to key
+      // its `pulse_account_onboarding` table by account so a user with
+      // multiple OSN profiles only onboards once. The result is cached on
+      // the Pulse side (see `pulse_profile_accounts`); this endpoint is
+      // hit at most once per profile.
+      //
+      // Privacy note: accountId is intentionally absent from access-token
+      // claims and user-facing responses (see osn/api/tests/privacy.test.ts).
+      // It is only ever exchanged S2S over ARC, never to clients.
+      // -----------------------------------------------------------------------
+      .get(
+        "/profile-account",
+        async ({ query, headers, set }) => {
+          const caller = await requireArc(
+            headers.authorization,
+            set,
+            run,
+            AUDIENCE,
+            SCOPE_GRAPH_READ,
+          );
+          if (!caller) return { error: "Unauthorized" };
+
+          try {
+            const rows = await run(
+              Effect.gen(function* () {
+                const { db } = yield* Db;
+                return yield* Effect.tryPromise({
+                  try: () =>
+                    db
+                      .select({ accountId: users.accountId })
+                      .from(users)
+                      .where(eq(users.id, query.profileId))
+                      .limit(1),
+                  catch: (cause) => new Error("DB query failed", { cause }),
+                });
+              }),
+            );
+            const row = rows[0];
+            if (!row) {
+              set.status = 404;
+              return { error: "Profile not found" };
+            }
+            return { accountId: row.accountId };
+          } catch (e) {
+            set.status = 500;
+            return { error: safeError(e) };
+          }
+        },
+        {
+          query: t.Object({
+            profileId: t.String({ minLength: 1 }),
+          }),
+        },
+      )
+      // -----------------------------------------------------------------------
       // Batch profile display metadata
       // -----------------------------------------------------------------------
       .post(

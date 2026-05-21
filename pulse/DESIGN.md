@@ -104,6 +104,27 @@ Horizontal card: 180px media thumbnail + body. Featured cards go full-width with
 5. **Heatmap over real tiles** — stylized SVG map avoids tile provider dependency; heatmap shows where activity clusters
 6. **Card ↔ map hover sync** — hovering a card highlights its map pin and vice versa
 
+## Onboarding illustrations
+
+The first-run flow (`/welcome`) introduces six themed SVGs in `pulse/app/src/assets/onboarding/`. They follow these rules so theme tokens drive every accent — no hard-coded colours, dark-mode automatic.
+
+| Illustration | File | Token usage |
+|--------------|------|-------------|
+| Welcome pulse rings | `welcome-pulse.svg` | `--pulse-accent`, `--pulse-accent-soft`, `--pulse-accent-strong`. Rings animate via `.pulse-ring` keyframes in `onboarding.css`. |
+| Editorial map | `value-map.svg` | `currentColor` for blocks, `--pulse-accent` family for pins + heat blob. Same vocabulary as `ExploreMap.tsx`. |
+| Interest constellation | `interests-glyphs.svg` | Instrument Serif glyphs; selectable chips render their own per-category glyph from `CategoryGlyph.tsx` (also `currentColor`). |
+| Location pin | `location-pin.svg` | Pin animates with `.location-pin-drop` (drop + bounce) and `.location-pin-ring` (radiate). |
+| Notifications ember | `notifications-ember.svg` | Coral envelope with two staggered radiating rings. |
+| Finish date stamp | inline JSX in `Step6Finish.tsx` | Same date-stamp vocabulary as the Event Card; today's date is driven by `Date.toLocaleDateString` so the image is always current. |
+
+Authoring rules:
+- Use `currentColor` for primary strokes that should track text colour.
+- Use `var(--pulse-accent*)` for the editorial accent — never inline `oklch(...)`.
+- All animation is CSS keyframes only (no Lottie/Rive). Honour `prefers-reduced-motion` — see `onboarding.css` for the canonical opt-out rule.
+- Per-category glyphs live as inline JSX paths in `CategoryGlyph.tsx`, not as separate SVG files. Single import, single recolour surface via `currentColor`.
+
+Greeting copy on the welcome step uses the institutional headline ("Welcome to Pulse") with a softer personalised subhead ("Glad you're here, {displayName}.") so a missing displayName degrades to just the headline rather than a literal "Hi there".
+
 ## Future
 
 - Friend avatar clusters on cards (needs social graph API integration)
