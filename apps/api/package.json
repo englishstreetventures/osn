@@ -14,10 +14,10 @@
     "@cire/db": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "effect": "^3.21.2",
-    "hono": "^4.12.18"
+    "hono": "^4.12.23"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260511.1",
-    "wrangler": "^4.91.0"
+    "@cloudflare/workers-types": "^4.20260601.1",
+    "wrangler": "^4.96.0"
   }
 }

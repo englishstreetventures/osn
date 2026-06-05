@@ -11,9 +11,9 @@
   "dependencies": {
     "@astrojs/solid-js": "^6.0.1",
     "@tailwindcss/vite": "^4.3.0",
-    "astro": "^6.3.3",
-    "motion": "^12.38.0",
-    "solid-js": "^1.9.12",
+    "astro": "^6.4.2",
+    "motion": "^12.40.0",
+    "solid-js": "^1.9.13",
     "tailwindcss": "^4.3.0"
   },
   "devDependencies": {
@@ -21,6 +21,6 @@
     "@testing-library/jest-dom": "^6.9.1",
     "jsdom": "^29.1.1",
     "vite-plugin-solid": "^2.11.12",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.8"
   }
 }
