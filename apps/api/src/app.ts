@@ -26,7 +26,10 @@ export type AppVariables = {
 const defaultClaimLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000 });
 
 export interface AppOptions {
+  /** Primary origin (used for the session cookie's `secure` flag). */
   webOrigin?: string;
+  /** Extra origins allowed by CORS (organiser portal, etc). Defaults to `[webOrigin]`. */
+  allowedOrigins?: string[];
   /** Override the claim rate limiter (useful for testing). */
   claimLimiter?: RateLimiter;
   /** R2 bucket binding for the organiser import flow. */
@@ -38,10 +41,12 @@ export interface AppOptions {
 export function createApp(db: Db, options: AppOptions = {}) {
   const {
     webOrigin = "http://localhost:4321",
+    allowedOrigins,
     claimLimiter = defaultClaimLimiter,
     r2,
     organiserToken,
   } = options;
+  const corsOrigins = new Set(allowedOrigins ?? [webOrigin]);
   const app = new Hono<{ Variables: AppVariables }>();
 
   // Inject db + webOrigin (and R2 + organiser token when present) into every
@@ -57,10 +62,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
   app.use(
     "/api/*",
     cors({
-      // Echo the configured origin verbatim — never `*` — so the browser will
-      // include credentials. Any mismatch falls back to `null` which Hono
-      // translates to no `Access-Control-Allow-Origin` header.
-      origin: (origin) => (origin === webOrigin ? origin : null),
+      // Echo the request origin verbatim when it's in the allowlist — never `*` —
+      // so the browser will include credentials. Any mismatch returns `null`
+      // which Hono translates to no `Access-Control-Allow-Origin` header.
+      origin: (origin) => (corsOrigins.has(origin) ? origin : null),
       allowMethods: ["GET", "POST", "OPTIONS"],
       allowHeaders: ["Content-Type", "X-Organiser-Token"],
       credentials: true,

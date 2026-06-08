@@ -145,6 +145,53 @@ export const claimService = {
     });
   },
 
+  listEvents(): Effect.Effect<
+    {
+      id: string;
+      name: string;
+      slug: string;
+      sortOrder: number;
+      date: string;
+      startAt: string;
+      endAt: string;
+      timezone: string;
+      location: string;
+      address: string | null;
+      description: string;
+      dressCodeDescription: string | null;
+      dressCodePalette: readonly DressSwatch[] | null;
+      pinterestUrl: string | null;
+      mapsUrl: string | null;
+    }[],
+    never,
+    DbService
+  > {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const rows = db.select().from(events).orderBy(asc(events.sortOrder)).all();
+      return rows.map((row) => {
+        const { palette } = decodePalette(row.dressCodePalette);
+        return {
+          id: row.id,
+          name: row.name,
+          slug: row.slug,
+          sortOrder: row.sortOrder,
+          date: row.date,
+          startAt: row.startAt,
+          endAt: row.endAt,
+          timezone: row.timezone,
+          location: row.location,
+          address: row.address,
+          description: row.description,
+          dressCodeDescription: row.dressCodeDescription,
+          dressCodePalette: palette,
+          pinterestUrl: row.pinterestUrl,
+          mapsUrl: row.mapsUrl,
+        };
+      });
+    });
+  },
+
   getAllGuests(): Effect.Effect<OrganiserGuestRow[], never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;

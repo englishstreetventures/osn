@@ -1,6 +1,7 @@
 ---
 import '../styles/global.css'
-import GuestTable from '../components/GuestTable'
+import DashboardTabs from '../components/DashboardTabs'
+import ImportPanel from '../components/ImportPanel'
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -22,7 +23,10 @@ import GuestTable from '../components/GuestTable'
           Organiser Dashboard
         </h1>
       </header>
-      <GuestTable client:load apiUrl={import.meta.env.PUBLIC_API_URL} />
+      <div class="flex flex-col gap-12">
+        <ImportPanel client:load apiUrl={import.meta.env.PUBLIC_API_URL} />
+        <DashboardTabs client:load apiUrl={import.meta.env.PUBLIC_API_URL} />
+      </div>
     </main>
   </body>
 </html>

@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[api]]"
   - "[[db]]"
-last-reviewed: 2026-05-05
+last-reviewed: 2026-06-08
 ---
 
 # Organiser Spreadsheet Import
@@ -27,8 +27,11 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 
 - [ ] Organiser auth model (passkey + magic link, separate `organisers` table)
 - [ ] Auth middleware that rejects guest sessions on organiser endpoints
-- [ ] `/organiser/import` page — paste / upload, preview diff table, confirm
+- [x] Organiser dashboard (`apps/organiser`) — tabbed Guests / Events view + inline import panel (token + 2 file inputs → preview diff → apply). History/revert UI deferred.
+- [x] `GET /api/organiser/events` — full event details (used by EventTable + GuestTable for human-readable event tags)
+- [x] Multi-origin CORS allowlist on the API so the organiser portal (`:4322`) can call the API alongside the guest web app (`:4321`)
 - [ ] Extend `OrganiserView` to display family-grouped guests with shareable publicId + password (show password only at family creation, hash thereafter — surface a "regenerate password" action)
+- [ ] Organiser portal: history / revert UI (deferred from initial cut)
 
 ## Cloudflare wiring
 

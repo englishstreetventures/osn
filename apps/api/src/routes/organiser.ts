@@ -17,3 +17,13 @@ organiserRoute.get("/guests", (c) => {
     ),
   );
 });
+
+organiserRoute.get("/events", (c) => {
+  return Effect.runPromise(
+    claimService.listEvents().pipe(
+      Effect.provideService(DbService, c.var.db),
+      Effect.map((eventList) => c.json(eventList)),
+      Effect.catchAllDefect(() => Effect.succeed(c.json({ error: "Internal error" }, 500))),
+    ),
+  );
+});

@@ -18,8 +18,16 @@ interface GuestTableProps {
   apiUrl: string;
 }
 
+interface EventRow {
+  id: string;
+  name: string;
+  slug: string;
+  sortOrder: number;
+}
+
 export default function GuestTable(props: GuestTableProps) {
   const [guests, setGuests] = createSignal<OrganiserGuestRow[]>([]);
+  const [eventNameById, setEventNameById] = createSignal<Map<string, string>>(new Map());
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
 
@@ -46,10 +54,15 @@ export default function GuestTable(props: GuestTableProps) {
 
   onMount(async () => {
     try {
-      const res = await fetch(`${props.apiUrl}/api/organiser/guests`);
-      if (!res.ok) throw new Error("Failed to load");
-      const data = (await res.json()) as OrganiserGuestRow[];
-      setGuests(data);
+      const [guestsRes, eventsRes] = await Promise.all([
+        fetch(`${props.apiUrl}/api/organiser/guests`),
+        fetch(`${props.apiUrl}/api/organiser/events`),
+      ]);
+      if (!guestsRes.ok || !eventsRes.ok) throw new Error("Failed to load");
+      const guestData = (await guestsRes.json()) as OrganiserGuestRow[];
+      const eventData = (await eventsRes.json()) as EventRow[];
+      setGuests(guestData);
+      setEventNameById(new Map(eventData.map((e) => [e.id, e.name])));
     } catch {
       setError("Could not load guest list. Is the API running?");
     } finally {
@@ -115,8 +128,11 @@ export default function GuestTable(props: GuestTableProps) {
                             <div class="flex flex-wrap gap-1.5">
                               <For each={member.events}>
                                 {(eventId) => (
-                                  <span class="inline-block rounded-sm bg-gold/10 px-2 py-0.5 text-[0.72rem] uppercase tracking-[0.06em] text-gold">
-                                    {eventId}
+                                  <span
+                                    class="inline-block rounded-sm bg-gold/10 px-2 py-0.5 text-[0.72rem] uppercase tracking-[0.06em] text-gold"
+                                    title={eventId}
+                                  >
+                                    {eventNameById().get(eventId) ?? eventId}
                                   </span>
                                 )}
                               </For>
