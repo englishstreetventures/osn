@@ -1,11 +1,10 @@
 /**
- * Pinterest URL helpers.
+ * Pinterest URL validator.
  *
  * `pinterestUrl` arrives as server-supplied free text from the claim response.
- * Before it lands inside an `<iframe src=...>` or `<a href=...>`, it MUST be
- * validated by `isValidPinterestUrl` to reject `javascript:` URIs, foreign
- * hosts, and malformed paths. `toEmbedUrl` returns `null` on invalid input so
- * callers can short-circuit safely with `<Show>`.
+ * Before it lands in `<a href=...>` or as input to Pinterest's embed script,
+ * `isValidPinterestUrl` must accept it — the gate rejects `javascript:` URIs,
+ * foreign hosts, and malformed paths.
  *
  * Defence in depth: the regex restricts path segments to a strict character
  * set (no whitespace, `?`, `#`, etc.) AND the URL is re-parsed via the `URL`
@@ -39,10 +38,4 @@ export function isValidPinterestUrl(url: string): boolean {
     return false;
   }
   return parsed.protocol === "https:" && ALLOWED_HOSTS.has(parsed.hostname);
-}
-
-export function toEmbedUrl(url: string): string | null {
-  if (!isValidPinterestUrl(url)) return null;
-  const trimmed = url.endsWith("/") ? url.slice(0, -1) : url;
-  return `${trimmed}/embed`;
 }

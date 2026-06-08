@@ -10,7 +10,7 @@ import eventsData from "../data/events.json";
 
 const withDb = effWith(TestDbLayer);
 
-const WEDDING_ID = eventsData.wedding.id;
+const HINDU_ID = eventsData.hindu.id;
 const RECEPTION_ID = eventsData.reception.id;
 
 // Helper to get a guestId + familyId by first name
@@ -39,7 +39,7 @@ describe("rsvpService.submitRsvp", () => {
         const priya = yield* lookupGuest("Priya");
         yield* rsvpService.submitRsvp({
           guestId: priya.id,
-          eventId: WEDDING_ID,
+          eventId: HINDU_ID,
           status: "attending",
           dietary: "",
         });
@@ -47,7 +47,7 @@ describe("rsvpService.submitRsvp", () => {
         const rsvps = yield* rsvpService.getRsvpsForFamily(priya.familyId);
         expect(rsvps).toHaveLength(1);
         expect(rsvps[0]!.guestId).toBe(priya.id);
-        expect(rsvps[0]!.eventId).toBe(WEDDING_ID);
+        expect(rsvps[0]!.eventId).toBe(HINDU_ID);
         expect(rsvps[0]!.status).toBe("attending");
       }),
     ),
@@ -60,21 +60,21 @@ describe("rsvpService.submitRsvp", () => {
         const priya = yield* lookupGuest("Priya");
         yield* rsvpService.submitRsvp({
           guestId: priya.id,
-          eventId: WEDDING_ID,
+          eventId: HINDU_ID,
           status: "attending",
           dietary: "",
         });
         yield* rsvpService.submitRsvp({
           guestId: priya.id,
-          eventId: WEDDING_ID,
+          eventId: HINDU_ID,
           status: "declined",
           dietary: "",
         });
 
         const rsvps = yield* rsvpService.getRsvpsForFamily(priya.familyId);
-        const weddingRsvp = rsvps.find((r) => r.eventId === WEDDING_ID);
-        expect(weddingRsvp?.status).toBe("declined");
-        expect(rsvps.filter((r) => r.eventId === WEDDING_ID)).toHaveLength(1);
+        const hinduRsvp = rsvps.find((r) => r.eventId === HINDU_ID);
+        expect(hinduRsvp?.status).toBe("declined");
+        expect(rsvps.filter((r) => r.eventId === HINDU_ID)).toHaveLength(1);
       }),
     ),
   );
@@ -109,13 +109,13 @@ describe("rsvpService.getRsvpsForFamily", () => {
 
         yield* rsvpService.submitRsvp({
           guestId: james.id,
-          eventId: WEDDING_ID,
+          eventId: HINDU_ID,
           status: "attending",
           dietary: "",
         });
         yield* rsvpService.submitRsvp({
           guestId: emma.id,
-          eventId: WEDDING_ID,
+          eventId: HINDU_ID,
           status: "maybe",
           dietary: "Gluten-free",
         });

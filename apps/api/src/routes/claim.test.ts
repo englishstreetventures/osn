@@ -88,9 +88,32 @@ describe("POST /api/claim", () => {
         expect(data.members[0]!.firstName).toBe("Priya");
         expect(typeof data.members[0]!.guestId).toBe("string");
         expect(data.members[0]!.eventIds.sort()).toEqual(
-          [eventsData.mehndi.id, eventsData.reception.id, eventsData.wedding.id].sort(),
+          [eventsData.catholic.id, eventsData.reception.id, eventsData.hindu.id].sort(),
         );
         expect(data.events).toHaveLength(3);
+      }),
+    ),
+  );
+
+  it(
+    "returns all five events for the default demo code PATEL-JOY-RK97",
+    eff(
+      Effect.gen(function* () {
+        const res = yield* post({ publicId: "PATEL-JOY-RK97" });
+        expect(res.status).toBe(200);
+        const data = yield* Effect.promise(() => res.json<ClaimOk>());
+        expect(data.events.map((e) => e.id).sort()).toEqual(
+          [
+            eventsData.catholic.id,
+            eventsData["kitchen-tea"].id,
+            eventsData.mehendi.id,
+            eventsData.hindu.id,
+            eventsData.reception.id,
+          ].sort(),
+        );
+        expect(data.events.find((e) => e.id === eventsData["kitchen-tea"].id)?.name).toBe(
+          "Kitchen Tea",
+        );
       }),
     ),
   );

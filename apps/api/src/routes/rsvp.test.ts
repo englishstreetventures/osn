@@ -9,7 +9,7 @@ import { eff } from "../test-helpers";
 import eventsData from "../data/events.json";
 import type { Db } from "../db";
 
-const WEDDING_ID = eventsData.wedding.id;
+const HINDU_ID = eventsData.hindu.id;
 
 interface RsvpOk {
   rsvps: Array<{
@@ -84,7 +84,7 @@ describe("POST /api/rsvp", () => {
             rsvps: [
               {
                 guestId: sharmaGuestId,
-                eventId: WEDDING_ID,
+                eventId: HINDU_ID,
                 status: "attending",
                 dietary: "Vegetarian",
               },
@@ -131,7 +131,7 @@ describe("POST /api/rsvp", () => {
             rsvps: [
               {
                 guestId: wilsonJamesGuestId,
-                eventId: WEDDING_ID,
+                eventId: HINDU_ID,
                 status: "attending",
               },
             ],

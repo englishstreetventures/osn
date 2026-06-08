@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isValidPinterestUrl, toEmbedUrl } from "./pinterest";
+import { isValidPinterestUrl } from "./pinterest";
 
 describe("isValidPinterestUrl", () => {
   it.each([
@@ -28,25 +28,5 @@ describe("isValidPinterestUrl", () => {
     "", // empty
   ])("rejects %s", (url) => {
     expect(isValidPinterestUrl(url)).toBe(false);
-  });
-});
-
-describe("toEmbedUrl", () => {
-  it("appends /embed to a valid board url", () => {
-    expect(toEmbedUrl("https://pinterest.com/user/board")).toBe(
-      "https://pinterest.com/user/board/embed",
-    );
-  });
-
-  it("normalises a trailing slash before appending /embed", () => {
-    expect(toEmbedUrl("https://www.pinterest.com.au/user/wedding-inspo/")).toBe(
-      "https://www.pinterest.com.au/user/wedding-inspo/embed",
-    );
-  });
-
-  it("returns null for invalid input", () => {
-    expect(toEmbedUrl("https://evil.com/user/board")).toBeNull();
-    expect(toEmbedUrl("javascript:alert(1)")).toBeNull();
-    expect(toEmbedUrl("")).toBeNull();
   });
 });

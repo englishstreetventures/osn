@@ -22,14 +22,14 @@ function freshDbLayer(seed: boolean) {
 
 const FOUR_EVENTS_CSV = [
   "Event Name,Start,End,Timezone,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
-  "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,Home,12 Banksia Lane,Bright,Marigold:oklch(76% 0.15 75),,",
-  "Sangeet,2026-09-19T18:30:00+10:00,2026-09-19T23:30:00+10:00,Australia/Sydney,Pavilion,1 Grand Drive,Bold,,,",
-  "Wedding Ceremony,2026-09-20T16:00:00+10:00,2026-09-20T18:00:00+10:00,Australia/Sydney,Garden,Mrs Macquaries Rd,Formal,Sage:oklch(72% 0.05 128),,",
-  "Reception,2026-09-20T19:00:00+10:00,2026-09-21T00:00:00+10:00,Australia/Sydney,Doltone,26 Pirrama Rd,Cocktail,,,",
+  "Catholic Ceremony,2026-10-31T10:00:00+11:00,2026-10-31T13:00:00+11:00,Australia/Sydney,Example Parish,123 Example St,Semiformal,Blush:oklch(86% 0.05 12),,",
+  "Mehendi,2026-11-22T18:00:00+11:00,2026-11-22T23:00:00+11:00,Australia/Sydney,Sample Hall,124 Sample Avenue,Semicasual/Indian,Marigold:oklch(76% 0.15 75),,",
+  "Hindu Ceremony,2026-11-25T09:00:00+11:00,2026-11-25T12:00:00+11:00,Australia/Sydney,Example Temple,125 Placeholder Hwy,Formal/Indian Traditional,Terracotta:oklch(58% 0.12 38),,",
+  "Reception,2026-11-28T18:00:00+11:00,2026-11-28T23:00:00+11:00,Australia/Sydney,Sample Reception House,126 Example Road,Formal,Midnight:oklch(28% 0.06 268),,",
 ].join("\n");
 
 const FOUR_FAMILIES_CSV = [
-  "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Sangeet,Wedding Ceremony,Reception",
+  "Family ID,Family Name,Guest First Name,Guest Last Name,Catholic Ceremony,Mehendi,Hindu Ceremony,Reception",
   "1,Sharma,Priya,Sharma,yes,no,yes,yes",
   "2,Wilson,James,Wilson,no,no,yes,yes",
   "2,Wilson,Emma,Wilson,no,no,yes,yes",
@@ -100,7 +100,7 @@ describe("diff: family rename = remove + create", () => {
     const sharedLayer = Layer.succeed(DbService, sharedDb);
 
     const renamedCsv = [
-      "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Sangeet,Wedding Ceremony,Reception",
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Catholic Ceremony,Mehendi,Hindu Ceremony,Reception",
       "1,Sharma-Patel,Priya,Sharma,yes,no,yes,yes",
       "2,Wilson,James,Wilson,no,no,yes,yes",
       "2,Wilson,Emma,Wilson,no,no,yes,yes",
@@ -125,7 +125,7 @@ describe("diff: guest first-name change = remove + create", () => {
     const sharedLayer = Layer.succeed(DbService, sharedDb);
 
     const csv = [
-      "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Sangeet,Wedding Ceremony,Reception",
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Catholic Ceremony,Mehendi,Hindu Ceremony,Reception",
       "1,Sharma,Priya,Sharma-Patel,yes,no,yes,yes",
       "2,Wilson,Jim,Wilson,no,no,yes,yes",
       "2,Wilson,Emma,Wilson,no,no,yes,yes",
@@ -153,8 +153,8 @@ describe("diff: guestEvent toggles", () => {
     const sharedLayer = Layer.succeed(DbService, sharedDb);
 
     const csv = [
-      "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Sangeet,Wedding Ceremony,Reception",
-      "1,Sharma,Priya,Sharma,no,no,no,no", // was invited to mehndi/wedding/reception
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Catholic Ceremony,Mehendi,Hindu Ceremony,Reception",
+      "1,Sharma,Priya,Sharma,no,no,no,no", // was invited to catholic/hindu/reception
       "2,Wilson,James,Wilson,no,no,yes,yes",
       "2,Wilson,Emma,Wilson,no,no,yes,yes",
       "2,Wilson,Sophie,Wilson,no,no,yes,no",
@@ -191,7 +191,7 @@ describe("diff: warning when removing a guest with non-default RSVP", () => {
     const sharedLayer = Layer.succeed(DbService, sharedDb);
 
     const csv = [
-      "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Sangeet,Wedding Ceremony,Reception",
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Catholic Ceremony,Mehendi,Hindu Ceremony,Reception",
       "1,Sharma,Priya,Sharma,yes,no,yes,yes",
       "2,Wilson,Jim,Wilson,no,no,yes,yes",
       "2,Wilson,Emma,Wilson,no,no,yes,yes",

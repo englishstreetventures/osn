@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-05-15
+last-reviewed: 2026-06-08
 ---
 
 # Security Backlog
@@ -51,5 +51,5 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 - [ ] Frontend `href` validator — Pinterest URLs go through an allowlist regex (`apps/web/src/components/pinterest.ts`) (PR-D); Google Calendar URL is parsed via the `URL` constructor + `http(s)`-only protocol check before being surfaced (PR-G — see `isHttpUrl` in `apps/web/src/components/AddToCalendar.tsx`); `mapsUrl` / `address` validators still pending
 - [x] CSS colour validator — `dressCodePalette[].color` is server-supplied and rendered inline as `background-color`. `apps/web/src/components/dress-code-render.ts#isValidColor` allowlists hex / rgb[a] / hsl[a] / oklch and rejects `expression(...)` etc. (PR-E)
 - [ ] Whitelist 422 `MalformedSpreadsheet` reason strings — currently safe (only static literals are surfaced) but document the constraint so future contributors don't interpolate cell contents into the `reason` field (PR-C review)
-- [ ] CSP headers on `apps/web` — add `frame-src https://*.pinterest.com https://assets.pinterest.com` (and the rest of a baseline policy) once a Cloudflare Pages `_headers` file or Workers transform is set up. PR-D leaves the iframe unrestricted at the page level because no CSP exists yet.
-- [ ] Static-image + outbound-link Pinterest fallback (post-launch upgrade) — replace iframe with a snapshot board image (R2 + Workers fetch) once Pinterest's X-Frame-Options or `embed` reliability becomes a problem (PR-D)
+- [ ] CSP headers on `apps/web` — once a Cloudflare Pages `_headers` file or Workers transform is set up, allow `script-src https://assets.pinterest.com` (the script-widget loads `pinit_main.js` from there) and `connect-src https://widgets.pinterest.com` (pidgets data fetch) and `img-src https://i.pinimg.com` (pin thumbnails); `frame-src` is no longer needed since PR #28 dropped the iframe.
+- [x] Outbound-link Pinterest fallback when the embed can't render — PR #28 ships a "View moodboard on Pinterest" link button that takes over after a 2.5s grace window if `pinit_main.js` is blocked (uBlock / Brave Shields / Privacy Badger fire `blocked:other` on EasyPrivacy filters) or fails to transform our `<a data-pin-do>` placeholder. Static-image / R2 snapshot path remains a future upgrade if blocker-fallback rates grow uncomfortable.

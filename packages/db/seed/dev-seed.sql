@@ -10,7 +10,7 @@
 -- wipes local D1 state then re-pushes + re-seeds.
 
 -- ────────────────────────────────────────────────────────────────────────────
--- Events (4) — Sept 2026, Sydney
+-- Events (5) — Oct–Nov 2026, Sydney
 -- ────────────────────────────────────────────────────────────────────────────
 
 INSERT OR IGNORE INTO events (
@@ -20,52 +20,64 @@ INSERT OR IGNORE INTO events (
   pinterest_url, maps_url, sort_order
 ) VALUES
   (
-    '9f7a2c14-1b3d-4e5f-8a01-000000000001', 'mehndi', 'Mehndi',
-    '2026-09-18', 'The Sharma Residence, Sydney',
-    'An intimate evening of music, henna, and family. Traditional dress warmly welcomed.',
-    '2026-09-18T16:00:00+10:00', '2026-09-18T22:00:00+10:00', 'Australia/Sydney',
-    '12 Banksia Lane, Strathfield NSW 2135',
-    'Bright, festive colours encouraged. Traditional or semi-formal Indian attire warmly welcomed.',
-    '[{"name":"Marigold","color":"oklch(76.36% 0.1533 75.16)"},{"name":"Fuchsia","color":"oklch(54.66% 0.2139 352.16)"},{"name":"Emerald","color":"oklch(46.05% 0.1156 153.58)"},{"name":"Turquoise","color":"oklch(70.15% 0.1115 186.68)"}]',
-    'https://www.pinterest.com/',
-    'https://maps.google.com/?q=12+Banksia+Lane+Strathfield+NSW+2135',
+    '9f7a2c14-1b3d-4e5f-8a01-000000000001', 'catholic', 'Catholic Ceremony',
+    '2026-10-31', 'Example Parish Hall',
+    'Service commences at 10:00am. Free parking onsite.',
+    '2026-10-31T10:00:00+11:00', '2026-10-31T13:00:00+11:00', 'Australia/Sydney',
+    '123 Example St, Sampletown NSW 2000',
+    'Semiformal. Pink and green colour theme.',
+    '[{"name":"Blush","color":"oklch(86.50% 0.0480 12.50)"},{"name":"Rose","color":"oklch(64.20% 0.1450 12.00)"},{"name":"Sage","color":"oklch(72.88% 0.0585 128.92)"},{"name":"Emerald","color":"oklch(46.05% 0.1156 153.58)"}]',
+    'https://www.pinterest.com.au/example/catholic-wedding-guest-moodboard/',
+    'https://maps.google.com/?q=123+Example+St+Sampletown+NSW+2000',
     0
   ),
   (
-    '9f7a2c14-1b3d-4e5f-8a01-000000000002', 'sangeet', 'Sangeet',
-    '2026-09-19', 'The Pavilion, Centennial Park, Sydney',
-    'An evening of music, dance, and celebration. Bring your dancing shoes!',
-    '2026-09-19T18:30:00+10:00', '2026-09-19T23:30:00+10:00', 'Australia/Sydney',
-    '1 Grand Drive, Centennial Park NSW 2021',
-    'Glamorous and bold — think sequins, rich fabrics, and jewel tones. This is the party night!',
-    '[{"name":"Royal Blue","color":"oklch(37.91% 0.1378 265.52)"},{"name":"Gold","color":"oklch(74.99% 0.0854 82.08)"},{"name":"Plum","color":"oklch(38.22% 0.1235 340.14)"},{"name":"Champagne","color":"oklch(93.01% 0.0380 81.51)"}]',
-    'https://www.pinterest.com/',
-    'https://maps.google.com/?q=The+Pavilion+Centennial+Park+Sydney',
+    '9f7a2c14-1b3d-4e5f-8a01-000000000005', 'kitchen-tea', 'Kitchen Tea',
+    '2026-11-20', '124 Sample Avenue, Exampleville',
+    'From 4pm to 6pm.',
+    '2026-11-20T16:00:00+11:00', '2026-11-20T18:00:00+11:00', 'Australia/Sydney',
+    '124 Sample Avenue, Exampleville NSW 2001',
+    'Smart casual / high tea. Pastel and cream colour theme.',
+    '[{"name":"Blush","color":"oklch(86.50% 0.0480 12.50)"},{"name":"Sage","color":"oklch(72.88% 0.0585 128.92)"},{"name":"Cream","color":"oklch(94.80% 0.0250 90.00)"},{"name":"Dusty Rose","color":"oklch(78.63% 0.0634 48.93)"}]',
+    'https://www.pinterest.com.au/example/kitchen-tea-mood-board/',
+    'https://maps.google.com/?q=124+Sample+Avenue+Exampleville+NSW+2001',
     1
   ),
   (
-    '9f7a2c14-1b3d-4e5f-8a01-000000000003', 'wedding', 'Wedding Ceremony',
-    '2026-09-20', 'Royal Botanic Garden, Sydney',
-    'The ceremony will begin at 4 PM. Please be seated by 3:45 PM.',
-    '2026-09-20T16:00:00+10:00', '2026-09-20T18:00:00+10:00', 'Australia/Sydney',
-    'Mrs Macquaries Road, Sydney NSW 2000',
-    'Elegant and formal. Please avoid wearing white or black. Traditional attire from any culture is welcome.',
-    '[{"name":"Sage","color":"oklch(72.88% 0.0585 128.92)"},{"name":"Dusty Rose","color":"oklch(78.63% 0.0634 48.93)"},{"name":"Ivory","color":"oklch(99.60% 0.0196 106.75)"},{"name":"Burgundy","color":"oklch(40.08% 0.0948 15.09)"}]',
-    'https://www.pinterest.com/',
-    'https://maps.google.com/?q=Royal+Botanic+Garden+Sydney',
+    '9f7a2c14-1b3d-4e5f-8a01-000000000002', 'mehendi', 'Mehendi',
+    '2026-11-22', '124 Sample Avenue, Exampleville',
+    'From 6pm.',
+    '2026-11-22T18:00:00+11:00', '2026-11-22T23:00:00+11:00', 'Australia/Sydney',
+    '124 Sample Avenue, Exampleville NSW 2001',
+    'Semicasual/Indian. Yellow and orange colour theme.',
+    '[{"name":"Marigold","color":"oklch(76.36% 0.1533 75.16)"},{"name":"Saffron","color":"oklch(72.50% 0.1700 60.00)"},{"name":"Amber","color":"oklch(80.00% 0.1450 85.00)"},{"name":"Burnt Orange","color":"oklch(58.50% 0.1620 42.00)"}]',
+    'https://www.pinterest.com.au/example/mehendi-moodboard/',
+    'https://maps.google.com/?q=124+Sample+Avenue+Exampleville+NSW+2001',
     2
   ),
   (
-    '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'reception', 'Reception',
-    '2026-09-20', 'Doltone House, Pyrmont',
-    'Dinner and dancing from 7 PM. Cocktail attire.',
-    '2026-09-20T19:00:00+10:00', '2026-09-21T00:00:00+10:00', 'Australia/Sydney',
-    '26 Pirrama Road, Pyrmont NSW 2009',
-    'Cocktail attire — refined and celebratory. Soft metallics and deep jewel tones complement the evening palette.',
-    '[{"name":"Midnight","color":"oklch(28.50% 0.0612 268.82)"},{"name":"Copper","color":"oklch(64.20% 0.1082 47.20)"},{"name":"Pearl","color":"oklch(94.80% 0.0148 95.00)"},{"name":"Sapphire","color":"oklch(45.10% 0.1532 252.00)"}]',
-    'https://www.pinterest.com/',
-    'https://maps.google.com/?q=Doltone+House+Pyrmont',
+    '9f7a2c14-1b3d-4e5f-8a01-000000000003', 'hindu', 'Hindu Ceremony',
+    '2026-11-25', 'Example Temple',
+    'Service commences at 9am. Free parking onsite and adjacent streets (some streets may be time limited).',
+    '2026-11-25T09:00:00+11:00', '2026-11-25T12:00:00+11:00', 'Australia/Sydney',
+    '125 Placeholder Highway, Mocktown NSW 2002',
+    'Formal/Indian Traditional. Earth tones colour theme.',
+    '[{"name":"Terracotta","color":"oklch(58.20% 0.1240 38.50)"},{"name":"Ochre","color":"oklch(70.50% 0.1180 75.00)"},{"name":"Olive","color":"oklch(55.00% 0.0720 110.00)"},{"name":"Sand","color":"oklch(82.00% 0.0480 80.00)"}]',
+    'https://www.pinterest.com.au/example/hindu-wedding-guest-moodboard/',
+    'https://maps.google.com/?q=125+Placeholder+Highway+Mocktown+NSW+2002',
     3
+  ),
+  (
+    '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'reception', 'Reception',
+    '2026-11-28', 'Sample Reception House',
+    'From 6pm. Free parking onsite.',
+    '2026-11-28T18:00:00+11:00', '2026-11-28T23:00:00+11:00', 'Australia/Sydney',
+    '126 Example Road, Testburg NSW 2003',
+    'Formal. Dark blue and dark purple colour theme.',
+    '[{"name":"Midnight","color":"oklch(28.50% 0.0612 268.82)"},{"name":"Sapphire","color":"oklch(40.00% 0.1450 252.00)"},{"name":"Indigo","color":"oklch(35.00% 0.1320 290.00)"},{"name":"Plum","color":"oklch(38.22% 0.1235 340.14)"}]',
+    'https://www.pinterest.com.au/example/reception-guest-moodboard/',
+    'https://maps.google.com/?q=126+Example+Road+Testburg+NSW+2003',
+    4
   );
 
 -- ────────────────────────────────────────────────────────────────────────────
@@ -99,20 +111,23 @@ INSERT OR IGNORE INTO guests (id, family_id, first_name, last_name, sort_order, 
 -- ────────────────────────────────────────────────────────────────────────────
 
 INSERT OR IGNORE INTO guest_events (guest_id, event_id) VALUES
-  -- Priya: mehndi + wedding + reception
+  -- Priya: catholic + hindu + reception
   ('b0000000-0000-4000-8000-000000000001', '9f7a2c14-1b3d-4e5f-8a01-000000000001'),
   ('b0000000-0000-4000-8000-000000000001', '9f7a2c14-1b3d-4e5f-8a01-000000000003'),
   ('b0000000-0000-4000-8000-000000000001', '9f7a2c14-1b3d-4e5f-8a01-000000000004'),
-  -- James + Emma: wedding + reception
+  -- James + Emma: hindu + reception
   ('b0000000-0000-4000-8000-000000000002', '9f7a2c14-1b3d-4e5f-8a01-000000000003'),
   ('b0000000-0000-4000-8000-000000000002', '9f7a2c14-1b3d-4e5f-8a01-000000000004'),
   ('b0000000-0000-4000-8000-000000000003', '9f7a2c14-1b3d-4e5f-8a01-000000000003'),
   ('b0000000-0000-4000-8000-000000000003', '9f7a2c14-1b3d-4e5f-8a01-000000000004'),
-  -- Sophie: wedding only
+  -- Sophie: hindu only
   ('b0000000-0000-4000-8000-000000000004', '9f7a2c14-1b3d-4e5f-8a01-000000000003'),
-  -- Auntie Meena: mehndi + wedding
+  -- Auntie Meena: catholic + hindu
   ('b0000000-0000-4000-8000-000000000005', '9f7a2c14-1b3d-4e5f-8a01-000000000001'),
   ('b0000000-0000-4000-8000-000000000005', '9f7a2c14-1b3d-4e5f-8a01-000000000003'),
-  -- Dev Patel: wedding + reception
+  -- Dev Patel: all five (default demo code — exercises every event)
+  ('b0000000-0000-4000-8000-000000000006', '9f7a2c14-1b3d-4e5f-8a01-000000000001'),
+  ('b0000000-0000-4000-8000-000000000006', '9f7a2c14-1b3d-4e5f-8a01-000000000002'),
   ('b0000000-0000-4000-8000-000000000006', '9f7a2c14-1b3d-4e5f-8a01-000000000003'),
-  ('b0000000-0000-4000-8000-000000000006', '9f7a2c14-1b3d-4e5f-8a01-000000000004');
+  ('b0000000-0000-4000-8000-000000000006', '9f7a2c14-1b3d-4e5f-8a01-000000000004'),
+  ('b0000000-0000-4000-8000-000000000006', '9f7a2c14-1b3d-4e5f-8a01-000000000005');

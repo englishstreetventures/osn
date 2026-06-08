@@ -81,7 +81,7 @@ export function LoginSection(props: LoginSectionProps) {
               spellcheck={false}
               disabled={loading()}
               maxLength={30}
-              pattern="[A-Za-z0-9\\-]+"
+              pattern="[A-Za-z0-9-]+"
             />
             <Show when={error()}>
               <p class="font-body text-[0.82rem] text-error py-2" role="alert">

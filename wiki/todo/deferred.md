@@ -3,7 +3,7 @@ title: "Cire TODO — deferred decisions"
 tags: [todo, deferred]
 related:
   - "[[index]]"
-last-reviewed: 2026-05-05
+last-reviewed: 2026-06-08
 ---
 
 # Deferred Decisions
@@ -28,7 +28,8 @@ Open architectural questions with options + a trigger for revisiting. When a dec
 
 ## Resolved
 
-| Question                 | Resolution                                                                                                                                              | Resolved   |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| Pinterest embed approach | iframe for MVP (good-enough preview, no API rate limits); upgrade to static-image board snapshots post-launch                                           | 2026-05-05 |
-| Spreadsheet input format | CSV-only for MVP (two sheets: events + guests). `.xlsx` deferred — would need SheetJS, slower upload, and most organisers can export CSV from any tool. | 2026-05-05 |
+| Question                           | Resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Resolved   |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| Pinterest embed approach           | iframe for MVP (good-enough preview, no API rate limits); upgrade to static-image board snapshots post-launch                                                                                                                                                                                                                                                                                                                                                                      | 2026-05-05 |
+| Pinterest embed approach (revised) | Script-widget (`<a data-pin-do>` + `pinit_main.js`) with a "View moodboard on Pinterest" link button fallback when `pinit_main.js` is blocked or fails to transform within 2.5s. Direct `<iframe src=.../embed.html>` was abandoned: `pinit_main.js` inside it silently bails on referrer / 3rd-party-storage / sandbox conditions and renders blank. Static-image snapshot path still available as a future upgrade if tracker-blocker fallback rates grow uncomfortable. PR #28. | 2026-06-08 |
+| Spreadsheet input format           | CSV-only for MVP (two sheets: events + guests). `.xlsx` deferred — would need SheetJS, slower upload, and most organisers can export CSV from any tool.                                                                                                                                                                                                                                                                                                                            | 2026-05-05 |

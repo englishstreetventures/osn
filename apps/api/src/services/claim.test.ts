@@ -9,9 +9,10 @@ import eventsData from "../data/events.json";
 
 const withDb = effWith(TestDbLayer);
 
-const MEHNDI_ID = eventsData.mehndi.id;
-const SANGEET_ID = eventsData.sangeet.id;
-const WEDDING_ID = eventsData.wedding.id;
+const CATHOLIC_ID = eventsData.catholic.id;
+const KITCHEN_TEA_ID = eventsData["kitchen-tea"].id;
+const MEHENDI_ID = eventsData.mehendi.id;
+const HINDU_ID = eventsData.hindu.id;
 const RECEPTION_ID = eventsData.reception.id;
 
 describe("claimService.lookup", () => {
@@ -28,9 +29,9 @@ describe("claimService.lookup", () => {
         expect(priya.lastName).toBe("Sharma");
         expect(typeof priya.guestId).toBe("string");
         expect(priya.guestId.length).toBeGreaterThan(0);
-        expect([...priya.eventIds].sort()).toEqual([MEHNDI_ID, WEDDING_ID, RECEPTION_ID].sort());
+        expect([...priya.eventIds].sort()).toEqual([CATHOLIC_ID, HINDU_ID, RECEPTION_ID].sort());
         expect(result.events.map((e) => e.id).sort()).toEqual(
-          [MEHNDI_ID, WEDDING_ID, RECEPTION_ID].sort(),
+          [CATHOLIC_ID, HINDU_ID, RECEPTION_ID].sort(),
         );
         expect(result.rsvps).toEqual([]);
       }),
@@ -58,16 +59,16 @@ describe("claimService.lookup", () => {
     withDb(
       Effect.gen(function* () {
         const result = yield* claimService.lookup("SHARMA-IVY-QM42");
-        const mehndi = result.events.find((e) => e.id === MEHNDI_ID)!;
-        expect(mehndi.startAt).toBe(eventsData.mehndi.startAt);
-        expect(mehndi.endAt).toBe(eventsData.mehndi.endAt);
-        expect(mehndi.timezone).toBe("Australia/Sydney");
-        expect(mehndi.address).toBe(eventsData.mehndi.address);
-        expect(mehndi.dressCodeDescription).toBe(eventsData.mehndi.dressCodeDescription);
-        expect(mehndi.dressCodePalette).toEqual(eventsData.mehndi.dressCodePalette);
-        expect(mehndi.pinterestUrl).toBe(eventsData.mehndi.pinterestUrl);
-        expect(mehndi.mapsUrl).toBe(eventsData.mehndi.mapsUrl);
-        expect(mehndi.sortOrder).toBe(0);
+        const catholic = result.events.find((e) => e.id === CATHOLIC_ID)!;
+        expect(catholic.startAt).toBe(eventsData.catholic.startAt);
+        expect(catholic.endAt).toBe(eventsData.catholic.endAt);
+        expect(catholic.timezone).toBe("Australia/Sydney");
+        expect(catholic.address).toBe(eventsData.catholic.address);
+        expect(catholic.dressCodeDescription).toBe(eventsData.catholic.dressCodeDescription);
+        expect(catholic.dressCodePalette).toEqual(eventsData.catholic.dressCodePalette);
+        expect(catholic.pinterestUrl).toBe(eventsData.catholic.pinterestUrl);
+        expect(catholic.mapsUrl).toBe(eventsData.catholic.mapsUrl);
+        expect(catholic.sortOrder).toBe(0);
       }),
     ),
   );
@@ -84,30 +85,32 @@ describe("claimService.lookup", () => {
   );
 
   it(
-    "returns each member's own eventIds — Wilson kid is wedding-only",
+    "returns each member's own eventIds — Wilson kid is hindu-only",
     withDb(
       Effect.gen(function* () {
         const result = yield* claimService.lookup("WILSON-OAK-7R2P");
         expect(result.familyName).toBe("Wilson");
         const byName = new Map(result.members.map((m) => [m.firstName, m]));
         expect([...(byName.get("James")?.eventIds ?? [])].sort()).toEqual(
-          [RECEPTION_ID, WEDDING_ID].sort(),
+          [RECEPTION_ID, HINDU_ID].sort(),
         );
         expect([...(byName.get("Emma")?.eventIds ?? [])].sort()).toEqual(
-          [RECEPTION_ID, WEDDING_ID].sort(),
+          [RECEPTION_ID, HINDU_ID].sort(),
         );
-        expect(byName.get("Sophie")?.eventIds).toEqual([WEDDING_ID]);
-        expect(result.events.map((e) => e.id).sort()).toEqual([RECEPTION_ID, WEDDING_ID].sort());
+        expect(byName.get("Sophie")?.eventIds).toEqual([HINDU_ID]);
+        expect(result.events.map((e) => e.id).sort()).toEqual([RECEPTION_ID, HINDU_ID].sort());
       }),
     ),
   );
 
   it(
-    "returns only invited events for the Patels (wedding + reception)",
+    "returns all five events for the Patels (default demo code invites everyone)",
     withDb(
       Effect.gen(function* () {
         const result = yield* claimService.lookup("PATEL-JOY-RK97");
-        expect(result.events.map((e) => e.id).sort()).toEqual([RECEPTION_ID, WEDDING_ID].sort());
+        expect(result.events.map((e) => e.id).sort()).toEqual(
+          [CATHOLIC_ID, KITCHEN_TEA_ID, MEHENDI_ID, HINDU_ID, RECEPTION_ID].sort(),
+        );
       }),
     ),
   );
@@ -194,8 +197,4 @@ describe("claimService.getAllGuests", () => {
       }),
     ),
   );
-
-  // Suppress "SANGEET imported but unused" — referenced for future tests once
-  // anyone in the seed is invited to it (currently no one is).
-  void SANGEET_ID;
 });
