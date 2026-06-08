@@ -123,6 +123,42 @@ describe("parseEventsCsv", () => {
     const error = await Effect.runPromise(Effect.flip(parseEventsCsv("")));
     expect(error).toBeInstanceOf(MalformedSpreadsheet);
   });
+
+  for (const [label, value] of [
+    ["javascript:", "javascript:alert(1)"],
+    ["data:", "data:text/html,<script>alert(1)</script>"],
+    ["non-URL", "not a url at all"],
+  ] as const) {
+    it(`rejects ${label} Pinterest URL`, async () => {
+      const csv = [
+        EVENTS_HEADER,
+        `Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,,,,,${value},`,
+      ].join("\n");
+      const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
+      expect(error).toBeInstanceOf(MalformedSpreadsheet);
+      expect((error as MalformedSpreadsheet).reason).toBe("Pinterest URL must be an http(s) URL");
+    });
+
+    it(`rejects ${label} Maps URL`, async () => {
+      const csv = [
+        EVENTS_HEADER,
+        `Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,,,,,,${value}`,
+      ].join("\n");
+      const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
+      expect(error).toBeInstanceOf(MalformedSpreadsheet);
+      expect((error as MalformedSpreadsheet).reason).toBe("Maps URL must be an http(s) URL");
+    });
+  }
+
+  it("accepts http and https URLs", async () => {
+    const csv = [
+      EVENTS_HEADER,
+      "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,,,,,http://pin.example/x,https://maps.example/q",
+    ].join("\n");
+    const events = await Effect.runPromise(parseEventsCsv(csv));
+    expect(events[0]!.pinterestUrl).toBe("http://pin.example/x");
+    expect(events[0]!.mapsUrl).toBe("https://maps.example/q");
+  });
 });
 
 describe("parseGuestsCsv", () => {

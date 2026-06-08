@@ -7,6 +7,21 @@ import type { ClaimResponse, OrganiserGuestRow, DressSwatch } from "../schemas/c
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
 
 /**
+ * Defence-in-depth: drop any stored URL whose scheme isn't http(s) so a
+ * legacy row written before the CSV-import scheme check can't smuggle a
+ * `javascript:` href into the organiser UI.
+ */
+function safeHttpUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    return u.protocol === "http:" || u.protocol === "https:" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Decode the JSON-encoded `dress_code_palette` column. Returns `palette: null`
  * + `malformed: true` so the caller can emit a structured log line referencing
  * the offending event id (kept out of this pure helper to preserve testability
@@ -115,8 +130,8 @@ export const claimService = {
           address: e.address ?? null,
           dressCodeDescription: e.dressCodeDescription ?? null,
           dressCodePalette: palette,
-          pinterestUrl: e.pinterestUrl ?? null,
-          mapsUrl: e.mapsUrl ?? null,
+          pinterestUrl: safeHttpUrl(e.pinterestUrl),
+          mapsUrl: safeHttpUrl(e.mapsUrl),
           sortOrder: e.sortOrder ?? 0,
         });
       }
@@ -185,8 +200,8 @@ export const claimService = {
           description: row.description,
           dressCodeDescription: row.dressCodeDescription,
           dressCodePalette: palette,
-          pinterestUrl: row.pinterestUrl,
-          mapsUrl: row.mapsUrl,
+          pinterestUrl: safeHttpUrl(row.pinterestUrl),
+          mapsUrl: safeHttpUrl(row.mapsUrl),
         };
       });
     });

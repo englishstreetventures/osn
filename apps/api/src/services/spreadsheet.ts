@@ -269,6 +269,23 @@ function nullableString(s: string): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
+/**
+ * Parse a URL cell into a trimmed http(s) string, or null when blank.
+ * Returns `undefined` for present-but-non-http(s) values so the caller
+ * can emit a {@link MalformedSpreadsheet} with row/column context — a
+ * `javascript:` href would otherwise reach the organiser UI and XSS.
+ */
+function parseHttpUrl(raw: string): string | null | undefined {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  try {
+    const u = new URL(trimmed);
+    return u.protocol === "http:" || u.protocol === "https:" ? trimmed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // ── Parsers ──────────────────────────────────────────────────────────────────
 
 const REQUIRED_EVENT_COLUMNS = ["Event Name", "Start", "End", "Timezone"] as const;
@@ -358,6 +375,27 @@ export function parseEventsCsv(
         );
       }
 
+      const pinterestUrl = idxPinterest === -1 ? null : parseHttpUrl(row[idxPinterest] ?? "");
+      if (pinterestUrl === undefined) {
+        return yield* Effect.fail(
+          new MalformedSpreadsheet({
+            reason: "Pinterest URL must be an http(s) URL",
+            row: r + 1,
+            column: idxPinterest + 1,
+          }),
+        );
+      }
+      const mapsUrl = idxMaps === -1 ? null : parseHttpUrl(row[idxMaps] ?? "");
+      if (mapsUrl === undefined) {
+        return yield* Effect.fail(
+          new MalformedSpreadsheet({
+            reason: "Maps URL must be an http(s) URL",
+            row: r + 1,
+            column: idxMaps + 1,
+          }),
+        );
+      }
+
       out.push({
         name,
         startAt,
@@ -367,8 +405,8 @@ export function parseEventsCsv(
         address: idxAddress === -1 ? null : nullableString(row[idxAddress] ?? ""),
         dressCodeDescription: idxDressDesc === -1 ? null : nullableString(row[idxDressDesc] ?? ""),
         dressCodePalette: idxPalette === -1 ? [] : parseDressCodePalette(row[idxPalette] ?? ""),
-        pinterestUrl: idxPinterest === -1 ? null : nullableString(row[idxPinterest] ?? ""),
-        mapsUrl: idxMaps === -1 ? null : nullableString(row[idxMaps] ?? ""),
+        pinterestUrl,
+        mapsUrl,
         sortOrder: out.length,
       });
     }
