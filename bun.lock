@@ -24,6 +24,7 @@
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20260601.1",
+        "@shared/typescript-config": "workspace:*",
         "wrangler": "^4.96.0",
       },
     },
@@ -34,6 +35,7 @@
         "effect": "^3.21.2",
       },
       "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
         "drizzle-kit": "^0.31.10",
       },
     },
@@ -45,6 +47,9 @@
         "astro": "^6.4.2",
         "solid-js": "^1.9.13",
         "tailwindcss": "^4.3.0",
+      },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
       },
     },
     "cire/web": {
@@ -58,6 +63,7 @@
         "tailwindcss": "^4.3.0",
       },
       "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "@testing-library/jest-dom": "^6.9.1",
         "jsdom": "^29.1.1",

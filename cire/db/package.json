@@ -18,6 +18,7 @@
     "effect": "^3.21.2"
   },
   "devDependencies": {
+    "@shared/typescript-config": "workspace:*",
     "drizzle-kit": "^0.31.10"
   }
 }
