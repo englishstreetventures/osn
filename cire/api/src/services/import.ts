@@ -1,0 +1,449 @@
+import { events, families, guests, guestEvents, rsvps } from "@cire/db";
+import { and, eq, inArray } from "drizzle-orm";
+import { Effect, Data } from "effect";
+
+import { DbService } from "../db";
+import type {
+  EventCreate,
+  EventLink,
+  EventRemove,
+  EventUpdate,
+  FamilyCreate,
+  FamilyRemove,
+  GuestCreate,
+  GuestRemove,
+  GuestUpdate,
+  ImportPlan,
+  ImportSummary,
+  ParsedEvent,
+  ParsedFamily,
+} from "../schemas/import";
+
+// ── Tagged errors ─────────────────────────────────────────────────────────────
+
+export class ImportError extends Data.TaggedError("ImportError")<{
+  readonly reason: string;
+  readonly cause?: unknown;
+}> {}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function normaliseName(s: string): string {
+  return s.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/**
+ * Turn a name like "Sharma" → "SHARMA-A1B2C3D4". 8-hex-char suffix is 32 bits
+ * of entropy — birthday-collision risk is ~50% past ~65k same-base families,
+ * which is comfortably beyond any single-event guest list.
+ */
+function mintFamilyPublicId(familyName: string): string {
+  const base = familyName
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 16);
+  const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase();
+  return `${base || "FAMILY"}-${suffix}`;
+}
+
+function mintEventSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+
+// ── Diff ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Compute a fully-deterministic plan to reconcile parsed CSV data against the
+ * current DB. Match rules:
+ *  - Events: by `Event Name` (case-insensitive). Existing not in sheet → remove.
+ *    New → create.
+ *  - Families: by `family_name` (case-insensitive trim). Different name = remove
+ *    + create (no rename detection).
+ *  - Guests within matched family: by `(family, firstName)`. Last-name change OK
+ *    (→ guestUpdate); first-name change = remove + create.
+ */
+export function diffAgainstDb(
+  parsedEvents: readonly ParsedEvent[],
+  parsedFamilies: readonly ParsedFamily[],
+): Effect.Effect<ImportPlan, never, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+
+    // ── Events ──────────────────────────────────────────────────────────────
+    const existingEvents = db.select().from(events).all();
+    const existingEventByNorm = new Map(existingEvents.map((e) => [normaliseName(e.name), e]));
+    const parsedEventByNorm = new Map(parsedEvents.map((e) => [normaliseName(e.name), e]));
+
+    const eventCreates: EventCreate[] = [];
+    const eventUpdates: EventUpdate[] = [];
+    const eventRemoves: EventRemove[] = [];
+    /** Map normalised event name → resolved event id (for guest-event links). */
+    const eventIdByNorm = new Map<string, string>();
+
+    for (const parsed of parsedEvents) {
+      const norm = normaliseName(parsed.name);
+      const existing = existingEventByNorm.get(norm);
+      if (existing) {
+        eventUpdates.push({ id: existing.id, event: parsed });
+        eventIdByNorm.set(norm, existing.id);
+      } else {
+        const id = crypto.randomUUID();
+        eventCreates.push({ id, event: parsed });
+        eventIdByNorm.set(norm, id);
+      }
+    }
+    for (const existing of existingEvents) {
+      if (!parsedEventByNorm.has(normaliseName(existing.name))) {
+        eventRemoves.push({ id: existing.id, name: existing.name });
+      }
+    }
+
+    // ── Families ────────────────────────────────────────────────────────────
+    const existingFamilies = db.select().from(families).all();
+    const existingFamilyByNorm = new Map(
+      existingFamilies.map((f) => [normaliseName(f.familyName), f]),
+    );
+    const parsedFamilyByNorm = new Map(parsedFamilies.map((f) => [normaliseName(f.familyName), f]));
+
+    const familyCreates: FamilyCreate[] = [];
+    const familyRemoves: FamilyRemove[] = [];
+
+    /** norm-family-name → resolved family id (existing or newly minted). */
+    const familyIdByNorm = new Map<string, string>();
+
+    for (const parsed of parsedFamilies) {
+      const norm = normaliseName(parsed.familyName);
+      const existing = existingFamilyByNorm.get(norm);
+      if (existing) {
+        familyIdByNorm.set(norm, existing.id);
+      } else {
+        const id = crypto.randomUUID();
+        familyCreates.push({
+          id,
+          publicId: mintFamilyPublicId(parsed.familyName),
+          familyName: parsed.familyName,
+        });
+        familyIdByNorm.set(norm, id);
+      }
+    }
+    for (const existing of existingFamilies) {
+      if (!parsedFamilyByNorm.has(normaliseName(existing.familyName))) {
+        familyRemoves.push({ id: existing.id, familyName: existing.familyName });
+      }
+    }
+
+    // ── Guests ──────────────────────────────────────────────────────────────
+    const removedFamilyIds = new Set(familyRemoves.map((f) => f.id));
+    const existingGuests = db.select().from(guests).all();
+
+    /** Per-family map: normFirstName → existing guest row. */
+    const guestsByFamily = new Map<string, Map<string, (typeof existingGuests)[number]>>();
+    for (const g of existingGuests) {
+      let m = guestsByFamily.get(g.familyId);
+      if (!m) {
+        m = new Map();
+        guestsByFamily.set(g.familyId, m);
+      }
+      m.set(normaliseName(g.firstName), g);
+    }
+
+    const guestCreates: GuestCreate[] = [];
+    const guestUpdates: GuestUpdate[] = [];
+    const guestRemoves: GuestRemove[] = [];
+    const eventLinkCreates: EventLink[] = [];
+    const eventLinkRemoves: EventLink[] = [];
+
+    /** Track resolved guestId per (familyId, normFirstName) for link diff. */
+    const guestIdByKey = new Map<string, string>();
+    const keyOf = (familyId: string, firstName: string) =>
+      `${familyId}::${normaliseName(firstName)}`;
+
+    // Matched + new families
+    for (const parsedFamily of parsedFamilies) {
+      const familyNorm = normaliseName(parsedFamily.familyName);
+      const familyId = familyIdByNorm.get(familyNorm)!;
+      const isNewFamily = !existingFamilyByNorm.has(familyNorm);
+      const existingGuestMap = isNewFamily
+        ? new Map<string, (typeof existingGuests)[number]>()
+        : (guestsByFamily.get(familyId) ?? new Map());
+
+      const seenFirstNames = new Set<string>();
+      parsedFamily.guests.forEach((parsedGuest, sortOrder) => {
+        const norm = normaliseName(parsedGuest.firstName);
+        seenFirstNames.add(norm);
+        const existing = existingGuestMap.get(norm);
+        if (existing) {
+          guestIdByKey.set(keyOf(familyId, parsedGuest.firstName), existing.id);
+          // last-name change is an update; first-name match means same row
+          if (existing.lastName !== parsedGuest.lastName || existing.sortOrder !== sortOrder) {
+            guestUpdates.push({
+              id: existing.id,
+              lastName: parsedGuest.lastName,
+              sortOrder,
+            });
+          }
+        } else {
+          const id = crypto.randomUUID();
+          guestCreates.push({
+            id,
+            familyId,
+            firstName: parsedGuest.firstName,
+            lastName: parsedGuest.lastName,
+            sortOrder,
+          });
+          guestIdByKey.set(keyOf(familyId, parsedGuest.firstName), id);
+        }
+      });
+
+      // Existing guests in this family not in sheet → remove (first-name change
+      // is a remove + create at this layer).
+      if (!isNewFamily) {
+        for (const [norm, existing] of existingGuestMap) {
+          if (!seenFirstNames.has(norm)) {
+            guestRemoves.push({ id: existing.id, firstName: existing.firstName });
+          }
+        }
+      }
+    }
+
+    // Guests in removed families → also removed.
+    for (const g of existingGuests) {
+      if (removedFamilyIds.has(g.familyId)) {
+        guestRemoves.push({ id: g.id, firstName: g.firstName });
+      }
+    }
+
+    // ── Event links ─────────────────────────────────────────────────────────
+    const existingLinks = db.select().from(guestEvents).all();
+    const existingLinkSet = new Set(existingLinks.map((l) => `${l.guestId}::${l.eventId}`));
+    /** Track desired (guestId, eventId) pairs after import. */
+    const desiredLinks = new Set<string>();
+
+    for (const parsedFamily of parsedFamilies) {
+      const familyNorm = normaliseName(parsedFamily.familyName);
+      const familyId = familyIdByNorm.get(familyNorm)!;
+      for (const parsedGuest of parsedFamily.guests) {
+        const guestId = guestIdByKey.get(keyOf(familyId, parsedGuest.firstName))!;
+        for (const eventName of parsedGuest.eventNames) {
+          const eventId = eventIdByNorm.get(normaliseName(eventName));
+          if (!eventId) continue; // already validated upstream
+          const key = `${guestId}::${eventId}`;
+          desiredLinks.add(key);
+          if (!existingLinkSet.has(key)) {
+            eventLinkCreates.push({ guestId, eventId });
+          }
+        }
+      }
+    }
+
+    // Existing links whose guest is being removed (or whose event is being
+    // removed) are implicitly handled by the cascade DELETE on guests + the
+    // explicit event remove. We still emit explicit link-removes for guests
+    // whose set of events shrunk between the sheet and DB.
+    const removedGuestIds = new Set(guestRemoves.map((g) => g.id));
+    const removedEventIds = new Set(eventRemoves.map((e) => e.id));
+    for (const link of existingLinks) {
+      if (removedGuestIds.has(link.guestId)) continue;
+      if (removedEventIds.has(link.eventId)) continue;
+      const key = `${link.guestId}::${link.eventId}`;
+      if (!desiredLinks.has(key)) {
+        eventLinkRemoves.push({ guestId: link.guestId, eventId: link.eventId });
+      }
+    }
+
+    // ── Warnings: removed/renamed guests with non-pending RSVPs ─────────────
+    const warnings: string[] = [];
+    const guestsBeingLost = guestRemoves.map((g) => ({ id: g.id, firstName: g.firstName }));
+
+    if (guestsBeingLost.length > 0) {
+      const ids = guestsBeingLost.map((g) => g.id);
+      const rsvpRows = db.select().from(rsvps).where(inArray(rsvps.guestId, ids)).all();
+      const lostFirst = new Map(guestsBeingLost.map((g) => [g.id, g.firstName]));
+      for (const r of rsvpRows) {
+        const isMeaningful = r.status !== "pending" || (r.dietary && r.dietary.length > 0);
+        if (!isMeaningful) continue;
+        const firstName = lostFirst.get(r.guestId) ?? "(unknown)";
+        warnings.push(
+          `Removing guest ${firstName} would lose their RSVP: status=${r.status}, dietary=${r.dietary ?? ""}`,
+        );
+      }
+    }
+
+    return {
+      eventCreates,
+      eventUpdates,
+      eventRemoves,
+      familyCreates,
+      familyRemoves,
+      guestCreates,
+      guestUpdates,
+      guestRemoves,
+      eventLinkCreates,
+      eventLinkRemoves,
+      warnings,
+    };
+  });
+}
+
+// ── Apply ─────────────────────────────────────────────────────────────────────
+
+export function applyImport(
+  importId: string,
+  plan: ImportPlan,
+): Effect.Effect<ImportSummary, ImportError, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const now = new Date();
+
+    // bun:sqlite drizzle is synchronous; ordering matters for FK integrity.
+    // The mirror of this on D1 would be a series of ≤100-statement batches —
+    // here we just run statements in dependency order.
+
+    yield* Effect.try({
+      try: () => {
+        // 1. event removes (cascade rsvps + guest_events on those events)
+        for (const er of plan.eventRemoves) {
+          db.delete(rsvps).where(eq(rsvps.eventId, er.id)).run();
+          db.delete(guestEvents).where(eq(guestEvents.eventId, er.id)).run();
+          db.delete(events).where(eq(events.id, er.id)).run();
+        }
+
+        // 2. event creates
+        for (const ec of plan.eventCreates) {
+          db.insert(events)
+            .values({
+              id: ec.id,
+              slug: mintEventSlug(ec.event.name),
+              name: ec.event.name,
+              date: ec.event.startAt.slice(0, 10),
+              location: ec.event.location ?? "",
+              description: "",
+              startAt: ec.event.startAt,
+              endAt: ec.event.endAt,
+              timezone: ec.event.timezone,
+              address: ec.event.address,
+              dressCodeDescription: ec.event.dressCodeDescription,
+              dressCodePalette: JSON.stringify(ec.event.dressCodePalette),
+              pinterestUrl: ec.event.pinterestUrl,
+              mapsUrl: ec.event.mapsUrl,
+              sortOrder: ec.event.sortOrder,
+            })
+            .run();
+        }
+
+        // 3. event updates
+        for (const eu of plan.eventUpdates) {
+          db.update(events)
+            .set({
+              name: eu.event.name,
+              date: eu.event.startAt.slice(0, 10),
+              location: eu.event.location ?? "",
+              startAt: eu.event.startAt,
+              endAt: eu.event.endAt,
+              timezone: eu.event.timezone,
+              address: eu.event.address,
+              dressCodeDescription: eu.event.dressCodeDescription,
+              dressCodePalette: JSON.stringify(eu.event.dressCodePalette),
+              pinterestUrl: eu.event.pinterestUrl,
+              mapsUrl: eu.event.mapsUrl,
+              sortOrder: eu.event.sortOrder,
+            })
+            .where(eq(events.id, eu.id))
+            .run();
+        }
+
+        // 4. family removes (cascade guests, rsvps, sessions)
+        for (const fr of plan.familyRemoves) {
+          db.delete(families).where(eq(families.id, fr.id)).run();
+        }
+
+        // 5. family creates
+        for (const fc of plan.familyCreates) {
+          db.insert(families)
+            .values({
+              id: fc.id,
+              publicId: fc.publicId,
+              familyName: fc.familyName,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .run();
+        }
+
+        // 6. guest removes (cascade rsvps + guest_events for that guest)
+        for (const gr of plan.guestRemoves) {
+          db.delete(guests).where(eq(guests.id, gr.id)).run();
+        }
+
+        // 7. guest creates
+        for (const gc of plan.guestCreates) {
+          db.insert(guests)
+            .values({
+              id: gc.id,
+              familyId: gc.familyId,
+              firstName: gc.firstName,
+              lastName: gc.lastName,
+              sortOrder: gc.sortOrder,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .run();
+        }
+
+        // 8. guest updates
+        for (const gu of plan.guestUpdates) {
+          db.update(guests)
+            .set({
+              lastName: gu.lastName,
+              sortOrder: gu.sortOrder,
+              updatedAt: now,
+            })
+            .where(eq(guests.id, gu.id))
+            .run();
+        }
+
+        // 9. guest_events: per-pair removes then creates. The diff already
+        // emitted only the (guestId, eventId) pairs that should disappear, so
+        // we delete each pair individually rather than wiping a whole guest's
+        // link set.
+        for (const link of plan.eventLinkRemoves) {
+          db.delete(guestEvents)
+            .where(
+              and(eq(guestEvents.guestId, link.guestId), eq(guestEvents.eventId, link.eventId)),
+            )
+            .run();
+        }
+        for (const link of plan.eventLinkCreates) {
+          db.insert(guestEvents)
+            .values({ guestId: link.guestId, eventId: link.eventId })
+            .onConflictDoNothing()
+            .run();
+        }
+      },
+      catch: (cause) => new ImportError({ reason: "apply failed", cause }),
+    });
+
+    yield* Effect.logInfo(
+      `import applied: families=${plan.familyCreates.length} guests=${plan.guestCreates.length} events=${plan.eventCreates.length}`,
+      { importId },
+    );
+
+    return {
+      importId,
+      eventsCreated: plan.eventCreates.length,
+      eventsUpdated: plan.eventUpdates.length,
+      eventsRemoved: plan.eventRemoves.length,
+      familiesCreated: plan.familyCreates.length,
+      familiesRemoved: plan.familyRemoves.length,
+      guestsCreated: plan.guestCreates.length,
+      guestsUpdated: plan.guestUpdates.length,
+      guestsRemoved: plan.guestRemoves.length,
+      warnings: plan.warnings,
+    };
+  });
+}

@@ -7,6 +7,7 @@
     "osn/*",
     "pulse/*",
     "zap/*",
+    "cire/*",
     "shared/*",
     "pulse/*/web",
     "pulse/*/ios"
@@ -19,6 +20,7 @@
     "dev:osn": "turbo dev --filter=@osn/api",
     "dev:social": "turbo dev --filter=@osn/social --filter=@osn/api",
     "dev:apis": "turbo dev --filter=@osn/api --filter=@pulse/api --filter=@zap/api",
+    "dev:cire": "turbo dev --filter=@cire/api --filter=@cire/web --filter=@cire/organiser --filter=@osn/api",
     "dev:landing": "turbo dev --filter=@osn/landing",
     "lint": "oxlint -c oxlintrc.json .",
     "check": "turbo check",
@@ -42,6 +44,12 @@
     "typescript": "^5.9.3"
   },
   "overrides": {
-    "protobufjs": "^7.5.5"
+    "devalue": "^5.8.1",
+    "esbuild": "^0.25.0",
+    "picomatch": "^4.0.4",
+    "postcss": "^8.5.15",
+    "protobufjs": "^7.5.5",
+    "smol-toml": "^1.6.1",
+    "vite": "^7.3.2"
   }
 }
