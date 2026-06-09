@@ -5,14 +5,16 @@ import { resolvePublicKeyForKid, refreshPublicKeyForKid } from "./jwks-cache";
 /**
  * Shared JWT claims extractor.
  *
- * Pulse trusts user access tokens minted by osn/api. Keys are fetched
+ * Verifies user access tokens minted by osn/api. Keys are fetched
  * from the issuer's JWKS (with cache + single-shot refresh on miss),
  * and we never accept tokens that aren't ES256 or lack a `kid` header.
  *
- * Routes should import `extractClaims` and pass the route-level
- * `jwksUrl` + optional `_testKey` straight through. Returns `null` for
- * any failure — never throws, never differentiates reasons (routes map
- * to 401 uniformly).
+ * Callers should pass the route-level `jwksUrl` + optional `_testKey`
+ * straight through. Returns `null` for any failure — never throws, never
+ * differentiates reasons (callers map to 401 uniformly).
+ *
+ * Audience checking is NOT performed here — it is the caller's
+ * responsibility (typically the framework adapter middleware).
  */
 
 export type Claims = {
@@ -67,6 +69,3 @@ export async function extractClaims(
   if (!freshKey) return null;
   return verifyTokenWithKey(token, freshKey);
 }
-
-export const DEFAULT_JWKS_URL =
-  process.env.OSN_JWKS_URL ?? "http://localhost:4000/.well-known/jwks.json";

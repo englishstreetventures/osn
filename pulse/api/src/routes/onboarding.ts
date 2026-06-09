@@ -1,9 +1,10 @@
 import { DbLive, type Db } from "@pulse/db/service";
+import { extractClaims } from "@shared/osn-auth-client/verify";
 import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
-import { DEFAULT_JWKS_URL, extractClaims } from "../lib/auth";
+const DEFAULT_JWKS_URL = process.env.OSN_JWKS_URL ?? "http://localhost:4000/.well-known/jwks.json";
 import {
   completeOnboarding,
   getOnboardingStatus,

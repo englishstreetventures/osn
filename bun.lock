@@ -205,6 +205,7 @@
         "@pulse/db": "workspace:*",
         "@shared/crypto": "workspace:*",
         "@shared/observability": "workspace:*",
+        "@shared/osn-auth-client": "workspace:*",
         "@shared/rate-limit": "workspace:*",
         "@zap/db": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -329,6 +330,20 @@
       "devDependencies": {
         "@effect/vitest": "^0.29.0",
         "@shared/typescript-config": "workspace:*",
+        "vitest": "^4.1.6",
+      },
+    },
+    "shared/osn-auth-client": {
+      "name": "@shared/osn-auth-client",
+      "version": "0.0.1",
+      "dependencies": {
+        "@shared/crypto": "workspace:*",
+        "jose": "^6.2.3",
+      },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "elysia": "^1.4.28",
+        "hono": "^4.12.23",
         "vitest": "^4.1.6",
       },
     },
@@ -964,6 +979,8 @@
     "@shared/email": ["@shared/email@workspace:shared/email"],
 
     "@shared/observability": ["@shared/observability@workspace:shared/observability"],
+
+    "@shared/osn-auth-client": ["@shared/osn-auth-client@workspace:shared/osn-auth-client"],
 
     "@shared/rate-limit": ["@shared/rate-limit@workspace:shared/rate-limit"],
 

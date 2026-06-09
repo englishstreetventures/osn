@@ -12,9 +12,6 @@
  */
 
 import { importKeyFromJwk } from "@shared/crypto";
-import { instrumentedFetch } from "@shared/observability/fetch";
-
-import { metricJwksCacheLookup } from "../metrics";
 
 const JWKS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 // P-W2: realistic key-rotation scenarios will never exceed single digits;
@@ -53,24 +50,17 @@ function evictLru(): void {
 async function fetchPublicKey(kid: string, jwksUrl: string): Promise<CryptoKey | null> {
   let res: Response;
   try {
-    res = await instrumentedFetch(jwksUrl);
-  } catch (err) {
-    // We're outside an Effect context here so we record the metric and
-    // re-throw so callers can distinguish a network failure from key-not-found.
-    metricJwksCacheLookup("miss");
-    throw err;
-  }
-
-  if (!res.ok) {
-    metricJwksCacheLookup("miss");
+    res = await fetch(jwksUrl);
+  } catch {
     return null;
   }
+
+  if (!res.ok) return null;
 
   let body: { keys?: unknown[] };
   try {
     body = (await res.json()) as { keys?: unknown[] };
   } catch {
-    metricJwksCacheLookup("miss");
     return null;
   }
 
@@ -80,15 +70,11 @@ async function fetchPublicKey(kid: string, jwksUrl: string): Promise<CryptoKey |
       typeof k === "object" && k !== null && (k as Record<string, unknown>)["kid"] === kid,
   );
 
-  if (!jwk) {
-    metricJwksCacheLookup("miss");
-    return null;
-  }
+  if (!jwk) return null;
 
   try {
     return await importKeyFromJwk(jwk);
   } catch {
-    metricJwksCacheLookup("miss");
     return null;
   }
 }
@@ -113,15 +99,11 @@ export async function resolvePublicKeyForKid(
   const cached = cache.get(ck);
   if (cached && now - cached.fetchedAt < JWKS_CACHE_TTL_MS) {
     lastAccess.set(ck, now);
-    metricJwksCacheLookup("hit");
     return cached.key;
   }
 
   const key = await fetchPublicKey(kid, jwksUrl);
-  if (key) {
-    storeInCache(ck, key);
-    metricJwksCacheLookup("miss");
-  }
+  if (key) storeInCache(ck, key);
   return key;
 }
 
@@ -135,10 +117,7 @@ export async function refreshPublicKeyForKid(
   jwksUrl: string,
 ): Promise<CryptoKey | null> {
   const key = await fetchPublicKey(kid, jwksUrl);
-  if (key) {
-    storeInCache(cacheKey(kid, jwksUrl), key);
-    metricJwksCacheLookup("refresh");
-  }
+  if (key) storeInCache(cacheKey(kid, jwksUrl), key);
   return key;
 }
 
