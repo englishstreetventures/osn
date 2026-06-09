@@ -18,6 +18,7 @@
       "name": "@cire/api",
       "dependencies": {
         "@cire/db": "workspace:*",
+        "@shared/rate-limit": "workspace:*",
         "drizzle-orm": "^0.45.2",
         "effect": "^3.21.2",
         "hono": "^4.12.23",

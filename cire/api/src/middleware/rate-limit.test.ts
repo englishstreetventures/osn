@@ -1,8 +1,8 @@
 import { describe, it, expect } from "bun:test";
 
+import { createRateLimiter } from "@shared/rate-limit";
 import { Hono } from "hono";
 
-import { createRateLimiter } from "../services/rate-limit";
 import { rateLimitMiddleware } from "./rate-limit";
 
 function createTestApp(maxRequests: number) {

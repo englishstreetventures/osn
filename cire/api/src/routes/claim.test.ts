@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
+import { createRateLimiter } from "@shared/rate-limit";
 import { Effect } from "effect";
 
 import { createApp } from "../app";
 import eventsData from "../data/events.json";
 import { createDb, seedDb } from "../db/setup";
-import { createRateLimiter } from "../services/rate-limit";
 import { eff } from "../test-helpers";
 
 interface FamilyMember {

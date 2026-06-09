@@ -1,16 +1,16 @@
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import type { MiddlewareHandler } from "hono";
 
-import type { RateLimiter } from "../services/rate-limit";
-import { getClientIp } from "../services/rate-limit";
+import { getClientIp } from "../lib/client-ip";
 
 /**
- * Hono middleware factory that enforces per-IP rate limiting.
- * Returns 429 with Retry-After header when the limit is exceeded.
+ * Hono middleware enforcing per-IP rate limiting via @shared/rate-limit.
+ * Returns 429 with Retry-After when the limit is exceeded.
  */
-export function rateLimitMiddleware(limiter: RateLimiter): MiddlewareHandler {
+export function rateLimitMiddleware(limiter: RateLimiterBackend): MiddlewareHandler {
   return async (c, next) => {
     const ip = getClientIp(c.req.raw.headers);
-    const allowed = limiter.check(ip);
+    const allowed = await limiter.check(ip);
 
     if (!allowed) {
       c.header("Retry-After", "60");

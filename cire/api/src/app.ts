@@ -1,3 +1,5 @@
+import { createRateLimiter } from "@shared/rate-limit";
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 
@@ -9,8 +11,6 @@ import { organiserRoute } from "./routes/organiser";
 import { organiserImportRoute } from "./routes/organiser-import";
 import { rsvpRoute } from "./routes/rsvp";
 import type { R2Bucket } from "./services/r2-imports";
-import { createRateLimiter } from "./services/rate-limit";
-import type { RateLimiter } from "./services/rate-limit";
 
 export type AppVariables = {
   db: Db;
@@ -32,7 +32,7 @@ export interface AppOptions {
   /** Extra origins allowed by CORS (organiser portal, etc). Defaults to `[webOrigin]`. */
   allowedOrigins?: string[];
   /** Override the claim rate limiter (useful for testing). */
-  claimLimiter?: RateLimiter;
+  claimLimiter?: RateLimiterBackend;
   /** R2 bucket binding for the organiser import flow. */
   r2?: R2Bucket;
   /** Shared secret for the organiser-import endpoints. */

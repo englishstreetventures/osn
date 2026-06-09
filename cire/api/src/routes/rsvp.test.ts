@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
 import { guests } from "@cire/db";
+import { createRateLimiter } from "@shared/rate-limit";
 import { Effect } from "effect";
 
 import { createApp } from "../app";
@@ -8,7 +9,6 @@ import eventsData from "../data/events.json";
 import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
 import { parseSessionToken } from "../lib/cookie";
-import { createRateLimiter } from "../services/rate-limit";
 import { eff } from "../test-helpers";
 
 const HINDU_ID = eventsData.hindu.id;
