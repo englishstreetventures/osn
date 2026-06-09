@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import { imports } from "@cire/db";
 import { desc, eq, lt } from "drizzle-orm";
 import { Effect, Schema } from "effect";
@@ -5,7 +7,6 @@ import { Hono } from "hono";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
-import { constantTimeEqual } from "../lib/timing";
 import { ApplyBody, PreviewBody, RevertBody } from "../schemas/import";
 import type { ImportPlan, ParsedFamily } from "../schemas/import";
 import { applyImport, diffAgainstDb } from "../services/import";
@@ -39,7 +40,12 @@ export const organiserImportRoute = new Hono<{ Variables: AppVariables }>();
 organiserImportRoute.use("*", async (c, next) => {
   const expected = c.var.organiserToken;
   const got = c.req.header("X-Organiser-Token");
-  if (!expected || !got || !constantTimeEqual(got, expected)) {
+  if (!expected || !got) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  const providedBuf = Buffer.from(got, "utf8");
+  const expectedBuf = Buffer.from(expected, "utf8");
+  if (providedBuf.length !== expectedBuf.length || !timingSafeEqual(providedBuf, expectedBuf)) {
     return c.json({ error: "Unauthorized" }, 401);
   }
   return next();
