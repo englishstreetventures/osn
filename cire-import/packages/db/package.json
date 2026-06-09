@@ -1,0 +1,23 @@
+{
+  "name": "@cire/db",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/schema.ts"
+  },
+  "scripts": {
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio",
+    "db:push": "bunx wrangler --config ../../apps/api/wrangler.toml d1 migrations apply cire-db --local",
+    "db:push:remote": "bunx wrangler --config ../../apps/api/wrangler.toml d1 migrations apply cire-db --remote",
+    "db:seed": "bunx wrangler --config ../../apps/api/wrangler.toml d1 execute cire-db --local --file=./seed/dev-seed.sql",
+    "db:reset": "rm -rf ../../apps/api/.wrangler/state/v3/d1 && bunx wrangler --config ../../apps/api/wrangler.toml d1 migrations apply cire-db --local && bunx wrangler --config ../../apps/api/wrangler.toml d1 execute cire-db --local --file=./seed/dev-seed.sql"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "effect": "^3.21.2"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.10"
+  }
+}

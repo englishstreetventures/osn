@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1746316800000,
+      "tag": "0001_initial",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1746489600000,
+      "tag": "0002_add_rsvp_dietary",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1778025600000,
+      "tag": "0003_events_metadata_and_imports",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1778198400000,
+      "tag": "0004_perf_indices",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1778457600000,
+      "tag": "0005_drop_password_hash",
+      "breakpoints": true
+    }
+  ]
+}

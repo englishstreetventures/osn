@@ -1,0 +1,66 @@
+[
+  {
+    "publicId": "SHARMA-IVY-QM42",
+    "familyName": "Sharma",
+    "guests": [
+      {
+        "firstName": "Priya",
+        "lastName": "Sharma",
+        "events": [
+          "9f7a2c14-1b3d-4e5f-8a01-000000000001",
+          "9f7a2c14-1b3d-4e5f-8a01-000000000003",
+          "9f7a2c14-1b3d-4e5f-8a01-000000000004"
+        ]
+      }
+    ]
+  },
+  {
+    "publicId": "WILSON-OAK-7R2P",
+    "familyName": "Wilson",
+    "guests": [
+      {
+        "firstName": "James",
+        "lastName": "Wilson",
+        "events": ["9f7a2c14-1b3d-4e5f-8a01-000000000003", "9f7a2c14-1b3d-4e5f-8a01-000000000004"]
+      },
+      {
+        "firstName": "Emma",
+        "lastName": "Wilson",
+        "events": ["9f7a2c14-1b3d-4e5f-8a01-000000000003", "9f7a2c14-1b3d-4e5f-8a01-000000000004"]
+      },
+      {
+        "firstName": "Sophie",
+        "lastName": "Wilson",
+        "events": ["9f7a2c14-1b3d-4e5f-8a01-000000000003"]
+      }
+    ]
+  },
+  {
+    "publicId": "MEENA-DEW-K9X3",
+    "familyName": "Meena",
+    "guests": [
+      {
+        "firstName": "Auntie",
+        "lastName": "Meena",
+        "events": ["9f7a2c14-1b3d-4e5f-8a01-000000000001", "9f7a2c14-1b3d-4e5f-8a01-000000000003"]
+      }
+    ]
+  },
+  {
+    "publicId": "PATEL-JOY-RK97",
+    "familyName": "Patel",
+    "guests": [
+      {
+        "firstName": "Dev",
+        "lastName": "Patel",
+        "events": [
+          "9f7a2c14-1b3d-4e5f-8a01-000000000001",
+          "9f7a2c14-1b3d-4e5f-8a01-000000000002",
+          "9f7a2c14-1b3d-4e5f-8a01-000000000003",
+          "9f7a2c14-1b3d-4e5f-8a01-000000000004",
+          "9f7a2c14-1b3d-4e5f-8a01-000000000005"
+        ]
+      }
+    ]
+  }
+]
