@@ -4,10 +4,10 @@
   "type": "module",
   "packageManager": "bun@1.3.14",
   "workspaces": [
+    "cire/*",
     "osn/*",
     "pulse/*",
     "zap/*",
-    "cire/*",
     "shared/*",
     "pulse/*/web",
     "pulse/*/ios"
