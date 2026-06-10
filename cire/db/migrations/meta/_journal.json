@@ -36,6 +36,13 @@
       "when": 1778457600000,
       "tag": "0005_drop_password_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1781078637566,
+      "tag": "0006_multi_tenant",
+      "breakpoints": true
     }
   ]
 }

@@ -1,11 +1,11 @@
 import { describe, it, expect } from "bun:test";
 
-import { events, families, guests, imports } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, families, guests, imports } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
 import { DbService } from "../db";
-import { createDb } from "../db/setup";
+import { createDb, seedBootstrapWedding } from "../db/setup";
 import type { ParsedFamily } from "../schemas/import";
 import { applyImport, diffAgainstDb } from "./import";
 import { R2Service, createR2Stub, storeUpload } from "./r2-imports";
@@ -54,6 +54,7 @@ async function applyVersion(
       db.insert(imports)
         .values({
           id: importId,
+          weddingId: BOOTSTRAP_WEDDING_ID,
           uploadedAt,
           format: "csv",
           eventsR2Key: `imports/${importId}/events.csv`,
@@ -70,6 +71,7 @@ async function applyVersion(
 describe("revertImport", () => {
   it("reverts to the prior applied import's state", async () => {
     const db = createDb(":memory:");
+    seedBootstrapWedding(db);
     const r2 = createR2Stub();
     const layer = Layer.merge(Layer.succeed(DbService, db), Layer.succeed(R2Service, r2));
 
@@ -94,6 +96,7 @@ describe("revertImport", () => {
 
   it("fails with NoPriorImport when there's nothing earlier to roll back to", async () => {
     const db = createDb(":memory:");
+    seedBootstrapWedding(db);
     const r2 = createR2Stub();
     const layer = Layer.merge(Layer.succeed(DbService, db), Layer.succeed(R2Service, r2));
 

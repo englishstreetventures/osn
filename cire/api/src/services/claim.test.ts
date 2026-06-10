@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 
 import { guests } from "@cire/db";
+import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import eventsData from "../data/events.json";
@@ -181,6 +182,10 @@ describe("claimService.getAllGuests", () => {
       Effect.gen(function* () {
         const db = yield* DbService;
         const now = new Date();
+        // Plant a legacy orphan row. FK enforcement (now on, matching D1)
+        // forbids creating one normally, so toggle it off for this insert —
+        // the service must still skip such rows defensively.
+        db.run(sql`PRAGMA foreign_keys = OFF`);
         db.insert(guests)
           .values({
             id: crypto.randomUUID(),
@@ -192,6 +197,7 @@ describe("claimService.getAllGuests", () => {
             updatedAt: now,
           })
           .run();
+        db.run(sql`PRAGMA foreign_keys = ON`);
 
         const rows = yield* claimService.getAllGuests();
         expect(rows).toHaveLength(6);

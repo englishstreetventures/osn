@@ -10,7 +10,7 @@ WEB_ORIGIN = "http://localhost:4321"
 binding = "DB"
 database_name = "cire-db"
 database_id = "placeholder-replace-after-d1-create"
-migrations_dir = "../../packages/db/migrations"
+migrations_dir = "../db/migrations"
 
 # R2 bucket used by the organiser spreadsheet import flow to stash the raw
 # uploaded sheet alongside its parsed `imports` row. Bucket must be created

@@ -1,13 +1,14 @@
 import { describe, it, expect } from "bun:test";
 
-import { imports } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, imports } from "@cire/db";
 import { eq } from "drizzle-orm";
 
-import { createDb } from "./setup";
+import { createDb, seedBootstrapWedding } from "./setup";
 
 describe("imports table", () => {
   it("inserts and reads back an imports row in preview status", () => {
     const db = createDb(":memory:");
+    seedBootstrapWedding(db);
     const id = crypto.randomUUID();
     const uploadedAt = Date.now();
     const summary = JSON.stringify({ families: 12, guests: 38, events: 4 });
@@ -15,6 +16,7 @@ describe("imports table", () => {
     db.insert(imports)
       .values({
         id,
+        weddingId: BOOTSTRAP_WEDDING_ID,
         uploadedAt,
         format: "csv",
         eventsR2Key: `imports/${id}/events.csv`,
@@ -40,12 +42,14 @@ describe("imports table", () => {
 
   it("updates status to applied with appliedAt timestamp", () => {
     const db = createDb(":memory:");
+    seedBootstrapWedding(db);
     const id = crypto.randomUUID();
     const uploadedAt = Date.now();
 
     db.insert(imports)
       .values({
         id,
+        weddingId: BOOTSTRAP_WEDDING_ID,
         uploadedAt,
         format: "tsv",
         eventsR2Key: "k1",

@@ -180,6 +180,9 @@ dist
 # Turborepo
 .turbo
 
+# Wrangler local state (D1/KV/R2 emulation, build cache)
+.wrangler/
+
 # Astro
 .astro
 

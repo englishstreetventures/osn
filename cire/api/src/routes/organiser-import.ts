@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 
-import { imports } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, imports } from "@cire/db";
 import { desc, eq, lt } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import { Hono } from "hono";
@@ -92,6 +92,9 @@ organiserImportRoute.post("/preview", async (c) => {
       db.insert(imports)
         .values({
           id: importId,
+          // Interim single-tenant scope — Phase 5 threads the authenticated
+          // wedding through the import flow.
+          weddingId: BOOTSTRAP_WEDDING_ID,
           uploadedAt: Date.now(),
           format: "csv",
           eventsR2Key: eventsKey,

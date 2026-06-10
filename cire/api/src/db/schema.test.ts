@@ -7,8 +7,17 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 const DDL = `
+CREATE TABLE weddings (
+  id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  owner_osn_profile_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 CREATE TABLE families (
   id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
   public_id TEXT NOT NULL UNIQUE,
   family_name TEXT NOT NULL,
   created_at INTEGER NOT NULL,
@@ -24,6 +33,7 @@ CREATE TABLE guests (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+INSERT INTO weddings VALUES ('wed_bootstrap', 'cire-wedding', 'Cire Wedding', 'usr_REPLACE_BEFORE_PROD', 0, 0);
 `;
 
 function makeDb() {
@@ -44,6 +54,7 @@ const insertFamily = (
     .insert(families)
     .values({
       id,
+      weddingId: "wed_bootstrap",
       publicId,
       familyName,
       createdAt: now,

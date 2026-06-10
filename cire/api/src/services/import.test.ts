@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
 import { DbService } from "../db";
-import { createDb, seedDb } from "../db/setup";
+import { createDb, seedBootstrapWedding, seedDb } from "../db/setup";
 import type { ParsedEvent, ParsedFamily } from "../schemas/import";
 import { applyImport, diffAgainstDb } from "./import";
 import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
@@ -17,6 +17,7 @@ function freshDbLayer(seed: boolean) {
     Effect.sync(() => {
       const db = createDb(":memory:");
       if (seed) seedDb(db);
+      else seedBootstrapWedding(db);
       return db;
     }),
   );
@@ -75,6 +76,7 @@ describe("applyImport + re-diff (idempotent)", () => {
     // Second run uses the SAME layer instance? Layer.scoped recreates per use.
     // Use a layer that returns the same db across two runs:
     const sharedDb = createDb(":memory:");
+    seedBootstrapWedding(sharedDb);
     const sharedLayer = Layer.succeed(DbService, sharedDb);
 
     await Effect.runPromise(
@@ -220,6 +222,7 @@ describe("applyImport: empty-DB insert end-to-end", () => {
   it("populates events, families, guests, and links", async () => {
     const { ev, fam } = await parsedFromCsv();
     const sharedDb = createDb(":memory:");
+    seedBootstrapWedding(sharedDb);
     const sharedLayer = Layer.succeed(DbService, sharedDb);
     await Effect.runPromise(
       Effect.gen(function* () {

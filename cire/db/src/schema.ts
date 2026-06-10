@@ -7,16 +7,46 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+// Tenant id of the original bespoke wedding (seeded by migration 0006 and
+// by the test seed). Interim single-tenant scope hardcoded at write sites
+// until Phase 5 threads the authenticated wedding through the API.
+export const BOOTSTRAP_WEDDING_ID = "wed_bootstrap";
+
+// Multi-tenant root. Owner is an OSN profile id (`usr_*`) — an opaque
+// string, deliberately NOT a foreign key: cire's D1 and osn's D1 are
+// separate databases. Ownership is verified at the API layer against a
+// signature-checked OSN access token. Single-owner today; a
+// wedding_owners join table (role: owner/editor/viewer) is the planned
+// multi-owner upgrade.
+export const weddings = sqliteTable(
+  "weddings",
+  {
+    id: text("id").primaryKey(), // wed_<ulid>; bootstrap row is "wed_bootstrap"
+    slug: text("slug").notNull().unique(),
+    displayName: text("display_name").notNull(),
+    ownerOsnProfileId: text("owner_osn_profile_id").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [index("weddings_owner_idx").on(t.ownerOsnProfileId)],
+);
+
 export const families = sqliteTable(
   "families",
   {
     id: text("id").primaryKey(),
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
     publicId: text("public_id").notNull().unique(),
     familyName: text("family_name").notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
-  (t) => [index("families_family_name_idx").on(t.familyName)],
+  (t) => [
+    index("families_family_name_idx").on(t.familyName),
+    index("families_wedding_idx").on(t.weddingId),
+  ],
 );
 
 export const guests = sqliteTable(
@@ -49,6 +79,9 @@ export const events = sqliteTable(
   "events",
   {
     id: text("id").primaryKey(),
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
     slug: text("slug").notNull().unique(),
     name: text("name").notNull(),
     date: text("date").notNull(),
@@ -66,7 +99,10 @@ export const events = sqliteTable(
     mapsUrl: text("maps_url"),
     sortOrder: integer("sort_order").notNull().default(0),
   },
-  (t) => [index("events_sort_order_idx").on(t.sortOrder)],
+  (t) => [
+    index("events_sort_order_idx").on(t.sortOrder),
+    index("events_wedding_idx").on(t.weddingId),
+  ],
 );
 
 export const guestEvents = sqliteTable(
@@ -121,6 +157,9 @@ export const imports = sqliteTable(
   "imports",
   {
     id: text("id").primaryKey(),
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
     uploadedAt: integer("uploaded_at").notNull(),
     format: text("format", { enum: ["csv", "tsv"] }).notNull(),
     eventsR2Key: text("events_r2_key").notNull(),
@@ -133,5 +172,8 @@ export const imports = sqliteTable(
     appliedAt: integer("applied_at"),
     revertedAt: integer("reverted_at"),
   },
-  (t) => [index("imports_status_uploaded_at_idx").on(t.status, t.uploadedAt)],
+  (t) => [
+    index("imports_status_uploaded_at_idx").on(t.status, t.uploadedAt),
+    index("imports_wedding_idx").on(t.weddingId),
+  ],
 );

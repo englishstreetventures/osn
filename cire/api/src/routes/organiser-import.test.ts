@@ -4,7 +4,7 @@ import { events, families, guests, imports } from "@cire/db";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../app";
-import { createDb } from "../db/setup";
+import { createDb, seedBootstrapWedding } from "../db/setup";
 import { createR2Stub } from "../services/r2-imports";
 
 const TOKEN = "test-organiser-secret";
@@ -23,6 +23,7 @@ const GUESTS_CSV = [
 
 function buildApp() {
   const db = createDb(":memory:");
+  seedBootstrapWedding(db);
   const r2 = createR2Stub();
   const app = createApp(db, { r2, organiserToken: TOKEN });
   return { db, r2, app };
