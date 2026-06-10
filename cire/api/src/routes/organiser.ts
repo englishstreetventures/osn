@@ -15,13 +15,14 @@ export const organiserRoute = new Hono<{ Variables: AppVariables }>();
 // wedding is derived from the caller: exactly one owned wedding scopes
 // the query; zero is a 404; more than one is ambiguous and the caller
 // must use the explicit wedding-scoped routes.
+const json = (body: unknown, status: 200 | 400 | 401 | 404 | 500) =>
+  Response.json(body, { status });
+
 function withOwnedWedding(
   c: { var: { db: Db; osnProfileId?: string } },
   run: (weddingId: string) => Effect.Effect<Response, never, DbService>,
 ): Promise<Response> {
   const osnProfileId = c.var.osnProfileId;
-  const json = (body: unknown, status: 200 | 400 | 401 | 404 | 500) =>
-    Response.json(body, { status });
   if (!osnProfileId) return Promise.resolve(json({ error: "unauthorised" }, 401));
 
   return Effect.runPromise(
