@@ -1,17 +1,17 @@
 ---
-title: "Cire TODO — apps/web"
+title: "Cire TODO — cire/web"
 tags: [todo, web]
 related:
   - "[[index]]"
-last-reviewed: 2026-06-08
+last-reviewed: 2026-06-10
 ---
 
-# apps/web
+# cire/web
 
 Frontend feature work. Tick items as PRs land; add new entries when scope is discovered. Don't edit `wiki/todo/status.md` for area-specific items.
 
 - [x] Per-event metadata in `EventSummary` shape (calendar / dress-code / address / Pinterest / Maps fields landed in PR-A)
-- [x] Rework `OrganiserView` to consume the new `OrganiserGuestRow` shape — moved to `apps/organiser/src/components/GuestTable.tsx`
+- [x] Rework `OrganiserView` to consume the new `OrganiserGuestRow` shape — moved to `cire/organiser/src/components/GuestTable.tsx`
 - [ ] Replace hero photo placeholder with actual photo
 - [ ] Customise monogram with couple's initials
 - [ ] Write Our Story content
@@ -20,7 +20,7 @@ Frontend feature work. Tick items as PRs land; add new entries when scope is dis
 - [x] Wire RSVP modal to API using surfaced `guestId` per member (PR-F)
 - [ ] "Open in Maps" button on event cards driven by `event.mapsUrl`
 - [x] Add-to-calendar links (Google Calendar, Apple Calendar, .ics) sourced from `event.startAt` / `endAt` / `timezone` (PR-G)
-- [ ] Passkey registration + login UI
-- [ ] Magic link email fallback UI
-- [ ] z-index token map for `apps/web` — currently `AnimatedModal` is `z-100`, `AddToCalendar` popover is `z-90`, event cards default. No shared constants enforce the ordering, so a future overlay at `z-80..z-99` could silently occlude the popover. PR-G follow-up via PR #22 review.
+- [x] ~~Passkey registration + login UI~~ — **Obsolete**: guests use claim codes (no accounts); organiser sign-in reuses OSN's `<SignIn>` from `@osn/ui` on the portal (OSN merge)
+- [x] ~~Magic link email fallback UI~~ — **Obsolete**: no magic-link factor in the two-system auth model
+- [ ] z-index token map for `cire/web` — currently `AnimatedModal` is `z-100`, `AddToCalendar` popover is `z-90`, event cards default. No shared constants enforce the ordering, so a future overlay at `z-80..z-99` could silently occlude the popover. PR-G follow-up via PR #22 review.
 - [x] `LoginSection` claim code input `pattern` attribute fixed (`[A-Za-z0-9\\-]+` → `[A-Za-z0-9-]+`) — escaped `\-` inside a character class is rejected as `Invalid character in character class` under Chrome's `/v` regex flag, which broke client-side validation in recent Chrome. PR #28.

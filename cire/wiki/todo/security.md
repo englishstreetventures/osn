@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-06-08
+last-reviewed: 2026-06-10
 ---
 
 # Security Backlog
@@ -14,16 +14,16 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 
 ## Critical
 
-- [ ] `GET /api/organiser/guests` is currently unauthenticated and exposes every family's `publicId` — must be gated behind organiser auth (or removed from the deployed app) before any public launch.
-- [x] Rate-limit `POST /api/claim` — KV-backed limiter via `apps/api/src/middleware/rate-limit.ts`
+- [x] `GET /api/organiser/guests` is currently unauthenticated and exposes every family's `publicId` — must be gated behind organiser auth (or removed from the deployed app) before any public launch. **Fixed** in the OSN merge: all `/api/organiser/*` routes sit behind `osnAuth()` (OSN access-JWT verification) plus `weddingOwner()` / `ownedWedding()` ownership gates — see `[[wiki/systems/cire-auth]]` in the root OSN wiki.
+- [x] Rate-limit `POST /api/claim` — KV-backed limiter via `cire/api/src/middleware/rate-limit.ts`
 
 ## High
 
-- [ ] Organiser import endpoints must require organiser session — never guest session (currently gated behind shared-secret `X-Organiser-Token` as MVP interim — PR-C)
+- [x] Organiser import endpoints must require organiser session — never guest session. **Fixed** in the OSN merge: import routes require `osnAuth()` + `ownedWedding()`; a guest `cire_session` cookie is meaningless there (the two middlewares never gate the same route). The interim `X-Organiser-Token` shared secret is deleted.
 - [x] Spreadsheet parser must reject formula-injection cells (leading `=`, `+`, `-`, `@`) (PR-C; trim-resilient as of PR-C review)
-- [x] X-Organiser-Token compared in constant time (PR-C review)
+- [x] X-Organiser-Token compared in constant time (PR-C review; the token path itself was deleted in the OSN merge)
 - [x] Formula-injection guard checks trimmed cell, not raw cell (PR-C review)
-- [ ] Magic link tokens must be single-use and expire (≤15 min)
+- [x] ~~Magic link tokens must be single-use and expire (≤15 min)~~ — **Obsolete**: no magic-link factor in the two-system auth model (guests use claim codes; organisers use OSN passkeys)
 - [x] `bun audit --audit-level=high` enforced on every push (lefthook pre-push)
 - [x] Upgrade Astro 5 → 6 + Vitest 3 → 4 + @astrojs/solid-js 3 → 6; clears `GHSA-737v-mqg7-c878` (defu) directly; root `overrides` pin `vite ^7.3.2` and `picomatch ^4.0.4` to clear `GHSA-v2wj-q39q-566r` + `GHSA-p9ff-h696-f583` (vite) + `GHSA-c2c7-rcm5-vvqj` (picomatch)
 - [ ] Re-run `bun install` once devalue 5.8.1+ ages past `minimumReleaseAge` (3 days) and drop the last `--ignore=GHSA-77vg-94rm-hx3p` from `lefthook.yml`
@@ -44,12 +44,13 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 
 ## Low
 
+- [ ] Verify `ORGANISER_TOKEN` is not set as a CF secret on the deployed cire-api worker — the `X-Organiser-Token` code path is deleted, but a secret set during the interim would linger as stale config. If present: `wrangler secret delete ORGANISER_TOKEN` (manual, from `cire/api`).
 - [ ] Review Cloudflare Worker CSP headers on the web app
 - [ ] Confirm all D1 queries go through Drizzle (no raw SQL interpolation anywhere)
 - [ ] Expand passphrase wordlist to ≥1024 entries for ≥40 bits of entropy
-- [ ] CI guard: fail deploy if `apps/api/wrangler.toml` still has the literal `database_id = "placeholder-replace-after-d1-create"` (PR-A review)
-- [x] Frontend `href` validator — Pinterest URLs go through an allowlist regex (`apps/web/src/components/pinterest.ts`) (PR-D); Google Calendar URL is parsed via the `URL` constructor + `http(s)`-only protocol check before being surfaced (PR-G — see `isHttpUrl` in `apps/web/src/components/AddToCalendar.tsx`). Organiser `mapsUrl` / `pinterestUrl` now scheme-checked twice: CSV import rejects non-http(s) values with `MalformedSpreadsheet` (`parseHttpUrl` in `spreadsheet.ts`), and `claim.ts` strips bad legacy rows via `safeHttpUrl` before any surface — guest path included. `address` is plain text, not rendered as `href`.
-- [x] CSS colour validator — `dressCodePalette[].color` is server-supplied and rendered inline as `background-color`. `apps/web/src/components/dress-code-render.ts#isValidColor` allowlists hex / rgb[a] / hsl[a] / oklch and rejects `expression(...)` etc. (PR-E)
+- [ ] CI guard: fail deploy if `cire/api/wrangler.toml` still has the literal `database_id = "placeholder-replace-after-d1-create"` (PR-A review)
+- [x] Frontend `href` validator — Pinterest URLs go through an allowlist regex (`cire/web/src/components/pinterest.ts`) (PR-D); Google Calendar URL is parsed via the `URL` constructor + `http(s)`-only protocol check before being surfaced (PR-G — see `isHttpUrl` in `cire/web/src/components/AddToCalendar.tsx`). Organiser `mapsUrl` / `pinterestUrl` now scheme-checked twice: CSV import rejects non-http(s) values with `MalformedSpreadsheet` (`parseHttpUrl` in `spreadsheet.ts`), and `claim.ts` strips bad legacy rows via `safeHttpUrl` before any surface — guest path included. `address` is plain text, not rendered as `href`.
+- [x] CSS colour validator — `dressCodePalette[].color` is server-supplied and rendered inline as `background-color`. `cire/web/src/components/dress-code-render.ts#isValidColor` allowlists hex / rgb[a] / hsl[a] / oklch and rejects `expression(...)` etc. (PR-E)
 - [ ] Whitelist 422 `MalformedSpreadsheet` reason strings — currently safe (only static literals are surfaced) but document the constraint so future contributors don't interpolate cell contents into the `reason` field (PR-C review)
-- [ ] CSP headers on `apps/web` — once a Cloudflare Pages `_headers` file or Workers transform is set up, allow `script-src https://assets.pinterest.com` (the script-widget loads `pinit_main.js` from there) and `connect-src https://widgets.pinterest.com` (pidgets data fetch) and `img-src https://i.pinimg.com` (pin thumbnails); `frame-src` is no longer needed since PR #28 dropped the iframe.
+- [ ] CSP headers on `cire/web` — once a Cloudflare Pages `_headers` file or Workers transform is set up, allow `script-src https://assets.pinterest.com` (the script-widget loads `pinit_main.js` from there) and `connect-src https://widgets.pinterest.com` (pidgets data fetch) and `img-src https://i.pinimg.com` (pin thumbnails); `frame-src` is no longer needed since PR #28 dropped the iframe.
 - [x] Outbound-link Pinterest fallback when the embed can't render — PR #28 ships a "View moodboard on Pinterest" link button that takes over after a 2.5s grace window if `pinit_main.js` is blocked (uBlock / Brave Shields / Privacy Badger fire `blocked:other` on EasyPrivacy filters) or fails to transform our `<a data-pin-do>` placeholder. Static-image / R2 snapshot path remains a future upgrade if blocker-fallback rates grow uncomfortable.

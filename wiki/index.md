@@ -2,7 +2,7 @@
 title: OSN Wiki
 aliases: [home, map of content, MOC]
 tags: [index]
-last-reviewed: 2026-04-23
+last-reviewed: 2026-06-10
 ---
 
 # OSN Wiki
@@ -36,6 +36,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[social-graph]] — connections, blocks
 - [[pulse-close-friends]] — Pulse-scoped close-friends list (feed boost + hosting affordance)
 - [[pulse-onboarding]] — Pulse first-run onboarding flow (account-keyed, themed illustrations)
+- [[cire-auth]] — Cire's two-system auth (guest claim-code sessions + organiser OSN passkeys)
 - [[event-access]] — loadVisibleEvent, public/private visibility gate
 - [[platform-limits]] — MAX_EVENT_GUESTS and other caps
 - [[redis]] — Redis-backed rate limiters + cluster-safe auth state stores
@@ -54,6 +55,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[social]] — identity & social-graph management UI (`@osn/social`)
 - [[pulse]] — events app (`@pulse/app` + `@pulse/api` + `@pulse/db`)
 - [[zap]] — messaging app (`@zap/api` + `@zap/db` scaffolded; client app planned)
+- [[cire]] — wedding-invite stack (`@cire/web` + `@cire/organiser` + `@cire/api` + `@cire/db`)
 - [[landing]] — marketing site (`@osn/landing`)
 
 ## Conventions

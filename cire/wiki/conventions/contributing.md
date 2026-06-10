@@ -2,36 +2,36 @@
 title: "Contributing Conventions"
 tags: [convention]
 related: [[review-findings]], [[monorepo-structure]], [[overview]]
-last-reviewed: 2026-05-05
+last-reviewed: 2026-06-10
 ---
 
 # Contributing Conventions
 
-Solo project conventions for Cire. No external contributors expected, but these rules keep the codebase consistent for AI agents and future collaborators.
+Cire follows the **OSN monorepo conventions** since the merge (2026-06) — the root `CLAUDE.md` is authoritative. This page keeps the cire-specific notes.
 
 ## Branch Strategy
 
 - **main** — always deployable.
-- **feat/\*** — feature branches; merge directly (solo, no PR review required).
-- No release branches or tags — deploy from main.
+- **feat/\*** — feature branches; **PRs required** to merge to main (osn convention — the old solo "merge directly" rule no longer applies).
+- No release branches or tags.
 
 ## Commit Signing
 
 - SSH signing with ed25519 key.
 - All commits must be signed.
 
-## No Changesets
+## Changesets
 
-Solo project — no versioning scheme or changelog automation. Progress is tracked in [[TODO]].
+Every PR includes a changeset (`bun run changeset`) — CI fails without one (osn convention; supersedes the standalone-era "no changesets" rule). Package names must match the workspace `name` field exactly (e.g. `"@cire/api"`, not `"cire"`). Progress is tracked in [[TODO]].
 
 ## Hooks
 
-- **lefthook** runs lint + format + tests before every push.
-- Install after fresh clone: `bunx lefthook install`.
+- Root **lefthook** runs oxlint + oxfmt (auto-fix + re-stage) on staged files pre-commit, type check pre-push.
+- Install after fresh clone: `bunx lefthook install` (repo root).
 
 ## Observability Rules
 
-These rules apply to all backend code in `apps/api`. See [[overview]] for the full observability guide.
+These rules apply to all backend code in `cire/api`. See [[overview]] for the full observability guide.
 
 1. **No `console.*` in backend** — use Effect structured logger (`Effect.logInfo`, `Effect.logWarning`, `Effect.logError`).
 2. **Structured logging** — always annotate logs with context: `Effect.annotateLogs({ familyId, route })`.

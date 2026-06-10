@@ -14,6 +14,7 @@ Phase 1 surfaces:
 | Identity & graph UI | `@osn/social` (port 1422) | Active |
 | Events | `@pulse/app` + `@pulse/api` (port 3001) + `@pulse/db` | Active |
 | Messaging | `@zap/api` (port 3002) + `@zap/db` | M0 scaffolded; M1 in flight; client app not started |
+| Wedding invites | @cire/api (:8787) + @cire/web (:4321) + @cire/organiser (:4322) + @cire/db | Active |
 | Marketing | `@osn/landing` | Scaffolded |
 
 ## File Responsibilities
@@ -75,6 +76,7 @@ Phase 1 surfaces:
 | Work on OSN identity / social UI | `[[wiki/apps/osn-core]]`, `[[wiki/apps/social]]` |
 | Work on Pulse | `[[wiki/apps/pulse]]` |
 | Work on Zap | `[[wiki/apps/zap]]` |
+| Work on cire (wedding invites) | `[[wiki/apps/cire]]`, `[[wiki/systems/cire-auth]]` |
 | Debug auth failure | `[[wiki/runbooks/auth-failure]]` |
 | Debug ARC verification failure | `[[wiki/runbooks/arc-token-debugging]]` |
 | Debug rate-limit incident | `[[wiki/runbooks/rate-limit-incident]]` |
@@ -122,14 +124,15 @@ Note: `obsidian` CLI talks to running Obsidian app — fall back to grep if not 
 
 ## Current State (summary)
 
-Monorepo by domain. Four dirs, four prefixes — see `[[wiki/architecture/monorepo-structure]]` for full tree.
+Monorepo by domain. Five dirs, five prefixes — see `[[wiki/architecture/monorepo-structure]]` for full tree.
 
 | Dir | Prefix | What lives here |
 |-----|--------|-----------------|
 | `osn/` | `@osn/*` | Identity stack (auth, graph, orgs, recommendations, SDK, landing, social app) — crypto moved to `@shared/crypto` |
 | `pulse/` | `@pulse/*` | Events stack (app, API, DB) |
 | `zap/` | `@zap/*` | Messaging stack (API on port 3002, DB) |
-| `shared/` | `@shared/*` | Cross-cutting utils (`@shared/crypto` for ARC tokens, `@shared/email` for transactional mail, `@shared/observability`, `@shared/rate-limit`) |
+| `cire/` | `@cire/*` | Wedding-invite stack (guest site, organiser portal, API, DB) |
+| `shared/` | `@shared/*` | Cross-cutting utils (`@shared/crypto` for ARC tokens, `@shared/email` for transactional mail, `@shared/observability`, `@shared/rate-limit`, `@shared/osn-auth-client` for downstream access-JWT verification) |
 
 ## Tech (one-liner)
 
@@ -143,7 +146,8 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 |---|---|---|
 | ARC Tokens | S2S auth via self-issued ES256 JWTs (kid + scope + audience). Lives in `@shared/crypto`. | `[[wiki/systems/arc-tokens]]` |
 | Passkey-Primary Login | Only primary login factor. OTP/magic-link primary removed; OTP survives only as step-up. Account invariant: ≥1 WebAuthn credential always. | `[[wiki/systems/passkey-primary]]` |
-| User Access Tokens | ES256 JWTs, **5-min TTL**, `aud: "osn-access"`. Public key at `/.well-known/jwks.json`; downstream verifies via JWKS fetch (no shared secret). Client `authFetch` silent-refreshes on 401 from HttpOnly session cookie. | `[[wiki/systems/identity-model]]` |
+| User Access Tokens | ES256 JWTs, **5-min TTL**, `aud: "osn-access"`. Public key at `/.well-known/jwks.json`; downstream services verify via `@shared/osn-auth-client` (`extractClaims` + JWKS cache + audience check; Hono + Elysia adapters). Client `authFetch` silent-refreshes on 401 from HttpOnly session cookie. | `[[wiki/systems/identity-model]]` |
+| Cire Two-Auth Model | Guests use claim-code → opaque hashed session cookie (no OSN account); organisers use OSN passkey sign-in + access-JWT verification + wedding-ownership authz. The two middlewares never gate the same route. | `[[wiki/systems/cire-auth]]` |
 | Server-side Sessions | Opaque `ses_*` refresh tokens, SHA-256 hashed at rest, 30-day sliding window. Rotated every `/token` grant; reuse → family revocation via `RotatedSessionStore`. Refresh token **only** in HttpOnly cookie (S-M1). | `[[wiki/systems/sessions]]` |
 | Step-up (sudo) tokens | Short-lived `aud: "osn-step-up"` JWTs from fresh passkey/OTP ceremony. Required by `/recovery/generate`, `/account/email/complete`, security-event ack, passkey rename/delete. Single-use via `StepUpJtiStore`. | `[[wiki/systems/step-up]]` |
 | Recovery Codes | Copenhagen Book M2 — 10 × 64-bit single-use codes, hashed at rest. Generate/consume both in `security_events` and surfaced via in-app banner. | `[[wiki/systems/recovery-codes]]` |
@@ -186,6 +190,7 @@ bun run dev:pulse        # Pulse work: pulse API + app, osn core, zap API
 bun run dev:zap          # Zap work: zap API, osn core
 bun run dev:osn          # OSN work: osn core + app
 bun run dev:apis         # All backends only: osn core, pulse API, zap API
+bun run dev:cire         # Cire work: cire API + web + organiser, osn core
 bun run dev:landing      # Landing site only
 bun run build            # Build all packages (turbo)
 bun run check            # Type-check all packages (turbo)

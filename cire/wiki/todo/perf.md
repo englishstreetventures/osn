@@ -4,7 +4,7 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-05-05
+last-reviewed: 2026-06-10
 ---
 
 # Performance Backlog
@@ -22,7 +22,8 @@ See [[review-findings]] for severity prefix conventions.
 - [ ] Landing page animations must not block LCP — defer Motion One until after first paint
 - [ ] Hero photo must be optimised (WebP/AVIF, responsive srcset)
 - [x] Add-to-calendar data should not require a round-trip if event data is already hydrated in the page (PR-G — `googleCalendarUrl` + `icsBlob` are pure client-side helpers consuming the existing claim payload)
-- [x] .ics generation can be client-side to avoid unnecessary Worker invocation (PR-G — `apps/web/src/components/calendar.ts` builds the VCALENDAR in the browser; no Worker route added)
+- [x] .ics generation can be client-side to avoid unnecessary Worker invocation (PR-G — `cire/web/src/components/calendar.ts` builds the VCALENDAR in the browser; no Worker route added)
+- [ ] Organiser `ImportPanel` re-fetches events on every tab switch — cache the events response (or lift it to the dashboard shell) so switching Guests ↔ Events doesn't refire the request. Minor; noticed during the OSN-merge E2E pass.
 - [ ] Spreadsheet import on Workers: chunk inserts (≤100 rows per batch) to stay under 50ms CPU per request; offload large diffs to a Queue-driven worker
 - [x] `/list` paginated with `limit` + `uploadedAt` cursor (PR-C review)
 - [ ] Cache the parsed `ImportPlan` on the imports row to avoid re-parse + re-diff on `/apply` and `/revert` (currently re-runs both as TOCTOU defence). Consider once organiser sheet exceeds ~600 rows or revert latency becomes user-visible (PR-C review)

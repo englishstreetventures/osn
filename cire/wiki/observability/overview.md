@@ -2,7 +2,7 @@
 title: "Observability Overview"
 tags: [observability, system]
 related: [[contributing]], [[TODO]], [[index]]
-last-reviewed: 2026-05-05
+last-reviewed: 2026-06-10
 ---
 
 # Observability Overview
@@ -54,6 +54,7 @@ The current setup (Workers logs + dashboard) is sufficient for a wedding-scale a
 
 - **OpenTelemetry (OTel)** export from Workers via `otel-cf-workers` package.
 - **Axiom** or **Baselime** for log aggregation and alerting.
-- **Sentry** for frontend error tracking in `apps/web`.
+- **Sentry** for frontend error tracking in `cire/web`.
+- Aligning with the OSN platform stack (OpenTelemetry → Grafana Cloud via `@shared/observability`) now that cire lives in the OSN monorepo.
 
 These are post-MVP concerns. Do not add external observability dependencies until the platform decision is made — see [[TODO]] (Deferred Decisions).
