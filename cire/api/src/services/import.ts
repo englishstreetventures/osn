@@ -1,4 +1,4 @@
-import { BOOTSTRAP_WEDDING_ID, events, families, guests, guestEvents, rsvps } from "@cire/db";
+import { events, families, guests, guestEvents, rsvps } from "@cire/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
@@ -295,6 +295,7 @@ export function diffAgainstDb(
 export function applyImport(
   importId: string,
   plan: ImportPlan,
+  weddingId: string,
 ): Effect.Effect<ImportSummary, ImportError, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
@@ -318,9 +319,7 @@ export function applyImport(
           db.insert(events)
             .values({
               id: ec.id,
-              // Interim single-tenant scope — Phase 5 threads the
-              // authenticated wedding through the import flow.
-              weddingId: BOOTSTRAP_WEDDING_ID,
+              weddingId,
               slug: mintEventSlug(ec.event.name),
               name: ec.event.name,
               date: ec.event.startAt.slice(0, 10),
@@ -370,7 +369,7 @@ export function applyImport(
           db.insert(families)
             .values({
               id: fc.id,
-              weddingId: BOOTSTRAP_WEDDING_ID,
+              weddingId,
               publicId: fc.publicId,
               familyName: fc.familyName,
               createdAt: now,

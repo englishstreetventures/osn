@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { events, families, guests, guestEvents, rsvps } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, families, guests, guestEvents, rsvps } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
@@ -69,7 +69,7 @@ describe("applyImport + re-diff (idempotent)", () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const plan1 = yield* diffAgainstDb(ev, fam);
-        yield* applyImport("import-1", plan1);
+        yield* applyImport("import-1", plan1, BOOTSTRAP_WEDDING_ID);
       }).pipe(Effect.provide(layer)),
     );
 
@@ -82,7 +82,7 @@ describe("applyImport + re-diff (idempotent)", () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const p1 = yield* diffAgainstDb(ev, fam);
-        yield* applyImport("import-1", p1);
+        yield* applyImport("import-1", p1, BOOTSTRAP_WEDDING_ID);
         const p2 = yield* diffAgainstDb(ev, fam);
         expect(p2.eventCreates).toHaveLength(0);
         expect(p2.eventRemoves).toHaveLength(0);
@@ -227,7 +227,7 @@ describe("applyImport: empty-DB insert end-to-end", () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const plan = yield* diffAgainstDb(ev, fam);
-        yield* applyImport("imp-1", plan);
+        yield* applyImport("imp-1", plan, BOOTSTRAP_WEDDING_ID);
       }).pipe(Effect.provide(sharedLayer)),
     );
     expect(sharedDb.select().from(events).all()).toHaveLength(4);

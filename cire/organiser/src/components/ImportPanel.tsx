@@ -48,15 +48,12 @@ function readFile(file: File): Promise<string> {
 }
 
 /**
- * Imports still require the X-Organiser-Token shared secret server-side
- * (until Phase 6 strips it) in addition to the OSN access JWT that
- * authFetch attaches. The secret is held in component state only — never
- * persisted to storage.
+ * Imports are authorised by the caller's OSN access JWT alone (attached by
+ * authFetch) — the server scopes the import to the signed-in organiser's
+ * owned wedding.
  */
 export default function ImportPanel() {
   const { authFetch } = useAuth();
-  const [token, setToken] = createSignal("");
-  const [tokenVisible, setTokenVisible] = createSignal(false);
   const [eventsFile, setEventsFile] = createSignal<File | null>(null);
   const [guestsFile, setGuestsFile] = createSignal<File | null>(null);
   const [busy, setBusy] = createSignal(false);
@@ -72,7 +69,6 @@ export default function ImportPanel() {
 
     const events = eventsFile();
     const guests = guestsFile();
-    if (!token().trim()) return setError("Organiser token required.");
     if (!events) return setError("Choose an events.csv file.");
     if (!guests) return setError("Choose a guests.csv file.");
 
@@ -81,10 +77,7 @@ export default function ImportPanel() {
       const [eventsCsv, guestsCsv] = await Promise.all([readFile(events), readFile(guests)]);
       const res = await authFetch(apiUrl("/api/organiser/import/preview"), {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Organiser-Token": token().trim(),
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ eventsCsv, guestsCsv }),
       });
       if (!res.ok) {
@@ -108,10 +101,7 @@ export default function ImportPanel() {
     try {
       const res = await authFetch(apiUrl("/api/organiser/import/apply"), {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Organiser-Token": token().trim(),
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ importId: p.importId }),
       });
       if (!res.ok) {
@@ -151,33 +141,6 @@ export default function ImportPanel() {
       </header>
 
       <form class="flex flex-col gap-4" onSubmit={handlePreview}>
-        <label class="flex flex-col gap-1.5">
-          <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
-            Organiser Token
-          </span>
-          <span class="relative block">
-            <input
-              type={tokenVisible() ? "text" : "password"}
-              autocomplete="off"
-              value={token()}
-              onInput={(e) => setToken(e.currentTarget.value)}
-              class="border-border bg-bg text-text focus:border-gold w-full rounded-sm border px-3 py-2 pr-10 font-mono text-[0.82rem] outline-none"
-              placeholder="paste token"
-            />
-            <button
-              type="button"
-              onClick={() => setTokenVisible((v) => !v)}
-              aria-label={tokenVisible() ? "Hide token" : "Show token"}
-              aria-pressed={tokenVisible()}
-              class="text-text-muted hover:text-gold focus:text-gold absolute inset-y-0 right-0 flex items-center px-3 transition focus:outline-none"
-            >
-              <Show when={tokenVisible()} fallback={<EyeIcon />}>
-                <EyeOffIcon />
-              </Show>
-            </button>
-          </span>
-        </label>
-
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <label class="flex flex-col gap-1.5">
             <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
@@ -275,46 +238,6 @@ export default function ImportPanel() {
         )}
       </Show>
     </section>
-  );
-}
-
-function EyeIcon() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.6"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-function EyeOffIcon() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.6"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-6.5 0-10-7-10-7a18.47 18.47 0 0 1 4.06-5.06" />
-      <path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c6.5 0 10 7 10 7a18.5 18.5 0 0 1-3.17 4.19" />
-      <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
-      <line x1="2" y1="2" x2="22" y2="22" />
-    </svg>
   );
 }
 

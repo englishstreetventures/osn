@@ -28,20 +28,26 @@ export type RevertError = NoPriorImport | R2Error | RevertParseError | ImportErr
  */
 export function revertImport(
   importId: string,
+  weddingId: string,
 ): Effect.Effect<ImportSummary, RevertError, DbService | R2Service> {
   return Effect.gen(function* () {
     const db = yield* DbService;
 
-    const [current] = db.select().from(imports).where(eq(imports.id, importId)).all();
+    const [current] = db
+      .select()
+      .from(imports)
+      .where(and(eq(imports.id, importId), eq(imports.weddingId, weddingId)))
+      .all();
     if (!current) {
       return yield* Effect.fail(new NoPriorImport({ currentImportId: importId }));
     }
 
-    // Find the most-recent `applied` import strictly before `current`.
+    // Find the most-recent `applied` import (same wedding) strictly before
+    // `current`.
     const candidates = db
       .select()
       .from(imports)
-      .where(and(eq(imports.status, "applied")))
+      .where(and(eq(imports.status, "applied"), eq(imports.weddingId, weddingId)))
       .orderBy(desc(imports.uploadedAt))
       .all();
     const prior = candidates.find((c) => c.id !== current.id && c.uploadedAt < current.uploadedAt);
@@ -66,7 +72,7 @@ export function revertImport(
     );
 
     const plan = yield* diffAgainstDb(events, families as ParsedFamily[]);
-    const summary = yield* applyImport(prior.id, plan);
+    const summary = yield* applyImport(prior.id, plan, weddingId);
 
     // Mark the current row as reverted; bump prior back to applied (it already
     // is) — no change needed there.

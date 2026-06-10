@@ -8,7 +8,6 @@ import { sessionAuth } from "./middleware/auth";
 import { osnAuth } from "./middleware/osn-auth";
 import { rateLimitMiddleware } from "./middleware/rate-limit";
 import { claimRoute } from "./routes/claim";
-import { organiserRoute } from "./routes/organiser";
 import { organiserImportRoute } from "./routes/organiser-import";
 import { organiserWeddingsRoute } from "./routes/organiser-weddings";
 import { rsvpRoute } from "./routes/rsvp";
@@ -22,11 +21,11 @@ export type AppVariables = {
   familyId?: string;
   // Set by `osnAuth` on /api/organiser/* routes.
   osnProfileId?: string;
-  // Set by `weddingOwner` on /api/organiser/weddings/:weddingId/* routes.
+  // Set by `weddingOwner` on /api/organiser/weddings/:weddingId/* routes and
+  // by `ownedWedding` on the import group.
   weddingId?: string;
-  // Optional CF bindings + secrets, present when `createApp` was given them.
+  // Optional CF bindings, present when `createApp` was given them.
   r2?: R2Bucket;
-  organiserToken?: string;
 };
 
 /** Default per-IP rate limiter for the claim endpoint: 5 attempts per minute. */
@@ -41,11 +40,6 @@ export interface AppOptions {
   claimLimiter?: RateLimiterBackend;
   /** R2 bucket binding for the organiser import flow. */
   r2?: R2Bucket;
-  /**
-   * Shared secret for the organiser-import endpoints. Belt-and-braces
-   * alongside the OSN JWT this phase; removed in Phase 6.
-   */
-  organiserToken?: string;
   /** JWKS endpoint of the OSN issuer that signs organiser access tokens. */
   osnJwksUrl?: string;
   /** Expected `aud` claim on organiser access tokens. */
@@ -60,7 +54,6 @@ export function createApp(db: Db, options: AppOptions = {}) {
     allowedOrigins,
     claimLimiter = defaultClaimLimiter,
     r2,
-    organiserToken,
     osnJwksUrl = "http://localhost:4000/.well-known/jwks.json",
     osnAudience = "osn-access",
     osnTestKey,
@@ -68,13 +61,11 @@ export function createApp(db: Db, options: AppOptions = {}) {
   const corsOrigins = new Set(allowedOrigins ?? [webOrigin]);
   const app = new Hono<{ Variables: AppVariables }>();
 
-  // Inject db + webOrigin (and R2 + organiser token when present) into every
-  // request.
+  // Inject db + webOrigin (and R2 when present) into every request.
   app.use("*", (c, next) => {
     c.set("db", db);
     c.set("webOrigin", webOrigin);
     if (r2) c.set("r2", r2);
-    if (organiserToken) c.set("organiserToken", organiserToken);
     return next();
   });
 
@@ -86,8 +77,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // which Hono translates to no `Access-Control-Allow-Origin` header.
       origin: (origin) => (corsOrigins.has(origin) ? origin : null),
       allowMethods: ["GET", "POST", "OPTIONS"],
-      // X-Organiser-Token stays until Phase 6 strips the shared-secret path.
-      allowHeaders: ["Content-Type", "Authorization", "X-Organiser-Token"],
+      allowHeaders: ["Content-Type", "Authorization"],
       credentials: true,
     }),
   );
@@ -100,9 +90,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
   app.use("/api/rsvp", sessionAuth());
   app.use("/api/rsvp/*", sessionAuth());
 
-  // Gate ALL organiser routes (reads, weddings, import group) behind a valid
-  // OSN access token. The import group's X-Organiser-Token check remains as
-  // belt-and-braces until Phase 6 deletes it.
+  // Gate ALL organiser routes (weddings + import group) behind a valid OSN
+  // access token.
   const organiserAuth = osnAuth({
     jwksUrl: osnJwksUrl,
     audience: osnAudience,
@@ -112,7 +101,6 @@ export function createApp(db: Db, options: AppOptions = {}) {
   app.use("/api/organiser/*", organiserAuth);
 
   app.route("/api/claim", claimRoute);
-  app.route("/api/organiser", organiserRoute);
   app.route("/api/organiser", organiserWeddingsRoute);
   app.route("/api/organiser/import", organiserImportRoute);
   app.route("/api/rsvp", rsvpRoute);

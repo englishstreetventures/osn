@@ -49,7 +49,7 @@ async function applyVersion(
       const ev = yield* parseEventsCsv(eventsCsv);
       const fam = (yield* parseGuestsCsv(guestsCsv, ev)) as ParsedFamily[];
       const plan = yield* diffAgainstDb(ev, fam);
-      const summary = yield* applyImport(importId, plan);
+      const summary = yield* applyImport(importId, plan, BOOTSTRAP_WEDDING_ID);
       const db = yield* DbService;
       db.insert(imports)
         .values({
@@ -82,7 +82,9 @@ describe("revertImport", () => {
     expect(db.select().from(families).all()).toHaveLength(2);
     expect(db.select().from(guests).all()).toHaveLength(2);
 
-    await Effect.runPromise(revertImport("imp-2").pipe(Effect.provide(layer)));
+    await Effect.runPromise(
+      revertImport("imp-2", BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
 
     // Back to v1 state: 2 events, 1 family, 1 guest.
     expect(db.select().from(events).all()).toHaveLength(2);
@@ -103,7 +105,7 @@ describe("revertImport", () => {
     await applyVersion(layer, "imp-only", EVENTS_V1, GUESTS_V1, 1_000);
 
     const error = await Effect.runPromise(
-      Effect.flip(revertImport("imp-only")).pipe(Effect.provide(layer)),
+      Effect.flip(revertImport("imp-only", BOOTSTRAP_WEDDING_ID)).pipe(Effect.provide(layer)),
     );
     expect(error).toBeInstanceOf(NoPriorImport);
   });

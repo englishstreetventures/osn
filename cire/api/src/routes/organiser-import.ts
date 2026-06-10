@@ -1,12 +1,11 @@
-import { timingSafeEqual } from "node:crypto";
-
-import { BOOTSTRAP_WEDDING_ID, imports } from "@cire/db";
-import { desc, eq, lt } from "drizzle-orm";
+import { imports } from "@cire/db";
+import { and, desc, eq, lt } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import { Hono } from "hono";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { ownedWedding } from "../middleware/owned-wedding";
 import { ApplyBody, PreviewBody, RevertBody } from "../schemas/import";
 import type { ImportPlan, ParsedFamily } from "../schemas/import";
 import { applyImport, diffAgainstDb } from "../services/import";
@@ -27,31 +26,18 @@ const ONE_MB = 1 * 1024 * 1024;
 type AppVariables = {
   db: Db;
   r2: R2Bucket;
-  organiserToken: string;
+  // Set by the upstream osnAuth() gate in app.ts.
+  osnProfileId?: string;
+  // Set by ownedWedding() below — the caller's single owned wedding.
+  weddingId: string;
 };
 
 export const organiserImportRoute = new Hono<{ Variables: AppVariables }>();
 
-/**
- * Shared-secret gate, belt-and-braces alongside the upstream osnAuth()
- * JWT check until Phase 6 deletes it. Returns 403 (not 401): a wrong
- * secret is an authorization failure on an already-authenticated
- * request — a 401 here would make @osn/client's authFetch treat the
- * caller's (valid) session as expired, clear it, and force a re-login.
- */
-organiserImportRoute.use("*", async (c, next) => {
-  const expected = c.var.organiserToken;
-  const got = c.req.header("X-Organiser-Token");
-  if (!expected || !got) {
-    return c.json({ error: "Forbidden" }, 403);
-  }
-  const providedBuf = Buffer.from(got, "utf8");
-  const expectedBuf = Buffer.from(expected, "utf8");
-  if (providedBuf.length !== expectedBuf.length || !timingSafeEqual(providedBuf, expectedBuf)) {
-    return c.json({ error: "Forbidden" }, 403);
-  }
-  return next();
-});
+// The import routes carry no :weddingId param — derive the caller's single
+// owned wedding (404 for non-owners, 400 if ambiguous) and scope every
+// import operation to it.
+organiserImportRoute.use("*", ownedWedding());
 
 organiserImportRoute.post("/preview", async (c) => {
   // Content-Length pre-check — reject obviously-oversized payloads BEFORE we
@@ -94,9 +80,8 @@ organiserImportRoute.post("/preview", async (c) => {
       db.insert(imports)
         .values({
           id: importId,
-          // Interim single-tenant scope — Phase 5 threads the authenticated
-          // wedding through the import flow.
-          weddingId: BOOTSTRAP_WEDDING_ID,
+          // Scoped to the caller's owned wedding (ownedWedding middleware).
+          weddingId: c.var.weddingId,
           uploadedAt: Date.now(),
           format: "csv",
           eventsR2Key: eventsKey,
@@ -188,7 +173,10 @@ organiserImportRoute.post("/apply", async (c) => {
       const db = yield* DbService;
 
       const [row] = db.select().from(imports).where(eq(imports.id, importId)).all();
-      if (!row) return c.json({ error: "Import not found" }, 404);
+      // A foreign wedding's import is indistinguishable from a missing one.
+      if (!row || row.weddingId !== c.var.weddingId) {
+        return c.json({ error: "Import not found" }, 404);
+      }
       if (row.status !== "preview") {
         return c.json({ error: "Import is not in preview status" }, 409);
       }
@@ -202,7 +190,7 @@ organiserImportRoute.post("/apply", async (c) => {
       const parsedFamilies = yield* parseGuestsCsv(guestsCsv, parsedEvents);
       const plan = yield* diffAgainstDb(parsedEvents, parsedFamilies as ParsedFamily[]);
 
-      const summary = yield* applyImport(importId, plan);
+      const summary = yield* applyImport(importId, plan, c.var.weddingId);
 
       db.update(imports)
         .set({ status: "applied", appliedAt: Date.now() })
@@ -250,7 +238,7 @@ organiserImportRoute.post("/revert", async (c) => {
   return Effect.runPromise(
     Effect.gen(function* () {
       const { importId } = yield* Schema.decodeUnknown(RevertBody)(raw);
-      const summary = yield* revertImport(importId);
+      const summary = yield* revertImport(importId, c.var.weddingId);
       return c.json({ summary });
     }).pipe(
       Effect.provideService(DbService, c.var.db),
@@ -290,9 +278,11 @@ organiserImportRoute.get("/list", (c) => {
   const cursor = cursorParam ? Number.parseInt(cursorParam, 10) : NaN;
   const hasCursor = Number.isFinite(cursor);
 
-  const baseQuery = db.select().from(imports);
-  const filtered = hasCursor ? baseQuery.where(lt(imports.uploadedAt, cursor)) : baseQuery;
-  const rows = filtered
+  const scope = eq(imports.weddingId, c.var.weddingId);
+  const rows = db
+    .select()
+    .from(imports)
+    .where(hasCursor ? and(scope, lt(imports.uploadedAt, cursor)) : scope)
     .orderBy(desc(imports.uploadedAt))
     .limit(limit + 1)
     .all();

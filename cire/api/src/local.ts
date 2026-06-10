@@ -12,19 +12,15 @@ const origins = (process.env.WEB_ORIGIN ?? "http://localhost:4321,http://localho
 const webOrigin = origins[0];
 const port = Number(process.env.PORT ?? 8787);
 
-const organiserToken = process.env.ORGANISER_TOKEN ?? "dev-organiser-token";
 const r2 = createR2Stub();
 
 const app = createApp(db, {
   webOrigin,
   allowedOrigins: origins,
-  organiserToken,
   r2,
   osnJwksUrl: process.env.OSN_JWKS_URL,
   osnAudience: process.env.OSN_AUDIENCE,
 });
-
-console.log(`Organiser token: ${organiserToken}`);
 
 const server = Bun.serve({ port, fetch: app.fetch });
 console.log(`API running at http://localhost:${server.port}`);
