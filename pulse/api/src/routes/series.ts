@@ -3,7 +3,7 @@ import { extractClaims } from "@shared/osn-auth-client/verify";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
-const DEFAULT_JWKS_URL = process.env.OSN_JWKS_URL ?? "http://localhost:4000/.well-known/jwks.json";
+import { DEFAULT_JWKS_URL } from "../lib/jwks";
 import { canViewEvent } from "../services/eventAccess";
 import {
   cancelSeries,

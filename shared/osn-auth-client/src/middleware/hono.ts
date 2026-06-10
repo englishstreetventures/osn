@@ -1,16 +1,10 @@
 import type { MiddlewareHandler } from "hono";
-import { decodeJwt } from "jose";
 
+import { tokenMatchesAudience } from "../audience";
+import type { OsnAuthOptions } from "../options";
 import { extractClaims } from "../verify";
 
-export interface OsnAuthOptions {
-  /** Full JWKS URL — e.g. `https://osn-api.example.com/.well-known/jwks.json` */
-  jwksUrl: string;
-  /** Expected `aud` claim — typically `"osn-access"` */
-  audience: string;
-  /** Optional injected verifying key for tests (skips JWKS fetch). */
-  _testKey?: CryptoKey;
-}
+export type { OsnAuthOptions } from "../options";
 
 /**
  * Hono middleware that verifies an OSN-issued access token from the
@@ -27,16 +21,7 @@ export function osnAuth(options: OsnAuthOptions): MiddlewareHandler {
     if (!claims) return c.json({ error: "unauthorised" }, 401);
 
     const token = authHeader?.slice("Bearer ".length);
-    if (!token) return c.json({ error: "unauthorised" }, 401);
-    try {
-      const payload = decodeJwt(token);
-      const aud = payload.aud;
-      const matches =
-        typeof aud === "string"
-          ? aud === options.audience
-          : Array.isArray(aud) && aud.includes(options.audience);
-      if (!matches) return c.json({ error: "unauthorised" }, 401);
-    } catch {
+    if (!token || !tokenMatchesAudience(token, options.audience)) {
       return c.json({ error: "unauthorised" }, 401);
     }
 

@@ -4,8 +4,8 @@ import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
-const DEFAULT_JWKS_URL = process.env.OSN_JWKS_URL ?? "http://localhost:4000/.well-known/jwks.json";
 import { MAX_PRICE_MAJOR } from "../lib/currency";
+import { DEFAULT_JWKS_URL } from "../lib/jwks";
 import { MAX_EVENT_GUESTS } from "../lib/limits";
 import {
   metricCalendarIcsGenerated,

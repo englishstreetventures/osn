@@ -26,14 +26,14 @@ describe("osnAuth (Elysia adapter)", () => {
     }) as typeof fetch;
   });
 
-  it("401 on missing token", async () => {
-    const app = new Elysia()
+  // Derived props land on the context root (not `store`).
+  const buildApp = () =>
+    new Elysia()
       .use(osnAuth({ jwksUrl: "http://test/.well-known/jwks.json", audience: "osn-access" }))
-      .get("/me", ({ store }) => ({
-        profileId: (store as { osnProfileId?: string }).osnProfileId,
-      }));
+      .get("/me", ({ osnProfileId }) => ({ profileId: osnProfileId }));
 
-    const res = await app.handle(new Request("http://localhost/me"));
+  it("401 on missing token", async () => {
+    const res = await buildApp().handle(new Request("http://localhost/me"));
     expect(res.status).toBe(401);
   });
 
@@ -46,13 +46,7 @@ describe("osnAuth (Elysia adapter)", () => {
       .setExpirationTime("5m")
       .sign(signKey);
 
-    const app = new Elysia()
-      .use(osnAuth({ jwksUrl: "http://test/.well-known/jwks.json", audience: "osn-access" }))
-      .get("/me", (ctx) => ({
-        profileId: (ctx as unknown as { osnProfileId?: string }).osnProfileId,
-      }));
-
-    const res = await app.handle(
+    const res = await buildApp().handle(
       new Request("http://localhost/me", {
         headers: { Authorization: `Bearer ${token}` },
       }),
@@ -60,5 +54,31 @@ describe("osnAuth (Elysia adapter)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { profileId: string };
     expect(body.profileId).toBe("usr_elysia");
+  });
+
+  it("401 on wrong audience", async () => {
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid })
+      .setSubject("usr_elysia")
+      .setAudience("wrong-aud")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(signKey);
+
+    const res = await buildApp().handle(
+      new Request("http://localhost/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("401 on malformed token", async () => {
+    const res = await buildApp().handle(
+      new Request("http://localhost/me", {
+        headers: { Authorization: "Bearer not.a.jwt" },
+      }),
+    );
+    expect(res.status).toBe(401);
   });
 });

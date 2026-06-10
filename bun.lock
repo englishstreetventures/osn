@@ -346,6 +346,9 @@
         "hono": "^4.12.23",
         "vitest": "^4.1.6",
       },
+      "peerDependencies": {
+        "elysia": "^1.4.28",
+      },
     },
     "shared/rate-limit": {
       "name": "@shared/rate-limit",

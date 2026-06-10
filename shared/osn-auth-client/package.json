@@ -19,6 +19,9 @@
     "@shared/crypto": "workspace:*",
     "jose": "^6.2.3"
   },
+  "peerDependencies": {
+    "elysia": "^1.4.28"
+  },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
     "vitest": "^4.1.6",

@@ -1,8 +1,9 @@
 # @shared/osn-auth-client
 
 Verifies OSN-issued access tokens (ES256, `aud: "osn-access"`) via JWKS
-with an LRU cache and stale-while-revalidate refresh. Ships
-framework-agnostic primitives plus per-framework middleware adapters.
+with an LRU cache (5-min TTL, blocking refetch on expiry) and
+rotation-aware refresh on verification miss. Ships framework-agnostic
+primitives plus per-framework middleware adapters.
 
 ## Usage — Hono (cire)
 

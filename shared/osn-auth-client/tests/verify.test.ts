@@ -2,6 +2,7 @@ import { SignJWT, generateKeyPair, exportJWK } from "jose";
 import { describe, expect, it, beforeAll, beforeEach } from "vitest";
 
 import { clearJwksCache } from "../src/jwks-cache";
+import * as verifyModule from "../src/verify";
 import { extractClaims } from "../src/verify";
 
 describe("extractClaims", () => {
@@ -95,8 +96,7 @@ describe("extractClaims", () => {
     expect(result).toBeNull();
   });
 
-  it("does not expose DEFAULT_JWKS_URL (removed from shared package)", async () => {
-    // @ts-expect-error — asserting the named export does not exist
-    expect(typeof DEFAULT_JWKS_URL).toBe("undefined");
+  it("does not export DEFAULT_JWKS_URL (env reads stay app-side)", () => {
+    expect("DEFAULT_JWKS_URL" in verifyModule).toBe(false);
   });
 });
