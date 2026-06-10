@@ -12,7 +12,7 @@ import { parseSessionToken } from "../lib/cookie";
 import { eff } from "../test-helpers";
 
 const HINDU_ID = eventsData.hindu.id;
-// Priya (Sharma) is invited to catholic + hindu + reception, NOT mehendi.
+// Ada (Testfamily) is invited to catholic + hindu + reception, NOT mehendi.
 const MEHENDI_ID = eventsData.mehendi.id;
 // A UUID that exists in no wedding — stands in for "another wedding's event".
 const FOREIGN_EVENT_ID = "00000000-0000-4000-8000-ffffffffffff";
@@ -40,8 +40,8 @@ beforeAll(() => {
 
   const allGuests = db.select({ id: guests.id, firstName: guests.firstName }).from(guests).all();
 
-  sharmaGuestId = allGuests.find((g) => g.firstName === "Priya")!.id;
-  wilsonJamesGuestId = allGuests.find((g) => g.firstName === "James")!.id;
+  sharmaGuestId = allGuests.find((g) => g.firstName === "Ada")!.id;
+  wilsonJamesGuestId = allGuests.find((g) => g.firstName === "Bo")!.id;
 });
 
 const post = (body: unknown, cookie: string | null) =>
@@ -84,7 +84,7 @@ describe("POST /api/rsvp", () => {
     "returns 200 with valid session and RSVPs",
     eff(
       Effect.gen(function* () {
-        const cookie = yield* claimAndCookie("SHARMA-IVY-QM42");
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
         const res = yield* post(
           {
             rsvps: [
@@ -131,7 +131,7 @@ describe("POST /api/rsvp", () => {
     "returns 403 when guestId belongs to a different family",
     eff(
       Effect.gen(function* () {
-        const cookie = yield* claimAndCookie("SHARMA-IVY-QM42");
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
         const res = yield* post(
           {
             rsvps: [
@@ -155,7 +155,7 @@ describe("POST /api/rsvp", () => {
     "returns 400 with missing fields",
     eff(
       Effect.gen(function* () {
-        const cookie = yield* claimAndCookie("SHARMA-IVY-QM42");
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
         const res = yield* post({}, cookie);
         expect(res.status).toBe(400);
       }),
@@ -166,7 +166,7 @@ describe("POST /api/rsvp", () => {
     "returns 200 when RSVPing to an invited event (S-M1)",
     eff(
       Effect.gen(function* () {
-        const cookie = yield* claimAndCookie("SHARMA-IVY-QM42");
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
         const res = yield* post(
           { rsvps: [{ guestId: sharmaGuestId, eventId: HINDU_ID, status: "attending" }] },
           cookie,
@@ -180,7 +180,7 @@ describe("POST /api/rsvp", () => {
     "returns 403 when RSVPing to a valid-but-uninvited event (S-M1)",
     eff(
       Effect.gen(function* () {
-        const cookie = yield* claimAndCookie("SHARMA-IVY-QM42");
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
         const res = yield* post(
           { rsvps: [{ guestId: sharmaGuestId, eventId: MEHENDI_ID, status: "attending" }] },
           cookie,
@@ -196,7 +196,7 @@ describe("POST /api/rsvp", () => {
     "returns 403 when RSVPing to another wedding's event UUID (S-M1)",
     eff(
       Effect.gen(function* () {
-        const cookie = yield* claimAndCookie("SHARMA-IVY-QM42");
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
         const res = yield* post(
           { rsvps: [{ guestId: sharmaGuestId, eventId: FOREIGN_EVENT_ID, status: "attending" }] },
           cookie,
@@ -210,7 +210,7 @@ describe("POST /api/rsvp", () => {
     "returns 400 when dietary text exceeds the 500-char cap (S-L2)",
     eff(
       Effect.gen(function* () {
-        const cookie = yield* claimAndCookie("SHARMA-IVY-QM42");
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
         const res = yield* post(
           {
             rsvps: [
@@ -233,7 +233,7 @@ describe("POST /api/rsvp", () => {
     "returns 413 when Content-Length declares an oversized payload (S-L2)",
     eff(
       Effect.gen(function* () {
-        const cookie = yield* claimAndCookie("SHARMA-IVY-QM42");
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
         const res = yield* Effect.promise(() =>
           app.fetch(
             new Request("http://localhost/api/rsvp", {

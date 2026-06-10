@@ -67,16 +67,16 @@ const insertFamily = (
 describe("families schema", () => {
   it("rejects a duplicate public_id", () => {
     const db = makeDb();
-    insertFamily(db, "fam-1", "PRADHEEP-JOY-RK97", "Pradheep");
+    insertFamily(db, "fam-1", "MOCKTON-JOY-EE55", "Mockton");
     expect(() => {
-      insertFamily(db, "fam-2", "PRADHEEP-JOY-RK97", "Other");
+      insertFamily(db, "fam-2", "MOCKTON-JOY-EE55", "Other");
     }).toThrow();
   });
 
   it("permits the same family_name for different families", () => {
     const db = makeDb();
-    insertFamily(db, "fam-1", "PATEL-JOY-RK97", "Patel");
-    insertFamily(db, "fam-2", "PATEL-SKY-XR42", "Patel");
+    insertFamily(db, "fam-1", "TESTFOR-JOY-DD44", "Placeholder");
+    insertFamily(db, "fam-2", "TESTFOR-SKY-FF66", "Placeholder");
     const rows = db.select().from(families).all();
     expect(rows).toHaveLength(2);
   });
@@ -85,13 +85,13 @@ describe("families schema", () => {
 describe("guests schema", () => {
   it("cascades deletion of a family to its guests", () => {
     const db = makeDb();
-    insertFamily(db, "fam-1", "SHARMA-IVY-QM42", "Sharma");
+    insertFamily(db, "fam-1", "TESTONE-IVY-AA11", "Testfamily");
     db.insert(guests)
       .values({
         id: "guest-1",
         familyId: "fam-1",
-        firstName: "Priya",
-        lastName: "Sharma",
+        firstName: "Ada",
+        lastName: "Testfamily",
         sortOrder: 0,
         createdAt: now,
         updatedAt: now,
@@ -122,13 +122,13 @@ describe("guests schema", () => {
 
   it("permits a nullable externalId for forward-looking spreadsheet IDs", () => {
     const db = makeDb();
-    insertFamily(db, "fam-1", "SHARMA-IVY-QM42", "Sharma");
+    insertFamily(db, "fam-1", "TESTONE-IVY-AA11", "Testfamily");
     db.insert(guests)
       .values({
         id: "guest-1",
         familyId: "fam-1",
-        firstName: "Priya",
-        lastName: "Sharma",
+        firstName: "Ada",
+        lastName: "Testfamily",
         sortOrder: 0,
         externalId: null,
         createdAt: now,
@@ -140,7 +140,7 @@ describe("guests schema", () => {
         id: "guest-2",
         familyId: "fam-1",
         firstName: "Raj",
-        lastName: "Sharma",
+        lastName: "Testfamily",
         sortOrder: 1,
         externalId: "SHEET-1234",
         createdAt: now,
@@ -149,7 +149,7 @@ describe("guests schema", () => {
       .run();
     const rows = db.select().from(guests).all();
     expect(rows).toHaveLength(2);
-    expect(rows.find((r) => r.firstName === "Priya")?.externalId).toBeNull();
+    expect(rows.find((r) => r.firstName === "Ada")?.externalId).toBeNull();
     expect(rows.find((r) => r.firstName === "Raj")?.externalId).toBe("SHEET-1234");
   });
 });

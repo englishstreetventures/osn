@@ -196,14 +196,14 @@ describe("parseGuestsCsv", () => {
   it("parses families and guests with truthy event toggles", async () => {
     const csv = [
       "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Wedding Ceremony",
-      "1,Sharma,Priya,Sharma,TRUE,yes",
-      "1,Sharma,Anil,Sharma,1,x",
-      "2,Wilson,James,Wilson,FALSE,TRUE",
+      "1,Testfamily,Ada,Testfamily,TRUE,yes",
+      "1,Testfamily,Fenn,Testfamily,1,x",
+      "2,Sampleton,Bo,Sampleton,FALSE,TRUE",
     ].join("\n");
 
     const families = await Effect.runPromise(parseGuestsCsv(csv, events));
     expect(families).toHaveLength(2);
-    expect(families[0]!.familyName).toBe("Sharma");
+    expect(families[0]!.familyName).toBe("Testfamily");
     expect(families[0]!.guests).toHaveLength(2);
     expect([...families[0]!.guests[0]!.eventNames].sort()).toEqual(
       ["Mehndi", "Wedding Ceremony"].sort(),
@@ -217,7 +217,7 @@ describe("parseGuestsCsv", () => {
   it("matches event columns case+whitespace-insensitively", async () => {
     const csv = [
       "Family ID,Family Name,Guest First Name,Guest Last Name,  mehndi  ,WEDDING CEREMONY",
-      "1,Sharma,Priya,Sharma,yes,yes",
+      "1,Testfamily,Ada,Testfamily,yes,yes",
     ].join("\n");
     const families = await Effect.runPromise(parseGuestsCsv(csv, events));
     expect([...families[0]!.guests[0]!.eventNames].sort()).toEqual(
@@ -228,7 +228,7 @@ describe("parseGuestsCsv", () => {
   it("rejects an unmatched event column", async () => {
     const csv = [
       "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Sangeet",
-      "1,Sharma,Priya,Sharma,yes,yes",
+      "1,Testfamily,Ada,Testfamily,yes,yes",
     ].join("\n");
     const error = await Effect.runPromise(Effect.flip(parseGuestsCsv(csv, events)));
     expect(error).toBeInstanceOf(UnmatchedEventColumn);
@@ -239,7 +239,7 @@ describe("parseGuestsCsv", () => {
     it(`rejects formula injection prefix '${marker}' in guests sheet`, async () => {
       const csv = [
         "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Wedding Ceremony",
-        `1,Sharma,${marker}HACK,Sharma,yes,yes`,
+        `1,Testfamily,${marker}HACK,Testfamily,yes,yes`,
       ].join("\n");
       const error = await Effect.runPromise(Effect.flip(parseGuestsCsv(csv, events)));
       expect(error).toBeInstanceOf(FormulaInjectionDetected);
@@ -247,7 +247,7 @@ describe("parseGuestsCsv", () => {
   }
 
   it("fails when a required column is missing", async () => {
-    const csv = ["Family ID,Guest First Name,Guest Last Name,Mehndi", "1,Priya,Sharma,yes"].join(
+    const csv = ["Family ID,Guest First Name,Guest Last Name,Mehndi", "1,Ada,Testfamily,yes"].join(
       "\n",
     );
     const error = await Effect.runPromise(Effect.flip(parseGuestsCsv(csv, events)));
@@ -257,22 +257,22 @@ describe("parseGuestsCsv", () => {
   it("groups multi-row families together", async () => {
     const csv = [
       "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Wedding Ceremony",
-      "1,Sharma,Priya,Sharma,yes,yes",
-      "2,Wilson,James,Wilson,no,yes",
-      "1,Sharma,Anil,Sharma,yes,no",
+      "1,Testfamily,Ada,Testfamily,yes,yes",
+      "2,Sampleton,Bo,Sampleton,no,yes",
+      "1,Testfamily,Fenn,Testfamily,yes,no",
     ].join("\n");
     const families = await Effect.runPromise(parseGuestsCsv(csv, events));
-    // Three rows, two unique families, but Sharma appears twice — the parser
+    // Three rows, two unique families, but Testfamily appears twice — the parser
     // groups by (case+whitespace-normalised) family name, so we expect 2.
     expect(families).toHaveLength(2);
-    const sharma = families.find((f) => f.familyName === "Sharma")!;
+    const sharma = families.find((f) => f.familyName === "Testfamily")!;
     expect(sharma.guests).toHaveLength(2);
   });
 
   it("handles CRLF line endings", async () => {
     const csv = [
       "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Wedding Ceremony",
-      "1,Sharma,Priya,Sharma,yes,yes",
+      "1,Testfamily,Ada,Testfamily,yes,yes",
     ].join("\r\n");
     const families = await Effect.runPromise(parseGuestsCsv(csv, events));
     expect(families).toHaveLength(1);

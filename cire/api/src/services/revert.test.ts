@@ -20,7 +20,7 @@ const EVENTS_V1 = [
 
 const GUESTS_V1 = [
   "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Wedding Ceremony",
-  "1,Sharma,Priya,Sharma,yes,yes",
+  "1,Testfamily,Ada,Testfamily,yes,yes",
 ].join("\n");
 
 const EVENTS_V2 = [
@@ -32,8 +32,8 @@ const EVENTS_V2 = [
 
 const GUESTS_V2 = [
   "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Wedding Ceremony,Reception",
-  "1,Sharma,Priya,Sharma,yes,yes,yes",
-  "2,Wilson,James,Wilson,no,yes,yes",
+  "1,Testfamily,Ada,Testfamily,yes,yes,yes",
+  "2,Sampleton,Bo,Sampleton,no,yes,yes",
 ].join("\n");
 
 async function applyVersion(

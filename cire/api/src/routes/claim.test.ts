@@ -82,12 +82,12 @@ describe("POST /api/claim", () => {
     "returns 200 with family details for valid publicId",
     eff(
       Effect.gen(function* () {
-        const res = yield* post({ publicId: "SHARMA-IVY-QM42" });
+        const res = yield* post({ publicId: "TESTONE-IVY-AA11" });
         expect(res.status).toBe(200);
         const data = yield* Effect.promise(() => res.json<ClaimOk>());
-        expect(data.familyName).toBe("Sharma");
+        expect(data.familyName).toBe("Testfamily");
         expect(data.members).toHaveLength(1);
-        expect(data.members[0]!.firstName).toBe("Priya");
+        expect(data.members[0]!.firstName).toBe("Ada");
         expect(typeof data.members[0]!.guestId).toBe("string");
         expect(data.members[0]!.eventIds.sort()).toEqual(
           [eventsData.catholic.id, eventsData.reception.id, eventsData.hindu.id].sort(),
@@ -98,10 +98,10 @@ describe("POST /api/claim", () => {
   );
 
   it(
-    "returns all five events for the default demo code PATEL-JOY-RK97",
+    "returns all five events for the default demo code TESTFOR-JOY-DD44",
     eff(
       Effect.gen(function* () {
-        const res = yield* post({ publicId: "PATEL-JOY-RK97" });
+        const res = yield* post({ publicId: "TESTFOR-JOY-DD44" });
         expect(res.status).toBe(200);
         const data = yield* Effect.promise(() => res.json<ClaimOk>());
         expect(data.events.map((e) => e.id).sort()).toEqual(
@@ -144,10 +144,10 @@ describe("POST /api/claim", () => {
     "uppercases the publicId before lookup",
     eff(
       Effect.gen(function* () {
-        const res = yield* post({ publicId: "sharma-ivy-qm42" });
+        const res = yield* post({ publicId: "testone-ivy-aa11" });
         expect(res.status).toBe(200);
         const data = yield* Effect.promise(() => res.json<ClaimOk>());
-        expect(data.publicId).toBe("SHARMA-IVY-QM42");
+        expect(data.publicId).toBe("TESTONE-IVY-AA11");
       }),
     ),
   );
@@ -156,7 +156,7 @@ describe("POST /api/claim", () => {
     "sets a Set-Cookie session header on a successful claim",
     eff(
       Effect.gen(function* () {
-        const res = yield* post({ publicId: "SHARMA-IVY-QM42" });
+        const res = yield* post({ publicId: "TESTONE-IVY-AA11" });
         expect(res.status).toBe(200);
         const setCookie = res.headers.get("Set-Cookie");
         expect(setCookie).not.toBeNull();
@@ -173,7 +173,7 @@ describe("POST /api/claim", () => {
     "exposes familyId on the claim response",
     eff(
       Effect.gen(function* () {
-        const res = yield* post({ publicId: "SHARMA-IVY-QM42" });
+        const res = yield* post({ publicId: "TESTONE-IVY-AA11" });
         expect(res.status).toBe(200);
         const data = yield* Effect.promise(() => res.json<ClaimOk>());
         expect(typeof data.familyId).toBe("string");

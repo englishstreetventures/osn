@@ -33,12 +33,12 @@ const FOUR_EVENTS_CSV = [
 
 const FOUR_FAMILIES_CSV = [
   "Family ID,Family Name,Guest First Name,Guest Last Name,Catholic Ceremony,Mehendi,Hindu Ceremony,Reception",
-  "1,Sharma,Priya,Sharma,yes,no,yes,yes",
-  "2,Wilson,James,Wilson,no,no,yes,yes",
-  "2,Wilson,Emma,Wilson,no,no,yes,yes",
-  "2,Wilson,Sophie,Wilson,no,no,yes,no",
-  "3,Meena,Auntie,Meena,yes,no,yes,no",
-  "4,Patel,Dev,Patel,no,no,yes,yes",
+  "1,Testfamily,Ada,Testfamily,yes,no,yes,yes",
+  "2,Sampleton,Bo,Sampleton,no,no,yes,yes",
+  "2,Sampleton,Cleo,Sampleton,no,no,yes,yes",
+  "2,Sampleton,Dot,Sampleton,no,no,yes,no",
+  "3,Exampleton,Nori,Exampleton,yes,no,yes,no",
+  "4,Placeholder,Eli,Placeholder,no,no,yes,yes",
 ].join("\n");
 
 async function parsedFromCsv(): Promise<{ ev: ParsedEvent[]; fam: ParsedFamily[] }> {
@@ -105,20 +105,20 @@ describe("diff: family rename = remove + create", () => {
 
     const renamedCsv = [
       "Family ID,Family Name,Guest First Name,Guest Last Name,Catholic Ceremony,Mehendi,Hindu Ceremony,Reception",
-      "1,Sharma-Patel,Priya,Sharma,yes,no,yes,yes",
-      "2,Wilson,James,Wilson,no,no,yes,yes",
-      "2,Wilson,Emma,Wilson,no,no,yes,yes",
-      "2,Wilson,Sophie,Wilson,no,no,yes,no",
-      "3,Meena,Auntie,Meena,yes,no,yes,no",
-      "4,Patel,Dev,Patel,no,no,yes,yes",
+      "1,Testfamily-Placeholder,Ada,Testfamily,yes,no,yes,yes",
+      "2,Sampleton,Bo,Sampleton,no,no,yes,yes",
+      "2,Sampleton,Cleo,Sampleton,no,no,yes,yes",
+      "2,Sampleton,Dot,Sampleton,no,no,yes,no",
+      "3,Exampleton,Nori,Exampleton,yes,no,yes,no",
+      "4,Placeholder,Eli,Placeholder,no,no,yes,yes",
     ].join("\n");
 
     const ev = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
     const fam = (await Effect.runPromise(parseGuestsCsv(renamedCsv, ev))) as ParsedFamily[];
 
     const plan = await Effect.runPromise(diffAgainstDb(ev, fam).pipe(Effect.provide(sharedLayer)));
-    expect(plan.familyRemoves.map((f) => f.familyName)).toContain("Sharma");
-    expect(plan.familyCreates.map((f) => f.familyName)).toContain("Sharma-Patel");
+    expect(plan.familyRemoves.map((f) => f.familyName)).toContain("Testfamily");
+    expect(plan.familyCreates.map((f) => f.familyName)).toContain("Testfamily-Placeholder");
   });
 });
 
@@ -130,23 +130,23 @@ describe("diff: guest first-name change = remove + create", () => {
 
     const csv = [
       "Family ID,Family Name,Guest First Name,Guest Last Name,Catholic Ceremony,Mehendi,Hindu Ceremony,Reception",
-      "1,Sharma,Priya,Sharma-Patel,yes,no,yes,yes",
-      "2,Wilson,Jim,Wilson,no,no,yes,yes",
-      "2,Wilson,Emma,Wilson,no,no,yes,yes",
-      "2,Wilson,Sophie,Wilson,no,no,yes,no",
-      "3,Meena,Auntie,Meena,yes,no,yes,no",
-      "4,Patel,Dev,Patel,no,no,yes,yes",
+      "1,Testfamily,Ada,Testfamily-Placeholder,yes,no,yes,yes",
+      "2,Sampleton,Jim,Sampleton,no,no,yes,yes",
+      "2,Sampleton,Cleo,Sampleton,no,no,yes,yes",
+      "2,Sampleton,Dot,Sampleton,no,no,yes,no",
+      "3,Exampleton,Nori,Exampleton,yes,no,yes,no",
+      "4,Placeholder,Eli,Placeholder,no,no,yes,yes",
     ].join("\n");
 
     const ev = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
     const fam = (await Effect.runPromise(parseGuestsCsv(csv, ev))) as ParsedFamily[];
     const plan = await Effect.runPromise(diffAgainstDb(ev, fam).pipe(Effect.provide(sharedLayer)));
 
-    // James → Jim: remove + create.
-    expect(plan.guestRemoves.map((g) => g.firstName)).toContain("James");
+    // Bo → Jim: remove + create.
+    expect(plan.guestRemoves.map((g) => g.firstName)).toContain("Bo");
     expect(plan.guestCreates.map((g) => g.firstName)).toContain("Jim");
-    // Priya: last-name change only → guestUpdate.
-    expect(plan.guestUpdates.find((g) => g.lastName === "Sharma-Patel")).toBeDefined();
+    // Ada: last-name change only → guestUpdate.
+    expect(plan.guestUpdates.find((g) => g.lastName === "Testfamily-Placeholder")).toBeDefined();
   });
 });
 
@@ -158,12 +158,12 @@ describe("diff: guestEvent toggles", () => {
 
     const csv = [
       "Family ID,Family Name,Guest First Name,Guest Last Name,Catholic Ceremony,Mehendi,Hindu Ceremony,Reception",
-      "1,Sharma,Priya,Sharma,no,no,no,no", // was invited to catholic/hindu/reception
-      "2,Wilson,James,Wilson,no,no,yes,yes",
-      "2,Wilson,Emma,Wilson,no,no,yes,yes",
-      "2,Wilson,Sophie,Wilson,no,no,yes,no",
-      "3,Meena,Auntie,Meena,yes,no,yes,no",
-      "4,Patel,Dev,Patel,no,no,yes,yes",
+      "1,Testfamily,Ada,Testfamily,no,no,no,no", // was invited to catholic/hindu/reception
+      "2,Sampleton,Bo,Sampleton,no,no,yes,yes",
+      "2,Sampleton,Cleo,Sampleton,no,no,yes,yes",
+      "2,Sampleton,Dot,Sampleton,no,no,yes,no",
+      "3,Exampleton,Nori,Exampleton,yes,no,yes,no",
+      "4,Placeholder,Eli,Placeholder,no,no,yes,yes",
     ].join("\n");
 
     const ev = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
@@ -178,8 +178,8 @@ describe("diff: warning when removing a guest with non-default RSVP", () => {
     const sharedDb = createDb(":memory:");
     seedDb(sharedDb);
 
-    // Add an RSVP for James Wilson (will be renamed → removed).
-    const [james] = sharedDb.select().from(guests).where(eq(guests.firstName, "James")).all();
+    // Add an RSVP for Bo Sampleton (will be renamed → removed).
+    const [james] = sharedDb.select().from(guests).where(eq(guests.firstName, "Bo")).all();
     sharedDb
       .insert(rsvps)
       .values({
@@ -196,12 +196,12 @@ describe("diff: warning when removing a guest with non-default RSVP", () => {
 
     const csv = [
       "Family ID,Family Name,Guest First Name,Guest Last Name,Catholic Ceremony,Mehendi,Hindu Ceremony,Reception",
-      "1,Sharma,Priya,Sharma,yes,no,yes,yes",
-      "2,Wilson,Jim,Wilson,no,no,yes,yes",
-      "2,Wilson,Emma,Wilson,no,no,yes,yes",
-      "2,Wilson,Sophie,Wilson,no,no,yes,no",
-      "3,Meena,Auntie,Meena,yes,no,yes,no",
-      "4,Patel,Dev,Patel,no,no,yes,yes",
+      "1,Testfamily,Ada,Testfamily,yes,no,yes,yes",
+      "2,Sampleton,Jim,Sampleton,no,no,yes,yes",
+      "2,Sampleton,Cleo,Sampleton,no,no,yes,yes",
+      "2,Sampleton,Dot,Sampleton,no,no,yes,no",
+      "3,Exampleton,Nori,Exampleton,yes,no,yes,no",
+      "4,Placeholder,Eli,Placeholder,no,no,yes,yes",
     ].join("\n");
 
     const ev = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
@@ -210,11 +210,11 @@ describe("diff: warning when removing a guest with non-default RSVP", () => {
 
     expect(plan.warnings.length).toBeGreaterThan(0);
     const warning = plan.warnings[0]!;
-    expect(warning).toContain("James");
+    expect(warning).toContain("Bo");
     expect(warning).toContain("attending");
     expect(warning).toContain("vegan");
     // No surnames in warning text:
-    expect(warning).not.toContain("Wilson");
+    expect(warning).not.toContain("Sampleton");
   });
 });
 

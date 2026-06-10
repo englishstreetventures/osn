@@ -38,7 +38,7 @@ describe("rsvpService.submitRsvp", () => {
     "inserts an RSVP for a valid guest+event",
     withDb(
       Effect.gen(function* () {
-        const priya = yield* lookupGuest("Priya");
+        const priya = yield* lookupGuest("Ada");
         yield* rsvpService.submitRsvp({
           guestId: priya.id,
           eventId: HINDU_ID,
@@ -59,7 +59,7 @@ describe("rsvpService.submitRsvp", () => {
     "upserts — overwrites status on re-submit for same guest+event",
     withDb(
       Effect.gen(function* () {
-        const priya = yield* lookupGuest("Priya");
+        const priya = yield* lookupGuest("Ada");
         yield* rsvpService.submitRsvp({
           guestId: priya.id,
           eventId: HINDU_ID,
@@ -85,7 +85,7 @@ describe("rsvpService.submitRsvp", () => {
     "persists dietary requirements",
     withDb(
       Effect.gen(function* () {
-        const priya = yield* lookupGuest("Priya");
+        const priya = yield* lookupGuest("Ada");
         yield* rsvpService.submitRsvp({
           guestId: priya.id,
           eventId: RECEPTION_ID,
@@ -106,8 +106,8 @@ describe("rsvpService.getRsvpsForFamily", () => {
     "returns all RSVPs across family members",
     withDb(
       Effect.gen(function* () {
-        const james = yield* lookupGuest("James");
-        const emma = yield* lookupGuest("Emma");
+        const james = yield* lookupGuest("Bo");
+        const emma = yield* lookupGuest("Cleo");
 
         yield* rsvpService.submitRsvp({
           guestId: james.id,

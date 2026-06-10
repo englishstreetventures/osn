@@ -46,7 +46,7 @@ function normaliseName(s: string): string {
 }
 
 /**
- * Turn a name like "Sharma" → "SHARMA-A1B2C3D4". 8-hex-char suffix is 32 bits
+ * Turn a name like "Example" → "EXAMPLE-A1B2C3D4". 8-hex-char suffix is 32 bits
  * of entropy — birthday-collision risk is ~50% past ~65k same-base families,
  * which is comfortably beyond any single-event guest list.
  */

@@ -28,8 +28,8 @@ const EVENTS_CSV = [
 
 const GUESTS_CSV = [
   "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Wedding Ceremony",
-  "1,Sharma,Priya,Sharma,yes,yes",
-  "2,Wilson,James,Wilson,no,yes",
+  "1,Testfamily,Ada,Testfamily,yes,yes",
+  "2,Sampleton,Bo,Sampleton,no,yes",
 ].join("\n");
 
 function buildApp() {
@@ -203,8 +203,8 @@ describe("POST /api/organiser/import/revert", () => {
     ].join("\n");
     const guestsV2 = [
       "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Wedding Ceremony,Reception",
-      "1,Sharma,Priya,Sharma,yes,yes,yes",
-      "2,Wilson,James,Wilson,no,yes,yes",
+      "1,Testfamily,Ada,Testfamily,yes,yes,yes",
+      "2,Sampleton,Bo,Sampleton,no,yes,yes",
     ].join("\n");
     const r2 = await preview(app, { eventsCsv: eventsV2, guestsCsv: guestsV2 });
     const id2 = ((await r2.json()) as { importId: string }).importId;

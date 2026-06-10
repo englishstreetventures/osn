@@ -17,7 +17,7 @@
       { "name": "Sage", "color": "oklch(72.88% 0.0585 128.92)" },
       { "name": "Emerald", "color": "oklch(46.05% 0.1156 153.58)" }
     ],
-    "pinterestUrl": "https://www.pinterest.com.au/example/catholic-wedding-guest-moodboard/",
+    "pinterestUrl": "https://www.pinterest.com/example/catholic-moodboard/",
     "mapsUrl": "https://maps.google.com/?q=123+Example+St+Sampletown+NSW+2000",
     "sortOrder": 0
   },
@@ -39,7 +39,7 @@
       { "name": "Cream", "color": "oklch(94.80% 0.0250 90.00)" },
       { "name": "Dusty Rose", "color": "oklch(78.63% 0.0634 48.93)" }
     ],
-    "pinterestUrl": "https://www.pinterest.com.au/example/kitchen-tea-mood-board/",
+    "pinterestUrl": "https://www.pinterest.com/example/kitchen-tea-moodboard/",
     "mapsUrl": "https://maps.google.com/?q=124+Sample+Avenue+Exampleville+NSW+2001",
     "sortOrder": 1
   },
@@ -61,7 +61,7 @@
       { "name": "Amber", "color": "oklch(80.00% 0.1450 85.00)" },
       { "name": "Burnt Orange", "color": "oklch(58.50% 0.1620 42.00)" }
     ],
-    "pinterestUrl": "https://www.pinterest.com.au/example/mehendi-moodboard/",
+    "pinterestUrl": "https://www.pinterest.com/example/mehendi-moodboard/",
     "mapsUrl": "https://maps.google.com/?q=124+Sample+Avenue+Exampleville+NSW+2001",
     "sortOrder": 2
   },
@@ -83,7 +83,7 @@
       { "name": "Olive", "color": "oklch(55.00% 0.0720 110.00)" },
       { "name": "Sand", "color": "oklch(82.00% 0.0480 80.00)" }
     ],
-    "pinterestUrl": "https://www.pinterest.com.au/example/hindu-wedding-guest-moodboard/",
+    "pinterestUrl": "https://www.pinterest.com/example/hindu-moodboard/",
     "mapsUrl": "https://maps.google.com/?q=125+Placeholder+Highway+Mocktown+NSW+2002",
     "sortOrder": 3
   },
@@ -105,7 +105,7 @@
       { "name": "Indigo", "color": "oklch(35.00% 0.1320 290.00)" },
       { "name": "Plum", "color": "oklch(38.22% 0.1235 340.14)" }
     ],
-    "pinterestUrl": "https://www.pinterest.com.au/example/reception-guest-moodboard/",
+    "pinterestUrl": "https://www.pinterest.com/example/reception-moodboard/",
     "mapsUrl": "https://maps.google.com/?q=126+Example+Road+Testburg+NSW+2003",
     "sortOrder": 4
   }

@@ -23,13 +23,13 @@ describe("claimService.lookup", () => {
     "returns family + members + events for valid publicId (single guest)",
     withDb(
       Effect.gen(function* () {
-        const result = yield* claimService.lookup("SHARMA-IVY-QM42");
-        expect(result.familyName).toBe("Sharma");
-        expect(result.publicId).toBe("SHARMA-IVY-QM42");
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
+        expect(result.familyName).toBe("Testfamily");
+        expect(result.publicId).toBe("TESTONE-IVY-AA11");
         expect(result.members).toHaveLength(1);
         const priya = result.members[0]!;
-        expect(priya.firstName).toBe("Priya");
-        expect(priya.lastName).toBe("Sharma");
+        expect(priya.firstName).toBe("Ada");
+        expect(priya.lastName).toBe("Testfamily");
         expect(typeof priya.guestId).toBe("string");
         expect(priya.guestId.length).toBeGreaterThan(0);
         expect([...priya.eventIds].sort()).toEqual([CATHOLIC_ID, HINDU_ID, RECEPTION_ID].sort());
@@ -45,7 +45,7 @@ describe("claimService.lookup", () => {
     "exposes guestId on every member",
     withDb(
       Effect.gen(function* () {
-        const result = yield* claimService.lookup("WILSON-OAK-7R2P");
+        const result = yield* claimService.lookup("TESTTWO-OAK-BB22");
         for (const m of result.members) {
           expect(typeof m.guestId).toBe("string");
           expect(m.guestId.length).toBeGreaterThan(0);
@@ -61,7 +61,7 @@ describe("claimService.lookup", () => {
     "surfaces extended event metadata (startAt, endAt, timezone, address, palette, urls)",
     withDb(
       Effect.gen(function* () {
-        const result = yield* claimService.lookup("SHARMA-IVY-QM42");
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
         const catholic = result.events.find((e) => e.id === CATHOLIC_ID)!;
         expect(catholic.startAt).toBe(eventsData.catholic.startAt);
         expect(catholic.endAt).toBe(eventsData.catholic.endAt);
@@ -80,7 +80,7 @@ describe("claimService.lookup", () => {
     "orders events by sortOrder",
     withDb(
       Effect.gen(function* () {
-        const result = yield* claimService.lookup("SHARMA-IVY-QM42");
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
         const orders = result.events.map((e) => e.sortOrder);
         expect(orders).toEqual([...orders].sort((a, b) => a - b));
       }),
@@ -88,29 +88,29 @@ describe("claimService.lookup", () => {
   );
 
   it(
-    "returns each member's own eventIds — Wilson kid is hindu-only",
+    "returns each member's own eventIds — Sampleton kid is hindu-only",
     withDb(
       Effect.gen(function* () {
-        const result = yield* claimService.lookup("WILSON-OAK-7R2P");
-        expect(result.familyName).toBe("Wilson");
+        const result = yield* claimService.lookup("TESTTWO-OAK-BB22");
+        expect(result.familyName).toBe("Sampleton");
         const byName = new Map(result.members.map((m) => [m.firstName, m]));
-        expect([...(byName.get("James")?.eventIds ?? [])].sort()).toEqual(
+        expect([...(byName.get("Bo")?.eventIds ?? [])].sort()).toEqual(
           [RECEPTION_ID, HINDU_ID].sort(),
         );
-        expect([...(byName.get("Emma")?.eventIds ?? [])].sort()).toEqual(
+        expect([...(byName.get("Cleo")?.eventIds ?? [])].sort()).toEqual(
           [RECEPTION_ID, HINDU_ID].sort(),
         );
-        expect(byName.get("Sophie")?.eventIds).toEqual([HINDU_ID]);
+        expect(byName.get("Dot")?.eventIds).toEqual([HINDU_ID]);
         expect(result.events.map((e) => e.id).sort()).toEqual([RECEPTION_ID, HINDU_ID].sort());
       }),
     ),
   );
 
   it(
-    "returns all five events for the Patels (default demo code invites everyone)",
+    "returns all five events for the Placeholders (default demo code invites everyone)",
     withDb(
       Effect.gen(function* () {
-        const result = yield* claimService.lookup("PATEL-JOY-RK97");
+        const result = yield* claimService.lookup("TESTFOR-JOY-DD44");
         expect(result.events.map((e) => e.id).sort()).toEqual(
           [CATHOLIC_ID, KITCHEN_TEA_ID, MEHENDI_ID, HINDU_ID, RECEPTION_ID].sort(),
         );
