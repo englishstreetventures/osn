@@ -136,7 +136,10 @@ export const createOnboardingRoutes = (
         set.status = 429;
         return { error: "Too many requests" } as const;
       }
-      const claims = await extractClaims(headers["authorization"], jwksUrl, _testKey as CryptoKey);
+      const claims = await extractClaims(headers["authorization"], jwksUrl, {
+        testKey: _testKey as CryptoKey,
+        audience: "osn-access",
+      });
       if (!claims) {
         set.status = 401;
         return { message: "Unauthorized" } as const;
@@ -182,11 +185,10 @@ export const createOnboardingRoutes = (
           set.status = 429;
           return { error: "Too many requests" } as const;
         }
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;

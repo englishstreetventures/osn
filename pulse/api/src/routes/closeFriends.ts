@@ -30,11 +30,10 @@ export const createCloseFriendsRoutes = (
     .get(
       "/",
       async ({ headers, set }) => {
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
@@ -70,11 +69,10 @@ export const createCloseFriendsRoutes = (
     .post(
       "/:friendId",
       async ({ params, headers, set }) => {
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
@@ -110,11 +108,10 @@ export const createCloseFriendsRoutes = (
     .delete(
       "/:friendId",
       async ({ params, headers, set }) => {
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
@@ -146,11 +143,10 @@ export const createCloseFriendsRoutes = (
     .get(
       "/:friendId/check",
       async ({ params, headers, set }) => {
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;

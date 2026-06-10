@@ -31,11 +31,10 @@ export const createSeriesRoutes = (
     .post(
       "/",
       async ({ body, headers, set }) => {
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
@@ -94,11 +93,10 @@ export const createSeriesRoutes = (
     .get(
       "/:id",
       async ({ params, headers, set }) => {
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         const viewerId = claims?.profileId ?? null;
 
         const series = await Effect.runPromise(
@@ -150,11 +148,10 @@ export const createSeriesRoutes = (
     .get(
       "/:id/instances",
       async ({ params, query, headers, set }) => {
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         const result = await Effect.runPromise(
           listInstances(params.id, {
             scope: query.scope ?? "upcoming",
@@ -182,11 +179,10 @@ export const createSeriesRoutes = (
     .patch(
       "/:id",
       async ({ params, body, headers, set }) => {
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
@@ -241,11 +237,10 @@ export const createSeriesRoutes = (
     .delete(
       "/:id",
       async ({ params, headers, set }) => {
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;

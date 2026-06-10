@@ -1,6 +1,5 @@
 import { Elysia } from "elysia";
 
-import { tokenMatchesAudience } from "../audience";
 import type { OsnAuthOptions } from "../options";
 import { extractClaims } from "../verify";
 
@@ -15,8 +14,8 @@ const unauthenticated = { osnProfileId: undefined as string | undefined };
  * `sub` claim) onto the request context. On any failure — missing header,
  * bad signature, expired token, wrong audience — responds 401.
  *
- * Audience checking happens here (extractClaims doesn't enforce aud);
- * the audience parameter is mandatory.
+ * Audience is enforced inside the single jwtVerify pass (P-I1) — the
+ * audience parameter is mandatory.
  */
 export function osnAuth(options: OsnAuthOptions) {
   return (
@@ -25,14 +24,11 @@ export function osnAuth(options: OsnAuthOptions) {
       // { as: "scoped" } the derive/onBeforeHandle never run in the parent
       // app and every request silently passes unauthenticated.
       .derive({ as: "scoped" }, async ({ headers }) => {
-        const claims = await extractClaims(
-          headers.authorization,
-          options.jwksUrl,
-          options._testKey,
-        );
+        const claims = await extractClaims(headers.authorization, options.jwksUrl, {
+          testKey: options._testKey,
+          audience: options.audience,
+        });
         if (!claims) return unauthenticated;
-        const token = headers.authorization?.slice("Bearer ".length);
-        if (!token || !tokenMatchesAudience(token, options.audience)) return unauthenticated;
         return { osnProfileId: claims.profileId as string | undefined };
       })
       .onBeforeHandle({ as: "scoped" }, ({ osnProfileId, set }) => {

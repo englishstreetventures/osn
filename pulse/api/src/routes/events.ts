@@ -153,11 +153,10 @@ export const createEventsRoutes = (
       .get(
         "/",
         async ({ query, headers }) => {
-          const claims = await extractClaims(
-            headers["authorization"],
-            jwksUrl,
-            _testKey as CryptoKey,
-          );
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
           const result = await Effect.runPromise(
             listEvents({ ...query, viewerId: claims?.profileId ?? null }).pipe(
               Effect.provide(dbLayer),
@@ -194,11 +193,10 @@ export const createEventsRoutes = (
             set.status = 429;
             return { error: "Too many requests" } as const;
           }
-          const claims = await extractClaims(
-            headers["authorization"],
-            jwksUrl,
-            _testKey as CryptoKey,
-          );
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
           const viewerId = claims?.profileId ?? null;
           // `friendsOnly` without a viewer is a validation error — the
           // service raises `DiscoveryValidationError`, which we map to
@@ -269,11 +267,10 @@ export const createEventsRoutes = (
           // only returned to the organiser or to invited / RSVP'd users.
           // 404 (not 403) for non-authorised viewers so we don't leak
           // existence.
-          const claims = await extractClaims(
-            headers["authorization"],
-            jwksUrl,
-            _testKey as CryptoKey,
-          );
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
           const result = await Effect.runPromise(
             loadVisibleEvent(params.id, claims?.profileId ?? null).pipe(Effect.provide(dbLayer)),
           );
@@ -296,11 +293,10 @@ export const createEventsRoutes = (
       .post(
         "/",
         async ({ body, headers, set }) => {
-          const claims = await extractClaims(
-            headers["authorization"],
-            jwksUrl,
-            _testKey as CryptoKey,
-          );
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -354,11 +350,10 @@ export const createEventsRoutes = (
       .patch(
         "/:id",
         async ({ params, body, headers, set }) => {
-          const claims = await extractClaims(
-            headers["authorization"],
-            jwksUrl,
-            _testKey as CryptoKey,
-          );
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -417,11 +412,10 @@ export const createEventsRoutes = (
       .delete(
         "/:id",
         async ({ params, headers, set }) => {
-          const claims = await extractClaims(
-            headers["authorization"],
-            jwksUrl,
-            _testKey as CryptoKey,
-          );
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -455,11 +449,10 @@ export const createEventsRoutes = (
       .get(
         "/:id/rsvps",
         async ({ params, query, headers, set }) => {
-          const claims = await extractClaims(
-            headers["authorization"],
-            jwksUrl,
-            _testKey as CryptoKey,
-          );
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
           const viewerId = claims?.profileId ?? null;
           // Visibility gate first — private events are 404 to non-viewers.
           const event = await Effect.runPromise(
@@ -516,11 +509,10 @@ export const createEventsRoutes = (
       .get(
         "/:id/rsvps/counts",
         async ({ params, headers, set }) => {
-          const claims = await extractClaims(
-            headers["authorization"],
-            jwksUrl,
-            _testKey as CryptoKey,
-          );
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
           // S-H5: gate counts by visibility — leaking the existence /
           // activity of a private event is its own information disclosure.
           const event = await Effect.runPromise(
@@ -551,11 +543,10 @@ export const createEventsRoutes = (
       .get(
         "/:id/rsvps/latest",
         async ({ params, query, headers, set }) => {
-          const claims = await extractClaims(
-            headers["authorization"],
-            jwksUrl,
-            _testKey as CryptoKey,
-          );
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
           const viewerId = claims?.profileId ?? null;
           const event = await Effect.runPromise(
             loadVisibleEvent(params.id, viewerId).pipe(Effect.provide(dbLayer)),
@@ -602,11 +593,10 @@ export const createEventsRoutes = (
       .post(
         "/:id/rsvps",
         async ({ params, body, headers, set }) => {
-          const claims = await extractClaims(
-            headers["authorization"],
-            jwksUrl,
-            _testKey as CryptoKey,
-          );
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -644,11 +634,10 @@ export const createEventsRoutes = (
       .post(
         "/:id/invite",
         async ({ params, body, headers, set }) => {
-          const claims = await extractClaims(
-            headers["authorization"],
-            jwksUrl,
-            _testKey as CryptoKey,
-          );
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -691,11 +680,10 @@ export const createEventsRoutes = (
           // S-H2: gate ICS export by visibility. Otherwise the file
           // download leaks event metadata (incl. GEO coordinates) for
           // private events to anyone with the URL.
-          const claims = await extractClaims(
-            headers["authorization"],
-            jwksUrl,
-            _testKey as CryptoKey,
-          );
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
           const event = await Effect.runPromise(
             loadVisibleEvent(params.id, claims?.profileId ?? null).pipe(Effect.provide(dbLayer)),
           );
@@ -722,11 +710,10 @@ export const createEventsRoutes = (
           // S-H3: gate comms by visibility. Blast bodies often contain
           // venue codes, addresses, dress codes — they should never be
           // visible to viewers who can't see the event.
-          const claims = await extractClaims(
-            headers["authorization"],
-            jwksUrl,
-            _testKey as CryptoKey,
-          );
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
           const event = await Effect.runPromise(
             loadVisibleEvent(params.id, claims?.profileId ?? null).pipe(Effect.provide(dbLayer)),
           );
@@ -761,11 +748,10 @@ export const createEventsRoutes = (
       .post(
         "/:id/comms/blasts",
         async ({ params, body, headers, set }) => {
-          const claims = await extractClaims(
-            headers["authorization"],
-            jwksUrl,
-            _testKey as CryptoKey,
-          );
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -829,7 +815,10 @@ export const createSettingsRoutes = (
   return new Elysia({ prefix: "/me" }).patch(
     "/settings",
     async ({ body, headers, set }) => {
-      const claims = await extractClaims(headers["authorization"], jwksUrl, _testKey as CryptoKey);
+      const claims = await extractClaims(headers["authorization"], jwksUrl, {
+        testKey: _testKey as CryptoKey,
+        audience: "osn-access",
+      });
       if (!claims) {
         metricSettingsUpdated("attendance_visibility", "unauthorized");
         set.status = 401;
