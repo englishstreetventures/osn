@@ -23,6 +23,12 @@ import {
 
 const ONE_MB = 1 * 1024 * 1024;
 
+// S-H1: the import diff is not yet tenant-scoped, so the service fails closed
+// (MultiWeddingImportUnsupported) once a second wedding exists. Map it to 409
+// with a pointer to the tracked real fix.
+const MULTI_WEDDING_MSG =
+  "Spreadsheet import is not yet multi-tenant safe; see wiki/TODO diffAgainstDb scoping";
+
 type AppVariables = {
   db: Db;
   r2: R2Bucket;
@@ -130,6 +136,9 @@ organiserImportRoute.post("/preview", async (c) => {
       Effect.catchTag("ParseError", () =>
         Effect.succeed(c.json({ error: "Missing or invalid fields" }, 400)),
       ),
+      Effect.catchTag("MultiWeddingImportUnsupported", () =>
+        Effect.succeed(c.json({ error: MULTI_WEDDING_MSG }, 409)),
+      ),
       Effect.catchTag("FormulaInjectionDetected", (e: FormulaInjectionDetected) =>
         Effect.gen(function* () {
           yield* Effect.logWarning(`formula injection rejected`, {
@@ -204,6 +213,9 @@ organiserImportRoute.post("/apply", async (c) => {
       Effect.catchTag("ParseError", () =>
         Effect.succeed(c.json({ error: "Missing or invalid fields" }, 400)),
       ),
+      Effect.catchTag("MultiWeddingImportUnsupported", () =>
+        Effect.succeed(c.json({ error: MULTI_WEDDING_MSG }, 409)),
+      ),
       Effect.catchTag("FormulaInjectionDetected", () =>
         Effect.succeed(c.json({ error: "Formula-injection guard tripped" }, 422)),
       ),
@@ -249,6 +261,9 @@ organiserImportRoute.post("/revert", async (c) => {
       Effect.catchTag("NoPriorImport", () =>
         Effect.succeed(c.json({ error: "No prior applied import to revert to" }, 409)),
       ),
+      Effect.catchTag("MultiWeddingImportUnsupported", () =>
+        Effect.succeed(c.json({ error: MULTI_WEDDING_MSG }, 409)),
+      ),
       Effect.catchTag("R2Error", () => Effect.succeed(c.json({ error: "Storage error" }, 500))),
       Effect.catchTag("RevertParseError", () =>
         Effect.succeed(c.json({ error: "Stored CSV failed to re-parse" }, 500)),
@@ -269,7 +284,9 @@ organiserImportRoute.get("/list", (c) => {
   // Pagination — `?limit=N` (default 50, clamped 1..100) and `?cursor=<ms>`.
   // The cursor is the `uploadedAt` of the last row from the previous page;
   // we ask for `uploadedAt < cursor` and return `nextCursor` so the client
-  // can keep walking. Backed by the `imports_status_uploaded_at_idx` index.
+  // can keep walking. Backed by the composite `imports_wedding_uploaded_at_idx`
+  // (wedding_id, uploaded_at) index — covers the wedding scope + the
+  // uploaded_at cursor/order in one b-tree (P-W1).
   const limitParam = c.req.query("limit");
   const parsedLimit = limitParam ? Number.parseInt(limitParam, 10) : NaN;
   const limit = Number.isFinite(parsedLimit) ? Math.min(100, Math.max(1, parsedLimit)) : 50;

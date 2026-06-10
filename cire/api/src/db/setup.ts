@@ -102,8 +102,7 @@ CREATE TABLE IF NOT EXISTS imports (
   applied_at INTEGER,
   reverted_at INTEGER
 );
-CREATE INDEX IF NOT EXISTS imports_status_uploaded_at_idx ON imports(status, uploaded_at);
-CREATE INDEX IF NOT EXISTS imports_wedding_idx ON imports(wedding_id);
+CREATE INDEX IF NOT EXISTS imports_wedding_uploaded_at_idx ON imports(wedding_id, uploaded_at);
 `;
 
 export function createDb(path: string = ":memory:"): Db {

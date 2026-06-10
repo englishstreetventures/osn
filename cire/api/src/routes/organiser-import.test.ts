@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, families, guests, imports } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, families, guests, imports, weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../app";
@@ -305,6 +305,60 @@ describe("GET /api/organiser/import/list", () => {
       headers: { Authorization: `Bearer ${bearer}` },
     });
     expect(huge.status).toBe(200);
+  });
+});
+
+describe("S-H1 tripwire: multi-wedding import fails closed", () => {
+  // Insert a SECOND wedding owned by someone else so the import diff (which is
+  // not yet tenant-scoped) refuses to run rather than read/wipe the other
+  // tenant's rows. The seeded bootstrap-wedding owner remains the bearer.
+  function addSecondWedding(db: ReturnType<typeof buildApp>["db"]) {
+    const now = new Date();
+    db.insert(weddings)
+      .values({
+        id: "wed_second",
+        slug: "second-wedding",
+        displayName: "Second Wedding",
+        ownerOsnProfileId: "usr_someone_else",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  it("previews fine with a single wedding present", async () => {
+    const { app } = buildApp();
+    const res = await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
+    expect(res.status).toBe(200);
+  });
+
+  it("fails preview closed (409) once a second wedding exists", async () => {
+    const { app, db } = buildApp();
+    addSecondWedding(db);
+    const res = await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("not yet multi-tenant safe");
+  });
+
+  it("fails apply closed (409) once a second wedding exists", async () => {
+    const { app, db } = buildApp();
+    // Preview succeeds while single-tenant, creating a preview row.
+    const res = await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
+    const { importId } = (await res.json()) as { importId: string };
+
+    // A second wedding lands before apply re-diffs.
+    addSecondWedding(db);
+
+    const apply = await app.request("/api/organiser/import/apply", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${bearer}`,
+      },
+      body: JSON.stringify({ importId }),
+    });
+    expect(apply.status).toBe(409);
   });
 });
 

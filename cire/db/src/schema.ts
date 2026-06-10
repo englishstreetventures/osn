@@ -173,7 +173,13 @@ export const imports = sqliteTable(
     revertedAt: integer("reverted_at"),
   },
   (t) => [
-    index("imports_status_uploaded_at_idx").on(t.status, t.uploadedAt),
-    index("imports_wedding_idx").on(t.weddingId),
+    // P-W1: import-list pagination is `WHERE wedding_id = ? [AND uploaded_at <
+    // cursor] ORDER BY uploaded_at DESC`. This composite covers the scope +
+    // cursor/order in one b-tree (and also serves revert.ts's
+    // `wedding_id = ? AND status = 'applied' ORDER BY uploaded_at DESC` with
+    // status as a residual filter). The old single-column wedding index and the
+    // `(status, uploaded_at)` index are dropped: nothing filters by status
+    // alone, so the latter served no remaining query.
+    index("imports_wedding_uploaded_at_idx").on(t.weddingId, t.uploadedAt),
   ],
 );

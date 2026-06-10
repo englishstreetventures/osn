@@ -1,5 +1,5 @@
-import { events, families, guests, guestEvents, rsvps } from "@cire/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { events, families, guests, guestEvents, rsvps, weddings } from "@cire/db";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
 import { DbService } from "../db";
@@ -24,6 +24,19 @@ import type {
 export class ImportError extends Data.TaggedError("ImportError")<{
   readonly reason: string;
   readonly cause?: unknown;
+}> {}
+
+// S-H1 TRIPWIRE: spreadsheet import reads/deletes events/families/guests/
+// guest_events without a wedding_id predicate. While exactly one wedding row
+// exists that is harmless, but the moment a SECOND wedding is created an
+// organiser running an import would read+wipe the other tenant's rows. The
+// proper join-based scoping is tracked separately (wiki/TODO.md → "diffAgainstDb
+// scoping"); until it lands this error fails the operation CLOSED so the
+// documented single-tenant invariant is enforced in code, not by convention.
+export class MultiWeddingImportUnsupported extends Data.TaggedError(
+  "MultiWeddingImportUnsupported",
+)<{
+  readonly weddingCount: number;
 }> {}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -70,9 +83,22 @@ function mintEventSlug(name: string): string {
 export function diffAgainstDb(
   parsedEvents: readonly ParsedEvent[],
   parsedFamilies: readonly ParsedFamily[],
-): Effect.Effect<ImportPlan, never, DbService> {
+): Effect.Effect<ImportPlan, MultiWeddingImportUnsupported, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
+
+    // S-H1 TRIPWIRE: every read below is tenant-UNSCOPED, and applyImport then
+    // deletes by id. With one wedding that is safe; with two it cross-reads and
+    // cross-deletes. diffAgainstDb is the chokepoint for preview/apply/revert,
+    // so fail closed here if a second wedding exists. Real fix (join-based
+    // scoping) is tracked in wiki/TODO.md → "diffAgainstDb scoping".
+    const [{ count: weddingCount }] = db
+      .select({ count: sql<number>`count(*)` })
+      .from(weddings)
+      .all();
+    if (weddingCount > 1) {
+      return yield* Effect.fail(new MultiWeddingImportUnsupported({ weddingCount }));
+    }
 
     // ── Events ──────────────────────────────────────────────────────────────
     const existingEvents = db.select().from(events).all();

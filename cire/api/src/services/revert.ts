@@ -4,7 +4,7 @@ import { Effect, Data } from "effect";
 
 import { DbService } from "../db";
 import type { ImportSummary, ParsedFamily } from "../schemas/import";
-import { applyImport, diffAgainstDb, ImportError } from "./import";
+import { applyImport, diffAgainstDb, ImportError, MultiWeddingImportUnsupported } from "./import";
 import { R2Service, fetchUpload, R2Error } from "./r2-imports";
 import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
 
@@ -16,7 +16,12 @@ export class RevertParseError extends Data.TaggedError("RevertParseError")<{
   readonly reason: string;
 }> {}
 
-export type RevertError = NoPriorImport | R2Error | RevertParseError | ImportError;
+export type RevertError =
+  | NoPriorImport
+  | R2Error
+  | RevertParseError
+  | ImportError
+  | MultiWeddingImportUnsupported;
 
 /**
  * Revert the most-recently-applied import by re-fetching its predecessor's CSVs
