@@ -12,6 +12,10 @@ import { parseSessionToken } from "../lib/cookie";
 import { eff } from "../test-helpers";
 
 const HINDU_ID = eventsData.hindu.id;
+// Priya (Sharma) is invited to catholic + hindu + reception, NOT mehendi.
+const MEHENDI_ID = eventsData.mehendi.id;
+// A UUID that exists in no wedding — stands in for "another wedding's event".
+const FOREIGN_EVENT_ID = "00000000-0000-4000-8000-ffffffffffff";
 
 interface RsvpOk {
   rsvps: Array<{
@@ -154,6 +158,96 @@ describe("POST /api/rsvp", () => {
         const cookie = yield* claimAndCookie("SHARMA-IVY-QM42");
         const res = yield* post({}, cookie);
         expect(res.status).toBe(400);
+      }),
+    ),
+  );
+
+  it(
+    "returns 200 when RSVPing to an invited event (S-M1)",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("SHARMA-IVY-QM42");
+        const res = yield* post(
+          { rsvps: [{ guestId: sharmaGuestId, eventId: HINDU_ID, status: "attending" }] },
+          cookie,
+        );
+        expect(res.status).toBe(200);
+      }),
+    ),
+  );
+
+  it(
+    "returns 403 when RSVPing to a valid-but-uninvited event (S-M1)",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("SHARMA-IVY-QM42");
+        const res = yield* post(
+          { rsvps: [{ guestId: sharmaGuestId, eventId: MEHENDI_ID, status: "attending" }] },
+          cookie,
+        );
+        expect(res.status).toBe(403);
+        const data = yield* Effect.promise(() => res.json<{ error: string }>());
+        expect(data.error).toBe("One or more guests are not invited to that event");
+      }),
+    ),
+  );
+
+  it(
+    "returns 403 when RSVPing to another wedding's event UUID (S-M1)",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("SHARMA-IVY-QM42");
+        const res = yield* post(
+          { rsvps: [{ guestId: sharmaGuestId, eventId: FOREIGN_EVENT_ID, status: "attending" }] },
+          cookie,
+        );
+        expect(res.status).toBe(403);
+      }),
+    ),
+  );
+
+  it(
+    "returns 400 when dietary text exceeds the 500-char cap (S-L2)",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("SHARMA-IVY-QM42");
+        const res = yield* post(
+          {
+            rsvps: [
+              {
+                guestId: sharmaGuestId,
+                eventId: HINDU_ID,
+                status: "attending",
+                dietary: "x".repeat(501),
+              },
+            ],
+          },
+          cookie,
+        );
+        expect(res.status).toBe(400);
+      }),
+    ),
+  );
+
+  it(
+    "returns 413 when Content-Length declares an oversized payload (S-L2)",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("SHARMA-IVY-QM42");
+        const res = yield* Effect.promise(() =>
+          app.fetch(
+            new Request("http://localhost/api/rsvp", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Cookie: cookie,
+                "Content-Length": String(512 * 1024),
+              },
+              body: JSON.stringify({ rsvps: [] }),
+            }),
+          ),
+        );
+        expect(res.status).toBe(413);
       }),
     ),
   );
