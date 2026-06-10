@@ -33,20 +33,22 @@ type AppVariables = {
 export const organiserImportRoute = new Hono<{ Variables: AppVariables }>();
 
 /**
- * Shared-secret gate. The header `X-Organiser-Token` must match
- * `env.ORGANISER_TOKEN` (CF secret) — wired into context as `organiserToken`.
- * Migrate to passkey auth after MVP.
+ * Shared-secret gate, belt-and-braces alongside the upstream osnAuth()
+ * JWT check until Phase 6 deletes it. Returns 403 (not 401): a wrong
+ * secret is an authorization failure on an already-authenticated
+ * request — a 401 here would make @osn/client's authFetch treat the
+ * caller's (valid) session as expired, clear it, and force a re-login.
  */
 organiserImportRoute.use("*", async (c, next) => {
   const expected = c.var.organiserToken;
   const got = c.req.header("X-Organiser-Token");
   if (!expected || !got) {
-    return c.json({ error: "Unauthorized" }, 401);
+    return c.json({ error: "Forbidden" }, 403);
   }
   const providedBuf = Buffer.from(got, "utf8");
   const expectedBuf = Buffer.from(expected, "utf8");
   if (providedBuf.length !== expectedBuf.length || !timingSafeEqual(providedBuf, expectedBuf)) {
-    return c.json({ error: "Unauthorized" }, 401);
+    return c.json({ error: "Forbidden" }, 403);
   }
   return next();
 });

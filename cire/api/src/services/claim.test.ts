@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { guests } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, guests } from "@cire/db";
 import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -135,7 +135,7 @@ describe("claimService.getAllGuests", () => {
     "returns one row per guest across all families (6 total)",
     withDb(
       Effect.gen(function* () {
-        const rows = yield* claimService.getAllGuests();
+        const rows = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
         expect(rows).toHaveLength(6);
       }),
     ),
@@ -145,7 +145,7 @@ describe("claimService.getAllGuests", () => {
     "each row carries the family publicId so the organiser can share it",
     withDb(
       Effect.gen(function* () {
-        const rows = yield* claimService.getAllGuests();
+        const rows = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
         for (const row of rows) {
           expect(row.publicId).toMatch(/^[A-Z]+-[A-Z]+-[A-Z0-9]+$/);
         }
@@ -157,7 +157,7 @@ describe("claimService.getAllGuests", () => {
     "each row exposes its guestId",
     withDb(
       Effect.gen(function* () {
-        const rows = yield* claimService.getAllGuests();
+        const rows = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
         for (const row of rows) {
           expect(typeof row.guestId).toBe("string");
           expect(row.guestId.length).toBeGreaterThan(0);
@@ -170,7 +170,7 @@ describe("claimService.getAllGuests", () => {
     "each guest has at least one event",
     withDb(
       Effect.gen(function* () {
-        const rows = yield* claimService.getAllGuests();
+        const rows = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
         expect(rows.every((r) => r.events.length > 0)).toBe(true);
       }),
     ),
@@ -199,7 +199,7 @@ describe("claimService.getAllGuests", () => {
           .run();
         db.run(sql`PRAGMA foreign_keys = ON`);
 
-        const rows = yield* claimService.getAllGuests();
+        const rows = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
         expect(rows).toHaveLength(6);
         expect(rows.find((r) => r.firstName === "Orphan")).toBeUndefined();
       }),

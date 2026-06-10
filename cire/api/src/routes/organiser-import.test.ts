@@ -55,7 +55,7 @@ async function preview(app: ReturnType<typeof buildApp>["app"], body: object, to
 }
 
 describe("POST /api/organiser/import/preview", () => {
-  it("returns 401 without the organiser token (even with a valid OSN JWT)", async () => {
+  it("returns 403 without the organiser token (even with a valid OSN JWT)", async () => {
     const { app } = buildApp();
     const res = await app.request("/api/organiser/import/preview", {
       method: "POST",
@@ -65,7 +65,7 @@ describe("POST /api/organiser/import/preview", () => {
       },
       body: JSON.stringify({ eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV }),
     });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
   });
 
   it("returns 401 without an OSN JWT (even with a valid organiser token)", async () => {
@@ -79,10 +79,10 @@ describe("POST /api/organiser/import/preview", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns 401 with a wrong token", async () => {
+  it("returns 403 with a wrong token (403 not 401: a 401 would make authFetch drop the valid session)", async () => {
     const { app } = buildApp();
     const res = await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV }, "wrong");
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
   });
 
   it("returns 200 + plan for a valid upload", async () => {

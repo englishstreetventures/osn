@@ -161,8 +161,9 @@ export const claimService = {
     });
   },
 
-  /** All events, optionally scoped to one wedding (organiser multi-tenant view). */
-  listEvents(weddingId?: string): Effect.Effect<
+  /** All events for one wedding (organiser view). weddingId is required —
+   * an unscoped variant would be a cross-tenant leak waiting to happen. */
+  listEvents(weddingId: string): Effect.Effect<
     {
       id: string;
       name: string;
@@ -185,8 +186,10 @@ export const claimService = {
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const base = db.select().from(events);
-      const rows = (weddingId ? base.where(eq(events.weddingId, weddingId)) : base)
+      const rows = db
+        .select()
+        .from(events)
+        .where(eq(events.weddingId, weddingId))
         .orderBy(asc(events.sortOrder))
         .all();
       return rows.map((row) => {
@@ -212,12 +215,13 @@ export const claimService = {
     });
   },
 
-  /** All guests, optionally scoped to one wedding (organiser multi-tenant view). */
-  getAllGuests(weddingId?: string): Effect.Effect<OrganiserGuestRow[], never, DbService> {
+  /** All guests for one wedding (organiser view). weddingId is required —
+   * an unscoped variant would be a cross-tenant leak waiting to happen. */
+  getAllGuests(weddingId: string): Effect.Effect<OrganiserGuestRow[], never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      const base = db
+      const rows = db
         .select({
           guestId: guests.id,
           firstName: guests.firstName,
@@ -228,8 +232,8 @@ export const claimService = {
         })
         .from(guests)
         .innerJoin(families, eq(guests.familyId, families.id))
-        .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id));
-      const rows = (weddingId ? base.where(eq(families.weddingId, weddingId)) : base)
+        .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
+        .where(eq(families.weddingId, weddingId))
         .orderBy(asc(guests.sortOrder))
         .all();
 

@@ -31,8 +31,12 @@ organiserWeddingsRoute.get("/weddings", (c) => {
 });
 
 organiserWeddingsRoute.get("/weddings/:weddingId/guests", (c) => {
+  // weddingOwner() always sets this; the guard keeps a future remount
+  // without the middleware from compiling into an unscoped query.
+  const weddingId = c.var.weddingId;
+  if (!weddingId) return c.json({ error: "Internal error" }, 500);
   return Effect.runPromise(
-    claimService.getAllGuests(c.var.weddingId).pipe(
+    claimService.getAllGuests(weddingId).pipe(
       Effect.provideService(DbService, c.var.db),
       Effect.map((guestList) => c.json(guestList)),
       Effect.catchAllDefect(() => Effect.succeed(c.json({ error: "Internal error" }, 500))),
@@ -41,8 +45,10 @@ organiserWeddingsRoute.get("/weddings/:weddingId/guests", (c) => {
 });
 
 organiserWeddingsRoute.get("/weddings/:weddingId/events", (c) => {
+  const weddingId = c.var.weddingId;
+  if (!weddingId) return c.json({ error: "Internal error" }, 500);
   return Effect.runPromise(
-    claimService.listEvents(c.var.weddingId).pipe(
+    claimService.listEvents(weddingId).pipe(
       Effect.provideService(DbService, c.var.db),
       Effect.map((eventList) => c.json(eventList)),
       Effect.catchAllDefect(() => Effect.succeed(c.json({ error: "Internal error" }, 500))),
