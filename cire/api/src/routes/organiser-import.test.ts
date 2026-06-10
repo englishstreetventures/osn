@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeAll } from "bun:test";
 
 import { events, families, guests, imports } from "@cire/db";
 import { eq } from "drizzle-orm";
@@ -6,8 +6,21 @@ import { eq } from "drizzle-orm";
 import { createApp } from "../app";
 import { createDb, seedBootstrapWedding } from "../db/setup";
 import { createR2Stub } from "../services/r2-imports";
+import { makeOsnTestAuth } from "../test-helpers/osn-token";
+import type { OsnTestAuth } from "../test-helpers/osn-token";
 
 const TOKEN = "test-organiser-secret";
+
+// OSN JWT minted for the seeded bootstrap-wedding owner. Required by the
+// osnAuth gate on /api/organiser/*; X-Organiser-Token remains as a second
+// (belt-and-braces) factor on the import group until Phase 6.
+let auth: OsnTestAuth;
+let bearer: string;
+
+beforeAll(async () => {
+  auth = await makeOsnTestAuth();
+  bearer = await auth.sign("usr_REPLACE_BEFORE_PROD");
+});
 
 const EVENTS_CSV = [
   "Event Name,Start,End,Timezone,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
@@ -25,7 +38,7 @@ function buildApp() {
   const db = createDb(":memory:");
   seedBootstrapWedding(db);
   const r2 = createR2Stub();
-  const app = createApp(db, { r2, organiserToken: TOKEN });
+  const app = createApp(db, { r2, organiserToken: TOKEN, osnTestKey: auth.key });
   return { db, r2, app };
 }
 
@@ -35,17 +48,32 @@ async function preview(app: ReturnType<typeof buildApp>["app"], body: object, to
     headers: {
       "Content-Type": "application/json",
       "X-Organiser-Token": token,
+      Authorization: `Bearer ${bearer}`,
     },
     body: JSON.stringify(body),
   });
 }
 
 describe("POST /api/organiser/import/preview", () => {
-  it("returns 401 without a token", async () => {
+  it("returns 401 without the organiser token (even with a valid OSN JWT)", async () => {
     const { app } = buildApp();
     const res = await app.request("/api/organiser/import/preview", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${bearer}`,
+      },
+      body: JSON.stringify({ eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 401 without an OSN JWT (even with a valid organiser token)", async () => {
+    const { app } = buildApp();
+    const res = await app.request("/api/organiser/import/preview", {
+      method: "POST",
+      // NOTE: organiser token present, Authorization absent — osnAuth rejects.
+      headers: { "X-Organiser-Token": TOKEN, "Content-Type": "application/json" },
       body: JSON.stringify({ eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV }),
     });
     expect(res.status).toBe(401);
@@ -107,6 +135,7 @@ describe("POST /api/organiser/import/apply", () => {
       headers: {
         "Content-Type": "application/json",
         "X-Organiser-Token": TOKEN,
+        Authorization: `Bearer ${bearer}`,
       },
       body: JSON.stringify({ importId: previewBody.importId }),
     });
@@ -127,6 +156,7 @@ describe("POST /api/organiser/import/apply", () => {
       headers: {
         "Content-Type": "application/json",
         "X-Organiser-Token": TOKEN,
+        Authorization: `Bearer ${bearer}`,
       },
       body: JSON.stringify({ importId: "nonexistent" }),
     });
@@ -146,6 +176,7 @@ describe("POST /api/organiser/import/apply", () => {
       headers: {
         "Content-Type": "application/json",
         "X-Organiser-Token": TOKEN,
+        Authorization: `Bearer ${bearer}`,
       },
       body: JSON.stringify({ importId }),
     });
@@ -162,7 +193,11 @@ describe("POST /api/organiser/import/revert", () => {
     const id1 = ((await r1.json()) as { importId: string }).importId;
     await app.request("/api/organiser/import/apply", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Organiser-Token": TOKEN },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Organiser-Token": TOKEN,
+        Authorization: `Bearer ${bearer}`,
+      },
       body: JSON.stringify({ importId: id1 }),
     });
     // Force separate uploadedAt so revert can sort.
@@ -185,7 +220,11 @@ describe("POST /api/organiser/import/revert", () => {
     const id2 = ((await r2.json()) as { importId: string }).importId;
     await app.request("/api/organiser/import/apply", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Organiser-Token": TOKEN },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Organiser-Token": TOKEN,
+        Authorization: `Bearer ${bearer}`,
+      },
       body: JSON.stringify({ importId: id2 }),
     });
     db.update(imports)
@@ -197,7 +236,11 @@ describe("POST /api/organiser/import/revert", () => {
 
     const revert = await app.request("/api/organiser/import/revert", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Organiser-Token": TOKEN },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Organiser-Token": TOKEN,
+        Authorization: `Bearer ${bearer}`,
+      },
       body: JSON.stringify({ importId: id2 }),
     });
     expect(revert.status).toBe(200);
@@ -212,7 +255,7 @@ describe("GET /api/organiser/import/list", () => {
     const id1 = ((await r1.json()) as { importId: string }).importId;
 
     const list = await app.request("/api/organiser/import/list", {
-      headers: { "X-Organiser-Token": TOKEN },
+      headers: { "X-Organiser-Token": TOKEN, Authorization: `Bearer ${bearer}` },
     });
     expect(list.status).toBe(200);
     const body = (await list.json()) as { imports: { id: string }[]; nextCursor: number | null };
@@ -237,7 +280,7 @@ describe("GET /api/organiser/import/list", () => {
 
     // Page 1: limit=2 → expect [id3, id2] + nextCursor=2000.
     const page1Res = await app.request("/api/organiser/import/list?limit=2", {
-      headers: { "X-Organiser-Token": TOKEN },
+      headers: { "X-Organiser-Token": TOKEN, Authorization: `Bearer ${bearer}` },
     });
     const page1 = (await page1Res.json()) as {
       imports: { id: string; uploadedAt: number }[];
@@ -248,7 +291,7 @@ describe("GET /api/organiser/import/list", () => {
 
     // Page 2: cursor=2000, limit=2 → expect [id1] + nextCursor=null.
     const page2Res = await app.request("/api/organiser/import/list?limit=2&cursor=2000", {
-      headers: { "X-Organiser-Token": TOKEN },
+      headers: { "X-Organiser-Token": TOKEN, Authorization: `Bearer ${bearer}` },
     });
     const page2 = (await page2Res.json()) as {
       imports: { id: string }[];
@@ -264,14 +307,14 @@ describe("GET /api/organiser/import/list", () => {
 
     // limit=0 → clamped to 1
     const tiny = await app.request("/api/organiser/import/list?limit=0", {
-      headers: { "X-Organiser-Token": TOKEN },
+      headers: { "X-Organiser-Token": TOKEN, Authorization: `Bearer ${bearer}` },
     });
     const tinyBody = (await tiny.json()) as { imports: unknown[] };
     expect(tinyBody.imports).toHaveLength(1);
 
     // limit=999 → clamped to 100 (we only have 1 row, so just check it doesn't 500)
     const huge = await app.request("/api/organiser/import/list?limit=999", {
-      headers: { "X-Organiser-Token": TOKEN },
+      headers: { "X-Organiser-Token": TOKEN, Authorization: `Bearer ${bearer}` },
     });
     expect(huge.status).toBe(200);
   });
@@ -285,6 +328,7 @@ describe("POST /api/organiser/import/preview content-length", () => {
       headers: {
         "Content-Type": "application/json",
         "X-Organiser-Token": TOKEN,
+        Authorization: `Bearer ${bearer}`,
         // Lie about content length — this should be rejected before parse.
         "Content-Length": String(2 * 1024 * 1024),
       },

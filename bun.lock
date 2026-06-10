@@ -18,6 +18,7 @@
       "name": "@cire/api",
       "dependencies": {
         "@cire/db": "workspace:*",
+        "@shared/osn-auth-client": "workspace:*",
         "@shared/rate-limit": "workspace:*",
         "drizzle-orm": "^0.45.2",
         "effect": "^3.21.2",
@@ -26,6 +27,7 @@
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20260601.1",
         "@shared/typescript-config": "workspace:*",
+        "jose": "^6.2.3",
         "wrangler": "^4.96.0",
       },
     },

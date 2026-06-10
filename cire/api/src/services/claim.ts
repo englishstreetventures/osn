@@ -161,7 +161,8 @@ export const claimService = {
     });
   },
 
-  listEvents(): Effect.Effect<
+  /** All events, optionally scoped to one wedding (organiser multi-tenant view). */
+  listEvents(weddingId?: string): Effect.Effect<
     {
       id: string;
       name: string;
@@ -184,7 +185,10 @@ export const claimService = {
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const rows = db.select().from(events).orderBy(asc(events.sortOrder)).all();
+      const base = db.select().from(events);
+      const rows = (weddingId ? base.where(eq(events.weddingId, weddingId)) : base)
+        .orderBy(asc(events.sortOrder))
+        .all();
       return rows.map((row) => {
         const { palette } = decodePalette(row.dressCodePalette);
         return {
@@ -208,11 +212,12 @@ export const claimService = {
     });
   },
 
-  getAllGuests(): Effect.Effect<OrganiserGuestRow[], never, DbService> {
+  /** All guests, optionally scoped to one wedding (organiser multi-tenant view). */
+  getAllGuests(weddingId?: string): Effect.Effect<OrganiserGuestRow[], never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      const rows = db
+      const base = db
         .select({
           guestId: guests.id,
           firstName: guests.firstName,
@@ -223,7 +228,8 @@ export const claimService = {
         })
         .from(guests)
         .innerJoin(families, eq(guests.familyId, families.id))
-        .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
+        .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id));
+      const rows = (weddingId ? base.where(eq(families.weddingId, weddingId)) : base)
         .orderBy(asc(guests.sortOrder))
         .all();
 

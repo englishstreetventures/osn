@@ -15,7 +15,14 @@ const port = Number(process.env.PORT ?? 8787);
 const organiserToken = process.env.ORGANISER_TOKEN ?? "dev-organiser-token";
 const r2 = createR2Stub();
 
-const app = createApp(db, { webOrigin, allowedOrigins: origins, organiserToken, r2 });
+const app = createApp(db, {
+  webOrigin,
+  allowedOrigins: origins,
+  organiserToken,
+  r2,
+  osnJwksUrl: process.env.OSN_JWKS_URL,
+  osnAudience: process.env.OSN_AUDIENCE,
+});
 
 console.log(`Organiser token: ${organiserToken}`);
 

@@ -5,6 +5,9 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 WEB_ORIGIN = "http://localhost:4321"
+OSN_JWKS_URL = "http://localhost:4000/.well-known/jwks.json"
+OSN_ISSUER_URL = "http://localhost:4000"
+OSN_AUDIENCE = "osn-access"
 
 [[d1_databases]]
 binding = "DB"
@@ -24,3 +27,7 @@ preview_bucket_name = "cire-sheets-preview"
 
 [env.production.vars]
 WEB_ORIGIN = "https://cire.pages.dev"
+# TODO: real OSN issuer origin before prod deploy
+OSN_JWKS_URL = "https://osn-api.example.com/.well-known/jwks.json"
+OSN_ISSUER_URL = "https://osn-api.example.com"
+OSN_AUDIENCE = "osn-access"
