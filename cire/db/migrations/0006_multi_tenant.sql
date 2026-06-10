@@ -12,6 +12,10 @@
 -- (guests, sessions and — via guests — guest_events, rsvps) is snapshotted
 -- into __keep_* tables and restored once the rebuilt parents exist. Every
 -- statement below is immediately FK-consistent; no pragmas required.
+--
+-- Recovery property: the __keep_* snapshots are only dropped in the final
+-- statements, so if D1 ever part-applies this file the originals remain on
+-- disk for manual recovery.
 CREATE TABLE `weddings` (
   `id` text PRIMARY KEY NOT NULL,
   `slug` text NOT NULL,

@@ -7,6 +7,11 @@ import eventsData from "../data/events.json";
 import guestsData from "../data/guests.json";
 import type { Db } from "./index";
 
+// LOCKSTEP CONTRACT: this DDL is a hand-maintained mirror of
+// @cire/db's schema.ts + the latest migration in cire/db/migrations/.
+// Tests run against THIS string, not the migration files — any schema
+// change must update all three together or tests will pass on a shape
+// production rejects. (A second mirror lives in src/db/schema.test.ts.)
 const DDL = `
 CREATE TABLE IF NOT EXISTS weddings (
   id TEXT PRIMARY KEY,

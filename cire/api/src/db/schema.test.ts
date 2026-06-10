@@ -6,6 +6,8 @@ import { families, guests } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+// LOCKSTEP CONTRACT: hand-maintained mini-mirror of @cire/db schema —
+// keep in sync with schema.ts + migrations (primary mirror: setup.ts).
 const DDL = `
 CREATE TABLE weddings (
   id TEXT PRIMARY KEY,
