@@ -240,6 +240,29 @@ describe("redact", () => {
     }
   });
 
+  it("redacts cire guest PII + the cire_session credential (both spellings)", () => {
+    const input = {
+      weddingId: "wed_123",
+      cire_session: "ses_raw_256bit",
+      firstName: "Ivy",
+      first_name: "Ivy",
+      lastName: "Sharma",
+      last_name: "Sharma",
+      familyName: "Sharma",
+      family_name: "Sharma",
+      publicId: "SHARMA-IVY-QM42",
+      public_id: "SHARMA-IVY-QM42",
+      dietary: "coeliac, no nuts",
+    };
+    const out = redact(input) as Record<string, unknown>;
+    // Non-sensitive scoping id passes through.
+    expect(out.weddingId).toBe("wed_123");
+    for (const k of Object.keys(input)) {
+      if (k === "weddingId") continue;
+      expect(out[k], `key "${k}" was not redacted`).toBe(REDACTION_PLACEHOLDER);
+    }
+  });
+
   it("every entry in REDACT_KEYS is actually redacted", () => {
     expect(REDACT_KEYS.size).toBeGreaterThan(0);
     for (const key of REDACT_KEYS) {
@@ -278,8 +301,8 @@ describe("redact", () => {
       signalEnvelope: "env",
       prekey: "pk",
       // PII fields that don't exist in the schema:
-      firstName: "Alice",
-      lastName: "Smith",
+      // (firstName / lastName / familyName / dietary / publicId now DO
+      //  exist as cire guest fields — see the cire-PII redaction test.)
       fullName: "Alice Smith",
       legalName: "Alice Smith",
       dob: "1990-01-01",
@@ -344,6 +367,16 @@ describe("redact", () => {
       "handle",
       "displayname",
       "display_name",
+      "cire_session",
+      "firstname",
+      "first_name",
+      "lastname",
+      "last_name",
+      "familyname",
+      "family_name",
+      "publicid",
+      "public_id",
+      "dietary",
     ].toSorted();
     expect([...REDACT_KEYS].toSorted()).toEqual(expected);
   });

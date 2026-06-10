@@ -7,7 +7,8 @@ related:
   - "[[ccpa]]"
   - "[[soc2]]"
   - "[[data-map]]"
-last-reviewed: 2026-04-26
+  - "[[cire]]"
+last-reviewed: 2026-06-11
 ---
 
 # Subprocessor Register
@@ -26,6 +27,8 @@ that touches personal data adds a row before merge. The
 |---|---|---|---|---|---|---|---|
 | Cloudflare, Inc. | Cloudflare Email Service (transactional outbound) | Recipient email + message body (OTPs, security notices) | US | **TODO — sign Cloudflare DPA** | EU SCCs (template in DPA) | — | Medium — has email content. |
 | Cloudflare, Inc. | Cloudflare DNS / TLS edge (planned for production) | IP, request metadata | US | Same DPA | EU SCCs | — | Low — transient. |
+| Cloudflare, Inc. | Cloudflare D1 + R2 (`cire-sheets`) — cire wedding-invite store | **Guest PII at volume**: family names, guest names, RSVP status, **special-category dietary free-text (Art. 9)**, guest claim codes; raw organiser CSV uploads in R2 | US (account region — confirm D1/R2 location) | Same Cloudflare DPA | EU SCCs | — | **High — first persistent special-category store (dietary) + a separate DB Cloudflare now hosts as data store, not just edge. Confirm D1/R2 data-residency under the DPA.** |
+| Pinterest, Inc. | `pinit_main.js` inspiration-board embed on the guest site (`@cire/web`) | IP, user-agent, and on-page behaviour of guests **who opt in** | US | **TODO — no Pinterest DPA / SCCs on file** | **TODO — EU→US transfer basis (DPF or SCCs) to confirm** | — | Medium — consent-gated (opt-in, session-scoped) as of the prior commit; a plain-link fallback is always present so the embed is never required. No data reaches Pinterest until the guest consents. Until a DPA + transfer basis are on file, keep it opt-in only. |
 | Komoot GmbH | Photon geocoder (Pulse address autocomplete) | Every keystroke + user IP | DE (EU) | **TODO — confirm DPA exists** | Adequacy (intra-EU) | — | **High — current implementation leaks keystrokes without consent (S-M13). Block until proxied + consent banner added.** |
 | Grafana Labs | Grafana Cloud (logs / traces / metrics) | Trace attrs incl. profile_id; redacted logs; metric samples | US | **TODO — sign Grafana Labs DPA + SCCs** | EU SCCs | — | Medium — observability data with profile_id and ip_hash. |
 | Redis provider (TBD — Upstash / Redis Cloud) | Rate-limit counters; rotated-session detection; auth state (Phase 4) | Hashed session tokens; IP-derived counters | TBD | **TODO — sign on choice** | EU SCCs if US-hosted | — | High — auth state. Pick EU region by default. |
@@ -40,6 +43,7 @@ the vendor's published list and re-check quarterly.
 
 - Cloudflare: see https://www.cloudflare.com/cloudflare-customer-subprocessors/
 - Grafana Labs: see https://grafana.com/legal/subprocessors/
+- Pinterest: see https://policy.pinterest.com/ (sub-processor list to confirm at DPA signing).
 - (Add others as DPAs are signed.)
 
 ## Vendors we evaluated and rejected

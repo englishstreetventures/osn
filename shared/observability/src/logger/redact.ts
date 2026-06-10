@@ -198,6 +198,39 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     "handle",
     "displayName",
     "display_name",
+
+    // --- Cire guest PII + session credential ---
+    // Cire (wedding invites) runs its own Cloudflare D1 / R2 and a guest
+    // session class entirely separate from OSN auth (see
+    // wiki/systems/cire-auth.md). cire/api does not yet carry
+    // @shared/observability (no redacted logger) — these entries are the
+    // interim guard for the day it adopts the shared logger, and for any
+    // cross-service log line that mirrors a cire payload.
+    //
+    // `cire_session` is the guest claim-code session token (256-bit, the
+    // raw value lives in the HttpOnly cookie of the same name; SHA-256
+    // hashed in cire's `sessions` table). Same secrecy profile as a refresh
+    // token — anyone holding it is the family.
+    "cire_session",
+    // Guest names — cire `guests.first_name` / `last_name` columns and the
+    // RSVP request bodies. Drizzle surfaces camelCase, raw D1 columns are
+    // snake_case; both spellings guarded.
+    "firstName",
+    "first_name",
+    "lastName",
+    "last_name",
+    // `families.family_name` — guest household name.
+    "familyName",
+    "family_name",
+    // `families.public_id` — the family claim CODE (e.g. SHARMA-IVY-QM42).
+    // It is a credential, not a public identifier: exchanged at
+    // POST /api/claim for a session. Must never appear in operator logs.
+    "publicId",
+    "public_id",
+    // `rsvps.dietary` — free-text dietary requirements. Art. 9
+    // special-category: reveals religion (halal/kosher) and health
+    // (allergies/coeliac). Highest-sensitivity PII in cire.
+    "dietary",
   ].map((k) => k.toLowerCase()),
 );
 

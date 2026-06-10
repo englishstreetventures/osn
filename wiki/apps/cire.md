@@ -12,7 +12,9 @@ related:
   - "[[cire-auth]]"
   - "[[identity-model]]"
   - "[[passkey-primary]]"
-last-reviewed: 2026-06-10
+  - "[[data-map]]"
+  - "[[dpia/cire-guest-data]]"
+last-reviewed: 2026-06-11
 ---
 
 # Cire
@@ -61,6 +63,20 @@ Cire keeps its own knowledge graph: `cire/CLAUDE.md` is the AI entry point and `
 - **Multi-owner weddings** — replace `owner_osn_profile_id` with a `wedding_owners(wedding_id, osn_profile_id, role owner/editor/viewer)` join table.
 - **Hono → Elysia migration** for `cire/api` to match platform convention, then swap the Hono auth adapter for the shared Elysia one.
 - **Guest claim-code → optional OSN account linking** — let a guest attach their claimed family to an OSN account later.
+
+## Compliance
+
+Guest data (family/guest names, RSVP status, **special-category dietary
+free-text**, claim codes) lives in cire's own Cloudflare D1 + R2 and is
+recorded in the OSN compliance programme:
+
+- [[data-map]] — cire section (fields, lawful basis, recipients); C-H1 retention + C-L1 age-gate note
+- [[dpia/cire-guest-data]] — Art. 35 DPIA (dietary special-category; sign-off pending on consent capture, C-H2)
+- [[retention]] — cire rows (no purge / sweeper / R2 lifecycle yet — C-H1)
+- [[subprocessors]] — Cloudflare D1/R2 (guest-PII volume) + Pinterest embed (C-H3)
+- [[dsar]] — cross-DB reachability + orphan-tolerance decision (C-M1)
+- [[access-control]] — cire D1/R2 operator access + the two cire credential classes (C-M3)
+- [[soc2]] — `@cire/api` observability exception; redaction deny-list interim guard (C-M2)
 
 ## Related
 

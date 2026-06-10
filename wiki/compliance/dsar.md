@@ -7,7 +7,9 @@ related:
   - "[[ccpa]]"
   - "[[data-map]]"
   - "[[retention]]"
-last-reviewed: 2026-04-26
+  - "[[cire]]"
+  - "[[cire-auth]]"
+last-reviewed: 2026-06-11
 ---
 
 # DSAR Runbook
@@ -98,6 +100,52 @@ Tombstone (deletion sentinel) retained 30 days then purged.
 
 The export path uses the same `Effect.all` parallelism + 10 s per-bridge timeout. A failing bridge during export emits a partial bundle with a `{"degraded":"pulse|zap","reason":"..."}` line so the user can see the gap and re-request later.
 
+#### Cire (wedding-invite) data — cross-DB, no fan-out yet (C-M1)
+
+Cire runs its **own** Cloudflare D1 + R2, separate from `osn/db` (see
+[[cire]], [[cire-auth]]). The wedding and its guest data are linked to the
+organiser's OSN account only by `weddings.owner_osn_profile_id` — an opaque
+profile-id string with **no cross-DB FK**. Two consequences:
+
+- **DSAR reachability (Art. 15 / 17 / 20).** A DSAR from the *organiser*
+  reaches their cire data via that `owner_osn_profile_id`: export/erasure can
+  query cire's D1 for the weddings they own, the `families` / `guests` /
+  `rsvps` / `imports` rows under them, and the R2 `cire-sheets` CSVs.
+  Mechanically this needs an ARC bridge to `@cire/api` mirroring the
+  pulse/zap pattern — **not built yet** (cire/api is Hono, has no
+  `internal/account-deleted` or export endpoint, and does not carry
+  `@shared/observability`). Until it exists, an organiser DSAR that touches
+  cire is handled **manually** by an operator with cire D1/R2 access (logged
+  per [[access-control]]).
+- **Guest DSARs.** Guests are not OSN account holders; a guest exercising a
+  right is the organiser's responsibility as **controller** (cire is
+  processor — see [[data-map]]). Route guest requests to the organiser and
+  assist as processor.
+
+**Cross-DB deletion orphan — decision: orphan-tolerance (for now).** Nothing
+fans OSN-account deletion out into cire. Erasing an OSN account today
+therefore **orphans** the wedding + guest data in cire's D1/R2, and the
+planned `GET /account/export` / `DELETE /account` cannot reach it. Two
+positions were available: (a) build the ARC fan-out into cire now, or (b)
+document an orphan-tolerance rationale and revisit. **We choose (b)** because
+there is no `DELETE /account` endpoint to hook yet, and the orphan-tolerance
+framing is defensible on the merits:
+
+- A wedding is a **jointly-owned record with its own lifecycle** — it
+  belongs as much to the couple's event as to one organiser's OSN login.
+  Tearing it down because one owner deletes their OSN account would destroy
+  the other party's record and every guest's RSVP.
+- Guest data is **organiser-controlled** (cire is processor); the controller
+  obligation to erase it survives the organiser's OSN-account deletion and is
+  discharged through the organiser, not by cascading from OSN identity.
+
+**Recorded decision.** Orphan-tolerance is the interim position. It is
+**revisited when `DELETE /account` lands** (planned C-H2): at that point we
+either (i) add a cire ARC bridge so deletion fans out, or (ii) re-affirm
+orphan-tolerance with a privacy-notice disclosure that wedding/guest records
+persist independently of the organiser's OSN account. Tracked as **C-M1**
+(below).
+
 **Refusals permitted** under Art. 17(3):
 
 - Legal-obligation retention (e.g. Pulse ticketing receipts under tax law — once paid Pulse ticketing lands).
@@ -164,3 +212,8 @@ Tracked with `C-` IDs, all rolled up under **C-M1** (DSAR runbook):
 3. Postal address published on `@osn/landing` legal page.
 4. Internal triage doc with the team rotation.
 5. SLA monitoring (alert when a request is >25 d unresponded).
+6. **Cire DSAR reachability + deletion fan-out** — ARC bridge to `@cire/api`
+   for organiser-scoped export/erasure of cire D1 + R2 data, mirroring the
+   pulse/zap `internal/account-deleted` + export pattern. Until built, cire
+   DSARs are manual. **Decision: orphan-tolerance** for OSN-account deletion
+   (see "Cire data" above) — revisit when `DELETE /account` (C-H2) lands.

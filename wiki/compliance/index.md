@@ -12,14 +12,17 @@ related:
   - "[[eaa]]"
   - "[[data-map]]"
   - "[[subprocessors]]"
-last-reviewed: 2026-04-26
+  - "[[cire]]"
+last-reviewed: 2026-06-11
 ---
 
 # Compliance
 
 OSN is a user-owned social platform with EU presence, B2B organisation chats
 (Zap M3 — verified businesses, embeddable customer-support widget),
-government / locality channels (Zap M4), and future paid event ticketing
+government / locality channels (Zap M4), a wedding-invite app handling guest
+PII including special-category dietary data (cire — its own Cloudflare D1 +
+R2; see [[cire]], [[dpia/cire-guest-data]]), and future paid event ticketing
 (Pulse, deferred). That product surface puts us in scope for **GDPR,
 UK GDPR, CCPA/CPRA, SOC 2, the EU Digital Services Act, COPPA, and the
 European Accessibility Act** today, with PCI-DSS and the EU AI Act on the
@@ -71,6 +74,7 @@ compliance" surface looks like.
 - [[breach-response]] — 72-hour GDPR notification clock, customer notification SLA, the runbook
 - [[access-control]] — SOC 2 CC6: who has prod access, how it is granted / revoked / reviewed
 - [[backup-dr]] — SOC 2 A1: backup cadence, restore drills, RTO / RPO targets
+- [[dpia/cire-guest-data]] — Art. 35 DPIA for cire guest data (special-category dietary; sign-off pending on consent capture)
 
 ## How to use this directory
 

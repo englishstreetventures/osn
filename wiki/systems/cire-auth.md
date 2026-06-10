@@ -6,7 +6,9 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[cire]]"
-last-reviewed: 2026-06-10
+  - "[[data-map]]"
+  - "[[access-control]]"
+last-reviewed: 2026-06-11
 ---
 
 # Cire two-system auth
@@ -80,3 +82,5 @@ The two middlewares never run on the same route. `sessionAuth()` gates guest rou
 - [[passkey-primary]] — the passkey-only login organisers use
 - [[sessions]] — OSN's server-side session store (the refresh cookie behind `authFetch`)
 - [[cire]] — app overview, packages, data model
+- [[data-map]] — cire personal-data fields (the `public_id` claim code is a credential; `cire_session` redacted in logs)
+- [[access-control]] — cire D1/R2 operator access + these two credential classes in the access matrix
