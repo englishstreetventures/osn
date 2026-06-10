@@ -1,4 +1,7 @@
+import { useAuth } from "@osn/client/solid";
 import { createSignal, onMount, Show, For } from "solid-js";
+
+import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 
 interface DressSwatch {
   name: string;
@@ -24,7 +27,7 @@ interface EventRow {
 }
 
 interface EventTableProps {
-  apiUrl: string;
+  weddingId: string;
 }
 
 function formatRange(startAt: string, endAt: string, timezone: string): string {
@@ -51,16 +54,19 @@ function formatRange(startAt: string, endAt: string, timezone: string): string {
 }
 
 export default function EventTable(props: EventTableProps) {
+  const { authFetch } = useAuth();
   const [events, setEvents] = createSignal<EventRow[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
 
   onMount(async () => {
     try {
-      const res = await fetch(`${props.apiUrl}/api/organiser/events`);
+      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
+      if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error("Failed to load");
       setEvents((await res.json()) as EventRow[]);
-    } catch {
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
       setError("Could not load events. Is the API running?");
     } finally {
       setLoading(false);

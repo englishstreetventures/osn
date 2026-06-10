@@ -1,4 +1,7 @@
+import { useAuth } from "@osn/client/solid";
 import { createSignal, onMount, Show, For, createMemo } from "solid-js";
+
+import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 
 interface OrganiserGuestRow {
   publicId: string;
@@ -15,7 +18,7 @@ interface FamilyGroup {
 }
 
 interface GuestTableProps {
-  apiUrl: string;
+  weddingId: string;
 }
 
 interface EventRow {
@@ -26,6 +29,7 @@ interface EventRow {
 }
 
 export default function GuestTable(props: GuestTableProps) {
+  const { authFetch } = useAuth();
   const [guests, setGuests] = createSignal<OrganiserGuestRow[]>([]);
   const [eventNameById, setEventNameById] = createSignal<Map<string, string>>(new Map());
   const [loading, setLoading] = createSignal(true);
@@ -55,15 +59,17 @@ export default function GuestTable(props: GuestTableProps) {
   onMount(async () => {
     try {
       const [guestsRes, eventsRes] = await Promise.all([
-        fetch(`${props.apiUrl}/api/organiser/guests`),
-        fetch(`${props.apiUrl}/api/organiser/events`),
+        authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/guests`)),
+        authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`)),
       ]);
+      if (guestsRes.status === 401 || eventsRes.status === 401) return redirectToLogin();
       if (!guestsRes.ok || !eventsRes.ok) throw new Error("Failed to load");
       const guestData = (await guestsRes.json()) as OrganiserGuestRow[];
       const eventData = (await eventsRes.json()) as EventRow[];
       setGuests(guestData);
       setEventNameById(new Map(eventData.map((e) => [e.id, e.name])));
-    } catch {
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
       setError("Could not load guest list. Is the API running?");
     } finally {
       setLoading(false);

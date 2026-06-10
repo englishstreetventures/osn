@@ -1,8 +1,7 @@
+import { useAuth } from "@osn/client/solid";
 import { createSignal, Show, For } from "solid-js";
 
-interface ImportPanelProps {
-  apiUrl: string;
-}
+import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 
 interface ImportPlan {
   eventCreates: unknown[];
@@ -39,8 +38,6 @@ interface ApplyResponse {
   };
 }
 
-const SESSION_TOKEN_KEY = "cire:organiser-token";
-
 function readFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -50,10 +47,15 @@ function readFile(file: File): Promise<string> {
   });
 }
 
-export default function ImportPanel(props: ImportPanelProps) {
-  const initialToken =
-    typeof sessionStorage !== "undefined" ? (sessionStorage.getItem(SESSION_TOKEN_KEY) ?? "") : "";
-  const [token, setToken] = createSignal(initialToken);
+/**
+ * Imports still require the X-Organiser-Token shared secret server-side
+ * (until Phase 6 strips it) in addition to the OSN access JWT that
+ * authFetch attaches. The secret is held in component state only — never
+ * persisted to storage.
+ */
+export default function ImportPanel() {
+  const { authFetch } = useAuth();
+  const [token, setToken] = createSignal("");
   const [tokenVisible, setTokenVisible] = createSignal(false);
   const [eventsFile, setEventsFile] = createSignal<File | null>(null);
   const [guestsFile, setGuestsFile] = createSignal<File | null>(null);
@@ -61,14 +63,6 @@ export default function ImportPanel(props: ImportPanelProps) {
   const [error, setError] = createSignal<string | null>(null);
   const [preview, setPreview] = createSignal<PreviewResponse | null>(null);
   const [applied, setApplied] = createSignal<ApplyResponse["summary"] | null>(null);
-
-  function persistToken(value: string) {
-    setToken(value);
-    if (typeof sessionStorage !== "undefined") {
-      if (value) sessionStorage.setItem(SESSION_TOKEN_KEY, value);
-      else sessionStorage.removeItem(SESSION_TOKEN_KEY);
-    }
-  }
 
   async function handlePreview(e: Event) {
     e.preventDefault();
@@ -85,7 +79,7 @@ export default function ImportPanel(props: ImportPanelProps) {
     setBusy(true);
     try {
       const [eventsCsv, guestsCsv] = await Promise.all([readFile(events), readFile(guests)]);
-      const res = await fetch(`${props.apiUrl}/api/organiser/import/preview`, {
+      const res = await authFetch(apiUrl("/api/organiser/import/preview"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -99,6 +93,7 @@ export default function ImportPanel(props: ImportPanelProps) {
       }
       setPreview((await res.json()) as PreviewResponse);
     } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
       setError(err instanceof Error ? err.message : "Preview failed.");
     } finally {
       setBusy(false);
@@ -111,7 +106,7 @@ export default function ImportPanel(props: ImportPanelProps) {
     setError(null);
     setBusy(true);
     try {
-      const res = await fetch(`${props.apiUrl}/api/organiser/import/apply`, {
+      const res = await authFetch(apiUrl("/api/organiser/import/apply"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -131,6 +126,7 @@ export default function ImportPanel(props: ImportPanelProps) {
       // Refresh guest table.
       window.location.reload();
     } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
       setError(err instanceof Error ? err.message : "Apply failed.");
     } finally {
       setBusy(false);
@@ -164,7 +160,7 @@ export default function ImportPanel(props: ImportPanelProps) {
               type={tokenVisible() ? "text" : "password"}
               autocomplete="off"
               value={token()}
-              onInput={(e) => persistToken(e.currentTarget.value)}
+              onInput={(e) => setToken(e.currentTarget.value)}
               class="border-border bg-bg text-text focus:border-gold w-full rounded-sm border px-3 py-2 pr-10 font-mono text-[0.82rem] outline-none"
               placeholder="paste token"
             />

@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css'
+import SignInPanel from '../components/SignInPanel'
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -21,16 +22,8 @@ import '../styles/global.css'
           Login
         </h1>
       </header>
-      <div class="rounded-sm border border-border bg-surface p-8 text-center">
-        <p class="font-body text-[0.88rem] leading-relaxed text-text-muted">
-          Authentication is not yet implemented. The organiser app currently works without login.
-        </p>
-        <a
-          href="/"
-          class="mt-6 inline-block rounded-sm border border-gold/30 px-6 py-2 font-body text-[0.82rem] uppercase tracking-[0.1em] text-gold transition-colors hover:border-gold hover:bg-gold/10"
-        >
-          Go to Dashboard
-        </a>
+      <div class="rounded-sm border border-border bg-surface p-8">
+        <SignInPanel client:only="solid-js" />
       </div>
     </main>
   </body>

@@ -6,7 +6,7 @@ import GuestTable from "./GuestTable";
 type Tab = "guests" | "events";
 
 interface DashboardTabsProps {
-  apiUrl: string;
+  weddingId: string;
 }
 
 const TABS: { id: Tab; label: string }[] = [
@@ -51,10 +51,10 @@ export default function DashboardTabs(props: DashboardTabsProps) {
       </nav>
 
       <Show when={active() === "guests"}>
-        <GuestTable apiUrl={props.apiUrl} />
+        <GuestTable weddingId={props.weddingId} />
       </Show>
       <Show when={active() === "events"}>
-        <EventTable apiUrl={props.apiUrl} />
+        <EventTable weddingId={props.weddingId} />
       </Show>
     </div>
   );
