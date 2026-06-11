@@ -1,5 +1,14 @@
 # @osn/pulse
 
+## 0.15.1
+
+### Patch Changes
+
+- Updated dependencies [c3cca40]
+  - @osn/client@2.2.0
+  - @pulse/api@0.21.0
+  - @osn/ui@1.1.2
+
 ## 0.15.0
 
 ### Minor Changes

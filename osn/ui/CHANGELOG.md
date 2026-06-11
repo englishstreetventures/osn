@@ -1,5 +1,12 @@
 # @osn/ui
 
+## 1.1.2
+
+### Patch Changes
+
+- Updated dependencies [c3cca40]
+  - @osn/client@2.2.0
+
 ## 1.1.1
 
 ### Patch Changes
