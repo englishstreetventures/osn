@@ -1,5 +1,17 @@
 # @osn/osn
 
+## 3.4.1
+
+### Patch Changes
+
+- 2420fc8: Add http://localhost:4322 (@cire/organiser) to the local-dev CORS
+  fallback so the organiser portal's OSN passkey sign-in works
+  out-of-the-box.
+- Updated dependencies [9f6874b]
+  - @shared/observability@0.9.2
+  - @shared/crypto@0.6.11
+  - @shared/email@0.2.4
+
 ## 3.4.0
 
 ### Minor Changes
