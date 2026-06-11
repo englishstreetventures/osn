@@ -26,6 +26,7 @@
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
+    "@testing-library/jest-dom": "^6.9.1",
     "@vitest/coverage-istanbul": "^4.1.6",
     "happy-dom": "^20.9.0",
     "typescript": "^5.9.3",

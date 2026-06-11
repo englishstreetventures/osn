@@ -17,6 +17,7 @@ beforeAll(async () => {
 async function makeToken(profileId: string): Promise<string> {
   return new SignJWT({ sub: profileId })
     .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
+    .setAudience("osn-access")
     .sign(testPrivateKey);
 }
 

@@ -22,6 +22,7 @@ async function makeToken(profileId: string, email?: string): Promise<string> {
   if (email) payload.email = email;
   return new SignJWT(payload)
     .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
+    .setAudience("osn-access")
     .sign(testPrivateKey);
 }
 

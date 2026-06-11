@@ -5,7 +5,8 @@ related:
   - "[[index]]"
   - "[[scope-matrix]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-26
+  - "[[cire]]"
+last-reviewed: 2026-06-11
 ---
 
 # COPPA
@@ -31,6 +32,16 @@ This is the FTC-blessed "actual knowledge" defense (16 CFR §312.2). It
 puts us out of scope for COPPA's substantive obligations (verifiable
 parental consent, parental review, data minimisation specific to children,
 etc.).
+
+## Cire (wedding invites) — household-mediated, no separate gate (C-L1)
+
+Cire's guest flow does not create accounts and collects no date of birth.
+Claim codes are issued to **households** by the organiser, and the guest
+site is a general-adult-audience wedding page. There is no direct
+child-signup surface, so cire needs **no cire-specific age gate**; it folds
+into the platform-wide age-gate rollout (C-H8) if/when a guest flow ever
+gains a signup. Light-touch by design — flagged here so it is not forgotten,
+not because it needs work today. See [[data-map]] (cire section) and [[cire]].
 
 ## What we must not do
 

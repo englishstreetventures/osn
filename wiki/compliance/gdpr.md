@@ -10,7 +10,8 @@ related:
   - "[[breach-response]]"
   - "[[subprocessors]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-26
+  - "[[dpia/cire-guest-data]]"
+last-reviewed: 2026-06-11
 ---
 
 # GDPR + UK GDPR
@@ -48,7 +49,7 @@ becomes the controller; we process on its instruction).
 | Art. 32 — Security of processing | Technical + organisational measures | Strong codified in skills | `.claude/commands/review-security.md` |
 | Art. 33 — Notification of breach to DPA | 72 hours | **Gap** — no runbook | [[breach-response]] |
 | Art. 34 — Communication to data subject | Without undue delay if high risk | **Gap** — no template / channel | [[breach-response]] |
-| Art. 35 — DPIA | For high-risk processing | **Required** for Pulse special-category event surfacing, Zap M3 customer-support transcripts, Zap M4 locality / government channels, AI surfaces | One DPIA per feature, filed under `wiki/compliance/dpia/` |
+| Art. 35 — DPIA | For high-risk processing | **Required** for Pulse special-category event surfacing, Zap M3 customer-support transcripts, Zap M4 locality / government channels, AI surfaces, and **cire guest dietary special-category data (filed: [[dpia/cire-guest-data]], sign-off pending on C-H2)** | One DPIA per feature, filed under `wiki/compliance/dpia/` |
 | Art. 37 — DPO | Mandatory if core activities involve large-scale monitoring or special-category | **Probably** required once we cross EU user threshold + Pulse event special-category exposure. Designate before public launch. | This page |
 | Art. 44–49 — International transfers | SCCs / adequacy / DTIA for non-EU recipients | **Gap** — Cloudflare (US), Grafana Cloud (US), planned Supabase (US/EU choice) all need SCCs + DTIAs | [[subprocessors]] |
 
@@ -71,9 +72,9 @@ ones, in priority order:
 
 7. **Retention enforcement** — schedule documented + tested deletes for: dev OTP/magic store sweep (P-W4), security_events older than 12 months, sessions older than 30 days (already auto-expire), Grafana logs (already 50 GB rolling), Pulse RSVPs of cancelled events, deletion tombstones older than 30 days. Cron job in `osn/api` or sidecar. ID: **C-M2**. See [[retention]].
 
-8. **DPIA template + first three filings** — one for Pulse event special-category exposure, one for Zap M3 org-chat transcripts (before M3 ships), one for Zap M4 locality channels (before M4 ships). ID: **C-M3**.
+8. **DPIA template + filings** — one for Pulse event special-category exposure, one for Zap M3 org-chat transcripts (before M3 ships), one for Zap M4 locality channels (before M4 ships), and the **cire guest-data DPIA** ([[dpia/cire-guest-data]]) **filed with the cire merge — sign-off pending on the dietary-consent affordance (cire C-H2)**. ID: **C-M3**.
 
-9. **Consent-record table** — `consents (id, account_id, purpose, given_at, withdrawn_at, evidence)`. Only required once we have a consent-based purpose (geocoder, marketing email, analytics). ID: **C-L1**.
+9. **Consent-record table** — `consents (id, account_id, purpose, given_at, withdrawn_at, evidence)`. Required once we have a consent-based purpose (geocoder, marketing email, analytics) — and now **also for cire's `rsvps.dietary` Art. 9(2)(a) explicit consent (cire C-H2, blocking before production collection)**. ID: **C-L1**.
 
 10. **DPO designation + public contact** — even if not strictly required, naming a DPO simplifies enterprise-customer DPAs. Email alias + named human responsible. ID: **C-L2**.
 

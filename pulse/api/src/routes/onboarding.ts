@@ -1,9 +1,10 @@
 import { DbLive, type Db } from "@pulse/db/service";
+import { extractClaims } from "@shared/osn-auth-client/verify";
 import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
-import { DEFAULT_JWKS_URL, extractClaims } from "../lib/auth";
+import { DEFAULT_JWKS_URL } from "../lib/jwks";
 import {
   completeOnboarding,
   getOnboardingStatus,
@@ -135,7 +136,10 @@ export const createOnboardingRoutes = (
         set.status = 429;
         return { error: "Too many requests" } as const;
       }
-      const claims = await extractClaims(headers["authorization"], jwksUrl, _testKey as CryptoKey);
+      const claims = await extractClaims(headers["authorization"], jwksUrl, {
+        testKey: _testKey as CryptoKey,
+        audience: "osn-access",
+      });
       if (!claims) {
         set.status = 401;
         return { message: "Unauthorized" } as const;
@@ -181,11 +185,10 @@ export const createOnboardingRoutes = (
           set.status = 429;
           return { error: "Too many requests" } as const;
         }
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;

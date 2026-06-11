@@ -9,7 +9,9 @@ related:
   - "[[dsa]]"
   - "[[coppa]]"
   - "[[eaa]]"
-last-reviewed: 2026-04-26
+  - "[[cire]]"
+  - "[[cire-auth]]"
+last-reviewed: 2026-06-11
 ---
 
 # Compliance Scope Matrix
@@ -44,6 +46,9 @@ compliance obligations.
 | `@zap/api` DMs | message ciphertext (E2E), sender / recipient handles, timestamps | GDPR (metadata is personal data even when content is encrypted); ePrivacy Art. 5(1); CDA / DSA notice-and-action for reports |
 | `@zap/api` org chats (M3) | customer chat transcripts under verified org | **B2B trigger for SOC 2 Type II.** Customer becomes a controller, OSN becomes processor → DPA required. |
 | `@zap/api` locality channels (M4) | locality opt-in (= location), broadcast subscriptions | GDPR Art. 9 if locality reveals special-category info; DSA broadcaster transparency |
+| `@cire/api` guest RSVP | family + guest names, RSVP status, **dietary free-text (Art. 9 special-category)**, guest claim code | GDPR Art. 6(1)(f) (organiser-controlled) + **Art. 9(2)(a) explicit consent for dietary (cire C-H2)**; DPIA filed ([[dpia/cire-guest-data]]); controller = organiser, processor = cire; cross-DB DSAR/deletion orphan (cire C-M1) |
+| `@cire/api` organiser import | raw organiser spreadsheets (R2 `cire-sheets`), bulk guest PII | GDPR storage-limitation — **indefinite retention, no purge (cire C-H1)**; SOC 2 CC6 (separate D1/R2 access grant, [[access-control]]) |
+| `@cire/web` Pinterest embed | guest IP / UA / behaviour (opt-in only) | ePrivacy + GDPR — consent-gated, opt-in, fallback link always present; Pinterest subprocessor row + transfer basis TODO ([[subprocessors]]) |
 | Pulse ticketing (deferred) | payment data | PCI-DSS SAQ-A via Stripe-hosted; never touches our DB |
 | AI surfaces (Zap M5, Pulse discovery v2, locality query M4) | prompt + response + (potentially) chat history | EU AI Act transparency obligations; GDPR Art. 22 (no solely-automated decisions with legal effect); model-provider DPA |
 | Landing | analytics cookie / pixel (if added) | ePrivacy consent banner. Today there are no analytics → compliant. Stay this way OR add a Klaro/Cookiebot-style banner. |
@@ -144,3 +149,5 @@ and `@osn/landing`. Audited via:
 | [[event-access]] | Art. 5(1)(f) | CC6 | — | DSA Art. 16 (event reports) | — | — |
 | [[social-graph]] | Art. 5(1)(c) | — | ✓ | — | — | — |
 | [[observability/overview]] | Art. 5(1)(c), Art. 32 | CC4, CC7 | — | — | — | — |
+| [[cire-auth]] | Art. 6, Art. 9 (dietary), Art. 32 | CC6 | ✓ | — | household-mediated | WCAG |
+| [[cire]] | Art. 5(1)(e) (retention), Art. 28 (processor) | CC6, CC9 | ✓ | — | — | WCAG |

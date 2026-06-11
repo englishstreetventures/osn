@@ -6,7 +6,9 @@ related:
   - "[[soc2]]"
   - "[[arc-tokens]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-26
+  - "[[cire-auth]]"
+  - "[[cire]]"
+last-reviewed: 2026-06-11
 ---
 
 # Access Control
@@ -26,6 +28,8 @@ Already strong; documented elsewhere.
 | Recovery | 64-bit single-use codes (Copenhagen Book M2) | [[recovery-codes]] |
 | Service-to-service | ARC tokens (ES256, scoped, kid-pinned, revocable, scope-validated on cache hit) | [[arc-tokens]] |
 | Org admin (Zap M3) | Role-gated `org_agents.role = "admin"` | [[zap]] |
+| Cire organiser | OSN access JWT (`aud: "osn-access"`) verified via `@shared/osn-auth-client`, then **wedding-owner** authz against `weddings.owner_osn_profile_id` (`weddingOwner()` / `ownedWedding()`) | [[cire-auth]] |
+| Cire guest | **Guest-session credential class** — family claim code (`families.public_id`) → opaque 256-bit `cire_session` (SHA-256 at rest), family-scoped, gates `/api/rsvp` only. Never an OSN account. | [[cire-auth]] |
 
 ## Production console access (the SOC 2 gap)
 
@@ -43,6 +47,8 @@ The matrix that needs to exist, by environment + system + role.
 | Grafana Cloud | Viewer | <named humans> | ✓ | Manual | Quarterly |
 | Cloudflare | Super admin | <named humans> | ✓ | Manual | Quarterly |
 | Cloudflare | Domain admin | <named humans> | ✓ | Manual | Quarterly |
+| Cire Cloudflare D1 (guest DB) | Read-write (operator) | <named humans> | ✓ Via Cloudflare dashboard / Wrangler + WebAuthn | Manual + audit log | Quarterly |
+| Cire Cloudflare R2 (`cire-sheets`, raw guest CSVs) | Read-write (operator) | <named humans> | ✓ | Manual + audit log | Quarterly |
 | Domain registrar | Owner | <named humans> | ✓ | Manual | Annual |
 | Stripe (when ticketing lands) | Admin | <named humans> | ✓ | Manual | Quarterly |
 | Email provider (Cloudflare Email Service today) | Admin | Same as Cloudflare | ✓ | — | — |
@@ -120,6 +126,24 @@ ARC tokens are S2S only; no human ever holds one. Rotation is automatic
 - Public keys distributed via JWKS or `service_account_keys` table.
 - `allowedScopes` enforced at issuer + verifier sides.
 - Revocation via `evictPublicKeyCacheEntry(kid)` is immediate (resolves S-H100).
+
+## Cire access expectations
+
+Cire's guest DB (Cloudflare D1) and `cire-sheets` R2 bucket hold guest PII
+including special-category dietary free-text (see [[data-map]]). They are a
+**separate** data store from `osn/db`, so operator access is a distinct
+grant in the matrix above. Expectations:
+
+- **No standing access.** Operators query cire D1 / R2 only for support,
+  security, or a manual DSAR (cire has no DSAR endpoint yet — see [[dsar]]
+  C-M1); each access is necessary, logged, attributable, and reviewable per
+  "Internal admin actions on user data" below.
+- **Guest claim codes are credentials.** `families.public_id` is treated as
+  a secret (redacted in logs, C-M2), not a public identifier — do not paste
+  codes into tickets or logs.
+- **The wedding owner is not an operator.** Organiser access to their own
+  wedding is in-product authz (OSN JWT → `weddingOwner()`), not console
+  access; it grants no visibility into other weddings.
 
 ## Project changes required
 

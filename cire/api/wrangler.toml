@@ -1,0 +1,33 @@
+name = "cire-api"
+main = "src/index.ts"
+compatibility_date = "2025-03-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+WEB_ORIGIN = "http://localhost:4321"
+OSN_JWKS_URL = "http://localhost:4000/.well-known/jwks.json"
+OSN_ISSUER_URL = "http://localhost:4000"
+OSN_AUDIENCE = "osn-access"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cire-db"
+database_id = "placeholder-replace-after-d1-create"
+migrations_dir = "../db/migrations"
+
+# R2 bucket used by the organiser spreadsheet import flow to stash the raw
+# uploaded sheet alongside its parsed `imports` row. Bucket must be created
+# before first deploy:
+#   bunx wrangler r2 bucket create cire-sheets
+#   bunx wrangler r2 bucket create cire-sheets-preview
+[[r2_buckets]]
+binding = "SHEETS"
+bucket_name = "cire-sheets"
+preview_bucket_name = "cire-sheets-preview"
+
+[env.production.vars]
+WEB_ORIGIN = "https://cire.pages.dev"
+# TODO: real OSN issuer origin before prod deploy
+OSN_JWKS_URL = "https://osn-api.example.com/.well-known/jwks.json"
+OSN_ISSUER_URL = "https://osn-api.example.com"
+OSN_AUDIENCE = "osn-access"

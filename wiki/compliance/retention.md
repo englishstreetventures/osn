@@ -6,7 +6,8 @@ related:
   - "[[gdpr]]"
   - "[[data-map]]"
   - "[[dsar]]"
-last-reviewed: 2026-04-26
+  - "[[cire]]"
+last-reviewed: 2026-06-11
 ---
 
 # Retention
@@ -36,6 +37,10 @@ already enforced in code; others need a sweeper job.
 | `chat_members` | While membership active | App code | OK | Zap |
 | `org_chats` transcripts (M3) | Per controller-org's setting; default 24 months | App code: per-org retention setting | **TODO** — Zap M3 | Zap |
 | `localities` + `locality_subscriptions` (M4) | Until user opts out; travel subs have explicit expiry | App code | **TODO** — Zap M4 | Zap |
+| Cire guest data (`families`, `guests`, `rsvps`) | Tied to the wedding's lifecycle — kept while the wedding is active; should be purged when the wedding is deleted/archived | Cascade on wedding delete (FK `ON DELETE CASCADE`) + a wedding-lifecycle/archival flow | **TODO** — no wedding-delete/archival flow exists yet; no automated purge. **Backlog C-H1.** | Cire |
+| Cire `sessions` (expired guest session rows) | 30-day cookie TTL; expired rows are storage-only after that | Needs a sweeper (per the C-M15 contract) | **TODO** — **no sweeper exists; expired rows are never purged. Backlog C-H1.** Sliding-window auth already prevents reuse; purge is for hygiene + DSAR completeness. | Cire |
+| Cire `imports` table rows | Tied to wedding lifecycle; reverted imports should not linger | Cascade on wedding delete; revert should hard-delete the reverted import's rows | **TODO** — reverted-import rows are retained, not deleted on revert. **Backlog C-H1.** | Cire |
+| Cire R2 `imports/<id>/{events,guests}.csv` (raw uploads in `cire-sheets`) | Tied to wedding lifecycle; reverted imports' CSVs should not linger | R2 lifecycle rule / TTL OR app-code delete on revert + wedding delete | **TODO** — **no R2 lifecycle/TTL; CSVs retained indefinitely including across reverts. Backlog C-H1.** | Cire |
 | Grafana Cloud traces | 14 days (free tier) | Vendor-enforced | OK | Platform |
 | Grafana Cloud logs | 50 GB rolling (~30 d typical) | Vendor-enforced | OK | Platform |
 | Grafana Cloud metrics | 30 days (free tier) | Vendor-enforced | OK | Platform |
@@ -54,6 +59,7 @@ Tracked with `C-` IDs:
 4. **`sessions` expired-row purge** — sliding-window expiry already prevents valid use; the purge is for storage hygiene + DSAR completeness. ID: **C-M2** (bundled).
 5. **Pulse event archival flow** — `archived_events` view or a status flag + `endTime + 90 d` cutoff. ID: **C-L20**.
 6. **Deletion-tombstone retention** — keep enough info to explain "this user deleted their account on YYYY-MM-DD" for 30 d in case of recovery, then purge per the C-M15 contract. ID: rolled into **C-H2**.
+7. **Cire guest-data lifecycle** — wedding-delete/archival flow that cascades to `families` / `guests` / `rsvps` / `imports`; an expired-`cire_session` sweeper (own D1, may need a Cloudflare-native cron rather than the C-M15 in-process worker); an R2 lifecycle rule (or app-code delete) for `cire-sheets` CSVs that also fires on import revert. None exist today — guest data, import rows, and raw CSVs are retained indefinitely including across reverts. ID: **C-H1** (cire data-map + retention gate).
 
 ## Sweeper design contract (C-M15)
 

@@ -1,8 +1,9 @@
 import { DbLive, type Db } from "@pulse/db/service";
+import { extractClaims } from "@shared/osn-auth-client/verify";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
-import { DEFAULT_JWKS_URL, extractClaims } from "../lib/auth";
+import { DEFAULT_JWKS_URL } from "../lib/jwks";
 import {
   addCloseFriend,
   isCloseFriendOf,
@@ -29,11 +30,10 @@ export const createCloseFriendsRoutes = (
     .get(
       "/",
       async ({ headers, set }) => {
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
@@ -69,11 +69,10 @@ export const createCloseFriendsRoutes = (
     .post(
       "/:friendId",
       async ({ params, headers, set }) => {
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
@@ -109,11 +108,10 @@ export const createCloseFriendsRoutes = (
     .delete(
       "/:friendId",
       async ({ params, headers, set }) => {
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
@@ -145,11 +143,10 @@ export const createCloseFriendsRoutes = (
     .get(
       "/:friendId/check",
       async ({ params, headers, set }) => {
-        const claims = await extractClaims(
-          headers["authorization"],
-          jwksUrl,
-          _testKey as CryptoKey,
-        );
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;

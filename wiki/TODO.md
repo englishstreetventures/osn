@@ -138,6 +138,18 @@ OSN's messaging app. Stack matches Pulse (Bun, Tauri+Solid, Elysia+Eden, Drizzle
 
 ---
 
+## Cire (`cire/web` + `cire/organiser` + `cire/api` + `cire/db`)
+
+Wedding-invite stack merged from cire.git (2026-06). Cire-internal feature work tracks in `cire/wiki/todo/` shards; this section holds the OSN-facing integration work. See [[cire]] and [[cire-auth]].
+
+- [ ] **`diffAgainstDb` wedding-scoping — MUST land before any second wedding exists.** `cire/api/src/services/import.ts` reads events/families/guests/links UNSCOPED by wedding; import writes are scoped, but the diff would cross-contaminate with a second wedding's rows. Needs join-based scoping — a naive `WHERE wedding_id = ?` on each table would mis-detect foreign guest-event links as removals. See [[cire-auth]] for the ownership model.
+- [ ] Pulse event-feed integration — surface cire weddings in Pulse's discovery/feed. Blocked on the mechanism decision (ARC-token pull from `cire/api` vs push-on-publish into `pulse/db`) — see Deferred Decisions.
+- [ ] Multi-owner weddings — replace `weddings.owner_osn_profile_id` with a `wedding_owners(wedding_id, osn_profile_id, role owner/editor/viewer)` join table so both partners (and a planner) can administer one wedding. See [[cire-auth]].
+- [ ] Evaluate `cire/api` Hono → Elysia migration to match platform convention; on migration, drop the Hono adapter usage in favour of the shared Elysia adapter in `@shared/osn-auth-client`.
+- [ ] Guest claim-code → optional OSN account linking — let a claimed family optionally attach to an OSN account later; must stay optional (guests are deliberately account-free — see [[cire-auth]]).
+
+---
+
 ## Landing (`osn/landing`)
 
 - [ ] Design and build landing page content
@@ -318,6 +330,11 @@ eligible under the Digital ID Act 2024.
 - [ ] OSN/messaging domain modules
 - [ ] WebSocket setup for real-time
 - [ ] REST endpoints for third-party consumers
+- [ ] Dead JWKS-cache metric cleanup — `metricJwksCacheLookup` + `authJwksCacheLookups` counter + `JwksCacheLookupAttrs` type in `pulse/api/src/metrics.ts` are no longer emitted since the JWKS cache moved to `@shared/osn-auth-client` (not instrumented there). Delete them, or re-instrument the shared cache and keep them — see [[observability/overview]]
+
+### Client SDK (`osn/client`)
+
+- [ ] Export an `isAuthExpiredError()` helper from `@osn/client` — Effect's FiberFailure wrapping defeats `instanceof AuthExpiredError`, so consumers string-match the error printout today (see `cire/organiser/src/lib/api.ts:isAuthExpired`). Ship a tag/printout-aware predicate next to the error class — see [[cire-auth]]
 
 ### Database (`osn/db`, `pulse/db`)
 
@@ -467,6 +484,11 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] T-M (series) — Coverage gaps from review: `listInstances` `scope: "all"`; `updateSeries` `this_and_following` with/without `from`; `parseRRule` happy paths for `UNTIL`/`INTERVAL`/`BYDAY`; `expandRRule` `UNTIL` + `BYDAY` fanout; `materializeInstances` `extend_window` trigger; `GET /series/:id` 200 happy path + private-visibility 404 masking; `PATCH /series/:id` 200/422/404 paths
 - [ ] S-L1 (pulse-close-friends) — `POST /close-friends/:friendId` is unrate-limited and the 422-vs-201 distinction makes it a connection-existence oracle. Caller can only probe their own connections (already enumerable via OSN `/graph/connections`), but the asymmetry bypasses OSN's 60/min limit. Defer to a Pulse-wide rate-limiter when one lands; mirror the OSN `GRAPH_RATE_LIMIT_MAX` (60/min/user) — see [[rate-limiting]], [[pulse-close-friends]]
 - [ ] S-L2 (pulse-close-friends) — Cross-DB hygiene: `pulse_close_friends.friendId` references an OSN profile but Pulse has no S2S notification or reconciliation hook for OSN profile deletion. Stale rows render as ghost entries (null handle/displayName) on the close-friends page. Add an internal Pulse endpoint OSN can ARC-call post-deletion, or a periodic reconciliation job — see [[pulse-close-friends]], [[s2s-patterns]]
+- [ ] S-L1 (cire) — Verify `ORGANISER_TOKEN` is not set as a CF secret on the deployed cire-api worker; the `X-Organiser-Token` auth path is deleted from code, but a secret set during the interim would linger as stale config. If present: `wrangler secret delete ORGANISER_TOKEN` (manual, from `cire/api`) — see [[cire-auth]]
+- [ ] S-L3 (cire) — No Origin-header validation on cire's state-changing routes (`POST /api/claim`, `/api/rsvp`). Relies solely on `SameSite=Lax` for CSRF defence; OSN convention (origin-guard M1) additionally rejects POST/PUT/PATCH/DELETE whose `Origin` is present and not in the CORS allowlist. Apply the origin-guard equivalent on cire/api — see [[cire-auth]], `osn/api/src/lib/origin-guard.ts`
+- [ ] T-S1 (cire) — Mechanically enforce the DDL lockstep contract: a test that applies `cire/db/migrations/*.sql` (journal order) to one in-memory DB and the `setup.ts` DDL to another, then diffs normalised `sqlite_master`. Today the three-way mirror (schema.ts / migrations / setup.ts DDL) is comment-enforced only — a future migration that skips the mirror passes the whole cire/api suite against a shape D1 rejects
+- [ ] T-S2 (cire) — `weddingsService.listForOwner` has no co-located unit test (only route-level coverage); add `services/weddings.test.ts` asserting oldest-first ordering, the one behaviour route tests don't pin
+- [ ] T-M2 (cire) — `cire/organiser` ships the OSN sign-in flow with zero tests (workspace `test` script is still the `echo 'No tests yet'` stub). Add vitest + unit-test `isAuthExpired` (tagged `AuthExpiredError`, Effect FiberFailure string form, unrelated error) — its string-match fallback is fragile and a misclassification means redirect loops or a dead dashboard on token expiry. Mirror `cire/web`'s vitest setup
 
 ### Recovery / passkey-primary (Phase 5 prerequisites)
 - [x] M-PK1b — Out-of-band recovery-code regeneration + consumption notification. `security_events` audit table covers both recovery code kinds; `/account/security-events[/:id/ack | /ack-all]` routes require step-up (S-M1) and the Settings banner uses optimistic local removal (P-I3). **Shipped** — see [[recovery-codes]] and `[[changelog/completed-features]]`
@@ -499,6 +521,8 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [ ] P-I4 (auth) — `/login/magic/verify` has no rate limiter — add `magicVerify: RateLimiterBackend` (10/60s per-IP, mirror `/login/otp/complete`). Pre-existing, not a regression; parity with the rest of `/login/*` — see [[rate-limiting]]
 - [ ] P-W1 (pulse) — Duplicate event DB load per RSVP route: `loadVisibleEvent` fetches the row for the access gate; `listRsvps`/`rsvpCounts` re-fetch the same row internally. Thread the loaded `Event` into service functions — see [[s2s-patterns]]
 - [ ] P-W3 (pulse) — `listTodayEvents` has no `LIMIT` clause; fetches all matching rows for the day into memory — see [[event-access]]
+- [ ] P-I2 (cire) — `events_sort_order_idx` (migration 0004) is dead after wedding scoping: every events read is now `WHERE wedding_id = ? ORDER BY sort_order` (uses `events_wedding_idx`, sorts in memory) or `WHERE id IN (...)` (JS sort). Replace `events_wedding_idx` + `events_sort_order_idx` with a composite `(wedding_id, sort_order)` in a follow-up migration — serves filter + order in one B-tree, drops a dead index's write cost on the import path. Mirrors the `guests_family_id_sort_idx` pattern — see [[cire]]
+- [ ] P-I3 (cire) — `GuestTable` over-fetches the full `/events` payload only to build an id→name chip map, and `DashboardTabs` `<Show>`-mounts tables so a tab switch destroys `GuestTable` and refires both guests + events fetches. Lift the guests/events fetches to the dashboard shell (`createResource` at `DashboardTabs` level) so tab state doesn't own fetch lifetime; sibling of the already-tracked ImportPanel tab-switch refetch in `cire/wiki/todo/perf.md` — see [[cire]]
 - [ ] P-W5 — Batch status-transition `UPDATE`s in `listEvents`/`listTodayEvents` (N individual writes)
 - [ ] P-W10 — `RegistrationClient.checkHandle` has no `AbortController` — debounced bursts leave multiple in-flight requests
 - [ ] P-W11 — `beginRegistration` issues two parallel queries instead of single `WHERE email = ? OR handle = ?`
@@ -695,6 +719,8 @@ Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenha
 | KYC vendor for V-M1 / V-M2 — see [[verified-identity]] | Persona (top AU age-assurance trial scorer; combined estimation + verification) vs idvPacific (AU-domiciled DVS gateway, OCR-first) vs Equifax IDMatrix (heavyweight gateway) vs MATTR/GBG (mDL-native; mDL roadmap partner) | V-M0 vendor RFP |
 | BBS+ vs SD-JWT-per-audience for verified presentations — see [[verified-identity]] | SD-JWT-per-audience is the v1 default (mint a fresh credential per RP); BBS+ adds true unlinkable presentations at higher operational cost | If a documented cross-RP correlation threat lands |
 | Verified attributes scope: account-level vs profile-level — see [[verified-identity]], [[identity-model]] | Verification ceremony is per-account; multi-account P3-P6 lets one account hold multiple profiles. Should profile-A be able to present `age_over_18` while profile-B presents nothing, or are attributes always inherited? | Before V-M4 ships consent UX |
+| Pulse–cire integration mechanism — see [[cire]] | ARC-token pull (Pulse fetches weddings from `cire/api` at feed time) vs push-on-publish (cire writes into `pulse/db` when a wedding goes live) | When Pulse surfaces cire weddings in its feed |
+| Cire test-idiom alignment — see [[cire]] | `cire/api` uses bare `bun:test`-style co-located tests; platform convention is `it.effect` + `createTestLayer()` ([[testing-patterns]]) | Alongside (or after) the cire/api Hono → Elysia migration |
 
 ---
 
