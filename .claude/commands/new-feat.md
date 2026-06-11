@@ -6,13 +6,15 @@ Run the following two agents **in parallel**:
 
 ---
 
-**Agent 1 — Branch prep** (general-purpose agent):
+**Agent 1 — Worktree prep** (general-purpose agent):
 
-1. Run `git checkout main`
-2. Run `git pull origin main`
-3. Derive a kebab-case branch name from the feature description, prefixed with `feat/` (e.g. `feat/user-profile-page`)
-4. Run `git checkout -b <branch-name>`
-5. Report the exact branch name created
+Every feature gets its own worktree and branch in the bare repo (`/Users/ac/.work/osn.git`). Never check out the feature branch in an existing worktree (`main/`, etc.).
+
+1. Run `git fetch origin main`
+2. Derive a kebab-case branch name from the feature description, prefixed with `feat/` (e.g. `feat/user-profile-page`). The worktree directory name is the branch name without the prefix (e.g. `user-profile-page`)
+3. Run `git worktree add /Users/ac/.work/osn.git/<dir-name> -b <branch-name> origin/main`
+4. Run `bun install` inside the new worktree (fresh worktrees have no `node_modules`)
+5. Report the exact branch name and worktree path created — **all feature work happens in that worktree**, not in `main/`
 
 ---
 
@@ -35,8 +37,10 @@ The plan should:
 ---
 
 After both agents complete, summarise:
-- The branch that was created
+- The branch and worktree that were created
 - The full implementation plan
+
+Then `cd` into the new worktree before starting any implementation.
 
 ---
 
