@@ -4,7 +4,7 @@ import { Effect, Schema } from "effect";
 import { Hono } from "hono";
 
 import type { AppVariables } from "../app";
-import { DbService } from "../db";
+import { DbService, dbQuery } from "../db";
 import { BulkRsvpBody } from "../schemas/rsvp";
 import { rsvpService } from "../services/rsvp";
 
@@ -46,11 +46,9 @@ rsvpRoute.post("/", async (c) => {
       const db = yield* DbService;
 
       // Guest IDs that belong to the session's family.
-      const familyGuests = db
-        .select({ id: guests.id })
-        .from(guests)
-        .where(eq(guests.familyId, familyId))
-        .all();
+      const familyGuests = yield* dbQuery(() =>
+        db.select({ id: guests.id }).from(guests).where(eq(guests.familyId, familyId)).all(),
+      );
       const familyGuestIds = new Set(familyGuests.map((g) => g.id));
 
       // Validate every requested guestId is owned by the session's family.
@@ -67,11 +65,13 @@ rsvpRoute.post("/", async (c) => {
       // fetch links for THIS family's guests (already validated above), so a
       // foreign wedding's links can never satisfy a pair.
       const guestIds = [...new Set(body.rsvps.map((r) => r.guestId))];
-      const invitations = db
-        .select({ guestId: guestEvents.guestId, eventId: guestEvents.eventId })
-        .from(guestEvents)
-        .where(inArray(guestEvents.guestId, guestIds))
-        .all();
+      const invitations = yield* dbQuery(() =>
+        db
+          .select({ guestId: guestEvents.guestId, eventId: guestEvents.eventId })
+          .from(guestEvents)
+          .where(inArray(guestEvents.guestId, guestIds))
+          .all(),
+      );
       const invitedSet = new Set(invitations.map((i) => `${i.guestId}::${i.eventId}`));
       for (const rsvp of body.rsvps) {
         if (!invitedSet.has(`${rsvp.guestId}::${rsvp.eventId}`)) {

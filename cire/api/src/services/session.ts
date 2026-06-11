@@ -2,7 +2,7 @@ import { sessions } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
-import { DbService } from "../db";
+import { DbService, dbQuery } from "../db";
 
 export class SessionInvalid extends Data.TaggedError("SessionInvalid")<{
   reason: "missing" | "expired";
@@ -65,18 +65,20 @@ export const sessionService = {
       const tokenHash = yield* hashToken(token);
       const now = new Date();
       const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
-      yield* Effect.try({
+      yield* Effect.tryPromise({
         try: () =>
-          db
-            .insert(sessions)
-            .values({
-              id: crypto.randomUUID(),
-              familyId,
-              token: tokenHash,
-              expiresAt,
-              createdAt: now,
-            })
-            .run(),
+          Promise.resolve(
+            db
+              .insert(sessions)
+              .values({
+                id: crypto.randomUUID(),
+                familyId,
+                token: tokenHash,
+                expiresAt,
+                createdAt: now,
+              })
+              .run(),
+          ),
         catch: (e) => new SessionWriteError({ op: "insert", reason: String(e) }),
       }).pipe(
         Effect.tapError((err) => Effect.logError("session insert failed", { reason: err.reason })),
@@ -92,7 +94,9 @@ export const sessionService = {
         return yield* Effect.fail(new SessionInvalid({ reason: "missing" }));
       }
       const tokenHash = yield* hashToken(token);
-      const [row] = db.select().from(sessions).where(eq(sessions.token, tokenHash)).all();
+      const [row] = yield* dbQuery(() =>
+        db.select().from(sessions).where(eq(sessions.token, tokenHash)).all(),
+      );
       if (!row) {
         return yield* Effect.fail(new SessionInvalid({ reason: "missing" }));
       }
@@ -107,8 +111,8 @@ export const sessionService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const tokenHash = yield* hashToken(token);
-      yield* Effect.try({
-        try: () => db.delete(sessions).where(eq(sessions.token, tokenHash)).run(),
+      yield* Effect.tryPromise({
+        try: () => Promise.resolve(db.delete(sessions).where(eq(sessions.token, tokenHash)).run()),
         catch: (e) => new SessionWriteError({ op: "delete", reason: String(e) }),
       }).pipe(
         Effect.tapError((err) => Effect.logError("session delete failed", { reason: err.reason })),
@@ -119,8 +123,9 @@ export const sessionService = {
   revokeAllForFamily(familyId: string): Effect.Effect<void, SessionWriteError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      yield* Effect.try({
-        try: () => db.delete(sessions).where(eq(sessions.familyId, familyId)).run(),
+      yield* Effect.tryPromise({
+        try: () =>
+          Promise.resolve(db.delete(sessions).where(eq(sessions.familyId, familyId)).run()),
         catch: (e) => new SessionWriteError({ op: "deleteAllForFamily", reason: String(e) }),
       }).pipe(
         Effect.tapError((err) =>

@@ -22,7 +22,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-04-24
+last-reviewed: 2026-06-11
 security-fixes:
   - S-H100
   - S-H101
@@ -92,6 +92,15 @@ sequenceDiagram
 ## Location
 
 Lives in `shared/crypto` (`@shared/crypto`). Import from `@shared/crypto`.
+
+The pure ES256 key/JWK helpers (`importKeyFromJwk`, `generateArcKeyPair`,
+`exportKeyToJwk`, `thumbprintKid`, `ArcTokenError`) live in a **DB-free**
+`src/jwk.ts`, exposed as the `@shared/crypto/jwk` subpath. The barrel
+(`@shared/crypto`) re-exports them, so normal consumers import as before.
+**Cloudflare Workers consumers must import from `@shared/crypto/jwk`, not the
+barrel** — the barrel pulls `arc.ts → @osn/db → @shared/db-utils → bun:sqlite`
+(the DB-backed `resolvePublicKey` path), which cannot bundle for workerd.
+`@shared/osn-auth-client`'s JWKS-verification path does exactly this.
 
 ## Exports
 

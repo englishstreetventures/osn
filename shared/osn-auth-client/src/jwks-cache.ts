@@ -22,7 +22,10 @@
  * collide even if kid values overlap.
  */
 
-import { importKeyFromJwk } from "@shared/crypto";
+// Deep import from the DB-free `/jwk` entry, not the barrel: the barrel pulls
+// arc.ts → @osn/db → bun:sqlite, which can't bundle for Cloudflare Workers
+// (cire/api's organiser-auth middleware runs there). See @shared/crypto/jwk.
+import { importKeyFromJwk } from "@shared/crypto/jwk";
 
 const JWKS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 /** Negative-cache TTL for unknown kids / failed fetches (P-C1 amplification). */

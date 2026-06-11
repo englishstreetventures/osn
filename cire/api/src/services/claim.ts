@@ -2,7 +2,7 @@ import { families, guests, events, guestEvents, rsvps } from "@cire/db";
 import { eq, asc, inArray } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
-import { DbService } from "../db";
+import { DbService, dbQuery } from "../db";
 import type { ClaimResponse, OrganiserGuestRow, DressSwatch } from "../schemas/claim";
 
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
@@ -60,7 +60,9 @@ export const claimService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      const [family] = db.select().from(families).where(eq(families.publicId, publicId)).all();
+      const [family] = yield* dbQuery(() =>
+        db.select().from(families).where(eq(families.publicId, publicId)).all(),
+      );
       if (!family) return yield* Effect.fail(new InvalidCredentials());
 
       // Two queries kept narrow to avoid the cartesian explosion of joining
@@ -68,19 +70,21 @@ export const claimService = {
       // duplicated once per invited guest, including the JSON palette blob).
       // (a) guests + their event-id memberships, (b) the unique events.
       // Run independently; each shape is small.
-      const guestRows = db
-        .select({
-          guestId: guests.id,
-          firstName: guests.firstName,
-          lastName: guests.lastName,
-          sortOrder: guests.sortOrder,
-          eventId: guestEvents.eventId,
-        })
-        .from(guests)
-        .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
-        .where(eq(guests.familyId, family.id))
-        .orderBy(asc(guests.sortOrder))
-        .all();
+      const guestRows = yield* dbQuery(() =>
+        db
+          .select({
+            guestId: guests.id,
+            firstName: guests.firstName,
+            lastName: guests.lastName,
+            sortOrder: guests.sortOrder,
+            eventId: guestEvents.eventId,
+          })
+          .from(guests)
+          .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
+          .where(eq(guests.familyId, family.id))
+          .orderBy(asc(guests.sortOrder))
+          .all(),
+      );
 
       const memberMap = new Map<
         string,
@@ -107,11 +111,13 @@ export const claimService = {
       const eventRows =
         eventIds.size === 0
           ? []
-          : db
-              .select()
-              .from(events)
-              .where(inArray(events.id, [...eventIds]))
-              .all();
+          : yield* dbQuery(() =>
+              db
+                .select()
+                .from(events)
+                .where(inArray(events.id, [...eventIds]))
+                .all(),
+            );
 
       const eventList: ClaimResponse["events"] = [];
       for (const e of eventRows) {
@@ -138,17 +144,19 @@ export const claimService = {
       }
       eventList.sort((a, b) => a.sortOrder - b.sortOrder);
 
-      const rsvpRows = db
-        .select({
-          guestId: rsvps.guestId,
-          eventId: rsvps.eventId,
-          status: rsvps.status,
-          dietary: rsvps.dietary,
-        })
-        .from(rsvps)
-        .innerJoin(guests, eq(rsvps.guestId, guests.id))
-        .where(eq(guests.familyId, family.id))
-        .all();
+      const rsvpRows = yield* dbQuery(() =>
+        db
+          .select({
+            guestId: rsvps.guestId,
+            eventId: rsvps.eventId,
+            status: rsvps.status,
+            dietary: rsvps.dietary,
+          })
+          .from(rsvps)
+          .innerJoin(guests, eq(rsvps.guestId, guests.id))
+          .where(eq(guests.familyId, family.id))
+          .all(),
+      );
 
       return {
         familyId: family.id,
@@ -186,12 +194,14 @@ export const claimService = {
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const rows = db
-        .select()
-        .from(events)
-        .where(eq(events.weddingId, weddingId))
-        .orderBy(asc(events.sortOrder))
-        .all();
+      const rows = yield* dbQuery(() =>
+        db
+          .select()
+          .from(events)
+          .where(eq(events.weddingId, weddingId))
+          .orderBy(asc(events.sortOrder))
+          .all(),
+      );
       return rows.map((row) => {
         const { palette } = decodePalette(row.dressCodePalette);
         return {
@@ -221,21 +231,23 @@ export const claimService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      const rows = db
-        .select({
-          guestId: guests.id,
-          firstName: guests.firstName,
-          lastName: guests.lastName,
-          publicId: families.publicId,
-          familyName: families.familyName,
-          eventId: guestEvents.eventId,
-        })
-        .from(guests)
-        .innerJoin(families, eq(guests.familyId, families.id))
-        .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
-        .where(eq(families.weddingId, weddingId))
-        .orderBy(asc(guests.sortOrder))
-        .all();
+      const rows = yield* dbQuery(() =>
+        db
+          .select({
+            guestId: guests.id,
+            firstName: guests.firstName,
+            lastName: guests.lastName,
+            publicId: families.publicId,
+            familyName: families.familyName,
+            eventId: guestEvents.eventId,
+          })
+          .from(guests)
+          .innerJoin(families, eq(guests.familyId, families.id))
+          .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
+          .where(eq(families.weddingId, weddingId))
+          .orderBy(asc(guests.sortOrder))
+          .all(),
+      );
 
       const byGuest = new Map<string, OrganiserGuestRow>();
       for (const row of rows) {

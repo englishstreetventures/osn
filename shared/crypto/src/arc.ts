@@ -1,8 +1,8 @@
 import { serviceAccounts, serviceAccountKeys } from "@osn/db";
 import { Db } from "@osn/db/service";
 import { and, eq, isNull, gt, or } from "drizzle-orm";
-import { Effect, Data } from "effect";
-import { SignJWT, jwtVerify, importJWK, exportJWK, calculateJwkThumbprint } from "jose";
+import { Effect } from "effect";
+import { SignJWT, jwtVerify } from "jose";
 
 import {
   classifyArcVerifyError,
@@ -13,15 +13,9 @@ import {
   metricArcTokenIssued,
   metricArcTokenVerification,
 } from "./arc-metrics";
-
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
-export class ArcTokenError extends Data.TaggedError("ArcTokenError")<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
+// Pure ES256 key/JWK helpers live in ./jwk so Worker consumers can import them
+// without the @osn/db → bun:sqlite chain above. Re-exported by the barrel.
+import { ArcTokenError, ARC_ALG, importKeyFromJwk } from "./jwk";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,74 +42,10 @@ export interface ArcTokenPayload {
 // Constants
 // ---------------------------------------------------------------------------
 
-const ARC_ALG = "ES256";
 const DEFAULT_TTL_SECONDS = 300; // 5 minutes
 const CACHE_REISSUE_BUFFER_SECONDS = 30;
 const MAX_CACHE_SIZE = 1000;
 const SCOPE_PATTERN = /^[a-z0-9_:]+$/;
-
-// ---------------------------------------------------------------------------
-// Key generation
-// ---------------------------------------------------------------------------
-
-/**
- * Generates an ES256 (ECDSA P-256) key pair for ARC token signing/verification.
- * Returns Web Crypto CryptoKeyPair with extractable keys suitable for JWK export.
- */
-export async function generateArcKeyPair(): Promise<CryptoKeyPair> {
-  return crypto.subtle.generateKey(
-    { name: "ECDSA", namedCurve: "P-256" },
-    true, // extractable — needed for JWK export
-    ["sign", "verify"],
-  );
-}
-
-/**
- * Exports a CryptoKey to JWK format (JSON string for DB storage).
- */
-export async function exportKeyToJwk(key: CryptoKey): Promise<string> {
-  const jwk = await exportJWK(key);
-  return JSON.stringify(jwk);
-}
-
-/**
- * Validates that a parsed JWK has the expected ES256 (EC P-256) structure.
- * Prevents algorithm confusion attacks from malicious JWK material.
- */
-function validateEs256Jwk(jwk: Record<string, unknown>): void {
-  if (jwk.kty !== "EC") {
-    throw new ArcTokenError({
-      message: `Invalid JWK: expected kty "EC", got "${String(jwk.kty)}"`,
-    });
-  }
-  if (jwk.crv !== "P-256") {
-    throw new ArcTokenError({
-      message: `Invalid JWK: expected crv "P-256", got "${String(jwk.crv)}"`,
-    });
-  }
-  if (typeof jwk.x !== "string" || typeof jwk.y !== "string") {
-    throw new ArcTokenError({ message: "Invalid JWK: missing x or y coordinates" });
-  }
-}
-
-/**
- * Computes an RFC 7638 SHA-256 JWK thumbprint for a public key.
- * Stable across restarts for the same key — suitable for use as a `kid`.
- */
-export async function thumbprintKid(publicKey: CryptoKey): Promise<string> {
-  const jwk = await exportJWK(publicKey);
-  return calculateJwkThumbprint(jwk);
-}
-
-/**
- * Imports a JWK (JSON string or object) to a CryptoKey.
- * Validates that the JWK is an ES256 (EC P-256) key before importing.
- */
-export async function importKeyFromJwk(jwk: string | Record<string, unknown>): Promise<CryptoKey> {
-  const parsed = typeof jwk === "string" ? (JSON.parse(jwk) as Record<string, unknown>) : jwk;
-  validateEs256Jwk(parsed);
-  return importJWK(parsed, ARC_ALG) as Promise<CryptoKey>;
-}
 
 // ---------------------------------------------------------------------------
 // Scope helpers

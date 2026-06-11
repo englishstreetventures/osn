@@ -4,7 +4,7 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-06-10
+last-reviewed: 2026-06-11
 ---
 
 # Performance Backlog
@@ -17,13 +17,14 @@ See [[review-findings]] for severity prefix conventions.
 - [x] `lefthook` pre-push runs typecheck + test in parallel (PR-A review)
 - [ ] PBKDF2 100k iterations + dummy-hash-on-miss is ~20-40ms per request on Workers. Pairs with rate limiting (above) before public launch — once that's in place, consider lowering iterations to 25-50k for a wedding-scale threat model.
 - [ ] `getAllGuests` paginate / cursor once organiser UI is built — current single-join is fine at 100 guests, problematic past a few thousand
-- [ ] Batch `rsvpService.submitRsvp` upserts via `db.batch([...])` once D1 runtime is wired (currently still N round-trips, just no longer 2N) — PR-A review follow-up
-- [ ] `claim.lookup` could pipeline its 3 D1 queries via `Effect.all`; today they are sequential which adds ~2 round-trips of latency on the hot path — PR-A review follow-up
+- [x] **P-C1** — `applyImport` commits its write set as a single atomic `db.batch([...])` on D1 (one round-trip, all-or-nothing) instead of N sequential awaited statements; bun:sqlite (no `.batch()`) keeps the sequential path. Driver-branched in `commitWriteSet` (`services/import.ts`). Also closes the non-atomic partial-apply gap (S-L1). D1-batch atomicity covered by `src/db/d1-integration.test.ts`. (D1 runtime wiring branch)
+- [ ] **P-W1** — Batch `rsvpService.submitRsvp` upserts via a single multi-row `INSERT … ON CONFLICT` / `db.batch([...])` (currently N round-trips on the guest hot path). Deferred follow-up to the D1 wiring branch
+- [ ] **P-W2** — Pipeline `claim.lookup`'s independent D1 reads (guests+links, rsvps) via `Effect.all`; today sequential, ~1 extra round-trip on the hot path. Deferred follow-up to the D1 wiring branch
 - [ ] Landing page animations must not block LCP — defer Motion One until after first paint
 - [ ] Hero photo must be optimised (WebP/AVIF, responsive srcset)
 - [x] Add-to-calendar data should not require a round-trip if event data is already hydrated in the page (PR-G — `googleCalendarUrl` + `icsBlob` are pure client-side helpers consuming the existing claim payload)
 - [x] .ics generation can be client-side to avoid unnecessary Worker invocation (PR-G — `cire/web/src/components/calendar.ts` builds the VCALENDAR in the browser; no Worker route added)
 - [ ] Organiser `ImportPanel` re-fetches events on every tab switch — cache the events response (or lift it to the dashboard shell) so switching Guests ↔ Events doesn't refire the request. Minor; noticed during the OSN-merge E2E pass.
-- [ ] Spreadsheet import on Workers: chunk inserts (≤100 rows per batch) to stay under 50ms CPU per request; offload large diffs to a Queue-driven worker
+- [ ] Spreadsheet import on Workers: `applyImport` now uses one `db.batch`, but a very large diff can exceed D1's per-batch statement cap — chunk into ≤N-statement batches (and consider a Queue-driven worker for large diffs) before organiser sheets grow past a few hundred rows
 - [x] `/list` paginated with `limit` + `uploadedAt` cursor (PR-C review)
 - [ ] Cache the parsed `ImportPlan` on the imports row to avoid re-parse + re-diff on `/apply` and `/revert` (currently re-runs both as TOCTOU defence). Consider once organiser sheet exceeds ~600 rows or revert latency becomes user-visible (PR-C review)

@@ -3,7 +3,7 @@ import { and, desc, eq, lt } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import { Hono } from "hono";
 
-import { DbService } from "../db";
+import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
 import { ownedWedding } from "../middleware/owned-wedding";
 import { ApplyBody, PreviewBody, RevertBody } from "../schemas/import";
@@ -83,28 +83,31 @@ organiserImportRoute.post("/preview", async (c) => {
       const plan: ImportPlan = yield* diffAgainstDb(parsedEvents, parsedFamilies as ParsedFamily[]);
 
       const db = yield* DbService;
-      db.insert(imports)
-        .values({
-          id: importId,
-          // Scoped to the caller's owned wedding (ownedWedding middleware).
-          weddingId: c.var.weddingId,
-          uploadedAt: Date.now(),
-          format: "csv",
-          eventsR2Key: eventsKey,
-          guestsR2Key: guestsKey,
-          summary: JSON.stringify({
-            eventCreates: plan.eventCreates.length,
-            eventUpdates: plan.eventUpdates.length,
-            eventRemoves: plan.eventRemoves.length,
-            familyCreates: plan.familyCreates.length,
-            familyRemoves: plan.familyRemoves.length,
-            guestCreates: plan.guestCreates.length,
-            guestUpdates: plan.guestUpdates.length,
-            guestRemoves: plan.guestRemoves.length,
-          }),
-          status: "preview",
-        })
-        .run();
+      yield* dbQuery(() =>
+        db
+          .insert(imports)
+          .values({
+            id: importId,
+            // Scoped to the caller's owned wedding (ownedWedding middleware).
+            weddingId: c.var.weddingId,
+            uploadedAt: Date.now(),
+            format: "csv",
+            eventsR2Key: eventsKey,
+            guestsR2Key: guestsKey,
+            summary: JSON.stringify({
+              eventCreates: plan.eventCreates.length,
+              eventUpdates: plan.eventUpdates.length,
+              eventRemoves: plan.eventRemoves.length,
+              familyCreates: plan.familyCreates.length,
+              familyRemoves: plan.familyRemoves.length,
+              guestCreates: plan.guestCreates.length,
+              guestUpdates: plan.guestUpdates.length,
+              guestRemoves: plan.guestRemoves.length,
+            }),
+            status: "preview",
+          })
+          .run(),
+      );
 
       yield* Effect.logInfo(
         `import preview accepted: families=${parsedFamilies.length} guests=${parsedFamilies.reduce((n, f) => n + f.guests.length, 0)} events=${parsedEvents.length}`,
@@ -181,7 +184,9 @@ organiserImportRoute.post("/apply", async (c) => {
       const { importId } = yield* Schema.decodeUnknown(ApplyBody)(raw);
       const db = yield* DbService;
 
-      const [row] = db.select().from(imports).where(eq(imports.id, importId)).all();
+      const [row] = yield* dbQuery(() =>
+        db.select().from(imports).where(eq(imports.id, importId)).all(),
+      );
       // A foreign wedding's import is indistinguishable from a missing one.
       if (!row || row.weddingId !== c.var.weddingId) {
         return c.json({ error: "Import not found" }, 404);
@@ -201,10 +206,13 @@ organiserImportRoute.post("/apply", async (c) => {
 
       const summary = yield* applyImport(importId, plan, c.var.weddingId);
 
-      db.update(imports)
-        .set({ status: "applied", appliedAt: Date.now() })
-        .where(eq(imports.id, importId))
-        .run();
+      yield* dbQuery(() =>
+        db
+          .update(imports)
+          .set({ status: "applied", appliedAt: Date.now() })
+          .where(eq(imports.id, importId))
+          .run(),
+      );
 
       return c.json({ summary });
     }).pipe(
@@ -278,7 +286,7 @@ organiserImportRoute.post("/revert", async (c) => {
   );
 });
 
-organiserImportRoute.get("/list", (c) => {
+organiserImportRoute.get("/list", async (c) => {
   const db = c.var.db;
 
   // Pagination — `?limit=N` (default 50, clamped 1..100) and `?cursor=<ms>`.
@@ -296,7 +304,7 @@ organiserImportRoute.get("/list", (c) => {
   const hasCursor = Number.isFinite(cursor);
 
   const scope = eq(imports.weddingId, c.var.weddingId);
-  const rows = db
+  const rows = await db
     .select()
     .from(imports)
     .where(hasCursor ? and(scope, lt(imports.uploadedAt, cursor)) : scope)

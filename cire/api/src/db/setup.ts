@@ -12,7 +12,7 @@ import type { Db } from "./index";
 // Tests run against THIS string, not the migration files — any schema
 // change must update all three together or tests will pass on a shape
 // production rejects. (A second mirror lives in src/db/schema.test.ts.)
-const DDL = `
+export const DDL = `
 CREATE TABLE IF NOT EXISTS weddings (
   id TEXT PRIMARY KEY,
   slug TEXT NOT NULL UNIQUE,

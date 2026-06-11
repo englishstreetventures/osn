@@ -1,15 +1,20 @@
-// ARC token system — S2S (service-to-service) authentication
+// Pure ES256 key/JWK helpers — DB-free; also importable on Cloudflare Workers
+// via `@shared/crypto/jwk` without pulling the @osn/db → bun:sqlite chain.
 export {
   // Errors
   ArcTokenError,
-  // Types
-  type ArcTokenClaims,
-  type ArcTokenPayload,
   // Key management
   generateArcKeyPair,
   exportKeyToJwk,
   importKeyFromJwk,
   thumbprintKid,
+} from "./jwk";
+
+// ARC token system — S2S (service-to-service) authentication
+export {
+  // Types
+  type ArcTokenClaims,
+  type ArcTokenPayload,
   // Token lifecycle
   createArcToken,
   verifyArcToken,

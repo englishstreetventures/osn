@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-06-10
+last-reviewed: 2026-06-11
 ---
 
 # Security Backlog
@@ -34,6 +34,7 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 
 ## Medium
 
+- [x] **S-M1** — Workers entry (`src/index.ts`) must fail closed if required bindings/vars are missing, not just `DB`. Without the guard, an unset `OSN_JWKS_URL` / `OSN_AUDIENCE` let `createApp` fall back to its localhost dev defaults for the OSN issuer/audience in production (fails closed against localhost, so hardening not a live bypass). Now validates `DB`, `WEB_ORIGIN`, `OSN_JWKS_URL`, `OSN_AUDIENCE` and returns 503 if any are missing. (D1 wiring branch review)
 - [x] RSVP endpoint must verify the session owns the family the guest belongs to (PR-B: `sessionAuth` middleware sets `familyId` from cookie; route validates each `guestId` belongs to that family)
 - [ ] Invite token in URL (if any) must be opaque (UUID/random) — not a guest or family id
 - [ ] On password regeneration, invalidate existing sessions for that family
@@ -41,6 +42,8 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 - [x] Session tokens hashed at rest — `sessions.token` stores SHA-256 hex of the raw token; cookie still carries the raw value (PR-B review)
 - [x] `/preview` rejects > 1MB body via Content-Length pre-check (PR-C review)
 - [x] CSV parser enforces ≤5000 rows + ≤10_000 chars/cell + rejects unterminated-quote at EOF (PR-C review)
+
+- [x] **S-L1** — `applyImport` partial-state risk on D1 (no interactive transaction). Resolved by P-C1: the write set now commits as a single atomic `db.batch([...])` on D1, so a mid-sequence failure rolls back the whole import. Atomicity covered by `src/db/d1-integration.test.ts`. (D1 wiring branch review)
 
 ## Low
 

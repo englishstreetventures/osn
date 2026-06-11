@@ -6,12 +6,9 @@ import { Effect } from "effect";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
-  generateArcKeyPair,
-  exportKeyToJwk,
   publicKeyCacheSize,
   _setPublicKeyCacheMaxSizeForTest,
   _resetPublicKeyCacheMaxSize,
-  importKeyFromJwk,
   createArcToken,
   verifyArcToken,
   resolvePublicKey,
@@ -21,8 +18,8 @@ import {
   clearTokenCache,
   evictExpiredTokens,
   tokenCacheSize,
-  ArcTokenError,
 } from "../src/arc";
+import { generateArcKeyPair, exportKeyToJwk, importKeyFromJwk, ArcTokenError } from "../src/jwk";
 import { createTestLayer } from "./helpers/db";
 
 // ---------------------------------------------------------------------------

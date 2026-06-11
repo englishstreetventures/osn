@@ -2,11 +2,24 @@ Start new feature work for: $ARGUMENTS
 
 If $ARGUMENTS is empty, ask the user for a feature name before proceeding.
 
-Run the following two agents **in parallel**:
+---
+
+**First, detect the environment** — the branch setup differs between a personal terminal and the Claude Code remote (web/cloud) environment.
+
+Run this check:
+
+```bash
+if [ -d /Users/ac/.work/osn.git ] && [ "$(uname)" = "Darwin" ]; then echo PERSONAL; else echo REMOTE; fi
+```
+
+- **PERSONAL** — local macOS terminal with the bare repo at `/Users/ac/.work/osn.git`. Use the **worktree** flow (Agent 1A).
+- **REMOTE** — Claude Code remote execution environment (Linux container). The repo is already cloned fresh into the working directory and a designated `claude/*` development branch is assigned for the session. There is no bare repo and no worktrees. Use the **in-place branch** flow (Agent 1B).
+
+Then run **two agents in parallel**: the environment-appropriate variant of Agent 1, plus Agent 2.
 
 ---
 
-**Agent 1 — Worktree prep** (general-purpose agent):
+**Agent 1A — Worktree prep (PERSONAL only)** (general-purpose agent):
 
 Every feature gets its own worktree and branch in the bare repo (`/Users/ac/.work/osn.git`). Never check out the feature branch in an existing worktree (`main/`, etc.).
 
@@ -15,6 +28,19 @@ Every feature gets its own worktree and branch in the bare repo (`/Users/ac/.wor
 3. Run `git worktree add /Users/ac/.work/osn.git/<dir-name> -b <branch-name> origin/main`
 4. Run `bun install` inside the new worktree (fresh worktrees have no `node_modules`)
 5. Report the exact branch name and worktree path created — **all feature work happens in that worktree**, not in `main/`
+
+---
+
+**Agent 1B — In-place branch prep (REMOTE only)** (general-purpose agent):
+
+The remote environment already has the repo checked out in the working directory and `node_modules` installed. Do **not** create a worktree (there is no bare repo) and do **not** run `bun install` again unless it is missing. Work in the existing checkout.
+
+1. Run `git fetch origin main`
+2. Determine the branch:
+   - If the session has a **designated development branch** (a `claude/*` branch named in the task/environment setup), use that exact branch name — do not invent a `feat/*` name. **Never push to a different branch without explicit permission.**
+   - Otherwise, derive a kebab-case `feat/*` branch name from the feature description.
+3. Create/switch to the branch on top of the latest main: `git checkout -B <branch-name> origin/main` (use `-B` so re-running is idempotent; if you have uncommitted work in progress, switch without resetting instead).
+4. Report the exact branch name and that work proceeds in the current working directory.
 
 ---
 
@@ -37,10 +63,10 @@ The plan should:
 ---
 
 After both agents complete, summarise:
-- The branch and worktree that were created
+- The branch that was created (and, on PERSONAL, the worktree path)
 - The full implementation plan
 
-Then `cd` into the new worktree before starting any implementation.
+Then, on PERSONAL, `cd` into the new worktree before starting any implementation. On REMOTE, implementation proceeds in the current working directory on the checked-out branch — no `cd` needed.
 
 ---
 

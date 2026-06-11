@@ -2,7 +2,7 @@ import { imports } from "@cire/db";
 import { and, desc, eq } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
-import { DbService } from "../db";
+import { DbService, dbQuery } from "../db";
 import type { ImportSummary, ParsedFamily } from "../schemas/import";
 import { applyImport, diffAgainstDb, ImportError, MultiWeddingImportUnsupported } from "./import";
 import { R2Service, fetchUpload, R2Error } from "./r2-imports";
@@ -38,23 +38,27 @@ export function revertImport(
   return Effect.gen(function* () {
     const db = yield* DbService;
 
-    const [current] = db
-      .select()
-      .from(imports)
-      .where(and(eq(imports.id, importId), eq(imports.weddingId, weddingId)))
-      .all();
+    const [current] = yield* dbQuery(() =>
+      db
+        .select()
+        .from(imports)
+        .where(and(eq(imports.id, importId), eq(imports.weddingId, weddingId)))
+        .all(),
+    );
     if (!current) {
       return yield* Effect.fail(new NoPriorImport({ currentImportId: importId }));
     }
 
     // Find the most-recent `applied` import (same wedding) strictly before
     // `current`.
-    const candidates = db
-      .select()
-      .from(imports)
-      .where(and(eq(imports.status, "applied"), eq(imports.weddingId, weddingId)))
-      .orderBy(desc(imports.uploadedAt))
-      .all();
+    const candidates = yield* dbQuery(() =>
+      db
+        .select()
+        .from(imports)
+        .where(and(eq(imports.status, "applied"), eq(imports.weddingId, weddingId)))
+        .orderBy(desc(imports.uploadedAt))
+        .all(),
+    );
     const prior = candidates.find((c) => c.id !== current.id && c.uploadedAt < current.uploadedAt);
     if (!prior) {
       return yield* Effect.fail(new NoPriorImport({ currentImportId: importId }));
@@ -81,10 +85,13 @@ export function revertImport(
 
     // Mark the current row as reverted; bump prior back to applied (it already
     // is) — no change needed there.
-    db.update(imports)
-      .set({ status: "reverted", revertedAt: Date.now() })
-      .where(eq(imports.id, current.id))
-      .run();
+    yield* dbQuery(() =>
+      db
+        .update(imports)
+        .set({ status: "reverted", revertedAt: Date.now() })
+        .where(eq(imports.id, current.id))
+        .run(),
+    );
 
     return summary;
   });

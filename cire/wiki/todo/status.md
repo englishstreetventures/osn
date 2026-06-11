@@ -3,7 +3,7 @@ title: "Cire TODO — status + up next"
 tags: [todo, status]
 related:
   - "[[index]]"
-last-reviewed: 2026-06-10
+last-reviewed: 2026-06-11
 ---
 
 # Status + Up Next
@@ -29,7 +29,7 @@ Monorepo built and functional. `cire/db` models families with a shareable `publi
 - [x] Wire organiser portal upload UI to `/api/organiser/import/*` — inline import panel on the dashboard (preview diff → apply); history/revert UI still deferred (see [[spreadsheet-import]])
 - [x] Migrate from `X-Organiser-Token` shared secret to organiser passkey auth — done in the OSN merge; token path deleted
 - [ ] **Substitute `usr_REPLACE_BEFORE_PROD`** (bootstrap `wed_bootstrap` owner in migration `0006_multi_tenant.sql`) with the real OSN profile id **before applying migrations to remote/production D1**
-- [ ] Migrate runtime DB layer in `cire/api/src/index.ts` from 503 stub to real D1
+- [x] Migrate runtime DB layer in `cire/api/src/index.ts` from 503 stub to real D1 — `index.ts` is now a Workers `fetch` handler building a per-request Drizzle-D1 client from `env.DB`; `Db` broadened over `"sync" | "async"` so the same service code runs on bun:sqlite (local/tests) and D1 (prod) via a `dbQuery` bridge. Pure JWK helpers split into DB-free `@shared/crypto/jwk` so the `osnAuth` verify path no longer drags `bun:sqlite` into the Worker bundle (build is green). Still pending before remote push: `usr_REPLACE_BEFORE_PROD` substitution + real `database_id`.
 - [x] Per-person per-event RSVP with dietary requirements
 - [x] Rate-limit claim attempts to prevent brute force — see [[overview]] for logging rules
 - [x] Wire guest-app RSVP modal to `POST /api/rsvp` (PR-F)

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { ArcTokenError } from "../src/arc";
 import { ARC_METRICS, classifyArcVerifyError } from "../src/arc-metrics";
+import { ArcTokenError } from "../src/jwk";
 
 /**
  * `classifyArcVerifyError` converts a caught exception thrown during ARC
