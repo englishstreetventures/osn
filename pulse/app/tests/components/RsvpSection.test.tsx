@@ -174,8 +174,26 @@ describe("RsvpSection", () => {
     ));
     fireEvent.click(getByText("I'm going"));
     await waitFor(() => {
-      expect(mockUpsert).toHaveBeenCalledWith("evt_1", "going", "tok");
+      expect(mockUpsert).toHaveBeenCalledWith("evt_1", "going", "tok", null);
       expect(mockToastSuccess).toHaveBeenCalled();
+    });
+  });
+
+  it("forwards inboundSource to upsertMyRsvp and clears via onSourceConsumed after success", async () => {
+    const onSourceConsumed = vi.fn();
+    const { getByText } = render(() => (
+      <RsvpSection
+        event={baseEvent}
+        accessToken="tok"
+        currentProfileId="usr_dan"
+        inboundSource="instagram"
+        onSourceConsumed={onSourceConsumed}
+      />
+    ));
+    fireEvent.click(getByText("I'm going"));
+    await waitFor(() => {
+      expect(mockUpsert).toHaveBeenCalledWith("evt_1", "going", "tok", "instagram");
+      expect(onSourceConsumed).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -307,6 +307,51 @@ describe("event_rsvps schema", () => {
     expect(row!.createdAt).toBeInstanceOf(Date);
     expect(row!.createdAt.getTime()).toBe(ts.getTime());
   });
+
+  it("share-source columns default to null", async () => {
+    const db = createTestDb();
+    await seedEvent(db);
+    await db.insert(schema.eventRsvps).values({
+      id: "rsvp_no_share",
+      eventId: "evt_rsvp_test",
+      profileId: "usr_no_share",
+      createdAt: new Date(),
+    });
+    const [row] = await db
+      .select()
+      .from(schema.eventRsvps)
+      .where(eq(schema.eventRsvps.id, "rsvp_no_share"));
+    expect(row!.shareSourceFirst).toBeNull();
+    expect(row!.shareSourceFirstSeenAt).toBeNull();
+    expect(row!.shareSourceLast).toBeNull();
+    expect(row!.shareSourceLastSeenAt).toBeNull();
+  });
+
+  it("round-trips share-source attribution columns", async () => {
+    const db = createTestDb();
+    await seedEvent(db);
+    const firstSeen = new Date("2030-02-01T10:00:00.000Z");
+    const lastSeen = new Date("2030-02-05T14:30:00.000Z");
+    await db.insert(schema.eventRsvps).values({
+      id: "rsvp_with_share",
+      eventId: "evt_rsvp_test",
+      profileId: "usr_share",
+      shareSourceFirst: "instagram",
+      shareSourceFirstSeenAt: firstSeen,
+      shareSourceLast: "tiktok",
+      shareSourceLastSeenAt: lastSeen,
+      createdAt: new Date(),
+    });
+    const [row] = await db
+      .select()
+      .from(schema.eventRsvps)
+      .where(eq(schema.eventRsvps.id, "rsvp_with_share"));
+    expect(row!.shareSourceFirst).toBe("instagram");
+    expect(row!.shareSourceFirstSeenAt).toBeInstanceOf(Date);
+    expect(row!.shareSourceFirstSeenAt!.getTime()).toBe(firstSeen.getTime());
+    expect(row!.shareSourceLast).toBe("tiktok");
+    expect(row!.shareSourceLastSeenAt!.getTime()).toBe(lastSeen.getTime());
+  });
 });
 
 // ---------------------------------------------------------------------------

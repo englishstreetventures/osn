@@ -6,6 +6,8 @@ import {
   fetchLatestRsvps,
   fetchRsvpCounts,
   fetchRsvpsByStatus,
+  recordShareExposure,
+  recordShareInvoked,
   updateMySettings,
   upsertMyRsvp,
 } from "../../src/lib/rsvps";
@@ -157,6 +159,79 @@ describe("upsertMyRsvp", () => {
     const result = await upsertMyRsvp("evt_1", "going", "tok");
     expect(result.ok).toBe(false);
     expect(result.error).toBe("HTTP 502");
+  });
+
+  it("forwards shareSource on the request body when provided", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { rsvp: { id: "rsvp_1" } }));
+    await upsertMyRsvp("evt_1", "going", "tok", "tiktok");
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      status: "going",
+      shareSource: "tiktok",
+    });
+  });
+
+  it("omits shareSource from the body when null is passed", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { rsvp: { id: "rsvp_1" } }));
+    await upsertMyRsvp("evt_1", "going", "tok", null);
+    const [, init] = fetchMock.mock.calls[0]!;
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body).toEqual({ status: "going" });
+    expect("shareSource" in body).toBe(false);
+  });
+});
+
+// ── recordShareInvoked ───────────────────────────────────────────────────────
+
+describe("recordShareInvoked", () => {
+  it("POSTs the source to /events/:id/share with keepalive and no auth header when token is null", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await recordShareInvoked("evt_1", "instagram", null);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/events/evt_1/share");
+    expect((init as RequestInit).method).toBe("POST");
+    expect((init as RequestInit).keepalive).toBe(true);
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ source: "instagram" });
+    expect((init as RequestInit).headers).not.toMatchObject({ Authorization: expect.anything() });
+  });
+
+  it("attaches the bearer token when one is provided (organiser private-event share)", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await recordShareInvoked("evt_1", "instagram", "tok");
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: "Bearer tok" });
+  });
+
+  it("swallows fetch failures so the share UX doesn't break", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("network down"));
+    await expect(recordShareInvoked("evt_1", "facebook", null)).resolves.toBeUndefined();
+  });
+});
+
+// ── recordShareExposure ──────────────────────────────────────────────────────
+
+describe("recordShareExposure", () => {
+  it("POSTs the source to /events/:id/exposure with no auth header when token is null", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await recordShareExposure("evt_1", "x", null);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/events/evt_1/exposure");
+    expect((init as RequestInit).method).toBe("POST");
+    expect((init as RequestInit).keepalive).toBe(true);
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ source: "x" });
+    expect((init as RequestInit).headers).not.toMatchObject({ Authorization: expect.anything() });
+  });
+
+  it("attaches the bearer token when one is provided", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await recordShareExposure("evt_1", "whatsapp", "tok");
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: "Bearer tok" });
+  });
+
+  it("swallows fetch failures silently", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
+    await expect(recordShareExposure("evt_1", "copy_link", null)).resolves.toBeUndefined();
   });
 });
 

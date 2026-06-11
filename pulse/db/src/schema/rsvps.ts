@@ -18,6 +18,24 @@ export const eventRsvps = sqliteTable(
       .default("going"),
     // Optional: who added the "invited" row (organiser). NULL on self-RSVPs.
     invitedByProfileId: text("invited_by_profile_id"),
+    // Share-attribution columns.
+    //
+    // `share_source_first` is sticky: it captures the platform (instagram,
+    // facebook, tiktok, x, whatsapp, copy_link, other) the attendee first
+    // arrived from. Once set, it is never overwritten — analogous to
+    // first-touch UTM attribution.
+    //
+    // `share_source_last` updates every time the user re-enters the event
+    // through a sourced link, regardless of prior value. This gives
+    // organisers a "most-recent touch" view alongside discovery.
+    //
+    // The closed enum is validated at the service layer (see
+    // `pulse/api/src/lib/shareSource.ts`); the column itself is plain text
+    // so widening the union later is a service-only change.
+    shareSourceFirst: text("share_source_first"),
+    shareSourceFirstSeenAt: integer("share_source_first_seen_at", { mode: "timestamp" }),
+    shareSourceLast: text("share_source_last"),
+    shareSourceLastSeenAt: integer("share_source_last_seen_at", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),

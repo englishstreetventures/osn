@@ -284,6 +284,98 @@ describe("RSVP routes", () => {
     const res = await post(app, `/events/${event.id}/rsvps`, { status: "going" }, bobToken);
     expect(res.status).toBe(403);
   });
+
+  it("POST /events/:id/rsvps accepts shareSource and returns it on the RSVP row", async () => {
+    const res = await post(
+      app,
+      `/events/${eventId}/rsvps`,
+      { status: "going", shareSource: "instagram" },
+      bobToken,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      rsvp: { shareSourceFirst: string | null; shareSourceLast: string | null };
+    };
+    expect(body.rsvp.shareSourceFirst).toBe("instagram");
+    expect(body.rsvp.shareSourceLast).toBe("instagram");
+  });
+
+  it("POST /events/:id/rsvps rejects an unknown shareSource value with 422", async () => {
+    const res = await post(
+      app,
+      `/events/${eventId}/rsvps`,
+      { status: "going", shareSource: "myspace" },
+      bobToken,
+    );
+    expect(res.status).toBe(422);
+  });
+});
+
+describe("Share-attribution routes", () => {
+  let layer: ReturnType<typeof createTestLayer>;
+  let app: ReturnType<typeof createEventsRoutes>;
+  let aliceToken: string;
+  let bobToken: string;
+  let eventId: string;
+
+  beforeEach(async () => {
+    vi.mocked(bridge.getConnectionIds).mockReturnValue(Effect.succeed(new Set<string>()));
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(new Map<string, ProfileDisplay>()),
+    );
+    layer = createTestLayer();
+    app = createEventsRoutes(layer, "", testPublicKey);
+    aliceToken = await makeToken("usr_alice");
+    bobToken = await makeToken("usr_bob");
+    const res = await post(app, "/events", { title: "Party", startTime: FUTURE }, aliceToken);
+    const { event } = (await res.json()) as { event: { id: string } };
+    eventId = event.id;
+  });
+
+  it("POST /events/:id/share returns 204 for a valid source", async () => {
+    const res = await post(app, `/events/${eventId}/share`, { source: "whatsapp" });
+    expect(res.status).toBe(204);
+  });
+
+  it("POST /events/:id/share rejects an unknown source with 422", async () => {
+    const res = await post(app, `/events/${eventId}/share`, { source: "myspace" });
+    expect(res.status).toBe(422);
+  });
+
+  it("POST /events/:id/share returns 404 for a missing event", async () => {
+    const res = await post(app, "/events/evt_missing/share", { source: "instagram" });
+    expect(res.status).toBe(404);
+  });
+
+  it("POST /events/:id/share gates private events behind the visibility check", async () => {
+    // Alice creates a private event; Bob can't share it because he can't see it.
+    const createRes = await post(
+      app,
+      "/events",
+      { title: "Secret", startTime: FUTURE, visibility: "private" },
+      aliceToken,
+    );
+    const { event } = (await createRes.json()) as { event: { id: string } };
+    const res = await post(app, `/events/${event.id}/share`, { source: "instagram" }, bobToken);
+    expect(res.status).toBe(404);
+  });
+
+  it("POST /events/:id/exposure returns 204 for a valid source", async () => {
+    const res = await post(app, `/events/${eventId}/exposure`, { source: "tiktok" });
+    expect(res.status).toBe(204);
+  });
+
+  it("POST /events/:id/exposure rejects an unknown source with 422", async () => {
+    const res = await post(app, `/events/${eventId}/exposure`, { source: "myspace" });
+    expect(res.status).toBe(422);
+  });
+
+  it("POST /events/:id/exposure returns 204 silently for the organiser's own view", async () => {
+    // Organiser self-views shouldn't pollute exposure analytics, but the
+    // endpoint still 204s so the client doesn't need to special-case it.
+    const res = await post(app, `/events/${eventId}/exposure`, { source: "x" }, aliceToken);
+    expect(res.status).toBe(204);
+  });
 });
 
 describe("ICS route", () => {

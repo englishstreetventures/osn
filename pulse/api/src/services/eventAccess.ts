@@ -31,7 +31,10 @@ export { buildVisibilityFilter } from "./eventVisibility";
  * to a 404 (not 403, which would disclose existence).
  */
 export const canViewEvent = (
-  event: Event,
+  // Only the visibility/ownership/identity columns are consulted, so the
+  // caller can pass a trimmed projection (see `checkEventVisibility`)
+  // rather than a full event row.
+  event: Pick<Event, "id" | "visibility" | "createdByProfileId">,
   viewerId: string | null,
 ): Effect.Effect<boolean, DatabaseError, Db> =>
   Effect.gen(function* () {
@@ -80,6 +83,43 @@ export const loadVisibleEvent = (
     const visible = yield* canViewEvent(event, viewerId);
     return visible ? event : null;
   }).pipe(Effect.withSpan("events.load_visible"));
+
+/**
+ * Lightweight visibility gate for the metric-only share / exposure
+ * endpoints. Returns the event's `createdByProfileId` when the viewer
+ * may see it (so the caller can apply the organiser self-view
+ * exclusion), or `null` (→ 404) when the event is missing or hidden.
+ *
+ * Unlike `loadVisibleEvent` this selects only the three columns the gate
+ * consults instead of the full event row — the share / exposure pings
+ * are high-frequency (120 / 60 per-IP per minute) and never need the
+ * event body, so we keep the per-ping read as cheap as possible. Public
+ * events short-circuit before the `event_rsvps` lookup via `canViewEvent`.
+ */
+export const checkEventVisibility = (
+  eventId: string,
+  viewerId: string | null,
+): Effect.Effect<{ createdByProfileId: string } | null, DatabaseError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const rows = yield* Effect.tryPromise({
+      try: () =>
+        db
+          .select({
+            id: events.id,
+            visibility: events.visibility,
+            createdByProfileId: events.createdByProfileId,
+          })
+          .from(events)
+          .where(eq(events.id, eventId))
+          .limit(1),
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+    if (rows.length === 0) return null;
+    const meta = rows[0]!;
+    const visible = yield* canViewEvent(meta, viewerId);
+    return visible ? { createdByProfileId: meta.createdByProfileId } : null;
+  }).pipe(Effect.withSpan("events.check_visibility"));
 
 /**
  * Re-export for tests + routes that don't need the full event row.

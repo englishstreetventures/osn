@@ -8,6 +8,8 @@
  * `VITE_API_URL` keeps the surface area small.
  */
 
+import type { ShareSource } from "./shareSource";
+
 const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 
 function authHeaders(token: string | null): Record<string, string> {
@@ -82,17 +84,70 @@ export async function upsertMyRsvp(
   eventId: string,
   status: "going" | "maybe" | "not_going",
   token: string,
+  shareSource?: ShareSource | null,
 ): Promise<{ ok: boolean; error?: string }> {
+  const body: Record<string, unknown> = { status };
+  if (shareSource) body.shareSource = shareSource;
   const res = await fetch(`${BASE_URL}/events/${eventId}/rsvps`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders(token) },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
-    return { ok: false, error: body.message ?? body.error ?? `HTTP ${res.status}` };
+    const respBody = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+    return { ok: false, error: respBody.message ?? respBody.error ?? `HTTP ${res.status}` };
   }
   return { ok: true };
+}
+
+/**
+ * Fire-and-forget telemetry pings for outbound shares and inbound
+ * exposures. Both are rate-limited server-side and neither blocks the
+ * surrounding UX — failures are swallowed because the user-facing action
+ * (share, navigation) has already succeeded by the time these run.
+ *
+ * Both forward the access token when present so the server's visibility
+ * gate sees the caller's identity — without it an organiser sharing
+ * their own *private* event would 404 (the gate can't tell they're the
+ * organiser) and the counter would silently never increment.
+ *
+ * `keepalive: true` lets the browser complete the request even when the
+ * share fires a navigation intent (WhatsApp / X / Facebook open a new
+ * context and may unload this tab) — otherwise those platforms, the ones
+ * this metric most exists to measure, would systematically under-count.
+ */
+export async function recordShareInvoked(
+  eventId: string,
+  source: ShareSource,
+  token: string | null,
+): Promise<void> {
+  try {
+    await fetch(`${BASE_URL}/events/${eventId}/share`, {
+      method: "POST",
+      keepalive: true,
+      headers: { "Content-Type": "application/json", ...authHeaders(token) },
+      body: JSON.stringify({ source }),
+    });
+  } catch {
+    // Telemetry best-effort.
+  }
+}
+
+export async function recordShareExposure(
+  eventId: string,
+  source: ShareSource,
+  token: string | null,
+): Promise<void> {
+  try {
+    await fetch(`${BASE_URL}/events/${eventId}/exposure`, {
+      method: "POST",
+      keepalive: true,
+      headers: { "Content-Type": "application/json", ...authHeaders(token) },
+      body: JSON.stringify({ source }),
+    });
+  } catch {
+    // Telemetry best-effort.
+  }
 }
 
 export async function updateMySettings(

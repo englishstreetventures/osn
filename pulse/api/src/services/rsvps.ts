@@ -4,7 +4,14 @@ import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
 import { MAX_EVENT_GUESTS } from "../lib/limits";
-import { metricRsvpInviteBatch, metricRsvpListed, metricRsvpUpserted } from "../metrics";
+import { ShareSourceSchema, type ShareSource } from "../lib/shareSource";
+import {
+  metricRsvpAttributionFirst,
+  metricRsvpAttributionLast,
+  metricRsvpInviteBatch,
+  metricRsvpListed,
+  metricRsvpUpserted,
+} from "../metrics";
 import { getCloseFriendsOfBatch, DatabaseError as CloseFriendsDatabaseError } from "./closeFriends";
 import { EventNotFound, DatabaseError, ValidationError } from "./events";
 import {
@@ -50,6 +57,13 @@ export type RsvpStatus = Schema.Schema.Type<typeof RsvpStatusSchema>;
 
 const UpsertRsvpSchema = Schema.Struct({
   status: RsvpStatusSchema,
+  /**
+   * Optional inbound share-source (the `?source=` query param the
+   * attendee arrived through). Stored on the RSVP row as both
+   * first-touch (sticky) and last-touch (overwriting) attribution. The
+   * organiser's own self-RSVP is exempt — see `upsertRsvp`.
+   */
+  shareSource: Schema.optional(ShareSourceSchema),
 });
 
 const InviteGuestsSchema = Schema.Struct({
@@ -311,11 +325,22 @@ export const upsertRsvp = (
     const { db } = yield* Db;
     const now = new Date();
 
+    // Organisers don't carry attribution against their own events — a
+    // self-RSVP from an organiser previewing their own share link would
+    // otherwise pollute their analytics. Drop the source for that path.
+    const isOrganiser = event.createdByProfileId === profileId;
+    const incomingSource: ShareSource | undefined =
+      validated.shareSource && !isOrganiser ? validated.shareSource : undefined;
+
     if (existing === null) {
       // Only lazy-create the pulse_users row on first RSVP insert. On
       // update the row must already exist, so skip the extra round-trip.
       yield* ensurePulseProfile(profileId);
       const id = genRsvpId();
+      const shareSourceFirst = incomingSource ?? null;
+      const shareSourceFirstSeenAt = incomingSource ? now : null;
+      const shareSourceLast = incomingSource ?? null;
+      const shareSourceLastSeenAt = incomingSource ? now : null;
       yield* Effect.tryPromise({
         try: () =>
           db.insert(eventRsvps).values({
@@ -323,31 +348,64 @@ export const upsertRsvp = (
             eventId,
             profileId,
             status: validated.status,
+            shareSourceFirst,
+            shareSourceFirstSeenAt,
+            shareSourceLast,
+            shareSourceLastSeenAt,
             createdAt: now,
           }),
         catch: (cause) => new DatabaseError({ cause }),
       });
       metricRsvpUpserted(validated.status, true, "ok");
+      if (incomingSource) {
+        metricRsvpAttributionFirst(incomingSource);
+        metricRsvpAttributionLast(incomingSource);
+      }
       return {
         id,
         eventId,
         profileId,
         status: validated.status,
         invitedByProfileId: null,
+        shareSourceFirst,
+        shareSourceFirstSeenAt,
+        shareSourceLast,
+        shareSourceLastSeenAt,
         createdAt: now,
       };
     }
 
+    // Stickiness rule: first-touch is set once and never overwritten —
+    // matches first-touch UTM attribution. Last-touch always updates
+    // when a new source comes in. The two columns together let
+    // organisers compare discovery (first) vs. closing (last) channels.
+    const shouldFillFirst = incomingSource !== undefined && existing.shareSourceFirst === null;
+    const shouldUpdateLast = incomingSource !== undefined;
+    const updates: Partial<typeof eventRsvps.$inferInsert> = { status: validated.status };
+    if (shouldFillFirst) {
+      updates.shareSourceFirst = incomingSource;
+      updates.shareSourceFirstSeenAt = now;
+    }
+    if (shouldUpdateLast) {
+      updates.shareSourceLast = incomingSource;
+      updates.shareSourceLastSeenAt = now;
+    }
+
     yield* Effect.tryPromise({
-      try: () =>
-        db
-          .update(eventRsvps)
-          .set({ status: validated.status })
-          .where(eq(eventRsvps.id, existing.id)),
+      try: () => db.update(eventRsvps).set(updates).where(eq(eventRsvps.id, existing.id)),
       catch: (cause) => new DatabaseError({ cause }),
     });
     metricRsvpUpserted(validated.status, false, "ok");
-    return { ...existing, status: validated.status };
+    if (shouldFillFirst && incomingSource) metricRsvpAttributionFirst(incomingSource);
+    if (shouldUpdateLast && incomingSource) metricRsvpAttributionLast(incomingSource);
+    return {
+      ...existing,
+      status: validated.status,
+      shareSourceFirst: shouldFillFirst ? (incomingSource ?? null) : existing.shareSourceFirst,
+      shareSourceFirstSeenAt: shouldFillFirst ? now : existing.shareSourceFirstSeenAt,
+      shareSourceLast: shouldUpdateLast ? (incomingSource ?? null) : existing.shareSourceLast,
+      shareSourceLastSeenAt: shouldUpdateLast ? now : existing.shareSourceLastSeenAt,
+    };
   }).pipe(Effect.withSpan("rsvps.upsert"));
 
 /**

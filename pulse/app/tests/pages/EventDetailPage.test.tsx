@@ -7,10 +7,16 @@ import { wrapRouter } from "../helpers/router";
 
 // Stable params for every render — the page uses `useParams<{id}>()`.
 // `wrapRouter` mounts a MemoryRouter that doesn't drive a specific path,
-// so we mock @solidjs/router here to inject the event id.
+// so we mock @solidjs/router here to inject the event id and a mutable
+// `useSearchParams` stub that the source-attribution tests configure.
+const mockSearchParams: Record<string, string | undefined> = {};
 vi.mock("@solidjs/router", async () => {
   const actual = await vi.importActual<typeof import("@solidjs/router")>("@solidjs/router");
-  return { ...actual, useParams: () => ({ id: "evt_1" }) };
+  return {
+    ...actual,
+    useParams: () => ({ id: "evt_1" }),
+    useSearchParams: () => [mockSearchParams, vi.fn()],
+  };
 });
 
 vi.mock("@osn/client/solid", () => ({
@@ -31,10 +37,23 @@ vi.mock("../../src/components/EventChatPlaceholder", () => ({
 vi.mock("../../src/components/MapPreview", () => ({
   MapPreview: () => <div data-testid="map-stub" />,
 }));
+// Capture the props RsvpSection is rendered with so tests can assert that
+// `inboundSource` is plumbed through correctly.
+const rsvpSectionProps = vi.fn();
 vi.mock("../../src/components/RsvpSection", () => ({
-  RsvpSection: () => <div data-testid="rsvp-stub" />,
+  RsvpSection: (props: unknown) => {
+    rsvpSectionProps(props);
+    return <div data-testid="rsvp-stub" />;
+  },
 }));
-vi.mock("../../src/lib/rsvps", () => ({ apiBaseUrl: "http://localhost:3001" }));
+vi.mock("../../src/components/ShareEventButton", () => ({
+  ShareEventButton: () => <div data-testid="share-stub" />,
+}));
+const mockRecordShareExposure = vi.fn(() => Promise.resolve());
+vi.mock("../../src/lib/rsvps", () => ({
+  apiBaseUrl: "http://localhost:3001",
+  recordShareExposure: (...args: unknown[]) => mockRecordShareExposure(...args),
+}));
 
 type EventShape = {
   id: string;
@@ -114,6 +133,69 @@ describe("EventDetailPage price badge", () => {
     const { findByText } = render(() => <EventDetailPage />);
     await waitFor(() => {
       expect(findByText(/Event not found/)).toBeTruthy();
+    });
+  });
+});
+
+describe("EventDetailPage source-attribution wiring", () => {
+  beforeEach(() => {
+    mockGet.mockReset();
+    mockRecordShareExposure.mockClear();
+    rsvpSectionProps.mockClear();
+    for (const key of Object.keys(mockSearchParams)) delete mockSearchParams[key];
+    mockGet.mockResolvedValue({
+      data: { event: makeEvent({}) },
+      error: null,
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("does not fire an exposure ping when no ?source= is present", async () => {
+    const { findByTestId } = render(() => <EventDetailPage />);
+    await findByTestId("rsvp-stub");
+    expect(mockRecordShareExposure).not.toHaveBeenCalled();
+  });
+
+  it("forwards a known inbound source to RsvpSection and fires the exposure ping", async () => {
+    mockSearchParams.source = "tiktok";
+    const { findByTestId } = render(() => <EventDetailPage />);
+    await findByTestId("rsvp-stub");
+    await waitFor(() => {
+      expect(mockRecordShareExposure).toHaveBeenCalledWith("evt_1", "tiktok", null);
+    });
+    const lastProps = rsvpSectionProps.mock.calls.at(-1)?.[0] as {
+      inboundSource?: string | null;
+    };
+    expect(lastProps?.inboundSource).toBe("tiktok");
+  });
+
+  it("coerces an unknown ?source= value to 'other' so attribution still records", async () => {
+    mockSearchParams.source = "myspace";
+    const { findByTestId } = render(() => <EventDetailPage />);
+    await findByTestId("rsvp-stub");
+    await waitFor(() => {
+      expect(mockRecordShareExposure).toHaveBeenCalledWith("evt_1", "other", null);
+    });
+  });
+
+  it("clears inboundSource on the next render when RsvpSection invokes onSourceConsumed", async () => {
+    mockSearchParams.source = "instagram";
+    const { findByTestId } = render(() => <EventDetailPage />);
+    await findByTestId("rsvp-stub");
+    const firstCall = rsvpSectionProps.mock.calls.at(-1)?.[0] as {
+      inboundSource?: string | null;
+      onSourceConsumed?: () => void;
+    };
+    expect(firstCall?.inboundSource).toBe("instagram");
+    firstCall.onSourceConsumed?.();
+    await waitFor(() => {
+      const latest = rsvpSectionProps.mock.calls.at(-1)?.[0] as {
+        inboundSource?: string | null;
+      };
+      expect(latest?.inboundSource).toBeNull();
     });
   });
 });

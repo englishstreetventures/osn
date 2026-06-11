@@ -117,6 +117,89 @@ it.effect("upsertRsvp ensures pulse_users row is created", () =>
 );
 
 // ---------------------------------------------------------------------------
+// upsertRsvp share-source attribution
+// ---------------------------------------------------------------------------
+
+it.effect("upsertRsvp persists shareSource as both first- and last-touch on first insert", () =>
+  Effect.gen(function* () {
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    const rsvp = yield* upsertRsvp(event.id, "usr_bob", {
+      status: "going",
+      shareSource: "instagram",
+    });
+    expect(rsvp.shareSourceFirst).toBe("instagram");
+    expect(rsvp.shareSourceLast).toBe("instagram");
+    expect(rsvp.shareSourceFirstSeenAt).toBeInstanceOf(Date);
+    expect(rsvp.shareSourceLastSeenAt).toBeInstanceOf(Date);
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("upsertRsvp keeps shareSourceFirst sticky but updates shareSourceLast on re-entry", () =>
+  Effect.gen(function* () {
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going", shareSource: "instagram" });
+    const updated = yield* upsertRsvp(event.id, "usr_bob", {
+      status: "not_going",
+      shareSource: "tiktok",
+    });
+    expect(updated.shareSourceFirst).toBe("instagram");
+    expect(updated.shareSourceLast).toBe("tiktok");
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("upsertRsvp fills in shareSourceFirst on a row that arrived without attribution", () =>
+  Effect.gen(function* () {
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    const updated = yield* upsertRsvp(event.id, "usr_bob", {
+      status: "going",
+      shareSource: "whatsapp",
+    });
+    expect(updated.shareSourceFirst).toBe("whatsapp");
+    expect(updated.shareSourceLast).toBe("whatsapp");
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("upsertRsvp leaves attribution untouched when status changes without a new source", () =>
+  Effect.gen(function* () {
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going", shareSource: "facebook" });
+    const updated = yield* upsertRsvp(event.id, "usr_bob", { status: "not_going" });
+    expect(updated.shareSourceFirst).toBe("facebook");
+    expect(updated.shareSourceLast).toBe("facebook");
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("upsertRsvp drops shareSource on the organiser's own self-RSVP", () =>
+  Effect.gen(function* () {
+    const event = yield* seedEvent({
+      title: "Party",
+      startTime: "2030-06-01T10:00:00.000Z",
+      createdByProfileId: "usr_alice",
+    });
+    const rsvp = yield* upsertRsvp(event.id, "usr_alice", {
+      status: "going",
+      shareSource: "instagram",
+    });
+    expect(rsvp.shareSourceFirst).toBeNull();
+    expect(rsvp.shareSourceLast).toBeNull();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("upsertRsvp rejects an unknown shareSource value", () =>
+  Effect.gen(function* () {
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    const err = yield* Effect.flip(
+      upsertRsvp(event.id, "usr_bob", {
+        status: "going",
+        shareSource: "myspace" as unknown as "instagram",
+      }),
+    );
+    expect(err._tag).toBe("ValidationError");
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+// ---------------------------------------------------------------------------
 // inviteGuests
 // ---------------------------------------------------------------------------
 

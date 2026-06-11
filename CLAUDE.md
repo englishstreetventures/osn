@@ -62,6 +62,7 @@ Phase 1 surfaces:
 | Instrument logging, tracing, metrics | `[[wiki/observability/overview]]`, then specific page |
 | Write or review tests | `[[wiki/conventions/testing-patterns]]` |
 | Understand event visibility rules | `[[wiki/systems/event-access]]` |
+| Work on Pulse share-attribution (share button, source enum, RSVP attribution columns) | `[[wiki/systems/event-access]]` (Share-Source Attribution section) |
 | Add or use UI component (Button, Card, Dialog…) | `[[wiki/architecture/component-library]]` |
 | Understand Pulse visual design (tokens, typography, Explore layout) | `pulse/DESIGN.md` |
 | Work on social graph | `[[wiki/systems/social-graph]]` |
@@ -163,6 +164,7 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | Schema Layers | Elysia TypeBox at HTTP boundary, Effect Schema in services. Never mix. | `[[wiki/architecture/schema-layers]]` |
 | Review Finding IDs | S-C/H/M/L (security), P-C/W/I (perf), T-M/U/E/R/S (tests). Four-field format (Issue / Why / Solution / Rationale). | `[[wiki/conventions/review-findings]]` |
 | Component Library | Zaidan-style (shadcn for SolidJS) on Kobalte. Three class utils: `bx()` defaults, `clsx()` conditional joins, `cn()` only for arbitrary conflicts. | `[[wiki/architecture/component-library]]` |
+| Share-source attribution | Closed `ShareSource` enum (`instagram | facebook | tiktok | x | whatsapp | copy_link | other`) drives the share picker, `?source=` URL injection, RSVP attribution columns (`share_source_first` sticky, `share_source_last` overwriting), and four bounded-cardinality counters. Single source of truth in `pulse/api/src/lib/shareSource.ts`; metric attribute type via `import type`. Lightweight `checkEventVisibility` (3 cols) gates the high-frequency share / exposure endpoints instead of the full `loadVisibleEvent`. Organiser self-RSVPs / self-views excluded. | `[[wiki/systems/event-access]]` |
 
 ## Conventions
 

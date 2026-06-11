@@ -24,17 +24,18 @@ finding-ids:
   - S-H16
 packages:
   - "@pulse/api"
-last-reviewed: 2026-04-24
+last-reviewed: 2026-06-11
 ---
 
 # Event Access Control
 
 ## The Shared Visibility Gate
 
-`pulse/api/src/services/eventAccess.ts` exports two functions that are the **single source of truth** for "can this viewer see this event?":
+`pulse/api/src/services/eventAccess.ts` exports three functions that are the **single source of truth** for "can this viewer see this event?":
 
-- `canViewEvent(event, viewerId)` -- returns a boolean
-- `loadVisibleEvent(eventId, viewerId)` -- loads the event and applies the visibility check; returns the event or `null`
+- `canViewEvent(event, viewerId)` -- returns a boolean. Accepts any object with `{ id, visibility, createdByProfileId }` so callers can pass a trimmed projection (see below).
+- `loadVisibleEvent(eventId, viewerId)` -- loads the full event row and applies the visibility check; returns the event or `null`. Used by every direct-fetch route that needs the event body.
+- `checkEventVisibility(eventId, viewerId)` -- lightweight variant for metric-only endpoints. Selects only the three columns the gate consults (`id`, `visibility`, `createdByProfileId`) and returns `{ createdByProfileId }` on success or `null` on miss/hidden. Used by `POST /events/:id/share` and `POST /events/:id/exposure` so the high-frequency share-attribution pings don't read the full event row on every call. Public events short-circuit before the `event_rsvps` lookup.
 
 ## Rules
 
@@ -103,10 +104,44 @@ The `friendsOnly` discovery branch in `discoverEvents` interprets `pulse_users.a
 
 If asymmetric follows / blocks ever land, this predicate must additionally verify `viewerId ∈ RSVPer.connections`, not only `RSVPer ∈ viewerId.connections`. Tracked as a forward-compatibility note (S-M2 from the discovery PR security review).
 
+## Share-Source Attribution
+
+When the same gate runs on the share-attribution surface (`POST /events/:id/share`, `POST /events/:id/exposure`), the wire input includes a `source: ShareSource` field. `ShareSource` is the closed enum `instagram | facebook | tiktok | x | whatsapp | copy_link | other` and is the single source of truth for three layers:
+
+- HTTP boundary: `shareSourceTypeBox` (TypeBox literal union) in `pulse/api/src/lib/shareSource.ts`
+- Service decode: `ShareSourceSchema` (Effect Schema literal) in the same file
+- Metric attribute type: `import type { ShareSource } from "./lib/shareSource"` in `pulse/api/src/metrics.ts`
+
+Wire shape stays in lockstep — adding a destination (e.g. Zap, future OSN-native share targets) means widening the array constant and the matching frontend mirror in `pulse/app/src/lib/shareSource.ts`.
+
+### Attribution rules
+
+`upsertRsvp` writes two attribution columns on `event_rsvps`:
+
+- `share_source_first` is **sticky**: set once on the first sourced RSVP and never overwritten. Mirrors first-touch UTM attribution — the discovery channel.
+- `share_source_last` is **overwriting**: updated every time the user re-enters via a sourced link. Most-recent-touch view for the organiser.
+
+The organiser's own self-RSVP drops `shareSource` server-side so a preview of a self-shared link doesn't pollute the organiser's analytics. The exposure endpoint applies the same exclusion when `claims.profileId === event.createdByProfileId`.
+
+### Metrics
+
+Four bounded-cardinality counters drive the per-platform funnel. Attributes are limited to the closed `ShareSource` enum × the closed `ShareSurface` enum (`event_detail` today):
+
+- `pulse.events.share.invoked { source, surface }` -- outbound share clicks
+- `pulse.events.share.exposure { source, surface }` -- inbound sourced page-loads (excludes organiser self-views)
+- `pulse.rsvps.attribution.first { source }` -- ticks once per RSVP when `share_source_first` lands
+- `pulse.rsvps.attribution.last { source }` -- ticks every time `share_source_last` changes
+
+### Rate limits
+
+Both endpoints are unauthenticated. Per-IP fail-closed limiters defend the metric counters from being trivially poisoned: 60/min on `/share`, 120/min on `/exposure` (higher because legitimate page reloads of a sourced URL hit this surface). See `[[rate-limiting]]` and the deferred `S-L2 (share-attribution)` follow-up on `getClientIp`'s `"unknown"` bucket.
+
 ## Source Files
 
-- [pulse/api/src/services/eventAccess.ts](../pulse/api/src/services/eventAccess.ts) -- `canViewEvent`, `loadVisibleEvent`, `buildVisibilityFilter`
+- [pulse/api/src/services/eventAccess.ts](../pulse/api/src/services/eventAccess.ts) -- `canViewEvent`, `loadVisibleEvent`, `checkEventVisibility`, `buildVisibilityFilter`
+- [pulse/api/src/lib/shareSource.ts](../pulse/api/src/lib/shareSource.ts) -- `SHARE_SOURCES`, `ShareSourceSchema`, `shareSourceTypeBox`
+- [pulse/api/src/services/rsvps.ts](../pulse/api/src/services/rsvps.ts) -- `upsertRsvp` attribution writes + organiser self-RSVP exclusion
 - [pulse/api/src/services/events.ts](../pulse/api/src/services/events.ts) -- `listEvents` (consumes `buildVisibilityFilter`)
 - [pulse/api/src/services/discovery.ts](../pulse/api/src/services/discovery.ts) -- `discoverEvents` (consumes `buildVisibilityFilter`)
-- [pulse/api/src/routes/events.ts](../pulse/api/src/routes/events.ts) -- route-level usage
+- [pulse/api/src/routes/events.ts](../pulse/api/src/routes/events.ts) -- route-level usage including `/:id/share` + `/:id/exposure`
 - [CLAUDE.md](../CLAUDE.md) -- "Shared visibility gate" section

@@ -1,17 +1,19 @@
 import { useAuth } from "@osn/client/solid";
 import { Badge } from "@osn/ui/ui/badge";
 import { Card } from "@osn/ui/ui/card";
-import { A, useParams } from "@solidjs/router";
-import { createResource, Show } from "solid-js";
+import { A, useParams, useSearchParams } from "@solidjs/router";
+import { createEffect, createResource, createSignal, on, untrack, Show } from "solid-js";
 
 import { AddToCalendarButton } from "../components/AddToCalendarButton";
 import { CommsSummary } from "../components/CommsSummary";
 import { EventChatPlaceholder } from "../components/EventChatPlaceholder";
 import { MapPreview } from "../components/MapPreview";
 import { RsvpSection } from "../components/RsvpSection";
+import { ShareEventButton } from "../components/ShareEventButton";
 import { api } from "../lib/api";
 import { formatPrice } from "../lib/formatPrice";
-import { apiBaseUrl } from "../lib/rsvps";
+import { apiBaseUrl, recordShareExposure } from "../lib/rsvps";
+import { coerceShareSource, type ShareSource } from "../lib/shareSource";
 import { formatTime, getProfileIdFromToken } from "../lib/utils";
 
 interface EventDetail {
@@ -50,12 +52,42 @@ async function fetchEvent(id: string, token: string | null): Promise<EventDetail
 
 export function EventDetailPage() {
   const params = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const { session } = useAuth();
   const accessToken = () => session()?.accessToken ?? null;
   const currentProfileId = () => getProfileIdFromToken(accessToken());
 
-  const source = () => ({ id: params.id, token: accessToken() });
-  const [event] = createResource(source, ({ id, token }) => fetchEvent(id, token));
+  const fetchKey = () => ({ id: params.id, token: accessToken() });
+  const [event] = createResource(fetchKey, ({ id, token }) => fetchEvent(id, token));
+
+  // Inbound share-source attribution: latch the `?source=` param so it
+  // survives router-driven URL cleanups, and only forward it on the
+  // first RSVP after this load. Unknown values bucket to "other" (see
+  // `coerceShareSource`) so we still record the touch.
+  //
+  // Keyed on `params.id` so a router-reused mount (navigating between
+  // events without a full unmount) re-latches from the new event's URL.
+  // The read is wrapped in `untrack` to make the one-shot intent
+  // explicit — we deliberately don't re-fire when only the query string
+  // mutates under the same event.
+  const [inboundSource, setInboundSource] = createSignal<ShareSource | null>(null);
+  createEffect(
+    on(
+      () => params.id,
+      () => setInboundSource(untrack(() => coerceShareSource(searchParams.source))),
+    ),
+  );
+  // Fire-and-forget exposure ping. Re-runs once the event has loaded so
+  // we only count exposures for events the viewer can actually see —
+  // gated by the visibility check on the server too, but skipping the
+  // round-trip when the event is missing keeps the rate-limit headroom
+  // for legitimate views.
+  createEffect(() => {
+    const source = inboundSource();
+    const ev = event();
+    if (!source || !ev) return;
+    void recordShareExposure(ev.id, source, accessToken());
+  });
 
   return (
     <main class="mx-auto max-w-xl px-4 py-6">
@@ -141,8 +173,13 @@ export function EventDetailPage() {
                 <Show when={e().description}>
                   <p class="text-foreground text-sm whitespace-pre-wrap">{e().description}</p>
                 </Show>
-                <div class="mt-4">
+                <div class="mt-4 flex flex-wrap gap-2">
                   <AddToCalendarButton eventId={e().id} apiBaseUrl={apiBaseUrl} />
+                  <ShareEventButton
+                    eventId={e().id}
+                    eventTitle={e().title}
+                    accessToken={accessToken()}
+                  />
                 </div>
               </div>
             </Card>
@@ -159,6 +196,8 @@ export function EventDetailPage() {
               event={e()}
               accessToken={accessToken()}
               currentProfileId={currentProfileId()}
+              inboundSource={inboundSource()}
+              onSourceConsumed={() => setInboundSource(null)}
             />
 
             {/* Comms */}
