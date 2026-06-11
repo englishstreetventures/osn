@@ -35,6 +35,7 @@ export const PULSE_METRICS = {
   commsBlastBodySize: "pulse.comms.blast.body.size",
   // Calendar / ICS
   calendarIcsGenerated: "pulse.calendar.ics.generated",
+  calendarEventsFetched: "pulse.calendar.events.fetched",
   // Visibility + access
   eventAccessDenied: "pulse.events.access.denied",
   // Pulse user settings
@@ -142,7 +143,7 @@ type EventsValidationFailureAttrs = {
 // --- RSVP ---
 
 /** Bounded RSVP status union — matches `RsvpStatus` + the organiser-side `"invited"` row. */
-type RsvpStatus = "going" | "interested" | "not_going" | "invited";
+type RsvpStatus = "going" | "maybe" | "not_going" | "invited";
 
 type RsvpUpsertedAttrs = {
   /** Terminal status after the upsert. */
@@ -184,6 +185,11 @@ type CommsBlastBodySizeAttrs = {
 
 type CalendarIcsAttrs = {
   result: Result;
+};
+
+type CalendarEventsFetchedAttrs = {
+  /** Whether the viewer's agenda came back empty. */
+  result_empty: "true" | "false";
 };
 
 // --- Access gate (visibility enforcement) ---
@@ -452,6 +458,12 @@ const calendarIcsGenerated = createCounter<CalendarIcsAttrs>({
   unit: "{file}",
 });
 
+const calendarEventsFetched = createCounter<CalendarEventsFetchedAttrs>({
+  name: PULSE_METRICS.calendarEventsFetched,
+  description: "Personal calendar agenda reads, by whether any events were returned",
+  unit: "{query}",
+});
+
 // --- Access gate ---
 
 const eventAccessDenied = createCounter<EventAccessDeniedAttrs>({
@@ -539,6 +551,9 @@ export const metricCommsBlastSent = (
 
 export const metricCalendarIcsGenerated = (result: Result): void =>
   calendarIcsGenerated.inc({ result });
+
+export const metricCalendarListed = (resultCount: number): void =>
+  calendarEventsFetched.inc({ result_empty: resultCount === 0 ? "true" : "false" });
 
 // --- Access gate recording helper ---
 

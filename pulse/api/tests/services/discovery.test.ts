@@ -17,7 +17,7 @@ const PAST = "2020-01-01T10:00:00.000Z";
 const rsvp = (
   eventId: string,
   profileId: string,
-  status: "going" | "interested" | "invited" | "not_going" = "going",
+  status: "going" | "maybe" | "invited" | "not_going" = "going",
 ) =>
   Effect.gen(function* () {
     const { db } = yield* Db;
@@ -335,21 +335,21 @@ it.effect("friendsOnly excludes 'not_going' RSVPs from the friends signal", () =
   ),
 );
 
-it.effect("friendsOnly includes 'interested' RSVPs (positive signal)", () =>
+it.effect("friendsOnly includes 'maybe' RSVPs (positive signal)", () =>
   provide(
     Effect.gen(function* () {
       const event = yield* seedEvent({
-        title: "Friend is interested",
+        title: "Friend is maybe attending",
         startTime: FUTURE(60_000),
         createdByProfileId: "usr_stranger",
       });
-      yield* rsvp(event.id, "usr_friend", "interested");
+      yield* rsvp(event.id, "usr_friend", "maybe");
       const result = yield* discoverEvents(
         { friendsOnly: true },
         "usr_alice",
         stubLookups(["usr_friend"]),
       );
-      expect(result.events.map((e) => e.title)).toEqual(["Friend is interested"]);
+      expect(result.events.map((e) => e.title)).toEqual(["Friend is maybe attending"]);
     }),
   ),
 );

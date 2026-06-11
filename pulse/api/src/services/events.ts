@@ -1,7 +1,7 @@
-import { events } from "@pulse/db/schema";
+import { events, eventRsvps } from "@pulse/db/schema";
 import type { Event } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
-import { and, eq, gte, lte, type SQL } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte, ne, type SQL } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
 import {
@@ -16,6 +16,7 @@ import {
   MAYBE_FINISHED_AFTER_HOURS,
 } from "../lib/limits";
 import {
+  metricCalendarListed,
   metricEventCreated,
   metricEventDeleted,
   metricEventStatusTransition,
@@ -323,6 +324,130 @@ export const listTodayEvents: Effect.Effect<Event[], DatabaseError, Db> = Effect
   metricEventsListed("today", transitioned.length);
   return transitioned;
 }).pipe(Effect.withSpan("events.list_today"));
+
+/**
+ * One row of the personal calendar: an event the viewer is going to /
+ * marked maybe / is hosting, plus the viewer's own RSVP status so the UI
+ * can prompt "maybe" replies to confirm.
+ */
+export interface CalendarEntry {
+  event: Event;
+  /** Viewer's own RSVP status, narrowed to the two attending states. */
+  myStatus: "going" | "maybe" | null;
+  isHost: boolean;
+}
+
+/**
+ * The viewer's forward-looking agenda: every non-cancelled event starting
+ * today or later that they are hosting OR have RSVP'd going / maybe to,
+ * ordered chronologically. No visibility filter is needed — a host or an
+ * RSVP'd attendee can always see the event by definition (see
+ * `canViewEvent`). Today's already-finished events still belong on the
+ * day's agenda, so we bound only on `startTime`, not the derived status.
+ *
+ * P-W1: split into two index-friendly arms instead of one OR query
+ * spanning both tables. The original `events.createdBy = viewer OR
+ * rsvp.status IN (…)` shape couldn't be satisfied by any single index,
+ * so SQLite range-scanned every upcoming event globally before
+ * filtering — cost scaled with total event volume, not per-user data.
+ * Each arm here seeks on the viewer as a high-selectivity constant:
+ *   • Hosted    → `events_created_by_profile_id_idx`
+ *   • Attending → `event_rsvps_profile_event_idx` (profileId leading)
+ * Each fetches up to `limit` rows in start-time order, the two results
+ * are merged + deduped (attending wins so `myStatus` is preserved) +
+ * sliced. The merged prefix of `limit` is provably the correct top-N
+ * because each arm returned its earliest-startTime rows.
+ */
+export const listMyCalendarEvents = (
+  viewerId: string,
+  options: { limit?: number } = {},
+): Effect.Effect<CalendarEntry[], DatabaseError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const limit =
+      options.limit != null && Number.isFinite(options.limit)
+        ? Math.min(Math.max(1, options.limit), 100)
+        : 50;
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const [hostedRows, attendingRows] = yield* Effect.all(
+      [
+        Effect.tryPromise({
+          try: (): Promise<Event[]> =>
+            db
+              .select()
+              .from(events)
+              .where(
+                and(
+                  eq(events.createdByProfileId, viewerId),
+                  gte(events.startTime, startOfDay),
+                  ne(events.status, "cancelled"),
+                ),
+              )
+              .orderBy(asc(events.startTime), asc(events.id))
+              .limit(limit) as Promise<Event[]>,
+          catch: (cause) => new DatabaseError({ cause }),
+        }),
+        Effect.tryPromise({
+          try: (): Promise<{ event: Event; rsvpStatus: "going" | "maybe" }[]> =>
+            db
+              .select({ event: events, rsvpStatus: eventRsvps.status })
+              .from(eventRsvps)
+              .innerJoin(events, eq(events.id, eventRsvps.eventId))
+              .where(
+                and(
+                  eq(eventRsvps.profileId, viewerId),
+                  inArray(eventRsvps.status, ["going", "maybe"]),
+                  gte(events.startTime, startOfDay),
+                  ne(events.status, "cancelled"),
+                ),
+              )
+              .orderBy(asc(events.startTime), asc(events.id))
+              .limit(limit) as Promise<{ event: Event; rsvpStatus: "going" | "maybe" }[]>,
+          catch: (cause) => new DatabaseError({ cause }),
+        }),
+      ] as const,
+      { concurrency: "unbounded" },
+    );
+
+    // Dedupe by event id. Hosted-arm rows carry no rsvp info; attending-
+    // arm rows carry myStatus — when an event surfaces in both arms (host
+    // RSVP'd to own event), the attending row wins so myStatus survives.
+    const byId = new Map<string, { event: Event; myStatus: "going" | "maybe" | null }>();
+    for (const event of hostedRows) byId.set(event.id, { event, myStatus: null });
+    for (const row of attendingRows) {
+      byId.set(row.event.id, { event: row.event, myStatus: row.rsvpStatus });
+    }
+
+    const merged = [...byId.values()]
+      .sort((a, b) => {
+        const ta = a.event.startTime.getTime();
+        const tb = b.event.startTime.getTime();
+        if (ta !== tb) return ta - tb;
+        return a.event.id < b.event.id ? -1 : 1;
+      })
+      .slice(0, limit);
+
+    // Apply lifecycle transitions so the calendar shows accurate
+    // ongoing/finished labels (bounded concurrency — see listEvents).
+    const entries = yield* Effect.forEach(
+      merged,
+      ({ event, myStatus }) =>
+        Effect.map(
+          applyTransition(event),
+          (e): CalendarEntry => ({
+            event: e,
+            myStatus,
+            isHost: e.createdByProfileId === viewerId,
+          }),
+        ),
+      { concurrency: 5 },
+    );
+
+    metricCalendarListed(entries.length);
+    return entries;
+  }).pipe(Effect.withSpan("pulse.calendar.list_mine"));
 
 export const getEvent = (id: string): Effect.Effect<Event, EventNotFound | DatabaseError, Db> =>
   Effect.gen(function* () {

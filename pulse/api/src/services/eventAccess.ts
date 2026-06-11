@@ -23,7 +23,7 @@ export { buildVisibilityFilter } from "./eventVisibility";
  *   - Private events   → visible to:
  *                        (a) the organiser
  *                        (b) any user who has an RSVP row for the event
- *                            (going / interested / not_going / invited)
+ *                            (going / maybe / not_going / invited)
  *                            — i.e. the organiser shared the link with
  *                            them or invited them explicitly.
  *

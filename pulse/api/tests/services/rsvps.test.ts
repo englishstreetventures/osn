@@ -61,14 +61,14 @@ it.effect("upsertRsvp updates existing RSVP status", () =>
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-it.effect("upsertRsvp rejects interested status when allowInterested is false", () =>
+it.effect("upsertRsvp rejects maybe status when allowInterested is false", () =>
   Effect.gen(function* () {
     const event = yield* seedEvent({
       title: "Strict",
       startTime: "2030-06-01T10:00:00.000Z",
       allowInterested: false,
     });
-    const err = yield* Effect.flip(upsertRsvp(event.id, "usr_bob", { status: "interested" }));
+    const err = yield* Effect.flip(upsertRsvp(event.id, "usr_bob", { status: "maybe" }));
     expect(err._tag).toBe("ValidationError");
   }).pipe(Effect.provide(createTestLayer())),
 );
@@ -200,10 +200,10 @@ it.effect("rsvpCounts groups by status", () =>
     const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
     yield* upsertRsvp(event.id, "usr_carol", { status: "going" });
-    yield* upsertRsvp(event.id, "usr_dan", { status: "interested" });
+    yield* upsertRsvp(event.id, "usr_dan", { status: "maybe" });
     const counts = yield* rsvpCounts(event.id);
     expect(counts.going).toBe(2);
-    expect(counts.interested).toBe(1);
+    expect(counts.maybe).toBe(1);
     expect(counts.not_going).toBe(0);
     expect(counts.invited).toBe(0);
   }).pipe(Effect.provide(createTestLayer())),

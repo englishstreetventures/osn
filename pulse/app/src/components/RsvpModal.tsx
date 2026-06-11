@@ -13,7 +13,7 @@ interface Event {
   createdByProfileId: string;
 }
 
-type Tab = "going" | "interested" | "not_going" | "invited";
+type Tab = "going" | "maybe" | "not_going" | "invited";
 
 /**
  * Full RSVP list with tabs for Going / Maybe / Not going / Invited.
@@ -44,7 +44,7 @@ export function RsvpModal(props: {
 
   const tabs: { id: Tab; label: string; show: () => boolean }[] = [
     { id: "going", label: "Going", show: () => true },
-    { id: "interested", label: "Maybe", show: () => props.event.allowInterested },
+    { id: "maybe", label: "Maybe", show: () => props.event.allowInterested },
     { id: "not_going", label: "Not going", show: () => true },
     { id: "invited", label: "Invited", show: () => props.event.joinPolicy === "guest_list" },
   ];

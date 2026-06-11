@@ -14,7 +14,7 @@ function authHeaders(token: string | null): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export type RsvpStatus = "going" | "interested" | "not_going" | "invited";
+export type RsvpStatus = "going" | "maybe" | "not_going" | "invited";
 
 export interface Rsvp {
   id: string;
@@ -40,7 +40,7 @@ export interface Rsvp {
 
 export interface RsvpCounts {
   going: number;
-  interested: number;
+  maybe: number;
   not_going: number;
   invited: number;
 }
@@ -73,14 +73,14 @@ export async function fetchRsvpsByStatus(
 
 export async function fetchRsvpCounts(eventId: string): Promise<RsvpCounts> {
   const res = await fetch(`${BASE_URL}/events/${eventId}/rsvps/counts`);
-  if (!res.ok) return { going: 0, interested: 0, not_going: 0, invited: 0 };
+  if (!res.ok) return { going: 0, maybe: 0, not_going: 0, invited: 0 };
   const body = (await res.json()) as { counts?: RsvpCounts };
-  return body.counts ?? { going: 0, interested: 0, not_going: 0, invited: 0 };
+  return body.counts ?? { going: 0, maybe: 0, not_going: 0, invited: 0 };
 }
 
 export async function upsertMyRsvp(
   eventId: string,
-  status: "going" | "interested" | "not_going",
+  status: "going" | "maybe" | "not_going",
   token: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(`${BASE_URL}/events/${eventId}/rsvps`, {

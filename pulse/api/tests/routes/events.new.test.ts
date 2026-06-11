@@ -217,7 +217,8 @@ describe("RSVP routes", () => {
     const res = await post(
       app,
       `/events/${eventId}/rsvps`,
-      { status: "maybe" as unknown as "going" },
+      // "interested" was renamed to "maybe" and is no longer a valid wire value.
+      { status: "interested" as unknown as "going" },
       bobToken,
     );
     expect(res.status).toBe(422);
@@ -233,10 +234,10 @@ describe("RSVP routes", () => {
     const res = await get(app, `/events/${eventId}/rsvps/counts`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      counts: { going: number; interested: number; not_going: number; invited: number };
+      counts: { going: number; maybe: number; not_going: number; invited: number };
     };
     expect(body.counts.going).toBe(1);
-    expect(body.counts.interested).toBe(0);
+    expect(body.counts.maybe).toBe(0);
   });
 
   it("GET /events/:id/rsvps returns public rsvps with user displays", async () => {

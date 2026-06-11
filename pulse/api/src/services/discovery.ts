@@ -253,7 +253,7 @@ export const discoverEvents = (
       const connectionIds =
         connections.size === 0 ? ["__no_connection_sentinel__"] : [...connections];
       // RSVP-signal branch:
-      //   - Restricted to `going`/`interested` (S-M1). Excludes `invited`
+      //   - Restricted to `going`/`maybe` (S-M1). Excludes `invited`
       //     (organiser-only pre-RSVP marker — leaks the invite list to
       //     the invitee's friends before they've engaged) and
       //     `not_going` (an explicit decline must not re-broadcast as
@@ -278,7 +278,7 @@ export const discoverEvents = (
               sql`, `,
             )})
             AND ${eventRsvps.profileId} != ${viewerId}
-            AND ${eventRsvps.status} IN ('going', 'interested')
+            AND ${eventRsvps.status} IN ('going', 'maybe')
             AND COALESCE(${pulseUsers.attendanceVisibility}, 'connections') != 'no_one'
         )`,
       ) as SQL;

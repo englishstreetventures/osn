@@ -95,17 +95,17 @@ describe("fetchRsvpsByStatus", () => {
 describe("fetchRsvpCounts", () => {
   it("returns the counts object on 200", async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { counts: { going: 4, interested: 2, not_going: 1, invited: 0 } }),
+      jsonResponse(200, { counts: { going: 4, maybe: 2, not_going: 1, invited: 0 } }),
     );
     const counts = await fetchRsvpCounts("evt_1");
     expect(counts.going).toBe(4);
-    expect(counts.interested).toBe(2);
+    expect(counts.maybe).toBe(2);
   });
 
   it("returns zeros on non-200 (graceful UI fallback)", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: "boom" }));
     const counts = await fetchRsvpCounts("evt_1");
-    expect(counts).toEqual({ going: 0, interested: 0, not_going: 0, invited: 0 });
+    expect(counts).toEqual({ going: 0, maybe: 0, not_going: 0, invited: 0 });
   });
 
   it("returns zeros when the response body lacks a counts field", async () => {

@@ -690,7 +690,7 @@ export function buildSeedRsvps(): NewEventRsvp[] {
   const rsvp = (
     eventId: string,
     profileId: string,
-    status: "going" | "interested" = "going",
+    status: "going" | "maybe" = "going",
   ): NewEventRsvp => ({
     id: `rsvp_seed_${++i}`,
     eventId,
@@ -743,7 +743,7 @@ export function buildSeedRsvps(): NewEventRsvp[] {
     rsvp("evt_seed_upcoming2", U.hana.id),
     rsvp("evt_seed_upcoming2", U.nina.id),
     rsvp("evt_seed_upcoming2", U.quinn.id),
-    rsvp("evt_seed_upcoming2", U.me.id, "interested"),
+    rsvp("evt_seed_upcoming2", U.me.id, "maybe"),
 
     // ── Rooftop Cocktail Mixer ───────────────────────────────────────────
     rsvp("evt_seed_upcoming3", U.alice.id),
@@ -758,13 +758,13 @@ export function buildSeedRsvps(): NewEventRsvp[] {
     rsvp("evt_seed_upcoming4", U.bob.id),
     rsvp("evt_seed_upcoming4", U.hana.id),
     rsvp("evt_seed_upcoming4", U.nina.id),
-    rsvp("evt_seed_upcoming4", U.me.id, "interested"),
+    rsvp("evt_seed_upcoming4", U.me.id, "maybe"),
 
-    // ── Film Screening (created by me) — some friends interested ─────────
+    // ── Film Screening (created by me) — some friends maybe attending ────
     rsvp("evt_seed_upcoming5", U.me.id),
     rsvp("evt_seed_upcoming5", U.alice.id),
     rsvp("evt_seed_upcoming5", U.charlie.id),
-    rsvp("evt_seed_upcoming5", U.eli.id, "interested"),
+    rsvp("evt_seed_upcoming5", U.eli.id, "maybe"),
     rsvp("evt_seed_upcoming5", U.rosa.id),
 
     // ── Board Game Night — close friends ─────────────────────────────────
@@ -780,7 +780,7 @@ export function buildSeedRsvps(): NewEventRsvp[] {
     rsvp("evt_seed_upcoming7", U.george.id),
     rsvp("evt_seed_upcoming7", U.hana.id),
     rsvp("evt_seed_upcoming7", U.sam.id),
-    rsvp("evt_seed_upcoming7", U.me.id, "interested"),
+    rsvp("evt_seed_upcoming7", U.me.id, "maybe"),
 
     // ── Startup Pitch Night — strangers + friends-of-friends ─────────────
     rsvp("evt_seed_upcoming8", U.priya.id),
@@ -806,7 +806,7 @@ export function buildSeedRsvps(): NewEventRsvp[] {
     rsvp("evt_seed_yoga_w6", U.hana.id),
     rsvp("evt_seed_yoga_w7", U.me.id),
     rsvp("evt_seed_yoga_w7", U.faye.id),
-    rsvp("evt_seed_yoga_w8", U.me.id, "interested"),
+    rsvp("evt_seed_yoga_w8", U.me.id, "maybe"),
 
     // ── Monthly book club — spread across a few upcoming instances ───────
     rsvp("evt_seed_book_m2", U.alice.id),

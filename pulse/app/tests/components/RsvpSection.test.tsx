@@ -40,7 +40,7 @@ const baseEvent = {
 describe("RsvpSection", () => {
   beforeEach(() => {
     mockFetchLatest.mockResolvedValue([]);
-    mockFetchCounts.mockResolvedValue({ going: 0, interested: 0, not_going: 0, invited: 0 });
+    mockFetchCounts.mockResolvedValue({ going: 0, maybe: 0, not_going: 0, invited: 0 });
     mockUpsert.mockResolvedValue({ ok: true });
   });
 
@@ -123,7 +123,7 @@ describe("RsvpSection", () => {
   it("shows the 'invited' count only for guest_list events", async () => {
     mockFetchCounts.mockResolvedValueOnce({
       going: 0,
-      interested: 0,
+      maybe: 0,
       not_going: 0,
       invited: 3,
     });
@@ -140,7 +140,7 @@ describe("RsvpSection", () => {
     // Open-policy events never show the invited count.
     mockFetchCounts.mockResolvedValueOnce({
       going: 0,
-      interested: 0,
+      maybe: 0,
       not_going: 0,
       invited: 3,
     });

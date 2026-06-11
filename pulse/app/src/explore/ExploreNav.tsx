@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@osn/ui/ui/dropdown-menu";
-import { useNavigate } from "@solidjs/router";
+import { useLocation, useNavigate } from "@solidjs/router";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
@@ -23,9 +23,9 @@ import { setShowCreateForm } from "../lib/createEventSignal";
 import { getTokenClaims } from "../lib/utils";
 
 const TABS = [
-  { id: "home", label: "Home" },
-  { id: "calendar", label: "Calendar" },
-  { id: "hosting", label: "Hosting" },
+  { id: "home", label: "Home", path: "/" },
+  { id: "calendar", label: "Calendar", path: "/calendar" },
+  { id: "hosting", label: "Hosting", path: undefined },
 ] as const;
 
 function profileInitials(profile: PublicProfile | null): string {
@@ -42,8 +42,9 @@ export function ExploreNav(props: {
 }) {
   const { session, logout, profiles, activeProfileId, switchProfile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isActiveTab = (path: string | undefined) => path != null && location.pathname === path;
 
-  const [activeTab, setActiveTab] = createSignal<string>("home");
   const [showRegister, setShowRegister] = createSignal(false);
   const [showSignIn, setShowSignIn] = createSignal(false);
   const [showSwitcher, setShowSwitcher] = createSignal(false);
@@ -123,11 +124,11 @@ export function ExploreNav(props: {
                   <button
                     type="button"
                     class={`relative rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors ${
-                      activeTab() === tab.id
+                      isActiveTab(tab.path)
                         ? "explore-tab-active bg-secondary text-foreground"
                         : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                     }`}
-                    onClick={() => setActiveTab(tab.id)}
+                    onClick={() => tab.path && navigate(tab.path)}
                   >
                     {tab.label}
                   </button>

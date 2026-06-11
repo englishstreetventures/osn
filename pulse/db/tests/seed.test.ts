@@ -165,16 +165,16 @@ describe("buildSeedRsvps", () => {
     }
   });
 
-  it("status values are only 'going' or 'interested'", () => {
+  it("status values are only 'going' or 'maybe'", () => {
     for (const r of buildSeedRsvps()) {
-      expect(["going", "interested"]).toContain(r.status);
+      expect(["going", "maybe"]).toContain(r.status);
     }
   });
 
-  it("has both going and interested statuses", () => {
+  it("has both going and maybe statuses", () => {
     const rsvps = buildSeedRsvps();
     expect(rsvps.some((r) => r.status === "going")).toBe(true);
-    expect(rsvps.some((r) => r.status === "interested")).toBe(true);
+    expect(rsvps.some((r) => r.status === "maybe")).toBe(true);
   });
 });
 

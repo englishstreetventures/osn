@@ -331,7 +331,7 @@ export function CreateEventForm(props: {
           </RadioGroup>
         </div>
 
-        {/* Allow interested */}
+        {/* Allow maybe */}
         <div class="flex flex-col gap-1">
           <div class="flex items-center">
             <Label>Allow "Maybe" replies?</Label>

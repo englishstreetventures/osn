@@ -42,7 +42,7 @@ export function RsvpSection(props: {
   const isOrganiser = () => props.currentProfileId === props.event.createdByProfileId;
   const isPrivateList = () => props.event.guestListVisibility === "private" && !isOrganiser();
 
-  async function handleRsvp(status: "going" | "interested" | "not_going") {
+  async function handleRsvp(status: "going" | "maybe" | "not_going") {
     if (!props.accessToken) {
       toast.error("Sign in to RSVP");
       return;
@@ -96,7 +96,7 @@ export function RsvpSection(props: {
       <div class="text-muted-foreground mb-3 flex gap-3 text-xs">
         <span>{counts()?.going ?? 0} going</span>
         <Show when={props.event.allowInterested}>
-          <span>{counts()?.interested ?? 0} maybe</span>
+          <span>{counts()?.maybe ?? 0} maybe</span>
         </Show>
         <span>{counts()?.not_going ?? 0} can't make it</span>
         <Show when={props.event.joinPolicy === "guest_list"}>
@@ -113,7 +113,7 @@ export function RsvpSection(props: {
             variant="secondary"
             size="sm"
             disabled={submitting()}
-            onClick={() => handleRsvp("interested")}
+            onClick={() => handleRsvp("maybe")}
           >
             Maybe
           </Button>

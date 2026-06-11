@@ -20,6 +20,7 @@ import {
   createEvent,
   deleteEvent,
   listEvents,
+  listMyCalendarEvents,
   listTodayEvents,
   updateEvent,
 } from "../services/events";
@@ -59,14 +60,10 @@ const priceCurrencySchema = t.Optional(
     ]),
   ),
 );
-const rsvpStatusEnum = t.Union([
-  t.Literal("going"),
-  t.Literal("interested"),
-  t.Literal("not_going"),
-]);
+const rsvpStatusEnum = t.Union([t.Literal("going"), t.Literal("maybe"), t.Literal("not_going")]);
 const rsvpFilterStatusEnum = t.Union([
   t.Literal("going"),
-  t.Literal("interested"),
+  t.Literal("maybe"),
   t.Literal("not_going"),
   t.Literal("invited"),
 ]);
@@ -176,6 +173,37 @@ export const createEventsRoutes = (
         const result = await Effect.runPromise(listTodayEvents.pipe(Effect.provide(dbLayer)));
         return { events: result };
       })
+      .get(
+        "/calendar",
+        async ({ query, headers, set }) => {
+          // The personal agenda is viewer-scoped, so authentication is
+          // required — an anonymous caller has no events to show.
+          const claims = await extractClaims(headers["authorization"], jwksUrl, {
+            testKey: _testKey as CryptoKey,
+            audience: "osn-access",
+          });
+          if (!claims) {
+            set.status = 401;
+            return { message: "Unauthorized" } as const;
+          }
+          const parsedLimit = query.limit != null ? Number(query.limit) : NaN;
+          const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(1, parsedLimit), 100) : 50;
+          const result = await Effect.runPromise(
+            listMyCalendarEvents(claims.profileId, { limit }).pipe(
+              Effect.catchAll((cause) =>
+                Effect.logError("pulse.calendar.list_failed", { cause }).pipe(Effect.as(null)),
+              ),
+              Effect.provide(dbLayer),
+            ),
+          );
+          if (result === null) {
+            set.status = 500;
+            return { error: "Failed to load calendar" } as const;
+          }
+          return { entries: result };
+        },
+        { query: t.Object({ limit: t.Optional(t.String()) }) },
+      )
       .get(
         "/discover",
         async ({ query, headers, set }) => {

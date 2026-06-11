@@ -1,0 +1,175 @@
+/* Pulse calendar — vertical-timeline agenda.
+   Layout: [date marker] [axis + dot] [day content], one grid row per day.
+   The axis column draws a continuous line so consecutive days connect. */
+
+.cal-timeline {
+  --cal-rail-width: 58px;
+  --cal-axis-width: 28px;
+  --cal-accent: var(--pulse-accent, oklch(0.72 0.17 22));
+}
+
+.cal-day {
+  display: grid;
+  grid-template-columns: var(--cal-rail-width) var(--cal-axis-width) minmax(0, 1fr);
+  column-gap: 12px;
+}
+
+/* Date marker, right-aligned toward the axis. */
+.cal-day__rail {
+  padding-top: 2px;
+  text-align: right;
+}
+
+.cal-day__marker {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1;
+}
+
+.cal-day__month {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--pulse-accent-strong, var(--cal-accent));
+}
+
+.cal-day__daynum {
+  font-family: var(--font-serif, serif);
+  font-size: 24px;
+  letter-spacing: -0.02em;
+  margin-top: 1px;
+}
+
+.cal-day__weekday {
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground, #888);
+  margin-top: 2px;
+}
+
+/* Axis column: a vertical line centred in the column + a dot at the top. */
+.cal-day__axis {
+  position: relative;
+}
+
+.cal-day__axis::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--border, #e5e5e5);
+}
+
+/* First day's line starts at the dot rather than the very top. */
+.cal-day:first-child .cal-day__axis::before {
+  top: 8px;
+}
+
+/* Last day's line stops at the dot so it doesn't dangle past the content. */
+.cal-day:last-child .cal-day__axis::before {
+  bottom: auto;
+  height: 8px;
+}
+
+.cal-day__dot {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  width: 11px;
+  height: 11px;
+  transform: translateX(-50%);
+  border-radius: 9999px;
+  background: var(--cal-accent);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--cal-accent) 22%, transparent);
+}
+
+.cal-day__content {
+  padding-bottom: 28px;
+  min-width: 0;
+}
+
+.cal-day__label {
+  margin: 0 0 10px;
+  font-family: var(--font-serif, serif);
+  font-size: 19px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+/* Status / role badges on a card. */
+.cal-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 1px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.cal-badge--host {
+  background: color-mix(in oklab, var(--cal-accent) 16%, transparent);
+  color: var(--pulse-accent-strong, var(--cal-accent));
+}
+
+.cal-badge--going {
+  background: color-mix(in oklab, oklch(0.65 0.16 150) 16%, transparent);
+  color: oklch(0.5 0.14 150);
+}
+
+.cal-badge--maybe {
+  background: color-mix(in oklab, oklch(0.78 0.14 80) 20%, transparent);
+  color: oklch(0.52 0.12 80);
+}
+
+.cal-live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 4px;
+  border-radius: 9999px;
+  background: var(--badge-live, oklch(0.72 0.17 22));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--badge-live, var(--cal-accent)) 30%, transparent);
+}
+
+/* Confirm / decline buttons on the "maybe" reminder strip. */
+.cal-confirm {
+  border-radius: 9999px;
+  padding: 4px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition:
+    opacity 0.15s ease,
+    background 0.15s ease;
+}
+
+.cal-confirm:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.cal-confirm--yes {
+  background: var(--cal-accent);
+  color: var(--pulse-accent-fg, white);
+}
+
+.cal-confirm--yes:not(:disabled):hover {
+  opacity: 0.9;
+}
+
+.cal-confirm--no {
+  background: transparent;
+  border-color: var(--border, #e5e5e5);
+  color: var(--muted-foreground, #777);
+}
+
+.cal-confirm--no:not(:disabled):hover {
+  background: var(--secondary, #f3f3f3);
+}

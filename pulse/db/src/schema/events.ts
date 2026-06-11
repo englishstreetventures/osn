@@ -63,14 +63,14 @@ export const events = sqliteTable(
       .notNull()
       .default("public"),
     // ── Join policy ───────────────────────────────────────────────────────
-    // "open"       → anyone with the link can RSVP going/interested/not_going
+    // "open"       → anyone with the link can RSVP going/maybe/not_going
     // "guest_list" → only users explicitly invited (rsvp.status = "invited")
     //                can transition to going. Non-invited users are rejected.
     joinPolicy: text("join_policy", { enum: ["open", "guest_list"] })
       .notNull()
       .default("open"),
     // ── RSVP options ──────────────────────────────────────────────────────
-    // When false, the service rejects rsvp.status = "interested"/"maybe".
+    // When false, the service rejects rsvp.status = "maybe".
     // Some organisers want a binary Going / Not going decision.
     allowInterested: integer("allow_interested", { mode: "boolean" }).notNull().default(true),
     // ── Communications ────────────────────────────────────────────────────

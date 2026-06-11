@@ -45,7 +45,7 @@ export class NotEventOwner extends Data.TaggedError("NotEventOwner")<{
  * Wire-level statuses accepted from clients. "invited" is reserved for the
  * organiser invite flow and is rejected on upsertRsvp.
  */
-const RsvpStatusSchema = Schema.Literal("going", "interested", "not_going");
+const RsvpStatusSchema = Schema.Literal("going", "maybe", "not_going");
 export type RsvpStatus = Schema.Schema.Type<typeof RsvpStatusSchema>;
 
 const UpsertRsvpSchema = Schema.Struct({
@@ -87,7 +87,7 @@ export interface RsvpWithProfile extends EventRsvp {
 
 export interface RsvpCounts {
   going: number;
-  interested: number;
+  maybe: number;
   not_going: number;
   invited: number;
 }
@@ -275,7 +275,7 @@ const filterByAttendeePrivacy = (
  *     via inviteGuests)
  *   - joinPolicy === "guest_list" → the caller must already have an
  *     "invited" row; otherwise NotInvited
- *   - event.allowInterested === false → rejects status === "interested"
+ *   - event.allowInterested === false → rejects status === "maybe"
  *
  * Also lazily ensures a pulse_users row exists for the caller.
  */
@@ -291,7 +291,7 @@ export const upsertRsvp = (
 
     const event = yield* loadEvent(eventId);
 
-    if (validated.status === "interested" && !event.allowInterested) {
+    if (validated.status === "maybe" && !event.allowInterested) {
       return yield* Effect.fail(
         new ValidationError({ cause: "This event does not accept 'Maybe' RSVPs" }),
       );
@@ -542,7 +542,7 @@ export const rsvpCounts = (
           .groupBy(eventRsvps.status) as Promise<{ status: EventRsvp["status"]; total: number }[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
-    const counts: RsvpCounts = { going: 0, interested: 0, not_going: 0, invited: 0 };
+    const counts: RsvpCounts = { going: 0, maybe: 0, not_going: 0, invited: 0 };
     for (const row of rows) counts[row.status] = Number(row.total);
     return counts;
   });
