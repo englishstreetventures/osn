@@ -2,7 +2,7 @@
 title: OSN Wiki
 aliases: [home, map of content, MOC]
 tags: [index]
-last-reviewed: 2026-06-10
+last-reviewed: 2026-06-11
 ---
 
 # OSN Wiki
@@ -38,6 +38,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[pulse-onboarding]] — Pulse first-run onboarding flow (account-keyed, themed illustrations)
 - [[cire-auth]] — Cire's two-system auth (guest claim-code sessions + organiser OSN passkeys)
 - [[event-access]] — loadVisibleEvent, public/private visibility gate
+- [[venues]] — org-scoped venues, event lineups, venue detail page + Explore map layer
 - [[platform-limits]] — MAX_EVENT_GUESTS and other caps
 - [[redis]] — Redis-backed rate limiters + cluster-safe auth state stores
 

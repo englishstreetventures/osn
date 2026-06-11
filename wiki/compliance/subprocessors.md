@@ -35,6 +35,12 @@ that touches personal data adds a row before merge. The
 | Supabase Inc. (planned migration target) | Production Postgres | Everything | EU region selectable | **TODO — sign at migration time** | Adequacy if EU region | — | Critical — primary data store. |
 | Stripe (planned, Pulse ticketing) | Hosted checkout | Payment data (never touches OSN DB); customer email + name | US/IE | **TODO — Stripe DPA** | EU SCCs | — | Medium — financial. PCI-DSS SAQ-A scope. |
 
+### Link-outs (not processors)
+
+User-initiated outbound links where no OSN-held personal data is transmitted on our behalf — no DPA required; listed to pre-answer the audit question:
+
+- **Google Maps** — Pulse venue page "Open in Maps" builds a `google.com/maps/search` URL from the venue address; nothing loads until the user deliberately clicks, so no ePrivacy consent trigger. See [[venues]].
+
 ## Sub-subprocessors
 
 Sub-processors of our processors (e.g. Cloudflare's hosting providers,

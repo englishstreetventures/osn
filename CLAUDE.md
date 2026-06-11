@@ -67,6 +67,7 @@ Phase 1 surfaces:
 | Work on social graph | `[[wiki/systems/social-graph]]` |
 | Work on Pulse close friends | `[[wiki/systems/pulse-close-friends]]` |
 | Work on Pulse onboarding flow | `[[wiki/systems/pulse-onboarding]]` |
+| Work on Pulse venues / lineups | `[[wiki/systems/venues]]` |
 | Gate sensitive action behind step-up auth | `[[wiki/systems/step-up]]` |
 | Understand passkey-only login model | `[[wiki/systems/passkey-primary]]` |
 | Plan/extend Yoti-style verified-identity layer (AU DVS / mDL / myID, SD-JWT VC) | `[[wiki/systems/verified-identity]]` |

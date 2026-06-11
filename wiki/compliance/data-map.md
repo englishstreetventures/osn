@@ -66,7 +66,7 @@ the compliance checklist.
 | `organisations.ownerId` | Permission boundary | Art. 6(1)(b) | While org active | `@osn/api` only | [[identity-model]] |
 | `organisation_members.profileId`, `role` | Membership + permissions | Art. 6(1)(b) | While membership active | `@osn/api` + member-only views | [[identity-model]] |
 
-## Pulse (`@pulse/api` — `events`, `event_rsvps`, `event_series`, `pulse_users`, `pulse_close_friends`, `event_comms`)
+## Pulse (`@pulse/api` — `events`, `event_rsvps`, `event_series`, `pulse_users`, `pulse_close_friends`, `event_comms`, `venues`, `event_lineup`)
 
 | Field | Purpose | Lawful basis | Retention | Recipients | System page |
 |---|---|---|---|---|---|
@@ -78,6 +78,8 @@ the compliance checklist.
 | `pulse_close_friends.profileId`, `friendId` | Pulse-scoped close friends list | Art. 6(1)(b) | While both profiles active | `@pulse/api` only | [[pulse-close-friends]] |
 | `pulse_users.interests` (planned) | Personalisation | Art. 6(1)(a) — opt-in via onboarding | While account active; user-resettable | `@pulse/api` only | TODO row |
 | `event_comms.recipientProfileId`, `kind` (email/sms), `payload` | Host-to-attendee comms log | Art. 6(1)(b) — event service contract | 90 d | `@pulse/api` + comms providers (planned) | TODO row |
+| `venues.instagram_handle`, `website_url`, `address` + lat/lng | Public venue contact/location — identifies a person for sole-trader venues | Art. 6(1)(f) — legit interest in public business listings | While venue listed; removed on org request | `@pulse/api` + public web (anonymous venue pages) | [[venues]] |
+| `event_lineup.artist_name` | Publicly billed performer names (incl. stage names of natural persons) | Art. 6(1)(f) — performance publicly billed by the host | While parent event retained (event + 90 d) | `@pulse/api` + public web via lineup endpoint | [[venues]] |
 
 ## Zap (`@zap/api` — planned: `chats`, `chat_members`, `messages`, `org_chats`, `org_agents`, `localities`, `locality_subscriptions`)
 

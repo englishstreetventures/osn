@@ -8,7 +8,7 @@ packages:
   - "@pulse/api"
   - "@pulse/db"
 port: 3001
-last-reviewed: 2026-04-24
+last-reviewed: 2026-06-11
 ---
 
 # Pulse
@@ -119,6 +119,10 @@ Max price: `99999.99` in major units (= `9_999_999` minor for 2dp currencies; = 
 
 Currency allowlist and caps live in `pulse/api/src/lib/currency.ts` — see `SUPPORTED_CURRENCIES`, `MAX_PRICE_MAJOR`, and `toMinorUnits` / `fromMinorUnits`.
 
+### Venues & Lineups
+
+Org-scoped venue pages (`/venues/:orgHandle/:venueHandle`) with a lineup timeline, event carousel, timezone-aware open/closed badge, and a clickable venue pin layer on the Explore map. Backed by the `venues` + `event_lineup` tables and the public `/venues` route group. See [[venues]] for the full contract.
+
 ### Communications
 
 Event organisers can send communications to attendees.
@@ -185,6 +189,7 @@ Route tests use `createEventsRoutes(createTestLayer())` in `beforeEach` for full
 ## Related
 
 - [[event-access]] -- visibility gate and access control
+- [[venues]] -- org-scoped venues, event lineups, venue detail page
 - [[pulse-close-friends]] -- Pulse-scoped close-friends list
 - [[s2s-patterns]] -- cross-service communication architecture
 - [[platform-limits]] -- MAX_EVENT_GUESTS and future caps

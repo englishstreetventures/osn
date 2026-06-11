@@ -93,7 +93,10 @@ Horizontal card: 180px media thumbnail + body. Featured cards go full-width with
 | `ExploreCard` | `explore/ExploreCard.tsx` | `event: EventItem`, `featured?`, `hovered?`, mouse handlers |
 | `ExploreMap` | `explore/ExploreMap.tsx` | `events: EventItem[]`, `hoveredId?`, `onHoverEvent?` |
 | `ExplorePage` | `explore/ExplorePage.tsx` | (route component) |
-| `Icon` | `explore/icons.tsx` | `name`, `size?` |
+| `Icon` | `components/Icon.tsx` | `name`, `size?` (promoted from `explore/`; includes `globe`, `instagram`) |
+| `VenueDetailPage` | `pages/VenueDetailPage.tsx` | (route component — `/venues/:orgHandle/:venueHandle`) |
+| `VenueLineupTimeline` | `components/VenueLineupTimeline.tsx` | `slots`, `timezone`, `heading?` — vertical mono-time timeline, headliner weight by `role` |
+| `VenueEventCarousel` | `components/VenueEventCarousel.tsx` | `events`, `heading?` — CSS scroll-snap carousel with chevron paging |
 
 ## Design Decisions
 

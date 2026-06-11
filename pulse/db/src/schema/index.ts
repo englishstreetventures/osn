@@ -5,3 +5,5 @@ export * from "./pulseUsers";
 export * from "./eventComms";
 export * from "./closeFriends";
 export * from "./onboarding";
+export * from "./venues";
+export * from "./eventLineup";

@@ -57,6 +57,11 @@ export const PULSE_METRICS = {
   closeFriendsListed: "pulse.close_friends.listed",
   closeFriendsListSize: "pulse.close_friends.list.size",
   closeFriendsBatchSize: "pulse.close_friends.batch.size",
+  // Venue surfaces (programme + lineup)
+  venueDetailRequests: "pulse.venue.detail.requests",
+  venueDetailDuration: "pulse.venue.detail.duration",
+  venueEventsListed: "pulse.venue.events.listed",
+  venueLineupListed: "pulse.venue.lineup.listed",
   // First-run onboarding (account-keyed; see services/onboarding.ts)
   onboardingStatusFetched: "pulse.onboarding.status.fetched",
   onboardingCompleted: "pulse.onboarding.completed",
@@ -192,7 +197,7 @@ type EventAccessDeniedReason = "not_found" | "private_anonymous" | "private_no_r
 
 type EventAccessDeniedAttrs = {
   /** Which direct-fetch surface the denial happened on. */
-  surface: "get" | "ics" | "comms" | "rsvps" | "rsvps_counts";
+  surface: "get" | "ics" | "comms" | "rsvps" | "rsvps_counts" | "lineup";
   reason: EventAccessDeniedReason;
 };
 
@@ -281,6 +286,43 @@ type CloseFriendRemoveResult = "ok" | "not_found" | "error";
 type CloseFriendsAddedAttrs = { result: CloseFriendAddResult };
 type CloseFriendsRemovedAttrs = { result: CloseFriendRemoveResult };
 type CloseFriendsListedAttrs = { result_empty: "true" | "false" };
+
+// --- Venues ---
+
+/**
+ * Venue kinds bucketed for cardinality control. Free-text `venues.kind`
+ * values outside this list collapse to `"other"` — same pattern as
+ * `bucketCategory()` above.
+ */
+const ALLOWED_VENUE_KINDS = ["club", "bar", "warehouse", "outdoor", "theatre", "other"] as const;
+type AllowedVenueKind = (typeof ALLOWED_VENUE_KINDS)[number];
+const VENUE_KIND_SET: ReadonlySet<string> = new Set(ALLOWED_VENUE_KINDS);
+
+/**
+ * Map a raw venues.kind value to the closed `AllowedVenueKind` union so
+ * an attacker (or a careless seed) can't inflate metric cardinality with
+ * crafted kind values.
+ */
+const bucketVenueKind = (raw: string | null): AllowedVenueKind => {
+  if (raw === null) return "other";
+  const normalised = raw.toLowerCase();
+  return (VENUE_KIND_SET.has(normalised) ? normalised : "other") as AllowedVenueKind;
+};
+
+type VenueDetailAttrs = {
+  /** Bounded venue-kind bucket — see `bucketVenueKind`. Use "unknown" for not-found. */
+  kind: AllowedVenueKind | "unknown";
+  result: Result;
+};
+
+type VenueEventsListedAttrs = {
+  scope: "upcoming" | "past" | "all";
+  result_empty: "true" | "false";
+};
+
+type VenueLineupListedAttrs = {
+  result_empty: "true" | "false";
+};
 
 // --- Onboarding ---
 
@@ -501,7 +543,7 @@ export const metricCalendarIcsGenerated = (result: Result): void =>
 // --- Access gate recording helper ---
 
 export const metricEventAccessDenied = (
-  surface: "get" | "ics" | "comms" | "rsvps" | "rsvps_counts",
+  surface: "get" | "ics" | "comms" | "rsvps" | "rsvps_counts" | "lineup",
   reason: EventAccessDeniedReason,
 ): void => eventAccessDenied.inc({ surface, reason });
 
@@ -655,6 +697,58 @@ export const metricCloseFriendsListed = (size: number): void => {
 
 export const metricCloseFriendsBatchSize = (size: number): void =>
   closeFriendsBatchSize.record(size, {});
+
+// --- Venue instruments ---
+
+const venueDetailRequests = createCounter<VenueDetailAttrs>({
+  name: PULSE_METRICS.venueDetailRequests,
+  description: "Venue detail page (GET /venues/:id) requests, by kind + outcome",
+  unit: "{request}",
+});
+
+const venueDetailDuration = createHistogram<VenueDetailAttrs>({
+  name: PULSE_METRICS.venueDetailDuration,
+  description: "getVenue service latency",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
+const venueEventsListed = createCounter<VenueEventsListedAttrs>({
+  name: PULSE_METRICS.venueEventsListed,
+  description: "Venue programme list reads, by scope + whether any rows were returned",
+  unit: "{query}",
+});
+
+const venueLineupListed = createCounter<VenueLineupListedAttrs>({
+  name: PULSE_METRICS.venueLineupListed,
+  description: "Event lineup list reads, by whether any slots were returned",
+  unit: "{query}",
+});
+
+export const metricVenueDetail = (
+  kind: string | null,
+  result: Result,
+  durationSeconds: number,
+): void => {
+  const bucketed = result === "ok" ? bucketVenueKind(kind) : ("unknown" as const);
+  const attrs = { kind: bucketed, result } satisfies VenueDetailAttrs;
+  venueDetailRequests.inc(attrs);
+  venueDetailDuration.record(durationSeconds, attrs);
+};
+
+export const metricVenueEventsListed = (
+  scope: "upcoming" | "past" | "all",
+  resultCount: number,
+): void =>
+  venueEventsListed.inc({
+    scope,
+    result_empty: resultCount === 0 ? "true" : "false",
+  });
+
+export const metricVenueLineupListed = (resultCount: number): void =>
+  venueLineupListed.inc({
+    result_empty: resultCount === 0 ? "true" : "false",
+  });
 
 // --- Onboarding instruments ---
 

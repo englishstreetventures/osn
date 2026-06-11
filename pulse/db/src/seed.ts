@@ -1,7 +1,13 @@
 import { Effect, Data } from "effect";
 
-import { events, eventRsvps, eventSeries } from "./schema";
-import type { NewEvent, NewEventRsvp, NewEventSeries } from "./schema";
+import { events, eventRsvps, eventSeries, venues, eventLineup } from "./schema";
+import type {
+  NewEvent,
+  NewEventRsvp,
+  NewEventSeries,
+  NewVenue,
+  NewEventLineupSlot,
+} from "./schema";
 import { DbLive, Db } from "./service";
 
 /**
@@ -36,6 +42,225 @@ const U = {
 } as const;
 
 class SeedError extends Data.TaggedError("SeedError")<{ cause: unknown }> {}
+
+// ---------------------------------------------------------------------------
+// Seed venues
+// ---------------------------------------------------------------------------
+
+/**
+ * Seed venues. Opaque `ven_*` ids for FK targets; `(orgHandle, handle)`
+ * is what the public URL `/venues/:orgHandle/:venueHandle` resolves on.
+ * Both venues sit under the same fictional org so the seed exercises
+ * the "one collective, two rooms" case.
+ */
+export function buildSeedVenues(now: Date): NewVenue[] {
+  return [
+    {
+      id: "ven_pf",
+      orgHandle: "tpf-collective",
+      handle: "the-pickle-factory",
+      name: "The Pickle Factory",
+      kind: "club",
+      description:
+        "A 250-cap basement room in Bushwick known for vinyl-only sets, an unforgiving Funktion-One rig, and a Friday residency that has launched more than a few careers.",
+      address: "55 Knickerbocker Ave, Bushwick",
+      city: "Brooklyn, NY",
+      country: "United States",
+      latitude: 40.705,
+      longitude: -73.93,
+      capacity: 250,
+      hours: JSON.stringify({
+        // Mon–Wed closed, Thu–Sat 22:00 → 04:00 next day, Sun 22:00 → 03:00.
+        "1": null,
+        "2": null,
+        "3": null,
+        "4": { open: "22:00", close: "04:00" },
+        "5": { open: "22:00", close: "04:00" },
+        "6": { open: "22:00", close: "04:00" },
+        "7": { open: "22:00", close: "03:00" },
+      }),
+      heroImageUrl:
+        "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=1600&q=80",
+      websiteUrl: "https://example.com/the-pickle-factory",
+      instagramHandle: "thepicklefactory",
+      timezone: "America/New_York",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "ven_blueroom",
+      orgHandle: "tpf-collective",
+      handle: "blue-room",
+      name: "Blue Room",
+      kind: "bar",
+      description:
+        "Listening bar serving negronis and Japanese hi-fi. Programming leans ambient, leftfield, and the slower half of the BPM dial.",
+      address: "152 Orchard St",
+      city: "New York, NY",
+      country: "United States",
+      latitude: 40.7197,
+      longitude: -73.9879,
+      capacity: 80,
+      hours: JSON.stringify({
+        "1": null,
+        "2": { open: "18:00", close: "00:00" },
+        "3": { open: "18:00", close: "00:00" },
+        "4": { open: "18:00", close: "01:00" },
+        "5": { open: "18:00", close: "02:00" },
+        "6": { open: "18:00", close: "02:00" },
+        "7": { open: "16:00", close: "23:00" },
+      }),
+      heroImageUrl:
+        "https://images.unsplash.com/photo-1485872299712-a85ea08c5c4d?auto=format&fit=crop&w=1600&q=80",
+      websiteUrl: null,
+      instagramHandle: "blueroom.nyc",
+      timezone: "America/New_York",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
+
+/**
+ * Events programmed at the seed venues. Most rows are pinned to
+ * `the-pickle-factory` so the venue page has a populated carousel + a
+ * lineup-rich next-night view. Times are deliberately UTC-anchored —
+ * the venue's `timezone` field drives display.
+ */
+export function buildSeedVenueEvents(now: Date): NewEvent[] {
+  const ms = now.getTime();
+  const dMs = (n: number) => ms + n * 86_400_000;
+
+  /** Builds a 22:00→05:00 club night a `dayOffset` away from now. */
+  const clubNight = (
+    id: string,
+    dayOffset: number,
+    title: string,
+    extras: Partial<NewEvent> = {},
+  ): NewEvent => {
+    const start = new Date(dMs(dayOffset));
+    start.setUTCHours(3, 0, 0, 0); // 23:00 EDT (NYC, summer) — late-night slot
+    const end = new Date(start.getTime() + 7 * 3_600_000);
+    return {
+      id,
+      title,
+      description: extras.description ?? null,
+      location: "Bushwick, Brooklyn",
+      venue: "The Pickle Factory",
+      venueId: "ven_pf",
+      latitude: 40.705,
+      longitude: -73.93,
+      category: "nightlife",
+      startTime: start,
+      endTime: end,
+      status: dayOffset < 0 ? "finished" : "upcoming",
+      imageUrl:
+        extras.imageUrl ??
+        "https://images.unsplash.com/photo-1571266028243-e1f15bb2d8a4?auto=format&fit=crop&w=1200&q=80",
+      priceAmount: extras.priceAmount ?? 1500,
+      priceCurrency: extras.priceCurrency ?? "GBP",
+      visibility: "public",
+      guestListVisibility: "public",
+      joinPolicy: "open",
+      allowInterested: true,
+      commsChannels: '["email"]',
+      chatId: null,
+      seriesId: null,
+      instanceOverride: false,
+      createdByProfileId: U.alice.id,
+      createdByName: U.alice.name,
+      createdByAvatar: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  };
+
+  return [
+    clubNight("evt_seed_pf_friday", 2, "Friday Residency: Vinyl Only", {
+      description: "The flagship Friday — three residents, vinyl only, no opener. Doors 22:00.",
+    }),
+    clubNight("evt_seed_pf_saturday", 3, "Late Night Disco", {
+      description: "Cosmic, italo, and a few left-turns. Headliner from Berlin.",
+      priceAmount: 1800,
+    }),
+    clubNight("evt_seed_pf_thursday", 1, "Thursday Lab", {
+      description: "Experimental + ambient first half, beats after midnight.",
+      priceAmount: 1000,
+    }),
+    clubNight("evt_seed_pf_sunday", 4, "Sunday Closer", {
+      description: "Slow-burn Sunday — a long set, then a longer one.",
+      priceAmount: 1200,
+    }),
+    clubNight("evt_seed_pf_lastfriday", -7, "Last Friday's Residency", {
+      description: "Past event — keeps the carousel honest about history.",
+    }),
+  ];
+}
+
+/**
+ * Lineup slots for the seed Pickle Factory events. Each night is a
+ * resident → support → headliner → resident progression so the
+ * timeline component renders a representative shape.
+ */
+export function buildSeedLineup(now: Date): NewEventLineupSlot[] {
+  const ms = now.getTime();
+  const dMs = (n: number) => ms + n * 86_400_000;
+
+  /**
+   * Build a four-slot night anchored on `dayOffset`'s 22:00 UTC. Each
+   * slot is 90 minutes; the last set runs into the next day.
+   */
+  const night = (
+    eventId: string,
+    dayOffset: number,
+    artists: { name: string; role: NewEventLineupSlot["role"] }[],
+  ): NewEventLineupSlot[] => {
+    const base = new Date(dMs(dayOffset));
+    base.setUTCHours(3, 0, 0, 0); // 23:00 EDT, matches clubNight start
+    return artists.map((a, i) => {
+      const start = new Date(base.getTime() + i * 90 * 60_000);
+      const end = new Date(start.getTime() + 90 * 60_000);
+      return {
+        id: `lnp_seed_${eventId}_${i + 1}`,
+        eventId,
+        artistName: a.name,
+        role: a.role,
+        slotStart: start,
+        slotEnd: end,
+        orderIndex: i,
+        createdAt: now,
+      };
+    });
+  };
+
+  return [
+    ...night("evt_seed_pf_friday", 2, [
+      { name: "Mara Reso", role: "resident" },
+      { name: "Tomu DJ", role: "support" },
+      { name: "Anu", role: "headliner" },
+      { name: "Mara Reso b2b Anu", role: "resident" },
+    ]),
+    ...night("evt_seed_pf_saturday", 3, [
+      { name: "House of Selecta", role: "resident" },
+      { name: "Nala Sinephro (DJ set)", role: "support" },
+      { name: "DJ Python", role: "headliner" },
+      { name: "House of Selecta", role: "resident" },
+    ]),
+    ...night("evt_seed_pf_thursday", 1, [
+      { name: "Kiani del Valle", role: "opener" },
+      { name: "Pessimist", role: "support" },
+      { name: "Loraine James", role: "headliner" },
+    ]),
+    ...night("evt_seed_pf_sunday", 4, [
+      { name: "Beatrice Dillon", role: "headliner" },
+      { name: "Beatrice Dillon", role: "headliner" },
+    ]),
+    ...night("evt_seed_pf_lastfriday", -7, [
+      { name: "Mara Reso", role: "resident" },
+      { name: "Shanti Celeste", role: "headliner" },
+    ]),
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // Seed events
@@ -600,15 +825,30 @@ const seed = Effect.gen(function* () {
   const { db } = yield* Db;
   const now = new Date();
 
-  // Order: series (parent FK target) → one-off events + series instances → RSVPs.
+  // Order: venues + series (parent FK targets) → events (one-off + series
+  // instances + venue-attached) → lineup slots → RSVPs.
+  yield* Effect.tryPromise({
+    try: () => db.insert(venues).values(buildSeedVenues(now)).onConflictDoNothing(),
+    catch: (cause) => new SeedError({ cause }),
+  });
+
   yield* Effect.tryPromise({
     try: () => db.insert(eventSeries).values(buildSeedSeries(now)).onConflictDoNothing(),
     catch: (cause) => new SeedError({ cause }),
   });
 
-  const allEvents = [...buildSeedEvents(now), ...buildSeedSeriesInstances(now)];
+  const allEvents = [
+    ...buildSeedEvents(now),
+    ...buildSeedSeriesInstances(now),
+    ...buildSeedVenueEvents(now),
+  ];
   yield* Effect.tryPromise({
     try: () => db.insert(events).values(allEvents).onConflictDoNothing(),
+    catch: (cause) => new SeedError({ cause }),
+  });
+
+  yield* Effect.tryPromise({
+    try: () => db.insert(eventLineup).values(buildSeedLineup(now)).onConflictDoNothing(),
     catch: (cause) => new SeedError({ cause }),
   });
 
@@ -619,7 +859,7 @@ const seed = Effect.gen(function* () {
 
   // eslint-disable-next-line no-console -- CLI seed script output
   console.log(
-    `Seed complete — 2 series, ${allEvents.length} events, ${buildSeedRsvps().length} RSVPs inserted (existing rows skipped).`,
+    `Seed complete — ${buildSeedVenues(now).length} venues, 2 series, ${allEvents.length} events, ${buildSeedLineup(now).length} lineup slots, ${buildSeedRsvps().length} RSVPs inserted (existing rows skipped).`,
   );
 }).pipe(Effect.provide(DbLive));
 

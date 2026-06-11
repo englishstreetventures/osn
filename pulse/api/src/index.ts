@@ -7,6 +7,7 @@ import { closeFriendsRoutes } from "./routes/closeFriends";
 import { eventsRoutes, settingsRoutes } from "./routes/events";
 import { onboardingRoutes } from "./routes/onboarding";
 import { seriesRoutes } from "./routes/series";
+import { venuesRoutes } from "./routes/venues";
 import { startKeyRotation } from "./services/graphBridge";
 
 // Initialise observability (logger, tracing, metrics) before building the app.
@@ -21,6 +22,7 @@ const app = new Elysia()
   .get("/", () => ({ status: "ok", service: "osn-api" }))
   .use(eventsRoutes)
   .use(seriesRoutes)
+  .use(venuesRoutes)
   .use(settingsRoutes)
   .use(closeFriendsRoutes)
   .use(onboardingRoutes);

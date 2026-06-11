@@ -26,6 +26,9 @@ const SeriesDetailPage = lazy(() =>
 const CloseFriendsPage = lazy(() =>
   import("./pages/CloseFriendsPage").then((m) => ({ default: m.CloseFriendsPage })),
 );
+const VenueDetailPage = lazy(() =>
+  import("./pages/VenueDetailPage").then((m) => ({ default: m.VenueDetailPage })),
+);
 const WelcomePage = lazy(() =>
   import("./pages/WelcomePage").then((m) => ({ default: m.WelcomePage })),
 );
@@ -58,6 +61,7 @@ export default function App() {
         <Route path="/" component={ExplorePage} />
         <Route path="/events/:id" component={EventDetailPage} />
         <Route path="/series/:id" component={SeriesDetailPage} />
+        <Route path="/venues/:orgHandle/:venueHandle" component={VenueDetailPage} />
         <Route path="/settings" component={SettingsPage} />
         <Route path="/close-friends" component={CloseFriendsPage} />
         <Route path="/welcome" component={WelcomePage} />

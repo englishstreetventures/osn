@@ -2,8 +2,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
 import { A } from "@solidjs/router";
 import { Show } from "solid-js";
 
+import { Icon } from "../components/Icon";
 import type { EventItem } from "../lib/types";
-import { Icon } from "./icons";
 
 /** Gradient class for events without an image — keyed by category. */
 const CATEGORY_PH: Record<string, string> = {

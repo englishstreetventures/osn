@@ -62,6 +62,17 @@ vi.mock("solid-toast", async () => {
   return solidToastMock();
 });
 
+const mockFetchAllVenues = vi.fn().mockResolvedValue([]);
+
+vi.mock("../../src/lib/venues", async () => {
+  const actual =
+    await vi.importActual<typeof import("../../src/lib/venues")>("../../src/lib/venues");
+  return {
+    ...actual,
+    fetchAllVenues: (...args: unknown[]) => mockFetchAllVenues(...args),
+  };
+});
+
 const { ExplorePage } = await import("../../src/explore/ExplorePage");
 
 const render: typeof _baseRender = ((factory: () => JSX.Element) =>
@@ -303,5 +314,37 @@ describe("ExplorePage", () => {
     const { container, findByText } = render(() => <ExplorePage />);
     await findByText("Jazz Night");
     expect(container.querySelector(".explore-body")).toBeTruthy();
+  });
+
+  it("wires fetched venues into the map as venue pin links (T-S2)", async () => {
+    mockGet.mockResolvedValue({
+      data: { events: [], nextCursor: null, series: {} },
+      error: null,
+    });
+    mockFetchAllVenues.mockResolvedValue([
+      {
+        id: "ven_1",
+        orgHandle: "tpf",
+        handle: "factory",
+        name: "The Factory",
+        kind: "club",
+        description: null,
+        address: null,
+        city: null,
+        country: null,
+        latitude: 40.705,
+        longitude: -73.93,
+        capacity: null,
+        hours: null,
+        heroImageUrl: null,
+        websiteUrl: null,
+        instagramHandle: null,
+        timezone: "UTC",
+      },
+    ]);
+    const { container } = render(() => <ExplorePage />);
+    await vi.waitFor(() => {
+      expect(container.querySelector("a[href='/venues/tpf/factory']")).toBeTruthy();
+    });
   });
 });

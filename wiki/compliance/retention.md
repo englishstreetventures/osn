@@ -33,6 +33,8 @@ already enforced in code; others need a sweeper job.
 | `event_rsvps` | Same as parent event | Cascade on event hard-delete | OK once archival lands | Pulse |
 | `event_comms` | 90 days | Sweeper job | **TODO** | Pulse |
 | `pulse_close_friends` | While both profiles active; cross-DB orphans (S-L2 pulse-close-friends) need a reconciliation hook | Reconciliation hook | **TODO** — covered by S-L2 (pulse-close-friends) | Pulse |
+| `venues` | While venue listed (seed-only today); delete on owning-org request | App code (manual until org self-service lands) | OK — no automated path needed yet | Pulse |
+| `event_lineup` | Same as parent event (event + 90 d archival) | Cascade with event hard-delete | OK once event archival lands (C-L20) | Pulse |
 | `messages` ciphertext (Zap) | Per chat-level disappearing-message setting; default indefinite (user-controlled) | App code: TTL sweep | **TODO** — Zap M1 disappearing-messages flag | Zap |
 | `chat_members` | While membership active | App code | OK | Zap |
 | `org_chats` transcripts (M3) | Per controller-org's setting; default 24 months | App code: per-org retention setting | **TODO** — Zap M3 | Zap |

@@ -74,6 +74,7 @@ export const seedEvent = (input: SeedEventInput): Effect.Effect<Event, never, Db
       description: null,
       location: null,
       venue: null,
+      venueId: null,
       latitude: input.latitude ?? null,
       longitude: input.longitude ?? null,
       category: input.category ?? null,

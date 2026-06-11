@@ -2,7 +2,7 @@ import { render, cleanup } from "@solidjs/testing-library";
 // @vitest-environment happy-dom
 import { describe, it, expect, afterEach } from "vitest";
 
-import { Icon } from "../../src/explore/icons";
+import { Icon } from "../../src/components/Icon";
 
 describe("Icon", () => {
   afterEach(cleanup);
@@ -43,6 +43,9 @@ describe("Icon", () => {
     "layers",
     "heart",
     "zap",
+    "globe",
+    "instagram",
+    "repeat",
   ];
 
   for (const name of knownIcons) {

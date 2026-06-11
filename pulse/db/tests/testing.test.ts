@@ -46,6 +46,7 @@ describe("applySchema", () => {
       .all();
     expect(rows.map((r) => r.name)).toEqual([
       "event_comms",
+      "event_lineup",
       "event_rsvps",
       "event_series",
       "events",
@@ -53,6 +54,7 @@ describe("applySchema", () => {
       "pulse_close_friends",
       "pulse_profile_accounts",
       "pulse_users",
+      "venues",
     ]);
   });
 

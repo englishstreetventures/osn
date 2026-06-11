@@ -1,7 +1,9 @@
+import { A } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
+import { Icon } from "../components/Icon";
 import type { EventItem } from "../lib/types";
-import { Icon } from "./icons";
+import type { VenueSummary } from "../lib/venues";
 
 // NYC bounding box for coordinate projection
 const BBOX = { minLng: -74.03, maxLng: -73.88, minLat: 40.63, maxLat: 40.76 };
@@ -339,6 +341,7 @@ function Legend() {
 
 export function ExploreMap(props: {
   events: EventItem[];
+  venues?: VenueSummary[];
   hoveredId?: string | null;
   onHoverEvent?: (id: string | null) => void;
 }) {
@@ -366,6 +369,61 @@ export function ExploreMap(props: {
     props.events.filter((e) => e.latitude != null && e.longitude != null),
   );
 
+  // Map of venueId → venue summary so an event pin at a known venue can
+  // upgrade itself into a clickable venue link.
+  const venueById = createMemo(() => {
+    const m = new Map<string, VenueSummary>();
+    for (const v of props.venues ?? []) m.set(v.id, v);
+    return m;
+  });
+
+  // Venue ids already represented by a visible event pin. We hide the
+  // standalone venue pin in that case so we don't double-stack symbols at
+  // the same coordinates — the event pin itself carries the venue link.
+  const venueIdsWithEvent = createMemo(() => {
+    const s = new Set<string>();
+    for (const e of geoEvents()) if (e.venueId) s.add(e.venueId);
+    return s;
+  });
+
+  // Filter venues to the bbox client-side so off-screen venues don't paint
+  // outside the viewport. Drop venues that share a pin with an event.
+  // Will move server-side with the bbox query.
+  const geoVenues = createMemo(() =>
+    (props.venues ?? []).filter(
+      (v) =>
+        v.latitude != null &&
+        v.longitude != null &&
+        v.latitude >= BBOX.minLat &&
+        v.latitude <= BBOX.maxLat &&
+        v.longitude >= BBOX.minLng &&
+        v.longitude <= BBOX.maxLng &&
+        !venueIdsWithEvent().has(v.id),
+    ),
+  );
+
+  const [hoveredVenue, setHoveredVenue] = createSignal<{
+    venue: VenueSummary;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Grace timer so the cursor can travel from the event pin to the
+  // popover without instantly dismissing it. ~180 ms ≈ comfortable for
+  // a 14 px gap.
+  let dismissTimer: ReturnType<typeof setTimeout> | undefined;
+  const cancelDismiss = () => {
+    if (dismissTimer) {
+      clearTimeout(dismissTimer);
+      dismissTimer = undefined;
+    }
+  };
+  const scheduleDismiss = () => {
+    cancelDismiss();
+    dismissTimer = setTimeout(() => setHoveredPin(null), 180);
+  };
+  onCleanup(() => cancelDismiss());
+
   return (
     <div class="relative h-full w-full overflow-hidden" ref={wrapRef}>
       {/* SVG base map */}
@@ -380,8 +438,23 @@ export function ExploreMap(props: {
       <For each={geoEvents()}>
         {(e) => {
           const pos = () => proj(e.latitude!, e.longitude!, size().w, size().h);
+          const showPopover = () => {
+            cancelDismiss();
+            setHoveredPin({ event: e, x: pos()[0], y: pos()[1] });
+            props.onHoverEvent?.(e.id);
+          };
+          const hidePopover = () => {
+            scheduleDismiss();
+            props.onHoverEvent?.(null);
+          };
+          // A real <button> so keyboard + touch users can reach the
+          // popover (and its "See venue" link) \u2014 the hover-only div made
+          // venues with a co-located event pin unreachable without a
+          // pointer (C-M2 / WCAG 2.1.1).
           return (
-            <div
+            <button
+              type="button"
+              aria-label={e.title}
               style={{
                 position: "absolute",
                 left: pos()[0] + "px",
@@ -389,27 +462,63 @@ export function ExploreMap(props: {
                 transform: "translate(-50%, -100%)",
                 "z-index": "4",
                 cursor: "pointer",
+                background: "none",
+                border: "none",
+                padding: "0",
               }}
-              onMouseEnter={() => {
-                setHoveredPin({ event: e, x: pos()[0], y: pos()[1] });
-                props.onHoverEvent?.(e.id);
-              }}
-              onMouseLeave={() => {
-                setHoveredPin(null);
-                props.onHoverEvent?.(null);
+              onMouseEnter={showPopover}
+              onMouseLeave={hidePopover}
+              onFocus={showPopover}
+              onBlur={hidePopover}
+              onKeyDown={(ev) => {
+                if (ev.key === "Escape") {
+                  cancelDismiss();
+                  setHoveredPin(null);
+                  props.onHoverEvent?.(null);
+                }
               }}
             >
               <EventPin
                 category={e.category ?? ""}
                 glyph={CATEGORY_GLYPH[e.category ?? ""] ?? "\u25C9"}
               />
-            </div>
+            </button>
           );
         }}
       </For>
 
-      {/* Hovered pin popup */}
-      <Show when={hoveredPin()}>
+      {/* Venue pins — clickable to the venue page */}
+      <For each={geoVenues()}>
+        {(v) => {
+          const pos = () => proj(v.latitude!, v.longitude!, size().w, size().h);
+          return (
+            <A
+              href={`/venues/${v.orgHandle}/${v.handle}`}
+              aria-label={v.name}
+              style={{
+                position: "absolute",
+                left: pos()[0] + "px",
+                top: pos()[1] + "px",
+                transform: "translate(-50%, -50%)",
+                "z-index": "4",
+              }}
+              class="venue-pin"
+              onMouseEnter={() => setHoveredVenue({ venue: v, x: pos()[0], y: pos()[1] })}
+              onMouseLeave={() => setHoveredVenue(null)}
+            >
+              <span
+                class="border-foreground/70 bg-card text-foreground flex size-5 items-center justify-center rounded-[6px] border text-[10px] shadow-sm"
+                style={{ "font-family": "var(--font-mono)" }}
+              >
+                ◇
+              </span>
+            </A>
+          );
+        }}
+      </For>
+
+      {/* Hovered venue popup */}
+      <Show when={hoveredVenue()}>
         {(pin) => (
           <div
             class="pin-pop border-border bg-card absolute z-[5] rounded-[10px] border px-2.5 py-2 text-xs whitespace-nowrap shadow-lg"
@@ -420,19 +529,72 @@ export function ExploreMap(props: {
               "pointer-events": "none",
             }}
           >
-            <div class="font-semibold">
-              {pin().event.title.length > 40
-                ? pin().event.title.slice(0, 40) + "\u2026"
-                : pin().event.title}
-            </div>
+            <div class="font-semibold">{pin().venue.name}</div>
             <div
-              class="text-muted-foreground mt-0.5 text-[10.5px]"
+              class="text-muted-foreground mt-0.5 text-[10.5px] tracking-wider uppercase"
               style={{ "font-family": "var(--font-mono)" }}
             >
-              {pin().event.venue ?? ""} · {fmtTime(new Date(pin().event.startTime))}
+              {pin().venue.kind}
+              <Show when={pin().venue.capacity}>{(c) => <> · cap {c()}</>}</Show>
             </div>
           </div>
         )}
+      </Show>
+
+      {/* Hovered event pin popup */}
+      <Show when={hoveredPin()}>
+        {(pin) => {
+          const linkedVenue = () => {
+            const id = pin().event.venueId;
+            return id ? (venueById().get(id) ?? null) : null;
+          };
+          return (
+            <div
+              class="pin-pop border-border bg-card absolute z-[5] flex flex-col gap-1.5 rounded-[10px] border px-2.5 py-2 text-xs whitespace-nowrap shadow-lg"
+              style={{
+                left: pin().x + "px",
+                top: pin().y + "px",
+                transform: "translate(-50%, calc(-100% - 14px))",
+                "pointer-events": "auto",
+              }}
+              onMouseEnter={cancelDismiss}
+              onMouseLeave={scheduleDismiss}
+              onFocusIn={cancelDismiss}
+              onFocusOut={scheduleDismiss}
+              onKeyDown={(ev) => {
+                if (ev.key === "Escape") {
+                  cancelDismiss();
+                  setHoveredPin(null);
+                }
+              }}
+            >
+              <div>
+                <div class="font-semibold">
+                  {pin().event.title.length > 40
+                    ? pin().event.title.slice(0, 40) + "\u2026"
+                    : pin().event.title}
+                </div>
+                <div
+                  class="text-muted-foreground mt-0.5 text-[10.5px]"
+                  style={{ "font-family": "var(--font-mono)" }}
+                >
+                  {pin().event.venue ?? ""} · {fmtTime(new Date(pin().event.startTime))}
+                </div>
+              </div>
+              <Show when={linkedVenue()}>
+                {(v) => (
+                  <A
+                    href={`/venues/${v().orgHandle}/${v().handle}`}
+                    class="border-border text-foreground hover:bg-muted inline-flex items-center justify-between gap-1 rounded-md border px-2 py-1 text-[11px] font-medium"
+                  >
+                    See venue
+                    <span aria-hidden="true">→</span>
+                  </A>
+                )}
+              </Show>
+            </div>
+          );
+        }}
       </Show>
 
       {/* Controls overlay */}

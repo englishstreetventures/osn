@@ -75,6 +75,20 @@ export function Icon(props: { name: string; size?: number }) {
         <path d="M21 13v1a4 4 0 0 1-4 4H3" />
       </svg>
     ),
+    globe: () => (
+      <svg {...s()} viewBox="0 0 24 24" {...common}>
+        <circle cx="12" cy="12" r="10" />
+        <path d="M2 12h20" />
+        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+      </svg>
+    ),
+    instagram: () => (
+      <svg {...s()} viewBox="0 0 24 24" {...common}>
+        <rect x="2" y="2" width="20" height="20" rx="5" />
+        <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+        <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+      </svg>
+    ),
   };
 
   return <>{icons[props.name]?.() ?? null}</>;

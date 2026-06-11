@@ -1,6 +1,6 @@
 import { For } from "solid-js";
 
-import { Icon } from "./icons";
+import { Icon } from "../components/Icon";
 
 const CATEGORIES = [
   { id: "all", label: "For you", ico: "\u2726" },

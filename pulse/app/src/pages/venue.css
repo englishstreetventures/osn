@@ -1,0 +1,8 @@
+/* Hide scrollbar on the venue event carousel — same approach as the
+   filter rail. Native scroll-snap drives momentum + paging. */
+.venue-carousel {
+  scrollbar-width: none;
+}
+.venue-carousel::-webkit-scrollbar {
+  display: none;
+}

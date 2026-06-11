@@ -17,10 +17,10 @@ import { useNavigate } from "@solidjs/router";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
+import { Icon } from "../components/Icon";
 import { registrationClient, loginClient, recoveryClient } from "../lib/authClients";
 import { setShowCreateForm } from "../lib/createEventSignal";
 import { getTokenClaims } from "../lib/utils";
-import { Icon } from "./icons";
 
 const TABS = [
   { id: "home", label: "Home" },

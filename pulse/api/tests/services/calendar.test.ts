@@ -10,6 +10,7 @@ function makeEvent(overrides: Partial<Event> = {}): Event {
     description: null,
     location: null,
     venue: null,
+    venueId: null,
     latitude: null,
     longitude: null,
     category: null,

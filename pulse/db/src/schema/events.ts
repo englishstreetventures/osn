@@ -1,6 +1,7 @@
 import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core";
 
 import { eventSeries } from "./eventSeries";
+import { venues } from "./venues";
 
 export const events = sqliteTable(
   "events",
@@ -10,6 +11,15 @@ export const events = sqliteTable(
     description: text("description"),
     location: text("location"),
     venue: text("venue"),
+    /**
+     * Optional FK into the `venues` table. When set, the venue page at
+     * `/venues/:venueId` aggregates this event into its programme. The
+     * legacy free-text `venue` column above stays populated for events
+     * that aren't tied to a registered venue (one-off pop-ups,
+     * out-of-network spaces); we'll backfill + tighten this to NOT NULL
+     * in a later migration once every active venue has a row.
+     */
+    venueId: text("venue_id").references(() => venues.id),
     latitude: real("latitude"),
     longitude: real("longitude"),
     category: text("category"),
@@ -103,6 +113,8 @@ export const events = sqliteTable(
     index("events_lat_lng_idx").on(t.latitude, t.longitude),
     // Powers `GET /series/:id/instances` — walk a single series by start time.
     index("events_series_id_idx").on(t.seriesId, t.startTime),
+    // Powers `GET /venues/:id/events` — walk a single venue's programme by start time.
+    index("events_venue_id_idx").on(t.venueId, t.startTime),
   ],
 );
 
