@@ -92,6 +92,18 @@ export const events = sqliteTable(
     createdByProfileId: text("created_by_profile_id").notNull(),
     createdByName: text("created_by_name"),
     createdByAvatar: text("created_by_avatar"),
+    // ── Host-cancellation lifecycle (C-H2 — Flow B) ───────────────────────
+    // When the host leaves Pulse, hosted events transition to a "cancelled"
+    // public-facing state for 14 days so attendees can see the event was
+    // cancelled, then are hard-deleted by the event-cancellation sweeper.
+    // `cancelledAt` and `hardDeleteAt` are unix seconds. `cancellationReason`
+    // distinguishes a normal organiser cancel from a deletion-driven one
+    // (the public UI shows different copy).
+    cancelledAt: integer("cancelled_at"),
+    hardDeleteAt: integer("hard_delete_at"),
+    cancellationReason: text("cancellation_reason", {
+      enum: ["host_left", "organiser", "admin"],
+    }),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -113,6 +125,8 @@ export const events = sqliteTable(
     index("events_lat_lng_idx").on(t.latitude, t.longitude),
     // Powers `GET /series/:id/instances` — walk a single series by start time.
     index("events_series_id_idx").on(t.seriesId, t.startTime),
+    // Sweeper scan for events that have crossed their hard-delete deadline.
+    index("events_hard_delete_idx").on(t.hardDeleteAt),
     // Powers `GET /venues/:id/events` — walk a single venue's programme by start time.
     index("events_venue_id_idx").on(t.venueId, t.startTime),
   ],

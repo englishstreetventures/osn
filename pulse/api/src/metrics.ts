@@ -14,7 +14,15 @@ import {
   createHistogram,
   LATENCY_BUCKETS_SECONDS,
 } from "@shared/observability/metrics";
-import type { EventStatus, JwksCacheResult, Result } from "@shared/observability/metrics";
+import type {
+  DeletionCompletedResult,
+  DeletionCompletedSource,
+  DeletionPhase,
+  EventStatus,
+  JwksCacheResult,
+  Result,
+} from "@shared/observability/metrics";
+import { Effect } from "effect";
 
 import type { ShareSource } from "./lib/shareSource";
 
@@ -77,6 +85,13 @@ export const PULSE_METRICS = {
   onboardingCompleted: "pulse.onboarding.completed",
   onboardingInterestsSelected: "pulse.onboarding.interests.selected",
   onboardingProfileAccountResolved: "pulse.onboarding.profile_account.resolved",
+  // C-H2 Flow B — leave-Pulse account erasure
+  accountDeletionRequested: "pulse.account.deletion.requested",
+  accountDeletionCompleted: "pulse.account.deletion.completed",
+  accountDeletionDuration: "pulse.account.deletion.duration",
+  accountDeletionEnrollmentNotify: "pulse.account.deletion.enrollment_notify",
+  hostCancelledEvents: "pulse.events.host_cancelled",
+  hostCancelledHardDeleted: "pulse.events.host_cancelled.hard_delete",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -909,3 +924,97 @@ export const metricOnboardingProfileAccountResolved = (
   source: "cache" | "bridge",
   result: Result,
 ): void => onboardingProfileAccountResolved.inc({ source, result });
+
+// ---------------------------------------------------------------------------
+// Account deletion (C-H2 Flow B — leave Pulse)
+// ---------------------------------------------------------------------------
+
+type AccountDeletionRequestedAttrs = {
+  result: "ok" | "already_pending" | "step_up_failed" | "rate_limited" | "error";
+};
+type AccountDeletionCompletedAttrs = {
+  result: DeletionCompletedResult;
+  source: DeletionCompletedSource;
+};
+type AccountDeletionDurationAttrs = { phase: DeletionPhase; result: "ok" | "error" };
+type EnrollmentNotifyAttrs = { result: Result };
+type HostCancelledAttrs = { result: Result };
+
+const accountDeletionRequested = createCounter<AccountDeletionRequestedAttrs>({
+  name: PULSE_METRICS.accountDeletionRequested,
+  description: "Pulse leave-account request attempts",
+  unit: "{request}",
+});
+
+const accountDeletionCompleted = createCounter<AccountDeletionCompletedAttrs>({
+  name: PULSE_METRICS.accountDeletionCompleted,
+  description: "Pulse leave-account lifecycle events",
+  unit: "{event}",
+});
+
+const accountDeletionDuration = createHistogram<AccountDeletionDurationAttrs>({
+  name: PULSE_METRICS.accountDeletionDuration,
+  description: "Pulse leave-account phase duration",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
+const accountDeletionEnrollmentNotify = createCounter<EnrollmentNotifyAttrs>({
+  name: PULSE_METRICS.accountDeletionEnrollmentNotify,
+  description: "Pulse → osn-api enrollment-leave callback outcomes",
+  unit: "{call}",
+});
+
+const hostCancelledEvents = createCounter<HostCancelledAttrs>({
+  name: PULSE_METRICS.hostCancelledEvents,
+  description: "Hosted events transitioned into the 14-day public-cancellation window",
+  unit: "{event}",
+});
+
+const hostCancelledHardDeleted = createCounter<HostCancelledAttrs>({
+  name: PULSE_METRICS.hostCancelledHardDeleted,
+  description: "Hosted events hard-deleted by the cancellation sweeper",
+  unit: "{event}",
+});
+
+export const metricPulseAccountDeletionRequested = (
+  result: AccountDeletionRequestedAttrs["result"],
+): void => accountDeletionRequested.inc({ result });
+
+export const metricPulseAccountDeletionCompleted = (
+  result: DeletionCompletedResult,
+  source: DeletionCompletedSource,
+): void => accountDeletionCompleted.inc({ result, source });
+
+export const metricPulseEnrollmentNotify = (result: Result): void =>
+  accountDeletionEnrollmentNotify.inc({ result });
+
+export const metricPulseHostCancelled = (result: Result): void =>
+  hostCancelledEvents.inc({ result });
+
+export const metricPulseHostCancelledHardDelete = (result: Result): void =>
+  hostCancelledHardDeleted.inc({ result });
+
+const measureSecondsHelper =
+  (onDuration: (seconds: number, outcome: "ok" | "error") => void) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    Effect.suspend(() => {
+      const start = Date.now();
+      return effect.pipe(
+        Effect.tap(() => Effect.sync(() => onDuration((Date.now() - start) / 1_000, "ok"))),
+        Effect.tapError(() => Effect.sync(() => onDuration((Date.now() - start) / 1_000, "error"))),
+      );
+    });
+
+export const withPulseAccountDeletion =
+  (phase: DeletionPhase) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      measureSecondsHelper((seconds, outcome) => {
+        accountDeletionDuration.record(seconds, {
+          phase,
+          result: outcome === "ok" ? "ok" : "error",
+        });
+      }),
+      Effect.withSpan(`pulse.account.deletion.${phase}`),
+    );

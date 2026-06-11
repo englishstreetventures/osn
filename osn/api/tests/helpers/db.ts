@@ -15,7 +15,9 @@ export function createTestLayer() {
       passkey_user_id TEXT NOT NULL UNIQUE,
       max_profiles INTEGER NOT NULL DEFAULT 5,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      deleted_at INTEGER,
+      processing_restricted_at INTEGER
     )
   `);
   sqlite.run(`
@@ -167,6 +169,37 @@ export function createTestLayer() {
   `);
   sqlite.run(`CREATE INDEX org_members_org_idx ON organisation_members (organisation_id)`);
   sqlite.run(`CREATE INDEX org_members_profile_idx ON organisation_members (profile_id)`);
+  sqlite.run(`
+    CREATE TABLE app_enrollments (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      app TEXT NOT NULL,
+      joined_at INTEGER NOT NULL,
+      left_at INTEGER
+    )
+  `);
+  sqlite.run(`CREATE INDEX app_enrollments_account_idx ON app_enrollments (account_id)`);
+  sqlite.run(
+    `CREATE INDEX app_enrollments_active_idx ON app_enrollments (account_id, app) WHERE left_at IS NULL`,
+  );
+  sqlite.run(`
+    CREATE TABLE deletion_jobs (
+      account_id TEXT PRIMARY KEY REFERENCES accounts(id),
+      soft_deleted_at INTEGER NOT NULL,
+      hard_delete_at INTEGER NOT NULL,
+      pulse_done_at INTEGER,
+      zap_done_at INTEGER,
+      reason TEXT NOT NULL DEFAULT 'user_request',
+      cancel_session_id TEXT
+    )
+  `);
+  sqlite.run(`CREATE INDEX deletion_jobs_hard_delete_idx ON deletion_jobs (hard_delete_at)`);
+  sqlite.run(
+    `CREATE INDEX deletion_jobs_pulse_pending_idx ON deletion_jobs (soft_deleted_at) WHERE pulse_done_at IS NULL`,
+  );
+  sqlite.run(
+    `CREATE INDEX deletion_jobs_zap_pending_idx ON deletion_jobs (soft_deleted_at) WHERE zap_done_at IS NULL`,
+  );
   const db = drizzle(sqlite, { schema });
   const dbLayer = Layer.succeed(Db, { db });
   const emailLayer = makeLogEmailLive().layer;

@@ -15,6 +15,22 @@ last-reviewed: 2026-04-26
 
 Archived completed feature work from [[TODO]]. For open work see [[TODO]].
 
+## Account deletion compliance — C-H2 / GDPR Art. 17 (2026-04-27)
+
+Two erasure flows landed alongside the modular-platform `app_enrollments` model that drives them.
+
+- **Flow A — full OSN account delete.** `DELETE /account` on osn-api. Step-up gated, 7-day soft-delete grace window, manual fast-track. Soft-delete tx redacts identity (handle → `deleted_<id>`, display name + avatar nulled), nukes credentials (passkeys + recovery codes), revokes every session except the requesting one (preserved as the cancellation handle), closes every active app enrollment, and inserts a `deletion_jobs` row. Cross-service fan-out runs outside the tx via `Effect.all`+`Effect.either` against ARC `/internal/account-deleted` endpoints; failing bridges leave `*_done_at` NULL for the retry sweeper. After the grace window, `runHardDeleteSweep` purges all account-tied rows.
+- **Flow B — leave Pulse.** `DELETE /account` on pulse-api. Pulse delegates step-up validation to osn-api via the new ARC `/internal/step-up/verify` endpoint with `purpose: "pulse_app_delete"`. Soft-delete hard-removes RSVPs, close-friends, comms, and the `pulse_users` row; hosted events flip into a 14-day public-cancellation window (audience commitment, independent of the 7-day grace). After the user's leave succeeds, Pulse calls back to osn-api `/internal/app-enrollment/leave` to flip the row.
+- **`app_enrollments` table** tracks per-app opt-in. Lazy-provisioned on first authenticated app interaction; OSN-level deletion fan-out only targets currently-enrolled apps.
+- **Step-up `purpose` claim** (`account_delete`, `pulse_app_delete`) added as a confused-deputy guard, with the existing `osn-step-up` audience preserved. New `verifyStepUpForAccountDelete` and `verifyStepUpForExternalPurpose` helpers.
+- **New ARC scopes**: `account:erase`, `step-up:verify`, `app-enrollment:write`. osn-api becomes an ARC issuer for the first time (`osn/api/src/lib/outbound-arc.ts`); Pulse adds an in-memory ARC verifier (`pulse/api/src/lib/arc-middleware.ts`).
+- **Sweepers**: `account-erasure.runHardDeleteSweep` (osn-api), `accountErasure.runHardDeleteSweep` + `runEventCancellationSweep` (pulse-api), and `runFanOutRetrySweep` for stuck bridges.
+- **Observability**: `osn.account.deletion.{requested,completed,duration,fanout,fanout_pending_age}`, `osn.account.app_enrollment.{joined,left}`, `pulse.account.deletion.*`, `pulse.events.host_cancelled[.hard_delete]`.
+- **SDK**: `osn/client` gains `deleteAccount`, `cancelAccountDeletion`, `getAccountDeletionStatus`.
+- **Tests**: 17 new service tests covering happy path, idempotency, cancellation, sweepers, and partial fan-out.
+
+See `[[compliance/dsar]]` § Art. 17 and `[[compliance/retention]]` for the locked specs.
+
 ## Pulse `@pulse/db/testing` schema helper (2026-04-26)
 
 - **`@pulse/db/testing` export.** New `createSchemaSql()` derives `CREATE TABLE` + `CREATE INDEX` statements directly from the live Drizzle schema (`drizzle-orm/sqlite-core` `getTableConfig`), in foreign-key-respecting topological order. Companion `applySchema(sqlite)` runs the statements against an in-memory SQLite handle.

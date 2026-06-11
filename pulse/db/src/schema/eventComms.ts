@@ -28,7 +28,13 @@ export const eventComms = sqliteTable(
       .notNull()
       .$defaultFn(() => new Date()),
   },
-  (t) => [index("event_comms_event_idx").on(t.eventId)],
+  (t) => [
+    index("event_comms_event_idx").on(t.eventId),
+    // Account-erasure sweeps delete by sender (C-H2). Without this index
+    // each per-row sweeper transaction does a full table scan over a hot
+    // growing table while holding the write lock.
+    index("event_comms_sent_by_idx").on(t.sentByProfileId),
+  ],
 );
 
 export type EventComm = typeof eventComms.$inferSelect;

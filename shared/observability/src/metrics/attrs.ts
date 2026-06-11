@@ -80,6 +80,22 @@ export type StepUpFactor = "passkey" | "otp" | "recovery_code";
 /** Step-up ceremony steps, for attempt funnel counters. */
 export type StepUpStep = "begin" | "complete";
 
+/**
+ * Purpose claim embedded in step-up tokens. Lets one token mint serve
+ * multiple sensitive operations while still enforcing that each operation
+ * verifies its own purpose. New entries here MUST be matched in osn-api's
+ * verifier and any downstream `/internal/step-up/verify` callers.
+ */
+export type StepUpPurpose =
+  | "recovery_generate"
+  | "passkey_register"
+  | "passkey_delete"
+  | "email_change"
+  | "security_event_ack"
+  | "account_delete"
+  | "pulse_app_delete"
+  | "zap_app_delete";
+
 /** Step-up verification outcomes on protected endpoints. */
 export type StepUpVerifyResult =
   | "ok"
@@ -88,6 +104,7 @@ export type StepUpVerifyResult =
   | "expired"
   | "wrong_audience"
   | "wrong_subject"
+  | "wrong_purpose"
   | "jti_replay"
   | "amr_not_allowed";
 
@@ -123,7 +140,37 @@ export type SecurityEventKind =
   | "recovery_code_consume"
   | "passkey_register"
   | "passkey_delete"
-  | "cross_device_login";
+  | "cross_device_login"
+  | "account_deletion_scheduled"
+  | "account_deletion_cancelled"
+  | "account_deletion_completed"
+  | "app_deletion_scheduled"
+  | "app_deletion_cancelled"
+  | "app_deletion_completed";
+
+/** Apps a user can opt in/out of independently (Phase 1 surfaces). */
+export type AppEnrollmentApp = "pulse" | "zap";
+
+/** Phase of the deletion lifecycle, used for histogram buckets. */
+export type DeletionPhase = "soft" | "hard";
+
+/** Outcome of a deletion request, including pre-flight rejections. */
+export type DeletionRequestResult =
+  | "ok"
+  | "already_pending"
+  | "step_up_failed"
+  | "rate_limited"
+  | "error";
+
+/** Final disposition of a completed deletion lifecycle event. */
+export type DeletionCompletedResult = "soft" | "hard" | "cancelled";
+
+/** Source that triggered a deletion completion event. */
+export type DeletionCompletedSource = "user" | "sweeper" | "minor_runbook" | "admin";
+
+/** Per-bridge fan-out outcome during cross-service deletion. */
+export type DeletionFanoutService = "pulse" | "zap";
+export type DeletionFanoutResult = "ok" | "timeout" | "error" | "skipped";
 
 /**
  * Caller-initiated passkey management actions (M-PK). Keep the list tight —
@@ -173,4 +220,7 @@ export type AuthRateLimitedEndpoint =
   | "cross_device_begin"
   | "cross_device_poll"
   | "cross_device_approve"
-  | "cross_device_reject";
+  | "cross_device_reject"
+  | "account_delete"
+  | "account_restore"
+  | "account_deletion_status";

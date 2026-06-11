@@ -4,6 +4,7 @@ export * from "./rsvps";
 export * from "./pulseUsers";
 export * from "./eventComms";
 export * from "./closeFriends";
+export * from "./deletionJobs";
 export * from "./onboarding";
 export * from "./venues";
 export * from "./eventLineup";

@@ -14,9 +14,16 @@ import {
   LATENCY_BUCKETS_SECONDS,
 } from "@shared/observability/metrics";
 import type {
+  AppEnrollmentApp,
   AuthMethod,
   AuthRateLimitedEndpoint,
   CrossDeviceStep,
+  DeletionCompletedResult,
+  DeletionCompletedSource,
+  DeletionFanoutResult,
+  DeletionFanoutService,
+  DeletionPhase,
+  DeletionRequestResult,
   EmailChangeStep,
   GraphBlockAction,
   GraphConnectionAction,
@@ -85,6 +92,15 @@ export const OSN_METRICS = {
   profileSwitchAttempts: "osn.auth.profile_switch.attempts",
   profileCrudOps: "osn.profile.crud.operations",
   profileCrudDuration: "osn.profile.crud.duration",
+  // C-H2 — account deletion (Flow A)
+  accountDeletionRequested: "osn.account.deletion.requested",
+  accountDeletionCompleted: "osn.account.deletion.completed",
+  accountDeletionDuration: "osn.account.deletion.duration",
+  accountDeletionFanout: "osn.account.deletion.fanout",
+  accountDeletionFanoutPendingAge: "osn.account.deletion.fanout_pending_age",
+  // C-H2 — app enrollments
+  appEnrollmentJoined: "osn.account.app_enrollment.joined",
+  appEnrollmentLeft: "osn.account.app_enrollment.left",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -813,5 +829,112 @@ export const withCrossDeviceOp =
             ...safeErrorSummary(e),
           }),
         ]),
+      ),
+    );
+
+// ---------------------------------------------------------------------------
+// Account deletion (C-H2 — GDPR Art. 17)
+// ---------------------------------------------------------------------------
+
+type DeletionRequestedAttrs = { result: DeletionRequestResult };
+type DeletionCompletedAttrs = {
+  result: DeletionCompletedResult;
+  source: DeletionCompletedSource;
+};
+type DeletionDurationAttrs = { phase: DeletionPhase; result: "ok" | "error" };
+type DeletionFanoutAttrs = { service: DeletionFanoutService; result: DeletionFanoutResult };
+type DeletionFanoutPendingAgeAttrs = { service: DeletionFanoutService };
+type AppEnrollmentJoinedAttrs = { app: AppEnrollmentApp };
+type AppEnrollmentLeftAttrs = { app: AppEnrollmentApp; result: Result };
+
+const accountDeletionRequested = createCounter<DeletionRequestedAttrs>({
+  name: OSN_METRICS.accountDeletionRequested,
+  description: "Account deletion request attempts (Flow A — full OSN account)",
+  unit: "{request}",
+});
+
+const accountDeletionCompleted = createCounter<DeletionCompletedAttrs>({
+  name: OSN_METRICS.accountDeletionCompleted,
+  description: "Account deletion lifecycle completion events",
+  unit: "{event}",
+});
+
+const accountDeletionDuration = createHistogram<DeletionDurationAttrs>({
+  name: OSN_METRICS.accountDeletionDuration,
+  description: "Account deletion phase duration (soft = request handler, hard = sweeper)",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
+const accountDeletionFanout = createCounter<DeletionFanoutAttrs>({
+  name: OSN_METRICS.accountDeletionFanout,
+  description: "Per-bridge fan-out outcomes during cross-service deletion",
+  unit: "{call}",
+});
+
+const accountDeletionFanoutPendingAge = createHistogram<DeletionFanoutPendingAgeAttrs>({
+  name: OSN_METRICS.accountDeletionFanoutPendingAge,
+  description:
+    "Age (seconds) of unfinished fan-out jobs at sweeper scan time — early warning for a stuck bridge",
+  unit: "s",
+  // Minute-scale buckets — these jobs are background-retried, not request-path latency.
+  boundaries: [60, 300, 900, 1800, 3600, 7200, 14400, 43200, 86400],
+});
+
+const appEnrollmentJoined = createCounter<AppEnrollmentJoinedAttrs>({
+  name: OSN_METRICS.appEnrollmentJoined,
+  description: "App enrollment rows created (lazy provisioning on first authenticated app call)",
+  unit: "{enrollment}",
+});
+
+const appEnrollmentLeft = createCounter<AppEnrollmentLeftAttrs>({
+  name: OSN_METRICS.appEnrollmentLeft,
+  description: "App enrollments closed (Flow B leave-app or Flow A cascade)",
+  unit: "{enrollment}",
+});
+
+export const metricAccountDeletionRequested = (result: DeletionRequestResult): void =>
+  accountDeletionRequested.inc({ result });
+
+export const metricAccountDeletionCompleted = (
+  result: DeletionCompletedResult,
+  source: DeletionCompletedSource,
+): void => accountDeletionCompleted.inc({ result, source });
+
+export const metricAccountDeletionFanout = (
+  service: DeletionFanoutService,
+  result: DeletionFanoutResult,
+): void => accountDeletionFanout.inc({ service, result });
+
+export const metricAccountDeletionFanoutPendingAge = (
+  service: DeletionFanoutService,
+  ageSeconds: number,
+): void => accountDeletionFanoutPendingAge.record(ageSeconds, { service });
+
+export const metricAppEnrollmentJoined = (app: AppEnrollmentApp): void =>
+  appEnrollmentJoined.inc({ app });
+
+export const metricAppEnrollmentLeft = (app: AppEnrollmentApp, result: Result): void =>
+  appEnrollmentLeft.inc({ app, result });
+
+/**
+ * Wraps a deletion phase Effect with span + duration histogram. Counter
+ * emission for `requested` / `completed` is via the explicit metric
+ * helpers above so call sites can pick the right `result` / `source`
+ * union value.
+ */
+export const withAccountDeletion =
+  (phase: DeletionPhase) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      measureSeconds((seconds, outcome) => {
+        accountDeletionDuration.record(seconds, {
+          phase,
+          result: outcome === "ok" ? "ok" : "error",
+        });
+      }),
+      Effect.withSpan(`account.deletion.${phase}`),
+      Effect.tapError((e) =>
+        Effect.logError("account.deletion failed", { phase, ...safeErrorSummary(e) }),
       ),
     );

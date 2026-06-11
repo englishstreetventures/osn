@@ -12,6 +12,19 @@ export const accounts = sqliteTable("accounts", {
   maxProfiles: integer("max_profiles").notNull().default(5),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  /**
+   * Unix seconds. Non-null when the account is in the soft-deleted (tombstoned)
+   * state — Art. 17 erasure has been requested and the row is awaiting
+   * hard-delete by the deletion sweeper after the 7-day grace window.
+   * Tombstoned accounts cannot mint or refresh access tokens.
+   */
+  deletedAt: integer("deleted_at"),
+  /**
+   * Unix seconds. Non-null when the account is under Art. 18 processing
+   * restriction (e.g. pending dispute). The account cannot mutate state
+   * but data is preserved.
+   */
+  processingRestrictedAt: integer("processing_restricted_at"),
 });
 
 export type Account = typeof accounts.$inferSelect;
@@ -406,3 +419,98 @@ export type Organisation = typeof organisations.$inferSelect;
 export type NewOrganisation = typeof organisations.$inferInsert;
 export type OrganisationMember = typeof organisationMembers.$inferSelect;
 export type NewOrganisationMember = typeof organisationMembers.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// App enrollments (C-H2 — modular platform opt-in tracking)
+//
+// One row per (account, app, joined-at). `leftAt` stays NULL while the user
+// is currently enrolled. When a user "leaves Pulse" (Flow B) we set leftAt
+// rather than deleting the row, preserving an audit trail of join/leave
+// history. A re-join writes a new row with a fresh joined_at.
+//
+// Read pattern: `WHERE account_id = ? AND app = ? AND left_at IS NULL`
+// returns at most one row — used by the OSN-level deletion fan-out to know
+// which apps to ARC-call and by Pulse to know whether to provision a
+// pulse_users row.
+// ---------------------------------------------------------------------------
+
+export const appEnrollments = sqliteTable(
+  "app_enrollments",
+  {
+    id: text("id").primaryKey(), // "aenr_" prefix
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    /** App identifier — "pulse" | "zap" (kept loose at the column to allow new apps without migration). */
+    app: text("app").notNull(),
+    /** Unix seconds — first authenticated interaction with the app. */
+    joinedAt: integer("joined_at").notNull(),
+    /** Unix seconds. NULL = currently enrolled. Set on app-scoped delete. */
+    leftAt: integer("left_at"),
+  },
+  (t) => [
+    index("app_enrollments_account_idx").on(t.accountId),
+    index("app_enrollments_active_idx")
+      .on(t.accountId, t.app)
+      .where(sql`${t.leftAt} IS NULL`),
+  ],
+);
+
+export type AppEnrollment = typeof appEnrollments.$inferSelect;
+export type NewAppEnrollment = typeof appEnrollments.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Deletion jobs (C-H2 — Art. 17 right-to-erasure tombstones)
+//
+// One row per soft-delete. Row exists for the full 7-day grace window and
+// for the post-grace fan-out window until the hard-delete sweeper removes
+// the underlying account rows and this job. Idempotent re-requests return
+// the existing scheduledFor without inserting a duplicate.
+//
+// `*_done_at` columns track per-bridge fan-out completion. The hard-delete
+// sweeper refuses to fire until both are non-null AND `now >= hard_delete_at`.
+// Bridges not in this account's enrolled-apps set at soft-delete time are
+// pre-marked done (via a sentinel timestamp) so the gate doesn't block on
+// services the user never used.
+// ---------------------------------------------------------------------------
+
+export const deletionJobs = sqliteTable(
+  "deletion_jobs",
+  {
+    /** PK = accountId (one in-flight deletion per account at a time). */
+    accountId: text("account_id")
+      .primaryKey()
+      .references(() => accounts.id),
+    /** Unix seconds. */
+    softDeletedAt: integer("soft_deleted_at").notNull(),
+    /** Unix seconds. softDeletedAt + 7 days. */
+    hardDeleteAt: integer("hard_delete_at").notNull(),
+    /** Unix seconds. Set by the Pulse purge bridge when its work is done. */
+    pulseDoneAt: integer("pulse_done_at"),
+    /** Unix seconds. Set by the Zap purge bridge when its work is done. */
+    zapDoneAt: integer("zap_done_at"),
+    /** Trigger source — "user_request" | "minor_detected" | "admin". */
+    reason: text("reason").notNull().default("user_request"),
+    /**
+     * The session id (hashed) that requested the deletion. Kept alive
+     * during the grace window as the cancellation handle — the user can
+     * cancel by re-authenticating with this session. All other sessions
+     * for the account are revoked at soft-delete time.
+     */
+    cancelSessionId: text("cancel_session_id"),
+  },
+  (t) => [
+    // Sweeper scan: rows ready for hard-delete.
+    index("deletion_jobs_hard_delete_idx").on(t.hardDeleteAt),
+    // Retry sweeper scan: pending fan-out.
+    index("deletion_jobs_pulse_pending_idx")
+      .on(t.softDeletedAt)
+      .where(sql`${t.pulseDoneAt} IS NULL`),
+    index("deletion_jobs_zap_pending_idx")
+      .on(t.softDeletedAt)
+      .where(sql`${t.zapDoneAt} IS NULL`),
+  ],
+);
+
+export type DeletionJob = typeof deletionJobs.$inferSelect;
+export type NewDeletionJob = typeof deletionJobs.$inferInsert;

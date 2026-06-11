@@ -820,7 +820,9 @@ export function createAuthRoutes(
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const result = await run(auth.completeStepUpPasskey(profile.accountId, body.assertion));
+            const result = await run(
+              auth.completeStepUpPasskey(profile.accountId, body.assertion, body.purpose),
+            );
             return {
               step_up_token: result.stepUpToken,
               expires_in: result.expiresIn,
@@ -832,7 +834,24 @@ export function createAuthRoutes(
           }
         },
         {
-          body: t.Object({ assertion: t.Any() }),
+          // S-C1: optional `purpose` binds the minted token to a specific
+          // destructive operation (e.g. "account_delete"). Verifiers that
+          // require a purpose reject tokens minted for any other purpose.
+          body: t.Object({
+            assertion: t.Any(),
+            purpose: t.Optional(
+              t.Union([
+                t.Literal("account_delete"),
+                t.Literal("pulse_app_delete"),
+                t.Literal("zap_app_delete"),
+                t.Literal("recovery_generate"),
+                t.Literal("passkey_register"),
+                t.Literal("passkey_delete"),
+                t.Literal("email_change"),
+                t.Literal("security_event_ack"),
+              ]),
+            ),
+          }),
         },
       )
       .post("/step-up/otp/begin", async ({ headers, set }) => {
@@ -878,7 +897,9 @@ export function createAuthRoutes(
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const result = await run(auth.completeStepUpOtp(profile.accountId, body.code));
+            const result = await run(
+              auth.completeStepUpOtp(profile.accountId, body.code, body.purpose),
+            );
             return {
               step_up_token: result.stepUpToken,
               expires_in: result.expiresIn,
@@ -890,7 +911,22 @@ export function createAuthRoutes(
           }
         },
         {
-          body: t.Object({ code: t.String() }),
+          // S-C1: see /step-up/passkey/complete for the purpose-claim rationale.
+          body: t.Object({
+            code: t.String(),
+            purpose: t.Optional(
+              t.Union([
+                t.Literal("account_delete"),
+                t.Literal("pulse_app_delete"),
+                t.Literal("zap_app_delete"),
+                t.Literal("recovery_generate"),
+                t.Literal("passkey_register"),
+                t.Literal("passkey_delete"),
+                t.Literal("email_change"),
+                t.Literal("security_event_ack"),
+              ]),
+            ),
+          }),
         },
       )
       // -------------------------------------------------------------------------

@@ -95,6 +95,9 @@ export const seedEvent = (input: SeedEventInput): Effect.Effect<Event, never, Db
       createdByProfileId: input.createdByProfileId ?? "usr_alice",
       createdByName: input.createdByName ?? "Alice",
       createdByAvatar: input.createdByAvatar ?? null,
+      cancelledAt: null,
+      hardDeleteAt: null,
+      cancellationReason: null,
       createdAt: now,
       updatedAt: now,
     };

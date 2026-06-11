@@ -23,7 +23,8 @@ runbook, two regimes, because the operational steps overlap.
 | Channel | Who uses it | Where it lands | SLA |
 |---|---|---|---|
 | `GET /account/export` (planned C-H1) | The account holder, self-service | `@osn/api` — streams JSON | Immediate |
-| `DELETE /account` (planned C-H2) | The account holder, self-service | `@osn/api` — soft delete, then hard delete in 7 d | 7 d |
+| `DELETE /account` (osn-api, C-H2) | The account holder, self-service | `@osn/api` — soft delete, then hard delete in 7 d | 7 d |
+| `DELETE /account` (pulse-api, Flow B) | Leave Pulse without losing OSN | `@pulse/api` — soft delete + hosted-event 14-day cancellation window | 7 d (account) / 14 d (events) |
 | `dsar@osn.example` (planned, alias on landing) | Anyone via email | Identity team inbox | 30 d (GDPR) / 45 d (CCPA) |
 | Postal address (planned, on landing) | Anyone via mail | Identity team inbox | Same |
 | Authorised agent | Third party with notarised authority | Same email + verification | Same; verification adds days, log it |
@@ -79,6 +80,11 @@ Auth: bearer access token + step-up token. Rate-limit: 1 export per 24 h per acc
 Most fields are user-editable in `@osn/social` (handle change, displayName, avatar, email change). For non-editable fields (security_events metadata, sessions ua_label) — these are observed facts, not user-supplied data; rectification right is narrower under GDPR Recital 65 ("inaccuracy" must be the data itself). Document the refusal under "Refusals" if challenged.
 
 ### Art. 17 — Right of erasure
+
+Status: **shipped** (C-H2). Two flows:
+
+- **Flow A — full OSN account delete.** `DELETE /account` on osn-api. Soft-deletes the account, fans out to currently-enrolled apps via ARC, hard-deletes after the 7-day grace window via `account-erasure.runHardDeleteSweep`.
+- **Flow B — per-app delete (leave Pulse).** `DELETE /account` on pulse-api. Soft-deletes the user's Pulse-scoped data; hosted public events get a 14-day public-cancellation window (audience-commitment, independent of the account grace) before being hard-deleted. Pulse calls back to osn-api `/internal/app-enrollment/leave` to flip `app_enrollments.left_at`. The OSN account stays alive — the user can keep using Zap / OSN identity.
 
 Use `DELETE /account`. Two-phase:
 

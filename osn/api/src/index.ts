@@ -10,6 +10,7 @@ import { Elysia } from "elysia";
 import type { CookieSessionConfig } from "./lib/cookie-session";
 import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
 import { createOriginGuard } from "./lib/origin-guard";
+import { startOutboundKeyRotation } from "./lib/outbound-arc";
 import {
   createRedisAuthRateLimiters,
   createRedisGraphRateLimiter,
@@ -20,13 +21,16 @@ import {
 import { createRedisRotatedSessionStore } from "./lib/rotated-session-store";
 import { createRedisJtiStore } from "./lib/step-up-jti-store";
 import { initRedisClient } from "./redis";
+import { createAccountErasureRoutes } from "./routes/account-erasure";
 import { createAuthRoutes } from "./routes/auth";
 import { createGraphRoutes } from "./routes/graph";
 import { createInternalGraphRoutes } from "./routes/graph-internal";
+import { createInternalAccountRoutes } from "./routes/internal-account";
 import { createOrganisationRoutes } from "./routes/organisation";
 import { createInternalOrganisationRoutes } from "./routes/organisation-internal";
 import { createProfileRoutes } from "./routes/profile";
 import { createRecommendationRoutes } from "./routes/recommendations";
+import * as accountErasure from "./services/account-erasure";
 
 const SERVICE_NAME = "osn-api";
 const port = Number(process.env.PORT) || 4000;
@@ -221,7 +225,17 @@ const app = new Elysia()
   .use(createProfileRoutes(authConfig, DbLive, observabilityLayer, profileRateLimiters))
   .use(
     createRecommendationRoutes(authConfig, DbLive, observabilityLayer, recommendationRateLimiter),
-  );
+  )
+  .use(
+    createAccountErasureRoutes(
+      authConfig,
+      dbAndEmailLayer,
+      observabilityLayer,
+      undefined,
+      cookieConfig,
+    ),
+  )
+  .use(createInternalAccountRoutes(authConfig, DbLive));
 
 if (process.env.NODE_ENV !== "test") {
   app.listen({ port, reusePort: false });
@@ -239,6 +253,34 @@ if (process.env.NODE_ENV !== "test") {
       Effect.provide(observabilityLayer),
     ),
   );
+
+  // Outbound ARC key registration with downstream services. Used by the
+  // account-erasure fan-out to call Pulse / Zap `/internal/account-deleted`.
+  // Falls through gracefully in local dev when downstreams aren't up yet.
+  void startOutboundKeyRotation({
+    pulseApiUrl: process.env.PULSE_API_URL,
+    zapApiUrl: process.env.ZAP_API_URL,
+  }).catch(() => undefined);
+
+  // Hard-delete + fan-out retry sweeper. Single-instance — production should
+  // wrap with a Redis lock; for now the fixed 6-hour cadence + idempotent
+  // per-row writes keep multi-instance safe enough that a stray double-pass
+  // is a non-event.
+  const SWEEPER_INTERVAL_MS =
+    Number(process.env.OSN_DELETION_SWEEPER_INTERVAL_MS) || 6 * 60 * 60 * 1_000;
+  const runSweep = (): void => {
+    void Effect.runPromise(
+      Effect.gen(function* () {
+        yield* accountErasure.runFanOutRetrySweep();
+        yield* accountErasure.runHardDeleteSweep();
+      }).pipe(Effect.provide(DbLive), Effect.provide(observabilityLayer)) as Effect.Effect<
+        unknown,
+        never,
+        never
+      >,
+    ).catch(() => undefined);
+  };
+  setInterval(runSweep, SWEEPER_INTERVAL_MS).unref?.();
 }
 
 export { app };

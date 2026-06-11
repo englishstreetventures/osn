@@ -1,7 +1,7 @@
-import { serviceAccounts, serviceAccountKeys, users } from "@osn/db/schema";
+import { accounts, serviceAccounts, serviceAccountKeys, users } from "@osn/db/schema";
 import { Db, DbLive } from "@osn/db/service";
 import { evictPublicKeyCacheEntry, importKeyFromJwk } from "@shared/crypto";
-import { inArray, eq } from "drizzle-orm";
+import { and, inArray, eq, isNull } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
@@ -16,8 +16,24 @@ const AUDIENCE = "osn-api";
 const SCOPE_GRAPH_READ = "graph:read";
 /** Max profile IDs per batch request — stays well under SQLite's variable limit (999). */
 const MAX_BATCH_PROFILE_IDS = 200;
-/** Exhaustive list of scopes this server will grant to any service. S-M101. */
-const PERMITTED_SCOPES = new Set(["graph:read"]);
+/**
+ * Exhaustive list of scopes this server will grant to any service. S-M101.
+ *
+ * `account:erase` — granted to Pulse / Zap on registration so osn-api can
+ * mint outbound ARC tokens addressed at them with this scope when fanning
+ * out a full-account deletion.
+ *
+ * `step-up:verify` + `app-enrollment:write` — granted to Pulse / Zap for the
+ * Flow B leave-app callbacks: Pulse validates a user's step-up token via
+ * `/internal/step-up/verify` and reports the leave via
+ * `/internal/app-enrollment/leave`.
+ */
+const PERMITTED_SCOPES = new Set([
+  "graph:read",
+  "account:erase",
+  "step-up:verify",
+  "app-enrollment:write",
+]);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -213,6 +229,31 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
           }
           try {
             const now = new Date();
+            // S-L1: refuse to overwrite a kid that's already registered to
+            // a different serviceId. The shared INTERNAL_SERVICE_SECRET is
+            // a single trust anchor — without this guard, any holder could
+            // pivot across services laterally by reusing another service's
+            // kid. (kids are random UUIDs so collisions don't happen by
+            // chance; rejecting protects against a deliberate one.)
+            const existing = await run(
+              Effect.gen(function* () {
+                const { db } = yield* Db;
+                const rows = yield* Effect.tryPromise({
+                  try: () =>
+                    db
+                      .select({ serviceId: serviceAccountKeys.serviceId })
+                      .from(serviceAccountKeys)
+                      .where(eq(serviceAccountKeys.keyId, body.keyId))
+                      .limit(1),
+                  catch: (cause) => new Error("DB error checking service_account_keys", { cause }),
+                });
+                return rows[0] ?? null;
+              }),
+            );
+            if (existing && existing.serviceId !== body.serviceId) {
+              set.status = 409;
+              return { error: "kid_serviceid_mismatch" };
+            }
             await run(
               Effect.gen(function* () {
                 const { db } = yield* Db;
@@ -351,11 +392,17 @@ export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
               Effect.gen(function* () {
                 const { db } = yield* Db;
                 return yield* Effect.tryPromise({
+                  // S-H4 (tombstone rule): join accounts and require
+                  // deletedAt IS NULL so a soft-deleted account cannot be
+                  // resolved by downstream services during the grace
+                  // window — otherwise the surviving cancel-handle session
+                  // could keep writing app-side rows after a purge.
                   try: () =>
                     db
                       .select({ accountId: users.accountId })
                       .from(users)
-                      .where(eq(users.id, query.profileId))
+                      .innerJoin(accounts, eq(users.accountId, accounts.id))
+                      .where(and(eq(users.id, query.profileId), isNull(accounts.deletedAt)))
                       .limit(1),
                   catch: (cause) => new Error("DB query failed", { cause }),
                 });

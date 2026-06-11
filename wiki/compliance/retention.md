@@ -20,7 +20,11 @@ already enforced in code; others need a sweeper job.
 
 | Data class | Retention | Enforcement | Status | Owner |
 |---|---|---|---|---|
-| `accounts` row + `users` profiles | While active. On `DELETE /account` (planned C-H2): 7-day soft-delete tombstone, then hard delete. | App code: `DELETE /account` cascade. | **TODO** — endpoint not built. | Identity |
+| `accounts` row + `users` profiles | While active. On `DELETE /account` (C-H2): 7-day soft-delete tombstone, then hard delete via `account-erasure.runHardDeleteSweep`. | App code: `DELETE /account` cascade. | OK | Identity |
+| `app_enrollments` (C-H2) | Per-row history preserved indefinitely (audit). Active rows have `left_at IS NULL`. | App code: `joinApp` on lazy provisioning, `leaveApp` on Flow B / Flow A cascade. | OK | Identity |
+| `deletion_jobs` (C-H2) | Created at soft-delete; row removed by hard-delete sweeper after `hard_delete_at + fan-out completion`. Effective retention: 7-30 days max. | Sweeper job (`account-erasure.runHardDeleteSweep`) | OK | Identity |
+| `pulse_deletion_jobs` (C-H2 Flow B) | Created at soft-delete; removed at `hard_delete_at` (= softDeletedAt + 7d). | Sweeper job (`accountErasure.runHardDeleteSweep` — Pulse) | OK | Pulse |
+| Hosted events with `cancelled_at` set + `cancellation_reason = "host_left"` | 14 days from cancellation, then hard-deleted. | Sweeper (`accountErasure.runEventCancellationSweep`) | OK | Pulse |
 | `passkeys` | While account active; deleted on credential revoke or account delete | App code | OK | Identity |
 | `sessions` | 30 d sliding window; family-revoked on rotation reuse | DB `expires_at` + nightly purge job (planned) | Sliding window OK; purge of expired rows missing | Identity |
 | `rotated_sessions` (Redis or in-memory) | `refreshTokenTtl` = 30 d; native Redis PX TTL OR FIFO eviction | Per-key TTL (Redis) / FIFO sweep (in-mem) | OK | Identity |

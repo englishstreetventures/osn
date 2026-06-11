@@ -1,13 +1,18 @@
 import { cors } from "@elysiajs/cors";
+import { DbLive } from "@pulse/db/service";
 import { healthRoutes, initObservability, observabilityPlugin } from "@shared/observability";
 import { Effect, Logger } from "effect";
 import { Elysia } from "elysia";
 
+import { registerLeaveAppKeyWithOsnApi } from "./lib/outbound-arc";
+import { accountRoutes } from "./routes/account";
 import { closeFriendsRoutes } from "./routes/closeFriends";
 import { eventsRoutes, settingsRoutes } from "./routes/events";
+import { internalRoutes } from "./routes/internal";
 import { onboardingRoutes } from "./routes/onboarding";
 import { seriesRoutes } from "./routes/series";
 import { venuesRoutes } from "./routes/venues";
+import * as accountErasure from "./services/accountErasure";
 import { startKeyRotation } from "./services/graphBridge";
 
 // Initialise observability (logger, tracing, metrics) before building the app.
@@ -25,7 +30,9 @@ const app = new Elysia()
   .use(venuesRoutes)
   .use(settingsRoutes)
   .use(closeFriendsRoutes)
-  .use(onboardingRoutes);
+  .use(onboardingRoutes)
+  .use(accountRoutes)
+  .use(internalRoutes);
 
 const port = process.env.PORT || 3001;
 
@@ -86,6 +93,26 @@ if (process.env.NODE_ENV !== "test") {
       Effect.provide(observabilityLayer),
     ),
   );
+
+  // Register the leave-app outbound key with osn-api so step-up verify +
+  // enrollment-leave callbacks can be ARC-authenticated. Best-effort in
+  // local dev; throws in non-local environments via the helper itself.
+  void registerLeaveAppKeyWithOsnApi().catch(() => undefined);
+
+  // Sweepers — Pulse leave-app hard-delete + event-cancellation hard-delete.
+  // Single-instance for now; single-pod ops are fine because the writes
+  // are idempotent and per-row. Production should add a Redis lock here.
+  const SWEEPER_INTERVAL_MS =
+    Number(process.env.PULSE_DELETION_SWEEPER_INTERVAL_MS) || 6 * 60 * 60 * 1_000;
+  const runSweep = (): void => {
+    void Effect.runPromise(
+      Effect.gen(function* () {
+        yield* accountErasure.runHardDeleteSweep();
+        yield* accountErasure.runEventCancellationSweep();
+      }).pipe(Effect.provide(DbLive)) as Effect.Effect<unknown, never, never>,
+    ).catch(() => undefined);
+  };
+  setInterval(runSweep, SWEEPER_INTERVAL_MS).unref?.();
 }
 
 export { app };

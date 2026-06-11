@@ -57,10 +57,13 @@ describe("AuthRateLimitedEndpoint", () => {
       cross_device_poll: true,
       cross_device_approve: true,
       cross_device_reject: true,
+      account_delete: true,
+      account_restore: true,
+      account_deletion_status: true,
     } as const satisfies Record<AuthRateLimitedEndpoint, true>;
     // Runtime snapshot — catches a drop that the `satisfies` check would miss
     // (it only complains on missing members, not extras).
-    expect(Object.keys(members)).toHaveLength(31);
+    expect(Object.keys(members)).toHaveLength(34);
     // Negative: primary-login OTP/magic-link endpoints must not reappear.
     expect(Object.keys(members)).not.toContain("otp_begin");
     expect(Object.keys(members)).not.toContain("otp_complete");
