@@ -23,12 +23,6 @@ import {
 
 const ONE_MB = 1 * 1024 * 1024;
 
-// S-H1: the import diff is not yet tenant-scoped, so the service fails closed
-// (MultiWeddingImportUnsupported) once a second wedding exists. Map it to 409
-// with a pointer to the tracked real fix.
-const MULTI_WEDDING_MSG =
-  "Spreadsheet import is not yet multi-tenant safe; see wiki/TODO diffAgainstDb scoping";
-
 type AppVariables = {
   db: Db;
   r2: R2Bucket;
@@ -80,7 +74,11 @@ organiserImportRoute.post("/preview", async (c) => {
 
       const parsedEvents = yield* parseEventsCsv(body.eventsCsv);
       const parsedFamilies = yield* parseGuestsCsv(body.guestsCsv, parsedEvents);
-      const plan: ImportPlan = yield* diffAgainstDb(parsedEvents, parsedFamilies as ParsedFamily[]);
+      const plan: ImportPlan = yield* diffAgainstDb(
+        parsedEvents,
+        parsedFamilies as ParsedFamily[],
+        c.var.weddingId,
+      );
 
       const db = yield* DbService;
       yield* dbQuery(() =>
@@ -138,9 +136,6 @@ organiserImportRoute.post("/preview", async (c) => {
       Effect.provideService(R2Service, c.var.r2),
       Effect.catchTag("ParseError", () =>
         Effect.succeed(c.json({ error: "Missing or invalid fields" }, 400)),
-      ),
-      Effect.catchTag("MultiWeddingImportUnsupported", () =>
-        Effect.succeed(c.json({ error: MULTI_WEDDING_MSG }, 409)),
       ),
       Effect.catchTag("FormulaInjectionDetected", (e: FormulaInjectionDetected) =>
         Effect.gen(function* () {
@@ -202,7 +197,11 @@ organiserImportRoute.post("/apply", async (c) => {
 
       const parsedEvents = yield* parseEventsCsv(eventsCsv);
       const parsedFamilies = yield* parseGuestsCsv(guestsCsv, parsedEvents);
-      const plan = yield* diffAgainstDb(parsedEvents, parsedFamilies as ParsedFamily[]);
+      const plan = yield* diffAgainstDb(
+        parsedEvents,
+        parsedFamilies as ParsedFamily[],
+        c.var.weddingId,
+      );
 
       const summary = yield* applyImport(importId, plan, c.var.weddingId);
 
@@ -220,9 +219,6 @@ organiserImportRoute.post("/apply", async (c) => {
       Effect.provideService(R2Service, c.var.r2),
       Effect.catchTag("ParseError", () =>
         Effect.succeed(c.json({ error: "Missing or invalid fields" }, 400)),
-      ),
-      Effect.catchTag("MultiWeddingImportUnsupported", () =>
-        Effect.succeed(c.json({ error: MULTI_WEDDING_MSG }, 409)),
       ),
       Effect.catchTag("FormulaInjectionDetected", () =>
         Effect.succeed(c.json({ error: "Formula-injection guard tripped" }, 422)),
@@ -268,9 +264,6 @@ organiserImportRoute.post("/revert", async (c) => {
       ),
       Effect.catchTag("NoPriorImport", () =>
         Effect.succeed(c.json({ error: "No prior applied import to revert to" }, 409)),
-      ),
-      Effect.catchTag("MultiWeddingImportUnsupported", () =>
-        Effect.succeed(c.json({ error: MULTI_WEDDING_MSG }, 409)),
       ),
       Effect.catchTag("R2Error", () => Effect.succeed(c.json({ error: "Storage error" }, 500))),
       Effect.catchTag("RevertParseError", () =>

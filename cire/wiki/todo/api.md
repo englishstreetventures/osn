@@ -3,7 +3,7 @@ title: "Cire TODO — cire/api"
 tags: [todo, api]
 related:
   - "[[index]]"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-06-12
 ---
 
 # cire/api
@@ -16,7 +16,7 @@ Backend feature work. The Hono + Effect + Drizzle layer in `cire/api`.
 - [ ] Cron-triggered `DELETE FROM sessions WHERE expires_at < now` — without this the sessions table grows unbounded as tokens expire but rows remain. Cloudflare cron trigger or a sweep on each `createSession`.
 - [x] Spreadsheet parser + diff service + import endpoints (PR-C — see [[spreadsheet-import]] for the dedicated breakdown)
 - [x] Organiser auth middleware — OSN-merge: `osnAuth()` (via `@shared/osn-auth-client`) verifies OSN passkey-issued access JWTs on `/api/organiser/*`; `weddingOwner()` / `ownedWedding()` enforce wedding ownership; the interim shared-secret `X-Organiser-Token` is deleted. See `[[wiki/systems/cire-auth]]` in the root OSN wiki.
-- [ ] **`diffAgainstDb` wedding-scoping — MUST land before any second wedding exists.** `services/import.ts` reads events/families/guests/links UNSCOPED by `wedding_id`; import *writes* are scoped, but the diff would cross-contaminate with a second wedding's rows. Needs join-based scoping — a naive per-table `WHERE wedding_id = ?` would mis-detect the other wedding's guest-event links as removals. Also tracked in root `wiki/TODO.md` Cire section.
+- [x] **`diffAgainstDb` wedding-scoping** — `diffAgainstDb` now takes a `weddingId` and scopes every read to it: `events` / `families` filter on their `wedding_id` column; `guests` / `guest_events` (no `wedding_id` of their own) are reached by an inner join through `families`. The join is load-bearing — a per-table `WHERE wedding_id = ?` can't touch `guest_events` at all and would read another wedding's links as removals. The interim `MultiWeddingImportUnsupported` fail-closed tripwire (and its 409 route mapping) is removed; preview/apply/revert are now tenant-isolated. Multi-tenant isolation tests added in `services/import.test.ts` + `routes/organiser-import.test.ts`.
 - [x] **Revert capability for applied imports** — `POST /api/organiser/import/revert` re-fetches the prior `applied` import's CSVs from R2, re-parses, re-diffs, re-applies, and marks the current row `reverted` (PR-C)
 - [x] `POST /api/rsvp` — per-person per-event RSVP with dietary requirements (gated behind `sessionAuth` cookie middleware as of PR-B)
 - [x] **D1 integration tests** — `src/db/d1-integration.test.ts` runs the services against a real workerd-backed D1 via Miniflare (the rest of the suite is synchronous bun:sqlite). Covers the async driver path (`claim.lookup`, `submitRsvp` upsert) and the D1-only `db.batch` apply path including its atomic rollback. `miniflare` added as a devDependency

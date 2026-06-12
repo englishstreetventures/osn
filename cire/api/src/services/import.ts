@@ -1,5 +1,5 @@
-import { events, families, guests, guestEvents, rsvps, weddings } from "@cire/db";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { events, families, guests, guestEvents, rsvps } from "@cire/db";
+import { and, eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
 
@@ -26,19 +26,6 @@ import type {
 export class ImportError extends Data.TaggedError("ImportError")<{
   readonly reason: string;
   readonly cause?: unknown;
-}> {}
-
-// S-H1 TRIPWIRE: spreadsheet import reads/deletes events/families/guests/
-// guest_events without a wedding_id predicate. While exactly one wedding row
-// exists that is harmless, but the moment a SECOND wedding is created an
-// organiser running an import would read+wipe the other tenant's rows. The
-// proper join-based scoping is tracked separately (wiki/TODO.md → "diffAgainstDb
-// scoping"); until it lands this error fails the operation CLOSED so the
-// documented single-tenant invariant is enforced in code, not by convention.
-export class MultiWeddingImportUnsupported extends Data.TaggedError(
-  "MultiWeddingImportUnsupported",
-)<{
-  readonly weddingCount: number;
 }> {}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -74,38 +61,34 @@ function mintEventSlug(name: string): string {
 
 /**
  * Compute a fully-deterministic plan to reconcile parsed CSV data against the
- * current DB. Match rules:
+ * current DB, scoped to a single `weddingId`. Match rules:
  *  - Events: by `Event Name` (case-insensitive). Existing not in sheet → remove.
  *    New → create.
  *  - Families: by `family_name` (case-insensitive trim). Different name = remove
  *    + create (no rename detection).
  *  - Guests within matched family: by `(family, firstName)`. Last-name change OK
  *    (→ guestUpdate); first-name change = remove + create.
+ *
+ * Tenant scoping: every read is constrained to `weddingId`. `events` and
+ * `families` carry the column directly; `guests` and `guest_events` do not, so
+ * they're reached by an inner join through `families`. This join is load-bearing
+ * — `guest_events` has no `wedding_id` at all, so a naive per-table
+ * `WHERE wedding_id = ?` couldn't scope the link table and would read a second
+ * wedding's links as removals. applyImport then deletes only by id within this
+ * scoped set, so the two halves stay tenant-consistent.
  */
 export function diffAgainstDb(
   parsedEvents: readonly ParsedEvent[],
   parsedFamilies: readonly ParsedFamily[],
-): Effect.Effect<ImportPlan, MultiWeddingImportUnsupported, DbService> {
+  weddingId: string,
+): Effect.Effect<ImportPlan, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
 
-    // S-H1 TRIPWIRE: every read below is tenant-UNSCOPED, and applyImport then
-    // deletes by id. With one wedding that is safe; with two it cross-reads and
-    // cross-deletes. diffAgainstDb is the chokepoint for preview/apply/revert,
-    // so fail closed here if a second wedding exists. Real fix (join-based
-    // scoping) is tracked in wiki/TODO.md → "diffAgainstDb scoping".
-    const [{ count: weddingCount }] = yield* dbQuery(() =>
-      db
-        .select({ count: sql<number>`count(*)` })
-        .from(weddings)
-        .all(),
-    );
-    if (weddingCount > 1) {
-      return yield* Effect.fail(new MultiWeddingImportUnsupported({ weddingCount }));
-    }
-
     // ── Events ──────────────────────────────────────────────────────────────
-    const existingEvents = yield* dbQuery(() => db.select().from(events).all());
+    const existingEvents = yield* dbQuery(() =>
+      db.select().from(events).where(eq(events.weddingId, weddingId)).all(),
+    );
     const existingEventByNorm = new Map(existingEvents.map((e) => [normaliseName(e.name), e]));
     const parsedEventByNorm = new Map(parsedEvents.map((e) => [normaliseName(e.name), e]));
 
@@ -134,7 +117,9 @@ export function diffAgainstDb(
     }
 
     // ── Families ────────────────────────────────────────────────────────────
-    const existingFamilies = yield* dbQuery(() => db.select().from(families).all());
+    const existingFamilies = yield* dbQuery(() =>
+      db.select().from(families).where(eq(families.weddingId, weddingId)).all(),
+    );
     const existingFamilyByNorm = new Map(
       existingFamilies.map((f) => [normaliseName(f.familyName), f]),
     );
@@ -169,7 +154,21 @@ export function diffAgainstDb(
 
     // ── Guests ──────────────────────────────────────────────────────────────
     const removedFamilyIds = new Set(familyRemoves.map((f) => f.id));
-    const existingGuests = yield* dbQuery(() => db.select().from(guests).all());
+    // Wedding-scoped via the families join — guests carry no wedding_id.
+    const existingGuests = yield* dbQuery(() =>
+      db
+        .select({
+          id: guests.id,
+          familyId: guests.familyId,
+          firstName: guests.firstName,
+          lastName: guests.lastName,
+          sortOrder: guests.sortOrder,
+        })
+        .from(guests)
+        .innerJoin(families, eq(guests.familyId, families.id))
+        .where(eq(families.weddingId, weddingId))
+        .all(),
+    );
 
     /** Per-family map: normFirstName → existing guest row. */
     const guestsByFamily = new Map<string, Map<string, (typeof existingGuests)[number]>>();
@@ -249,7 +248,17 @@ export function diffAgainstDb(
     }
 
     // ── Event links ─────────────────────────────────────────────────────────
-    const existingLinks = yield* dbQuery(() => db.select().from(guestEvents).all());
+    // Wedding-scoped via guests → families — guest_events carries no wedding_id,
+    // so without this join a second wedding's links read as removals.
+    const existingLinks = yield* dbQuery(() =>
+      db
+        .select({ guestId: guestEvents.guestId, eventId: guestEvents.eventId })
+        .from(guestEvents)
+        .innerJoin(guests, eq(guestEvents.guestId, guests.id))
+        .innerJoin(families, eq(guests.familyId, families.id))
+        .where(eq(families.weddingId, weddingId))
+        .all(),
+    );
     const existingLinkSet = new Set(existingLinks.map((l) => `${l.guestId}::${l.eventId}`));
     /** Track desired (guestId, eventId) pairs after import. */
     const desiredLinks = new Set<string>();

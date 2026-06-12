@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[api]]"
   - "[[db]]"
-last-reviewed: 2026-06-10
+last-reviewed: 2026-06-12
 ---
 
 # Organiser Spreadsheet Import
@@ -16,7 +16,7 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 
 - [x] `services/spreadsheet.ts` — `parseEventsCsv` / `parseGuestsCsv` (hand-rolled RFC 4180); rejects formula-injection cells (cells starting with `=`, `+`, `-`, `@`) (PR-C; trim-resilient as of PR-C review)
 - [x] `services/import.ts` — `diffAgainstDb(parsed)` returns `ImportPlan` (creates / updates / removes per family + per guest); `applyImport(plan)` executes in dependency order with per-statement chunking (PR-C)
-- [ ] **`diffAgainstDb` wedding-scoping — MUST land before any second wedding exists** — the diff reads events/families/guests/links unscoped by `wedding_id` (writes are scoped); needs join-based scoping, a naive `WHERE` would mis-detect foreign links as removals. See [[api]] + root `wiki/TODO.md` Cire section.
+- [x] **`diffAgainstDb` wedding-scoping** — `diffAgainstDb(parsedEvents, parsedFamilies, weddingId)` now scopes every read to `weddingId`: `events` / `families` filter on the column directly, `guests` / `guest_events` join through `families` (neither carries `wedding_id`). The link-table join is load-bearing — a naive per-table `WHERE` couldn't scope `guest_events` and would read a second wedding's links as removals. The interim `MultiWeddingImportUnsupported` fail-closed tripwire is removed. Covered by the multi-tenant isolation tests in `services/import.test.ts` + `routes/organiser-import.test.ts`.
 - [x] `services/r2-imports.ts` — R2Service Context tag + `storeUpload` / `fetchUpload` (PR-C)
 - [x] `services/revert.ts` — `revertImport` re-fetches prior CSVs from R2, re-parses, re-diffs, re-applies (PR-C)
 - [x] `schemas/import.ts` — Effect Schema for `ParsedEvent`, `ParsedFamily`, `ImportPlan`, request/response shapes (PR-C)
