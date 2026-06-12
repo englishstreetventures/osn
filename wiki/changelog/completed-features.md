@@ -23,7 +23,8 @@ Archived completed feature work from [[TODO]]. For open work see [[TODO]].
 - **Route factories** per platform convention: `createClaimRoutes`, `createRsvpRoutes`, `createOrganiserWeddingsRoutes`, `createOrganiserImportRoutes`, composed in `createApp`.
 - **Middleware → Elysia plugins** (`derive` + `onBeforeHandle`, `as: "scoped"`): `sessionAuth`, `weddingOwner`, `ownedWedding`, `rateLimitMiddleware`; the organiser gate now uses the **shared Elysia adapter** from `@shared/osn-auth-client/middleware/elysia` (the Hono adapter remains in the shared package but has no consumers).
 - **Workers constraints**: `aot: false` (Elysia's AOT compiles handlers via `new Function`, forbidden on Cloudflare Workers); body parsing disabled per POST route via a sentinel `parse` hook so handlers keep the lenient manual `request.json()` semantics (malformed JSON → the schema's 400, not a framework parse error).
-- **Verified** by the unchanged 169-test suite, `wrangler deploy --dry-run`, and a Miniflare (workerd) smoke test of the built bundle.
+- **Verified** by the test suite (169 pre-existing tests unchanged, plus six added during pre-PR review: CORS allowlist contract, claim rate-limit wiring, JSON 404 shape, generic-500 defect body), `wrangler deploy --dry-run`, and a Miniflare (workerd) smoke test of the built bundle.
+- **Pre-PR review hardening**: S-M1 (generic 500 bodies), S-L1 (schemeless `WEB_ORIGIN` fail-closed), P-W1 (per-isolate app memo) — see `[[changelog/security-fixes]]` / `[[changelog/performance-fixes]]`.
 
 ## Account deletion compliance — C-H2 / GDPR Art. 17 (2026-04-27)
 
