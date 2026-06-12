@@ -124,8 +124,8 @@ describe("rsvpService.getRsvpsForFamily", () => {
 
         const rsvps = yield* rsvpService.getRsvpsForFamily(james.familyId);
         expect(rsvps).toHaveLength(2);
-        const guestIds = rsvps.map((r) => r.guestId).sort();
-        expect(guestIds).toEqual([james.id, emma.id].sort());
+        const guestIds = rsvps.map((r) => r.guestId).toSorted();
+        expect(guestIds).toEqual([james.id, emma.id].toSorted());
       }),
     ),
   );

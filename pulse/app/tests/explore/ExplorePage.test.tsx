@@ -31,7 +31,7 @@ vi.mock("@osn/client/solid", () => ({
 
 vi.mock("../../src/lib/api", () => ({
   api: {
-    events: Object.assign(({ id }: { id: string }) => ({ delete: vi.fn() }), {
+    events: Object.assign(({ id: _id }: { id: string }) => ({ delete: vi.fn() }), {
       get: vi.fn(),
       post: vi.fn(),
       discover: {

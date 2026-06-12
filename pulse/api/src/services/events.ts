@@ -421,7 +421,7 @@ export const listMyCalendarEvents = (
     }
 
     const merged = [...byId.values()]
-      .sort((a, b) => {
+      .toSorted((a, b) => {
         const ta = a.event.startTime.getTime();
         const tb = b.event.startTime.getTime();
         if (ta !== tb) return ta - tb;

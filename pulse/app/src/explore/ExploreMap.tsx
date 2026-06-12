@@ -43,12 +43,16 @@ function fmtTime(d: Date) {
   return `${h}:${m.toString().padStart(2, "0")} ${ampm}`;
 }
 
+function isDark() {
+  return (
+    document.documentElement.classList.contains("dark") || document.body.classList.contains("dark")
+  );
+}
+
 // Stylized SVG map background
 function StyleMap(props: { width: number; height: number }) {
   const w = () => props.width;
   const h = () => props.height;
-  const isDark = () =>
-    document.documentElement.classList.contains("dark") || document.body.classList.contains("dark");
 
   const landFill = () => (isDark() ? "oklch(0.22 0.01 60)" : "oklch(0.97 0.008 80)");
   const waterFill = () => (isDark() ? "oklch(0.17 0.015 220)" : "oklch(0.94 0.03 230)");

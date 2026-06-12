@@ -1,10 +1,14 @@
 import type { EventSummary } from "./types";
 
+/** Zero-pad a number to a fixed width (default 2). */
+function pad(n: number, w = 2): string {
+  return String(n).padStart(w, "0");
+}
+
 /**
  * Format a Date as a UTC basic ICS timestamp: YYYYMMDDTHHmmssZ.
  */
 function utcBasic(d: Date): string {
-  const pad = (n: number, w = 2) => String(n).padStart(w, "0");
   return (
     `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}` +
     `T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`

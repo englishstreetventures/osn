@@ -117,6 +117,9 @@ export function parseCsv(content: string): string[][] {
   return rows;
 }
 
+const tooManyRows = (): CsvParseResult => ({ ok: false, reason: "too many rows" });
+const cellTooLarge = (): CsvParseResult => ({ ok: false, reason: "cell too large" });
+
 /**
  * Bounded CSV parser. Enforces:
  *  - total rows ≤ `MAX_ROWS`
@@ -133,9 +136,6 @@ export function parseCsvBounded(content: string): CsvParseResult {
   let inQuotes = false;
   let i = 0;
   const n = content.length;
-
-  const tooManyRows = (): CsvParseResult => ({ ok: false, reason: "too many rows" });
-  const cellTooLarge = (): CsvParseResult => ({ ok: false, reason: "cell too large" });
 
   while (i < n) {
     if (cell.length > MAX_CELL_LENGTH) return cellTooLarge();

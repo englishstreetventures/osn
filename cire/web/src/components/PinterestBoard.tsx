@@ -124,7 +124,7 @@ export function PinterestBoard(props: PinterestBoardProps) {
     // request leaks to Pinterest.
     script.referrerPolicy = "no-referrer";
     script.src = `https://assets.pinterest.com/js/pinit_main.js?_=${id}`;
-    script.onerror = () => setEmbedFailed(true);
+    script.addEventListener("error", () => setEmbedFailed(true));
     document.body.appendChild(script);
     injectedScript = script;
 

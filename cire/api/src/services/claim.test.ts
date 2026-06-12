@@ -32,9 +32,11 @@ describe("claimService.lookup", () => {
         expect(priya.lastName).toBe("Testfamily");
         expect(typeof priya.guestId).toBe("string");
         expect(priya.guestId.length).toBeGreaterThan(0);
-        expect([...priya.eventIds].sort()).toEqual([CATHOLIC_ID, HINDU_ID, RECEPTION_ID].sort());
-        expect(result.events.map((e) => e.id).sort()).toEqual(
-          [CATHOLIC_ID, HINDU_ID, RECEPTION_ID].sort(),
+        expect([...priya.eventIds].toSorted()).toEqual(
+          [CATHOLIC_ID, HINDU_ID, RECEPTION_ID].toSorted(),
+        );
+        expect(result.events.map((e) => e.id).toSorted()).toEqual(
+          [CATHOLIC_ID, HINDU_ID, RECEPTION_ID].toSorted(),
         );
         expect(result.rsvps).toEqual([]);
       }),
@@ -82,7 +84,7 @@ describe("claimService.lookup", () => {
       Effect.gen(function* () {
         const result = yield* claimService.lookup("TESTONE-IVY-AA11");
         const orders = result.events.map((e) => e.sortOrder);
-        expect(orders).toEqual([...orders].sort((a, b) => a - b));
+        expect(orders).toEqual([...orders].toSorted((a, b) => a - b));
       }),
     ),
   );
@@ -94,14 +96,16 @@ describe("claimService.lookup", () => {
         const result = yield* claimService.lookup("TESTTWO-OAK-BB22");
         expect(result.familyName).toBe("Sampleton");
         const byName = new Map(result.members.map((m) => [m.firstName, m]));
-        expect([...(byName.get("Bo")?.eventIds ?? [])].sort()).toEqual(
-          [RECEPTION_ID, HINDU_ID].sort(),
+        expect([...(byName.get("Bo")?.eventIds ?? [])].toSorted()).toEqual(
+          [RECEPTION_ID, HINDU_ID].toSorted(),
         );
-        expect([...(byName.get("Cleo")?.eventIds ?? [])].sort()).toEqual(
-          [RECEPTION_ID, HINDU_ID].sort(),
+        expect([...(byName.get("Cleo")?.eventIds ?? [])].toSorted()).toEqual(
+          [RECEPTION_ID, HINDU_ID].toSorted(),
         );
         expect(byName.get("Dot")?.eventIds).toEqual([HINDU_ID]);
-        expect(result.events.map((e) => e.id).sort()).toEqual([RECEPTION_ID, HINDU_ID].sort());
+        expect(result.events.map((e) => e.id).toSorted()).toEqual(
+          [RECEPTION_ID, HINDU_ID].toSorted(),
+        );
       }),
     ),
   );
@@ -111,8 +115,8 @@ describe("claimService.lookup", () => {
     withDb(
       Effect.gen(function* () {
         const result = yield* claimService.lookup("TESTFOR-JOY-DD44");
-        expect(result.events.map((e) => e.id).sort()).toEqual(
-          [CATHOLIC_ID, KITCHEN_TEA_ID, MEHENDI_ID, HINDU_ID, RECEPTION_ID].sort(),
+        expect(result.events.map((e) => e.id).toSorted()).toEqual(
+          [CATHOLIC_ID, KITCHEN_TEA_ID, MEHENDI_ID, HINDU_ID, RECEPTION_ID].toSorted(),
         );
       }),
     ),

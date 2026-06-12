@@ -167,6 +167,7 @@ export async function startOutboundKeyRotation(opts: {
 
   for (const s of services) {
     try {
+      // eslint-disable-next-line no-await-in-loop -- sequential so a configured-stack failure short-circuits before the next downstream
       await registerWithDownstream(s.url, s.selfId, s.scopes);
     } catch (err) {
       // Local dev with a downstream that hasn't booted yet — fall through.

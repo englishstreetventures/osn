@@ -23,4 +23,5 @@ const app = createApp(db, {
 });
 
 const server = Bun.serve({ port, fetch: app.fetch });
+// eslint-disable-next-line no-console -- local dev server startup banner (Bun shim, not the deployed Worker)
 console.log(`API running at http://localhost:${server.port}`);

@@ -205,11 +205,11 @@ describe("parseGuestsCsv", () => {
     expect(families).toHaveLength(2);
     expect(families[0]!.familyName).toBe("Testfamily");
     expect(families[0]!.guests).toHaveLength(2);
-    expect([...families[0]!.guests[0]!.eventNames].sort()).toEqual(
-      ["Mehndi", "Wedding Ceremony"].sort(),
+    expect([...families[0]!.guests[0]!.eventNames].toSorted()).toEqual(
+      ["Mehndi", "Wedding Ceremony"].toSorted(),
     );
-    expect([...families[0]!.guests[1]!.eventNames].sort()).toEqual(
-      ["Mehndi", "Wedding Ceremony"].sort(),
+    expect([...families[0]!.guests[1]!.eventNames].toSorted()).toEqual(
+      ["Mehndi", "Wedding Ceremony"].toSorted(),
     );
     expect(families[1]!.guests[0]!.eventNames).toEqual(["Wedding Ceremony"]);
   });
@@ -220,8 +220,8 @@ describe("parseGuestsCsv", () => {
       "1,Testfamily,Ada,Testfamily,yes,yes",
     ].join("\n");
     const families = await Effect.runPromise(parseGuestsCsv(csv, events));
-    expect([...families[0]!.guests[0]!.eventNames].sort()).toEqual(
-      ["Mehndi", "Wedding Ceremony"].sort(),
+    expect([...families[0]!.guests[0]!.eventNames].toSorted()).toEqual(
+      ["Mehndi", "Wedding Ceremony"].toSorted(),
     );
   });
 

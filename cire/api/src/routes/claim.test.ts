@@ -89,8 +89,8 @@ describe("POST /api/claim", () => {
         expect(data.members).toHaveLength(1);
         expect(data.members[0]!.firstName).toBe("Ada");
         expect(typeof data.members[0]!.guestId).toBe("string");
-        expect(data.members[0]!.eventIds.sort()).toEqual(
-          [eventsData.catholic.id, eventsData.reception.id, eventsData.hindu.id].sort(),
+        expect(data.members[0]!.eventIds.toSorted()).toEqual(
+          [eventsData.catholic.id, eventsData.reception.id, eventsData.hindu.id].toSorted(),
         );
         expect(data.events).toHaveLength(3);
       }),
@@ -104,14 +104,14 @@ describe("POST /api/claim", () => {
         const res = yield* post({ publicId: "TESTFOR-JOY-DD44" });
         expect(res.status).toBe(200);
         const data = yield* Effect.promise(() => res.json<ClaimOk>());
-        expect(data.events.map((e) => e.id).sort()).toEqual(
+        expect(data.events.map((e) => e.id).toSorted()).toEqual(
           [
             eventsData.catholic.id,
             eventsData["kitchen-tea"].id,
             eventsData.mehendi.id,
             eventsData.hindu.id,
             eventsData.reception.id,
-          ].sort(),
+          ].toSorted(),
         );
         expect(data.events.find((e) => e.id === eventsData["kitchen-tea"].id)?.name).toBe(
           "Kitchen Tea",

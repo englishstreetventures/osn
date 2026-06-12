@@ -11,6 +11,9 @@ async function makeJwk(kid: string): Promise<JwkEntry> {
   return { ...(await exportJWK(pair.publicKey)), kid, alg: "ES256", use: "sig" };
 }
 
+/** Distinct JWKS url per index, for the LRU-eviction test. */
+const lruUrl = (i: number) => `http://lru-${i}/.well-known/jwks.json`;
+
 describe("jwks-cache", () => {
   let jwkA: JwkEntry; // kid "shared-kid"
   let jwkB: JwkEntry; // kid "shared-kid" but different material
@@ -176,28 +179,29 @@ describe("jwks-cache", () => {
   it("LRU eviction at CACHE_MAX_SIZE (256)", async () => {
     // Distinct cache keys via distinct urls; one shared kid + jwk per url.
     routes = new Map();
-    const url = (i: number) => `http://lru-${i}/.well-known/jwks.json`;
     const jwk = await makeJwk("lru-kid");
-    for (let i = 0; i < 257; i++) routes.set(url(i), [jwk]);
+    for (let i = 0; i < 257; i++) routes.set(lruUrl(i), [jwk]);
 
     // Fill the cache to capacity with entries 0..255, touching 0 last-ish.
+    // Sequential by design — LRU access order is the property under test.
     for (let i = 0; i < 256; i++) {
-      await resolvePublicKeyForKid("lru-kid", url(i));
+      // eslint-disable-next-line no-await-in-loop -- sequential access order is the LRU property under test
+      await resolvePublicKeyForKid("lru-kid", lruUrl(i));
     }
     // Re-touch entry 1 so entry 0 becomes the LRU victim.
-    await resolvePublicKeyForKid("lru-kid", url(1));
+    await resolvePublicKeyForKid("lru-kid", lruUrl(1));
 
     // Insert the 257th entry → triggers an eviction of the LRU (entry 0).
-    await resolvePublicKeyForKid("lru-kid", url(256));
+    await resolvePublicKeyForKid("lru-kid", lruUrl(256));
 
     // Entry 0 was evicted → resolving it again re-fetches.
-    const before = calls.get(url(0)) ?? 0;
-    await resolvePublicKeyForKid("lru-kid", url(0));
-    expect(calls.get(url(0))).toBe(before + 1);
+    const before = calls.get(lruUrl(0)) ?? 0;
+    await resolvePublicKeyForKid("lru-kid", lruUrl(0));
+    expect(calls.get(lruUrl(0))).toBe(before + 1);
 
     // Entry 1 was re-touched → still cached, no new fetch.
-    const before1 = calls.get(url(1)) ?? 0;
-    await resolvePublicKeyForKid("lru-kid", url(1));
-    expect(calls.get(url(1))).toBe(before1);
+    const before1 = calls.get(lruUrl(1)) ?? 0;
+    await resolvePublicKeyForKid("lru-kid", lruUrl(1));
+    expect(calls.get(lruUrl(1))).toBe(before1);
   });
 });
