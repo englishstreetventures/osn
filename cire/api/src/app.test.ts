@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 
 import { createRateLimiter } from "@shared/rate-limit";
+import { sql } from "drizzle-orm";
 
 import { createApp } from "./app";
 import { createDb } from "./db/setup";
@@ -56,5 +57,29 @@ describe("not-found handler", () => {
     const res = await appRequest(app, "/nope");
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "Not found" });
+  });
+});
+
+// S-M1: Elysia's default error renderer would put `error.message` (D1 error
+// strings, Effect causes) in the body; the onError hook must keep defects
+// generic.
+describe("unhandled errors", () => {
+  it("returns a generic 500 body, not the internal error message", async () => {
+    const brokenDb = createDb(":memory:");
+    brokenDb.run(sql`DROP TABLE rsvps`);
+    brokenDb.run(sql`DROP TABLE guest_events`);
+    brokenDb.run(sql`DROP TABLE guests`);
+    brokenDb.run(sql`DROP TABLE sessions`);
+    brokenDb.run(sql`DROP TABLE families`);
+    const brokenApp = createApp(brokenDb, {
+      claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+    });
+    const res = await appRequest(brokenApp, "/api/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ publicId: "TESTONE-IVY-AA11" }),
+    });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Internal error" });
   });
 });

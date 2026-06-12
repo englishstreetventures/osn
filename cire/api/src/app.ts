@@ -1,6 +1,7 @@
 import { cors } from "@elysiajs/cors";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
+import { Effect } from "effect";
 import { Elysia } from "elysia";
 
 import type { Db } from "./db";
@@ -64,11 +65,23 @@ export function createApp(db: Db, options: AppOptions = {}) {
           credentials: true,
         }),
       )
-      .onError(({ code, set }) => {
+      .onError(({ code, error, set }) => {
         if (code === "NOT_FOUND") {
           set.status = 404;
           return { error: "Not found" };
         }
+        // S-M1: Elysia's default error renderer puts `error.message` in the
+        // response body, which leaks internals (D1 error strings, Effect
+        // causes, table names) to callers — the claim endpoint is pre-auth.
+        // Log the detail, return a generic body.
+        Effect.runSync(
+          Effect.logError("unhandled request error", {
+            code,
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        );
+        set.status = 500;
+        return { error: "Internal error" };
       })
       .use(createClaimRoutes(db, { webOrigin, limiter: claimLimiter }))
       .use(createRsvpRoutes(db))
