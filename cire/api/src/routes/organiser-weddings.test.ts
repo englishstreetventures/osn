@@ -5,6 +5,7 @@ import { BOOTSTRAP_WEDDING_ID, events, families, guests, weddings } from "@cire/
 import { createApp } from "../app";
 import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
+import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -81,7 +82,7 @@ function seedOtherWedding(db: Db) {
 async function get(app: ReturnType<typeof buildApp>["app"], path: string, profileId?: string) {
   const headers: Record<string, string> = {};
   if (profileId) headers.Authorization = `Bearer ${await auth.sign(profileId)}`;
-  return app.request(path, { headers });
+  return appRequest(app, path, { headers });
 }
 
 describe("GET /api/organiser/weddings", () => {

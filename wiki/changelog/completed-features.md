@@ -8,12 +8,22 @@ related:
   - "[[zap]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-26
+last-reviewed: 2026-06-12
 ---
 
 # Completed Features
 
 Archived completed feature work from [[TODO]]. For open work see [[TODO]].
+
+## Cire `cire/api` Hono → Elysia migration (2026-06-12)
+
+`@cire/api` now runs on Elysia like every other backend in the monorepo — the last non-Elysia service is gone. See [[cire]] and [[cire-auth]].
+
+- **Framework swap only** — every route path, status code, response body, header (Set-Cookie, Retry-After, CORS echo), and error shape is byte-for-byte preserved; services/schemas/db untouched.
+- **Route factories** per platform convention: `createClaimRoutes`, `createRsvpRoutes`, `createOrganiserWeddingsRoutes`, `createOrganiserImportRoutes`, composed in `createApp`.
+- **Middleware → Elysia plugins** (`derive` + `onBeforeHandle`, `as: "scoped"`): `sessionAuth`, `weddingOwner`, `ownedWedding`, `rateLimitMiddleware`; the organiser gate now uses the **shared Elysia adapter** from `@shared/osn-auth-client/middleware/elysia` (the Hono adapter remains in the shared package but has no consumers).
+- **Workers constraints**: `aot: false` (Elysia's AOT compiles handlers via `new Function`, forbidden on Cloudflare Workers); body parsing disabled per POST route via a sentinel `parse` hook so handlers keep the lenient manual `request.json()` semantics (malformed JSON → the schema's 400, not a framework parse error).
+- **Verified** by the unchanged 169-test suite, `wrangler deploy --dry-run`, and a Miniflare (workerd) smoke test of the built bundle.
 
 ## Account deletion compliance — C-H2 / GDPR Art. 17 (2026-04-27)
 

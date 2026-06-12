@@ -4,7 +4,7 @@ AI coding assistant reference. For full spec see README.md. For progress/decisio
 
 ## Quick Context
 
-Cire is a bespoke digital wedding invite — Astro + SolidJS frontends with a Cloudflare Workers backend (Hono + D1 + Drizzle), designed to feel tactile and animated. It lives inside the **OSN monorepo** as the `cire/` workspace (merged from cire.git, 2026-06). Packages: `cire/web` (guest site, :4321), `cire/organiser` (organiser portal, :4322), `cire/api` (backend, :8787), `cire/db` (Drizzle schema + D1 migrations). All paths in this file are relative to the OSN repo root.
+Cire is a bespoke digital wedding invite — Astro + SolidJS frontends with a Cloudflare Workers backend (Elysia + D1 + Drizzle), designed to feel tactile and animated. It lives inside the **OSN monorepo** as the `cire/` workspace (merged from cire.git, 2026-06). Packages: `cire/web` (guest site, :4321), `cire/organiser` (organiser portal, :4322), `cire/api` (backend, :8787), `cire/db` (Drizzle schema + D1 migrations). All paths in this file are relative to the OSN repo root.
 
 Auth is a **two-system model** (see `[[wiki/systems/cire-auth]]` in the OSN wiki): guests claim a family code (`POST /api/claim` → hashed-at-rest `cire_session` cookie, `sessionAuth()` on `/api/rsvp` — no OSN account); organisers sign in with their **OSN passkey** on the portal, and `cire/api` verifies the OSN access JWT via `osnAuth()` (`@shared/osn-auth-client`) plus `weddingOwner()` / `ownedWedding()` ownership gates on `/api/organiser/*`. The interim `X-Organiser-Token` shared secret is gone.
 
@@ -82,7 +82,7 @@ Flat sibling-package layout under the OSN repo root (no `apps/` / `packages/` ne
 cire/                 # workspace dir inside the OSN monorepo
 ├── web/              # @cire/web — Astro + SolidJS guest site (port 4321)
 ├── organiser/        # @cire/organiser — Astro + SolidJS organiser portal (port 4322)
-├── api/              # @cire/api — Hono on CF Workers (port 8787, wrangler dev)
+├── api/              # @cire/api — Elysia on CF Workers (port 8787, wrangler dev)
 ├── db/               # @cire/db — Drizzle schema + D1 migrations
 ├── wiki/             # Obsidian knowledge graph (cire-internal)
 ├── README.md
@@ -93,7 +93,7 @@ OSN-facing integration docs live in the **root** wiki: `[[wiki/apps/cire]]` + `[
 
 ## Tech (one-liner)
 
-TypeScript, Bun, Cloudflare Workers + Pages, Astro + SolidJS + Motion One, Hono, Effect (backend + DB only), D1 + Drizzle, two-system auth (guest claim-code sessions + organiser OSN passkeys via `@shared/osn-auth-client`), Vitest, oxlint + oxfmt, lefthook, GitHub Actions
+TypeScript, Bun, Cloudflare Workers + Pages, Astro + SolidJS + Motion One, Elysia, Effect (backend + DB only), D1 + Drizzle, two-system auth (guest claim-code sessions + organiser OSN passkeys via `@shared/osn-auth-client`), Vitest, oxlint + oxfmt, lefthook, GitHub Actions
 
 ## Conventions
 
@@ -129,17 +129,24 @@ describe("generateClaimCode", () => {
 ```
 
 ```typescript
-// Vitest — Hono route integration test
-import { describe, it, expect } from "vitest";
-import { app } from "../index";
+// bun:test — Elysia route integration test
+import { describe, it, expect } from "bun:test";
+import { createApp } from "../app";
+import { createDb, seedDb } from "../db/setup";
 
-describe("POST /claim", () => {
+const db = createDb(":memory:");
+seedDb(db);
+const app = createApp(db);
+
+describe("POST /api/claim", () => {
   it("returns 401 for an unknown claim code", async () => {
-    const res = await app.request("/claim", {
-      method: "POST",
-      body: JSON.stringify({ code: "FAKE-0000" }),
-      headers: { "Content-Type": "application/json" },
-    });
+    const res = await app.fetch(
+      new Request("http://localhost/api/claim", {
+        method: "POST",
+        body: JSON.stringify({ publicId: "FAKE-XYZ-0000" }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
     expect(res.status).toBe(401);
   });
 });
@@ -152,10 +159,12 @@ describe("POST /claim", () => {
 
 ## Key Patterns
 
-### Backend (Hono on CF Workers + Effect)
+### Backend (Elysia on CF Workers + Effect)
 
-- Routes in `cire/api/src/routes/` — one file per domain (claim, rsvp, organiser, import)
-- Middleware in `cire/api/src/middleware/` — `auth.ts` (`sessionAuth`, guest cookie), `osn-auth.ts` (`osnAuth`, organiser JWT), `wedding-owner.ts` / `owned-wedding.ts` (ownership authz), `rate-limit.ts`
+- Routes in `cire/api/src/routes/` — one route factory per domain (claim, rsvp, organiser, import), composed by `createApp` in `src/app.ts`
+- `createApp` uses `aot: false` — Elysia's AOT compiles handlers via `new Function`, which CF Workers forbids
+- Middleware in `cire/api/src/middleware/` are Elysia plugins (scoped `derive` + `onBeforeHandle`) — `auth.ts` (`sessionAuth`, guest cookie), `osn-auth.ts` (`osnAuth`, organiser JWT via the shared Elysia adapter), `wedding-owner.ts` / `owned-wedding.ts` (ownership authz), `rate-limit.ts`
+- POST routes pass a sentinel `parse` hook (`{ parse: () => ({}) }`) and read `request.json()` by hand, so malformed JSON degrades to the schema's 400 instead of a framework parse error
 - Business logic in `cire/api/src/services/` — routes delegate to services, no logic in handlers
 - Services return `Effect.Effect<A, E>` — use `Effect.runPromise` / `Effect.runSync` in route handlers to unwrap
 - Error types are tagged classes extending `Data.TaggedError` — no thrown exceptions in service layer

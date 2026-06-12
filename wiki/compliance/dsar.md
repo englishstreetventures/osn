@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-06-12
 ---
 
 # DSAR Runbook
@@ -118,7 +118,7 @@ profile-id string with **no cross-DB FK**. Two consequences:
   query cire's D1 for the weddings they own, the `families` / `guests` /
   `rsvps` / `imports` rows under them, and the R2 `cire-sheets` CSVs.
   Mechanically this needs an ARC bridge to `@cire/api` mirroring the
-  pulse/zap pattern — **not built yet** (cire/api is Hono, has no
+  pulse/zap pattern — **not built yet** (cire/api has no
   `internal/account-deleted` or export endpoint, and does not carry
   `@shared/observability`). Until it exists, an organiser DSAR that touches
   cire is handled **manually** by an operator with cire D1/R2 access (logged

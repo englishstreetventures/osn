@@ -22,6 +22,6 @@ const app = createApp(db, {
   osnAudience: process.env.OSN_AUDIENCE,
 });
 
-const server = Bun.serve({ port, fetch: app.fetch });
+const server = Bun.serve({ port, fetch: (request: Request) => app.fetch(request) });
 // eslint-disable-next-line no-console -- local dev server startup banner (Bun shim, not the deployed Worker)
 console.log(`API running at http://localhost:${server.port}`);

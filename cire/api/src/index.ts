@@ -17,9 +17,9 @@ export interface Env {
 
 const handler: ExportedHandler<Env> = {
   // Workers have no long-lived process: the D1 binding only exists on `env`
-  // inside `fetch`, so the Drizzle client and the Hono app are built per
+  // inside `fetch`, so the Drizzle client and the Elysia app are built per
   // request. Construction is cheap (no connection pool — D1 is a binding).
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     // Fail closed at the edge if any required binding/var is missing, rather
     // than letting createApp fall back to its localhost dev defaults for the
     // OSN issuer/audience in a misconfigured production deployment (S-M1).
@@ -49,7 +49,7 @@ const handler: ExportedHandler<Env> = {
       osnAudience: env.OSN_AUDIENCE,
     });
 
-    return app.fetch(request, env, ctx);
+    return app.fetch(request);
   },
 };
 

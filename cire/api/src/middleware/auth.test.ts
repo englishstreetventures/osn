@@ -2,29 +2,19 @@ import { describe, it, expect } from "bun:test";
 
 import { families } from "@cire/db";
 import { Effect } from "effect";
-import { Hono } from "hono";
+import { Elysia } from "elysia";
 
 import { DbService } from "../db";
-import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
 import { sessionService } from "../services/session";
 import { sessionAuth } from "./auth";
 
-interface Vars {
-  db: Db;
-  familyId: string;
-}
-
 function buildApp() {
   const db = createDb(":memory:");
   seedDb(db);
-  const app = new Hono<{ Variables: Vars }>();
-  app.use("*", (c, next) => {
-    c.set("db", db);
-    return next();
-  });
-  app.use("/private", sessionAuth());
-  app.get("/private", (c) => c.json({ familyId: c.var.familyId }));
+  const app = new Elysia({ aot: false })
+    .use(sessionAuth(db))
+    .get("/private", ({ familyId }) => ({ familyId }));
   return { app, db };
 }
 
