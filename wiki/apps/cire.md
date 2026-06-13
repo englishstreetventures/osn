@@ -14,7 +14,7 @@ related:
   - "[[passkey-primary]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-06-12
 ---
 
 # Cire
@@ -27,10 +27,10 @@ Cire is a bespoke digital wedding invite — a tactile, animated guest-facing si
 |---|---|---|---|
 | `@cire/web` | `cire/web` | 4321 | Guest-facing Astro + SolidJS site (claim code → events → RSVP) |
 | `@cire/organiser` | `cire/organiser` | 4322 | Organiser portal (Astro + SolidJS) — guest/event tables, spreadsheet import, OSN passkey sign-in |
-| `@cire/api` | `cire/api` | 8787 | Hono on Cloudflare Workers + Effect services + Drizzle on D1 |
+| `@cire/api` | `cire/api` | 8787 | Elysia on Cloudflare Workers + Effect services + Drizzle on D1 |
 | `@cire/db` | `cire/db` | — | Drizzle schema + D1 SQL migrations |
 
-Note: `@cire/api` is **Hono**, not Elysia — the only non-Elysia backend in the monorepo. Migration to Elysia (and the shared Elysia auth adapter) is tracked in `wiki/TODO.md` under the Cire section.
+Note: `@cire/api` runs Elysia with `aot: false` — Elysia's ahead-of-time compilation builds handlers via `new Function`, which Cloudflare Workers forbids. Organiser auth uses the shared Elysia adapter (`@shared/osn-auth-client/middleware/elysia`), same as the other backends. (Migrated from Hono 2026-06-12 — see `[[changelog/completed-features]]`.)
 
 ## Auth model (summary)
 
@@ -61,7 +61,6 @@ Cire keeps its own knowledge graph: `cire/CLAUDE.md` is the AI entry point and `
 
 - **Pulse event feed** — surface cire weddings in Pulse's event feed. Mechanism undecided: ARC-token pull from `cire/api` vs push-on-publish into `pulse/db` (Deferred Decisions in `wiki/TODO.md`).
 - **Multi-owner weddings** — replace `owner_osn_profile_id` with a `wedding_owners(wedding_id, osn_profile_id, role owner/editor/viewer)` join table.
-- **Hono → Elysia migration** for `cire/api` to match platform convention, then swap the Hono auth adapter for the shared Elysia one.
 - **Guest claim-code → optional OSN account linking** — let a guest attach their claimed family to an OSN account later.
 
 ## Compliance

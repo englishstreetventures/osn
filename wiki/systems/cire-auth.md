@@ -8,7 +8,7 @@ related:
   - "[[cire]]"
   - "[[data-map]]"
   - "[[access-control]]"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-06-12
 ---
 
 # Cire two-system auth
@@ -29,7 +29,7 @@ Cire runs **two deliberately separate auth systems** that never overlap. Guests 
 1. A family receives a shareable claim code — `families.public_id`, e.g. `SHARMA-IVY-QM42` (family name + word + 4-char hash; collisions on family name are fine, the word/hash disambiguates).
 2. `POST /api/claim` looks up the code and mints a 256-bit random session token. The token is stored **SHA-256-hashed** in cire's `sessions` table (DB read never yields a usable credential); the raw value goes only into the cookie.
 3. Cookie attributes: `cire_session`, `HttpOnly; SameSite=Lax; Path=/`, 30-day TTL, host-scoped (no `Domain=` until a production root domain lands). CORS echoes the configured origin with `credentials: true`.
-4. `sessionAuth()` middleware gates `/api/rsvp`: parses the cookie, validates the hash against `sessions`, and sets `c.var.familyId` for downstream handlers. Any failure is a generic 401 `Unauthorized` — no session-state leakage.
+4. `sessionAuth()` (an Elysia plugin) gates `/api/rsvp`: parses the cookie, validates the hash against `sessions`, and derives `familyId` for downstream handlers. Any failure is a generic 401 `Unauthorized` — no session-state leakage.
 5. `POST /api/claim` is rate-limited (KV-backed, via `@shared/rate-limit`) to keep code brute-force impractical.
 
 **Why guests never get OSN accounts:** the guest journey is "tap a link at the dinner table, pick who's coming". Any registration ceremony — even a passkey one — would lose RSVPs. The claim code is deliberately low-friction and family-scoped; the security bar is "unguessable + rate-limited + revocable", not "authenticated identity". A future optional claim-code → OSN account link is tracked in `wiki/TODO.md` (Cire section), but it must stay optional.
@@ -42,7 +42,7 @@ Organisers sign in on the organiser portal (`@cire/organiser`, :4322) using the 
 
 ```
 @osn/client authFetch                 attaches Bearer <access JWT>; silent-refreshes on 401
-  └─▶ cire/api osnAuth()              thin wrapper over @shared/osn-auth-client (Hono adapter)
+  └─▶ cire/api osnAuth()              thin wrapper over @shared/osn-auth-client (Elysia adapter)
         ├─▶ extractClaims()           verifies ES256 signature + exp against the issuer key
         │     └─▶ JWKS cache          resolves kid → CryptoKey from /.well-known/jwks.json
         │                             (LRU, 256 entries, 5-min TTL; cache key includes the

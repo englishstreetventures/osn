@@ -1,32 +1,15 @@
+import { cors } from "@elysiajs/cors";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { Hono } from "hono";
-import { cors } from "hono/cors";
+import { Effect } from "effect";
+import { Elysia } from "elysia";
 
 import type { Db } from "./db";
-import { sessionAuth } from "./middleware/auth";
-import { osnAuth } from "./middleware/osn-auth";
-import { rateLimitMiddleware } from "./middleware/rate-limit";
-import { claimRoute } from "./routes/claim";
-import { organiserImportRoute } from "./routes/organiser-import";
-import { organiserWeddingsRoute } from "./routes/organiser-weddings";
-import { rsvpRoute } from "./routes/rsvp";
+import { createClaimRoutes } from "./routes/claim";
+import { createOrganiserImportRoutes } from "./routes/organiser-import";
+import { createOrganiserWeddingsRoutes } from "./routes/organiser-weddings";
+import { createRsvpRoutes } from "./routes/rsvp";
 import type { R2Bucket } from "./services/r2-imports";
-
-export type AppVariables = {
-  db: Db;
-  webOrigin: string;
-  // Set by `sessionAuth` on protected routes. Untyped (string) so unguarded
-  // handlers don't accidentally rely on it being present.
-  familyId?: string;
-  // Set by `osnAuth` on /api/organiser/* routes.
-  osnProfileId?: string;
-  // Set by `weddingOwner` on /api/organiser/weddings/:weddingId/* routes and
-  // by `ownedWedding` on the import group.
-  weddingId?: string;
-  // Optional CF bindings, present when `createApp` was given them.
-  r2?: R2Bucket;
-};
 
 /** Default per-IP rate limiter for the claim endpoint: 5 attempts per minute. */
 const defaultClaimLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000 });
@@ -58,53 +41,51 @@ export function createApp(db: Db, options: AppOptions = {}) {
     osnAudience = "osn-access",
     osnTestKey,
   } = options;
-  const corsOrigins = new Set(allowedOrigins ?? [webOrigin]);
-  const app = new Hono<{ Variables: AppVariables }>();
+  const corsOrigins = allowedOrigins ?? [webOrigin];
 
-  // Inject db + webOrigin (and R2 when present) into every request.
-  app.use("*", (c, next) => {
-    c.set("db", db);
-    c.set("webOrigin", webOrigin);
-    if (r2) c.set("r2", r2);
-    return next();
-  });
-
-  app.use(
-    "/api/*",
-    cors({
-      // Echo the request origin verbatim when it's in the allowlist — never `*` —
-      // so the browser will include credentials. Any mismatch returns `null`
-      // which Hono translates to no `Access-Control-Allow-Origin` header.
-      origin: (origin) => (corsOrigins.has(origin) ? origin : null),
-      allowMethods: ["GET", "POST", "OPTIONS"],
-      allowHeaders: ["Content-Type", "Authorization"],
-      credentials: true,
-    }),
-  );
-
-  // Rate limit the claim endpoint (brute-force protection — S-C2)
-  app.use("/api/claim", rateLimitMiddleware(claimLimiter));
-
-  // Gate /api/rsvp behind a valid session cookie. Mounted before `app.route`
-  // so the middleware fires on every method under that prefix.
-  app.use("/api/rsvp", sessionAuth());
-  app.use("/api/rsvp/*", sessionAuth());
-
-  // Gate ALL organiser routes (weddings + import group) behind a valid OSN
-  // access token.
-  const organiserAuth = osnAuth({
+  const osnAuthOptions = {
     jwksUrl: osnJwksUrl,
     audience: osnAudience,
     _testKey: osnTestKey,
-  });
-  app.use("/api/organiser", organiserAuth);
-  app.use("/api/organiser/*", organiserAuth);
+  };
 
-  app.route("/api/claim", claimRoute);
-  app.route("/api/organiser", organiserWeddingsRoute);
-  app.route("/api/organiser/import", organiserImportRoute);
-  app.route("/api/rsvp", rsvpRoute);
-  app.notFound((c) => c.json({ error: "Not found" }, 404));
-
-  return app;
+  return (
+    // `aot: false` — Elysia's ahead-of-time compilation builds handlers via
+    // `new Function`, which Cloudflare Workers forbids (no dynamic code
+    // evaluation). The dynamic handler is plenty for this API's traffic.
+    new Elysia({ aot: false })
+      .use(
+        cors({
+          // Echo the request origin verbatim when it's in the allowlist — never
+          // `*` — so the browser will include credentials. Any mismatch gets no
+          // `Access-Control-Allow-Origin` header.
+          origin: corsOrigins,
+          methods: ["GET", "POST", "OPTIONS"],
+          allowedHeaders: ["Content-Type", "Authorization"],
+          credentials: true,
+        }),
+      )
+      .onError(({ code, error, set }) => {
+        if (code === "NOT_FOUND") {
+          set.status = 404;
+          return { error: "Not found" };
+        }
+        // S-M1: Elysia's default error renderer puts `error.message` in the
+        // response body, which leaks internals (D1 error strings, Effect
+        // causes, table names) to callers — the claim endpoint is pre-auth.
+        // Log the detail, return a generic body.
+        Effect.runSync(
+          Effect.logError("unhandled request error", {
+            code,
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        );
+        set.status = 500;
+        return { error: "Internal error" };
+      })
+      .use(createClaimRoutes(db, { webOrigin, limiter: claimLimiter }))
+      .use(createRsvpRoutes(db))
+      .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))
+      .use(createOrganiserImportRoutes(db, r2, osnAuthOptions))
+  );
 }

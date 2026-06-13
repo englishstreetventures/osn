@@ -8,8 +8,9 @@ last-reviewed: 2026-06-12
 
 # cire/api
 
-Backend feature work. The Hono + Effect + Drizzle layer in `cire/api`.
+Backend feature work. The Elysia + Effect + Drizzle layer in `cire/api`.
 
+- [x] **Hono → Elysia migration** — `cire/api` now matches the platform convention: route factories (`createClaimRoutes` etc.), middleware as Elysia plugins (scoped `derive` + `onBeforeHandle`), organiser auth via the shared `@shared/osn-auth-client/middleware/elysia` adapter. `aot: false` (Workers forbids `new Function`); POST routes use a sentinel `parse` hook so handlers keep the lenient manual `request.json()` semantics. All routes/status codes/bodies/headers preserved; 169-test suite unchanged and green; wrangler dry-run + Miniflare (workerd) smoke-verified
 - [x] Surface `guestId` on every claim member + extended event metadata (PR-A)
 - [x] Session-cookie auth on `/api/rsvp`; `/api/claim` mints `cire_session` (PR-B)
 - [ ] Set `Domain=` on session cookie when production root domain lands; today host-scoped works for same-origin dev.

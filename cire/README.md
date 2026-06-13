@@ -18,7 +18,7 @@ Cire lives inside the **OSN monorepo** as the `cire/` workspace (merged from the
 cire/
 ├── web/          # @cire/web — Astro + SolidJS guest invite (Cloudflare Pages, :4321)
 ├── organiser/    # @cire/organiser — Astro + SolidJS organiser portal (:4322)
-├── api/          # @cire/api — Hono backend (Cloudflare Workers, :8787)
+├── api/          # @cire/api — Elysia backend (Cloudflare Workers, :8787)
 ├── db/           # @cire/db — Drizzle schema + D1 migrations
 └── wiki/         # Cire-internal Obsidian knowledge graph
 ```
@@ -31,7 +31,7 @@ OSN-facing integration docs live in the root wiki: `wiki/apps/cire.md` and `wiki
 | ---------------- | -------------------------------------------------------------------------------- | ------ |
 | `cire/web`       | Astro + SolidJS invite frontend with View Transitions and Motion One animations  | Active |
 | `cire/organiser` | Organiser portal — guest/event dashboards + spreadsheet import, OSN passkey auth | Active |
-| `cire/api`       | Hono API on Cloudflare Workers — claim codes, RSVP, organiser API                | Active |
+| `cire/api`       | Elysia API on Cloudflare Workers — claim codes, RSVP, organiser API              | Active |
 | `cire/db`        | Drizzle ORM schema and D1 migration files (multi-tenant `weddings` root)         | Active |
 
 ## Tech Stack
@@ -41,7 +41,7 @@ OSN-facing integration docs live in the root wiki: `wiki/apps/cire.md` and `wiki
 | Runtime    | Bun + Cloudflare Workers                                                      |
 | Frontend   | Astro + SolidJS + View Transitions                                            |
 | Animations | Motion One (`@motionone/solid`) + Astro View Transitions                      |
-| Backend    | Hono on Cloudflare Workers + Effect (service layer)                           |
+| Backend    | Elysia on Cloudflare Workers + Effect (service layer)                         |
 | Database   | Cloudflare D1 + Drizzle ORM + Effect                                          |
 | Storage    | Cloudflare R2 (spreadsheet-import uploads)                                    |
 | Auth       | Guests: claim-code → hashed session cookie. Organisers: OSN passkey (WebAuthn) — access JWTs verified via `@shared/osn-auth-client` |

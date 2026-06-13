@@ -7,12 +7,17 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-25
+last-reviewed: 2026-06-12
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## Cire Hono → Elysia migration (2026-06-12)
+
+- **S-M1 (cire-elysia)** — `createApp`'s `onError` hook only mapped `NOT_FOUND`; every other error fell through to Elysia's dynamic-mode default renderer, which puts `error.message` in the response body. **Issue:** unhandled defects (e.g. D1 errors surfacing through `dbQuery`'s `Effect.promise`) returned internals like `no such table: families` to callers — empirically reproduced on the pre-auth `/api/claim` endpoint. A regression vs Hono, whose default returned a generic 500. **Why:** information disclosure on a pre-auth surface — D1 error strings and Effect causes aid schema reconnaissance. **Solution:** the `onError` hook now catches all non-`NOT_FOUND` codes, logs `{ code, message }` via the Effect structured logger, and returns a generic `{ error: "Internal error" }` 500. Regression test drops the `families` table and asserts the generic body. **Rationale:** one choke point restores the generic-500 contract instead of chasing per-route `catchAllDefect` gaps; the log line preserves operability. See [[cire-auth]].
+- **S-L1 (cire-elysia)** — `@elysiajs/cors` scheme-strips configured origin strings that lack `://`, so a schemeless `WEB_ORIGIN` entry (e.g. `cire.example.com`) would have allowlisted **both** `http://` and `https://` variants for credentialed CORS — where the old hand-rolled Hono `Set.has(origin)` check failed closed — and would also have silently disabled the session cookie's `Secure` flag (`webOrigin.startsWith("https://")`). **Issue:** configuration-dependent widening of the credentialed-CORS allowlist. **Why:** credentialed CORS for an `http://` origin lets a network-position attacker drive authenticated cross-origin requests. **Solution:** the Worker entry now fails closed (503 `Worker misconfigured`) on any `WEB_ORIGIN` entry that is not `https://` or `http://localhost`. **Rationale:** restores the fail-closed property the Hono implementation had for free, at the same edge-validation choke point that already guards missing bindings. See [[cire-auth]].
 
 ## Pulse Tauri CSP allowlist (2026-04-25)
 

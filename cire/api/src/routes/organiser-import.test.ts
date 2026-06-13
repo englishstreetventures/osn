@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { createApp } from "../app";
 import { createDb, seedBootstrapWedding } from "../db/setup";
 import { createR2Stub } from "../services/r2-imports";
+import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -41,7 +42,7 @@ function buildApp() {
 }
 
 async function preview(app: ReturnType<typeof buildApp>["app"], body: object) {
-  return app.request("/api/organiser/import/preview", {
+  return appRequest(app, "/api/organiser/import/preview", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -54,7 +55,7 @@ async function preview(app: ReturnType<typeof buildApp>["app"], body: object) {
 describe("POST /api/organiser/import/preview", () => {
   it("returns 401 without an OSN JWT", async () => {
     const { app } = buildApp();
-    const res = await app.request("/api/organiser/import/preview", {
+    const res = await appRequest(app, "/api/organiser/import/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV }),
@@ -64,7 +65,7 @@ describe("POST /api/organiser/import/preview", () => {
 
   it("returns 404 no_weddings for an authenticated caller who owns no wedding", async () => {
     const { app } = buildApp();
-    const res = await app.request("/api/organiser/import/preview", {
+    const res = await appRequest(app, "/api/organiser/import/preview", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -124,7 +125,7 @@ describe("POST /api/organiser/import/apply", () => {
     const res = await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
     const previewBody = (await res.json()) as { importId: string };
 
-    const apply = await app.request("/api/organiser/import/apply", {
+    const apply = await appRequest(app, "/api/organiser/import/apply", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -144,7 +145,7 @@ describe("POST /api/organiser/import/apply", () => {
 
   it("returns 404 for an unknown importId", async () => {
     const { app } = buildApp();
-    const res = await app.request("/api/organiser/import/apply", {
+    const res = await appRequest(app, "/api/organiser/import/apply", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -163,7 +164,7 @@ describe("POST /api/organiser/import/apply", () => {
     // Simulate a concurrent apply by flipping the row to applied first.
     db.update(imports).set({ status: "applied" }).where(eq(imports.id, importId)).run();
 
-    const apply = await app.request("/api/organiser/import/apply", {
+    const apply = await appRequest(app, "/api/organiser/import/apply", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -182,7 +183,7 @@ describe("POST /api/organiser/import/revert", () => {
     // Preview + apply v1
     const r1 = await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
     const id1 = ((await r1.json()) as { importId: string }).importId;
-    await app.request("/api/organiser/import/apply", {
+    await appRequest(app, "/api/organiser/import/apply", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -208,7 +209,7 @@ describe("POST /api/organiser/import/revert", () => {
     ].join("\n");
     const r2 = await preview(app, { eventsCsv: eventsV2, guestsCsv: guestsV2 });
     const id2 = ((await r2.json()) as { importId: string }).importId;
-    await app.request("/api/organiser/import/apply", {
+    await appRequest(app, "/api/organiser/import/apply", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -223,7 +224,7 @@ describe("POST /api/organiser/import/revert", () => {
 
     expect(db.select().from(events).all()).toHaveLength(3);
 
-    const revert = await app.request("/api/organiser/import/revert", {
+    const revert = await appRequest(app, "/api/organiser/import/revert", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -242,7 +243,7 @@ describe("GET /api/organiser/import/list", () => {
     const r1 = await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
     const id1 = ((await r1.json()) as { importId: string }).importId;
 
-    const list = await app.request("/api/organiser/import/list", {
+    const list = await appRequest(app, "/api/organiser/import/list", {
       headers: { Authorization: `Bearer ${bearer}` },
     });
     expect(list.status).toBe(200);
@@ -267,7 +268,7 @@ describe("GET /api/organiser/import/list", () => {
     db.update(imports).set({ uploadedAt: 3_000 }).where(eq(imports.id, id3)).run();
 
     // Page 1: limit=2 → expect [id3, id2] + nextCursor=2000.
-    const page1Res = await app.request("/api/organiser/import/list?limit=2", {
+    const page1Res = await appRequest(app, "/api/organiser/import/list?limit=2", {
       headers: { Authorization: `Bearer ${bearer}` },
     });
     const page1 = (await page1Res.json()) as {
@@ -278,7 +279,7 @@ describe("GET /api/organiser/import/list", () => {
     expect(page1.nextCursor).toBe(2_000);
 
     // Page 2: cursor=2000, limit=2 → expect [id1] + nextCursor=null.
-    const page2Res = await app.request("/api/organiser/import/list?limit=2&cursor=2000", {
+    const page2Res = await appRequest(app, "/api/organiser/import/list?limit=2&cursor=2000", {
       headers: { Authorization: `Bearer ${bearer}` },
     });
     const page2 = (await page2Res.json()) as {
@@ -294,14 +295,14 @@ describe("GET /api/organiser/import/list", () => {
     await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
 
     // limit=0 → clamped to 1
-    const tiny = await app.request("/api/organiser/import/list?limit=0", {
+    const tiny = await appRequest(app, "/api/organiser/import/list?limit=0", {
       headers: { Authorization: `Bearer ${bearer}` },
     });
     const tinyBody = (await tiny.json()) as { imports: unknown[] };
     expect(tinyBody.imports).toHaveLength(1);
 
     // limit=999 → clamped to 100 (we only have 1 row, so just check it doesn't 500)
-    const huge = await app.request("/api/organiser/import/list?limit=999", {
+    const huge = await appRequest(app, "/api/organiser/import/list?limit=999", {
       headers: { Authorization: `Bearer ${bearer}` },
     });
     expect(huge.status).toBe(200);
@@ -399,7 +400,7 @@ describe("wedding scoping: import is tenant-isolated", () => {
     const res = await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
     const { importId } = (await res.json()) as { importId: string };
 
-    const apply = await app.request("/api/organiser/import/apply", {
+    const apply = await appRequest(app, "/api/organiser/import/apply", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -422,7 +423,7 @@ describe("wedding scoping: import is tenant-isolated", () => {
 describe("POST /api/organiser/import/preview content-length", () => {
   it("returns 413 when Content-Length declares > 1MB", async () => {
     const { app } = buildApp();
-    const res = await app.request("/api/organiser/import/preview", {
+    const res = await appRequest(app, "/api/organiser/import/preview", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

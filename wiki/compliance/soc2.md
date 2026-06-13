@@ -10,7 +10,7 @@ related:
   - "[[subprocessors]]"
   - "[[observability/overview]]"
   - "[[cire]]"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-06-12
 ---
 
 # SOC 2
@@ -107,7 +107,7 @@ The big one. See [[access-control]] for the matrix.
 | Incident response runbook | [[breach-response]] (planned) | Write it. |
 | Vulnerability scanning of dependencies | `bun audit`-style tool TBD | **Need.** Add `osv-scanner` or `npm audit signatures` in CI. |
 | Logging of security events | `security_events` table + observability | — |
-| `/health`, `/ready` endpoints | `@shared/observability/elysia` plugin | **`@cire/api` excepted** — Hono service does not yet carry `@shared/observability` (no RED metrics, no `/health`, no redacted logger). Tracked exception C-M2. |
+| `/health`, `/ready` endpoints | `@shared/observability/elysia` plugin | **`@cire/api` excepted** — does not yet carry `@shared/observability` (no RED metrics, no `/health`, no redacted logger). Tracked exception C-M2. |
 
 ### CC8 — Change Management
 
@@ -165,15 +165,16 @@ Tracked with `C-` IDs in [[TODO]] Compliance Backlog:
 8. **Org-level GitHub hardening** — required MFA, required signed commits, branch protection, codeowners on prod paths. ID: **C-L4**.
 9. **Penetration test** — third-party annual pen-test before Type II. Plan budget. ID: **C-L5**.
 10. **Insurance** — cyber + E&O. Quote before first paying customer. ID: **C-L6**.
-11. **Cire observability adoption** — `@cire/api` (Hono) does not yet carry
+11. **Cire observability adoption** — `@cire/api` does not yet carry
     `@shared/observability`: no RED metrics, no `/health` / `/ready`, and no
     redacted structured logger. This is a **tracked exception**, not a
     silent gap. **Interim guard:** the cire PII field names + `cire_session`
     are on the log-redaction deny-list (`shared/observability/src/logger/redact.ts`),
     so *if* a cire payload is logged from a service that does use the shared
     logger it is scrubbed — but cire's own logs are currently unguarded.
-    **Deadline:** adopt before cire handles production guest traffic at scale
-    (target alongside the Hono→Elysia migration tracked in `cire/wiki`). ID:
+    **Deadline:** adopt before cire handles production guest traffic at scale.
+    The Hono→Elysia migration landed 2026-06-12, unblocking the shared
+    `@shared/observability/elysia` plugin. ID:
     **C-M2** (cire redaction deny-list + observability exception).
 
 ## Who pushes which control to "operating effectively"

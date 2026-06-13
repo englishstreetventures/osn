@@ -1,17 +1,18 @@
 import { describe, it, expect } from "bun:test";
 
 import { weddings } from "@cire/db";
-import { Hono } from "hono";
+import { Elysia } from "elysia";
 
 import type { Db } from "../db";
 import { createDb } from "../db/setup";
+import { appRequest } from "../test-helpers";
 import { ownedWedding } from "./owned-wedding";
 
 const OWNER = "usr_alice";
 
 /**
  * Seed `count` weddings all owned by OWNER. Each gets a distinct id/slug and a
- * staggered createdAt so the middleware's `ORDER BY created_at ASC` is
+ * staggered createdAt so the plugin's `ORDER BY created_at ASC` is
  * deterministic (the single-wedding case asserts it picks the earliest).
  */
 function buildDb(count: number): Db {
@@ -31,25 +32,19 @@ function buildDb(count: number): Db {
   return db;
 }
 
+/** Stands in for the upstream osnAuth() plugin by deriving a fixed profile. */
 function buildApp(weddingCount: number, profileId?: string) {
   const db = buildDb(weddingCount);
-  const app = new Hono<{
-    Variables: { db: Db; osnProfileId?: string; weddingId?: string };
-  }>();
-  app.use("*", (c, next) => {
-    c.set("db", db);
-    if (profileId) c.set("osnProfileId", profileId);
-    return next();
-  });
-  app.use("/probe", ownedWedding());
-  app.get("/probe", (c) => c.json({ weddingId: c.var.weddingId ?? null }));
-  return app;
+  return new Elysia({ aot: false })
+    .derive(() => ({ osnProfileId: profileId }))
+    .use(ownedWedding(db))
+    .get("/probe", ({ weddingId }) => ({ weddingId }));
 }
 
 describe("ownedWedding", () => {
   it("returns 400 multiple_weddings when the caller owns more than one wedding", async () => {
     const app = buildApp(2, OWNER);
-    const res = await app.request("/probe");
+    const res = await appRequest(app, "/probe");
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
       error: "multiple_weddings",
@@ -57,23 +52,23 @@ describe("ownedWedding", () => {
     });
   });
 
-  it("returns 401 when no osnProfileId was set upstream", async () => {
+  it("returns 401 when no osnProfileId was derived upstream", async () => {
     const app = buildApp(1, undefined);
-    const res = await app.request("/probe");
+    const res = await appRequest(app, "/probe");
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "unauthorised" });
   });
 
   it("returns 404 no_weddings when the caller owns nothing", async () => {
     const app = buildApp(0, OWNER);
-    const res = await app.request("/probe");
+    const res = await appRequest(app, "/probe");
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "no_weddings" });
   });
 
-  it("sets c.var.weddingId to the single owned wedding", async () => {
+  it("derives weddingId as the single owned wedding", async () => {
     const app = buildApp(1, OWNER);
-    const res = await app.request("/probe");
+    const res = await appRequest(app, "/probe");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ weddingId: "wed_0" });
   });

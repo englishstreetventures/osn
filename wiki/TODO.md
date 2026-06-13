@@ -150,7 +150,6 @@ Wedding-invite stack merged from cire.git (2026-06). Cire-internal feature work 
 - [x] **`diffAgainstDb` wedding-scoping** — `cire/api/src/services/import.ts` `diffAgainstDb` now takes a `weddingId` and scopes every read to it: events/families filter on their `wedding_id` column; guests/guest_events join through `families` (neither carries `wedding_id`). The link-table join is load-bearing — a per-table `WHERE wedding_id = ?` can't scope `guest_events` and would read a foreign wedding's links as removals. The interim `MultiWeddingImportUnsupported` fail-closed tripwire is removed; preview/apply/revert are tenant-isolated, with regression tests in `import.test.ts` + `organiser-import.test.ts`. See [[cire-auth]] for the ownership model.
 - [ ] Pulse event-feed integration — surface cire weddings in Pulse's discovery/feed. Blocked on the mechanism decision (ARC-token pull from `cire/api` vs push-on-publish into `pulse/db`) — see Deferred Decisions.
 - [ ] Multi-owner weddings — replace `weddings.owner_osn_profile_id` with a `wedding_owners(wedding_id, osn_profile_id, role owner/editor/viewer)` join table so both partners (and a planner) can administer one wedding. See [[cire-auth]].
-- [ ] Evaluate `cire/api` Hono → Elysia migration to match platform convention; on migration, drop the Hono adapter usage in favour of the shared Elysia adapter in `@shared/osn-auth-client`.
 - [ ] Guest claim-code → optional OSN account linking — let a claimed family optionally attach to an OSN account later; must stay optional (guests are deliberately account-free — see [[cire-auth]]).
 
 ---
@@ -737,7 +736,7 @@ Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenha
 | BBS+ vs SD-JWT-per-audience for verified presentations — see [[verified-identity]] | SD-JWT-per-audience is the v1 default (mint a fresh credential per RP); BBS+ adds true unlinkable presentations at higher operational cost | If a documented cross-RP correlation threat lands |
 | Verified attributes scope: account-level vs profile-level — see [[verified-identity]], [[identity-model]] | Verification ceremony is per-account; multi-account P3-P6 lets one account hold multiple profiles. Should profile-A be able to present `age_over_18` while profile-B presents nothing, or are attributes always inherited? | Before V-M4 ships consent UX |
 | Pulse–cire integration mechanism — see [[cire]] | ARC-token pull (Pulse fetches weddings from `cire/api` at feed time) vs push-on-publish (cire writes into `pulse/db` when a wedding goes live) | When Pulse surfaces cire weddings in its feed |
-| Cire test-idiom alignment — see [[cire]] | `cire/api` uses bare `bun:test`-style co-located tests; platform convention is `it.effect` + `createTestLayer()` ([[testing-patterns]]) | Alongside (or after) the cire/api Hono → Elysia migration |
+| Cire test-idiom alignment — see [[cire]] | `cire/api` uses bare `bun:test`-style co-located tests; platform convention is `it.effect` + `createTestLayer()` ([[testing-patterns]]) | Unblocked — the cire/api Hono → Elysia migration landed 2026-06-12 |
 
 ---
 

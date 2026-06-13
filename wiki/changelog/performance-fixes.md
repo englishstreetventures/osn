@@ -6,12 +6,16 @@ related:
   - "[[redis]]"
   - "[[arc-tokens]]"
   - "[[component-library]]"
-last-reviewed: 2026-04-24
+last-reviewed: 2026-06-12
 ---
 
 # Performance Fixes — Completed
 
 Archived completed performance findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Performance Backlog in [[TODO]].
+
+## Cire Hono → Elysia migration (2026-06-12)
+
+- **P-W1 (cire-elysia)** — The Worker `fetch` handler rebuilt the entire app on every request. Cheap under Hono, but `createApp` now composes ~11 Elysia instances (root + cors + four route factories + five auth/rate-limit plugins) with scoped-hook lifting and dedup checksumming on each construction — and `aot: false` (required on Workers) means none of it is amortised by compilation. **Fixed:** the app is built once per isolate and memoized at module scope, guarded on D1-binding identity so a binding change forces a rebuild. Construction cost now lands once per cold start instead of on every request (including CORS preflights and the guest-facing claim/RSVP hot paths). Module-scoped state that must survive per-request rebuilds (`defaultClaimLimiter`, the shared JWKS cache) was already isolate-scoped, so behavior is unchanged. See [[cire]].
 
 ## Pulse ARC registration retry (2026-04-24)
 

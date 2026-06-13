@@ -2,7 +2,7 @@
 title: "Monorepo Structure"
 tags: [architecture]
 related: [[contributing]], [[index]]
-last-reviewed: 2026-06-10
+last-reviewed: 2026-06-12
 ---
 
 # Monorepo Structure
@@ -23,12 +23,12 @@ Cire lives inside the **OSN monorepo** as the `cire/` workspace directory (merge
 │   │   └── package.json
 │   ├── organiser/       # @cire/organiser — Astro + SolidJS organiser portal, port 4322
 │   │   └── src/             # OSN passkey sign-in via @osn/client + @osn/ui
-│   ├── api/             # @cire/api — Hono on Cloudflare Workers, port 8787 (local)
+│   ├── api/             # @cire/api — Elysia on Cloudflare Workers, port 8787 (local)
 │   │   ├── src/
-│   │   │   ├── routes/      # One file per domain
+│   │   │   ├── routes/      # One route factory per domain
 │   │   │   ├── services/    # Business logic (Effect-based)
-│   │   │   ├── middleware/  # sessionAuth, osnAuth, weddingOwner, ownedWedding, rate-limit
-│   │   │   └── index.ts     # Hono app entry
+│   │   │   ├── middleware/  # sessionAuth, osnAuth, weddingOwner, ownedWedding, rate-limit (Elysia plugins)
+│   │   │   └── index.ts     # Worker entry (builds the Elysia app per request)
 │   │   ├── wrangler.toml
 │   │   └── package.json
 │   ├── db/              # @cire/db — Drizzle schemas + D1 migrations

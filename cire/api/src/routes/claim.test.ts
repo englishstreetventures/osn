@@ -182,3 +182,29 @@ describe("POST /api/claim", () => {
     ),
   );
 });
+
+// S-C2: the per-IP limiter must gate the real endpoint, not just exist as a
+// plugin — a refactor that drops `.use(rateLimitMiddleware(...))` from
+// `createClaimRoutes` should fail here.
+describe("POST /api/claim rate limiting (S-C2)", () => {
+  it("returns 429 with Retry-After once the per-IP limit is exhausted", async () => {
+    const rlApp = createApp(db, {
+      claimLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    });
+    const send = () =>
+      rlApp.fetch(
+        new Request("http://localhost/api/claim", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ publicId: "FAKE-XYZ-9999" }),
+        }),
+      );
+
+    const first = await send();
+    expect(first.status).toBe(401); // unknown code — but it reached the handler
+
+    const second = await send();
+    expect(second.status).toBe(429);
+    expect(second.headers.get("Retry-After")).toBe("60");
+  });
+});
