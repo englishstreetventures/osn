@@ -309,10 +309,15 @@ describe("GET /api/organiser/import/list", () => {
   });
 });
 
-describe("S-H1 tripwire: multi-wedding import fails closed", () => {
-  // Insert a SECOND wedding owned by someone else so the import diff (which is
-  // not yet tenant-scoped) refuses to run rather than read/wipe the other
-  // tenant's rows. The seeded bootstrap-wedding owner remains the bearer.
+describe("wedding scoping: import is tenant-isolated", () => {
+  // A SECOND wedding owned by someone else, pre-populated with its own event,
+  // family and guest. The bearer still owns exactly one wedding (bootstrap), so
+  // ownedWedding() scopes every import to bootstrap — the second tenant's rows
+  // must be invisible to the diff and untouched by apply.
+  const OTHER_EVENT = "evt_second_party";
+  const OTHER_FAMILY = "fam_second";
+  const OTHER_GUEST = "gst_second";
+
   function addSecondWedding(db: ReturnType<typeof buildApp>["db"]) {
     const now = new Date();
     db.insert(weddings)
@@ -325,6 +330,47 @@ describe("S-H1 tripwire: multi-wedding import fails closed", () => {
         updatedAt: now,
       })
       .run();
+    db.insert(events)
+      .values({
+        id: OTHER_EVENT,
+        weddingId: "wed_second",
+        slug: "second-party",
+        name: "Second Party",
+        date: "2027-02-02",
+        location: "Elsewhere",
+        description: "",
+        startAt: "2027-02-02T10:00:00+11:00",
+        endAt: "2027-02-02T12:00:00+11:00",
+        timezone: "Australia/Sydney",
+        address: null,
+        dressCodeDescription: null,
+        dressCodePalette: null,
+        pinterestUrl: null,
+        mapsUrl: null,
+        sortOrder: 0,
+      })
+      .run();
+    db.insert(families)
+      .values({
+        id: OTHER_FAMILY,
+        weddingId: "wed_second",
+        publicId: "SECOND-FAM",
+        familyName: "Secondfamily",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(guests)
+      .values({
+        id: OTHER_GUEST,
+        familyId: OTHER_FAMILY,
+        firstName: "Zoe",
+        lastName: "Secondfamily",
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
   }
 
   it("previews fine with a single wedding present", async () => {
@@ -333,23 +379,26 @@ describe("S-H1 tripwire: multi-wedding import fails closed", () => {
     expect(res.status).toBe(200);
   });
 
-  it("fails preview closed (409) once a second wedding exists", async () => {
+  it("previews scoped to the caller's wedding when a second wedding exists", async () => {
     const { app, db } = buildApp();
     addSecondWedding(db);
     const res = await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
-    expect(res.status).toBe(409);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toContain("not yet multi-tenant safe");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      plan: { eventRemoves: unknown[]; familyRemoves: unknown[]; guestRemoves: unknown[] };
+    };
+    // The other tenant's rows are out of scope, so nothing is flagged for removal.
+    expect(body.plan.eventRemoves).toHaveLength(0);
+    expect(body.plan.familyRemoves).toHaveLength(0);
+    expect(body.plan.guestRemoves).toHaveLength(0);
   });
 
-  it("fails apply closed (409) once a second wedding exists", async () => {
+  it("apply only touches the caller's wedding, leaving the other tenant intact", async () => {
     const { app, db } = buildApp();
-    // Preview succeeds while single-tenant, creating a preview row.
+    addSecondWedding(db);
+
     const res = await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
     const { importId } = (await res.json()) as { importId: string };
-
-    // A second wedding lands before apply re-diffs.
-    addSecondWedding(db);
 
     const apply = await appRequest(app, "/api/organiser/import/apply", {
       method: "POST",
@@ -359,7 +408,15 @@ describe("S-H1 tripwire: multi-wedding import fails closed", () => {
       },
       body: JSON.stringify({ importId }),
     });
-    expect(apply.status).toBe(409);
+    expect(apply.status).toBe(200);
+
+    // Bootstrap wedding got its import; the second tenant's rows survived.
+    expect(
+      db.select().from(events).where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID)).all(),
+    ).toHaveLength(2);
+    expect(db.select().from(events).where(eq(events.id, OTHER_EVENT)).all()).toHaveLength(1);
+    expect(db.select().from(families).where(eq(families.id, OTHER_FAMILY)).all()).toHaveLength(1);
+    expect(db.select().from(guests).where(eq(guests.id, OTHER_GUEST)).all()).toHaveLength(1);
   });
 });
 

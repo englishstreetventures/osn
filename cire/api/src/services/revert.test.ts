@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, families, guests, imports } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, families, guests, imports, weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
@@ -48,7 +48,7 @@ async function applyVersion(
       yield* storeUpload(eventsCsv, guestsCsv, importId);
       const ev = yield* parseEventsCsv(eventsCsv);
       const fam = (yield* parseGuestsCsv(guestsCsv, ev)) as ParsedFamily[];
-      const plan = yield* diffAgainstDb(ev, fam);
+      const plan = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
       const summary = yield* applyImport(importId, plan, BOOTSTRAP_WEDDING_ID);
       const db = yield* DbService;
       db.insert(imports)
@@ -106,6 +106,47 @@ describe("revertImport", () => {
 
     const error = await Effect.runPromise(
       Effect.flip(revertImport("imp-only", BOOTSTRAP_WEDDING_ID)).pipe(Effect.provide(layer)),
+    );
+    expect(error).toBeInstanceOf(NoPriorImport);
+  });
+
+  it("refuses to revert an import that belongs to another wedding (T-S3)", async () => {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+
+    // A second wedding owns an applied import. The bootstrap-scoped current-row
+    // lookup filters by wedding_id, so a foreign import is indistinguishable
+    // from a missing one → NoPriorImport (matching the /apply route's 404).
+    const now = new Date();
+    db.insert(weddings)
+      .values({
+        id: "wed_other",
+        slug: "other",
+        displayName: "Other",
+        ownerOsnProfileId: "usr_other",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(imports)
+      .values({
+        id: "imp-foreign",
+        weddingId: "wed_other",
+        uploadedAt: 1_000,
+        format: "csv",
+        eventsR2Key: "imports/imp-foreign/events.csv",
+        guestsR2Key: "imports/imp-foreign/guests.csv",
+        summary: "{}",
+        status: "applied",
+        appliedAt: 1_000,
+      })
+      .run();
+
+    const r2 = createR2Stub();
+    const layer = Layer.merge(Layer.succeed(DbService, db), Layer.succeed(R2Service, r2));
+
+    const error = await Effect.runPromise(
+      Effect.flip(revertImport("imp-foreign", BOOTSTRAP_WEDDING_ID)).pipe(Effect.provide(layer)),
     );
     expect(error).toBeInstanceOf(NoPriorImport);
   });

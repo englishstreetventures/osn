@@ -25,12 +25,6 @@ import {
 
 const ONE_MB = 1 * 1024 * 1024;
 
-// S-H1: the import diff is not yet tenant-scoped, so the service fails closed
-// (MultiWeddingImportUnsupported) once a second wedding exists. Map it to 409
-// with a pointer to the tracked real fix.
-const MULTI_WEDDING_MSG =
-  "Spreadsheet import is not yet multi-tenant safe; see wiki/TODO diffAgainstDb scoping";
-
 // Sentinel parse hook: stops Elysia from consuming the body so handlers can
 // parse it by hand — a malformed payload degrades to the schema's 400 instead
 // of Elysia's parser error.
@@ -101,6 +95,7 @@ export const createOrganiserImportRoutes = (
             const plan: ImportPlan = yield* diffAgainstDb(
               parsedEvents,
               parsedFamilies as ParsedFamily[],
+              weddingId,
             );
 
             const dbService = yield* DbService;
@@ -161,12 +156,6 @@ export const createOrganiserImportRoutes = (
               Effect.sync(() => {
                 set.status = 400;
                 return { error: "Missing or invalid fields" };
-              }),
-            ),
-            Effect.catchTag("MultiWeddingImportUnsupported", () =>
-              Effect.sync(() => {
-                set.status = 409;
-                return { error: MULTI_WEDDING_MSG };
               }),
             ),
             Effect.catchTag("FormulaInjectionDetected", (e: FormulaInjectionDetected) =>
@@ -244,7 +233,11 @@ export const createOrganiserImportRoutes = (
 
             const parsedEvents = yield* parseEventsCsv(eventsCsv);
             const parsedFamilies = yield* parseGuestsCsv(guestsCsv, parsedEvents);
-            const plan = yield* diffAgainstDb(parsedEvents, parsedFamilies as ParsedFamily[]);
+            const plan = yield* diffAgainstDb(
+              parsedEvents,
+              parsedFamilies as ParsedFamily[],
+              weddingId,
+            );
 
             const summary = yield* applyImport(importId, plan, weddingId);
 
@@ -264,12 +257,6 @@ export const createOrganiserImportRoutes = (
               Effect.sync(() => {
                 set.status = 400;
                 return { error: "Missing or invalid fields" };
-              }),
-            ),
-            Effect.catchTag("MultiWeddingImportUnsupported", () =>
-              Effect.sync(() => {
-                set.status = 409;
-                return { error: MULTI_WEDDING_MSG };
               }),
             ),
             Effect.catchTag("FormulaInjectionDetected", () =>
@@ -342,12 +329,6 @@ export const createOrganiserImportRoutes = (
               Effect.sync(() => {
                 set.status = 409;
                 return { error: "No prior applied import to revert to" };
-              }),
-            ),
-            Effect.catchTag("MultiWeddingImportUnsupported", () =>
-              Effect.sync(() => {
-                set.status = 409;
-                return { error: MULTI_WEDDING_MSG };
               }),
             ),
             Effect.catchTag("R2Error", () =>

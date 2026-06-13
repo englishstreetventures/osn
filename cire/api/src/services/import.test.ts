@@ -1,10 +1,19 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, families, guests, guestEvents, rsvps } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  events,
+  families,
+  guests,
+  guestEvents,
+  rsvps,
+  weddings,
+} from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
 import { DbService } from "../db";
+import type { Db } from "../db";
 import { createDb, seedBootstrapWedding, seedDb } from "../db/setup";
 import type { ParsedEvent, ParsedFamily } from "../schemas/import";
 import { applyImport, diffAgainstDb } from "./import";
@@ -47,11 +56,90 @@ async function parsedFromCsv(): Promise<{ ev: ParsedEvent[]; fam: ParsedFamily[]
   return { ev, fam: fam as ParsedFamily[] };
 }
 
+/**
+ * Seed a fully-populated second wedding (event + family + guest + link). Its
+ * rows must stay invisible to a diff scoped to a different wedding. Names are
+ * configurable so tests can probe cross-tenant *name collisions* — the
+ * families-join is the only thing keeping same-named rows in separate tenants
+ * apart.
+ */
+function seedOtherWedding(
+  db: Db,
+  opts: {
+    weddingId?: string;
+    familyName?: string;
+    guestFirstName?: string;
+    guestLastName?: string;
+    eventName?: string;
+  } = {},
+): { weddingId: string; eventId: string; familyId: string; guestId: string } {
+  const weddingId = opts.weddingId ?? "wed_other";
+  const now = new Date();
+  db.insert(weddings)
+    .values({
+      id: weddingId,
+      slug: `slug-${weddingId}`,
+      displayName: "Other",
+      ownerOsnProfileId: "usr_other",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  const eventId = crypto.randomUUID();
+  db.insert(events)
+    .values({
+      id: eventId,
+      weddingId,
+      slug: `evt-${eventId}`,
+      name: opts.eventName ?? "Other Party",
+      date: "2027-01-01",
+      location: "Elsewhere",
+      description: "",
+      startAt: "2027-01-01T10:00:00+11:00",
+      endAt: "2027-01-01T12:00:00+11:00",
+      timezone: "Australia/Sydney",
+      address: null,
+      dressCodeDescription: null,
+      dressCodePalette: null,
+      pinterestUrl: null,
+      mapsUrl: null,
+      sortOrder: 0,
+    })
+    .run();
+  const familyId = crypto.randomUUID();
+  db.insert(families)
+    .values({
+      id: familyId,
+      weddingId,
+      publicId: `PUB-${familyId.slice(0, 8)}`,
+      familyName: opts.familyName ?? "Otherfamily",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  const guestId = crypto.randomUUID();
+  db.insert(guests)
+    .values({
+      id: guestId,
+      familyId,
+      firstName: opts.guestFirstName ?? "Zoe",
+      lastName: opts.guestLastName ?? "Otherfamily",
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(guestEvents).values({ guestId, eventId }).run();
+  return { weddingId, eventId, familyId, guestId };
+}
+
 describe("diffAgainstDb (empty DB)", () => {
   it("creates everything when DB is empty", async () => {
     const { ev, fam } = await parsedFromCsv();
     const layer = freshDbLayer(false);
-    const plan = await Effect.runPromise(diffAgainstDb(ev, fam).pipe(Effect.provide(layer)));
+    const plan = await Effect.runPromise(
+      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
     expect(plan.eventCreates).toHaveLength(4);
     expect(plan.eventUpdates).toHaveLength(0);
     expect(plan.eventRemoves).toHaveLength(0);
@@ -68,7 +156,7 @@ describe("applyImport + re-diff (idempotent)", () => {
     const layer = freshDbLayer(false);
     await Effect.runPromise(
       Effect.gen(function* () {
-        const plan1 = yield* diffAgainstDb(ev, fam);
+        const plan1 = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
         yield* applyImport("import-1", plan1, BOOTSTRAP_WEDDING_ID);
       }).pipe(Effect.provide(layer)),
     );
@@ -81,9 +169,9 @@ describe("applyImport + re-diff (idempotent)", () => {
 
     await Effect.runPromise(
       Effect.gen(function* () {
-        const p1 = yield* diffAgainstDb(ev, fam);
+        const p1 = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
         yield* applyImport("import-1", p1, BOOTSTRAP_WEDDING_ID);
-        const p2 = yield* diffAgainstDb(ev, fam);
+        const p2 = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
         expect(p2.eventCreates).toHaveLength(0);
         expect(p2.eventRemoves).toHaveLength(0);
         expect(p2.familyCreates).toHaveLength(0);
@@ -116,7 +204,9 @@ describe("diff: family rename = remove + create", () => {
     const ev = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
     const fam = (await Effect.runPromise(parseGuestsCsv(renamedCsv, ev))) as ParsedFamily[];
 
-    const plan = await Effect.runPromise(diffAgainstDb(ev, fam).pipe(Effect.provide(sharedLayer)));
+    const plan = await Effect.runPromise(
+      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(sharedLayer)),
+    );
     expect(plan.familyRemoves.map((f) => f.familyName)).toContain("Testfamily");
     expect(plan.familyCreates.map((f) => f.familyName)).toContain("Testfamily-Placeholder");
   });
@@ -140,7 +230,9 @@ describe("diff: guest first-name change = remove + create", () => {
 
     const ev = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
     const fam = (await Effect.runPromise(parseGuestsCsv(csv, ev))) as ParsedFamily[];
-    const plan = await Effect.runPromise(diffAgainstDb(ev, fam).pipe(Effect.provide(sharedLayer)));
+    const plan = await Effect.runPromise(
+      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(sharedLayer)),
+    );
 
     // Bo → Jim: remove + create.
     expect(plan.guestRemoves.map((g) => g.firstName)).toContain("Bo");
@@ -168,7 +260,9 @@ describe("diff: guestEvent toggles", () => {
 
     const ev = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
     const fam = (await Effect.runPromise(parseGuestsCsv(csv, ev))) as ParsedFamily[];
-    const plan = await Effect.runPromise(diffAgainstDb(ev, fam).pipe(Effect.provide(sharedLayer)));
+    const plan = await Effect.runPromise(
+      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(sharedLayer)),
+    );
     expect(plan.eventLinkRemoves.length).toBeGreaterThan(0);
   });
 });
@@ -206,7 +300,9 @@ describe("diff: warning when removing a guest with non-default RSVP", () => {
 
     const ev = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
     const fam = (await Effect.runPromise(parseGuestsCsv(csv, ev))) as ParsedFamily[];
-    const plan = await Effect.runPromise(diffAgainstDb(ev, fam).pipe(Effect.provide(sharedLayer)));
+    const plan = await Effect.runPromise(
+      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(sharedLayer)),
+    );
 
     expect(plan.warnings.length).toBeGreaterThan(0);
     const warning = plan.warnings[0]!;
@@ -218,6 +314,132 @@ describe("diff: warning when removing a guest with non-default RSVP", () => {
   });
 });
 
+describe("diff: wedding scoping (multi-tenant isolation)", () => {
+  it("ignores another wedding's events/families/guests/links", async () => {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db); // empty target wedding (the bootstrap scope)
+
+    // A second, fully-populated wedding whose rows must stay invisible to a
+    // bootstrap-scoped diff. Before join-based scoping the unscoped reads would
+    // flag every one of these for removal (none appear in the bootstrap sheet)
+    // and applyImport would wipe the other tenant.
+    const other = seedOtherWedding(db);
+
+    const layer = Layer.succeed(DbService, db);
+    const { ev, fam } = await parsedFromCsv();
+
+    const plan = await Effect.runPromise(
+      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+
+    // All creates for the bootstrap scope; zero cross-tenant removals.
+    expect(plan.eventCreates).toHaveLength(4);
+    expect(plan.eventRemoves).toHaveLength(0);
+    expect(plan.familyCreates).toHaveLength(4);
+    expect(plan.familyRemoves).toHaveLength(0);
+    expect(plan.guestCreates).toHaveLength(6);
+    expect(plan.guestRemoves).toHaveLength(0);
+    expect(plan.eventLinkRemoves).toHaveLength(0);
+
+    // Apply, then assert the other wedding's rows survived untouched.
+    await Effect.runPromise(
+      applyImport("imp-scope", plan, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+    expect(db.select().from(events).where(eq(events.id, other.eventId)).all()).toHaveLength(1);
+    expect(db.select().from(families).where(eq(families.id, other.familyId)).all()).toHaveLength(1);
+    expect(db.select().from(guests).where(eq(guests.id, other.guestId)).all()).toHaveLength(1);
+    expect(
+      db.select().from(guestEvents).where(eq(guestEvents.guestId, other.guestId)).all(),
+    ).toHaveLength(1);
+  });
+
+  it("does not match a same-named family/guest/event from another wedding (T-S1)", async () => {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db); // empty target wedding
+
+    // The other wedding shares a family name + guest first-name + event name
+    // with the bootstrap sheet. The families-join is the only thing keeping
+    // these apart — a dropped `WHERE families.weddingId` would let the diff
+    // match (or remove) the wrong tenant's rows despite distinct ids.
+    const other = seedOtherWedding(db, {
+      familyName: "Testfamily",
+      guestFirstName: "Ada",
+      guestLastName: "Testfamily",
+      eventName: "Catholic Ceremony",
+    });
+
+    const layer = Layer.succeed(DbService, db);
+    const { ev, fam } = await parsedFromCsv();
+
+    const plan = await Effect.runPromise(
+      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+
+    // Bootstrap scope still sees an empty DB → everything is a create; nothing
+    // matched the same-named foreign rows into an update/remove.
+    expect(plan.eventCreates).toHaveLength(4);
+    expect(plan.familyCreates.map((f) => f.familyName)).toContain("Testfamily");
+    expect(plan.guestCreates.map((g) => g.firstName)).toContain("Ada");
+    expect(plan.eventUpdates).toHaveLength(0);
+    expect(plan.guestUpdates).toHaveLength(0);
+    expect(plan.familyRemoves).toHaveLength(0);
+    expect(plan.guestRemoves).toHaveLength(0);
+
+    // The other tenant's ids must never surface in any mutating slice.
+    const touchedIds = [
+      ...plan.familyRemoves.map((f) => f.id),
+      ...plan.guestRemoves.map((g) => g.id),
+      ...plan.guestUpdates.map((g) => g.id),
+      ...plan.eventRemoves.map((e) => e.id),
+      ...plan.eventUpdates.map((e) => e.id),
+    ];
+    expect(touchedIds).not.toContain(other.familyId);
+    expect(touchedIds).not.toContain(other.guestId);
+    expect(touchedIds).not.toContain(other.eventId);
+  });
+
+  it("scopes eventLinkRemoves to the wedding, ignoring another tenant's links (T-S2)", async () => {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+    const other = seedOtherWedding(db);
+    const layer = Layer.succeed(DbService, db);
+
+    // Populate the bootstrap wedding from the full sheet first.
+    const { ev, fam } = await parsedFromCsv();
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const seedPlan = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
+        yield* applyImport("imp-seed", seedPlan, BOOTSTRAP_WEDDING_ID);
+      }).pipe(Effect.provide(layer)),
+    );
+
+    // Re-diff with Ada (Testfamily) dropped from every event → the bootstrap
+    // wedding now yields real eventLinkRemoves, exercising the link-remove
+    // branch with a second tenant's links present in guest_events.
+    const shrunk = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Catholic Ceremony,Mehendi,Hindu Ceremony,Reception",
+      "1,Testfamily,Ada,Testfamily,no,no,no,no",
+      "2,Sampleton,Bo,Sampleton,no,no,yes,yes",
+      "2,Sampleton,Cleo,Sampleton,no,no,yes,yes",
+      "2,Sampleton,Dot,Sampleton,no,no,yes,no",
+      "3,Exampleton,Nori,Exampleton,yes,no,yes,no",
+      "4,Placeholder,Eli,Placeholder,no,no,yes,yes",
+    ].join("\n");
+    const ev2 = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
+    const fam2 = (await Effect.runPromise(parseGuestsCsv(shrunk, ev2))) as ParsedFamily[];
+    const plan = await Effect.runPromise(
+      diffAgainstDb(ev2, fam2, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+
+    expect(plan.eventLinkRemoves.length).toBeGreaterThan(0);
+    // None of the removed pairs reference the other tenant's guest or event.
+    for (const link of plan.eventLinkRemoves) {
+      expect(link.guestId).not.toBe(other.guestId);
+      expect(link.eventId).not.toBe(other.eventId);
+    }
+  });
+});
+
 describe("applyImport: empty-DB insert end-to-end", () => {
   it("populates events, families, guests, and links", async () => {
     const { ev, fam } = await parsedFromCsv();
@@ -226,7 +448,7 @@ describe("applyImport: empty-DB insert end-to-end", () => {
     const sharedLayer = Layer.succeed(DbService, sharedDb);
     await Effect.runPromise(
       Effect.gen(function* () {
-        const plan = yield* diffAgainstDb(ev, fam);
+        const plan = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
         yield* applyImport("imp-1", plan, BOOTSTRAP_WEDDING_ID);
       }).pipe(Effect.provide(sharedLayer)),
     );
