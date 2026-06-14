@@ -2,7 +2,7 @@ import { serviceAccounts, serviceAccountKeys } from "@osn/db";
 import { Db } from "@osn/db/service";
 import { and, eq, isNull, gt, or } from "drizzle-orm";
 import { Effect } from "effect";
-import { SignJWT, jwtVerify } from "jose";
+import { jwtVerify } from "jose";
 
 import {
   classifyArcVerifyError,
@@ -13,21 +13,28 @@ import {
   metricArcTokenIssued,
   metricArcTokenVerification,
 } from "./arc-metrics";
-// Pure ES256 key/JWK helpers live in ./jwk so Worker consumers can import them
-// without the @osn/db → bun:sqlite chain above. Re-exported by the barrel.
-import { ArcTokenError, ARC_ALG, importKeyFromJwk } from "./jwk";
+// Pure ES256 key/JWK helpers + the metric-free ARC signer live in ./jwk so
+// Worker consumers can import them without the @osn/db → bun:sqlite chain
+// above. Re-exported by the barrel.
+import {
+  ArcTokenError,
+  ARC_ALG,
+  ARC_DEFAULT_TTL_SECONDS,
+  importKeyFromJwk,
+  normaliseScopes,
+  signArcToken,
+  validateTtl,
+} from "./jwk";
+import type { ArcTokenClaims } from "./jwk";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface ArcTokenClaims {
-  readonly iss: string;
-  readonly aud: string;
-  readonly scope: string;
-  /** Key ID — identifies which public key to use for verification. Becomes the `kid` JWT header. */
-  readonly kid: string;
-}
+// `ArcTokenClaims` moved to ./jwk (so the Worker-safe signer can share it);
+// re-exported here to keep `import { ArcTokenClaims } from "./arc"` call sites
+// and the barrel export unchanged.
+export type { ArcTokenClaims } from "./jwk";
 
 /** Verified payload claims returned from verifyArcToken. Does not include `kid` (a JWT header field). */
 export interface ArcTokenPayload {
@@ -42,46 +49,23 @@ export interface ArcTokenPayload {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_TTL_SECONDS = 300; // 5 minutes
 const CACHE_REISSUE_BUFFER_SECONDS = 30;
 const MAX_CACHE_SIZE = 1000;
-const SCOPE_PATTERN = /^[a-z0-9_:]+$/;
 
-// ---------------------------------------------------------------------------
-// Scope helpers
-// ---------------------------------------------------------------------------
-
-/** Normalises and validates a comma-separated scope string. */
-function normaliseScopes(raw: string): string[] {
-  return raw
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-/** Validates that every scope token matches the allowed pattern. */
-function validateScopeFormat(scopes: string[]): void {
-  for (const s of scopes) {
-    if (!SCOPE_PATTERN.test(s)) {
-      throw new ArcTokenError({ message: `Invalid scope format: "${s}"` });
-    }
-  }
-}
+// Scope helpers, TTL validation, and the pure JWT signer (`signArcToken`) all
+// live in ./jwk now so the Worker-safe subpath can mint tokens. `createArcToken`
+// below layers the issuance metric on top for the bun/node services.
 
 // ---------------------------------------------------------------------------
 // Token creation
 // ---------------------------------------------------------------------------
 
-function validateTtl(ttl: number): void {
-  if (ttl <= 0 || ttl > 600) {
-    throw new ArcTokenError({
-      message: `Invalid TTL: ${ttl}. Must be between 1 and 600 seconds.`,
-    });
-  }
-}
-
 /**
- * Creates a signed ARC token (ES256 JWT).
+ * Creates a signed ARC token (ES256 JWT) and records the issuance metric.
+ *
+ * Thin wrapper over `signArcToken` (the pure, Worker-safe signer in ./jwk):
+ * signs the token, then increments `arc.token.issued`. Worker consumers that
+ * cannot pull the OpenTelemetry SDK call `signArcToken` directly instead.
  *
  * @param privateKey - The calling service's private key
  * @param claims - iss (issuer service ID), aud (target service), scope (permissions)
@@ -90,21 +74,9 @@ function validateTtl(ttl: number): void {
 export async function createArcToken(
   privateKey: CryptoKey,
   claims: ArcTokenClaims,
-  ttl: number = DEFAULT_TTL_SECONDS,
+  ttl: number = ARC_DEFAULT_TTL_SECONDS,
 ): Promise<string> {
-  validateTtl(ttl);
-
-  const scopes = normaliseScopes(claims.scope);
-  validateScopeFormat(scopes);
-
-  const token = await new SignJWT({ scope: scopes.join(",") })
-    .setProtectedHeader({ alg: ARC_ALG, kid: claims.kid })
-    .setIssuer(claims.iss)
-    .setAudience(claims.aud)
-    .setIssuedAt()
-    .setExpirationTime(`${ttl}s`)
-    .sign(privateKey);
-
+  const token = await signArcToken(privateKey, claims, ttl);
   metricArcTokenIssued(claims.iss, claims.aud);
   return token;
 }
@@ -381,7 +353,7 @@ function cacheKey(kid: string, iss: string, aud: string, scope: string): string 
 export async function getOrCreateArcToken(
   privateKey: CryptoKey,
   claims: ArcTokenClaims,
-  ttl: number = DEFAULT_TTL_SECONDS,
+  ttl: number = ARC_DEFAULT_TTL_SECONDS,
 ): Promise<string> {
   validateTtl(ttl);
 

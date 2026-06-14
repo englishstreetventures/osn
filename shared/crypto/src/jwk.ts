@@ -1,5 +1,5 @@
 import { Data } from "effect";
-import { exportJWK, importJWK, calculateJwkThumbprint } from "jose";
+import { SignJWT, exportJWK, importJWK, calculateJwkThumbprint } from "jose";
 
 // Pure ES256 key/JWK helpers — no DB, no Drizzle, no bun:sqlite. Lives apart
 // from arc.ts (which imports @osn/db for DB-backed key resolution) so that
@@ -85,4 +85,87 @@ export async function importKeyFromJwk(jwk: string | Record<string, unknown>): P
   const parsed = typeof jwk === "string" ? (JSON.parse(jwk) as Record<string, unknown>) : jwk;
   validateEs256Jwk(parsed);
   return importJWK(parsed, ARC_ALG) as Promise<CryptoKey>;
+}
+
+// ---------------------------------------------------------------------------
+// ARC token signing (pure — no DB, no metrics)
+//
+// The signing primitive lives here, alongside the key helpers, so Worker
+// consumers (cire/api on Cloudflare Workers) can MINT ARC tokens via
+// `@shared/crypto/jwk` without dragging the @osn/db → bun:sqlite chain (in
+// arc.ts) or the node OpenTelemetry SDK (via arc-metrics.ts) into the Worker
+// bundle. arc.ts wraps `signArcToken` to add the `arc.token.issued` metric for
+// the bun/node services; the barrel re-exports both.
+// ---------------------------------------------------------------------------
+
+/** Default ARC token TTL — 5 minutes. */
+export const ARC_DEFAULT_TTL_SECONDS = 300;
+
+/** Scopes are lowercase identifiers with `:` / `_` separators (e.g. `graph:read`). */
+const SCOPE_PATTERN = /^[a-z0-9_:]+$/;
+
+export interface ArcTokenClaims {
+  readonly iss: string;
+  readonly aud: string;
+  readonly scope: string;
+  /** Key ID — identifies which public key to use for verification. Becomes the `kid` JWT header. */
+  readonly kid: string;
+}
+
+/** Normalises a comma-separated scope string into a trimmed, lowercased list. */
+export function normaliseScopes(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/** Validates that every scope token matches the allowed pattern. */
+export function validateScopeFormat(scopes: string[]): void {
+  for (const s of scopes) {
+    if (!SCOPE_PATTERN.test(s)) {
+      throw new ArcTokenError({ message: `Invalid scope format: "${s}"` });
+    }
+  }
+}
+
+/** Rejects TTLs outside the 1–600 second band. */
+export function validateTtl(ttl: number): void {
+  if (ttl <= 0 || ttl > 600) {
+    throw new ArcTokenError({
+      message: `Invalid TTL: ${ttl}. Must be between 1 and 600 seconds.`,
+    });
+  }
+}
+
+/**
+ * Signs an ARC token (ES256 JWT) — the pure, metric-free signing primitive.
+ *
+ * Validates the TTL and scope format, then mints a short-lived JWT carrying
+ * `iss` / `aud` / `scope`, with `kid` in the protected header. Callers on
+ * bun/node should prefer `createArcToken` (from `@shared/crypto`) which adds
+ * the issuance metric; Worker callers import this directly from
+ * `@shared/crypto/jwk`.
+ *
+ * @param privateKey - The calling service's ES256 private key
+ * @param claims - iss (issuer service ID), aud (target service), scope, kid
+ * @param ttl - Time-to-live in seconds (default: 300 = 5 minutes)
+ */
+export async function signArcToken(
+  privateKey: CryptoKey,
+  claims: ArcTokenClaims,
+  ttl: number = ARC_DEFAULT_TTL_SECONDS,
+): Promise<string> {
+  validateTtl(ttl);
+
+  const scopes = normaliseScopes(claims.scope);
+  validateScopeFormat(scopes);
+
+  return new SignJWT({ scope: scopes.join(",") })
+    .setProtectedHeader({ alg: ARC_ALG, kid: claims.kid })
+    .setIssuer(claims.iss)
+    .setAudience(claims.aud)
+    .setIssuedAt()
+    .setExpirationTime(`${ttl}s`)
+    .sign(privateKey);
 }

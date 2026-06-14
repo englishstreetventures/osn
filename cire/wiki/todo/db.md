@@ -4,13 +4,14 @@ tags: [todo, db]
 related:
   - "[[index]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-06-10
+last-reviewed: 2026-06-12
 ---
 
 # cire/db
 
 Schema and migration work. See [[monorepo-structure]] for how this package fits into the dependency graph.
 
+- [x] **`guest_account_links` table** (migration `0008_guest_account_links.sql`) — optional per-invitee link to an OSN account. Columns: `guest_id`/`family_id`/`wedding_id` (all cascade FKs), `osn_account_id` + `osn_profile_id` (opaque cross-DB refs, no FK), `linked_at`/`updated_at`. Unique on `guest_id` (one link per invitee) and `(family_id, osn_account_id)` (no double-seating); indexed on `osn_account_id` (reverse lookup) and `family_id`. LOCKSTEP mirrors updated in `cire/api/src/db/setup.ts` + `db/schema.test.ts`. See `[[wiki/systems/cire-auth]]` (root).
 - [x] Events: `startAt`, `endAt`, `timezone`, `address`, `dressCodeDescription`, `dressCodePalette`, `pinterestUrl`, `mapsUrl`, `sortOrder` (PR-A)
 - [x] `imports` table for spreadsheet-upload tracking with R2 keys + status lifecycle (PR-A)
 - [x] `guests.externalId` nullable column for forward-looking spreadsheet stable IDs (PR-A)

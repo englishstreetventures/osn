@@ -4,12 +4,17 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-06-14
 ---
 
 # Performance Backlog
 
 See [[review-findings]] for severity prefix conventions.
+
+### Account linking (guest → OSN/Pulse) — review notes (Info, no action)
+
+- **AL-P-I1** — `createArcAccountResolver` mints a fresh ARC token (`signArcToken`) per `POST /api/account/link` rather than reusing one (the bun/node side has `getOrCreateArcToken`'s cache). Deliberate: linking is a rare, human-initiated, per-invitee one-shot action; the sub-ms ES256 sign is dwarfed by the outbound osn-api fetch. Add a TTL cache only if link volume ever rises.
+- **AL-P-I2** — `listByFamily` / `listByAccount` have no `LIMIT`. Deliberate: both are structurally tiny (one row per guest in a household / per wedding for an account) and index-backed (`guest_account_links_family_idx` / `_account_idx`). Add a cursor only if `listByAccount` later backs a high-fan-out Pulse feed.
 
 - [x] Split joined events from per-guest rows in `claim.lookup` to drop the duplicated `dressCodePalette` payload (PR-A review)
 - [x] Drop redundant ownership `SELECT` in `rsvpService.submitRsvp` (route validates once for the bulk batch) (PR-A review)

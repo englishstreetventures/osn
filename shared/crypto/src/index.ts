@@ -8,6 +8,9 @@ export {
   exportKeyToJwk,
   importKeyFromJwk,
   thumbprintKid,
+  // Worker-safe ARC signing primitive (metric-free)
+  signArcToken,
+  ARC_DEFAULT_TTL_SECONDS,
 } from "./jwk";
 
 // ARC token system — S2S (service-to-service) authentication

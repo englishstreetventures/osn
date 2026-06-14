@@ -263,6 +263,21 @@ describe("redact", () => {
     }
   });
 
+  it("redacts the linked OSN account id but not the (loggable) profile id", () => {
+    const input = {
+      osnAccountId: "acc_osn_789",
+      osn_account_id: "acc_osn_789",
+      osnProfileId: "usr_abc",
+      guestId: "gst_1",
+    };
+    const out = redact(input) as Record<string, unknown>;
+    expect(out.osnAccountId).toBe(REDACTION_PLACEHOLDER);
+    expect(out.osn_account_id).toBe(REDACTION_PLACEHOLDER);
+    // Profile ids are loggable by policy (like profileId) — pass through.
+    expect(out.osnProfileId).toBe("usr_abc");
+    expect(out.guestId).toBe("gst_1");
+  });
+
   it("every entry in REDACT_KEYS is actually redacted", () => {
     expect(REDACT_KEYS.size).toBeGreaterThan(0);
     for (const key of REDACT_KEYS) {
@@ -377,6 +392,8 @@ describe("redact", () => {
       "publicid",
       "public_id",
       "dietary",
+      "osnaccountid",
+      "osn_account_id",
     ].toSorted();
     expect([...REDACT_KEYS].toSorted()).toEqual(expected);
   });

@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-06-14
 ---
 
 # Security Backlog
@@ -57,3 +57,9 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 - [ ] Whitelist 422 `MalformedSpreadsheet` reason strings — currently safe (only static literals are surfaced) but document the constraint so future contributors don't interpolate cell contents into the `reason` field (PR-C review)
 - [ ] CSP headers on `cire/web` — once a Cloudflare Pages `_headers` file or Workers transform is set up, allow `script-src https://assets.pinterest.com` (the script-widget loads `pinit_main.js` from there) and `connect-src https://widgets.pinterest.com` (pidgets data fetch) and `img-src https://i.pinimg.com` (pin thumbnails); `frame-src` is no longer needed since PR #28 dropped the iframe.
 - [x] Outbound-link Pinterest fallback when the embed can't render — PR #28 ships a "View moodboard on Pinterest" link button that takes over after a 2.5s grace window if `pinit_main.js` is blocked (uBlock / Brave Shields / Privacy Badger fire `blocked:other` on EasyPrivacy filters) or fails to transform our `<a data-pin-do>` placeholder. Static-image / R2 snapshot path remains a future upgrade if blocker-fallback rates grow uncomfortable.
+
+### Account linking (guest → OSN/Pulse) — review findings
+
+- [ ] **AL-S-L1** — Account-link endpoints (`/api/account/link`) are not rate-limited. The per-IP limiter is wired only to `/api/claim`. The POST mints an ARC token + makes an authenticated S2S call to osn-api per request (a signing + outbound-fetch amplifier), and unbounded `guestId` POSTs give a cheap family-membership oracle (403 non-member vs 409 conflict) within an authenticated session. Both credentials are required so blast radius is limited, but there is no ceiling. Fix: apply `rateLimitMiddleware` (per-IP or per-family) to both account-link instances in `createApp`, mirroring `/api/claim`. Most worthwhile follow-up. See `[[wiki/systems/cire-auth]]`.
+- [ ] **AL-S-L2** — `POST /api/account/link` returns distinct status/labels (403 guest-not-in-family, 409 `already_linked`, 409 account-already-in-family, 404 profile-gone, 502 osn-down, 503 disabled). The `account_already_in_family` 409 signals to the caller that *some* OSN account is already linked to a sibling seat in their own household. Low severity — only reachable by a caller already authenticated to that household holding a valid OSN token (largely self-information). Optional hardening: collapse the two 409 reasons to a single opaque `already_linked`.
+- [ ] **AL-C-L1** (compliance) — the new `guest_account_links` table binds a cire household to an OSN account/profile — a new cross-database personal-data linkage + processing purpose. Add `[[wiki/compliance/data-map]]` + `[[wiki/compliance/retention]]` rows (purpose: optional invitation surfacing in Pulse; lawful basis: consent, opt-in). Cascade-delete covers guest/family/wedding erasure; document the orphan behaviour on **OSN-side account deletion** (cire holds `osn_account_id` with no FK, so OSN deletion won't fan out here) — decide orphan-tolerance vs an ARC fan-out. Tracked into root `[[wiki/TODO.md]]` Compliance Backlog.

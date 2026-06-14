@@ -3,13 +3,14 @@ title: "Cire TODO — cire/web"
 tags: [todo, web]
 related:
   - "[[index]]"
-last-reviewed: 2026-06-10
+last-reviewed: 2026-06-12
 ---
 
 # cire/web
 
 Frontend feature work. Tick items as PRs land; add new entries when scope is discovered. Don't edit `wiki/todo/status.md` for area-specific items.
 
+- [ ] **"Link my Pulse account" affordance (account-linking frontend)** — backend shipped (`/api/account/link`, see `[[api]]` + root `[[wiki/systems/cire-auth]]`). The guest UI must: obtain an OSN access token via `@osn/client` (a Pulse/OSN sign-in), let the invitee pick which household member they are, then `POST /api/account/link` with `{ guestId }` + the `Authorization: Bearer <token>` and the `cire_session` cookie. Handle 401 (token expired → `authFetch` refresh), 409 (already linked), 503 (linking disabled). Add a per-member linked/unlinked indicator (`GET /api/account/link`) and an unlink control (`DELETE /api/account/link/:guestId`).
 - [x] Per-event metadata in `EventSummary` shape (calendar / dress-code / address / Pinterest / Maps fields landed in PR-A)
 - [x] Rework `OrganiserView` to consume the new `OrganiserGuestRow` shape — moved to `cire/organiser/src/components/GuestTable.tsx`
 - [ ] Replace hero photo placeholder with actual photo

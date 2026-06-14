@@ -50,6 +50,13 @@
       "when": 1781113451386,
       "tag": "0007_import_list_index",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1781240023760,
+      "tag": "0008_guest_account_links",
+      "breakpoints": true
     }
   ]
 }

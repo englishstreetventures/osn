@@ -13,6 +13,7 @@
   "dependencies": {
     "@cire/db": "workspace:*",
     "@elysiajs/cors": "^1.4.2",
+    "@shared/crypto": "workspace:*",
     "@shared/osn-auth-client": "workspace:*",
     "@shared/rate-limit": "workspace:*",
     "drizzle-orm": "^0.45.2",

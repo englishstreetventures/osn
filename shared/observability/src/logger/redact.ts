@@ -231,6 +231,15 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     // special-category: reveals religion (halal/kosher) and health
     // (allergies/coeliac). Highest-sensitivity PII in cire.
     "dietary",
+    // `guest_account_links.osn_account_id` — the OSN account principal a cire
+    // guest optionally links to (resolved S2S over ARC, never sent to clients).
+    // Same secrecy profile as `accountId`: pairing it with a cire household
+    // (`family_name`, `public_id`) in a log line is a new cross-system privacy
+    // linkage. The plain `accountId` entry above does NOT cover this — matching
+    // is exact-key, not substring. `osnProfileId` is intentionally absent:
+    // policy treats profile ids as loggable (see the PII note above).
+    "osnAccountId",
+    "osn_account_id",
   ].map((k) => k.toLowerCase()),
 );
 

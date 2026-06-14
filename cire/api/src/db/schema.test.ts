@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, it, expect } from "bun:test";
 
 import * as schema from "@cire/db";
-import { families, guests } from "@cire/db";
+import { families, guestAccountLinks, guests } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -35,6 +35,20 @@ CREATE TABLE guests (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE guest_account_links (
+  id TEXT PRIMARY KEY,
+  guest_id TEXT NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+  family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  osn_account_id TEXT NOT NULL,
+  osn_profile_id TEXT NOT NULL,
+  linked_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX guest_account_links_guest_uniq ON guest_account_links(guest_id);
+CREATE UNIQUE INDEX guest_account_links_family_account_uniq ON guest_account_links(family_id, osn_account_id);
+CREATE INDEX guest_account_links_account_idx ON guest_account_links(osn_account_id);
+CREATE INDEX guest_account_links_family_idx ON guest_account_links(family_id);
 INSERT INTO weddings VALUES ('wed_bootstrap', 'cire-wedding', 'Cire Wedding', 'usr_REPLACE_BEFORE_PROD', 0, 0);
 `;
 
@@ -151,5 +165,78 @@ describe("guests schema", () => {
     expect(rows).toHaveLength(2);
     expect(rows.find((r) => r.firstName === "Ada")?.externalId).toBeNull();
     expect(rows.find((r) => r.firstName === "Raj")?.externalId).toBe("SHEET-1234");
+  });
+});
+
+describe("guest_account_links schema", () => {
+  function seedGuest(db: ReturnType<typeof makeDb>, familyId: string, guestId: string) {
+    db.insert(guests)
+      .values({
+        id: guestId,
+        familyId,
+        firstName: "Inv",
+        lastName: "Itee",
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  const link = (
+    db: ReturnType<typeof makeDb>,
+    overrides: Partial<typeof guestAccountLinks.$inferInsert>,
+  ) =>
+    db
+      .insert(guestAccountLinks)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: "gst-1",
+        familyId: "fam-1",
+        weddingId: "wed_bootstrap",
+        osnAccountId: "acc_1",
+        osnProfileId: "usr_1",
+        linkedAt: now,
+        updatedAt: now,
+        ...overrides,
+      })
+      .run();
+
+  it("enforces one link per invitee (guest_id unique)", () => {
+    const db = makeDb();
+    insertFamily(db, "fam-1", "LINKONE-IVY-AA11", "Linkfamily");
+    seedGuest(db, "fam-1", "gst-1");
+    link(db, {});
+    expect(() => link(db, { osnAccountId: "acc_2", osnProfileId: "usr_2" })).toThrow();
+  });
+
+  it("rejects the same OSN account claiming two seats in one family", () => {
+    const db = makeDb();
+    insertFamily(db, "fam-1", "LINKTWO-IVY-BB22", "Linkfamily");
+    seedGuest(db, "fam-1", "gst-1");
+    seedGuest(db, "fam-1", "gst-2");
+    link(db, { guestId: "gst-1", osnAccountId: "acc_shared" });
+    expect(() => link(db, { guestId: "gst-2", osnAccountId: "acc_shared" })).toThrow();
+  });
+
+  it("allows the same OSN account to link across different families", () => {
+    const db = makeDb();
+    insertFamily(db, "fam-1", "LINKTHR-IVY-CC33", "FamilyA");
+    insertFamily(db, "fam-2", "LINKFOU-IVY-DD44", "FamilyB");
+    seedGuest(db, "fam-1", "gst-1");
+    seedGuest(db, "fam-2", "gst-2");
+    link(db, { guestId: "gst-1", familyId: "fam-1", osnAccountId: "acc_shared" });
+    link(db, { guestId: "gst-2", familyId: "fam-2", osnAccountId: "acc_shared" });
+    expect(db.select().from(guestAccountLinks).all()).toHaveLength(2);
+  });
+
+  it("cascades deletion of a guest to its account link", () => {
+    const db = makeDb();
+    insertFamily(db, "fam-1", "LINKFIV-IVY-EE55", "Linkfamily");
+    seedGuest(db, "fam-1", "gst-1");
+    link(db, {});
+    expect(db.select().from(guestAccountLinks).all()).toHaveLength(1);
+    db.delete(guests).where(eq(guests.id, "gst-1")).run();
+    expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
   });
 });

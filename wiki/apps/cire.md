@@ -38,10 +38,12 @@ Two deliberately separate systems — full contract in [[cire-auth]]:
 
 - **Guests** never become OSN account holders. A family claim code (`families.public_id`, e.g. `SHARMA-IVY-QM42`) is exchanged at `POST /api/claim` for a 256-bit session token (SHA-256-hashed at rest), carried in a 30-day HttpOnly `cire_session` cookie. `sessionAuth()` gates `/api/rsvp`.
 - **Organisers** sign in with their OSN passkey (via `@osn/client` + `@osn/ui` on the portal). `cire/api` verifies the resulting ES256 access JWT (`aud: "osn-access"`) against the OSN issuer's JWKS using `osnAuth()` from `@shared/osn-auth-client`; wedding ownership is enforced by `weddingOwner()` / `ownedWedding()` middleware against `weddings.owner_osn_profile_id`.
+- **Optional guest account linking** (backend shipped; frontend deferred) — an invitee may attach their seat to an OSN/Pulse account. `POST /api/account/link` is the one dual-credential route (guest cookie + OSN token); it resolves the profile to an account id over ARC and writes `guest_account_links`. Full contract + the 401/dual-credential nuances in [[cire-auth]].
 
 ## Data model
 
 - `weddings` is the root table; `families`, `events`, and `imports` carry a `wedding_id` NOT NULL FK (cascade). Multi-tenant scaffold, single wedding in practice today.
+- `guest_account_links` records the optional per-invitee OSN link: `guest_id`/`family_id`/`wedding_id` (cascade FKs) + opaque `osn_account_id` / `osn_profile_id` (no cross-DB FK). See [[cire-auth]].
 - Ownership is interim single-owner: `weddings.owner_osn_profile_id` stores an opaque OSN profile id (`usr_*` string — **no cross-DB FK**; cire's D1 and OSN's DB are separate databases).
 - Migration `0006_multi_tenant.sql` uses a deliberate `__keep_*` snapshot/restore idiom — DROP TABLE under enforced FKs fires ON DELETE CASCADE into children on D1 (the pragma can't be disabled there), verified empirically. Its bootstrap row `wed_bootstrap` ships with placeholder owner `usr_REPLACE_BEFORE_PROD`, which **must** be substituted with the real OSN profile id before the migration is applied to remote/production D1.
 
@@ -61,7 +63,7 @@ Cire keeps its own knowledge graph: `cire/CLAUDE.md` is the AI entry point and `
 
 - **Pulse event feed** — surface cire weddings in Pulse's event feed. Mechanism undecided: ARC-token pull from `cire/api` vs push-on-publish into `pulse/db` (Deferred Decisions in `wiki/TODO.md`).
 - **Multi-owner weddings** — replace `owner_osn_profile_id` with a `wedding_owners(wedding_id, osn_profile_id, role owner/editor/viewer)` join table.
-- **Guest claim-code → optional OSN account linking** — let a guest attach their claimed family to an OSN account later.
+- **Guest account-linking frontend** — backend shipped (see [[cire-auth]]); the guest-site "link my Pulse account" affordance is the remaining piece. Once invitees are linked, the Pulse event-feed integration above can surface their invitations.
 
 ## Compliance
 

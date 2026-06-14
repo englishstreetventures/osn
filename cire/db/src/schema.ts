@@ -150,6 +150,53 @@ export const sessions = sqliteTable("sessions", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+// Optional link between an individual invitee (a `guests` row) and a real
+// OSN/Pulse account. Opt-in and additive: the family claim-code session stays
+// the primary guest credential; this row just attaches an OSN identity so the
+// invitee can surface the invitation inside Pulse and (with their household)
+// see other family members' RSVPs.
+//
+// `osn_account_id` is the OSN *account* principal (resolved server-to-server
+// over ARC from the access token's profile id — see
+// `[[wiki/systems/cire-auth]]`). Account-level (not profile-level) so any of a
+// user's OSN profiles can see the invitation. Like `weddings.owner_osn_profile_id`
+// it is an opaque cross-database reference, deliberately NOT a foreign key:
+// cire's D1 and osn's D1 are separate databases. `osn_profile_id` records which
+// profile performed the link (audit only).
+export const guestAccountLinks = sqliteTable(
+  "guest_account_links",
+  {
+    id: text("id").primaryKey(), // gal_<uuid>
+    guestId: text("guest_id")
+      .notNull()
+      .references(() => guests.id, { onDelete: "cascade" }),
+    // Denormalised household + tenant scope so reverse lookups ("which families
+    // has this account linked", organiser audit) stay single-table. Both cascade
+    // with their parents; the FK on guest_id already covers row lifetime.
+    familyId: text("family_id")
+      .notNull()
+      .references(() => families.id, { onDelete: "cascade" }),
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    osnAccountId: text("osn_account_id").notNull(),
+    osnProfileId: text("osn_profile_id").notNull(),
+    linkedAt: integer("linked_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    // One link per invitee.
+    uniqueIndex("guest_account_links_guest_uniq").on(t.guestId),
+    // An OSN account can't claim two seats in the same household. Spanning
+    // different families/weddings IS allowed (one person, many invitations).
+    uniqueIndex("guest_account_links_family_account_uniq").on(t.familyId, t.osnAccountId),
+    // Reverse lookup: account → all linked invitees (Pulse feed integration).
+    index("guest_account_links_account_idx").on(t.osnAccountId),
+    // List all links for a household (guest-facing status endpoint).
+    index("guest_account_links_family_idx").on(t.familyId),
+  ],
+);
+
 // Tracks every spreadsheet upload through the organiser portal so we can
 // preview, apply, and (later) revert a batch import. See [[wiki/TODO.md]] →
 // "Organiser Spreadsheet Import" for the surrounding flow.

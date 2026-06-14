@@ -90,6 +90,21 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS guest_account_links (
+  id TEXT PRIMARY KEY,
+  guest_id TEXT NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
+  family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  osn_account_id TEXT NOT NULL,
+  osn_profile_id TEXT NOT NULL,
+  linked_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS guest_account_links_guest_uniq ON guest_account_links(guest_id);
+CREATE UNIQUE INDEX IF NOT EXISTS guest_account_links_family_account_uniq ON guest_account_links(family_id, osn_account_id);
+CREATE INDEX IF NOT EXISTS guest_account_links_account_idx ON guest_account_links(osn_account_id);
+CREATE INDEX IF NOT EXISTS guest_account_links_family_idx ON guest_account_links(family_id);
+
 CREATE TABLE IF NOT EXISTS imports (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,

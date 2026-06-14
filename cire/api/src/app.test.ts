@@ -66,6 +66,9 @@ describe("not-found handler", () => {
 describe("unhandled errors", () => {
   it("returns a generic 500 body, not the internal error message", async () => {
     const brokenDb = createDb(":memory:");
+    // guest_account_links references guests/families, so it must be dropped
+    // first — otherwise its dangling FK trips the later DROPs (foreign_keys=ON).
+    brokenDb.run(sql`DROP TABLE guest_account_links`);
     brokenDb.run(sql`DROP TABLE rsvps`);
     brokenDb.run(sql`DROP TABLE guest_events`);
     brokenDb.run(sql`DROP TABLE guests`);

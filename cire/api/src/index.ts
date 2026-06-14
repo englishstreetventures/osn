@@ -1,5 +1,6 @@
 import { createApp } from "./app";
 import { createD1Db } from "./db";
+import { createAccountResolverFromEnv } from "./services/osn-bridge";
 
 // Worker bindings + vars. Mirrors `wrangler.toml` ([[d1_databases]], [[r2_buckets]],
 // [vars]); regenerate the full set with `bunx wrangler types` when bindings change.
@@ -13,13 +14,21 @@ export interface Env {
   WEB_ORIGIN: string;
   OSN_JWKS_URL: string;
   OSN_AUDIENCE: string;
+  // Optional — present only where guest account-linking is enabled. Base URL of
+  // osn-api plus cire-api's ARC signing key (a wrangler secret, ES256 JWK) and
+  // its `kid` (matching the public key registered in osn-api's service_accounts
+  // under serviceId `cire-api`). All three absent ⇒ linking POST answers 503.
+  OSN_API_URL?: string;
+  CIRE_API_ARC_PRIVATE_KEY?: string;
+  CIRE_API_ARC_KEY_ID?: string;
 }
 
-// P-W1: the Elysia app graph (root + cors + four route factories + auth
-// plugins) is much heavier to compose than the old Hono app, and `aot: false`
-// means none of it is amortised by compilation — so build once per isolate
-// instead of per request. `env` bindings are stable within an isolate; the
-// guard on the D1 binding identity rebuilds defensively if that ever changes.
+// P-W1: the Elysia app graph (root + cors + route factories + auth plugins) is
+// much heavier to compose than the old Hono app, and `aot: false` means none of
+// it is amortised by compilation — so build once per isolate instead of per
+// request. `env` bindings are stable within an isolate; the guard on the D1
+// binding identity rebuilds defensively if that ever changes. The ARC account
+// resolver (which imports the signing key) is built alongside it, once.
 let cached: { app: ReturnType<typeof createApp>; dbBinding: D1Database } | undefined;
 
 const misconfigured = (detail: string) =>
@@ -62,6 +71,14 @@ const handler: ExportedHandler<Env> = {
 
     if (!cached || cached.dbBinding !== env.DB) {
       const db = createD1Db(env.DB);
+      // Built once per isolate with the app. Returns null (⇒ linking disabled,
+      // POST answers 503) when the ARC config is absent.
+      const resolveOsnAccountId =
+        (await createAccountResolverFromEnv({
+          osnApiUrl: env.OSN_API_URL,
+          arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+          arcKeyId: env.CIRE_API_ARC_KEY_ID,
+        })) ?? undefined;
       cached = {
         dbBinding: env.DB,
         app: createApp(db, {
@@ -70,6 +87,7 @@ const handler: ExportedHandler<Env> = {
           r2: env.SHEETS,
           osnJwksUrl: env.OSN_JWKS_URL,
           osnAudience: env.OSN_AUDIENCE,
+          resolveOsnAccountId,
         }),
       };
     }
