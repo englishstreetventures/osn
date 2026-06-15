@@ -288,7 +288,7 @@ describe("Register component", () => {
       }
     }
 
-    async function reachPasskey() {
+    async function reachPasskey(extra?: { onSuccess?: () => void }) {
       stub.checkHandle.mockResolvedValue({ available: true });
       stub.beginRegistration.mockResolvedValue({ sent: true });
       stub.completeRegistration.mockResolvedValue({
@@ -298,7 +298,9 @@ describe("Register component", () => {
         session: sampleSession,
       });
       hoisted.adoptSession.mockResolvedValue(undefined);
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
+      render(() => (
+        <Register client={asClient(stub)} onCancel={() => {}} onSuccess={extra?.onSuccess} />
+      ));
       fillEmail("alice@example.com");
       fillHandle("alice");
       await vi.advanceTimersByTimeAsync(350);
@@ -341,6 +343,59 @@ describe("Register component", () => {
     it("there is no 'Skip' button — enrollment is required to finish the flow", async () => {
       await reachPasskey();
       expect(screen.queryByRole("button", { name: /Skip/i })).toBeNull();
+    });
+
+    // T-U1: onSuccess is the contract this prop exists for — consumers that
+    // own navigation (cire's standalone login page) redirect from it. Pin
+    // that it fires exactly once on the enrollment success path.
+    it("fires onSuccess after a successful enrollment", async () => {
+      const onSuccess = vi.fn();
+      await reachPasskey({ onSuccess });
+      stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
+      hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
+      stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
+
+      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+
+      await waitFor(() => {
+        expect(onSuccess).toHaveBeenCalledTimes(1);
+      });
+      // It must follow a real enrollment, never precede it.
+      expect(stub.passkeyRegisterComplete).toHaveBeenCalled();
+    });
+
+    // T-E1: the "every account has ≥1 passkey" invariant rests on onSuccess
+    // (and the redirect it drives) NOT firing until enrollment truly
+    // succeeds. A failed ceremony must keep the user on the passkey step.
+    it("does not fire onSuccess and surfaces an error when enrollment fails", async () => {
+      const onSuccess = vi.fn();
+      await reachPasskey({ onSuccess });
+      stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
+      hoisted.startRegistration.mockRejectedValue(new Error("ceremony cancelled"));
+
+      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/ceremony cancelled/)).toBeTruthy();
+      });
+      expect(onSuccess).not.toHaveBeenCalled();
+      // Still on the passkey step — enrollment remains required.
+      expect(screen.getByRole("button", { name: /Enroll credential/i })).toBeTruthy();
+    });
+
+    // T-S1: onSuccess is optional — consumers that react to session()
+    // directly (osn/social) omit it. Omission must not break completion.
+    it("completes to the done step when onSuccess is omitted", async () => {
+      await reachPasskey();
+      stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
+      hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
+      stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
+
+      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/You.re all set/)).toBeTruthy();
+      });
     });
   });
 

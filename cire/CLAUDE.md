@@ -200,6 +200,7 @@ bun run --cwd cire/api build
 bun run test                         # All packages (turbo)
 bun run --cwd cire/api test
 bun run --cwd cire/web test
+bun run --cwd cire/organiser test    # SolidJS islands (vitest + happy-dom)
 
 # Lint + Format (root config)
 bun run lint                         # oxlint

@@ -9,7 +9,7 @@ related:
   - "[[data-map]]"
   - "[[access-control]]"
   - "[[arc-tokens]]"
-last-reviewed: 2026-06-12
+last-reviewed: 2026-06-15
 ---
 
 # Cire two-system auth
@@ -38,6 +38,8 @@ Cire runs **two deliberately separate auth systems** that never overlap. Guests 
 ## Organiser path: OSN passkey → access JWT → wedding ownership
 
 Organisers sign in on the organiser portal (`@cire/organiser`, :4322) using the standard OSN `<SignIn>` component from `@osn/ui` driven by `@osn/client` — a normal OSN passkey ceremony against the OSN issuer (`@osn/api`, :4000). Cire adds no login surface of its own.
+
+Organisers who don't yet have an OSN account can create one from the same page: `SignInPanel` toggles between `<SignIn>` and the `<Register>` component (also from `@osn/ui`, driven by `@osn/client`'s registration client), so the email-OTP + first-passkey ceremony runs against the OSN issuer just like sign-in. The account is created on OSN, not cire — cire still owns no identity store. A freshly-registered account is signed in immediately (the `<Register>` `onSuccess` callback redirects to the dashboard), so it flows into the same access-JWT verification chain below.
 
 ### Verification chain (request → claims)
 

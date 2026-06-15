@@ -17,6 +17,13 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 interface RegisterProps {
   client: RegistrationClient;
   onCancel: () => void;
+  /**
+   * Fired once the account exists and its first passkey is enrolled — i.e.
+   * the session is fully usable. Consumers that own navigation (e.g. a
+   * standalone login page) redirect here; consumers that react to
+   * `session()` directly can omit it.
+   */
+  onSuccess?: () => void;
 }
 
 export function Register(props: RegisterProps) {
@@ -173,6 +180,7 @@ export function Register(props: RegisterProps) {
       });
       toast.success(`Welcome, @${handle()}`);
       setStep("done");
+      props.onSuccess?.();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Passkey setup failed";
       setPasskeyError(msg);

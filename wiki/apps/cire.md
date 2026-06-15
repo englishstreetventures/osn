@@ -14,7 +14,7 @@ related:
   - "[[passkey-primary]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-06-12
+last-reviewed: 2026-06-15
 ---
 
 # Cire
@@ -26,7 +26,7 @@ Cire is a bespoke digital wedding invite — a tactile, animated guest-facing si
 | Package | Dir | Port (dev) | Purpose |
 |---|---|---|---|
 | `@cire/web` | `cire/web` | 4321 | Guest-facing Astro + SolidJS site (claim code → events → RSVP) |
-| `@cire/organiser` | `cire/organiser` | 4322 | Organiser portal (Astro + SolidJS) — guest/event tables, spreadsheet import, OSN passkey sign-in |
+| `@cire/organiser` | `cire/organiser` | 4322 | Organiser portal (Astro + SolidJS) — guest/event tables, spreadsheet import, OSN passkey sign-in + inline account creation |
 | `@cire/api` | `cire/api` | 8787 | Elysia on Cloudflare Workers + Effect services + Drizzle on D1 |
 | `@cire/db` | `cire/db` | — | Drizzle schema + D1 SQL migrations |
 
@@ -37,7 +37,7 @@ Note: `@cire/api` runs Elysia with `aot: false` — Elysia's ahead-of-time compi
 Two deliberately separate systems — full contract in [[cire-auth]]:
 
 - **Guests** never become OSN account holders. A family claim code (`families.public_id`, e.g. `SHARMA-IVY-QM42`) is exchanged at `POST /api/claim` for a 256-bit session token (SHA-256-hashed at rest), carried in a 30-day HttpOnly `cire_session` cookie. `sessionAuth()` gates `/api/rsvp`.
-- **Organisers** sign in with their OSN passkey (via `@osn/client` + `@osn/ui` on the portal). `cire/api` verifies the resulting ES256 access JWT (`aud: "osn-access"`) against the OSN issuer's JWKS using `osnAuth()` from `@shared/osn-auth-client`; wedding ownership is enforced by `weddingOwner()` / `ownedWedding()` middleware against `weddings.owner_osn_profile_id`.
+- **Organisers** sign in with their OSN passkey (via `@osn/client` + `@osn/ui` on the portal), or create a new OSN account inline — the portal's `SignInPanel` toggles between the `<SignIn>` and `<Register>` flows, so an organiser without an account never has to leave to register (the account is still created on OSN, not cire). `cire/api` verifies the resulting ES256 access JWT (`aud: "osn-access"`) against the OSN issuer's JWKS using `osnAuth()` from `@shared/osn-auth-client`; wedding ownership is enforced by `weddingOwner()` / `ownedWedding()` middleware against `weddings.owner_osn_profile_id`.
 - **Optional guest account linking** (backend shipped; frontend deferred) — an invitee may attach their seat to an OSN/Pulse account. `POST /api/account/link` is the one dual-credential route (guest cookie + OSN token); it resolves the profile to an account id over ARC and writes `guest_account_links`. Full contract + the 401/dual-credential nuances in [[cire-auth]].
 
 ## Data model
