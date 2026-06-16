@@ -1,0 +1,45 @@
+name = "pulse-api"
+main = "src/index.ts"
+compatibility_date = "2025-03-01"
+compatibility_flags = ["nodejs_compat"]
+
+# No top-level binding on purpose: the `local` environment runs on bun:sqlite via
+# `bun run dev` (src/local.ts), not on Workers. The D1-backed environments are
+# named below. `dev` is runnable BOTH locally (`wrangler dev --env dev`, miniflare
+# local D1) and deployed (`wrangler deploy --env dev`).
+
+# ── dev ────────────────────────────────────────────────────────────────────
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "pulse-db"
+database_id = "placeholder-replace-after-d1-create"
+migrations_dir = "../db/drizzle"
+
+[env.dev.vars]
+OSN_JWKS_URL = "http://localhost:4000/.well-known/jwks.json"
+
+# ── staging ──────────────────────────────────────────────────────────────────
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "pulse-db-staging"
+database_id = "placeholder-replace-after-d1-create"
+migrations_dir = "../db/drizzle"
+
+[env.staging.vars]
+# TODO: real OSN issuer origin before staging deploy
+OSN_JWKS_URL = "https://osn-api.example.com/.well-known/jwks.json"
+
+# ── production ───────────────────────────────────────────────────────────────
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "pulse-db-prod"
+database_id = "placeholder-replace-after-d1-create"
+migrations_dir = "../db/drizzle"
+
+[env.production.vars]
+# TODO: real OSN issuer origin before prod deploy
+OSN_JWKS_URL = "https://osn-api.example.com/.well-known/jwks.json"
+
+# The leave-app deletion sweepers run on the long-lived `local` host today. On
+# Workers they belong on a Cron Trigger — add a [triggers] crons entry + a
+# scheduled() handler when wiring production sweeps (tracked in wiki/TODO.md).

@@ -13,6 +13,7 @@ import {
 } from "@osn/db/schema";
 import type { DeletionJob } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { commitBatch } from "@shared/db-utils";
 import type { AppEnrollmentApp, DeletionFanoutService } from "@shared/observability/metrics";
 import { and, eq, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
@@ -149,10 +150,13 @@ export const requestErasure = (
     // NULLs the account_id reference at hard delete time so the audit rows
     // survive without an orphan FK violation.
     yield* Effect.tryPromise({
+      // All-or-nothing: atomic batch on D1, sequential on bun:sqlite. Every
+      // statement is a pure write (the cancel-session branch only selects the
+      // WHERE clause, not a read), so the whole set is built up front.
       try: () =>
-        db.transaction(async (tx) => {
+        commitBatch(db, [
           // 1. Tombstone the account row.
-          await tx.update(accounts).set({ deletedAt: now }).where(eq(accounts.id, accountId));
+          db.update(accounts).set({ deletedAt: now }).where(eq(accounts.id, accountId)),
 
           // 2. Redact identity on every profile owned by this account.
           //    Handle becomes `deleted_<usrId-suffix>` (preserves uniqueness),
@@ -160,9 +164,8 @@ export const requestErasure = (
           //
           //    P-W1: a single bulk UPDATE using a SQL expression instead of
           //    a per-row loop. Constant statement count regardless of
-          //    `accounts.maxProfiles`; the previous loop held the write
-          //    lock across N round-trips.
-          await tx
+          //    `accounts.maxProfiles`.
+          db
             .update(users)
             .set({
               handle: sql`'deleted_' || replace(${users.id}, 'usr_', '')`,
@@ -170,46 +173,44 @@ export const requestErasure = (
               avatarUrl: null,
               updatedAt: new Date(),
             })
-            .where(eq(users.accountId, accountId));
+            .where(eq(users.accountId, accountId)),
 
           // 3. Nuke credentials immediately. A stolen session/access/recovery
           //    cannot be used to re-authenticate during the grace window.
-          await tx.delete(passkeys).where(eq(passkeys.accountId, accountId));
-          await tx.delete(recoveryCodes).where(eq(recoveryCodes.accountId, accountId));
+          db.delete(passkeys).where(eq(passkeys.accountId, accountId)),
+          db.delete(recoveryCodes).where(eq(recoveryCodes.accountId, accountId)),
 
           // 4. Revoke all sessions EXCEPT the cancellation handle. The
           //    requesting session stays alive as the only path to cancel
           //    during the 7-day grace window. Without a cancellation handle
           //    the user must use a recovery-code login to cancel.
-          if (cancelSessionId) {
-            await tx
-              .delete(sessions)
-              .where(and(eq(sessions.accountId, accountId), ne(sessions.id, cancelSessionId)));
-          } else {
-            await tx.delete(sessions).where(eq(sessions.accountId, accountId));
-          }
+          cancelSessionId
+            ? db
+                .delete(sessions)
+                .where(and(eq(sessions.accountId, accountId), ne(sessions.id, cancelSessionId)))
+            : db.delete(sessions).where(eq(sessions.accountId, accountId)),
 
           // 5. Audit event.
-          await tx.insert(securityEvents).values({
+          db.insert(securityEvents).values({
             id: newId("sev_"),
             accountId,
             kind: "account_deletion_scheduled",
             createdAt: now,
             acknowledgedAt: null,
-          });
+          }),
 
-          // 6. Close every active app enrollment in the same tx (idempotent —
-          //    the leaveApp service helper handles a second call as a no-op,
-          //    but during full-account delete we know they should all close).
-          await tx
+          // 6. Close every active app enrollment (idempotent — the leaveApp
+          //    service helper handles a second call as a no-op, but during
+          //    full-account delete we know they should all close).
+          db
             .update(appEnrollments)
             .set({ leftAt: now })
-            .where(and(eq(appEnrollments.accountId, accountId), isNull(appEnrollments.leftAt)));
+            .where(and(eq(appEnrollments.accountId, accountId), isNull(appEnrollments.leftAt))),
 
           // 7. Insert the deletion_jobs row. Bridges not enrolled at this
           //    moment are pre-marked done with a sentinel so the sweeper
           //    doesn't retry calls to services the user never used.
-          await tx.insert(deletionJobs).values({
+          db.insert(deletionJobs).values({
             accountId,
             softDeletedAt: now,
             hardDeleteAt,
@@ -217,8 +218,8 @@ export const requestErasure = (
             zapDoneAt: enrolledSet.has("zap") ? null : NOT_APPLICABLE_SENTINEL,
             reason,
             cancelSessionId,
-          });
-        }),
+          }),
+        ]),
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
 
@@ -261,18 +262,19 @@ export const cancelErasure = (
     }
 
     yield* Effect.tryPromise({
+      // Pure writes — atomic batch on D1, sequential on bun:sqlite.
       try: () =>
-        db.transaction(async (tx) => {
-          await tx.delete(deletionJobs).where(eq(deletionJobs.accountId, accountId));
-          await tx.update(accounts).set({ deletedAt: null }).where(eq(accounts.id, accountId));
-          await tx.insert(securityEvents).values({
+        commitBatch(db, [
+          db.delete(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
+          db.update(accounts).set({ deletedAt: null }).where(eq(accounts.id, accountId)),
+          db.insert(securityEvents).values({
             id: newId("sev_"),
             accountId,
             kind: "account_deletion_cancelled",
             createdAt: now,
             acknowledgedAt: null,
-          });
-        }),
+          }),
+        ]),
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
     metricSecurityEventRecorded("account_deletion_cancelled");
@@ -478,41 +480,56 @@ export const runHardDeleteSweep = (
 const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasureDbError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
+    // Read owned profile ids up front (D1 has no interactive transaction), then
+    // commit every delete/update as one atomic batch below. The account is being
+    // tombstoned, so no new profiles can appear between the read and the batch.
+    const profileIds = (yield* Effect.tryPromise({
+      try: (): Promise<{ id: string }[]> =>
+        db.select({ id: users.id }).from(users).where(eq(users.accountId, accountId)) as Promise<
+          { id: string }[]
+        >,
+      catch: (cause) => new AccountErasureDbError({ cause }),
+    })).map((r) => r.id);
+
     yield* Effect.tryPromise({
+      // Atomic batch on D1, sequential on bun:sqlite. Profile-scoped child rows
+      // first (FK order), then account-scoped credential/session rows, with the
+      // `accounts` row deleted LAST.
       try: () =>
-        db.transaction(async (tx) => {
-          const profileIds = (
-            await tx.select({ id: users.id }).from(users).where(eq(users.accountId, accountId))
-          ).map((r) => r.id);
+        commitBatch(db, [
+          ...(profileIds.length > 0
+            ? [
+                db
+                  .delete(connections)
+                  .where(
+                    or(
+                      inArray(connections.requesterId, profileIds),
+                      inArray(connections.addresseeId, profileIds),
+                    ),
+                  ),
+                db
+                  .delete(blocks)
+                  .where(
+                    or(
+                      inArray(blocks.blockerId, profileIds),
+                      inArray(blocks.blockedId, profileIds),
+                    ),
+                  ),
+                db
+                  .delete(organisationMembers)
+                  .where(inArray(organisationMembers.profileId, profileIds)),
+                db.delete(users).where(eq(users.accountId, accountId)),
+              ]
+            : []),
 
-          if (profileIds.length > 0) {
-            await tx
-              .delete(connections)
-              .where(
-                or(
-                  inArray(connections.requesterId, profileIds),
-                  inArray(connections.addresseeId, profileIds),
-                ),
-              );
-            await tx
-              .delete(blocks)
-              .where(
-                or(inArray(blocks.blockerId, profileIds), inArray(blocks.blockedId, profileIds)),
-              );
-            await tx
-              .delete(organisationMembers)
-              .where(inArray(organisationMembers.profileId, profileIds));
-            await tx.delete(users).where(eq(users.accountId, accountId));
-          }
-
-          await tx.delete(sessions).where(eq(sessions.accountId, accountId));
-          await tx.delete(passkeys).where(eq(passkeys.accountId, accountId));
-          await tx.delete(recoveryCodes).where(eq(recoveryCodes.accountId, accountId));
-          await tx.delete(deletionJobs).where(eq(deletionJobs.accountId, accountId));
-          await tx
+          db.delete(sessions).where(eq(sessions.accountId, accountId)),
+          db.delete(passkeys).where(eq(passkeys.accountId, accountId)),
+          db.delete(recoveryCodes).where(eq(recoveryCodes.accountId, accountId)),
+          db.delete(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
+          db
             .update(appEnrollments)
             .set({ leftAt: Math.floor(Date.now() / 1_000) })
-            .where(and(eq(appEnrollments.accountId, accountId), isNull(appEnrollments.leftAt)));
+            .where(and(eq(appEnrollments.accountId, accountId), isNull(appEnrollments.leftAt))),
 
           // INTENTIONALLY KEPT (S-H5 / C-H1):
           //   - security_events   — Art. 6(1)(c), 12-month retention sweeper (C-M2)
@@ -520,8 +537,8 @@ const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasur
           // Both retain the now-orphaned `account_id`. PII linkage is broken
           // because `users.handle` was redacted at soft-delete and the
           // `accounts.email` row is gone here.
-          await tx.delete(accounts).where(eq(accounts.id, accountId));
-        }),
+          db.delete(accounts).where(eq(accounts.id, accountId)),
+        ]),
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
   });

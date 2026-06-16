@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { app } from "../src/index";
+import { createApp } from "../src/app";
 
 /**
  * Top-level app smoke tests. The route-level tests in
@@ -8,8 +8,10 @@ import { app } from "../src/index";
  * test and bypass the plugin wiring, so they don't cover the
  * entry-point wiring. These tests exist to catch plugin-mount
  * regressions (e.g. a refactor that forgets to `.use(healthRoutes(...))`
- * in src/index.ts).
+ * in src/app.ts).
  */
+const app = createApp();
+
 describe("pulse API app", () => {
   describe("GET /", () => {
     it("returns service identifier", async () => {
@@ -17,7 +19,7 @@ describe("pulse API app", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as { status: string; service: string };
       expect(body.status).toBe("ok");
-      expect(body.service).toBe("osn-api");
+      expect(body.service).toBe("pulse-api");
     });
   });
 

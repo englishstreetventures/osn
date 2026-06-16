@@ -1,5 +1,6 @@
 import { organisations, organisationMembers, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { commitBatch } from "@shared/db-utils";
 import { and, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
@@ -92,11 +93,15 @@ export function createOrganisationService() {
       const orgId = genId("org_");
       const desc = description ?? null;
 
-      // Insert org + owner as admin in a single transaction
+      // Insert org + owner-as-admin atomically. The handle pre-checks above are
+      // best-effort (D1 has no interactive transaction); the UNIQUE constraint on
+      // organisations.handle is the race-safe guard, mapped to a generic message
+      // (S-H2 — don't confirm handle existence). Atomic batch on D1, sequential
+      // on bun:sqlite.
       yield* Effect.tryPromise({
         try: () =>
-          db.transaction(async (tx) => {
-            await tx.insert(organisations).values({
+          commitBatch(db, [
+            db.insert(organisations).values({
               id: orgId,
               handle,
               name,
@@ -105,16 +110,22 @@ export function createOrganisationService() {
               ownerId,
               createdAt: ts,
               updatedAt: ts,
-            });
-            await tx.insert(organisationMembers).values({
+            }),
+            db.insert(organisationMembers).values({
               id: genId("orgm_"),
               organisationId: orgId,
               profileId: ownerId,
               role: "admin",
               createdAt: ts,
-            });
-          }),
-        catch: (cause) => new DatabaseError({ cause }),
+            }),
+          ]),
+        catch: (cause) => {
+          const msg = cause instanceof Error ? cause.message : String(cause);
+          if (msg.includes("UNIQUE constraint failed")) {
+            return new OrgError({ message: "Handle unavailable" });
+          }
+          return new DatabaseError({ cause });
+        },
       });
 
       // P-I1: construct return value from known inputs instead of re-fetching
@@ -251,13 +262,13 @@ export function createOrganisationService() {
       }
 
       yield* Effect.tryPromise({
+        // Delete members then the org row (FK order) — pure writes. Atomic batch
+        // on D1, sequential on bun:sqlite.
         try: () =>
-          db.transaction(async (tx) => {
-            await tx
-              .delete(organisationMembers)
-              .where(eq(organisationMembers.organisationId, orgId));
-            await tx.delete(organisations).where(eq(organisations.id, orgId));
-          }),
+          commitBatch(db, [
+            db.delete(organisationMembers).where(eq(organisationMembers.organisationId, orgId)),
+            db.delete(organisations).where(eq(organisations.id, orgId)),
+          ]),
         catch: (cause) => new DatabaseError({ cause }),
       });
     }).pipe(withOrgOp("delete"));

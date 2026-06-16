@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./service": "./src/service.ts"
+    "./service": "./src/service.ts",
+    "./testing": "./src/testing.ts"
   },
   "scripts": {
     "db:migrate": "bunx drizzle-kit generate",
@@ -14,6 +15,11 @@
     "db:studio": "bunx drizzle-kit studio",
     "db:seed": "bun run src/seed.ts",
     "db:reset": "bash ../../scripts/db-reset.sh ZAP_DATABASE_URL ../../data/zap.db",
+    "db:migrate:local": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply zap-db --env dev --local",
+    "db:migrate:dev": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply zap-db --env dev --remote",
+    "db:migrate:staging": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply zap-db-staging --env staging --remote",
+    "db:migrate:prod": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply zap-db-prod --env production --remote",
+    "db:reset:local": "rm -rf ../api/.wrangler/state/v3/d1 && bun run db:migrate:local",
     "check": "tsc --noEmit",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
@@ -24,11 +30,13 @@
     "effect": "^3.21.2"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260601.1",
     "@effect/vitest": "^0.29.0",
     "@shared/typescript-config": "workspace:*",
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "^12.10.0",
     "drizzle-kit": "^0.31.10",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "wrangler": "^4.96.0"
   }
 }

@@ -12,6 +12,7 @@ import {
 } from "@pulse/db/schema";
 import type { PulseDeletionJob } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { commitBatch } from "@shared/db-utils";
 import type {
   DeletionCompletedResult,
   DeletionCompletedSource,
@@ -115,15 +116,17 @@ export const requestErasure = (
     const eventCancelHardDeleteAt = now + EVENT_CANCELLATION_WINDOW_SECONDS;
 
     yield* Effect.tryPromise({
+      // Atomic batch (D1) / sequential (bun:sqlite) — D1 has no interactive
+      // transaction. Both statements are pure writes with no intermediate read.
       try: () =>
-        db.transaction(async (tx) => {
+        commitBatch(db, [
           // Cancel hosted events that aren't already finished or cancelled.
           // The 14-day public-cancellation window starts now; the
           // event-cancellation sweeper hard-deletes them when the window
           // closes (or the user-restore path un-cancels them). Status is
           // also flipped to "cancelled" so the status-aware UI surfaces
           // the right copy without reading `cancelled_at` everywhere.
-          await tx
+          db
             .update(events)
             .set({
               cancelledAt: now,
@@ -138,17 +141,16 @@ export const requestErasure = (
                 ne(events.status, "finished"),
                 ne(events.status, "cancelled"),
               ),
-            );
-
-          await tx.insert(pulseDeletionJobs).values({
+            ),
+          db.insert(pulseDeletionJobs).values({
             profileId,
             accountId,
             softDeletedAt: now,
             hardDeleteAt,
             enrollmentNotifyDoneAt: null,
             reason,
-          });
-        }),
+          }),
+        ]),
       catch: (cause) => new PulseErasureDbError({ cause }),
     });
 
@@ -184,11 +186,12 @@ export const cancelErasure = (
     const nowSec = Math.floor(Date.now() / 1_000);
 
     yield* Effect.tryPromise({
+      // Atomic batch (D1) / sequential (bun:sqlite) — pure writes, no read.
       try: () =>
-        db.transaction(async (tx) => {
-          await tx.delete(pulseDeletionJobs).where(eq(pulseDeletionJobs.profileId, profileId));
+        commitBatch(db, [
+          db.delete(pulseDeletionJobs).where(eq(pulseDeletionJobs.profileId, profileId)),
           // Un-cancel events that haven't crossed their hard-delete deadline yet.
-          await tx
+          db
             .update(events)
             .set({
               cancelledAt: null,
@@ -206,8 +209,8 @@ export const cancelErasure = (
                 // hasn't already started purging (i.e. the sweeper hasn't
                 // yet hit them in a future cycle).
               ),
-            );
-        }),
+            ),
+        ]),
       catch: (cause) => new PulseErasureDbError({ cause }),
     });
 
@@ -302,35 +305,34 @@ export const runHardDeleteSweep = (
     let purged = 0;
     for (const row of ready) {
       yield* Effect.tryPromise({
+        // Atomic batch (D1) / sequential (bun:sqlite). Personal-data purge (the
+        // work that requestErasure deferred) — all pure writes.
         try: () =>
-          db.transaction(async (tx) => {
-            // Personal-data purge (the work that requestErasure deferred).
-            await tx.delete(eventRsvps).where(eq(eventRsvps.profileId, row.profileId));
-            await tx
+          commitBatch(db, [
+            db.delete(eventRsvps).where(eq(eventRsvps.profileId, row.profileId)),
+            db
               .delete(pulseCloseFriends)
               .where(
                 or(
                   eq(pulseCloseFriends.profileId, row.profileId),
                   eq(pulseCloseFriends.friendId, row.profileId),
                 ),
-              );
-            await tx.delete(eventComms).where(eq(eventComms.sentByProfileId, row.profileId));
-            await tx.delete(pulseUsers).where(eq(pulseUsers.profileId, row.profileId));
+              ),
+            db.delete(eventComms).where(eq(eventComms.sentByProfileId, row.profileId)),
+            db.delete(pulseUsers).where(eq(pulseUsers.profileId, row.profileId)),
             // C-H1 (re-review): onboarding state is Pulse-scoped personal
             // data (interests, opt-ins) and must go with the leave. The
             // profileId→accountId cache row goes too — keeping it would
             // preserve the exact account↔profile correlation the P6
             // invariant exists to prevent.
-            await tx
+            db
               .delete(pulseAccountOnboarding)
-              .where(eq(pulseAccountOnboarding.accountId, row.accountId));
-            await tx
+              .where(eq(pulseAccountOnboarding.accountId, row.accountId)),
+            db
               .delete(pulseProfileAccounts)
-              .where(eq(pulseProfileAccounts.profileId, row.profileId));
-            await tx
-              .delete(pulseDeletionJobs)
-              .where(eq(pulseDeletionJobs.profileId, row.profileId));
-          }),
+              .where(eq(pulseProfileAccounts.profileId, row.profileId)),
+            db.delete(pulseDeletionJobs).where(eq(pulseDeletionJobs.profileId, row.profileId)),
+          ]),
         catch: (cause) => new PulseErasureDbError({ cause }),
       });
       yield* recordCompletion("hard", "sweeper");
@@ -364,13 +366,14 @@ export const runEventCancellationSweep = (
     let purged = 0;
     for (const row of ready) {
       yield* Effect.tryPromise({
+        // Atomic batch (D1) / sequential (bun:sqlite) — pure cascade deletes.
         try: () =>
-          db.transaction(async (tx) => {
-            await tx.delete(eventRsvps).where(eq(eventRsvps.eventId, row.id));
-            await tx.delete(eventComms).where(eq(eventComms.eventId, row.id));
-            await tx.delete(eventLineup).where(eq(eventLineup.eventId, row.id));
-            await tx.delete(events).where(eq(events.id, row.id));
-          }),
+          commitBatch(db, [
+            db.delete(eventRsvps).where(eq(eventRsvps.eventId, row.id)),
+            db.delete(eventComms).where(eq(eventComms.eventId, row.id)),
+            db.delete(eventLineup).where(eq(eventLineup.eventId, row.id)),
+            db.delete(events).where(eq(events.id, row.id)),
+          ]),
         catch: (cause) => new PulseErasureDbError({ cause }),
       });
       purged += 1;
@@ -428,63 +431,70 @@ export const purgeAccount = (
       return { purged: 0, alreadyProcessed: false };
     }
 
+    // Read hosted-event ids up front. D1 has no interactive transaction, so the
+    // read-then-conditional-write is split: this select runs first, then every
+    // write commits as one atomic batch below. The profile is being deleted, so
+    // no new hosted events can appear between the read and the batch.
+    const hostedEventIds = (yield* Effect.tryPromise({
+      try: (): Promise<{ id: string }[]> =>
+        db
+          .select({ id: events.id })
+          .from(events)
+          .where(inArray(events.createdByProfileId, profileIds)) as Promise<{ id: string }[]>,
+      catch: (cause) => new PulseErasureDbError({ cause }),
+    })).map((r) => r.id);
+
     // P-W2: bulk DELETEs via inArray instead of looping per profile/event.
     // Three statements per child table regardless of profile count, which
-    // keeps the transaction's write-lock window bounded and well under
+    // keeps the batch's write-lock window bounded and well under
     // FANOUT_TIMEOUT_MS = 10s as the host-event count grows.
     yield* Effect.tryPromise({
+      // Atomic batch (D1) / sequential (bun:sqlite). The replay-protection
+      // ledger insert is the LAST statement so partial completion can't leave a
+      // half-purged account marked as "done" (on D1 the whole batch rolls back).
       try: () =>
-        db.transaction(async (tx) => {
-          await tx.delete(eventRsvps).where(inArray(eventRsvps.profileId, profileIds));
-          await tx
+        commitBatch(db, [
+          db.delete(eventRsvps).where(inArray(eventRsvps.profileId, profileIds)),
+          db
             .delete(pulseCloseFriends)
             .where(
               or(
                 inArray(pulseCloseFriends.profileId, profileIds),
                 inArray(pulseCloseFriends.friendId, profileIds),
               ),
-            );
-          await tx.delete(eventComms).where(inArray(eventComms.sentByProfileId, profileIds));
-          await tx.delete(pulseUsers).where(inArray(pulseUsers.profileId, profileIds));
+            ),
+          db.delete(eventComms).where(inArray(eventComms.sentByProfileId, profileIds)),
+          db.delete(pulseUsers).where(inArray(pulseUsers.profileId, profileIds)),
 
           // C-H1 (re-review): Pulse-scoped personal data added by the
           // onboarding feature — interests/opt-ins keyed by accountId, and
           // the profileId→accountId cache rows whose survival would
           // preserve the exact correlation the P6 invariant prevents.
-          await tx
-            .delete(pulseAccountOnboarding)
-            .where(eq(pulseAccountOnboarding.accountId, accountId));
-          await tx
+          db.delete(pulseAccountOnboarding).where(eq(pulseAccountOnboarding.accountId, accountId)),
+          db
             .delete(pulseProfileAccounts)
-            .where(inArray(pulseProfileAccounts.profileId, profileIds));
+            .where(inArray(pulseProfileAccounts.profileId, profileIds)),
 
           // Drop hosted events + their cascading rows for the deleted profiles.
-          const hostedEventIds = (
-            await tx
-              .select({ id: events.id })
-              .from(events)
-              .where(inArray(events.createdByProfileId, profileIds))
-          ).map((r) => r.id);
-          if (hostedEventIds.length > 0) {
-            await tx.delete(eventRsvps).where(inArray(eventRsvps.eventId, hostedEventIds));
-            await tx.delete(eventComms).where(inArray(eventComms.eventId, hostedEventIds));
-            await tx.delete(eventLineup).where(inArray(eventLineup.eventId, hostedEventIds));
-            await tx.delete(events).where(inArray(events.id, hostedEventIds));
-          }
+          ...(hostedEventIds.length > 0
+            ? [
+                db.delete(eventRsvps).where(inArray(eventRsvps.eventId, hostedEventIds)),
+                db.delete(eventComms).where(inArray(eventComms.eventId, hostedEventIds)),
+                db.delete(eventLineup).where(inArray(eventLineup.eventId, hostedEventIds)),
+                db.delete(events).where(inArray(events.id, hostedEventIds)),
+              ]
+            : []),
 
           // Drop any in-flight Pulse leave-app jobs for these profiles.
-          await tx
-            .delete(pulseDeletionJobs)
-            .where(inArray(pulseDeletionJobs.profileId, profileIds));
+          db.delete(pulseDeletionJobs).where(inArray(pulseDeletionJobs.profileId, profileIds)),
 
-          // Replay-protection ledger entry — same tx so partial completion
-          // doesn't leave a half-purged account marked as "done".
-          await tx.insert(pulseAccountPurges).values({
+          // Replay-protection ledger entry — last, see note above.
+          db.insert(pulseAccountPurges).values({
             accountId,
             processedAt: Math.floor(Date.now() / 1_000),
             profileCount: profileIds.length,
-          });
-        }),
+          }),
+        ]),
       catch: (cause) => new PulseErasureDbError({ cause }),
     });
 

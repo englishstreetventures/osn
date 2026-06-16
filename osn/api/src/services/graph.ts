@@ -1,5 +1,6 @@
 import { users, connections, blocks } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { commitBatch } from "@shared/db-utils";
 import { and, eq, inArray, or } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
@@ -385,11 +386,12 @@ export function createGraphService() {
 
       const { db } = yield* Db;
 
-      // Atomic: remove connection + insert block
+      // Atomic: remove connection + insert block. Pure writes — atomic batch on
+      // D1, sequential on bun:sqlite.
       yield* Effect.tryPromise({
         try: () =>
-          db.transaction(async (tx) => {
-            await tx
+          commitBatch(db, [
+            db
               .delete(connections)
               .where(
                 or(
@@ -402,12 +404,12 @@ export function createGraphService() {
                     eq(connections.addresseeId, blockerId),
                   ),
                 ),
-              );
-            await tx
+              ),
+            db
               .insert(blocks)
               .values({ id: genId("blk_"), blockerId, blockedId, createdAt: now() })
-              .onConflictDoNothing();
-          }),
+              .onConflictDoNothing(),
+          ]),
         catch: (cause) => new DatabaseError({ cause }),
       });
     }).pipe(withGraphBlockOp("add"));

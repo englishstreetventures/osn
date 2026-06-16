@@ -9,12 +9,14 @@
     "start": "bun run ./dist/index.js",
     "check": "tsc --noEmit",
     "test": "bunx --bun vitest",
-    "test:run": "bunx --bun vitest run"
+    "test:run": "bunx --bun vitest run",
+    "test:d1": "bun test src/d1-integration.test.ts"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.2",
     "@osn/db": "workspace:*",
     "@shared/crypto": "workspace:*",
+    "@shared/db-utils": "workspace:*",
     "@shared/email": "workspace:*",
     "@shared/observability": "workspace:*",
     "@shared/rate-limit": "workspace:*",
@@ -26,8 +28,11 @@
     "jose": "^6.2.3"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260601.1",
     "@effect/vitest": "^0.29.0",
     "@shared/typescript-config": "workspace:*",
-    "vitest": "^4.1.8"
+    "miniflare": "^4.20260603.0",
+    "vitest": "^4.1.8",
+    "wrangler": "^4.96.0"
   }
 }

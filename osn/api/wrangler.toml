@@ -1,0 +1,36 @@
+name = "osn-api"
+compatibility_date = "2025-03-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ⚠️ No `main` / deploy target yet. osn-api's DB layer is D1-ready (all writes go
+# through the `commitBatch` batch/sequential helper), but full Cloudflare Workers
+# HOSTING is still blocked on replacing the ioredis-backed rate-limiters + session
+# stores with a Workers-compatible Redis (e.g. Upstash REST) and moving env-based
+# JWT-key loading into the request path. Until then this config exists so the D1
+# databases can be created and migrated for free, locally and remotely:
+#
+#   bun run --cwd osn/db db:migrate:local     # miniflare local D1
+#   bun run --cwd osn/db db:migrate:dev       # remote dev D1
+#
+# Tracked in wiki/TODO.md (Four-environment DB story).
+
+# ── dev ────────────────────────────────────────────────────────────────────
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "osn-db"
+database_id = "placeholder-replace-after-d1-create"
+migrations_dir = "../db/drizzle"
+
+# ── staging ──────────────────────────────────────────────────────────────────
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "osn-db-staging"
+database_id = "placeholder-replace-after-d1-create"
+migrations_dir = "../db/drizzle"
+
+# ── production ───────────────────────────────────────────────────────────────
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "osn-db-prod"
+database_id = "placeholder-replace-after-d1-create"
+migrations_dir = "../db/drizzle"

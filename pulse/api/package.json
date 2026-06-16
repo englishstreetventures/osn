@@ -8,17 +8,23 @@
     "./client": "./src/client.ts"
   },
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
-    "start": "bun run ./dist/index.js",
+    "dev": "bun run --watch src/local.ts",
+    "dev:wrangler": "wrangler dev --env dev",
+    "build": "wrangler deploy --env dev --dry-run --outdir dist",
+    "deploy:dev": "wrangler deploy --env dev",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:prod": "wrangler deploy --env production",
+    "types": "wrangler types",
     "check": "tsc --noEmit",
     "test": "bunx --bun vitest",
-    "test:run": "bunx --bun vitest run"
+    "test:run": "bunx --bun vitest run",
+    "test:d1": "bun test src/d1-integration.test.ts"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.2",
     "@elysiajs/eden": "^1.4.9",
     "@shared/crypto": "workspace:*",
+    "@shared/db-utils": "workspace:*",
     "@shared/osn-auth-client": "workspace:*",
     "@pulse/db": "workspace:*",
     "@shared/observability": "workspace:*",
@@ -30,8 +36,11 @@
     "jose": "^6.2.3"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260601.1",
     "@effect/vitest": "^0.29.0",
     "@shared/typescript-config": "workspace:*",
-    "vitest": "^4.1.8"
+    "miniflare": "^4.20260603.0",
+    "vitest": "^4.1.8",
+    "wrangler": "^4.96.0"
   }
 }

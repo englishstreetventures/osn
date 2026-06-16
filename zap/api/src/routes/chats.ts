@@ -36,7 +36,13 @@ async function extractClaims(
   }
 }
 
-const DEFAULT_JWT_SECRET = process.env.OSN_JWT_SECRET ?? "dev-secret-change-in-prod";
+// S-H1: the dev convenience literal is only ever used in the `local`
+// environment. In any non-local env an unset secret resolves to "" so
+// `jwtVerify` fails closed (401) instead of trusting a publicly-known key. The
+// deployed Workers entry additionally refuses to boot without OSN_JWT_SECRET.
+const DEFAULT_JWT_SECRET =
+  process.env.OSN_JWT_SECRET ??
+  (process.env.OSN_ENV && process.env.OSN_ENV !== "local" ? "" : "dev-secret-change-in-prod");
 
 /** Rate limiter configuration for Zap write endpoints. */
 export interface ZapRateLimiters {

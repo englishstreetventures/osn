@@ -346,7 +346,29 @@ eligible under the Digital ID Act 2024.
 - [x] OSN Core: session schema — server-side sessions with SHA-256 hashed opaque tokens (Copenhagen Book C1)
 - [ ] Pulse: event series schema
 - [ ] Add indexes on `status` and `category` columns in pulse-db events schema
-- [ ] Mirror `@pulse/db/testing` (`createSchemaSql()` + `applySchema()`) into `@osn/db` and `@zap/db` so adding a column there is also a one-file change. Pattern: `pulse/db/src/testing.ts` derives DDL from the live Drizzle schema via `getTableConfig()` in FK-respecting topological order. `@zap/db` test fixtures (`pulse/api/tests/services/zapBridge.test.ts` zap side, plus any in `zap/api/tests/`) and `@osn/db` test fixtures should be migrated off hand-rolled `CREATE TABLE` blocks once the helpers exist.
+- [x] Mirror `@pulse/db/testing` (`createSchemaSql()` + `applySchema()`) into `@osn/db` and `@zap/db` — both now derive DDL from the live Drizzle schema via `getTableConfig()` in FK order, used by the Miniflare D1 integration tests. (Migrating the hand-rolled `osn/api/tests/helpers/db.ts` unit fixtures onto it is still open but optional.)
+
+### Four-environment DB story (local / dev / staging / prod) — see [[database-environments]]
+
+`local` = bun:sqlite (fast/free in-memory tests + dev); `dev`/`staging`/`prod` = Cloudflare D1 on Workers. Foundation + Zap + Pulse + OSN DB layer landed.
+
+- [x] `@shared/db-utils`: driver-agnostic `Db<S>` type, `createD1Db`/`makeD1DbLive`, `dbQuery` bridge, `commitBatch` (atomic `db.batch` on D1 / sequential on bun:sqlite); `makeDbLive` accepts broadened tags
+- [x] Zap migrated end-to-end: `createApp` factory (`aot:false`) + `local.ts` (Bun.serve) + `index.ts` (Workers/D1) + `wrangler.toml` (dev/staging/prod) + Miniflare integration test + first generated D1 migration
+- [x] Pulse migrated end-to-end: 5 `accountErasure.ts` transactions → `commitBatch`; `createApp`/`local.ts`/`index.ts`/`wrangler.toml`/Miniflare test (`bun run --cwd pulse/api test:d1`)
+- [x] OSN core **DB layer** migrated: all 17 `db.transaction()` calls across `auth`/`profile`/`graph`/`organisation`/`account-erasure` → `commitBatch`, preserving the S-H1/S-M2 atomicity invariants (UNIQUE-constraint guards for handle/email races; count-guarded conditional DELETE for the last-passkey invariant). `@osn/db` type broadened + D1 layer; Miniflare integration test (`bun run --cwd osn/api test:d1`); `wrangler.toml` for D1 migration tooling.
+- [ ] **OSN core → Workers hosting** (the remaining blocker): replace ioredis (rate-limiters, rotated-session + step-up JTI stores) with a Workers-compatible Redis (e.g. Upstash REST) and move env-based JWT-key loading into the request path, then add the `createApp` factory / `local.ts` / Workers `index.ts` (+ `main` in `osn/api/wrangler.toml`). Until then osn-api runs only as the Bun.serve `local` host even though its D1 DB layer is ready.
+- [ ] **Pulse/Workers cron**: the leave-app deletion sweepers run on the long-lived `local` host (`pulse/api/src/local.ts`). On Workers they belong on a Cron Trigger (`[triggers] crons` + `scheduled()` handler).
+
+**Resolved during prep-pr review:** `[x]` build blocker — `@shared/db-utils` no longer statically imports `bun:sqlite` (lazy indirect imports) so Worker bundles build; `[x]` **S-H1** — Zap Worker fails closed on missing `OSN_JWT_SECRET` + non-local dev-secret fallback removed; `[x]` **T-M1** — `commitBatch` unit tests added. See [[database-environments]].
+
+**Deferred review follow-ups (non-blocking):**
+- [ ] **P-W1** — `refreshTokens` re-SELECTs the session row that `verifyRefreshToken` already loaded; return the metadata instead (one extra RTT on the hottest auth path, only bites once osn-api runs on D1 — gated on the Workers-hosting item above). [[sessions]]
+- [ ] **S-L1** — `deletePasskey` returns `remaining` + writes the audit row from the pre-read count even when the count-guarded DELETE matched 0 rows (race loser). Inspect rows-affected before auditing. [[passkey-primary]]
+- [ ] **S-L2** — `commitBatch` bun:sqlite branch has no rollback (local/tests only); optionally wrap in a sync transaction for local atomicity parity.
+- [ ] **T-M2** — port `pulse/db`'s `tests/testing.test.ts` to `@osn/db` + `@zap/db` (the new schema-reflection emitters are untested in the unit lane).
+- [ ] **T-E1** — add a unit test for `completeEmailChange`'s UNIQUE-conflict catch branch (the constraint guard that replaced transactional rollback).
+- [ ] **T-S1** — add a concurrent-delete Miniflare case asserting the last-passkey count-guarded DELETE leaves exactly one passkey on real D1.
+- [ ] **T-S2** — smoke-test `createApp`/`local.ts` bootstrap for pulse/api + zap/api.
 
 ### Crypto (`osn/crypto`)
 

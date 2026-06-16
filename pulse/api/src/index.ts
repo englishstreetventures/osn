@@ -1,119 +1,52 @@
-import { cors } from "@elysiajs/cors";
-import { DbLive } from "@pulse/db/service";
-import { healthRoutes, initObservability, observabilityPlugin } from "@shared/observability";
-import { Effect, Logger } from "effect";
-import { Elysia } from "elysia";
+import type { D1Database } from "@cloudflare/workers-types";
+import { makeDbD1Live } from "@pulse/db/service";
 
-import { registerLeaveAppKeyWithOsnApi } from "./lib/outbound-arc";
-import { accountRoutes } from "./routes/account";
-import { closeFriendsRoutes } from "./routes/closeFriends";
-import { eventsRoutes, settingsRoutes } from "./routes/events";
-import { internalRoutes } from "./routes/internal";
-import { onboardingRoutes } from "./routes/onboarding";
-import { seriesRoutes } from "./routes/series";
-import { venuesRoutes } from "./routes/venues";
-import * as accountErasure from "./services/accountErasure";
-import { startKeyRotation } from "./services/graphBridge";
+import { createApp, type App } from "./app";
 
-// Initialise observability (logger, tracing, metrics) before building the app.
-// No-op in test runs — tests never call listen() so the layer is never provided.
-const SERVICE_NAME = "pulse-api";
-const { layer: observabilityLayer } = initObservability({ serviceName: SERVICE_NAME });
+// Re-export the Eden treaty type so `@pulse/api` consumers and `./client` keep
+// importing `App` from the package entry point.
+export type { App };
+export { createApp } from "./app";
 
-const app = new Elysia()
-  .use(cors())
-  .use(observabilityPlugin({ serviceName: SERVICE_NAME }))
-  .use(healthRoutes({ serviceName: SERVICE_NAME }))
-  .get("/", () => ({ status: "ok", service: "osn-api" }))
-  .use(eventsRoutes)
-  .use(seriesRoutes)
-  .use(venuesRoutes)
-  .use(settingsRoutes)
-  .use(closeFriendsRoutes)
-  .use(onboardingRoutes)
-  .use(accountRoutes)
-  .use(internalRoutes);
-
-const port = process.env.PORT || 3001;
-
-if (process.env.NODE_ENV !== "test") {
-  // S-H3: fetching public keys over plaintext HTTP in a deployed env allows
-  // any process with network access to serve a forged JWK set. Fail fast.
-  const jwksUrl = process.env.OSN_JWKS_URL ?? "http://localhost:4000/.well-known/jwks.json";
-  const nonLocal = process.env.OSN_ENV && process.env.OSN_ENV !== "local";
-  if (nonLocal && jwksUrl.startsWith("http://")) {
-    throw new Error("OSN_JWKS_URL must use HTTPS in non-local environments");
-  }
-
-  app.listen({ port, reusePort: false });
-
-  // Register our ephemeral public key with osn/api and schedule automatic
-  // rotation. Exits the process only on unrecoverable errors (missing
-  // secret in non-local, HTTP 4xx/5xx, etc). In local dev, a missing
-  // secret or an unreachable osn/api logs a warning and lets the server
-  // boot — the latter schedules a background retry so `bun run dev:pulse`
-  // is resilient to turbo starting both services in parallel.
-  void startKeyRotation()
-    .then((status) => {
-      if (status === "registered") return;
-      const warning =
-        status === "skipped-secret-unset"
-          ? "pulse-api: ARC key registration skipped — INTERNAL_SERVICE_SECRET is unset. " +
-            "S2S calls to osn/api will fail until you set INTERNAL_SERVICE_SECRET in pulse/api/.env " +
-            "(matching the value in osn/api/.env)."
-          : "pulse-api: osn/api is not reachable yet — retrying ARC key registration in the background. " +
-            "This is expected when pulse-api starts before osn/api (e.g. under `bun run dev:pulse`).";
-      return Effect.runPromise(
-        Effect.logWarning(warning).pipe(
-          Effect.annotateLogs({ service: SERVICE_NAME }),
-          Effect.provide(Logger.pretty),
-          Effect.provide(observabilityLayer),
-        ),
-      ).catch(() => undefined);
-    })
-    .catch((err: unknown) => {
-      void Effect.runPromise(
-        Effect.logError("pulse-api: failed to start ARC key rotation", err).pipe(
-          Effect.annotateLogs({ service: SERVICE_NAME }),
-          Effect.provide(Logger.pretty),
-          Effect.provide(observabilityLayer),
-        ),
-      )
-        .catch(() => {})
-        .finally(() => process.exit(1));
-    });
-
-  // One structured info log at boot, routed through the observability layer
-  // so it picks up resource attributes + redaction. Using Effect.runPromise
-  // because the layer is Effect-scoped.
-  void Effect.runPromise(
-    Effect.logInfo("pulse-api listening").pipe(
-      Effect.annotateLogs({ port: String(port), service: SERVICE_NAME }),
-      Effect.provide(Logger.pretty),
-      Effect.provide(observabilityLayer),
-    ),
-  );
-
-  // Register the leave-app outbound key with osn-api so step-up verify +
-  // enrollment-leave callbacks can be ARC-authenticated. Best-effort in
-  // local dev; throws in non-local environments via the helper itself.
-  void registerLeaveAppKeyWithOsnApi().catch(() => undefined);
-
-  // Sweepers — Pulse leave-app hard-delete + event-cancellation hard-delete.
-  // Single-instance for now; single-pod ops are fine because the writes
-  // are idempotent and per-row. Production should add a Redis lock here.
-  const SWEEPER_INTERVAL_MS =
-    Number(process.env.PULSE_DELETION_SWEEPER_INTERVAL_MS) || 6 * 60 * 60 * 1_000;
-  const runSweep = (): void => {
-    void Effect.runPromise(
-      Effect.gen(function* () {
-        yield* accountErasure.runHardDeleteSweep();
-        yield* accountErasure.runEventCancellationSweep();
-      }).pipe(Effect.provide(DbLive)) as Effect.Effect<unknown, never, never>,
-    ).catch(() => undefined);
-  };
-  setInterval(runSweep, SWEEPER_INTERVAL_MS).unref?.();
+/**
+ * Worker bindings + vars. Mirrors `wrangler.toml` ([[d1_databases]], [vars]);
+ * regenerate with `bunx wrangler types` when bindings change. `DB` is optional
+ * so a misconfigured deployment fails at the edge with a 503, not a type lie.
+ *
+ * NOTE: the leave-app sweepers (`runHardDeleteSweep` /
+ * `runEventCancellationSweep`) run on the long-lived `local` host (`local.ts`).
+ * On Workers they belong on a Cron Trigger — tracked in wiki/TODO.md.
+ */
+export interface Env {
+  DB?: D1Database;
+  /** JWKS endpoint of the OSN issuer that signs access tokens. */
+  OSN_JWKS_URL?: string;
 }
 
-export { app };
-export type App = typeof app;
+// Build the Elysia graph once per isolate — `env` bindings are stable within an
+// isolate, and `aot: false` means none of the graph is amortised by
+// compilation. Rebuild defensively if the D1 binding identity ever changes.
+let cached: { app: App; dbBinding: D1Database } | undefined;
+
+const misconfigured = (detail: string): Response =>
+  new Response(JSON.stringify({ error: `Worker misconfigured: ${detail}` }), {
+    status: 503,
+    headers: { "Content-Type": "application/json" },
+  });
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Fail closed at the edge if the D1 binding is missing rather than falling
+    // back to the bun:sqlite `local` layer in a misconfigured deployment.
+    if (!env.DB) return misconfigured("missing DB");
+
+    if (!cached || cached.dbBinding !== env.DB) {
+      cached = {
+        dbBinding: env.DB,
+        app: createApp({ dbLayer: makeDbD1Live(env.DB), jwksUrl: env.OSN_JWKS_URL }),
+      };
+    }
+
+    return cached.app.fetch(request);
+  },
+};

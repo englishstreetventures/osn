@@ -41,6 +41,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[venues]] — org-scoped venues, event lineups, venue detail page + Explore map layer
 - [[platform-limits]] — MAX_EVENT_GUESTS and other caps
 - [[redis]] — Redis-backed rate limiters + cluster-safe auth state stores
+- [[database-environments]] — four DB environments (local bun:sqlite / dev·staging·prod D1), driver-agnostic Drizzle seam, D1 transaction caveat
 
 ## Observability
 

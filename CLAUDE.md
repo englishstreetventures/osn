@@ -55,6 +55,7 @@ Phase 1 surfaces:
 | If you need to... | Read |
 |---|---|
 | Understand monorepo layout | `[[wiki/architecture/monorepo-structure]]` |
+| Understand DB environments (local bun:sqlite vs dev/staging/prod D1) | `[[wiki/systems/database-environments]]` |
 | Write new Effect service or Elysia route | `[[wiki/architecture/backend-patterns]]`, `[[wiki/architecture/schema-layers]]` |
 | Understand accounts, profiles, orgs | `[[wiki/systems/identity-model]]` |
 | Add or verify ARC S2S tokens | `[[wiki/systems/arc-tokens]]` |

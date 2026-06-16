@@ -1,0 +1,36 @@
+name = "zap-api"
+main = "src/index.ts"
+compatibility_date = "2025-03-01"
+compatibility_flags = ["nodejs_compat"]
+
+# No top-level binding on purpose: the `local` environment runs on bun:sqlite via
+# `bun run dev` (src/local.ts), not on Workers. The D1-backed environments are
+# named below. `dev` is runnable BOTH locally (`wrangler dev --env dev`, miniflare
+# local D1) and deployed (`wrangler deploy --env dev`).
+
+# ── dev ────────────────────────────────────────────────────────────────────
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "zap-db"
+database_id = "placeholder-replace-after-d1-create"
+migrations_dir = "../db/drizzle"
+
+# ── staging ──────────────────────────────────────────────────────────────────
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "zap-db-staging"
+database_id = "placeholder-replace-after-d1-create"
+migrations_dir = "../db/drizzle"
+
+# ── production ───────────────────────────────────────────────────────────────
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "zap-db-prod"
+database_id = "placeholder-replace-after-d1-create"
+migrations_dir = "../db/drizzle"
+
+# OSN_JWT_SECRET is sensitive — set it per environment as a Worker secret, not a
+# plaintext var:
+#   bunx wrangler secret put OSN_JWT_SECRET --env dev
+#   bunx wrangler secret put OSN_JWT_SECRET --env staging
+#   bunx wrangler secret put OSN_JWT_SECRET --env production
