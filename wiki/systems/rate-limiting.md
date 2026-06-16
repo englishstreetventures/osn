@@ -25,9 +25,10 @@ finding-ids:
   - P-W16
 packages:
   - "@osn/api"
+  - "@zap/api"
   - "@shared/rate-limit"
   - "@shared/redis"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-06-16
 ---
 
 # Rate Limiting
@@ -113,6 +114,16 @@ Send `maxRequests + 1` requests and assert the last returns 429.
 | `GET /passkeys` | 30 | Settings listing — cheap reads |
 
 Graph write endpoints are rate-limited at 60 requests per user per minute (S-M16). Recommendations reads (`/recommendations/connections`) are rate-limited at 20 requests per user per minute — tighter because each call runs an FOF fan-out query (S-H1/P-C2).
+
+### Zap (`@zap/api`)
+
+Zap applies the same per-IP fixed-window limiter to its write endpoints
+(`createDefaultZapRateLimiters` in `zap/api/src/routes/chats.ts`):
+`POST /chats` 20/min, `POST /chats/:id/messages` 60/min,
+`POST /chats/:id/members` 30/min. These sit in front of ES256/JWKS token
+verification and the social-graph consent gate — see [[apps/zap]]. The limiter
+check runs first so an unauthenticated flood is shed before any crypto or S2S
+work.
 
 ## Config
 
