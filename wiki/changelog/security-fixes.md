@@ -7,12 +7,16 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-06-12
+last-reviewed: 2026-06-16
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## Scripts extraction — db:reset path guard (2026-06-16)
+
+- **S-L2 (db-dev-tooling)** — The per-package `db:reset` scripts (`osn/db`, `pulse/db`, `zap/db`, and the root reset that chains them) ran `rm -f` against a path taken from `*_DATABASE_URL` env vars with no validation. **Issue:** an env var (or a stray `.env`) pointing `OSN_DATABASE_URL` at a real file outside the local-sqlite default (`../../data/*.db`) would have been wiped without a prompt. Dev-only tooling, operator-supplied, never bundled into deployed code — so bounded, not attacker-reachable. **Why:** an unbounded developer footgun; the wrong pattern to leave lying around for copy-paste. **Solution:** the three inline scripts were consolidated into `scripts/db-reset.sh`, which now refuses to delete anything that isn't a `*.db` file resolving **inside** the repo root (exits 1 with a clear message otherwise); an absent parent dir is a no-op rather than an error. Covered behaviourally by the prep-pr review and the script's arg-guards. **Rationale:** repo-containment is stronger than the originally-suggested refuse-if-absolute-path check (absolute paths inside the repo stay valid) while still blocking the dangerous "redirect at a real file" case. See `scripts/db-reset.sh`.
 
 ## Cire Hono → Elysia migration (2026-06-12)
 
