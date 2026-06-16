@@ -42,6 +42,11 @@ import { Data, Effect, Schema } from "effect";
 import { SignJWT, jwtVerify } from "jose";
 
 import {
+  createInMemoryRecoveryLockoutStore,
+  RECOVERY_LOCKOUT_THRESHOLD,
+  type RecoveryLockoutStore,
+} from "../lib/recovery-lockout-store";
+import {
   createInMemoryRotatedSessionStore,
   type RotatedSessionStore,
 } from "../lib/rotated-session-store";
@@ -51,6 +56,7 @@ import {
   metricAuthOtpSent,
   metricPasskeyLoginDiscoverable,
   metricRecoveryCodeConsumed,
+  metricRecoveryLockout,
   metricRecoveryCodesGenerated,
   metricRotatedStoreDuration,
   metricRotatedStoreOp,
@@ -181,6 +187,13 @@ export interface AuthConfig {
    * on one pod is visible to every other pod on subsequent /token calls.
    */
   rotatedSessionStore?: RotatedSessionStore;
+  /**
+   * O2: per-account recovery-code lockout counter. Defaults to in-memory;
+   * inject the Redis-backed store in multi-pod deployments so the threshold
+   * is enforced across pods. Keyed on the resolved accountId — see
+   * `recovery-lockout-store.ts`.
+   */
+  recoveryLockoutStore?: RecoveryLockoutStore;
 }
 
 // ---------------------------------------------------------------------------
@@ -343,6 +356,20 @@ function genId(prefix: string): string {
   return prefix + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 }
 
+/**
+ * O5: a per-request random sentinel `accountId` for the enumeration-probe
+ * burn-in SELECTs. A fixed literal (`acc_enum_probe`, `__nonexistent__`) is a
+ * stable, attacker-knowable key: an adversary who pre-seeds a row with that id
+ * (or just observes the constant in a leaked query log) could turn the
+ * latency-equalising probe back into an oracle. A fresh 128-bit random id per
+ * request is, with overwhelming probability, absent from `accounts` — so the
+ * probe SELECT still returns zero rows and pays the same indexed-lookup cost,
+ * but the key carries no information and cannot be made to match.
+ */
+function probeAccountId(): string {
+  return genId("acc_probe_");
+}
+
 function now(): Date {
   return new Date();
 }
@@ -352,16 +379,38 @@ async function signJwt(
   privateKey: CryptoKey,
   kid: string,
   ttl: number,
+  issuer: string,
 ): Promise<string> {
   return new SignJWT(payload)
     .setProtectedHeader({ alg: "ES256", kid })
     .setIssuedAt()
+    .setIssuer(issuer)
     .setExpirationTime(Math.floor(Date.now() / 1000) + ttl)
     .sign(privateKey);
 }
 
-async function verifyJwt(token: string, publicKey: CryptoKey): Promise<Record<string, unknown>> {
-  const { payload } = await jwtVerify(token, publicKey, { algorithms: ["ES256"] });
+/**
+ * O1: `issuer` is pinned to `AuthConfig.issuerUrl` so a token minted by a
+ * different OSN deployment (or any other ES256 issuer sharing nothing but the
+ * curve) is rejected. A 30s `clockTolerance` absorbs benign clock skew between
+ * the signer and verifier without materially widening the effective TTL.
+ *
+ * Cross-service rollout note (the downstream verifier half is W7): the tolerant
+ * verifier MUST deploy before the signer begins enforcing/emitting `iss`. A
+ * verifier that already pins `issuer` would otherwise reject every legacy
+ * (iss-less) token the instant the signer rolls out — so the deploy ordering is
+ * strictly verifier-first.
+ */
+async function verifyJwt(
+  token: string,
+  publicKey: CryptoKey,
+  issuer: string,
+): Promise<Record<string, unknown>> {
+  const { payload } = await jwtVerify(token, publicKey, {
+    algorithms: ["ES256"],
+    issuer,
+    clockTolerance: 30,
+  });
   return payload as Record<string, unknown>;
 }
 
@@ -671,6 +720,8 @@ export function createAuthService(config: AuthConfig) {
   const jtiStore = config.stepUpJtiStore ?? createInMemoryJtiStore();
   const rotatedSessionStore = config.rotatedSessionStore ?? createInMemoryRotatedSessionStore();
   const rotatedSessionStoreBackend = rotatedSessionStore.backend;
+  // O2: per-account recovery-code lockout counter.
+  const recoveryLockoutStore = config.recoveryLockoutStore ?? createInMemoryRecoveryLockoutStore();
   /**
    * HMAC-SHA256 pepper for IP hashing. Only applied when the caller has
    * configured one — in dev we leave ip_hash NULL so local Docker IPs
@@ -1192,7 +1243,13 @@ export function createAuthService(config: AuthConfig) {
           scope: "openid profile",
         };
         if (displayName !== null) payload["displayName"] = displayName;
-        return signJwt(payload, config.jwtPrivateKey, config.jwtKid, accessTokenTtl);
+        return signJwt(
+          payload,
+          config.jwtPrivateKey,
+          config.jwtKid,
+          accessTokenTtl,
+          config.issuerUrl,
+        );
       },
       catch: (cause) => new AuthError({ message: String(cause) }),
     });
@@ -1606,7 +1663,7 @@ export function createAuthService(config: AuthConfig) {
   > =>
     Effect.gen(function* () {
       const payload = yield* Effect.tryPromise({
-        try: () => verifyJwt(token, config.jwtPublicKey),
+        try: () => verifyJwt(token, config.jwtPublicKey, config.issuerUrl),
         catch: () => new AuthError({ message: "Invalid or expired access token" }),
       });
       if (
@@ -1848,6 +1905,21 @@ export function createAuthService(config: AuthConfig) {
       // legitimate user adds a passkey.
       if (currentSessionToken) {
         yield* invalidateOtherAccountSessions(accountId, hashSessionToken(currentSessionToken));
+      } else {
+        // O4: caller has no resolvable session token (cookie stripped by a
+        // proxy, or the registration arrived via the enrollment-token path).
+        // Previously this branch was a silent no-op — H1 invalidation was
+        // skipped entirely, so a stolen session survived the very enrolment
+        // that is supposed to evict it. Mirror deletePasskey's cookieless
+        // branch: nuke EVERY session on the account (there is no "self" to
+        // preserve), log the anomaly out-of-band, and emit the canonical
+        // invalidation metric so the H1 dashboard still records the event.
+        yield* Effect.logWarning("auth.passkey.register: nuking all sessions (no caller session)");
+        yield* Effect.tryPromise({
+          try: () => db.delete(sessions).where(eq(sessions.accountId, accountId)),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        metricSessionSecurityInvalidation("passkey_register");
       }
 
       // S-H1: best-effort email notification. Forked daemon — failure
@@ -1941,8 +2013,8 @@ export function createAuthService(config: AuthConfig) {
         : yield* Effect.tryPromise({
             // Burn-in query: hit the table with a never-matching accountId
             // so an unknown identifier costs the same shape of work as a
-            // known one.
-            try: () => db.select().from(passkeys).where(eq(passkeys.accountId, "acc_enum_probe")),
+            // known one. O5: random per-request sentinel — see probeAccountId.
+            try: () => db.select().from(passkeys).where(eq(passkeys.accountId, probeAccountId())),
             catch: (cause) => new DatabaseError({ cause }),
           });
 
@@ -2625,6 +2697,43 @@ export function createAuthService(config: AuthConfig) {
     }).pipe(Effect.withSpan("auth.security_event.ack_all"));
 
   /**
+   * O2: write the `recovery_code_lockout` audit row when an account crosses the
+   * failed-attempt threshold. Surfaces in the security-events banner so the
+   * legitimate owner sees "repeated failed recovery attempts on your account"
+   * even though every attempt returned the same generic error over the wire.
+   * Best-effort: a write failure is logged but never converts the
+   * already-correct generic-error response into a 500.
+   */
+  const recordRecoveryLockoutEvent = (
+    accountId: string,
+    eventMeta?: SessionMeta,
+  ): Effect.Effect<void, never, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const nowSec = Math.floor(Date.now() / 1000);
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(securityEvents).values({
+            id: genId("sev_"),
+            accountId,
+            kind: "recovery_code_lockout",
+            createdAt: nowSec,
+            acknowledgedAt: null,
+            ipHash: eventMeta?.ip ? hashIp(eventMeta.ip) : null,
+            uaLabel: eventMeta?.uaLabel ?? null,
+          }),
+        catch: (cause) => new DatabaseError({ cause }),
+      }).pipe(
+        Effect.tap(() => Effect.sync(() => metricSecurityEventRecorded("recovery_code_lockout"))),
+        Effect.catchAll((cause) =>
+          Effect.logWarning("auth.recovery.lockout: audit write failed").pipe(
+            Effect.annotateLogs({ error: String(cause) }),
+          ),
+        ),
+      );
+    }).pipe(Effect.withSpan("auth.recovery.lockout"));
+
+  /**
    * Consumes a recovery code — returns the profile to establish a fresh
    * session against, and marks the code row as used. Invalidates every
    * existing session for the account before the caller issues the new one.
@@ -2663,7 +2772,8 @@ export function createAuthService(config: AuthConfig) {
               .from(recoveryCodes)
               .where(
                 and(
-                  eq(recoveryCodes.accountId, "__nonexistent__"),
+                  // O5: random per-request sentinel — see probeAccountId.
+                  eq(recoveryCodes.accountId, probeAccountId()),
                   eq(recoveryCodes.codeHash, codeHash),
                 ),
               )
@@ -2673,6 +2783,15 @@ export function createAuthService(config: AuthConfig) {
         metricRecoveryCodeConsumed("invalid");
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
+
+      // O2: per-account lockout. Keyed on the RESOLVED accountId (never the
+      // caller-supplied identifier) so an attacker cannot lock a victim out by
+      // spamming their handle, and an unknown identifier — which never reaches
+      // this branch — can never trip a lockout. When locked we still run the
+      // same indexed SELECT below for latency parity, then return the SAME
+      // generic error as any other failure (preserving the no-enumeration
+      // oracle: a locked account is indistinguishable from a wrong code).
+      const locked = yield* Effect.promise(() => recoveryLockoutStore.isLocked(profile.accountId));
 
       const result = yield* Effect.tryPromise({
         try: () =>
@@ -2688,14 +2807,30 @@ export function createAuthService(config: AuthConfig) {
             .limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      const row = result[0];
-      if (!row) {
+
+      if (locked) {
+        metricRecoveryLockout("locked");
         metricRecoveryCodeConsumed("invalid");
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
-      if (row.usedAt !== null) {
-        metricRecoveryCodeConsumed("used");
-        yield* Effect.logWarning("Used recovery code replayed");
+
+      const row = result[0];
+      if (!row || row.usedAt !== null) {
+        // O2: a genuine failed attempt against a real account — record it and
+        // trip the lockout (+ audit row) on the attempt that crosses the
+        // threshold. Both "wrong code" and "already-used code" count.
+        if (row?.usedAt) {
+          yield* Effect.logWarning("Used recovery code replayed");
+          metricRecoveryCodeConsumed("used");
+        } else {
+          metricRecoveryCodeConsumed("invalid");
+        }
+        const attempts = yield* Effect.promise(() =>
+          recoveryLockoutStore.recordFailure(profile.accountId),
+        );
+        if (attempts === RECOVERY_LOCKOUT_THRESHOLD) {
+          yield* recordRecoveryLockoutEvent(profile.accountId, eventMeta);
+        }
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
 
@@ -2730,6 +2865,9 @@ export function createAuthService(config: AuthConfig) {
       });
 
       metricRecoveryCodeConsumed("success");
+      // O2: a successful consume clears the failed-attempt counter.
+      yield* Effect.promise(() => recoveryLockoutStore.reset(profile.accountId));
+      metricRecoveryLockout("reset");
       // S-L3: whole-account session wipe is a security-relevant event — emit
       // the canonical invalidation metric so the existing dashboard covers it.
       metricSessionSecurityInvalidation("recovery_code_consume");
@@ -2821,6 +2959,7 @@ export function createAuthService(config: AuthConfig) {
             config.jwtPrivateKey,
             config.jwtKid,
             stepUpTokenTtl,
+            config.issuerUrl,
           ),
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
@@ -2857,7 +2996,7 @@ export function createAuthService(config: AuthConfig) {
         Effect.sync(() => metricStepUpVerified(result));
 
       const payloadResult = yield* Effect.tryPromise({
-        try: () => verifyJwt(token, config.jwtPublicKey),
+        try: () => verifyJwt(token, config.jwtPublicKey, config.issuerUrl),
         catch: () => new AuthError({ message: "Invalid step-up token" }),
       }).pipe(Effect.tapError(() => record("invalid")));
 

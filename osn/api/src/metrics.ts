@@ -68,6 +68,7 @@ export const OSN_METRICS = {
   authSessionRotatedStoreOps: "osn.auth.session.rotated_store.operations",
   authSessionRotatedStoreDuration: "osn.auth.session.rotated_store.duration",
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
+  authRecoveryLockout: "osn.auth.recovery.lockout",
   authRecoveryCodesGenerated: "osn.auth.recovery.codes_generated",
   authRecoveryCodeConsumed: "osn.auth.recovery.code_consumed",
   authRecoveryDuration: "osn.auth.recovery.duration",
@@ -528,6 +529,21 @@ export const metricRotatedStoreDuration = (
   seconds: number,
   attrs: RotatedStoreDurationAttrs,
 ): void => authSessionRotatedStoreDuration.record(seconds, attrs);
+
+// ---------------------------------------------------------------------------
+// Recovery-code per-account lockout (O2)
+// ---------------------------------------------------------------------------
+
+type RecoveryLockoutAttrs = { result: "recorded" | "locked" | "reset" };
+
+const authRecoveryLockout = createCounter<RecoveryLockoutAttrs>({
+  name: OSN_METRICS.authRecoveryLockout,
+  description: "Recovery-code per-account lockout events by outcome",
+  unit: "{event}",
+});
+
+export const metricRecoveryLockout = (result: RecoveryLockoutAttrs["result"]): void =>
+  authRecoveryLockout.inc({ result });
 
 // ---------------------------------------------------------------------------
 // Recovery codes (Copenhagen Book M2)

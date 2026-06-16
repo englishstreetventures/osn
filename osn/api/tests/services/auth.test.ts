@@ -391,6 +391,87 @@ describe("issueTokens", () => {
   );
 });
 
+// ---------------------------------------------------------------------------
+// O1 — issuer pinning + clock tolerance on access tokens
+// ---------------------------------------------------------------------------
+describe("O1 issuer pinning + clock tolerance", () => {
+  it.effect("access tokens decode with iss === issuerUrl", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("iss-ok@example.com", "issok");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const { decodeJwt } = yield* Effect.tryPromise(() => import("jose"));
+      expect(decodeJwt(tokens.accessToken).iss).toBe(config.issuerUrl);
+      // And it still verifies through the service.
+      const claims = yield* auth.verifyAccessToken(tokens.accessToken);
+      expect(claims.handle).toBe("issok");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("a token with a wrong iss is rejected", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("iss-wrong@example.com", "isswrong");
+      const { SignJWT } = yield* Effect.tryPromise(() => import("jose"));
+      const wrongIss = yield* Effect.tryPromise(() =>
+        new SignJWT({
+          sub: profile.id,
+          aud: "osn-access",
+          email: profile.email,
+          handle: profile.handle,
+        })
+          .setProtectedHeader({ alg: "ES256", kid: config.jwtKid })
+          .setIssuedAt()
+          .setIssuer("https://evil.example.com")
+          .setExpirationTime(Math.floor(Date.now() / 1000) + 300)
+          .sign(config.jwtPrivateKey),
+      );
+      const error = yield* Effect.flip(auth.verifyAccessToken(wrongIss));
+      expect(error._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("a token ~20s in the future verifies; ~90s does not (30s tolerance)", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("iss-skew@example.com", "issskew");
+      const { SignJWT } = yield* Effect.tryPromise(() => import("jose"));
+      const nowSec = Math.floor(Date.now() / 1000);
+      // Use `nbf` (not-before) to model a token minted on a clock running
+      // fast: jose applies `clockTolerance` to the nbf check, so an nbf 20s in
+      // the future is tolerated while 90s is not.
+      const mint = (nbfOffset: number) =>
+        Effect.tryPromise(() =>
+          new SignJWT({
+            sub: profile.id,
+            aud: "osn-access",
+            email: profile.email,
+            handle: profile.handle,
+          })
+            .setProtectedHeader({ alg: "ES256", kid: config.jwtKid })
+            .setIssuedAt(nowSec)
+            .setNotBefore(nowSec + nbfOffset)
+            .setIssuer(config.issuerUrl)
+            .setExpirationTime(nowSec + nbfOffset + 300)
+            .sign(config.jwtPrivateKey),
+        );
+
+      // nbf 20s in the future → inside the 30s clockTolerance → accepted.
+      const near = yield* mint(20);
+      const nearClaims = yield* auth.verifyAccessToken(near);
+      expect(nearClaims.handle).toBe("issskew");
+
+      // nbf 90s in the future → outside tolerance → "not yet valid" → rejected.
+      const far = yield* mint(90);
+      const error = yield* Effect.flip(auth.verifyAccessToken(far));
+      expect(error._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
 describe("passkey registration", () => {
   it.effect("beginPasskeyRegistration returns options with @handle as userName", () =>
     Effect.gen(function* () {
@@ -617,10 +698,14 @@ describe("verifyAccessToken", () => {
   it.effect("rejects a token without aud: 'osn-access' (S-M2)", () =>
     Effect.gen(function* () {
       const { SignJWT } = yield* Effect.tryPromise(() => import("jose"));
+      // O1: carry the correct `iss` so the token passes the issuer check and
+      // actually reaches the aud-pinning branch this test is pinning. (A
+      // missing/wrong `iss` is rejected earlier — separately covered below.)
       const forged = yield* Effect.tryPromise(() =>
         new SignJWT({ sub: "usr_forged00000", email: "x@x.com", handle: "x" })
           .setProtectedHeader({ alg: "ES256", kid: config.jwtKid })
           .setIssuedAt()
+          .setIssuer(config.issuerUrl)
           .setExpirationTime(Math.floor(Date.now() / 1000) + 300)
           .sign(config.jwtPrivateKey),
       );
