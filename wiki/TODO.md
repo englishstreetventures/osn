@@ -4,6 +4,7 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 
 ## Up Next
 
+- [ ] **Auth Audit Remediation (2026-06)** — cross-app auth audit findings organised into parallel workstreams W1–W7. Start with W1 (Zap HS256 token model, exploitable) and W5-C1 (Cire claim-code entropy/throttle, exploitable); land W3 (shared rate-limit IP hardening) before W4/W5 limiter work. See the **Auth Audit Remediation** section below.
 - [x] Multi-account P3 — Profile CRUD: `createProfileService()` (create, delete, set default), `/profiles` routes, `maxProfiles` enforcement (S-L1), cascade-delete profile data, observability (counter + histogram + spans)
 - [x] Multi-account P4 — Client SDK: multi-session storage (`@osn/client:account_session`), `listProfiles()`, `switchProfile()`, `createProfile()`, `deleteProfile()`, `getActiveProfile()` methods on `OsnAuthService`, SolidJS `AuthContext` integration, legacy session migration, schema validation
 - [x] Multi-account P5 — Profile UI: profile switcher component in `@osn/ui`, profile creation form, onboarding for additional profiles
@@ -28,6 +29,72 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 - [ ] **C-H4 — Privacy notice + ToS published on `@osn/landing`** in plain language, version-stamped, backlinked from every signup form. Required for GDPR Art. 12-14 + CCPA notice-at-collection + DSA Art. 14. See `[[compliance/gdpr]]`, `[[compliance/dsa]]`.
 - [ ] **C-H8 — Date-of-birth field + age gate on registration**, hard-rejecting under-13. Required for COPPA actual-knowledge defense. See `[[compliance/coppa]]`.
 - [ ] **V-M0 — Verified Identity foundations** (Yoti-style verified-attribute layer, AU first). DPIA + vendor RFP + schema (`verified_attributes`, `verification_runs`, `presentations`) + SD-JWT VC issuer on a **separate ES256 keypair** (same JWKS as `[[arc-tokens]]`, distinct `kid`, `aud: "osn-vc"`). Unlocks "verify once, present privately many times" across Pulse + Zap and gives a credible answer to AU social-media-minimum-age (10 Dec 2025). See `[[verified-identity]]`.
+
+---
+
+## Auth Audit Remediation (2026-06)
+
+Cross-app authentication audit (OSN core, Pulse, Zap, Cire, shared crypto/auth). Findings are grouped into parallel workstreams **W1–W7**, chosen to minimise file overlap so they can be actioned independently/simultaneously. Each item carries `file:line` + the fix + severity, and cross-references the existing Security Backlog ID where a finding is already tracked (don't double-track — close it there when the workstream lands).
+
+**Sequencing for parallel agents:**
+- **W3 (shared rate-limit) should land first** — W4 and W5's per-IP limiter work both consume the same `getClientIp`.
+- **W6-O1 pairs with W7-X2** (issuer + clock-skew must change on signer and verifier together).
+- W1 (Zap token model) and W5-C1 (Cire claim code) are the only genuinely *exploitable* items — everything else is hardening. Prioritise them.
+
+### W1 — Zap token model (Critical) — `zap/api`
+
+- [ ] AUDIT-Z1 — **Replace hand-rolled HS256 shared-secret verification with `@shared/osn-auth-client`.** `zap/api/src/routes/chats.ts:23-37` verifies bearer tokens with a symmetric `OSN_JWT_SECRET` (default `"dev-secret-change-in-prod"`) and trusts `sub`/`profileId` with no audience or algorithm pin — the verifier holds signing material, so anyone with the secret can forge a token for any `profileId`, and it can't validate real OSN ES256 tokens at all. Add the `@shared/osn-auth-client` dep, swap to `extractClaims(authHeader, OSN_JWKS_URL, { audience: "osn-access" })`, delete `OSN_JWT_SECRET` + the HS256 path. Closes **S-L1 (zap)** (algorithm allowlist) and the missing-`aud` gap in one change — see [[rate-limiting]], CLAUDE.md `@shared/osn-auth-client`.
+- [ ] AUDIT-Z2 — Validate `sub` shape (e.g. `usr_` prefix) post-verify before writing `created_by_profile_id` / `sender_profile_id` (`zap/api/src/routes/chats.ts:31-33`). Defence-in-depth once Z1 lands.
+
+### W2 — Zap authorization & consent (High/Med) — `zap/api/src/services`
+
+- [ ] AUDIT-Z3 — `createChat` trusts `memberProfileIds` (up to 500) with no relationship/consent check (`zap/api/src/services/chats.ts:143-159`) → forced-add / messaging spam. Gate added members on an OSN social-graph relationship (ARC S2S) or invite-accept; enforce DM = exactly 2 members; wire the unused `blocked` denial metric (`zap/api/src/metrics.ts:69`).
+- [ ] AUDIT-Z4 — `addMember` is admin-gated but performs no target-consent check (`zap/api/src/services/chats.ts:193-246`). Same consent/graph gate as Z3.
+- [ ] AUDIT-Z5 — `removeMember` can remove the last admin, orphaning the chat (`zap/api/src/services/chats.ts:248-285`). Add a "cannot remove last admin" invariant. Closes **S-L3 (zap)**.
+- [ ] AUDIT-Z6 — Cursor pagination uses a foreign/unknown cursor id verbatim and returns page 1 on a bad cursor (`zap/api/src/services/messages.ts:128-140`) — minor cross-chat leak + confusing contract. Scope the cursor lookup to `chatId`; reject unknown cursors with a validation error.
+- [ ] AUDIT-Z7 — No ARC S2S trust boundary exists (`zap/` has no `@shared/crypto` dep). Plan an ARC-verified internal surface (e.g. `POST /internal/chats`) on a separate middleware from the user-token routes (mirror cire) before M2 wires Pulse→Zap event-chat provisioning. Relates to **S-M3 (zap)**.
+- Note: existing **S-M1/S-M2/S-M4/S-M5/S-M6 (zap)** (rate limiting, CORS, atomic cross-DB write, event-type check, UUID width) also belong to this workstream.
+
+### W3 — Shared rate-limit IP hardening (High) — `shared/rate-limit` ⚠ land first
+
+- [ ] AUDIT-S1 — `getClientIp` trusts the first `X-Forwarded-For` hop (spoofable → per-IP limit bypass) and collapses header-less callers into one shared `"unknown"` bucket (one abuser DoSes everyone) (`shared/rate-limit/src/index.ts:85-89`). Add a `trustProxy`/trusted-hop option; resolve from the trusted proxy hop / socket peer (or `cf-connecting-ip` on Workers); fail closed when unresolvable. Closes **S-M34** and **S-L2 (share-attribution)**; unblocks W4/W5 limiter work.
+
+### W4 — Pulse rate-limiting, CORS & exposure (Med) — `pulse/api`
+
+- [ ] AUDIT-P1 — Authenticated write endpoints have no rate limiting — event create/update, RSVP, bulk invite, comms blast (`pulse/api/src/routes/events.ts:363,420,663,793,907`), plus `series.ts` and `closeFriends.ts`. Add per-user (`claims.profileId`) fail-closed limiters. Subsumes **S-L1 (series)** and **S-L1 (pulse-close-friends)**.
+- [ ] AUDIT-P2 — Rate limiters are instantiated with in-memory backends and never wired to Redis despite the injection seam (`pulse/api/src/index.ts:28-35`) → per-process limits that reset on deploy. Add a composition root that builds Redis-backed limiters when `REDIS_URL` is set.
+- [ ] AUDIT-P3 — Restrict bare `cors()` to known app origins (`pulse/api/src/index.ts:24`). Closes **S-L2 (auth)**.
+- [ ] AUDIT-P4 — Unauthenticated `POST /events/:id/exposure` accepts a client-supplied `source` and bumps counters with no throttle/replay protection (`pulse/api/src/routes/share.ts:44-71`). Add a per-IP limit (after W3); consider an HMAC'd share token in the `?source=` link. Relates to **S-L2 (share-attribution)**.
+- [ ] AUDIT-P5 — Attendee list exposed to any viewer who can see the event (`pulse/api/src/routes/events.ts:312-340`) — friends-visibility events let any organiser-friend enumerate every attendee. Add a `canViewAttendees` policy (organiser/co-hosts) or return counts to non-organisers — see [[event-access]].
+
+### W5 — Cire claim-code & guest sessions (High) — `cire/api`
+
+- [ ] AUDIT-C1 — **Claim code is ~32-bit, single-factor, throttled only per-isolate.** `publicId` = guessable `SURNAME-` prefix + `crypto.randomUUID().slice(0,8)` (`cire/api/src/services/import.ts:43-51`); it's the sole guest credential and the only throttle is an in-memory `createRateLimiter` that on Cloudflare Workers is per-isolate, not global (`cire/api/src/app.ts:20`, no KV/DO binding in `wrangler.toml`). Raise the suffix to ≥64-bit `getRandomValues` base32, drop the surname from the security-bearing portion, and move the limiter to a shared backend (CF KV / Durable Object / Rate-Limiting binding). **Also correct `cire/wiki/todo/security.md`, which wrongly states the claim limiter is "KV-backed".**
+- [ ] AUDIT-C2 — `sessionService.revokeAllForFamily` is dead code and there is no claim-code rotation path (`cire/api/src/services/session.ts:128`). Add an organiser "regenerate family code" op that updates `families.publicId` + calls `revokeAllForFamily(familyId)` in one transaction, so a leaked code can be rotated and its ≤30-day sessions evicted.
+- [ ] AUDIT-C3 — Confirm guest session expiry is enforced on the read path; add `and(eq(tokenHash,…), gt(expiresAt, now()))` to the lookup if absent (`cire/api/src/services/guestSession.ts`).
+- [ ] AUDIT-C4 — On Workers, key the limiter strictly on `cf-connecting-ip` and fail closed when absent (`cire/api/src/lib/client-ip.ts`). Folds into W3.
+- [ ] AUDIT-C5 — Add Origin-header validation on state-changing routes (`POST /api/claim`, `/api/rsvp`); today only `SameSite=Lax` defends CSRF. Closes **S-L3 (cire)** — mirror `osn/api/src/lib/origin-guard.ts`.
+- [ ] AUDIT-C6 (low) — Rotate the guest session token on `POST /api/account/link` (auth-state transition → fixation defence) (`cire/api/src/routes/account.ts`).
+
+### W6 — OSN core hardening (Med/Low) — `osn/api`
+
+- [ ] AUDIT-O1 — Set `iss` and add `clockTolerance` to JWT sign/verify (`osn/api/src/services/auth.ts:350-366,1601-1629,2846-2918`). Defence-in-depth + fewer spurious cross-host 401s on the 5-min-TTL refresh path. **Pair with W7-X2.**
+- [ ] AUDIT-O2 — Recovery-code login has only a per-IP limiter, no per-account lockout (`osn/api/src/services/auth.ts:2641-2750`). Add a per-account failed-attempt counter + temporary lockout + security-event, mirroring the OTP path (`MAX_OTP_ATTEMPTS`).
+- [ ] AUDIT-O3 — Multi-pod gap: WebAuthn challenge / OTP / pending-registration / pending-email-change / CDL stores and the per-account rate caps are process-local `Map`s (`osn/api/src/services/auth.ts` ~233-657), so begin/complete ceremonies break across pods and the security rate caps degrade to `N×limit`. Give them the injectable-Redis treatment already applied to the jti/rotation stores, or document the single-pod constraint + pin sticky routing.
+- [ ] AUDIT-O4 — Passkey-registration "invalidate other sessions" (H1) silently no-ops when the session cookie is absent (`osn/api/src/services/auth.ts:1849-1851`); mirror `deletePasskey`'s cookieless branch which invalidates all account sessions.
+- [ ] AUDIT-O5 (low) — Optional: bind step-up tokens to the issuing session/access-token (`sid`/`cnf` claim) for the most destructive purposes; randomise the enumeration-probe `accountId` so the burn-in predicate isn't a cacheable constant (`osn/api/src/services/auth.ts:2807-2918,1941-1947`).
+
+### W7 — Shared crypto / osn-auth-client (Med/Low) — `shared/crypto`, `shared/osn-auth-client`
+
+- [ ] AUDIT-X1 — Add an optional `expectedIssuer` param to `verifyArcToken` and thread it into `jwtVerify`'s `issuer` option (`shared/crypto/src/arc.ts:96-143`); have both ARC middlewares supply it. Today cross-issuer safety is only an emergent property of every caller binding kid→issuer — give the primitive its own defence — see [[arc-tokens]].
+- [ ] AUDIT-X2 — Add `iss` + `clockTolerance` to access-token verification (`shared/osn-auth-client/src/verify.ts:65`). **Pairs with W6-O1.**
+- [ ] AUDIT-X3 — ARC token cache key omits `ttl` and uses un-normalised scope (`shared/crypto/src/arc.ts:344-360`) → a caller can receive a shorter-lived cached token than it requested, plus cache fragmentation. Include `ttl` in the key and normalise scope before keying.
+- [ ] AUDIT-X4 — Document the ≤5-min cross-process ARC public-key revocation window (`shared/crypto/src/arc.ts:154-164`); consider a shorter cache TTL or a pub/sub eviction signal in multi-instance deploys — see [[arc-tokens]].
+- [ ] AUDIT-X5 (low) — Guard the in-memory Redis client `eval` so a future non-rate-limit Lua script can't silently get rate-limit semantics in dev/test (`shared/redis/src/client.ts:176-193`).
+
+### Verified sound (no action)
+
+Token-verification core (audience enforced inside the single `jwtVerify` pass, ES256/`alg` pinning, alg:none + HS/RS confusion structurally blocked, JWKS amplification defences), OSN session rotation + family-revocation + cookie-only refresh, Cire two-auth separation + guest tenant-scoping + additive `/account/link`, and Pulse single-source-of-truth visibility with no IDOR were all reviewed and found sound. The items above are hardening, except **W1** and **W5-C1**, which are genuinely exploitable.
 
 ---
 
