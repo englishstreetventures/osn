@@ -164,6 +164,45 @@ const orgRateLimiter = createRedisOrgRateLimiter(redisClient);
 const profileRateLimiters = createRedisProfileRateLimiters(redisClient);
 const recommendationRateLimiter = createRedisRecommendationRateLimiter(redisClient);
 
+// ---------------------------------------------------------------------------
+// Client-IP trust policy (S-M34)
+//
+// Controls how the rate limiter (and session-IP persistence) derives the
+// caller's keying IP. `x-forwarded-for` is only trusted when this service
+// actually sits behind a known number of reverse proxies — otherwise a
+// client can forge the header and either evade or amplify per-IP limits.
+//
+//   TRUSTED_PROXY_COUNT  Integer ≥ 0. Number of trusted reverse proxies in
+//                        front of @osn/api. The keying IP is taken N entries
+//                        from the RIGHT of `x-forwarded-for` (spoofing-safe).
+//                        Default 0 → direct mode: the IP comes solely from the
+//                        Bun socket peer (`server.requestIP`), never XFF.
+//
+// (When deployed behind Cloudflare, set `trustCloudflare: true` here instead
+// and key off `cf-connecting-ip`; this codebase isn't fronted by CF yet, so
+// only the proxy-count knob is wired.)
+//
+// W3.3: in a non-local deployment with TRUSTED_PROXY_COUNT unset, we fall
+// back to socket-peer attribution and emit a startup warning so an operator
+// who forgot to configure the proxy count notices before users behind a load
+// balancer all collapse onto the LB's IP (or get denied as unresolved).
+// ---------------------------------------------------------------------------
+
+function parseTrustedProxyCount(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return 0;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(
+      `TRUSTED_PROXY_COUNT must be a non-negative integer (got ${JSON.stringify(raw)})`,
+    );
+  }
+  return n;
+}
+
+const trustedProxyCount = parseTrustedProxyCount(process.env.TRUSTED_PROXY_COUNT);
+const trustedProxyCountUnconfigured = process.env.TRUSTED_PROXY_COUNT === undefined;
+const clientIpConfig = { trustedProxyCount } as const;
+
 // C3: Cookie session config — Secure flag + __Host- prefix in non-local envs.
 const cookieConfig: CookieSessionConfig = {
   secure: !!process.env.OSN_ENV && process.env.OSN_ENV !== "local",
@@ -223,13 +262,22 @@ const app = new Elysia()
       observabilityLayer,
       authRateLimiters,
       cookieConfig,
+      clientIpConfig,
     ),
   )
   .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter))
   .use(createInternalGraphRoutes(DbLive))
   .use(createOrganisationRoutes(authConfig, DbLive, observabilityLayer, orgRateLimiter))
   .use(createInternalOrganisationRoutes(DbLive))
-  .use(createProfileRoutes(authConfig, DbLive, observabilityLayer, profileRateLimiters))
+  .use(
+    createProfileRoutes(
+      authConfig,
+      DbLive,
+      observabilityLayer,
+      profileRateLimiters,
+      clientIpConfig,
+    ),
+  )
   .use(
     createRecommendationRoutes(authConfig, DbLive, observabilityLayer, recommendationRateLimiter),
   )
@@ -251,6 +299,14 @@ if (process.env.NODE_ENV !== "test") {
       if (jwtEphemeral) {
         yield* Effect.logWarning(
           "Using ephemeral JWT key pair — tokens will be invalidated on restart. Set OSN_JWT_PRIVATE_KEY and OSN_JWT_PUBLIC_KEY for persistent keys.",
+        );
+      }
+      // W3.3 (S-M34): warn if a non-local deploy hasn't declared its proxy
+      // topology. Direct/socket-peer attribution behind an undeclared load
+      // balancer collapses every user onto the LB's IP.
+      if (envNonLocal && trustedProxyCountUnconfigured) {
+        yield* Effect.logWarning(
+          "TRUSTED_PROXY_COUNT is unset — rate limiting will key off the socket peer (direct mode). If @osn/api sits behind a reverse proxy / load balancer, set TRUSTED_PROXY_COUNT to the number of trusted hops so x-forwarded-for is honoured spoof-safely.",
         );
       }
       yield* Effect.logInfo("osn-app listening");

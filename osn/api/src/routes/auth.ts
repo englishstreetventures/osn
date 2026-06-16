@@ -1,7 +1,13 @@
 import { DbLive, type Db } from "@osn/db/service";
 import { EmailService, makeLogEmailLive } from "@shared/email";
 import type { AuthRateLimitedEndpoint } from "@shared/observability/metrics";
-import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
+import {
+  createRateLimiter,
+  getClientIp,
+  isUnresolvedIp,
+  type ClientIpOptions,
+  type RateLimiterBackend,
+} from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
@@ -175,6 +181,19 @@ export function createAuthRoutes(
    * (local dev mode).
    */
   cookieConfig: CookieSessionConfig = { secure: false },
+  /**
+   * Client-IP trust policy (S-M34). Controls how the request's keying IP is
+   * derived from headers + socket peer for rate limiting and session-IP
+   * persistence. The composition root (`osn/api/src/index.ts`) builds this
+   * from `TRUSTED_PROXY_COUNT` (and would set `trustCloudflare` behind CF).
+   *
+   * Defaults to `{}` — i.e. direct mode with no trusted proxy. In direct
+   * mode the keying IP comes solely from the transport socket peer
+   * (`socketIp`, wired per-request from Bun's `server.requestIP`), never from
+   * a spoofable `x-forwarded-for`. Tests that exercise per-IP buckets via an
+   * `x-forwarded-for` header pass `{ trustedProxyCount: 1 }` here.
+   */
+  clientIpConfig: Omit<ClientIpOptions, "socketIp"> = {},
 ) {
   // Fail-fast: validate every limiter slot at construction time (S-L2) so a
   // partially-valid object surfaces immediately instead of on the first
@@ -215,15 +234,42 @@ export function createAuthRoutes(
   const handleError = (e: unknown) => publicError(e, loggerLayer);
 
   /**
+   * Resolve the request's trusted keying IP under the configured policy
+   * (S-M34). `socketIp` is the per-request transport peer (Bun
+   * `server.requestIP`); it is only consulted in direct mode. Returns the
+   * `UNRESOLVED_IP` sentinel when the IP can't be trusted — callers check
+   * `isUnresolvedIp` and deny rather than bucketing everyone together.
+   */
+  const resolveIp = (headers: Record<string, string | undefined>, socketIp: string | null) =>
+    getClientIp(headers, { ...clientIpConfig, socketIp });
+
+  /**
+   * Per-request transport socket peer (S-M34), read from Bun's
+   * `server.requestIP(request)`. Used by direct-mode IP resolution where
+   * there is no trusted proxy. `server` is absent under `app.handle(...)` in
+   * tests, so this returns `null` there — tests drive per-IP buckets via an
+   * `x-forwarded-for` header + `clientIpConfig.trustedProxyCount` instead.
+   */
+  type IpCtx = {
+    server: { requestIP?: (req: Request) => { address?: string } | null } | null;
+    request: Request;
+  };
+  const socketIpOf = (ctx: IpCtx): string | null =>
+    ctx.server?.requestIP?.(ctx.request)?.address ?? null;
+
+  /**
    * Extracts the caller's coarse UA label + client IP from incoming headers
    * so `issueTokens` can persist them onto the new session row. Both fields
-   * are best-effort — missing headers just yield `null` downstream.
+   * are best-effort — an unresolved IP just yields `null` downstream.
    */
-  const sessionMetaFrom = (headers: Record<string, string | undefined>) => ({
+  const sessionMetaFrom = (
+    headers: Record<string, string | undefined>,
+    socketIp: string | null,
+  ) => ({
     uaLabel: deriveUaLabel(headers["user-agent"]),
     ip: (() => {
-      const ip = getClientIp(headers);
-      return ip === "unknown" ? null : ip;
+      const ip = resolveIp(headers, socketIp);
+      return isUnresolvedIp(ip) ? null : ip;
     })(),
   });
 
@@ -240,10 +286,17 @@ export function createAuthRoutes(
   // Redis outage blocks rather than bypasses the limiter.
   async function rateLimit(
     headers: Record<string, string | undefined>,
+    socketIp: string | null,
     endpoint: AuthRateLimitedEndpoint,
     limiter: RateLimiterBackend,
   ): Promise<{ error: string } | null> {
-    const ip = getClientIp(headers);
+    const ip = resolveIp(headers, socketIp);
+    // S-M34: an unresolved IP must NOT key the limiter — a shared "unknown"
+    // bucket is both a spoofing bypass and a DoS amplifier. Deny outright.
+    if (isUnresolvedIp(ip)) {
+      metricAuthRateLimited(endpoint);
+      return { error: "rate_limited" };
+    }
     let allowed: boolean;
     try {
       allowed = await limiter.check(ip);
@@ -284,8 +337,13 @@ export function createAuthRoutes(
       // -------------------------------------------------------------------------
       .get(
         "/handle/:handle",
-        async ({ params, set, headers }) => {
-          const rlErr = await rateLimit(headers, "handle_check", rl.handleCheck);
+        async ({ params, set, headers, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "handle_check",
+            rl.handleCheck,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -311,8 +369,13 @@ export function createAuthRoutes(
       // -------------------------------------------------------------------------
       .post(
         "/register/begin",
-        async ({ body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "register_begin", rl.registerBegin);
+        async ({ body, set, headers, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "register_begin",
+            rl.registerBegin,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -343,15 +406,24 @@ export function createAuthRoutes(
       // -------------------------------------------------------------------------
       .post(
         "/register/complete",
-        async ({ body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "register_complete", rl.registerComplete);
+        async ({ body, set, headers, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "register_complete",
+            rl.registerComplete,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
           }
           try {
             const result = await run(
-              auth.completeRegistration(body.email, body.code, sessionMetaFrom(headers)),
+              auth.completeRegistration(
+                body.email,
+                body.code,
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
+              ),
             );
             set.status = 201;
             set.headers["set-cookie"] = buildSessionCookie(result.refreshToken, cookieConfig);
@@ -424,8 +496,13 @@ export function createAuthRoutes(
       // -------------------------------------------------------------------------
       .post(
         "/passkey/register/begin",
-        async ({ body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "passkey_register_begin", rl.passkeyRegisterBegin);
+        async ({ body, set, headers, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "passkey_register_begin",
+            rl.passkeyRegisterBegin,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -468,9 +545,10 @@ export function createAuthRoutes(
       // -------------------------------------------------------------------------
       .post(
         "/passkey/register/complete",
-        async ({ body, set, headers }) => {
+        async ({ body, set, headers, server, request }) => {
           const rlErr = await rateLimit(
             headers,
+            socketIpOf({ server, request }),
             "passkey_register_complete",
             rl.passkeyRegisterComplete,
           );
@@ -493,7 +571,7 @@ export function createAuthRoutes(
                 principal.accountId,
                 body.attestation,
                 cookieToken,
-                sessionMetaFrom(headers),
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
               ),
             );
             return result;
@@ -522,8 +600,13 @@ export function createAuthRoutes(
       // =========================================================================
       .post(
         "/login/passkey/begin",
-        async ({ body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "passkey_login_begin", rl.passkeyLoginBegin);
+        async ({ body, set, headers, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "passkey_login_begin",
+            rl.passkeyLoginBegin,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -546,8 +629,13 @@ export function createAuthRoutes(
       )
       .post(
         "/login/passkey/complete",
-        async ({ body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "passkey_login_complete", rl.passkeyLoginComplete);
+        async ({ body, set, headers, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "passkey_login_complete",
+            rl.passkeyLoginComplete,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -566,7 +654,7 @@ export function createAuthRoutes(
                 hasIdentifier
                   ? { identifier: body.identifier!, assertion: body.assertion }
                   : { challengeId: body.challengeId!, assertion: body.assertion },
-                sessionMetaFrom(headers),
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
               ),
             );
             set.headers["set-cookie"] = buildSessionCookie(
@@ -597,8 +685,13 @@ export function createAuthRoutes(
       // refresh token in body). The access token's `sub` is `profileId`;
       // we resolve `accountId` via DB lookup.
       // -------------------------------------------------------------------------
-      .get("/profiles/list", async ({ headers, set }) => {
-        const rlErr = await rateLimit(headers, "profile_list", rl.profileList);
+      .get("/profiles/list", async ({ headers, set, server, request }) => {
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "profile_list",
+          rl.profileList,
+        );
         if (rlErr) {
           set.status = 429;
           return rlErr;
@@ -623,8 +716,13 @@ export function createAuthRoutes(
       })
       .post(
         "/profiles/switch",
-        async ({ body, headers, set }) => {
-          const rlErr = await rateLimit(headers, "profile_switch", rl.profileSwitch);
+        async ({ body, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "profile_switch",
+            rl.profileSwitch,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -671,8 +769,13 @@ export function createAuthRoutes(
       // -------------------------------------------------------------------------
       .post(
         "/recovery/generate",
-        async ({ body, headers, set }) => {
-          const rlErr = await rateLimit(headers, "recovery_generate", rl.recoveryGenerate);
+        async ({ body, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "recovery_generate",
+            rl.recoveryGenerate,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -699,7 +802,10 @@ export function createAuthRoutes(
             }
             await run(auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken));
             const result = await run(
-              auth.generateRecoveryCodesForAccount(profile.accountId, sessionMetaFrom(headers)),
+              auth.generateRecoveryCodesForAccount(
+                profile.accountId,
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
+              ),
             );
             // S-L2: wire field is `recoveryCodes` (not `codes`) so the
             // redaction deny-list entry actually matches in logs.
@@ -718,15 +824,24 @@ export function createAuthRoutes(
       )
       .post(
         "/login/recovery/complete",
-        async ({ body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "recovery_complete", rl.recoveryComplete);
+        async ({ body, set, headers, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "recovery_complete",
+            rl.recoveryComplete,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
           }
           try {
             const result = await run(
-              auth.completeRecoveryLogin(body.identifier, body.code, sessionMetaFrom(headers)),
+              auth.completeRecoveryLogin(
+                body.identifier,
+                body.code,
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
+              ),
             );
             set.headers["set-cookie"] = buildSessionCookie(
               result.session.refreshToken,
@@ -773,8 +888,13 @@ export function createAuthRoutes(
       // account is known up-front; the challenge / OTP stores are keyed
       // by accountId to keep the ceremony scoped to the caller.
       // -------------------------------------------------------------------------
-      .post("/step-up/passkey/begin", async ({ headers, set }) => {
-        const rlErr = await rateLimit(headers, "step_up_passkey_begin", rl.stepUpPasskeyBegin);
+      .post("/step-up/passkey/begin", async ({ headers, set, server, request }) => {
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "step_up_passkey_begin",
+          rl.stepUpPasskeyBegin,
+        );
         if (rlErr) {
           set.status = 429;
           return rlErr;
@@ -799,9 +919,10 @@ export function createAuthRoutes(
       })
       .post(
         "/step-up/passkey/complete",
-        async ({ body, headers, set }) => {
+        async ({ body, headers, set, server, request }) => {
           const rlErr = await rateLimit(
             headers,
+            socketIpOf({ server, request }),
             "step_up_passkey_complete",
             rl.stepUpPasskeyComplete,
           );
@@ -854,8 +975,13 @@ export function createAuthRoutes(
           }),
         },
       )
-      .post("/step-up/otp/begin", async ({ headers, set }) => {
-        const rlErr = await rateLimit(headers, "step_up_otp_begin", rl.stepUpOtpBegin);
+      .post("/step-up/otp/begin", async ({ headers, set, server, request }) => {
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "step_up_otp_begin",
+          rl.stepUpOtpBegin,
+        );
         if (rlErr) {
           set.status = 429;
           return rlErr;
@@ -880,8 +1006,13 @@ export function createAuthRoutes(
       })
       .post(
         "/step-up/otp/complete",
-        async ({ body, headers, set }) => {
-          const rlErr = await rateLimit(headers, "step_up_otp_complete", rl.stepUpOtpComplete);
+        async ({ body, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "step_up_otp_complete",
+            rl.stepUpOtpComplete,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -939,8 +1070,13 @@ export function createAuthRoutes(
       // `POST /sessions/revoke-all-other` is the "sign out everywhere else"
       // button — it preserves the caller's current session.
       // -------------------------------------------------------------------------
-      .get("/sessions", async ({ headers, set }) => {
-        const rlErr = await rateLimit(headers, "session_list", rl.sessionList);
+      .get("/sessions", async ({ headers, set, server, request }) => {
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "session_list",
+          rl.sessionList,
+        );
         if (rlErr) {
           set.status = 429;
           return rlErr;
@@ -967,8 +1103,13 @@ export function createAuthRoutes(
       })
       .delete(
         "/sessions/:id",
-        async ({ params, headers, set }) => {
-          const rlErr = await rateLimit(headers, "session_revoke", rl.sessionRevoke);
+        async ({ params, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "session_revoke",
+            rl.sessionRevoke,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -1003,8 +1144,13 @@ export function createAuthRoutes(
           params: t.Object({ id: t.String({ pattern: "^[0-9a-f]{16}$" }) }),
         },
       )
-      .post("/sessions/revoke-all-other", async ({ headers, set }) => {
-        const rlErr = await rateLimit(headers, "session_revoke", rl.sessionRevoke);
+      .post("/sessions/revoke-all-other", async ({ headers, set, server, request }) => {
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "session_revoke",
+          rl.sessionRevoke,
+        );
         if (rlErr) {
           set.status = 429;
           return rlErr;
@@ -1044,8 +1190,13 @@ export function createAuthRoutes(
       // -------------------------------------------------------------------------
       .post(
         "/account/email/begin",
-        async ({ body, headers, set }) => {
-          const rlErr = await rateLimit(headers, "email_change_begin", rl.emailChangeBegin);
+        async ({ body, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "email_change_begin",
+            rl.emailChangeBegin,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -1074,8 +1225,13 @@ export function createAuthRoutes(
       )
       .post(
         "/account/email/complete",
-        async ({ body, headers, set }) => {
-          const rlErr = await rateLimit(headers, "email_change_complete", rl.emailChangeComplete);
+        async ({ body, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "email_change_complete",
+            rl.emailChangeComplete,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -1124,8 +1280,13 @@ export function createAuthRoutes(
       // `POST /account/security-events/:id/ack` dismisses the banner for a
       // single event and is idempotent on missing / already-acked IDs.
       // -------------------------------------------------------------------------
-      .get("/account/security-events", async ({ headers, set }) => {
-        const rlErr = await rateLimit(headers, "security_event_list", rl.securityEventList);
+      .get("/account/security-events", async ({ headers, set, server, request }) => {
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "security_event_list",
+          rl.securityEventList,
+        );
         if (rlErr) {
           set.status = 429;
           return rlErr;
@@ -1150,8 +1311,13 @@ export function createAuthRoutes(
       })
       .post(
         "/account/security-events/:id/ack",
-        async ({ params, body, headers, set }) => {
-          const rlErr = await rateLimit(headers, "security_event_ack", rl.securityEventAck);
+        async ({ params, body, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "security_event_ack",
+            rl.securityEventAck,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -1193,8 +1359,13 @@ export function createAuthRoutes(
       )
       .post(
         "/account/security-events/ack-all",
-        async ({ body, headers, set }) => {
-          const rlErr = await rateLimit(headers, "security_event_ack", rl.securityEventAck);
+        async ({ body, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "security_event_ack",
+            rl.securityEventAck,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -1240,8 +1411,13 @@ export function createAuthRoutes(
       //                          captured an access token cannot drop the
       //                          account's real authenticators.
       // -------------------------------------------------------------------------
-      .get("/passkeys", async ({ headers, set }) => {
-        const rlErr = await rateLimit(headers, "passkey_list", rl.passkeyList);
+      .get("/passkeys", async ({ headers, set, server, request }) => {
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "passkey_list",
+          rl.passkeyList,
+        );
         if (rlErr) {
           set.status = 429;
           return rlErr;
@@ -1266,8 +1442,13 @@ export function createAuthRoutes(
       })
       .patch(
         "/passkeys/:id",
-        async ({ params, body, headers, set }) => {
-          const rlErr = await rateLimit(headers, "passkey_rename", rl.passkeyRename);
+        async ({ params, body, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "passkey_rename",
+            rl.passkeyRename,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -1309,8 +1490,13 @@ export function createAuthRoutes(
       )
       .delete(
         "/passkeys/:id",
-        async ({ params, body, headers, set }) => {
-          const rlErr = await rateLimit(headers, "passkey_delete", rl.passkeyDelete);
+        async ({ params, body, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "passkey_delete",
+            rl.passkeyDelete,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -1344,7 +1530,7 @@ export function createAuthRoutes(
                 profile.accountId,
                 params.id,
                 currentHash,
-                sessionMetaFrom(headers),
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
               ),
             );
             return { success: true, remaining: result.remaining };
@@ -1374,14 +1560,21 @@ export function createAuthRoutes(
       // `POST /login/cross-device/:requestId/reject` — authenticated. Device A
       //   explicitly rejects the request.
       // -------------------------------------------------------------------------
-      .post("/login/cross-device/begin", async ({ set, headers }) => {
-        const rlErr = await rateLimit(headers, "cross_device_begin", rl.crossDeviceBegin);
+      .post("/login/cross-device/begin", async ({ set, headers, server, request }) => {
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "cross_device_begin",
+          rl.crossDeviceBegin,
+        );
         if (rlErr) {
           set.status = 429;
           return rlErr;
         }
         try {
-          const result = await run(auth.beginCrossDeviceLogin(sessionMetaFrom(headers)));
+          const result = await run(
+            auth.beginCrossDeviceLogin(sessionMetaFrom(headers, socketIpOf({ server, request }))),
+          );
           return result;
         } catch (e) {
           const { status, body: errBody } = handleError(e);
@@ -1391,8 +1584,13 @@ export function createAuthRoutes(
       })
       .post(
         "/login/cross-device/:requestId/status",
-        async ({ params, body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "cross_device_poll", rl.crossDevicePoll);
+        async ({ params, body, set, headers, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "cross_device_poll",
+            rl.crossDevicePoll,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -1424,8 +1622,13 @@ export function createAuthRoutes(
       )
       .post(
         "/login/cross-device/:requestId/approve",
-        async ({ params, body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "cross_device_approve", rl.crossDeviceApprove);
+        async ({ params, body, set, headers, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "cross_device_approve",
+            rl.crossDeviceApprove,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;
@@ -1446,7 +1649,7 @@ export function createAuthRoutes(
                 params.requestId,
                 body.secret,
                 profile.accountId,
-                sessionMetaFrom(headers),
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
               ),
             );
             return { success: true };
@@ -1463,8 +1666,13 @@ export function createAuthRoutes(
       )
       .post(
         "/login/cross-device/:requestId/reject",
-        async ({ params, body, set, headers }) => {
-          const rlErr = await rateLimit(headers, "cross_device_reject", rl.crossDeviceReject);
+        async ({ params, body, set, headers, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "cross_device_reject",
+            rl.crossDeviceReject,
+          );
           if (rlErr) {
             set.status = 429;
             return rlErr;

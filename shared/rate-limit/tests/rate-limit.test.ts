@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 
-import { createRateLimiter, getClientIp } from "../src/index";
+import {
+  createRateLimiter,
+  getClientIp,
+  isUnresolvedIp,
+  isValidIp,
+  UNRESOLVED_IP,
+} from "../src/index";
 
 describe("createRateLimiter", () => {
   it("allows requests up to maxRequests", () => {
@@ -116,5 +122,157 @@ describe("getClientIp", () => {
 
   it("returns 'unknown' when x-forwarded-for is undefined", () => {
     expect(getClientIp({ "x-forwarded-for": undefined })).toBe("unknown");
+  });
+});
+
+describe("getClientIp — hardened trust policy (S-M34)", () => {
+  describe("trustedProxyCount (Nth-from-right)", () => {
+    it("takes the right-most entry when trustedProxyCount is 1", () => {
+      // Client appended on the left; the single trusted proxy appends the
+      // real peer on the right. Spoofed left entries are ignored.
+      expect(
+        getClientIp({ "x-forwarded-for": "9.9.9.9, 203.0.113.7" }, { trustedProxyCount: 1 }),
+      ).toBe("203.0.113.7");
+    });
+
+    it("ignores spoofed left-hand entries (spoofing resistance)", () => {
+      // Attacker prepends a fake IP; with one trusted proxy we still pick the
+      // proxy-observed right-most entry, not the forged left one.
+      expect(
+        getClientIp(
+          { "x-forwarded-for": "1.1.1.1, 2.2.2.2, 198.51.100.5" },
+          { trustedProxyCount: 1 },
+        ),
+      ).toBe("198.51.100.5");
+    });
+
+    it("takes the 2nd-from-right entry when trustedProxyCount is 2", () => {
+      expect(
+        getClientIp(
+          { "x-forwarded-for": "203.0.113.9, 10.0.0.1, 10.0.0.2" },
+          { trustedProxyCount: 2 },
+        ),
+      ).toBe("10.0.0.1");
+    });
+
+    it("treats a single-entry chain as the client under one proxy", () => {
+      // The osn/api route tests send a single XFF entry; with
+      // trustedProxyCount:1 that entry is the resolved IP.
+      expect(getClientIp({ "x-forwarded-for": "1.2.3.4" }, { trustedProxyCount: 1 })).toBe(
+        "1.2.3.4",
+      );
+    });
+
+    it("fails closed when x-forwarded-for is absent under a proxy", () => {
+      expect(getClientIp({}, { trustedProxyCount: 1 })).toBe(UNRESOLVED_IP);
+    });
+
+    it("fails closed when the chain is shorter than trustedProxyCount", () => {
+      expect(getClientIp({ "x-forwarded-for": "203.0.113.7" }, { trustedProxyCount: 2 })).toBe(
+        UNRESOLVED_IP,
+      );
+    });
+
+    it("fails closed when the selected entry is malformed", () => {
+      expect(
+        getClientIp({ "x-forwarded-for": "9.9.9.9, not-an-ip" }, { trustedProxyCount: 1 }),
+      ).toBe(UNRESOLVED_IP);
+    });
+
+    it("fails closed on an empty x-forwarded-for value", () => {
+      expect(getClientIp({ "x-forwarded-for": "   " }, { trustedProxyCount: 1 })).toBe(
+        UNRESOLVED_IP,
+      );
+    });
+  });
+
+  describe("trustCloudflare", () => {
+    it("uses cf-connecting-ip when present", () => {
+      expect(getClientIp({ "cf-connecting-ip": "203.0.113.42" }, { trustCloudflare: true })).toBe(
+        "203.0.113.42",
+      );
+    });
+
+    it("prefers cf-connecting-ip and never falls back to x-forwarded-for", () => {
+      // Even with a populated XFF, a missing cf-connecting-ip fails closed.
+      expect(
+        getClientIp({ "x-forwarded-for": "1.2.3.4, 5.6.7.8" }, { trustCloudflare: true }),
+      ).toBe(UNRESOLVED_IP);
+    });
+
+    it("CF wins over trustedProxyCount when both are set", () => {
+      expect(
+        getClientIp(
+          { "cf-connecting-ip": "203.0.113.42", "x-forwarded-for": "9.9.9.9" },
+          { trustCloudflare: true, trustedProxyCount: 1 },
+        ),
+      ).toBe("203.0.113.42");
+    });
+
+    it("fails closed when cf-connecting-ip is malformed", () => {
+      expect(getClientIp({ "cf-connecting-ip": "garbage" }, { trustCloudflare: true })).toBe(
+        UNRESOLVED_IP,
+      );
+    });
+  });
+
+  describe("direct / dev (socketIp)", () => {
+    it("uses a valid socketIp when no proxy is trusted", () => {
+      expect(getClientIp({}, { socketIp: "192.0.2.10" })).toBe("192.0.2.10");
+    });
+
+    it("ignores x-forwarded-for in direct mode (not trusted)", () => {
+      // No trusted proxy → XFF is attacker-controlled and ignored; the
+      // socket peer is authoritative.
+      expect(getClientIp({ "x-forwarded-for": "6.6.6.6" }, { socketIp: "192.0.2.10" })).toBe(
+        "192.0.2.10",
+      );
+    });
+
+    it("fails closed when socketIp is absent", () => {
+      expect(getClientIp({}, {})).toBe(UNRESOLVED_IP);
+    });
+
+    it("fails closed when socketIp is null", () => {
+      expect(getClientIp({}, { socketIp: null })).toBe(UNRESOLVED_IP);
+    });
+
+    it("fails closed when socketIp is invalid", () => {
+      expect(getClientIp({}, { socketIp: "localhost" })).toBe(UNRESOLVED_IP);
+    });
+  });
+
+  describe("isUnresolvedIp", () => {
+    it("is true for the sentinel", () => {
+      expect(isUnresolvedIp(UNRESOLVED_IP)).toBe(true);
+      expect(isUnresolvedIp(getClientIp({}, { trustedProxyCount: 1 }))).toBe(true);
+    });
+
+    it("is false for a resolved IP and for the legacy 'unknown' fallback", () => {
+      expect(isUnresolvedIp("203.0.113.1")).toBe(false);
+      expect(isUnresolvedIp("unknown")).toBe(false);
+    });
+  });
+
+  describe("isValidIp", () => {
+    it("accepts valid IPv4", () => {
+      expect(isValidIp("203.0.113.1")).toBe(true);
+      expect(isValidIp("0.0.0.0")).toBe(true);
+      expect(isValidIp("255.255.255.255")).toBe(true);
+    });
+
+    it("accepts shape-valid IPv6", () => {
+      expect(isValidIp("::1")).toBe(true);
+      expect(isValidIp("2001:db8::1")).toBe(true);
+    });
+
+    it("rejects garbage, out-of-range octets, ports, and empties", () => {
+      expect(isValidIp("")).toBe(false);
+      expect(isValidIp("not-an-ip")).toBe(false);
+      expect(isValidIp("256.0.0.1")).toBe(false);
+      expect(isValidIp("01.2.3.4")).toBe(false);
+      expect(isValidIp("1.2.3.4:8080")).toBe(false);
+      expect(isValidIp(UNRESOLVED_IP)).toBe(false);
+    });
   });
 });
