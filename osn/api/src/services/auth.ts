@@ -23,6 +23,7 @@ import type {
   StepUpFactor,
   StepUpVerifyResult,
 } from "@shared/observability/metrics";
+import type { RedisNamespace } from "@shared/redis";
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -40,6 +41,12 @@ import { and, count as countFn, desc, eq, gte, inArray, isNull, like, ne } from 
 import { Data, Effect, Schema } from "effect";
 import { SignJWT, jwtVerify } from "jose";
 
+import { createInMemoryCeremonyStore, type CeremonyStore } from "../lib/ceremony-store";
+import {
+  createInMemoryRecoveryLockoutStore,
+  RECOVERY_LOCKOUT_THRESHOLD,
+  type RecoveryLockoutStore,
+} from "../lib/recovery-lockout-store";
 import {
   createInMemoryRotatedSessionStore,
   type RotatedSessionStore,
@@ -48,6 +55,9 @@ import {
   classifyError,
   metricAuthHandleCheck,
   metricAuthOtpSent,
+  metricCeremonyStoreEntryDelta,
+  metricCeremonyStoreOp,
+  metricRecoveryLockout,
   metricPasskeyLoginDiscoverable,
   metricRecoveryCodeConsumed,
   metricRecoveryCodesGenerated,
@@ -176,18 +186,68 @@ export interface AuthConfig {
    * on one pod is visible to every other pod on subsequent /token calls.
    */
   rotatedSessionStore?: RotatedSessionStore;
+  /**
+   * O3: injectable Redis-backed ceremony / pending-state stores. When omitted
+   * each falls back to an in-memory `Map` (single-process only). Multi-pod
+   * deployments MUST inject the Redis-backed variants so a ceremony `begin`
+   * served by one pod can be `complete`d by another, and so per-account caps
+   * are enforced cluster-wide rather than per-pod. The factory builds these
+   * from a single `RedisClient` in `index.ts`.
+   */
+  ceremonyStores?: CeremonyStores;
+  /**
+   * O2: per-account recovery-code lockout counter. Defaults to in-memory;
+   * inject the Redis-backed store in multi-pod deployments so the threshold
+   * is enforced across pods. Keyed on the resolved accountId — see
+   * `recovery-lockout-store.ts`.
+   */
+  recoveryLockoutStore?: RecoveryLockoutStore;
+  /**
+   * O3: per-account caps, routed through the redis-rate-limiter family rather
+   * than bespoke stores. `check(accountId)` returns `true` while under the cap,
+   * `false` once exceeded (fixed window). Defaults to in-memory fixed-window
+   * limiters with the historical bounds (profile-switch 20/hr, email-change
+   * begin 3/24h). Injected from `index.ts` as Redis-backed limiters in
+   * multi-pod deployments so the window is shared across pods.
+   */
+  profileSwitchCap?: AccountCapLimiter;
+  emailChangeBeginCap?: AccountCapLimiter;
+}
+
+/**
+ * O3: minimal per-account cap surface — structurally compatible with
+ * `RateLimiterBackend` from `@shared/rate-limit` and the Redis rate-limiter,
+ * so `index.ts` can pass a `createRedisRateLimiter(...)` straight in.
+ */
+export interface AccountCapLimiter {
+  check(key: string): Promise<boolean>;
+}
+
+/**
+ * O3: the full set of ceremony / pending-state stores threaded through the
+ * auth service. Bundled so `index.ts` wires one Redis client into all of them
+ * in a single place, and so tests can override the whole set at once.
+ */
+export interface CeremonyStores {
+  registrationChallenges: CeremonyStore<ChallengeEntry>;
+  loginChallenges: CeremonyStore<ChallengeEntry>;
+  pendingRegistrations: CeremonyStore<PendingRegistration>;
+  stepUpPasskeyChallenges: CeremonyStore<ChallengeEntry>;
+  stepUpOtp: CeremonyStore<StepUpOtpEntry>;
+  pendingEmailChanges: CeremonyStore<PendingEmailChange>;
+  crossDeviceRequests: CeremonyStore<CrossDeviceRequest>;
 }
 
 // ---------------------------------------------------------------------------
 // In-memory stores (module-level, single-process)
 // ---------------------------------------------------------------------------
 
-interface ChallengeEntry {
+export interface ChallengeEntry {
   challenge: string;
   expiresAt: number;
 }
 
-interface PendingRegistration {
+export interface PendingRegistration {
   email: string;
   handle: string;
   displayName: string | null;
@@ -196,19 +256,18 @@ interface PendingRegistration {
   expiresAt: number;
 }
 
-// Bound on in-memory pending registrations to cap memory under abuse.
-const MAX_PENDING_REGISTRATIONS = 10_000;
+// O3: in-memory bounds (pending registrations, pending CDL, login challenges)
+// are now enforced inside the ceremony store (CEREMONY_STORE_MAX) rather than
+// per-call-site, so the old MAX_* constants are gone.
 
 // ---------------------------------------------------------------------------
-// Cross-device login in-memory store
+// Cross-device login store value shape
 // ---------------------------------------------------------------------------
 
-/** Hard ceiling on concurrent pending CDL requests (P-I2). */
-const MAX_PENDING_CDL = 1_000;
 /** CDL request TTL in seconds. */
 const CDL_TTL_SECONDS = 300; // 5 min
 
-interface CrossDeviceRequest {
+export interface CrossDeviceRequest {
   requestId: string;
   /** SHA-256 of the 256-bit secret — the plaintext never touches the server. */
   secretHash: string;
@@ -225,70 +284,49 @@ interface CrossDeviceRequest {
   profile?: PublicProfile;
 }
 
-const pendingCrossDeviceRequests = new Map<string, CrossDeviceRequest>();
 /**
  * Hard ceiling on concurrent unexpired passkey-login challenges (P-I2).
  * Rate limiting is the primary defence — this bound is the belt to the
  * rate limiter's braces and matches the shape used by the pending-
- * registrations store.
+ * registrations store. With O3's Redis-backed store the bound is enforced
+ * inside `createInMemoryCeremonyStore` (CEREMONY_STORE_MAX); kept here for
+ * the historical comment trail.
  */
-const MAX_LOGIN_CHALLENGES = 10_000;
 // Max OTP guesses against a single pending entry before it is wiped.
 const MAX_OTP_ATTEMPTS = 5;
+// O3: short TTL for WebAuthn challenge entries (passkey register / login /
+// step-up). 120s matches the previous inline `Date.now() + 120_000`.
+const CHALLENGE_TTL_MS = 120_000;
 
 // Per-account profile-switch rate limiting (S-M3). Fixed window:
-// max 20 switches per hour per account. Module-level so it survives
-// across request boundaries (same as OTP / challenge stores).
+// max 20 switches per hour per account. O3: enforced via an injectable
+// per-account cap limiter (`profileSwitchCap`) so the window is shared across
+// pods; the default is an in-memory fixed-window limiter with these bounds.
 const PROFILE_SWITCH_MAX = 20;
 const PROFILE_SWITCH_WINDOW_MS = 3_600_000; // 1 hour
-const profileSwitchCounts = new Map<string, { count: number; resetAt: number }>();
 
-function checkProfileSwitchLimit(accountId: string): boolean {
-  const currentMs = Date.now();
-  const entry = profileSwitchCounts.get(accountId);
-  if (!entry || currentMs >= entry.resetAt) {
-    profileSwitchCounts.set(accountId, {
-      count: 1,
-      resetAt: currentMs + PROFILE_SWITCH_WINDOW_MS,
-    });
-    return true;
-  }
-  if (entry.count >= PROFILE_SWITCH_MAX) return false;
-  entry.count++;
-  return true;
-}
-
-// keyed by accountId for registration, by email for login
-const registrationChallenges = new Map<string, ChallengeEntry>();
-const loginChallenges = new Map<string, ChallengeEntry>();
-// Pending email-verification registrations, keyed by lowercased email.
-const pendingRegistrations = new Map<string, PendingRegistration>();
-
-// Step-up passkey challenges — keyed by accountId (caller is already
-// authenticated, so identifier resolution is unnecessary and would risk
-// cross-account step-up abuse if omitted).
-const stepUpPasskeyChallenges = new Map<string, ChallengeEntry>();
+// O3: challenge / pending-state value shapes. The stores that hold them are
+// instantiated per-service (in-memory default or injected Redis-backed) inside
+// createAuthService — see CeremonyStores.
 
 // Step-up OTP codes — keyed by accountId. Separate from loginOtp store so
 // a login OTP cannot be replayed to authorise a sensitive action, and vice
 // versa. Structure matches OtpEntry but without profileId (accountId is the key).
-interface StepUpOtpEntry {
+export interface StepUpOtpEntry {
   codeHash: string;
   attempts: number;
   expiresAt: number;
 }
-const stepUpOtpStore = new Map<string, StepUpOtpEntry>();
 
 // Pending email-change OTPs — keyed by accountId. The new email sits in the
 // entry rather than the key so the service can reject attempts that belong
 // to a stale "begin" call.
-interface PendingEmailChange {
+export interface PendingEmailChange {
   newEmail: string;
   codeHash: string;
   attempts: number;
   expiresAt: number;
 }
-const pendingEmailChanges = new Map<string, PendingEmailChange>();
 
 // Consumed step-up token jtis (replay guard). Swept opportunistically.
 const consumedStepUpTokens = new Map<string, number>();
@@ -330,12 +368,80 @@ export function createInMemoryJtiStore(): StepUpJtiStore {
   };
 }
 
+/**
+ * O3: build the default in-memory ceremony stores. Each carries the metric
+ * observer so per-namespace op/entry telemetry works identically to the
+ * Redis-backed path. Used when `AuthConfig.ceremonyStores` is omitted.
+ */
+function createDefaultCeremonyStores(): CeremonyStores {
+  const observer = {
+    onOp: (op: "set" | "get" | "delete", namespace: RedisNamespace) =>
+      metricCeremonyStoreOp({ op, namespace, backend: "memory" }),
+    onEntryDelta: (delta: number, namespace: RedisNamespace) =>
+      metricCeremonyStoreEntryDelta(delta, { namespace, backend: "memory" }),
+  };
+  return {
+    registrationChallenges: createInMemoryCeremonyStore<ChallengeEntry>("reg_challenge", observer),
+    loginChallenges: createInMemoryCeremonyStore<ChallengeEntry>("login_challenge", observer),
+    pendingRegistrations: createInMemoryCeremonyStore<PendingRegistration>(
+      "pending_registration",
+      observer,
+    ),
+    stepUpPasskeyChallenges: createInMemoryCeremonyStore<ChallengeEntry>(
+      "step_up_challenge",
+      observer,
+    ),
+    stepUpOtp: createInMemoryCeremonyStore<StepUpOtpEntry>("step_up_otp", observer),
+    pendingEmailChanges: createInMemoryCeremonyStore<PendingEmailChange>(
+      "pending_email_change",
+      observer,
+    ),
+    crossDeviceRequests: createInMemoryCeremonyStore<CrossDeviceRequest>("cross_device", observer),
+  };
+}
+
+/**
+ * O3: a default in-memory fixed-window per-account cap limiter. Structurally a
+ * `RateLimiterBackend` so the same `check(key)` contract is satisfied by the
+ * Redis-backed limiter injected in production.
+ */
+function createInMemoryAccountCap(maxRequests: number, windowMs: number): AccountCapLimiter {
+  const buckets = new Map<string, { count: number; resetAt: number }>();
+  return {
+    async check(key: string): Promise<boolean> {
+      const nowMs = Date.now();
+      const bucket = buckets.get(key);
+      if (!bucket || nowMs >= bucket.resetAt) {
+        buckets.set(key, { count: 1, resetAt: nowMs + windowMs });
+        return true;
+      }
+      if (bucket.count >= maxRequests) return false;
+      bucket.count += 1;
+      return true;
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function genId(prefix: string): string {
   return prefix + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+}
+
+/**
+ * O5: a per-request random sentinel `accountId` for the enumeration-probe
+ * burn-in SELECTs. A fixed literal (`acc_enum_probe`, `__nonexistent__`) is a
+ * stable, attacker-knowable key: an adversary who pre-seeds a row with that id
+ * (or just observes the constant in a leaked query log) could turn the
+ * latency-equalising probe back into an oracle. A fresh 128-bit random id per
+ * request is, with overwhelming probability, absent from `accounts` — so the
+ * probe SELECT still returns zero rows and pays the same indexed-lookup cost,
+ * but the key carries no information and cannot be made to match.
+ */
+function probeAccountId(): string {
+  return genId("acc_probe_");
 }
 
 function now(): Date {
@@ -347,16 +453,38 @@ async function signJwt(
   privateKey: CryptoKey,
   kid: string,
   ttl: number,
+  issuer: string,
 ): Promise<string> {
   return new SignJWT(payload)
     .setProtectedHeader({ alg: "ES256", kid })
     .setIssuedAt()
+    .setIssuer(issuer)
     .setExpirationTime(Math.floor(Date.now() / 1000) + ttl)
     .sign(privateKey);
 }
 
-async function verifyJwt(token: string, publicKey: CryptoKey): Promise<Record<string, unknown>> {
-  const { payload } = await jwtVerify(token, publicKey, { algorithms: ["ES256"] });
+/**
+ * O1: `issuer` is pinned to `AuthConfig.issuerUrl` so a token minted by a
+ * different OSN deployment (or any other ES256 issuer sharing nothing but the
+ * curve) is rejected. A 30s `clockTolerance` absorbs benign clock skew between
+ * the signer and verifier without materially widening the effective TTL.
+ *
+ * Cross-service rollout note (the downstream verifier half is W7): the tolerant
+ * verifier MUST deploy before the signer begins enforcing/emitting `iss`. A
+ * verifier that already pins `issuer` would otherwise reject every legacy
+ * (iss-less) token the instant the signer rolls out — so the deploy ordering is
+ * strictly verifier-first.
+ */
+async function verifyJwt(
+  token: string,
+  publicKey: CryptoKey,
+  issuer: string,
+): Promise<Record<string, unknown>> {
+  const { payload } = await jwtVerify(token, publicKey, {
+    algorithms: ["ES256"],
+    issuer,
+    clockTolerance: 30,
+  });
   return payload as Record<string, unknown>;
 }
 
@@ -384,18 +512,6 @@ function genOtpCode(): string {
 function timingSafeEqualString(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
-}
-
-/**
- * Drops expired entries from a TTL-keyed map. Called opportunistically on
- * insert paths to bound memory growth without needing a background sweeper.
- * O(n) but n is capped (MAX_PENDING_REGISTRATIONS for that store).
- */
-function sweepExpired<T extends { expiresAt: number }>(map: Map<string, T>): void {
-  const nowMs = Date.now();
-  for (const [key, entry] of map) {
-    if (entry.expiresAt <= nowMs) map.delete(key);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -634,7 +750,6 @@ const LAST_USED_AT_COALESCE_MS = 60_000;
  */
 const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX = 3;
-const emailChangeBeginCounts = new Map<string, { count: number; resetAt: number }>();
 
 export function createAuthService(config: AuthConfig) {
   const accessTokenTtl = config.accessTokenTtl ?? 300;
@@ -651,6 +766,22 @@ export function createAuthService(config: AuthConfig) {
   const jtiStore = config.stepUpJtiStore ?? createInMemoryJtiStore();
   const rotatedSessionStore = config.rotatedSessionStore ?? createInMemoryRotatedSessionStore();
   const rotatedSessionStoreBackend = rotatedSessionStore.backend;
+
+  // O3: ceremony / pending-state stores. Default to per-service in-memory;
+  // index.ts injects Redis-backed equivalents in multi-pod deployments.
+  const stores = config.ceremonyStores ?? createDefaultCeremonyStores();
+  // O3: per-account caps routed through the rate-limiter family.
+  const profileSwitchCap =
+    config.profileSwitchCap ??
+    createInMemoryAccountCap(PROFILE_SWITCH_MAX, PROFILE_SWITCH_WINDOW_MS);
+  const emailChangeBeginCap =
+    config.emailChangeBeginCap ??
+    createInMemoryAccountCap(
+      EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX,
+      EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
+    );
+  // O2: per-account recovery-code lockout counter.
+  const recoveryLockoutStore = config.recoveryLockoutStore ?? createInMemoryRecoveryLockoutStore();
   /**
    * HMAC-SHA256 pepper for IP hashing. Only applied when the caller has
    * configured one — in dev we leave ip_hash NULL so local Docker IPs
@@ -858,16 +989,9 @@ export function createAuthService(config: AuthConfig) {
       // persist and what we key the pending-registrations map by.
       const normalisedEmail = email.toLowerCase();
 
-      // Sweep expired entries first so we don't refuse a legitimate retry
-      // simply because the user's previous OTP timed out.
-      sweepExpired(pendingRegistrations);
-
-      // Refuse to grow the map past its cap. Returning the same generic
-      // success keeps the response shape uniform under abuse.
-      if (pendingRegistrations.size >= MAX_PENDING_REGISTRATIONS) {
-        return { sent: true };
-      }
-
+      // O3: the store sweeps expired entries and self-bounds (CEREMONY_STORE_MAX
+      // on the in-memory backend, native PX expiry on Redis), so no explicit
+      // sweep / size cap is needed here any more.
       const [existingEmail, existingHandle] = yield* Effect.all(
         [findProfileByEmail(normalisedEmail), findProfileByHandle(handle)],
         { concurrency: "unbounded" },
@@ -882,20 +1006,28 @@ export function createAuthService(config: AuthConfig) {
 
       // S-M2: don't let an attacker reset a victim's in-progress OTP by
       // re-posting begin with the same email.
-      const existingPending = pendingRegistrations.get(normalisedEmail);
+      const existingPending = yield* Effect.promise(() =>
+        stores.pendingRegistrations.get(normalisedEmail),
+      );
       if (existingPending && existingPending.expiresAt > Date.now()) {
         return { sent: true };
       }
 
       const code = genOtpCode();
-      pendingRegistrations.set(normalisedEmail, {
-        email: normalisedEmail,
-        handle,
-        displayName: displayName ?? null,
-        codeHash: hashSessionToken(code),
-        attempts: 0,
-        expiresAt: Date.now() + otpTtl * 1000,
-      });
+      yield* Effect.promise(() =>
+        stores.pendingRegistrations.set(
+          normalisedEmail,
+          {
+            email: normalisedEmail,
+            handle,
+            displayName: displayName ?? null,
+            codeHash: hashSessionToken(code),
+            attempts: 0,
+            expiresAt: Date.now() + otpTtl * 1000,
+          },
+          otpTtl * 1000,
+        ),
+      );
 
       // S-M3: the EmailService layer decides whether to actually dispatch
       // or just log. `LogEmailLive` (local dev + tests) captures the
@@ -961,16 +1093,26 @@ export function createAuthService(config: AuthConfig) {
   > =>
     Effect.gen(function* () {
       const key = email.toLowerCase();
-      const pending = pendingRegistrations.get(key);
+      const pending = yield* Effect.promise(() => stores.pendingRegistrations.get(key));
       if (!pending || Date.now() > pending.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
 
       if (!timingSafeEqualString(pending.codeHash, hashSessionToken(code))) {
-        // Increment the attempt counter; wipe after too many guesses.
-        pending.attempts += 1;
-        if (pending.attempts >= MAX_OTP_ATTEMPTS) {
-          pendingRegistrations.delete(key);
+        // Increment the attempt counter; wipe after too many guesses. O3: the
+        // store does not alias the returned value, so persist the bump back
+        // (and carry the remaining TTL so the entry still expires on schedule).
+        const attempts = pending.attempts + 1;
+        if (attempts >= MAX_OTP_ATTEMPTS) {
+          yield* Effect.promise(() => stores.pendingRegistrations.delete(key));
+        } else {
+          yield* Effect.promise(() =>
+            stores.pendingRegistrations.set(
+              key,
+              { ...pending, attempts },
+              Math.max(0, pending.expiresAt - Date.now()),
+            ),
+          );
         }
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
@@ -1027,7 +1169,7 @@ export function createAuthService(config: AuthConfig) {
       }
 
       // Success: only NOW delete the pending entry.
-      pendingRegistrations.delete(key);
+      yield* Effect.promise(() => stores.pendingRegistrations.delete(key));
 
       const tokens = yield* issueTokens(
         id,
@@ -1100,7 +1242,13 @@ export function createAuthService(config: AuthConfig) {
           scope: "openid profile",
         };
         if (displayName !== null) payload["displayName"] = displayName;
-        return signJwt(payload, config.jwtPrivateKey, config.jwtKid, accessTokenTtl);
+        return signJwt(
+          payload,
+          config.jwtPrivateKey,
+          config.jwtKid,
+          accessTokenTtl,
+          config.issuerUrl,
+        );
       },
       catch: (cause) => new AuthError({ message: String(cause) }),
     });
@@ -1514,7 +1662,7 @@ export function createAuthService(config: AuthConfig) {
   > =>
     Effect.gen(function* () {
       const payload = yield* Effect.tryPromise({
-        try: () => verifyJwt(token, config.jwtPublicKey),
+        try: () => verifyJwt(token, config.jwtPublicKey, config.issuerUrl),
         catch: () => new AuthError({ message: "Invalid or expired access token" }),
       });
       if (
@@ -1630,10 +1778,13 @@ export function createAuthService(config: AuthConfig) {
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
 
-      registrationChallenges.set(accountId, {
-        challenge: options.challenge,
-        expiresAt: Date.now() + 120_000,
-      });
+      yield* Effect.promise(() =>
+        stores.registrationChallenges.set(
+          accountId,
+          { challenge: options.challenge, expiresAt: Date.now() + CHALLENGE_TTL_MS },
+          CHALLENGE_TTL_MS,
+        ),
+      );
 
       return { options };
     });
@@ -1657,11 +1808,11 @@ export function createAuthService(config: AuthConfig) {
     eventMeta?: SessionMeta,
   ): Effect.Effect<{ passkeyId: string }, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
-      const entry = registrationChallenges.get(accountId);
+      const entry = yield* Effect.promise(() => stores.registrationChallenges.get(accountId));
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
       }
-      registrationChallenges.delete(accountId);
+      yield* Effect.promise(() => stores.registrationChallenges.delete(accountId));
 
       const verification = yield* Effect.tryPromise({
         try: () =>
@@ -1756,6 +1907,21 @@ export function createAuthService(config: AuthConfig) {
       // legitimate user adds a passkey.
       if (currentSessionToken) {
         yield* invalidateOtherAccountSessions(accountId, hashSessionToken(currentSessionToken));
+      } else {
+        // O4: caller has no resolvable session token (cookie stripped by a
+        // proxy, or the registration arrived via the enrollment-token path).
+        // Previously this branch was a silent no-op — H1 invalidation was
+        // skipped entirely, so a stolen session survived the very enrolment
+        // that is supposed to evict it. Mirror deletePasskey's cookieless
+        // branch: nuke EVERY session on the account (there is no "self" to
+        // preserve), log the anomaly out-of-band, and emit the canonical
+        // invalidation metric so the H1 dashboard still records the event.
+        yield* Effect.logWarning("auth.passkey.register: nuking all sessions (no caller session)");
+        yield* Effect.tryPromise({
+          try: () => db.delete(sessions).where(eq(sessions.accountId, accountId)),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        metricSessionSecurityInvalidation("passkey_register");
       }
 
       // S-H1: best-effort email notification. Forked daemon — failure
@@ -1819,18 +1985,17 @@ export function createAuthService(config: AuthConfig) {
             }),
           catch: (cause) => new AuthError({ message: String(cause) }),
         });
-        sweepExpired(loginChallenges);
-        // P-I2: cap defence-in-depth. Rate limiting is the primary
-        // guard; this bounds memory even if the per-IP limit is ever
-        // relaxed or fails open.
-        if (loginChallenges.size >= MAX_LOGIN_CHALLENGES) {
-          return yield* Effect.fail(new AuthError({ message: "Try again shortly" }));
-        }
+        // O3: the store self-bounds (CEREMONY_STORE_MAX in-memory, native PX
+        // expiry on Redis) and sweeps expired entries on insert, so the prior
+        // explicit P-I2 size-cap check is folded into the store.
         const challengeId = crypto.randomUUID();
-        loginChallenges.set(`__disc__:${challengeId}`, {
-          challenge: options.challenge,
-          expiresAt: Date.now() + 120_000,
-        });
+        yield* Effect.promise(() =>
+          stores.loginChallenges.set(
+            `__disc__:${challengeId}`,
+            { challenge: options.challenge, expiresAt: Date.now() + CHALLENGE_TTL_MS },
+            CHALLENGE_TTL_MS,
+          ),
+        );
         return { options, challengeId };
       }
 
@@ -1849,8 +2014,8 @@ export function createAuthService(config: AuthConfig) {
         : yield* Effect.tryPromise({
             // Burn-in query: hit the table with a never-matching accountId
             // so an unknown identifier costs the same shape of work as a
-            // known one.
-            try: () => db.select().from(passkeys).where(eq(passkeys.accountId, "acc_enum_probe")),
+            // known one. O5: random per-request sentinel — see probeAccountId.
+            try: () => db.select().from(passkeys).where(eq(passkeys.accountId, probeAccountId())),
             catch: (cause) => new DatabaseError({ cause }),
           });
 
@@ -1907,14 +2072,14 @@ export function createAuthService(config: AuthConfig) {
       // legitimate timeout — preserves the enumeration safety into
       // the complete step too.
       if (realCredentials) {
-        sweepExpired(loginChallenges);
-        if (loginChallenges.size >= MAX_LOGIN_CHALLENGES) {
-          return yield* Effect.fail(new AuthError({ message: "Try again shortly" }));
-        }
-        loginChallenges.set(normalised, {
-          challenge: options.challenge,
-          expiresAt: Date.now() + 120_000,
-        });
+        // O3: store self-bounds + self-sweeps (see discoverable branch above).
+        yield* Effect.promise(() =>
+          stores.loginChallenges.set(
+            normalised,
+            { challenge: options.challenge, expiresAt: Date.now() + CHALLENGE_TTL_MS },
+            CHALLENGE_TTL_MS,
+          ),
+        );
       }
 
       return { options };
@@ -1945,11 +2110,11 @@ export function createAuthService(config: AuthConfig) {
         context.kind === "identified"
           ? normaliseIdentifier(context.identifier)
           : `__disc__:${context.challengeId}`;
-      const entry = loginChallenges.get(challengeKey);
+      const entry = yield* Effect.promise(() => stores.loginChallenges.get(challengeKey));
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
       }
-      loginChallenges.delete(challengeKey);
+      yield* Effect.promise(() => stores.loginChallenges.delete(challengeKey));
 
       const { db } = yield* Db;
       // Look up the credential row by `credentialId` — stable across both
@@ -2145,8 +2310,11 @@ export function createAuthService(config: AuthConfig) {
     Db
   > =>
     Effect.gen(function* () {
-      // Per-account rate limit (S-M3): bounds damage from a stolen token.
-      if (!checkProfileSwitchLimit(accountId)) {
+      // Per-account rate limit (S-M3): bounds damage from a stolen token. O3:
+      // routed through the rate-limiter family so the window is shared across
+      // pods. `check` returns false once the cap is exceeded.
+      const switchAllowed = yield* Effect.promise(() => profileSwitchCap.check(accountId));
+      if (!switchAllowed) {
         return yield* Effect.fail(new AuthError({ message: "Too many profile switches" }));
       }
       const profile = yield* findProfileById(targetProfileId);
@@ -2546,6 +2714,43 @@ export function createAuthService(config: AuthConfig) {
    * an indexed SELECT against `recovery_codes` — so wall-clock latency does
    * not reveal whether the identifier exists.
    */
+  /**
+   * O2: write the `recovery_code_lockout` audit row when an account crosses the
+   * failed-attempt threshold. Surfaces in the security-events banner so the
+   * legitimate owner sees "repeated failed recovery attempts on your account"
+   * even though every attempt returned the same generic error over the wire.
+   * Best-effort: a write failure is logged but never converts the
+   * already-correct generic-error response into a 500.
+   */
+  const recordRecoveryLockoutEvent = (
+    accountId: string,
+    eventMeta?: SessionMeta,
+  ): Effect.Effect<void, never, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const nowSec = Math.floor(Date.now() / 1000);
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(securityEvents).values({
+            id: genId("sev_"),
+            accountId,
+            kind: "recovery_code_lockout",
+            createdAt: nowSec,
+            acknowledgedAt: null,
+            ipHash: eventMeta?.ip ? hashIp(eventMeta.ip) : null,
+            uaLabel: eventMeta?.uaLabel ?? null,
+          }),
+        catch: (cause) => new DatabaseError({ cause }),
+      }).pipe(
+        Effect.tap(() => Effect.sync(() => metricSecurityEventRecorded("recovery_code_lockout"))),
+        Effect.catchAll((cause) =>
+          Effect.logWarning("auth.recovery.lockout: audit write failed").pipe(
+            Effect.annotateLogs({ error: String(cause) }),
+          ),
+        ),
+      );
+    }).pipe(Effect.withSpan("auth.recovery.lockout"));
+
   const consumeRecoveryCode = (
     identifier: string,
     code: string,
@@ -2571,7 +2776,8 @@ export function createAuthService(config: AuthConfig) {
               .from(recoveryCodes)
               .where(
                 and(
-                  eq(recoveryCodes.accountId, "__nonexistent__"),
+                  // O5: random per-request sentinel — see probeAccountId.
+                  eq(recoveryCodes.accountId, probeAccountId()),
                   eq(recoveryCodes.codeHash, codeHash),
                 ),
               )
@@ -2581,6 +2787,15 @@ export function createAuthService(config: AuthConfig) {
         metricRecoveryCodeConsumed("invalid");
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
+
+      // O2: per-account lockout. Keyed on the RESOLVED accountId (never the
+      // caller-supplied identifier) so an attacker cannot lock a victim out by
+      // spamming their handle, and an unknown identifier — which never reaches
+      // this branch — can never trip a lockout. When locked we still run the
+      // same indexed SELECT below for latency parity, then return the SAME
+      // generic error as any other failure (preserving the no-enumeration
+      // oracle: a locked account is indistinguishable from a wrong code).
+      const locked = yield* Effect.promise(() => recoveryLockoutStore.isLocked(profile.accountId));
 
       const result = yield* Effect.tryPromise({
         try: () =>
@@ -2596,14 +2811,30 @@ export function createAuthService(config: AuthConfig) {
             .limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      const row = result[0];
-      if (!row) {
+
+      if (locked) {
+        metricRecoveryLockout("locked");
         metricRecoveryCodeConsumed("invalid");
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
-      if (row.usedAt !== null) {
-        metricRecoveryCodeConsumed("used");
-        yield* Effect.logWarning("Used recovery code replayed");
+
+      const row = result[0];
+      if (!row || row.usedAt !== null) {
+        // O2: a genuine failed attempt against a real account — record it and
+        // trip the lockout (+ audit row) on the attempt that crosses the
+        // threshold. Both "wrong code" and "already-used code" count.
+        if (row?.usedAt) {
+          yield* Effect.logWarning("Used recovery code replayed");
+          metricRecoveryCodeConsumed("used");
+        } else {
+          metricRecoveryCodeConsumed("invalid");
+        }
+        const attempts = yield* Effect.promise(() =>
+          recoveryLockoutStore.recordFailure(profile.accountId),
+        );
+        if (attempts === RECOVERY_LOCKOUT_THRESHOLD) {
+          yield* recordRecoveryLockoutEvent(profile.accountId, eventMeta);
+        }
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
 
@@ -2638,6 +2869,9 @@ export function createAuthService(config: AuthConfig) {
       });
 
       metricRecoveryCodeConsumed("success");
+      // O2: a successful consume clears the failed-attempt counter.
+      yield* Effect.promise(() => recoveryLockoutStore.reset(profile.accountId));
+      metricRecoveryLockout("reset");
       // S-L3: whole-account session wipe is a security-relevant event — emit
       // the canonical invalidation metric so the existing dashboard covers it.
       metricSessionSecurityInvalidation("recovery_code_consume");
@@ -2718,6 +2952,7 @@ export function createAuthService(config: AuthConfig) {
             config.jwtPrivateKey,
             config.jwtKid,
             stepUpTokenTtl,
+            config.issuerUrl,
           ),
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
@@ -2741,7 +2976,7 @@ export function createAuthService(config: AuthConfig) {
         Effect.sync(() => metricStepUpVerified(result));
 
       const payloadResult = yield* Effect.tryPromise({
-        try: () => verifyJwt(token, config.jwtPublicKey),
+        try: () => verifyJwt(token, config.jwtPublicKey, config.issuerUrl),
         catch: () => new AuthError({ message: "Invalid step-up token" }),
       }).pipe(Effect.tapError(() => record("invalid")));
 
@@ -2820,12 +3055,14 @@ export function createAuthService(config: AuthConfig) {
           }),
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
-      // P-I3: bound growth under ceremony-begin spam.
-      sweepExpired(stepUpPasskeyChallenges);
-      stepUpPasskeyChallenges.set(accountId, {
-        challenge: options.challenge,
-        expiresAt: Date.now() + 120_000,
-      });
+      // P-I3: bound growth under ceremony-begin spam — handled inside the store (O3).
+      yield* Effect.promise(() =>
+        stores.stepUpPasskeyChallenges.set(
+          accountId,
+          { challenge: options.challenge, expiresAt: Date.now() + CHALLENGE_TTL_MS },
+          CHALLENGE_TTL_MS,
+        ),
+      );
       return { options };
     }).pipe(withStepUp("begin"));
 
@@ -2839,11 +3076,11 @@ export function createAuthService(config: AuthConfig) {
     assertion: AuthenticationResponseJSON,
   ): Effect.Effect<{ stepUpToken: string; expiresIn: number }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const entry = stepUpPasskeyChallenges.get(accountId);
+      const entry = yield* Effect.promise(() => stores.stepUpPasskeyChallenges.get(accountId));
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
       }
-      stepUpPasskeyChallenges.delete(accountId);
+      yield* Effect.promise(() => stores.stepUpPasskeyChallenges.delete(accountId));
 
       const { db } = yield* Db;
       const pkResult = yield* Effect.tryPromise({
@@ -2916,13 +3153,18 @@ export function createAuthService(config: AuthConfig) {
         return yield* Effect.fail(new AuthError({ message: "Account not found" }));
       }
       const code = genOtpCode();
-      // P-I3: bound growth under ceremony-begin spam.
-      sweepExpired(stepUpOtpStore);
-      stepUpOtpStore.set(accountId, {
-        codeHash: hashSessionToken(code),
-        attempts: 0,
-        expiresAt: Date.now() + otpTtl * 1000,
-      });
+      // P-I3: bound growth under ceremony-begin spam — handled inside the store (O3).
+      yield* Effect.promise(() =>
+        stores.stepUpOtp.set(
+          accountId,
+          {
+            codeHash: hashSessionToken(code),
+            attempts: 0,
+            expiresAt: Date.now() + otpTtl * 1000,
+          },
+          otpTtl * 1000,
+        ),
+      );
       const email = yield* EmailService;
       yield* email
         .send({
@@ -2946,16 +3188,28 @@ export function createAuthService(config: AuthConfig) {
     code: string,
   ): Effect.Effect<{ stepUpToken: string; expiresIn: number }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const entry = stepUpOtpStore.get(accountId);
+      const entry = yield* Effect.promise(() => stores.stepUpOtp.get(accountId));
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
       if (!timingSafeEqualString(entry.codeHash, hashSessionToken(code))) {
-        entry.attempts++;
-        if (entry.attempts >= MAX_OTP_ATTEMPTS) stepUpOtpStore.delete(accountId);
+        // O3: persist the attempt bump (store does not alias the value) and
+        // carry the remaining TTL so the entry expires on its original schedule.
+        const attempts = entry.attempts + 1;
+        if (attempts >= MAX_OTP_ATTEMPTS) {
+          yield* Effect.promise(() => stores.stepUpOtp.delete(accountId));
+        } else {
+          yield* Effect.promise(() =>
+            stores.stepUpOtp.set(
+              accountId,
+              { ...entry, attempts },
+              Math.max(0, entry.expiresAt - Date.now()),
+            ),
+          );
+        }
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
-      stepUpOtpStore.delete(accountId);
+      yield* Effect.promise(() => stores.stepUpOtp.delete(accountId));
       const stepUpToken = yield* issueStepUpToken(accountId, "otp");
       return { stepUpToken, expiresIn: stepUpTokenTtl };
     }).pipe(withStepUp("complete"));
@@ -3131,23 +3385,12 @@ export function createAuthService(config: AuthConfig) {
       // S-H3: per-account cap beneath the per-IP rate limit. An attacker
       // with a stolen access token behind a rotating-IP proxy can't pool
       // their allowance to spam the OSN sending domain at arbitrary inboxes.
-      const nowMs = Date.now();
-      const bucket = emailChangeBeginCounts.get(accountId);
-      if (!bucket || nowMs >= bucket.resetAt) {
-        emailChangeBeginCounts.set(accountId, {
-          count: 1,
-          resetAt: nowMs + EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
-        });
-      } else if (bucket.count >= EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX) {
+      // O3: routed through the rate-limiter family (shared across pods); the
+      // limiter owns the window + opportunistic eviction.
+      const emailChangeAllowed = yield* Effect.promise(() => emailChangeBeginCap.check(accountId));
+      if (!emailChangeAllowed) {
         return yield* Effect.fail(new AuthError({ message: "Too many email change attempts" }));
-      } else {
-        bucket.count += 1;
       }
-      // Sweep stale buckets opportunistically (P-I3).
-      for (const [k, v] of emailChangeBeginCounts) {
-        if (nowMs >= v.resetAt) emailChangeBeginCounts.delete(k);
-      }
-      sweepExpired(pendingEmailChanges);
 
       const currentAccount = yield* Effect.tryPromise({
         try: () => db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
@@ -3200,12 +3443,18 @@ export function createAuthService(config: AuthConfig) {
       }
 
       const code = genOtpCode();
-      pendingEmailChanges.set(accountId, {
-        newEmail: normalised,
-        codeHash: hashSessionToken(code),
-        attempts: 0,
-        expiresAt: Date.now() + otpTtl * 1000,
-      });
+      yield* Effect.promise(() =>
+        stores.pendingEmailChanges.set(
+          accountId,
+          {
+            newEmail: normalised,
+            codeHash: hashSessionToken(code),
+            attempts: 0,
+            expiresAt: Date.now() + otpTtl * 1000,
+          },
+          otpTtl * 1000,
+        ),
+      );
 
       // S-L5 framing lives in the template itself
       // (shared/email/src/templates/otp.ts → renderEmailChangeOtp).
@@ -3247,13 +3496,24 @@ export function createAuthService(config: AuthConfig) {
     Effect.gen(function* () {
       yield* verifyStepUpToken(stepUpToken, accountId, new Set(["webauthn", "otp"]));
 
-      const pending = pendingEmailChanges.get(accountId);
+      const pending = yield* Effect.promise(() => stores.pendingEmailChanges.get(accountId));
       if (!pending || Date.now() > pending.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
       if (!timingSafeEqualString(pending.codeHash, hashSessionToken(code))) {
-        pending.attempts++;
-        if (pending.attempts >= MAX_OTP_ATTEMPTS) pendingEmailChanges.delete(accountId);
+        // O3: persist the attempt bump + carry remaining TTL (store doesn't alias).
+        const attempts = pending.attempts + 1;
+        if (attempts >= MAX_OTP_ATTEMPTS) {
+          yield* Effect.promise(() => stores.pendingEmailChanges.delete(accountId));
+        } else {
+          yield* Effect.promise(() =>
+            stores.pendingEmailChanges.set(
+              accountId,
+              { ...pending, attempts },
+              Math.max(0, pending.expiresAt - Date.now()),
+            ),
+          );
+        }
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
 
@@ -3349,7 +3609,7 @@ export function createAuthService(config: AuthConfig) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
 
-      pendingEmailChanges.delete(accountId);
+      yield* Effect.promise(() => stores.pendingEmailChanges.delete(accountId));
       metricSessionSecurityInvalidation("email_change");
       return { email: changed.email };
     }).pipe(withEmailChange("complete"));
@@ -3647,14 +3907,9 @@ export function createAuthService(config: AuthConfig) {
   const beginCrossDeviceLogin = (
     sessionMeta?: SessionMeta,
   ): Effect.Effect<{ requestId: string; cdlSecret: string; expiresAt: number }, AuthError, never> =>
-    Effect.sync(() => {
-      // FIFO eviction — cap memory under abuse.
-      sweepExpired(pendingCrossDeviceRequests);
-      if (pendingCrossDeviceRequests.size >= MAX_PENDING_CDL) {
-        const oldest = pendingCrossDeviceRequests.keys().next().value;
-        if (oldest) pendingCrossDeviceRequests.delete(oldest);
-      }
-
+    Effect.gen(function* () {
+      // O3: the store self-bounds (CEREMONY_STORE_MAX in-memory FIFO drop,
+      // native PX expiry on Redis), replacing the prior inline FIFO eviction.
       const requestId = genId("cdl_");
       const secretBytes = new Uint8Array(32);
       crypto.getRandomValues(secretBytes);
@@ -3663,15 +3918,21 @@ export function createAuthService(config: AuthConfig) {
       const nowMs = Date.now();
       const expiresAtMs = nowMs + CDL_TTL_SECONDS * 1000;
 
-      pendingCrossDeviceRequests.set(requestId, {
-        requestId,
-        secretHash,
-        status: "pending",
-        uaLabel: sessionMeta?.uaLabel ?? null,
-        ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
-        expiresAt: expiresAtMs,
-        createdAt: nowMs,
-      });
+      yield* Effect.promise(() =>
+        stores.crossDeviceRequests.set(
+          requestId,
+          {
+            requestId,
+            secretHash,
+            status: "pending",
+            uaLabel: sessionMeta?.uaLabel ?? null,
+            ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
+            expiresAt: expiresAtMs,
+            createdAt: nowMs,
+          },
+          CDL_TTL_SECONDS * 1000,
+        ),
+      );
 
       // API response uses Unix seconds for consistency with other endpoints.
       // Field named `cdlSecret` to match the redaction deny-list entry.
@@ -3695,7 +3956,7 @@ export function createAuthService(config: AuthConfig) {
     never
   > =>
     Effect.gen(function* () {
-      const entry = pendingCrossDeviceRequests.get(requestId);
+      const entry = yield* Effect.promise(() => stores.crossDeviceRequests.get(requestId));
       if (!entry) {
         return { status: "expired" as const };
       }
@@ -3708,18 +3969,18 @@ export function createAuthService(config: AuthConfig) {
 
       // Check expiry
       if (Date.now() > entry.expiresAt) {
-        pendingCrossDeviceRequests.delete(requestId);
+        yield* Effect.promise(() => stores.crossDeviceRequests.delete(requestId));
         return { status: "expired" as const };
       }
 
       if (entry.status === "rejected") {
-        pendingCrossDeviceRequests.delete(requestId);
+        yield* Effect.promise(() => stores.crossDeviceRequests.delete(requestId));
         return { status: "rejected" as const };
       }
 
       if (entry.status === "approved" && entry.session && entry.profile) {
         // One-time consumption — prevent replay.
-        pendingCrossDeviceRequests.delete(requestId);
+        yield* Effect.promise(() => stores.crossDeviceRequests.delete(requestId));
         return {
           status: "approved" as const,
           session: entry.session,
@@ -3741,7 +4002,7 @@ export function createAuthService(config: AuthConfig) {
     sessionMeta?: SessionMeta,
   ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
-      const entry = pendingCrossDeviceRequests.get(requestId);
+      const entry = yield* Effect.promise(() => stores.crossDeviceRequests.get(requestId));
       if (!entry) {
         return yield* Effect.fail(new AuthError({ message: "Request not found or expired" }));
       }
@@ -3758,7 +4019,7 @@ export function createAuthService(config: AuthConfig) {
 
       // Check expiry
       if (Date.now() > entry.expiresAt) {
-        pendingCrossDeviceRequests.delete(requestId);
+        yield* Effect.promise(() => stores.crossDeviceRequests.delete(requestId));
         return yield* Effect.fail(new AuthError({ message: "Request expired" }));
       }
 
@@ -3780,10 +4041,22 @@ export function createAuthService(config: AuthConfig) {
       );
 
       // Store the session + profile on the request for device B to pick up.
-      entry.status = "approved";
-      entry.accountId = accountId;
-      entry.session = session;
-      entry.profile = toPublicProfile(profile, profile.email);
+      // O3: re-persist the mutated entry (the store returns a copy, not a live
+      // reference) carrying the remaining TTL so it still expires on schedule.
+      const approvedEntry: CrossDeviceRequest = {
+        ...entry,
+        status: "approved",
+        accountId,
+        session,
+        profile: toPublicProfile(profile, profile.email),
+      };
+      yield* Effect.promise(() =>
+        stores.crossDeviceRequests.set(
+          requestId,
+          approvedEntry,
+          Math.max(0, entry.expiresAt - Date.now()),
+        ),
+      );
 
       // Audit trail — security event + best-effort email notification.
       const { db } = yield* Db;
@@ -3820,7 +4093,7 @@ export function createAuthService(config: AuthConfig) {
     secret: string,
   ): Effect.Effect<void, AuthError, never> =>
     Effect.gen(function* () {
-      const entry = pendingCrossDeviceRequests.get(requestId);
+      const entry = yield* Effect.promise(() => stores.crossDeviceRequests.get(requestId));
       if (!entry) {
         return yield* Effect.fail(new AuthError({ message: "Request not found or expired" }));
       }
@@ -3834,7 +4107,15 @@ export function createAuthService(config: AuthConfig) {
         return yield* Effect.fail(new AuthError({ message: "Invalid secret" }));
       }
 
-      entry.status = "rejected";
+      // O3: re-persist the rejected status (store returns a copy) with the
+      // remaining TTL so a subsequent poll observes "rejected" then cleans up.
+      yield* Effect.promise(() =>
+        stores.crossDeviceRequests.set(
+          requestId,
+          { ...entry, status: "rejected" },
+          Math.max(0, entry.expiresAt - Date.now()),
+        ),
+      );
     }).pipe(withCrossDeviceOp("reject"));
 
   /**

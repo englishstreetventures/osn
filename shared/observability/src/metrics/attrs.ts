@@ -121,6 +121,9 @@ export type RecoveryCodeConsumeResult = "success" | "invalid" | "used";
 export type SecurityEventKind =
   | "recovery_code_generate"
   | "recovery_code_consume"
+  // O2: emitted when an account crosses the recovery-code failed-attempt
+  // lockout threshold (per-account, keyed on the resolved accountId).
+  | "recovery_code_lockout"
   | "passkey_register"
   | "passkey_delete"
   | "cross_device_login";

@@ -11,8 +11,8 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/ui"
-last-reviewed: 2026-04-22
-updated: 2026-04-22
+last-reviewed: 2026-06-16
+updated: 2026-06-16
 ---
 
 # Recovery Codes
@@ -124,7 +124,7 @@ Redaction deny-list adds `recoveryCode`, `recovery_code`, `recoveryCodes`, `reco
 ## Threat model
 
 - **Target risk:** an adversary with a leaked DB tries to brute-force a user's code. Per-user search space is 10 codes × 2^64 / 2^64 ≈ 2^64 operations on average to hit any code — infeasible. SHA-256 is fine: the tokens are uniformly random high-entropy secrets, not password-derived.
-- **Online brute force** against one account is bounded by the IP rate limit (5/hr) + the 10-code × 2^64 search space. Effectively zero.
+- **Online brute force** against one account is bounded by the IP rate limit (5/hr), the **per-account lockout (O2)**, and the 10-code × 2^64 search space. Effectively zero.
 - **Leaked code at rest** (screenshot, shared notes): single-use, and regenerating invalidates it. The user's footgun surface is "I saved them badly"; the UI requires an explicit "I've saved these" checkbox before it will dismiss the one-time view.
 - **No enumeration oracle** — every failure returns the same payload.
 

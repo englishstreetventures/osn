@@ -127,32 +127,35 @@ describe("step-up OTP ceremony", () => {
 
   // T-S1: 5-min TTL is the containment window. A regression that drops the
   // `exp` claim or mis-sets the TTL would silently weaken the threat model.
-  // Use a 1-second TTL so the real-clock wait is cheap. `Effect.sleep` runs
-  // synchronously under the default test runtime, so we use a Promise-based
-  // delay (yielded via Effect.promise) to actually advance wall time.
-  it.effect(
-    "expired token is rejected",
-    () => {
-      const cap = makeEmailCapture();
-      return Effect.gen(function* () {
-        const profile = yield* registered("su-expiry@example.com", "suexpiry");
-        const shortTtlAuth = createAuthService({
-          ...config,
-          stepUpTokenTtl: 1,
-        });
-        yield* shortTtlAuth.beginStepUpOtp(profile.accountId);
-        const { stepUpToken } = yield* shortTtlAuth.completeStepUpOtp(
-          profile.accountId,
-          cap.latest()!,
-        );
-        yield* Effect.promise(() => new Promise((r) => setTimeout(r, 1100)));
-        const err = yield* Effect.flip(
-          shortTtlAuth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
-        );
-        expect(err._tag).toBe("AuthError");
-      }).pipe(Effect.provide(cap.layer));
-    },
-    { timeout: 10_000 },
+  // O1: with a 30s verifier clockTolerance, a 1.1s real-clock wait no longer
+  // proves expiry rejection — the token would still be inside tolerance. We
+  // forge a step-up token whose `exp` is well past the 30s window (but
+  // otherwise valid: correct iss/aud/sub/amr/jti) so the assertion is
+  // deterministic without a 31s sleep.
+  it.effect("expired token is rejected (beyond clockTolerance)", () =>
+    Effect.gen(function* () {
+      const profile = yield* registered("su-expiry@example.com", "suexpiry");
+      const { SignJWT } = yield* Effect.tryPromise(() => import("jose"));
+      const nowSec = Math.floor(Date.now() / 1000);
+      const expired = yield* Effect.tryPromise(() =>
+        new SignJWT({
+          sub: profile.accountId,
+          aud: "osn-step-up",
+          amr: ["otp"],
+          jti: crypto.randomUUID(),
+        })
+          .setProtectedHeader({ alg: "ES256", kid: config.jwtKid })
+          .setIssuer(config.issuerUrl)
+          // iat + exp both 120s in the past — clear of the 30s tolerance.
+          .setIssuedAt(nowSec - 120)
+          .setExpirationTime(nowSec - 120)
+          .sign(config.jwtPrivateKey),
+      );
+      const err = yield* Effect.flip(
+        auth.verifyStepUpForRecoveryGenerate(profile.accountId, expired),
+      );
+      expect(err._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
   );
 
   it.effect(

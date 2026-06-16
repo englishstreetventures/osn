@@ -6,7 +6,7 @@ related:
   - "[[recovery-codes]]"
   - "[[passkey-primary]]"
   - "[[sessions]]"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-06-16
 ---
 
 # Step-up (sudo) tokens
@@ -46,6 +46,7 @@ ES256 JWT signed with the same key as access tokens (reuses `/.well-known/jwks.j
 {
   "sub": "acc_<accountId>",
   "aud": "osn-step-up",
+  "iss": "<AuthConfig.issuerUrl>",
   "amr": ["webauthn"],
   "jti": "<uuid>",
   "iat": 1776988800,
@@ -54,6 +55,7 @@ ES256 JWT signed with the same key as access tokens (reuses `/.well-known/jwks.j
 ```
 
 - **aud** — fixed literal `"osn-step-up"` so the token cannot be cross-used as an access token.
+- **iss** — (O1) pinned to `AuthConfig.issuerUrl`; the verifier rejects any other issuer. Every verify also allows a **30s `clockTolerance`** for benign signer/verifier skew. Both access and step-up tokens share this contract.
 - **sub** — `accountId` (not profileId). The verifier requires a match against the caller's resolved account.
 - **amr** — RFC 8176 authentication-method-reference array. Verifier intersects with a caller-supplied allow-list.
 - **jti** — single-use replay guard. Backed by a `StepUpJtiStore` interface (see `osn/api/src/services/auth.ts`) with two implementations: an in-memory Map for single-process dev/test, and `createRedisJtiStore` (`osn/api/src/lib/step-up-jti-store.ts`) for multi-pod production. The Redis variant fails closed on outage — an unavailable replay guard is equivalent to a ceremony no one completed.

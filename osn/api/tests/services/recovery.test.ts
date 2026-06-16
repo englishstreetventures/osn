@@ -186,3 +186,109 @@ describe("completeRecoveryLogin", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
+
+// ---------------------------------------------------------------------------
+// O2 — per-account recovery-code lockout
+// ---------------------------------------------------------------------------
+describe("O2 recovery-code lockout", () => {
+  // Fresh service per test so the in-memory lockout counter starts clean.
+  const freshAuth = () => createAuthService(config);
+
+  it.effect("5 fails then a correct code is still rejected (locked)", () =>
+    Effect.gen(function* () {
+      const svc = freshAuth();
+      const profile = yield* svc.registerProfile("lock-a@example.com", "locka");
+      const { recoveryCodes: codes } = yield* svc.generateRecoveryCodesForAccount(
+        profile.accountId,
+      );
+      // 5 wrong guesses → trips the lockout.
+      for (let i = 0; i < 5; i++) {
+        const err = yield* Effect.flip(
+          svc.consumeRecoveryCode("lock-a@example.com", "dead-beef-cafe-0000"),
+        );
+        expect(err._tag).toBe("AuthError");
+      }
+      // A genuinely valid code is now rejected with the SAME generic error.
+      const lockedErr = yield* Effect.flip(
+        svc.consumeRecoveryCode("lock-a@example.com", codes[0]!),
+      );
+      expect(lockedErr._tag).toBe("AuthError");
+      expect(lockedErr.message).toBe("Invalid request");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("a successful consume resets the counter", () =>
+    Effect.gen(function* () {
+      const svc = freshAuth();
+      const profile = yield* svc.registerProfile("lock-reset@example.com", "lockreset");
+      const { recoveryCodes: codes } = yield* svc.generateRecoveryCodesForAccount(
+        profile.accountId,
+      );
+      // 4 fails (one below threshold), then a success resets the counter.
+      for (let i = 0; i < 4; i++) {
+        yield* Effect.flip(
+          svc.consumeRecoveryCode("lock-reset@example.com", "dead-beef-cafe-0000"),
+        );
+      }
+      yield* svc.consumeRecoveryCode("lock-reset@example.com", codes[0]!);
+      // After the reset, 4 more fails still don't lock (would need 5 fresh).
+      for (let i = 0; i < 4; i++) {
+        yield* Effect.flip(
+          svc.consumeRecoveryCode("lock-reset@example.com", "dead-beef-cafe-0000"),
+        );
+      }
+      // The 9th remaining valid code still works → not locked.
+      yield* svc.consumeRecoveryCode("lock-reset@example.com", codes[1]!);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("lockout is isolated per account", () =>
+    Effect.gen(function* () {
+      const svc = freshAuth();
+      const victim = yield* svc.registerProfile("lock-victim@example.com", "lockvictim");
+      const other = yield* svc.registerProfile("lock-other@example.com", "lockother");
+      const { recoveryCodes: otherCodes } = yield* svc.generateRecoveryCodesForAccount(
+        other.accountId,
+      );
+      yield* svc.generateRecoveryCodesForAccount(victim.accountId);
+      // Lock the victim out.
+      for (let i = 0; i < 5; i++) {
+        yield* Effect.flip(
+          svc.consumeRecoveryCode("lock-victim@example.com", "dead-beef-cafe-0000"),
+        );
+      }
+      // The other account is unaffected — a valid code still works.
+      yield* svc.consumeRecoveryCode("lock-other@example.com", otherCodes[0]!);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("unknown-identifier fails never lock a real account", () =>
+    Effect.gen(function* () {
+      const svc = freshAuth();
+      const profile = yield* svc.registerProfile("lock-unknown@example.com", "lockunknown");
+      const { recoveryCodes: codes } = yield* svc.generateRecoveryCodesForAccount(
+        profile.accountId,
+      );
+      // 10 attempts against an identifier that resolves to NO account — these
+      // must not move any per-account counter.
+      for (let i = 0; i < 10; i++) {
+        yield* Effect.flip(svc.consumeRecoveryCode("ghost@example.com", "dead-beef-cafe-0000"));
+      }
+      // The real account is not locked — its valid code still works.
+      yield* svc.consumeRecoveryCode("lock-unknown@example.com", codes[0]!);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("writes a recovery_code_lockout security-event row on lockout", () =>
+    Effect.gen(function* () {
+      const svc = freshAuth();
+      const profile = yield* svc.registerProfile("lock-sev@example.com", "locksev");
+      yield* svc.generateRecoveryCodesForAccount(profile.accountId);
+      for (let i = 0; i < 5; i++) {
+        yield* Effect.flip(svc.consumeRecoveryCode("lock-sev@example.com", "dead-beef-cafe-0000"));
+      }
+      const { events } = yield* svc.listUnacknowledgedSecurityEvents(profile.accountId);
+      expect(events.some((e) => e.kind === "recovery_code_lockout")).toBe(true);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
