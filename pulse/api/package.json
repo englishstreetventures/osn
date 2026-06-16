@@ -23,6 +23,7 @@
     "@pulse/db": "workspace:*",
     "@shared/observability": "workspace:*",
     "@shared/rate-limit": "workspace:*",
+    "@shared/redis": "workspace:*",
     "@zap/db": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "effect": "^3.21.2",

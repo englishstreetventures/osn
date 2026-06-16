@@ -7,6 +7,7 @@ import { Elysia, t } from "elysia";
 import { MAX_PRICE_MAJOR } from "../lib/currency";
 import { DEFAULT_JWKS_URL } from "../lib/jwks";
 import { MAX_EVENT_GUESTS } from "../lib/limits";
+import { checkWriteRateLimit, createDefaultWriteRateLimiter } from "../lib/rate-limit";
 import {
   metricCalendarIcsGenerated,
   metricEventAccessDenied,
@@ -15,7 +16,7 @@ import {
 import { buildIcs } from "../services/calendar";
 import { listBlasts, parseCommsChannels, sendBlast } from "../services/comms";
 import { discoverEvents } from "../services/discovery";
-import { loadVisibleEvent } from "../services/eventAccess";
+import { canViewAttendees, loadVisibleEvent } from "../services/eventAccess";
 import {
   createEvent,
   deleteEvent,
@@ -147,7 +148,30 @@ export const createEventsRoutes = (
    * backend; production wires the Redis backend at composition time.
    */
   discoveryRateLimiter: RateLimiterBackend = createDefaultDiscoveryRateLimiter(),
+  /**
+   * Per-USER write limiters for the authenticated mutating endpoints. Keyed
+   * on `claims.profileId` (not IP), so there's no dependency on the proxy
+   * trust model. Defaults are in-memory; production wires Redis backends at
+   * the composition root. See `lib/rate-limit.ts` for the limit rationale.
+   */
+  writeRateLimiters: {
+    eventCreate?: RateLimiterBackend;
+    eventUpdate?: RateLimiterBackend;
+    rsvpUpsert?: RateLimiterBackend;
+    eventInvite?: RateLimiterBackend;
+    commsBlast?: RateLimiterBackend;
+  } = {},
 ) => {
+  const eventCreateLimiter =
+    writeRateLimiters.eventCreate ?? createDefaultWriteRateLimiter("event_create");
+  const eventUpdateLimiter =
+    writeRateLimiters.eventUpdate ?? createDefaultWriteRateLimiter("event_update");
+  const rsvpUpsertLimiter =
+    writeRateLimiters.rsvpUpsert ?? createDefaultWriteRateLimiter("rsvp_upsert");
+  const eventInviteLimiter =
+    writeRateLimiters.eventInvite ?? createDefaultWriteRateLimiter("event_invite");
+  const commsBlastLimiter =
+    writeRateLimiters.commsBlast ?? createDefaultWriteRateLimiter("comms_blast");
   return (
     new Elysia({ prefix: "/events" })
       .get(
@@ -301,6 +325,10 @@ export const createEventsRoutes = (
             set.status = 401;
             return { message: "Unauthorized" } as const;
           }
+          if (!(await checkWriteRateLimit(eventCreateLimiter, "event_create", claims.profileId))) {
+            set.status = 429;
+            return { error: "Too many requests" } as const;
+          }
           const creator = {
             createdByProfileId: claims.profileId,
             createdByName:
@@ -359,6 +387,10 @@ export const createEventsRoutes = (
             return { message: "Unauthorized" } as const;
           }
           const profileId = claims.profileId;
+          if (!(await checkWriteRateLimit(eventUpdateLimiter, "event_update", profileId))) {
+            set.status = 429;
+            return { error: "Too many requests" } as const;
+          }
           const result = await Effect.runPromise(
             updateEvent(params.id, body, profileId).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
@@ -496,6 +528,11 @@ export const createEventsRoutes = (
           }
           return {
             rsvps: (result as RsvpWithProfile[]).map((row) => serializeRsvp(row, isOrganiser)),
+            // Additive, non-breaking signal (W4): tells the client whether the
+            // viewer is entitled to enumerate attendee identities. Organiser-only
+            // today; the organiser-only payload cutover is deferred so existing
+            // clients keep rendering the list. See services/eventAccess.ts.
+            canViewAttendees: canViewAttendees(event, viewerId),
           };
         },
         {
@@ -583,6 +620,8 @@ export const createEventsRoutes = (
           }
           return {
             rsvps: (result as RsvpWithProfile[]).map((row) => serializeRsvp(row, isOrganiser)),
+            // Additive attendee-visibility flag (W4) — mirrors GET /:id/rsvps.
+            canViewAttendees: canViewAttendees(event, viewerId),
           };
         },
         {
@@ -600,6 +639,10 @@ export const createEventsRoutes = (
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
+          }
+          if (!(await checkWriteRateLimit(rsvpUpsertLimiter, "rsvp_upsert", claims.profileId))) {
+            set.status = 429;
+            return { error: "Too many requests" } as const;
           }
           const result = await Effect.runPromise(
             upsertRsvp(params.id, claims.profileId, body).pipe(
@@ -641,6 +684,10 @@ export const createEventsRoutes = (
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
+          }
+          if (!(await checkWriteRateLimit(eventInviteLimiter, "event_invite", claims.profileId))) {
+            set.status = 429;
+            return { error: "Too many requests" } as const;
           }
           const result = await Effect.runPromise(
             inviteGuests(params.id, claims.profileId, body).pipe(
@@ -755,6 +802,10 @@ export const createEventsRoutes = (
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
+          }
+          if (!(await checkWriteRateLimit(commsBlastLimiter, "comms_blast", claims.profileId))) {
+            set.status = 429;
+            return { error: "Too many requests" } as const;
           }
           const result = await Effect.runPromise(
             sendBlast(params.id, claims.profileId, body).pipe(

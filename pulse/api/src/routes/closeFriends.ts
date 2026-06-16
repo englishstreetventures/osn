@@ -1,9 +1,11 @@
 import { DbLive, type Db } from "@pulse/db/service";
 import { extractClaims } from "@shared/osn-auth-client/verify";
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { DEFAULT_JWKS_URL } from "../lib/jwks";
+import { checkWriteRateLimit, createDefaultWriteRateLimiter } from "../lib/rate-limit";
 import {
   addCloseFriend,
   isCloseFriendOf,
@@ -25,6 +27,12 @@ export const createCloseFriendsRoutes = (
   dbLayer: Layer.Layer<Db> = DbLive,
   jwksUrl: string = DEFAULT_JWKS_URL,
   _testKey?: CryptoKey,
+  /**
+   * Per-USER limiter (keyed on `claims.profileId`) shared by the add + remove
+   * list mutations. Default in-memory; production wires Redis at the
+   * composition root.
+   */
+  mutateRateLimiter: RateLimiterBackend = createDefaultWriteRateLimiter("close_friend_mutate"),
 ) =>
   new Elysia({ prefix: "/close-friends" })
     .get(
@@ -77,6 +85,12 @@ export const createCloseFriendsRoutes = (
           set.status = 401;
           return { message: "Unauthorized" } as const;
         }
+        if (
+          !(await checkWriteRateLimit(mutateRateLimiter, "close_friend_mutate", claims.profileId))
+        ) {
+          set.status = 429;
+          return { error: "Too many requests" } as const;
+        }
         const result = await Effect.runPromise(
           addCloseFriend(claims.profileId, params.friendId).pipe(
             Effect.match({
@@ -115,6 +129,12 @@ export const createCloseFriendsRoutes = (
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
+        }
+        if (
+          !(await checkWriteRateLimit(mutateRateLimiter, "close_friend_mutate", claims.profileId))
+        ) {
+          set.status = 429;
+          return { error: "Too many requests" } as const;
         }
         const result = await Effect.runPromise(
           removeCloseFriend(claims.profileId, params.friendId).pipe(

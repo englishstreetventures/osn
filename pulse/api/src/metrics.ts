@@ -67,6 +67,8 @@ export const PULSE_METRICS = {
   onboardingCompleted: "pulse.onboarding.completed",
   onboardingInterestsSelected: "pulse.onboarding.interests.selected",
   onboardingProfileAccountResolved: "pulse.onboarding.profile_account.resolved",
+  // Per-user write rate limiting (W4 — events/RSVP/invite/blast/series/close-friends)
+  writeRateLimited: "pulse.write.rate_limited",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -350,6 +352,29 @@ type OnboardingProfileAccountResolvedAttrs = {
   /** `cache` = mapping table hit; `bridge` = S2S call to osn/api. */
   source: "cache" | "bridge";
   result: Result;
+};
+
+// --- Per-user write rate limiting (W4) ---
+
+/**
+ * Closed set of authenticated write surfaces guarded by a per-user
+ * rate limiter. Bounded so the `pulse.write.rate_limited` counter's
+ * `endpoint` attribute can never be inflated by a crafted value — same
+ * discipline as `AuthRateLimitedEndpoint` in `osn/api`. Extend the union
+ * when a new per-user-limited write endpoint is added.
+ */
+export type PulseWriteEndpoint =
+  | "event_create"
+  | "event_update"
+  | "rsvp_upsert"
+  | "event_invite"
+  | "comms_blast"
+  | "series_create"
+  | "series_update"
+  | "close_friend_mutate";
+
+type WriteRateLimitedAttrs = {
+  endpoint: PulseWriteEndpoint;
 };
 
 // ---------------------------------------------------------------------------
@@ -813,3 +838,15 @@ export const metricOnboardingProfileAccountResolved = (
   source: "cache" | "bridge",
   result: Result,
 ): void => onboardingProfileAccountResolved.inc({ source, result });
+
+// --- Per-user write rate limiting (W4) ---
+
+const writeRateLimited = createCounter<WriteRateLimitedAttrs>({
+  name: PULSE_METRICS.writeRateLimited,
+  description:
+    "Authenticated write requests rejected by the per-user rate limiter (429), by endpoint — a spike signals abuse or a runaway client",
+  unit: "{rejection}",
+});
+
+export const metricWriteRateLimited = (endpoint: PulseWriteEndpoint): void =>
+  writeRateLimited.inc({ endpoint });

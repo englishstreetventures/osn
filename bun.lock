@@ -79,7 +79,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.4.0",
+      "version": "3.4.1",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@osn/db": "workspace:*",
@@ -203,7 +203,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.17.0",
+      "version": "0.18.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -212,6 +212,7 @@
         "@shared/observability": "workspace:*",
         "@shared/osn-auth-client": "workspace:*",
         "@shared/rate-limit": "workspace:*",
+        "@shared/redis": "workspace:*",
         "@zap/db": "workspace:*",
         "drizzle-orm": "^0.45.2",
         "effect": "^3.21.2",
@@ -226,7 +227,7 @@
     },
     "pulse/app": {
       "name": "@pulse/app",
-      "version": "0.12.0",
+      "version": "0.13.0",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -257,7 +258,7 @@
     },
     "pulse/db": {
       "name": "@pulse/db",
-      "version": "0.13.0",
+      "version": "0.14.0",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -274,7 +275,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.6.10",
+      "version": "0.6.11",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -303,7 +304,7 @@
     },
     "shared/email": {
       "name": "@shared/email",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "^3.21.2",
@@ -316,7 +317,7 @@
     },
     "shared/observability": {
       "name": "@shared/observability",
-      "version": "0.9.1",
+      "version": "0.9.2",
       "dependencies": {
         "@effect/opentelemetry": "^0.63.0",
         "@opentelemetry/api": "^1.9.1",
@@ -340,7 +341,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "^6.2.3",
@@ -382,7 +383,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.4.3",
+      "version": "0.4.4",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",

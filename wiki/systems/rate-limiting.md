@@ -25,9 +25,10 @@ finding-ids:
   - P-W16
 packages:
   - "@osn/api"
+  - "@pulse/api"
   - "@shared/rate-limit"
   - "@shared/redis"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-06-16
 ---
 
 # Rate Limiting
@@ -114,6 +115,25 @@ Send `maxRequests + 1` requests and assert the last returns 429.
 
 Graph write endpoints are rate-limited at 60 requests per user per minute (S-M16). Recommendations reads (`/recommendations/connections`) are rate-limited at 20 requests per user per minute — tighter because each call runs an FOF fan-out query (S-H1/P-C2).
 
+## Pulse Per-User Write Limits (W4)
+
+`@pulse/api` applies **per-user** fixed-window limiting to every authenticated write endpoint. The key is the JWT-asserted `claims.profileId`, **not** the client IP — so the Pulse write layer has no dependency on the `X-Forwarded-For` trust model (S-M34) that gates the unauthenticated reads. Limits live in one place (`pulse/api/src/lib/rate-limit.ts`, `PULSE_WRITE_LIMITS`) and are shared byte-for-byte between the in-memory defaults and the Redis namespaces.
+
+| Endpoint | Limit | Rationale |
+|----------|-------|-----------|
+| `POST /events` (create) | 20 / 5 min | Heaviest write (insert + re-read); covers a power-organiser batching a week of events |
+| `PATCH /events/:id` (update) | 60 / min | Cheap, legitimately bursty (drag-resize, typo fix); matches osn graph-write posture |
+| `POST /events/:id/rsvps` | 30 / min | User-initiated + idempotent; absorbs double-taps |
+| `POST /events/:id/invite` | 10 / min | Organiser-only; fans out to many rows per call |
+| `POST /events/:id/comms/blasts` | 5 / min | Most expensive/abusable write (SMS/email fan-out) |
+| `POST /series` (create) | 10 / hr | Materialises many instances; hourly window |
+| `PATCH /series/:id` | 60 / hr | Re-materialises future instances; generous for iterative editing |
+| `POST/DELETE /close-friends/:id` | 60 / min | Tiny list writes; absorbs rapid picker toggling |
+
+The shared `checkWriteRateLimit(limiter, endpoint, profileId)` helper performs the check **after** authentication (so anonymous callers get 401, not 429), is **fail-closed** (a thrown/rejected backend `check()` counts as rate-limited), and records the bounded `pulse.write.rate_limited{ endpoint }` counter on every deny. The `endpoint` attribute is the closed `PulseWriteEndpoint` union — same cardinality discipline as `AuthRateLimitedEndpoint`.
+
+Pulse's composition root (`pulse/api/src/index.ts` + `pulse/api/src/redis.ts`) mirrors osn/api: it builds Redis-backed write limiters via `createRedisWriteRateLimiters` when `REDIS_URL` is set, and falls back to the in-memory client otherwise. The unauthenticated `GET /events/discover` per-IP limiter is wired the same way (`createRedisDiscoveryRateLimiter`).
+
 ## Config
 
 ```typescript
@@ -174,4 +194,7 @@ Expired entries are evicted on every `check()` call when at least one window has
 - [osn/api/src/index.ts](../../osn/api/src/index.ts) — composition root with env-driven Redis/memory selection
 - [shared/redis/src/rate-limiter.ts](../../shared/redis/src/rate-limiter.ts) — `createRedisRateLimiter()` Lua script backend
 - [shared/observability/src/metrics/attrs.ts](../../shared/observability/src/metrics/attrs.ts) — `AuthRateLimitedEndpoint` type
+- [pulse/api/src/lib/rate-limit.ts](../../pulse/api/src/lib/rate-limit.ts) — `PULSE_WRITE_LIMITS`, `checkWriteRateLimit`, in-memory defaults (W4)
+- [pulse/api/src/lib/redis-rate-limiters.ts](../../pulse/api/src/lib/redis-rate-limiters.ts) — Pulse Redis-backed write + discovery limiters
+- [pulse/api/src/redis.ts](../../pulse/api/src/redis.ts) — Pulse Redis composition root (env-driven backend selection)
 - [CLAUDE.md](../../CLAUDE.md) — "Rate Limiting" section

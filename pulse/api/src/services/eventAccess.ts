@@ -82,6 +82,30 @@ export const loadVisibleEvent = (
   }).pipe(Effect.withSpan("events.load_visible"));
 
 /**
+ * Policy: may this viewer see the *attendee identities* (the per-guest
+ * profile rows) for the event, as opposed to merely seeing that the event
+ * exists?
+ *
+ * Visibility (`canViewEvent`) and attendee-identity disclosure are distinct
+ * concerns: an invited guest can open a private event but the organiser may
+ * not want the full guest list exposed to every attendee. Today this policy
+ * is **organiser-only** — the event creator is the one party guaranteed to
+ * be allowed to enumerate guests. It is surfaced as an additive,
+ * non-breaking `canViewAttendees` flag on the attendee response so existing
+ * clients keep working while the UI migrates; the eventual organiser-only
+ * *cutover* of the row payload itself is deferred (see
+ * `[[wiki/systems/event-access]]`).
+ *
+ * Pure + synchronous: it only inspects ownership, so it needs no DB round
+ * trip and can be called inline in the route handler. Accepts a trimmed
+ * projection so a caller with only `{ createdByProfileId }` can use it.
+ */
+export const canViewAttendees = (
+  event: Pick<Event, "createdByProfileId">,
+  viewerId: string | null,
+): boolean => viewerId != null && viewerId === event.createdByProfileId;
+
+/**
  * Re-export for tests + routes that don't need the full event row.
  */
 export type { EventNotFound };

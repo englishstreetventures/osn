@@ -7,7 +7,7 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-04-25
+last-reviewed: 2026-06-16
 ---
 
 # Security Fixes — Completed
@@ -143,3 +143,9 @@ Archived completed security findings from [[TODO]]. Finding IDs follow the [[rev
 - **S-L31** — No input format validation on `profile_id` in `/profiles/switch`. Fixed: TypeBox pattern.
 - **S-L32** — `findDefaultProfile` ORDER BY relied on SQLite boolean-as-integer semantics. Fixed: explicit ordering.
 - **S-L4 (org)** — No `maxLength` on internal route query params. Fixed: added 50 char limit.
+
+## Pulse write rate limiting + CORS allowlist (W4, 2026-06-16)
+
+- **S-L2 (auth)** — Wildcard CORS on `@pulse/api` (bare `cors()`). **Issue:** a `*` `Access-Control-Allow-Origin` lets any site read responses from a victim's authenticated session. **Solution:** allowlist derived from `PULSE_CORS_ORIGIN` via `pulse/api/src/lib/cors-config.ts` (mirrors `osn/api`); non-local envs fail closed at boot via `assertCorsOriginsConfigured`, local dev falls back to the Tauri dev port `:1420`. No Origin guard — Pulse is a bearer-token API with no cookie-CSRF surface. See `[[rate-limiting]]`.
+- **S-L1 (series)** — No rate limit on `POST /series` / `PATCH /series/:id` (each create materialises up to 260 rows). **Solution:** per-user limiters — series create 10/hr, patch 60/hr — keyed on `claims.profileId`, fail-closed, via the shared `checkWriteRateLimit` helper. Part of the W4 per-user write-limit sweep across every authenticated Pulse write endpoint (event create/update, RSVP, invite, blast, series, close-friends). See `[[rate-limiting]]`.
+- **S-L1 (pulse-close-friends)** — `POST /close-friends/:friendId` was unrate-limited, letting a caller bypass OSN's 60/min graph limit. **Solution:** per-user limiter (60/min, mirroring OSN's `GRAPH_RATE_LIMIT_MAX`) on both the add and remove mutations, keyed on `claims.profileId`, fail-closed. See `[[rate-limiting]]`, `[[pulse-close-friends]]`.
