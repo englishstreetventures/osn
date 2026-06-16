@@ -4,6 +4,7 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { buildSessionCookie, parseSessionToken } from "../lib/cookie";
 import {
   measureAccountLinkResolve,
   metricAccountLinkRequest,
@@ -17,6 +18,9 @@ import { runCire } from "../observability";
 import { LinkAccountBody } from "../schemas/account-link";
 import { accountLinkService } from "../services/account-link";
 import type { OsnAccountResolver } from "../services/osn-bridge";
+import { sessionService } from "../services/session";
+
+const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 const PREFIX = "/api/account/link";
 
@@ -98,6 +102,7 @@ export const createAccountLinkPostRoute = (
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
   resolveOsnAccountId?: OsnAccountResolver,
+  webOrigin = "http://localhost:4321",
 ) =>
   new Elysia({ prefix: PREFIX })
     // Rate limit runs in onBeforeHandle (before the handler), so it gates the
@@ -147,6 +152,27 @@ export const createAccountLinkPostRoute = (
               osnAccountId: resolution.accountId,
               osnProfileId: profileId,
             });
+
+            // C6: rotate the guest session on a successful link — session-fixation
+            // defence. The link is a privilege change (the household is now bound
+            // to an OSN account), so any pre-existing token (possibly attacker-
+            // planted before the legitimate user linked) is revoked and a fresh
+            // cookie is issued, atomically. Best-effort: if rotation fails the
+            // link still stands and we keep the existing session (logged inside
+            // the service) rather than 500-ing a completed link.
+            const oldToken = parseSessionToken(request.headers.get("cookie"));
+            if (oldToken) {
+              const rotated = yield* sessionService
+                .rotate(familyId, oldToken, SESSION_TTL_SECONDS)
+                .pipe(Effect.catchTag("SessionWriteError", () => Effect.succeed(undefined)));
+              if (rotated) {
+                set.headers["set-cookie"] = buildSessionCookie(rotated.token, {
+                  secure: webOrigin.startsWith("https://"),
+                  maxAgeSeconds: SESSION_TTL_SECONDS,
+                });
+              }
+            }
+
             yield* Effect.sync(() => metricAccountLinkRequest("ok"));
             set.status = 201;
             return { linked: true, guestId: link.guestId };

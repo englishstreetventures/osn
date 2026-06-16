@@ -25,6 +25,14 @@ export const weddings = sqliteTable(
     slug: text("slug").notNull().unique(),
     displayName: text("display_name").notNull(),
     ownerOsnProfileId: text("owner_osn_profile_id").notNull(),
+    // Claim-code tier driving family `public_id` generation (C1). `secure`
+    // (default) = 10-char Crockford hash (~60-bit total code); `simple` =
+    // 6-char hash (~40-bit). Read by the tiered generator in
+    // `cire/api/src/services/family-code.ts` at mint time. NOT NULL with a
+    // DEFAULT so historical rows + new D1 inserts that omit it land on `secure`.
+    codeStyle: text("code_style", { enum: ["simple", "secure"] })
+      .notNull()
+      .default("secure"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },

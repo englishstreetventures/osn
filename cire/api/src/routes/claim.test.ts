@@ -32,12 +32,19 @@ beforeAll(() => {
   seedDb(db);
 });
 
+// Tests simulate the Cloudflare edge by setting `cf-connecting-ip` — the
+// fail-closed limiter (C4) denies requests without a resolvable IP, so every
+// rate-limited route needs one in tests.
 const post = (body: unknown) =>
   Effect.promise(() =>
     app.fetch(
       new Request("http://localhost/api/claim", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "cf-connecting-ip": "203.0.113.7",
+          Origin: "http://localhost:4321",
+        },
         body: JSON.stringify(body),
       }),
     ),
@@ -128,7 +135,11 @@ describe("POST /api/claim", () => {
           app.fetch(
             new Request("http://localhost/api/claim", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+          "Content-Type": "application/json",
+          "cf-connecting-ip": "203.0.113.7",
+          Origin: "http://localhost:4321",
+        },
               body: "{not-json",
             }),
           ),
@@ -195,7 +206,11 @@ describe("POST /api/claim rate limiting (S-C2)", () => {
       rlApp.fetch(
         new Request("http://localhost/api/claim", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+          "Content-Type": "application/json",
+          "cf-connecting-ip": "203.0.113.7",
+          Origin: "http://localhost:4321",
+        },
           body: JSON.stringify({ publicId: "FAKE-XYZ-9999" }),
         }),
       );

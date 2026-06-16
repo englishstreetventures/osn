@@ -14,6 +14,7 @@ CREATE TABLE weddings (
   slug TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
   owner_osn_profile_id TEXT NOT NULL,
+  code_style TEXT NOT NULL DEFAULT 'secure',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -49,7 +50,7 @@ CREATE UNIQUE INDEX guest_account_links_guest_uniq ON guest_account_links(guest_
 CREATE UNIQUE INDEX guest_account_links_family_account_uniq ON guest_account_links(family_id, osn_account_id);
 CREATE INDEX guest_account_links_account_idx ON guest_account_links(osn_account_id);
 CREATE INDEX guest_account_links_family_idx ON guest_account_links(family_id);
-INSERT INTO weddings VALUES ('wed_bootstrap', 'cire-wedding', 'Cire Wedding', 'usr_REPLACE_BEFORE_PROD', 0, 0);
+INSERT INTO weddings VALUES ('wed_bootstrap', 'cire-wedding', 'Cire Wedding', 'usr_REPLACE_BEFORE_PROD', 'secure', 0, 0);
 `;
 
 function makeDb() {

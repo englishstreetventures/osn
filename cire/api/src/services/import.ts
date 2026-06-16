@@ -1,4 +1,4 @@
-import { events, families, guests, guestEvents, rsvps } from "@cire/db";
+import { events, families, guests, guestEvents, rsvps, weddings } from "@cire/db";
 import { and, eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
@@ -6,6 +6,8 @@ import { Effect, Data } from "effect";
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
 import { metricImportApplied } from "../metrics";
+import { generateFamilyCode } from "./family-code";
+import type { CodeStyle } from "./family-code";
 import type {
   EventCreate,
   EventLink,
@@ -33,21 +35,6 @@ export class ImportError extends Data.TaggedError("ImportError")<{
 
 function normaliseName(s: string): string {
   return s.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-/**
- * Turn a name like "Example" → "EXAMPLE-A1B2C3D4". 8-hex-char suffix is 32 bits
- * of entropy — birthday-collision risk is ~50% past ~65k same-base families,
- * which is comfortably beyond any single-event guest list.
- */
-function mintFamilyPublicId(familyName: string): string {
-  const base = familyName
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 16);
-  const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase();
-  return `${base || "FAMILY"}-${suffix}`;
 }
 
 function mintEventSlug(name: string): string {
@@ -85,6 +72,14 @@ export function diffAgainstDb(
 ): Effect.Effect<ImportPlan, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
+
+    // C1: the wedding's claim-code tier drives every NEW family code minted by
+    // this import. Read once; default to `secure` if the row is somehow absent
+    // (defensive — `weddingId` is always a real, owned wedding here).
+    const [weddingRow] = yield* dbQuery(() =>
+      db.select({ codeStyle: weddings.codeStyle }).from(weddings).where(eq(weddings.id, weddingId)).all(),
+    );
+    const codeStyle: CodeStyle = weddingRow?.codeStyle ?? "secure";
 
     // ── Events ──────────────────────────────────────────────────────────────
     const existingEvents = yield* dbQuery(() =>
@@ -141,7 +136,7 @@ export function diffAgainstDb(
         const id = crypto.randomUUID();
         familyCreates.push({
           id,
-          publicId: mintFamilyPublicId(parsed.familyName),
+          publicId: generateFamilyCode(parsed.familyName, codeStyle),
           familyName: parsed.familyName,
         });
         familyIdByNorm.set(norm, id);

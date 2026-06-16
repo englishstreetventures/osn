@@ -51,6 +51,10 @@ export const CIRE_METRICS = {
   accountLinkRequests: "cire.account_link.requests",
   accountLinkUnlinks: "cire.account_link.unlinks",
   accountLinkResolveDuration: "cire.account_link.resolve.duration",
+  // CSRF origin guard (C5 / S-L3).
+  originGuardRejections: "cire.origin_guard.rejections",
+  // Per-family claim-code regeneration (C2).
+  familyCodeRegenerated: "cire.family_code.regenerated",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -88,6 +92,12 @@ export type AccountLinkResult =
 /** Outcome of the S2S osn-api profile→account resolve. */
 export type ResolveResult = "ok" | "not_found" | "error";
 
+/** Why the origin guard rejected a state-changing request (C5 / S-L3). */
+export type OriginRejectReason = "missing" | "mismatch";
+
+/** Outcome of a per-family claim-code regeneration (C2). */
+export type FamilyCodeRegenResult = "ok" | "error";
+
 type ClaimAttemptsAttrs = { result: ClaimResult };
 type ClaimLookupDurationAttrs = { result: "ok" | "error" };
 type SessionCreatedAttrs = { result: "ok" | "error" };
@@ -99,6 +109,8 @@ type InviteSimpleAttrs = { result: "ok" | "error" };
 type AccountLinkRequestsAttrs = { result: AccountLinkResult };
 type AccountLinkUnlinksAttrs = { result: "ok" | "error" };
 type AccountLinkResolveDurationAttrs = { result: ResolveResult };
+type OriginGuardRejectionsAttrs = { reason: OriginRejectReason };
+type FamilyCodeRegeneratedAttrs = { result: FamilyCodeRegenResult };
 
 // ---------------------------------------------------------------------------
 // Instruments.
@@ -200,6 +212,18 @@ const accountLinkResolveDuration = createHistogram<AccountLinkResolveDurationAtt
   boundaries: LATENCY_BUCKETS_SECONDS,
 });
 
+const originGuardRejections = createCounter<OriginGuardRejectionsAttrs>({
+  name: CIRE_METRICS.originGuardRejections,
+  description: "State-changing requests rejected by the CSRF origin guard, by reason",
+  unit: "{rejection}",
+});
+
+const familyCodeRegenerated = createCounter<FamilyCodeRegeneratedAttrs>({
+  name: CIRE_METRICS.familyCodeRegenerated,
+  description: "Organiser-triggered per-family claim-code regenerations, by outcome",
+  unit: "{regeneration}",
+});
+
 // ---------------------------------------------------------------------------
 // Recording helpers — the ONLY way cire code should emit metrics.
 // ---------------------------------------------------------------------------
@@ -260,6 +284,12 @@ export const metricAccountLinkRequest = (result: AccountLinkResult): void =>
 
 export const metricAccountLinkUnlink = (result: "ok" | "error"): void =>
   accountLinkUnlinks.inc({ result });
+
+export const metricOriginGuardRejection = (reason: OriginRejectReason): void =>
+  originGuardRejections.inc({ reason });
+
+export const metricFamilyCodeRegenerated = (result: FamilyCodeRegenResult): void =>
+  familyCodeRegenerated.inc({ result });
 
 // ---------------------------------------------------------------------------
 // Effect combinators for timed operations (mirrors pulse `measureSeconds`).

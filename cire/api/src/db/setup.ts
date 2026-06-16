@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS weddings (
   slug TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
   owner_osn_profile_id TEXT NOT NULL,
+  code_style TEXT NOT NULL DEFAULT 'secure',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

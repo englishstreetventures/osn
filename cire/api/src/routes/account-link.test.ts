@@ -50,11 +50,17 @@ function guestIdByName(db: Db, firstName: string): string {
   return row.id;
 }
 
+// `cf-connecting-ip` simulates the CF edge for the fail-closed limiter (C4) —
+// every account-link route is rate-limited, so requests need a resolvable IP.
+// `Origin` satisfies the CSRF origin guard (C5) on the state-changing methods.
+const TEST_CF_IP = "203.0.113.7";
+const TEST_ORIGIN = "http://localhost:4321";
+
 async function claimCookie(app: ReturnType<typeof createApp>, publicId: string): Promise<string> {
   const res = await app.fetch(
     new Request("http://localhost/api/claim", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "cf-connecting-ip": TEST_CF_IP, Origin: TEST_ORIGIN },
       body: JSON.stringify({ publicId }),
     }),
   );
@@ -68,7 +74,11 @@ function postLink(
   app: ReturnType<typeof createApp>,
   opts: { cookie?: string; bearer?: string; guestId?: string },
 ): Promise<Response> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "cf-connecting-ip": TEST_CF_IP,
+    Origin: TEST_ORIGIN,
+  };
   if (opts.cookie) headers["Cookie"] = opts.cookie;
   if (opts.bearer) headers["Authorization"] = `Bearer ${opts.bearer}`;
   return app.fetch(
@@ -78,6 +88,17 @@ function postLink(
       body: JSON.stringify({ guestId: opts.guestId }),
     }),
   );
+}
+
+/**
+ * After a successful link the server rotates the guest session (C6) and returns
+ * a fresh `Set-Cookie`. Subsequent requests in the same household must use the
+ * rotated cookie — the old one is revoked. Returns the new cookie if the
+ * response rotated, else the prior cookie unchanged.
+ */
+function rotatedCookie(res: Response, prior: string): string {
+  const token = parseSessionToken(res.headers.get("Set-Cookie"));
+  return token ? `cire_session=${token}` : prior;
 }
 
 describe("POST /api/account/link", () => {
@@ -96,6 +117,42 @@ describe("POST /api/account/link", () => {
     expect(rows[0]!.osnAccountId).toBe("acc_default");
     expect(rows[0]!.osnProfileId).toBe("usr_alice");
     expect(rows[0]!.guestId).toBe(guestId);
+  });
+
+  // C6: a successful link rotates the guest session — fresh Set-Cookie, old
+  // token revoked (session-fixation defence).
+  it("rotates the guest session cookie on a successful link", async () => {
+    const { db, app } = buildApp();
+    const cookie = await claimCookie(app, SAMPLETON);
+    const oldToken = cookie.replace("cire_session=", "");
+    const bearer = await auth.sign("usr_alice");
+    const guestId = guestIdByName(db, "Bo");
+
+    const res = await postLink(app, { cookie, bearer, guestId });
+    expect(res.status).toBe(201);
+
+    // A fresh cookie is set, and it carries a DIFFERENT token to the old one.
+    const setCookie = res.headers.get("Set-Cookie");
+    expect(setCookie).not.toBeNull();
+    const newToken = parseSessionToken(setCookie);
+    expect(newToken).not.toBeNull();
+    expect(newToken).not.toBe(oldToken);
+
+    // The old token is revoked: a request bearing it is now 401 on a guest route.
+    const stale = await app.fetch(
+      new Request("http://localhost/api/account/link", {
+        headers: { Cookie: cookie, "cf-connecting-ip": TEST_CF_IP },
+      }),
+    );
+    expect(stale.status).toBe(401);
+
+    // The rotated cookie still works.
+    const fresh = await app.fetch(
+      new Request("http://localhost/api/account/link", {
+        headers: { Cookie: `cire_session=${newToken}`, "cf-connecting-ip": TEST_CF_IP },
+      }),
+    );
+    expect(fresh.status).toBe(200);
   });
 
   it("returns 401 without an OSN token (guest cookie alone is not enough)", async () => {
@@ -134,8 +191,10 @@ describe("POST /api/account/link", () => {
     const cookie = await claimCookie(app, SAMPLETON);
     const bearer = await auth.sign("usr_alice");
     const guestId = guestIdByName(db, "Bo");
-    expect((await postLink(app, { cookie, bearer, guestId })).status).toBe(201);
-    const res = await postLink(app, { cookie, bearer, guestId });
+    const first = await postLink(app, { cookie, bearer, guestId });
+    expect(first.status).toBe(201);
+    // C6: the link rotated the session — reuse the fresh cookie for the retry.
+    const res = await postLink(app, { cookie: rotatedCookie(first, cookie), bearer, guestId });
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: "already_linked" });
   });
@@ -145,10 +204,14 @@ describe("POST /api/account/link", () => {
     const cookie = await claimCookie(app, SAMPLETON);
     const bo = guestIdByName(db, "Bo");
     const cleo = guestIdByName(db, "Cleo");
-    expect(
-      (await postLink(app, { cookie, bearer: await auth.sign("usr_a"), guestId: bo })).status,
-    ).toBe(201);
-    const res = await postLink(app, { cookie, bearer: await auth.sign("usr_b"), guestId: cleo });
+    const first = await postLink(app, { cookie, bearer: await auth.sign("usr_a"), guestId: bo });
+    expect(first.status).toBe(201);
+    // C6: reuse the rotated cookie for the second link in the same household.
+    const res = await postLink(app, {
+      cookie: rotatedCookie(first, cookie),
+      bearer: await auth.sign("usr_b"),
+      guestId: cleo,
+    });
     expect(res.status).toBe(409);
   });
 
@@ -184,10 +247,14 @@ describe("GET /api/account/link", () => {
     const { db, app } = buildApp();
     const cookie = await claimCookie(app, SAMPLETON);
     const guestId = guestIdByName(db, "Bo");
-    await postLink(app, { cookie, bearer: await auth.sign("usr_alice"), guestId });
+    const linked = await postLink(app, { cookie, bearer: await auth.sign("usr_alice"), guestId });
+    // C6: the link rotated the session — read links with the fresh cookie.
+    const cookie2 = rotatedCookie(linked, cookie);
 
     const res = await app.fetch(
-      new Request("http://localhost/api/account/link", { headers: { Cookie: cookie } }),
+      new Request("http://localhost/api/account/link", {
+        headers: { Cookie: cookie2, "cf-connecting-ip": TEST_CF_IP },
+      }),
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { links: Array<{ guestId: string; linkedAt: number }> };
@@ -200,7 +267,11 @@ describe("GET /api/account/link", () => {
 
   it("returns 401 without a guest session", async () => {
     const { app } = buildApp();
-    const res = await app.fetch(new Request("http://localhost/api/account/link"));
+    const res = await app.fetch(
+      new Request("http://localhost/api/account/link", {
+        headers: { "cf-connecting-ip": TEST_CF_IP },
+      }),
+    );
     expect(res.status).toBe(401);
   });
 });
@@ -210,14 +281,16 @@ describe("DELETE /api/account/link/:guestId", () => {
     const { db, app } = buildApp();
     const cookie = await claimCookie(app, SAMPLETON);
     const guestId = guestIdByName(db, "Bo");
-    await postLink(app, { cookie, bearer: await auth.sign("usr_alice"), guestId });
+    const linked = await postLink(app, { cookie, bearer: await auth.sign("usr_alice"), guestId });
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(1);
+    // C6: the link rotated the session — delete with the fresh cookie.
+    const cookie2 = rotatedCookie(linked, cookie);
 
     const del = () =>
       app.fetch(
         new Request(`http://localhost/api/account/link/${guestId}`, {
           method: "DELETE",
-          headers: { Cookie: cookie },
+          headers: { Cookie: cookie2, "cf-connecting-ip": TEST_CF_IP, Origin: TEST_ORIGIN },
         }),
       );
 
@@ -246,7 +319,7 @@ describe("DELETE /api/account/link/:guestId", () => {
     const res = await app.fetch(
       new Request(`http://localhost/api/account/link/${bo}`, {
         method: "DELETE",
-        headers: { Cookie: testfamilyCookie },
+        headers: { Cookie: testfamilyCookie, "cf-connecting-ip": TEST_CF_IP, Origin: TEST_ORIGIN },
       }),
     );
     expect(res.status).toBe(200); // idempotent no-op, not an error
@@ -259,6 +332,7 @@ describe("DELETE /api/account/link/:guestId", () => {
     const res = await app.fetch(
       new Request(`http://localhost/api/account/link/${guestIdByName(db, "Bo")}`, {
         method: "DELETE",
+        headers: { "cf-connecting-ip": TEST_CF_IP, Origin: TEST_ORIGIN },
       }),
     );
     expect(res.status).toBe(401);
@@ -278,7 +352,11 @@ describe("account-link rate limiting (S-L1)", () => {
     });
     const cookie = await claimCookie(app, SAMPLETON);
     const get = () =>
-      app.fetch(new Request("http://localhost/api/account/link", { headers: { Cookie: cookie } }));
+      app.fetch(
+        new Request("http://localhost/api/account/link", {
+          headers: { Cookie: cookie, "cf-connecting-ip": TEST_CF_IP },
+        }),
+      );
 
     expect((await get()).status).toBe(200);
     expect((await get()).status).toBe(200);

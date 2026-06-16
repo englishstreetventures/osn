@@ -46,7 +46,12 @@ beforeAll(() => {
 
 const post = (body: unknown, cookie: string | null) =>
   Effect.promise(() => {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    // rsvp POST is state-changing → the origin guard (C5) requires an allowlisted
+    // Origin even though /api/rsvp isn't rate-limited.
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Origin: "http://localhost:4321",
+    };
     if (cookie) headers["Cookie"] = cookie;
     return app.fetch(
       new Request("http://localhost/api/rsvp", {
@@ -62,7 +67,13 @@ const claim = (publicId: string) =>
     app.fetch(
       new Request("http://localhost/api/claim", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // `cf-connecting-ip` simulates the CF edge for the fail-closed limiter
+        // (C4); `Origin` satisfies the CSRF origin guard (C5).
+        headers: {
+          "Content-Type": "application/json",
+          "cf-connecting-ip": "203.0.113.7",
+          Origin: "http://localhost:4321",
+        },
         body: JSON.stringify({ publicId }),
       }),
     ),
@@ -241,6 +252,7 @@ describe("POST /api/rsvp", () => {
               headers: {
                 "Content-Type": "application/json",
                 Cookie: cookie,
+                Origin: "http://localhost:4321",
                 "Content-Length": String(512 * 1024),
               },
               body: JSON.stringify({ rsvps: [] }),
