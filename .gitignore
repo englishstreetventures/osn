@@ -198,3 +198,6 @@ wiki/.obsidian/
 
 # Caveman compress backups
 *.original.md
+
+# Claude Code agent worktrees (transient, per-session)
+.claude/worktrees/
