@@ -3,6 +3,7 @@ import { eq, asc, inArray } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { measureClaimLookup, metricClaimAttempt } from "../metrics";
 import type { ClaimResponse, OrganiserGuestRow, DressSwatch } from "../schemas/claim";
 
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
@@ -166,7 +167,12 @@ export const claimService = {
         events: eventList,
         rsvps: rsvpRows,
       };
-    });
+    }).pipe(
+      Effect.tap(() => Effect.sync(() => metricClaimAttempt("ok"))),
+      Effect.tapError(() => Effect.sync(() => metricClaimAttempt("invalid_credentials"))),
+      measureClaimLookup,
+      Effect.withSpan("cire.claim.lookup"),
+    );
   },
 
   /** All events for one wedding (organiser view). weddingId is required —
@@ -222,7 +228,7 @@ export const claimService = {
           mapsUrl: safeHttpUrl(row.mapsUrl),
         };
       });
-    });
+    }).pipe(Effect.withSpan("cire.claim.listEvents"));
   },
 
   /** All guests for one wedding (organiser view). weddingId is required —
@@ -266,6 +272,6 @@ export const claimService = {
         if (row.eventId !== null) entry.events.push(row.eventId);
       }
       return Array.from(byGuest.values());
-    });
+    }).pipe(Effect.withSpan("cire.claim.getAllGuests"));
   },
 };

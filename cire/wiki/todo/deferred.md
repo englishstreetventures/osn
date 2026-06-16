@@ -3,7 +3,7 @@ title: "Cire TODO — deferred decisions"
 tags: [todo, deferred]
 related:
   - "[[index]]"
-last-reviewed: 2026-06-12
+last-reviewed: 2026-06-16
 ---
 
 # Deferred Decisions
@@ -25,7 +25,7 @@ Open architectural questions with options + a trigger for revisiting. When a dec
 | Guest photo sharing                       | R2 + moderation                                                                                           | Post-MVP                                                            |
 | iPhone AirDrop sharing                    | Web Share API + custom payload                                                                            | After core invite is built                                          |
 | Account-linking ARC key provisioning + rotation | Stable `CIRE_API_ARC_PRIVATE_KEY` secret pre-registered in osn-api `service_accounts` (shipped) vs. lazy self-registration per isolate vs. KV-persisted rotating key | Before production launch of linking — wire the secret + osn-side registration; decide rotation story (Workers have no startup hook) |
-| Account-linking observability on workerd  | Stay logs-only (current cire bar) vs. introduce first `cire/api/metrics.ts` + solve OTel-on-workerd bundling | When cire adopts `@shared/observability`; would add `cire.account_link.{requests,unlinks}` counters (bounded `result` attr) |
+| Workerd metric/trace **export** | otel-cf-workers vs. Workers Analytics Engine vs. stay no-op | cire now defines spans + `cire/api/src/metrics.ts` counters/histograms (recording call-sites correct, no-op until an exporter exists). Decide the reader before relying on cire dashboards. See `[[observability/overview]]` |
 | `OSN_API_URL` https enforcement (linking) | Enforce `https://` for the ARC call in prod (like `graphBridge.ts` module-load guard) vs. trust deploy config | Before production launch — Workers has no module-load env, so guard must live in `index.ts` config wiring |
 
 ## Resolved
@@ -39,3 +39,4 @@ Open architectural questions with options + a trigger for revisiting. When a dec
 | Guest account-linking granularity  | **Per-invitee** (one `guests` row ↔ one OSN account), not per-family. The family claim-code session is shared, so the link POST carries `{ guestId }` (validated ∈ family). Lets each member of a household link their own OSN account and, in Pulse, see other members' RSVPs. See `[[wiki/systems/cire-auth]]` (root).                                                                                                                                                                | 2026-06-12 |
 | Guest-link stored identifier       | Store **account-level** `osn_account_id` (resolved S2S over ARC via `GET /graph/internal/profile-account`), not profile-level — so any of a user's OSN profiles surfaces the invitation in Pulse. `osn_profile_id` kept for audit. account id is S2S-only, never returned to clients (redacted in logs via `@shared/observability`).                                                                                                                                                  | 2026-06-12 |
 | ARC token signing on Cloudflare Workers | Added a DB-free, metric-free `signArcToken` to `@shared/crypto/jwk` (the workerd-safe subpath) rather than pulling the `@shared/crypto` barrel (→ `@osn/db`/`bun:sqlite`) or `@shared/observability` (node OTel) into the Worker bundle. `createArcToken` now wraps it + the issuance metric for bun/node. Verified via `cire/api` `wrangler` dry-run build.                                                                                                                          | 2026-06-12 |
+| Account-linking observability on workerd | **Adopt `@shared/observability` (workerd-safe subpaths).** cire/api now installs the shared redacting logger (`runCire`/`runCireSync` → `cireLoggerLayer`), spans on every service fn, `instrumentedFetch` on the S2S ARC call, and `cire/api/src/metrics.ts` (define-now-export-later — incl. `cire.account_link.{requests,unlinks}` + resolve-duration). Workerd metric/trace **export** is the only remaining open item (own row in Open). Verified via `wrangler` dry-run + `bun test`. | 2026-06-16 |

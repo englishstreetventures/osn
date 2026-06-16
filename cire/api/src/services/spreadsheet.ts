@@ -1,5 +1,6 @@
 import { Effect, Data } from "effect";
 
+import { bucketParseReason, metricImportParseRejected } from "../metrics";
 import type { ParsedEvent, ParsedFamily, ParsedGuest, PaletteSwatch } from "../schemas/import";
 
 // ── Tagged errors ────────────────────────────────────────────────────────────
@@ -413,7 +414,10 @@ export function parseEventsCsv(
     }
 
     return out;
-  });
+  }).pipe(
+    Effect.tapError((e) => Effect.sync(() => metricImportParseRejected(bucketParseReason(e._tag)))),
+    Effect.withSpan("cire.import.parseEvents"),
+  );
 }
 
 const REQUIRED_GUEST_COLUMNS = [
@@ -523,5 +527,8 @@ export function parseGuestsCsv(
     }
 
     return families;
-  });
+  }).pipe(
+    Effect.tapError((e) => Effect.sync(() => metricImportParseRejected(bucketParseReason(e._tag)))),
+    Effect.withSpan("cire.import.parseGuests"),
+  );
 }

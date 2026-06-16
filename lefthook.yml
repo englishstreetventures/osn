@@ -31,7 +31,21 @@ pre-push:
       #   Worker/production runtime path, and the exploit requires a
       #   hostile NPM_CONFIG_REGISTRY at install time (already gated by
       #   `minimumReleaseAge`). Drop once the upstreams ship esbuild ≥0.28.1.
+      #   GHSA-96hv-2xvq-fx4p  ws memory-exhaustion DoS from tiny fragments.
+      #   Reachable only through test tooling — `miniflare` (@cire/api test
+      #   runtime) and `happy-dom` (@cire/organiser tests); no deployed Worker
+      #   or production runtime path opens a ws server. Drop once miniflare +
+      #   happy-dom pull ws ≥8.21.0.
+      #   GHSA-fx2h-pf6j-xcff  vite `server.fs.deny` bypass on Windows
+      #   alternate paths. Repo-wide dev/build-tooling only — the vulnerable
+      #   vite range is pulled by `@cire/organiser` AND the OSN frontends
+      #   (`@osn/social`, `@osn/ui`, `@pulse/app`) via astro/vitest. Dev-server
+      #   only and Windows-specific — never runs in CI, any Worker, or a
+      #   production path for any consumer. Drop once vite ≥7.3.5 ages past
+      #   `minimumReleaseAge`.
       run: >
         bun audit --audit-level=high
         --ignore=GHSA-77vg-94rm-hx3p
         --ignore=GHSA-gv7w-rqvm-qjhr
+        --ignore=GHSA-96hv-2xvq-fx4p
+        --ignore=GHSA-fx2h-pf6j-xcff

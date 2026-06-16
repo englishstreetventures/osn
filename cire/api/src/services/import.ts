@@ -5,6 +5,7 @@ import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
+import { metricImportApplied } from "../metrics";
 import type {
   EventCreate,
   EventLink,
@@ -328,7 +329,7 @@ export function diffAgainstDb(
       eventLinkRemoves,
       warnings,
     };
-  });
+  }).pipe(Effect.withSpan("cire.import.diff"));
 }
 
 // ── Apply ─────────────────────────────────────────────────────────────────────
@@ -521,5 +522,17 @@ export function applyImport(
       guestsRemoved: plan.guestRemoves.length,
       warnings: plan.warnings,
     };
-  });
+  }).pipe(
+    Effect.tap((summary) =>
+      Effect.sync(() =>
+        metricImportApplied("ok", {
+          events: summary.eventsCreated,
+          families: summary.familiesCreated,
+          guests: summary.guestsCreated,
+        }),
+      ),
+    ),
+    Effect.tapError(() => Effect.sync(() => metricImportApplied("error"))),
+    Effect.withSpan("cire.import.apply"),
+  );
 }

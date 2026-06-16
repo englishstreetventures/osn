@@ -8,6 +8,7 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { weddingOwner } from "../middleware/wedding-owner";
+import { runCire } from "../observability";
 import { InviteTextBody, isInviteImageSlot } from "../schemas/invite";
 import { inviteService } from "../services/invite";
 import {
@@ -33,7 +34,7 @@ const manualParse = { parse: () => ({}) };
 export const createInvitePublicRoutes = (db: Db, assets: AssetsBucket | undefined) =>
   new Elysia({ prefix: "/api/invite" })
     .get("/:slug", ({ params, set }) =>
-      Effect.runPromise(
+      runCire(
         inviteService.getForSlug(params.slug).pipe(
           Effect.provideService(DbService, db),
           Effect.catchTag("WeddingNotFound", () =>
@@ -57,7 +58,7 @@ export const createInvitePublicRoutes = (db: Db, assets: AssetsBucket | undefine
         return { error: "Not found" };
       }
       const slot = params.slot;
-      return Effect.runPromise(
+      return runCire(
         Effect.gen(function* () {
           const key = yield* inviteService.imageKeyForSlug(params.slug, slot);
           if (!key) {
@@ -131,7 +132,7 @@ export const createInviteOrganiserRoutes = (
             set.status = 500;
             return { error: "Internal error" };
           }
-          return Effect.runPromise(
+          return runCire(
             inviteService.getForWeddingId(weddingId).pipe(
               Effect.provideService(DbService, db),
               Effect.catchTag("WeddingNotFound", () =>
@@ -157,7 +158,7 @@ export const createInviteOrganiserRoutes = (
               return { error: "Internal error" };
             }
             const raw: unknown = await request.json().catch(() => null);
-            return Effect.runPromise(
+            return runCire(
               Effect.gen(function* () {
                 const body = yield* Schema.decodeUnknown(InviteTextBody)(raw);
                 yield* inviteService.upsertText(weddingId, body);
@@ -233,7 +234,7 @@ export const createInviteOrganiserRoutes = (
               return { error: "Unsupported image type (use JPEG, PNG, or WebP)" };
             }
 
-            return Effect.runPromise(
+            return runCire(
               Effect.gen(function* () {
                 const slug = yield* inviteService.weddingSlug(weddingId);
                 const imageUrl = yield* inviteService.setImage(
@@ -282,7 +283,7 @@ export const createInviteOrganiserRoutes = (
             return { error: "Unknown image slot" };
           }
           const slot = params.slot;
-          return Effect.runPromise(
+          return runCire(
             Effect.gen(function* () {
               yield* inviteService.removeImage(weddingId, slot);
               return yield* inviteService.getForWeddingId(weddingId);

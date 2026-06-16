@@ -1,4 +1,5 @@
 import { importKeyFromJwk, signArcToken } from "@shared/crypto/jwk";
+import { instrumentedFetch } from "@shared/observability/fetch";
 
 /**
  * Server-to-server bridge to osn-api for the optional guest account-linking
@@ -6,10 +7,14 @@ import { importKeyFromJwk, signArcToken } from "@shared/crypto/jwk";
  *
  * Why this is hand-rolled rather than reusing pulse/osn `outbound-arc.ts`:
  * those helpers import the `@shared/crypto` barrel (which pulls
- * `@osn/db` → `bun:sqlite`) and `@shared/observability` (the node
- * OpenTelemetry SDK) — neither bundles for Cloudflare Workers. cire/api runs
- * on workerd, so it mints ARC tokens via the DB-free, metric-free
- * `@shared/crypto/jwk` subpath and uses the global `fetch`.
+ * `@osn/db` → `bun:sqlite`) and the node OpenTelemetry *SDK* — neither bundles
+ * for Cloudflare Workers. cire/api runs on workerd, so it mints ARC tokens via
+ * the DB-free, metric-free `@shared/crypto/jwk` subpath. The outbound call goes
+ * through `instrumentedFetch` (from `@shared/observability/fetch`, which imports
+ * only the workerd-safe `@opentelemetry/api` surface, never the SDK) so the S2S
+ * request carries a W3C `traceparent`; osn-api adopts it because the call is
+ * ARC-authenticated (S-H18). The wrapper leaves the `Authorization: ARC` header
+ * untouched.
  *
  * Key distribution: cire holds a stable ES256 private key (the
  * `CIRE_API_ARC_PRIVATE_KEY` wrangler secret); the matching public key is
@@ -62,7 +67,7 @@ export function createArcAccountResolver(config: ArcResolverConfig): OsnAccountR
       kid: config.arcKeyId,
     });
 
-    const res = await fetch(
+    const res = await instrumentedFetch(
       `${base}/graph/internal/profile-account?profileId=${encodeURIComponent(profileId)}`,
       { headers: { authorization: `ARC ${token}` } },
     );

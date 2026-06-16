@@ -6,6 +6,7 @@ import { DbService } from "../db";
 import type { Db } from "../db";
 import { buildSessionCookie } from "../lib/cookie";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
+import { runCire } from "../observability";
 import { ClaimBody } from "../schemas/claim";
 import { claimService } from "../services/claim";
 import { sessionService } from "../services/session";
@@ -25,7 +26,7 @@ export const createClaimRoutes = (db: Db, { webOrigin, limiter }: ClaimRouteOpti
     async ({ request, set }) => {
       const raw: unknown = await request.json().catch(() => null);
 
-      return Effect.runPromise(
+      return runCire(
         Effect.gen(function* () {
           const { publicId } = yield* Schema.decodeUnknown(ClaimBody)(raw);
           const result = yield* claimService.lookup(publicId.trim().toUpperCase());

@@ -5,7 +5,9 @@ import { Elysia } from "elysia";
 
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
+import { metricRsvpBatchSize } from "../metrics";
 import { sessionAuth } from "../middleware/auth";
+import { runCire } from "../observability";
 import { BulkRsvpBody } from "../schemas/rsvp";
 import { rsvpService } from "../services/rsvp";
 
@@ -40,7 +42,7 @@ export const createRsvpRoutes = (db: Db) =>
 
         const raw: unknown = await request.json().catch(() => null);
 
-        return Effect.runPromise(
+        return runCire(
           Effect.gen(function* () {
             const body = yield* Schema.decodeUnknown(BulkRsvpBody)(raw);
 
@@ -96,6 +98,8 @@ export const createRsvpRoutes = (db: Db) =>
                 dietary: rsvp.dietary,
               });
             }
+
+            yield* Effect.sync(() => metricRsvpBatchSize(body.rsvps.length));
 
             const updatedRsvps = yield* rsvpService.getRsvpsForFamily(familyId);
             return { rsvps: updatedRsvps };

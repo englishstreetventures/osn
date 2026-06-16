@@ -4,7 +4,7 @@ tags: [architecture, api, web, db]
 related:
   - "[[index]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-06-15
+last-reviewed: 2026-06-16
 ---
 
 # Invite Builder
@@ -110,16 +110,21 @@ patterns as `ImportPanel`.
 
 ## Observability
 
-cire/api uses Cloudflare-native logging today (`[[overview]]`), so this feature
-instruments with `Effect.log*` + `Effect.withSpan` (no OTel metrics module in
-cire yet):
+cire/api now adopts `@shared/observability` (workerd-safe subpaths) — see
+`[[overview]]`. The invite-builder surface is instrumented with spans, the
+redacting logger, and metrics:
 
 - **Spans**: `cire.invite.{getForWedding,getForSlug,imageKeyForSlug,upsertText,
   setImage,removeImage}` + `cire.invite.{storeAsset,fetchAsset,deleteAsset}`.
 - **Logs**: `Effect.logInfo` on save / upload / remove; `Effect.logWarning` on
   best-effort image cleanup failure; `Effect.logError` on every storage / DB
-  defect path before returning the generic error body. No `console.*`. No PII in
+  defect path before returning the generic error body. All runs go through
+  `runCire` so annotations are redaction-scrubbed. No `console.*`. No PII in
   logs (only `weddingId`).
+- **Metrics**: `cire.invite.saved`, `cire.invite.asset.uploaded`, and the
+  `cire.invite.asset.size` histogram (bytes), defined in
+  `cire/api/src/metrics.ts`. No-op until a workerd exporter is wired (see
+  `[[overview]]` → Deferred).
 
 ## Compliance
 

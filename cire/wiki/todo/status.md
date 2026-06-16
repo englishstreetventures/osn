@@ -4,7 +4,7 @@ tags: [todo, status]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-06-15
+last-reviewed: 2026-06-16
 ---
 
 # Status + Up Next
@@ -30,6 +30,7 @@ Monorepo built and functional. `cire/db` models families with a shareable `publi
 - [x] Wire organiser portal upload UI to `/api/organiser/import/*` — inline import panel on the dashboard (preview diff → apply); history/revert UI still deferred (see [[spreadsheet-import]])
 - [x] Migrate from `X-Organiser-Token` shared secret to organiser passkey auth — done in the OSN merge; token path deleted
 - [x] Inline OSN account creation on the organiser login page — `SignInPanel` toggles `<SignIn>` ⇄ `<Register>` (from `@osn/ui`, via `@osn/client`'s registration client) so organisers without an OSN account can register without leaving cire; first vitest harness for `@cire/organiser`. See `[[wiki/systems/cire-auth]]`
+- [x] **Observability standards** — `cire/api` adopted `@shared/observability` (workerd-safe subpaths): redacting logger (`runCire`/`runCireSync` → `cireLoggerLayer`), spans on every service fn, `instrumentedFetch` on the S2S ARC call, and `cire/api/src/metrics.ts` (typed `cire.*` counters/histograms, define-now-export-later). See `[[observability/overview]]` + `[[deferred]]` (export on workerd is the one open item).
 - [ ] **Substitute `usr_REPLACE_BEFORE_PROD`** (bootstrap `wed_bootstrap` owner in migration `0006_multi_tenant.sql`) with the real OSN profile id **before applying migrations to remote/production D1**
 - [x] Migrate runtime DB layer in `cire/api/src/index.ts` from 503 stub to real D1 — `index.ts` is now a Workers `fetch` handler building a per-request Drizzle-D1 client from `env.DB`; `Db` broadened over `"sync" | "async"` so the same service code runs on bun:sqlite (local/tests) and D1 (prod) via a `dbQuery` bridge. Pure JWK helpers split into DB-free `@shared/crypto/jwk` so the `osnAuth` verify path no longer drags `bun:sqlite` into the Worker bundle (build is green). Still pending before remote push: `usr_REPLACE_BEFORE_PROD` substitution + real `database_id`.
 - [x] Per-person per-event RSVP with dietary requirements

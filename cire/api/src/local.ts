@@ -1,8 +1,10 @@
 import { BOOTSTRAP_WEDDING_ID, weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
+import { Effect } from "effect";
 
 import { createApp } from "./app";
 import { createDb, seedDb } from "./db/setup";
+import { runCireSync } from "./observability";
 import { createAssetsStub } from "./services/invite-assets";
 import { createR2Stub } from "./services/r2-imports";
 
@@ -19,8 +21,9 @@ if (devOwner) {
     .set({ ownerOsnProfileId: devOwner })
     .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
     .run();
-  // eslint-disable-next-line no-console -- local dev server banner (Bun shim)
-  console.log(`[dev] bootstrap wedding owner -> ${devOwner}`);
+  runCireSync(
+    Effect.logInfo("dev: bootstrap wedding owner repointed", { ownerOsnProfileId: devOwner }),
+  );
 }
 
 const origins = (process.env.WEB_ORIGIN ?? "http://localhost:4321,http://localhost:4322")
@@ -43,5 +46,4 @@ const app = createApp(db, {
 });
 
 const server = Bun.serve({ port, fetch: (request: Request) => app.fetch(request) });
-// eslint-disable-next-line no-console -- local dev server startup banner (Bun shim, not the deployed Worker)
-console.log(`API running at http://localhost:${server.port}`);
+runCireSync(Effect.logInfo("cire-api dev server listening", { port: server.port }));

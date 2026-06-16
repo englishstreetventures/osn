@@ -5,6 +5,7 @@ import { Effect } from "effect";
 import { Elysia } from "elysia";
 
 import type { Db } from "./db";
+import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
 import { createClaimRoutes } from "./routes/claim";
 import { createInviteOrganiserRoutes, createInvitePublicRoutes } from "./routes/invite";
@@ -109,7 +110,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
         // response body, which leaks internals (D1 error strings, Effect
         // causes, table names) to callers — the claim endpoint is pre-auth.
         // Log the detail, return a generic body.
-        Effect.runSync(
+        runCireSync(
           Effect.logError("unhandled request error", {
             code,
             message: error instanceof Error ? error.message : String(error),

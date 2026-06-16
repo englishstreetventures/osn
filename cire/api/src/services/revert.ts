@@ -3,6 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { metricImportReverted } from "../metrics";
 import type { ImportSummary, ParsedFamily } from "../schemas/import";
 import { applyImport, diffAgainstDb, ImportError } from "./import";
 import { R2Service, fetchUpload, R2Error } from "./r2-imports";
@@ -89,5 +90,9 @@ export function revertImport(
     );
 
     return summary;
-  });
+  }).pipe(
+    Effect.tap(() => Effect.sync(() => metricImportReverted("ok"))),
+    Effect.tapError(() => Effect.sync(() => metricImportReverted("error"))),
+    Effect.withSpan("cire.import.revert"),
+  );
 }

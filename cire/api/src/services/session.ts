@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { metricSessionCreated } from "../metrics";
 
 export class SessionInvalid extends Data.TaggedError("SessionInvalid")<{
   reason: "missing" | "expired";
@@ -83,8 +84,12 @@ export const sessionService = {
       }).pipe(
         Effect.tapError((err) => Effect.logError("session insert failed", { reason: err.reason })),
       );
+      yield* Effect.sync(() => metricSessionCreated("ok"));
       return { token, expiresAt };
-    });
+    }).pipe(
+      Effect.tapError(() => Effect.sync(() => metricSessionCreated("error"))),
+      Effect.withSpan("cire.session.create"),
+    );
   },
 
   validate(token: string): Effect.Effect<ValidatedSession, SessionInvalid, DbService> {
@@ -104,7 +109,7 @@ export const sessionService = {
         return yield* Effect.fail(new SessionInvalid({ reason: "expired" }));
       }
       return { familyId: row.familyId, expiresAt: row.expiresAt };
-    });
+    }).pipe(Effect.withSpan("cire.session.validate"));
   },
 
   revoke(token: string): Effect.Effect<void, SessionWriteError, DbService> {
@@ -117,7 +122,7 @@ export const sessionService = {
       }).pipe(
         Effect.tapError((err) => Effect.logError("session delete failed", { reason: err.reason })),
       );
-    });
+    }).pipe(Effect.withSpan("cire.session.revoke"));
   },
 
   revokeAllForFamily(familyId: string): Effect.Effect<void, SessionWriteError, DbService> {
@@ -132,6 +137,6 @@ export const sessionService = {
           Effect.logError("session deleteAllForFamily failed", { reason: err.reason }),
         ),
       );
-    });
+    }).pipe(Effect.withSpan("cire.session.revokeAllForFamily"));
   },
 };

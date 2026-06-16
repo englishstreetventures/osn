@@ -28,6 +28,6 @@ export const weddingsService = {
           .all(),
       );
       return rows;
-    });
+    }).pipe(Effect.withSpan("cire.wedding.listForOwner"));
   },
 };

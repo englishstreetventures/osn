@@ -24,6 +24,11 @@ See [[review-findings]] for severity prefix conventions.
 - **AL-P-I1** — `createArcAccountResolver` mints a fresh ARC token (`signArcToken`) per `POST /api/account/link` rather than reusing one (the bun/node side has `getOrCreateArcToken`'s cache). Deliberate: linking is a rare, human-initiated, per-invitee one-shot action; the sub-ms ES256 sign is dwarfed by the outbound osn-api fetch. Add a TTL cache only if link volume ever rises.
 - **AL-P-I2** — `listByFamily` / `listByAccount` have no `LIMIT`. Deliberate: both are structurally tiny (one row per guest in a household / per wedding for an account) and index-backed (`guest_account_links_family_idx` / `_account_idx`). Add a cursor only if `listByAccount` later backs a high-fan-out Pulse feed.
 
+### Observability instrumentation — review notes (Info, no action)
+
+- **P-I4** — `POST /api/rsvp` loops `body.rsvps` and calls `rsvpService.submitRsvp` per pair; each call now carries `Effect.withSpan("cire.rsvp.submit")` + a metric tap, so a batch of N pairs creates N spans + N (no-op-on-workerd) counter calls. Fine at current bounds — N is one family's event count (tens), schema-capped by `MAX_RSVP_BYTES` + `BulkRsvpBody`. If RSVP batches ever grow (e.g. an organiser bulk tool reuses this path), wrap the loop in one span and keep the per-pair counter inside. Folds into **P-W1** (batch the upserts). (observability branch review)
+- **P-I1/P-I2** (no action) — `runCire`/`runCireSync` apply `cireLoggerLayer` per Effect run, but `loadConfig` + logger construction are hoisted to module scope (once per isolate); the per-call cost is two `FiberRef` patches. Redaction only runs when a line is actually emitted at level, and is off the claim/rsvp happy paths. Module-level layer build on workerd is sound; keep `OTEL_EXPORTER_OTLP_HEADERS` unset so the strict header parser can't throw at import. (observability branch review)
+
 - [x] Split joined events from per-guest rows in `claim.lookup` to drop the duplicated `dressCodePalette` payload (PR-A review)
 - [x] Drop redundant ownership `SELECT` in `rsvpService.submitRsvp` (route validates once for the bulk batch) (PR-A review)
 - [x] Add `events.sortOrder` and `(guests.familyId, guests.sortOrder)` indices (PR-A review, migration 0004)

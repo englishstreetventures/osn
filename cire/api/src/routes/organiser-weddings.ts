@@ -6,6 +6,7 @@ import type { Db } from "../db";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingOwner } from "../middleware/wedding-owner";
+import { runCire } from "../observability";
 import { claimService } from "../services/claim";
 import { weddingsService } from "../services/weddings";
 
@@ -22,7 +23,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
         set.status = 401;
         return { error: "unauthorised" };
       }
-      return Effect.runPromise(
+      return runCire(
         weddingsService.listForOwner(osnProfileId).pipe(
           Effect.provideService(DbService, db),
           Effect.map((list) => ({ weddings: list })),
@@ -45,7 +46,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
             set.status = 500;
             return { error: "Internal error" };
           }
-          return Effect.runPromise(
+          return runCire(
             claimService.getAllGuests(weddingId).pipe(
               Effect.provideService(DbService, db),
               Effect.catchAllDefect(() =>
@@ -62,7 +63,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
             set.status = 500;
             return { error: "Internal error" };
           }
-          return Effect.runPromise(
+          return runCire(
             claimService.listEvents(weddingId).pipe(
               Effect.provideService(DbService, db),
               Effect.catchAllDefect(() =>

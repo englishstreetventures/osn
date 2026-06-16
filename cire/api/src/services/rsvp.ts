@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { metricRsvpUpserted } from "../metrics";
 import type { RsvpRecord } from "../schemas/rsvp";
 
 export const rsvpService = {
@@ -42,7 +43,8 @@ export const rsvpService = {
           })
           .run(),
       );
-    });
+      yield* Effect.sync(() => metricRsvpUpserted(input.status, "ok"));
+    }).pipe(Effect.withSpan("cire.rsvp.submit"));
   },
 
   getRsvpsForFamily(familyId: string): Effect.Effect<RsvpRecord[], never, DbService> {
@@ -64,6 +66,6 @@ export const rsvpService = {
       );
 
       return rows;
-    });
+    }).pipe(Effect.withSpan("cire.rsvp.list"));
   },
 };

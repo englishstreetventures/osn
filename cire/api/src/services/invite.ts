@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { metricInviteAssetUploaded, metricInviteSaved } from "../metrics";
 import type { InviteImageSlot, InviteTextBody } from "../schemas/invite";
 import { deleteAsset, storeAsset } from "./invite-assets";
 import type { AssetR2Error, AssetsR2Service } from "./invite-assets";
@@ -205,6 +206,7 @@ export const inviteService = {
           .run(),
       );
       yield* Effect.logInfo("invite text customisation saved", { weddingId });
+      yield* Effect.sync(() => metricInviteSaved("ok"));
     }).pipe(Effect.withSpan("cire.invite.upsertText"));
   },
 
@@ -260,8 +262,12 @@ export const inviteService = {
       }
 
       yield* Effect.logInfo("invite image uploaded", { weddingId });
+      yield* Effect.sync(() => metricInviteAssetUploaded("ok", bytes.byteLength));
       return imagePath(slug, slot, now.getTime());
-    }).pipe(Effect.withSpan("cire.invite.setImage"));
+    }).pipe(
+      Effect.tapError(() => Effect.sync(() => metricInviteAssetUploaded("error"))),
+      Effect.withSpan("cire.invite.setImage"),
+    );
   },
 
   /** Clear a slot's image (reset to default) and delete the object best-effort. */

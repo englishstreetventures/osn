@@ -123,7 +123,7 @@ export const accountLinkService = {
       );
 
       return { guestId: input.guestId, linkedAt: now };
-    }).pipe(Effect.withSpan("accountLink.link"));
+    }).pipe(Effect.withSpan("cire.accountLink.link"));
   },
 
   /** Lists the account links for every invitee in a household. */
@@ -142,7 +142,7 @@ export const accountLinkService = {
           .all(),
       );
       return rows;
-    }).pipe(Effect.withSpan("accountLink.listByFamily"));
+    }).pipe(Effect.withSpan("cire.accountLink.listByFamily"));
   },
 
   /**
@@ -175,7 +175,7 @@ export const accountLinkService = {
           Effect.logError("account link delete failed", { reason: err.reason }),
         ),
       );
-    }).pipe(Effect.withSpan("accountLink.unlink"));
+    }).pipe(Effect.withSpan("cire.accountLink.unlink"));
   },
 
   /**
@@ -200,6 +200,6 @@ export const accountLinkService = {
           .all(),
       );
       return rows;
-    }).pipe(Effect.withSpan("accountLink.listByAccount"));
+    }).pipe(Effect.withSpan("cire.accountLink.listByAccount"));
   },
 };

@@ -8,6 +8,7 @@ import type { Db } from "../db";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { ownedWedding } from "../middleware/owned-wedding";
+import { runCire } from "../observability";
 import { ApplyBody, PreviewBody, RevertBody } from "../schemas/import";
 import type { ImportPlan, ParsedFamily } from "../schemas/import";
 import { applyImport, diffAgainstDb } from "../services/import";
@@ -71,7 +72,7 @@ export const createOrganiserImportRoutes = (
 
         const raw: unknown = await request.json().catch(() => null);
 
-        return Effect.runPromise(
+        return runCire(
           Effect.gen(function* () {
             const body = yield* Schema.decodeUnknown(PreviewBody)(raw);
 
@@ -208,7 +209,7 @@ export const createOrganiserImportRoutes = (
 
         const raw: unknown = await request.json().catch(() => null);
 
-        return Effect.runPromise(
+        return runCire(
           Effect.gen(function* () {
             const { importId } = yield* Schema.decodeUnknown(ApplyBody)(raw);
             const dbService = yield* DbService;
@@ -311,7 +312,7 @@ export const createOrganiserImportRoutes = (
 
         const raw: unknown = await request.json().catch(() => null);
 
-        return Effect.runPromise(
+        return runCire(
           Effect.gen(function* () {
             const { importId } = yield* Schema.decodeUnknown(RevertBody)(raw);
             const summary = yield* revertImport(importId, weddingId);

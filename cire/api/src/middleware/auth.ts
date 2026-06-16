@@ -4,6 +4,7 @@ import { Elysia } from "elysia";
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { parseSessionToken } from "../lib/cookie";
+import { runCire } from "../observability";
 import { sessionService } from "../services/session";
 
 /**
@@ -21,7 +22,7 @@ export function sessionAuth(db: Db) {
         const token = parseSessionToken(request.headers.get("cookie"));
         if (!token) return { familyId: undefined as string | undefined };
 
-        const session = await Effect.runPromise(
+        const session = await runCire(
           sessionService.validate(token).pipe(
             Effect.provideService(DbService, db),
             Effect.match({

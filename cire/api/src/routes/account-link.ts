@@ -4,10 +4,16 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import {
+  measureAccountLinkResolve,
+  metricAccountLinkRequest,
+  metricAccountLinkUnlink,
+} from "../metrics";
 import { sessionAuth } from "../middleware/auth";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
+import { runCire } from "../observability";
 import { LinkAccountBody } from "../schemas/account-link";
 import { accountLinkService } from "../services/account-link";
 import type { OsnAccountResolver } from "../services/osn-bridge";
@@ -43,7 +49,7 @@ export const createAccountLinkRoutes = (db: Db, limiter: RateLimiterBackend) =>
         set.status = 401;
         return { error: "Unauthorized" };
       }
-      return Effect.runPromise(
+      return runCire(
         accountLinkService.listByFamily(familyId).pipe(
           Effect.provideService(DbService, db),
           Effect.map((links) => ({
@@ -60,12 +66,14 @@ export const createAccountLinkRoutes = (db: Db, limiter: RateLimiterBackend) =>
         return { error: "Unauthorized" };
       }
       const guestId = params.guestId;
-      return Effect.runPromise(
+      return runCire(
         accountLinkService.unlink({ familyId, guestId }).pipe(
           Effect.provideService(DbService, db),
+          Effect.tap(() => Effect.sync(() => metricAccountLinkUnlink("ok"))),
           Effect.as({ linked: false, guestId }),
           Effect.catchTag("AccountLinkWriteError", () =>
             Effect.sync(() => {
+              metricAccountLinkUnlink("error");
               set.status = 500;
               return { error: "Could not unlink account" };
             }),
@@ -108,6 +116,7 @@ export const createAccountLinkPostRoute = (
         }
         if (!resolveOsnAccountId) {
           // Deployment has no ARC key configured — linking is disabled, not broken.
+          metricAccountLinkRequest("disabled");
           set.status = 503;
           return { error: "Account linking is not available" };
         }
@@ -116,17 +125,18 @@ export const createAccountLinkPostRoute = (
 
         const raw: unknown = await request.json().catch(() => null);
 
-        return Effect.runPromise(
+        return runCire(
           Effect.gen(function* () {
             const body = yield* Schema.decodeUnknown(LinkAccountBody)(raw);
 
             const resolution = yield* Effect.tryPromise({
               try: () => resolveAccount(profileId),
               catch: (cause) => new OsnAccountLookupError({ reason: String(cause) }),
-            });
+            }).pipe(measureAccountLinkResolve);
             if (!resolution.ok) {
               // Token verified but the profile no longer exists in OSN (deleted
               // between issuance and now). Rare; distinct from a transport failure.
+              yield* Effect.sync(() => metricAccountLinkRequest("profile_not_found"));
               set.status = 404;
               return { error: "OSN profile not found" };
             }
@@ -137,6 +147,7 @@ export const createAccountLinkPostRoute = (
               osnAccountId: resolution.accountId,
               osnProfileId: profileId,
             });
+            yield* Effect.sync(() => metricAccountLinkRequest("ok"));
             set.status = 201;
             return { linked: true, guestId: link.guestId };
           }).pipe(
@@ -144,16 +155,19 @@ export const createAccountLinkPostRoute = (
             Effect.catchTags({
               ParseError: () =>
                 Effect.sync(() => {
+                  metricAccountLinkRequest("error");
                   set.status = 400;
                   return { error: "Missing or invalid fields" };
                 }),
               GuestNotInFamily: () =>
                 Effect.sync(() => {
+                  metricAccountLinkRequest("error");
                   set.status = 403;
                   return { error: "Guest does not belong to this family" };
                 }),
               AccountLinkConflict: () =>
                 Effect.sync(() => {
+                  metricAccountLinkRequest("already_linked");
                   set.status = 409;
                   return { error: "already_linked" };
                 }),
@@ -161,6 +175,7 @@ export const createAccountLinkPostRoute = (
                 Effect.logError("osn account lookup failed", { reason: err.reason }).pipe(
                   Effect.flatMap(() =>
                     Effect.sync(() => {
+                      metricAccountLinkRequest("osn_unavailable");
                       set.status = 502;
                       return { error: "OSN account lookup failed" };
                     }),
@@ -168,6 +183,7 @@ export const createAccountLinkPostRoute = (
                 ),
               AccountLinkWriteError: () =>
                 Effect.sync(() => {
+                  metricAccountLinkRequest("error");
                   set.status = 500;
                   return { error: "Could not link account" };
                 }),
