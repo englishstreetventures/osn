@@ -13,6 +13,7 @@
     "db:push": "bunx drizzle-kit push",
     "db:studio": "bunx drizzle-kit studio",
     "db:seed": "bun run src/seed.ts",
+    "db:reset": "rm -f \"${OSN_DATABASE_URL:-../../data/osn.db}\" && bun run db:push && if [ -f src/seed.ts ]; then bun run db:seed; else echo 'db:reset: no seed file, skipping'; fi",
     "check": "tsc --noEmit",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"

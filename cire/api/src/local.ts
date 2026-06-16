@@ -1,9 +1,26 @@
+import { BOOTSTRAP_WEDDING_ID, weddings } from "@cire/db";
+import { eq } from "drizzle-orm";
+
 import { createApp } from "./app";
 import { createDb, seedDb } from "./db/setup";
 import { createR2Stub } from "./services/r2-imports";
 
 const db = createDb(":memory:");
 await seedDb(db);
+
+// Dev convenience: the in-memory seed gives the bootstrap wedding the placeholder
+// owner (usr_REPLACE_BEFORE_PROD), so the organiser dashboard lists nothing for a
+// real signed-in account. Re-point it at your OSN profile id via env so the
+// wedding shows up. Find yours in osn.db: SELECT id FROM users WHERE handle=...
+const devOwner = process.env.CIRE_DEV_OWNER_PROFILE_ID;
+if (devOwner) {
+  db.update(weddings)
+    .set({ ownerOsnProfileId: devOwner })
+    .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+    .run();
+  // eslint-disable-next-line no-console -- local dev server banner (Bun shim)
+  console.log(`[dev] bootstrap wedding owner -> ${devOwner}`);
+}
 
 const origins = (process.env.WEB_ORIGIN ?? "http://localhost:4321,http://localhost:4322")
   .split(",")

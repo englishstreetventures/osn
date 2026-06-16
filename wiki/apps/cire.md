@@ -14,7 +14,7 @@ related:
   - "[[passkey-primary]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-06-15
+last-reviewed: 2026-06-16
 ---
 
 # Cire
@@ -54,6 +54,30 @@ bun run dev:cire   # @cire/api (:8787) + @cire/web (:4321) + @cire/organiser (:4
 ```
 
 `@osn/api` is included because organiser sign-in needs the OSN issuer (passkey ceremony + JWKS). The osn/api local-dev CORS fallback includes `http://localhost:4322` for the portal.
+
+### Resetting / seeding the local DB
+
+```bash
+bun run db:reset                          # root: resets every app DB (osn/pulse/zap/cire)
+bun run --cwd cire/db db:reset            # cire only: wipe local D1 → db:push → seed
+bun run --cwd cire/db db:seed             # seed only (runs scripts/cire-db-seed.sh)
+```
+
+`scripts/cire-db-seed.sh` seeds the local miniflare D1 and then re-points the
+bootstrap wedding (`wed_bootstrap`, which migration `0006` seeds with the
+`usr_REPLACE_BEFORE_PROD` placeholder owner) to `CIRE_DEV_OWNER_PROFILE_ID` so
+the wedding is owned by your signed-in dev account. Set it in `cire/db/.env`:
+
+```bash
+CIRE_DEV_OWNER_PROFILE_ID=usr_<your-osn-profile-id>
+```
+
+The `cire/api` dev server (`local.ts`) applies the same re-point against its
+own **in-memory** seeded DB (not the persistent D1), so `bun run dev:cire` shows
+the wedding under your account without a separate seed step. Both paths are
+dev-only — neither runs in the deployed Worker (entry `src/index.ts`).
+`cire/db` drizzle.config points `db:studio` at the local D1 sqlite (override via
+`CIRE_DATABASE_URL`; the content-hashed path changes on `db:reset`).
 
 ## Cire-internal docs
 
