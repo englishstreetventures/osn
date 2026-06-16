@@ -228,6 +228,42 @@ describe("createArcToken / verifyArcToken", () => {
       createArcToken(privateKey, { iss: "a", aud: "b", scope: "bad scope!", kid: "k" }),
     ).rejects.toThrow("Invalid scope format");
   });
+
+  // X1: optional expectedIssuer enforcement.
+  it("accepts a token whose iss matches expectedIssuer", async () => {
+    const token = await createArcToken(privateKey, {
+      iss: "pulse-api",
+      aud: "osn-core",
+      scope: "graph:read",
+      kid: "test-kid",
+    });
+    const payload = await verifyArcToken(token, publicKey, "osn-core", "graph:read", "pulse-api");
+    expect(payload.iss).toBe("pulse-api");
+  });
+
+  it("rejects a token whose iss differs from expectedIssuer (X1)", async () => {
+    const token = await createArcToken(privateKey, {
+      iss: "pulse-api",
+      aud: "osn-core",
+      scope: "graph:read",
+      kid: "test-kid",
+    });
+    await expect(
+      verifyArcToken(token, publicKey, "osn-core", "graph:read", "evil-api"),
+    ).rejects.toThrow("ARC token verification failed");
+  });
+
+  it("does not enforce iss when expectedIssuer is omitted (backward compatible)", async () => {
+    const token = await createArcToken(privateKey, {
+      iss: "any-issuer",
+      aud: "osn-core",
+      scope: "graph:read",
+      kid: "test-kid",
+    });
+    // No expectedIssuer arg → iss not enforced.
+    const payload = await verifyArcToken(token, publicKey, "osn-core", "graph:read");
+    expect(payload.iss).toBe("any-issuer");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -295,6 +331,59 @@ describe("getOrCreateArcToken", () => {
     expect(token2).not.toBe(token1);
 
     vi.useRealTimers();
+  });
+
+  // X3: the cache key includes ttl, so a different requested TTL must not
+  // serve a cached token minted with another TTL.
+  it("does not reuse a cached token across differing TTLs (X3)", async () => {
+    const base = { iss: "pulse-api", aud: "osn-core", scope: "graph:read", kid: "test-kid" };
+    const token60 = await getOrCreateArcToken(privateKey, base, 60);
+    const token120 = await getOrCreateArcToken(privateKey, base, 120);
+    expect(token120).not.toBe(token60);
+    // Two distinct cache entries (one per ttl).
+    expect(tokenCacheSize()).toBe(2);
+    // Re-requesting the same (claims, ttl) hits the cache.
+    const token60Again = await getOrCreateArcToken(privateKey, base, 60);
+    expect(token60Again).toBe(token60);
+    expect(tokenCacheSize()).toBe(2);
+  });
+
+  // X3: scope is canonicalised (trim + lowercase) before keying, so
+  // formatting-only differences collapse onto one cache entry...
+  it("collapses formatting-only scope differences onto one cache entry (X3)", async () => {
+    const a = await getOrCreateArcToken(privateKey, {
+      iss: "pulse-api",
+      aud: "osn-core",
+      scope: "graph:read",
+      kid: "test-kid",
+    });
+    const b = await getOrCreateArcToken(privateKey, {
+      iss: "pulse-api",
+      aud: "osn-core",
+      scope: " Graph:Read ", // same scope, different casing/whitespace
+      kid: "test-kid",
+    });
+    expect(b).toBe(a);
+    expect(tokenCacheSize()).toBe(1);
+  });
+
+  // ...but differing scope ORDER stays distinct (X3: no sorting), because the
+  // signed `scope` claim preserves order too.
+  it("keeps differing scope order as distinct cache entries (X3, unsorted)", async () => {
+    const ab = await getOrCreateArcToken(privateKey, {
+      iss: "pulse-api",
+      aud: "osn-core",
+      scope: "graph:read,graph:write",
+      kid: "test-kid",
+    });
+    const ba = await getOrCreateArcToken(privateKey, {
+      iss: "pulse-api",
+      aud: "osn-core",
+      scope: "graph:write,graph:read",
+      kid: "test-kid",
+    });
+    expect(ba).not.toBe(ab);
+    expect(tokenCacheSize()).toBe(2);
   });
 });
 

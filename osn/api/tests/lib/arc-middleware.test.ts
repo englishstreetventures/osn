@@ -1,5 +1,11 @@
-import type { Db } from "@osn/db/service";
-import { clearPublicKeyCache } from "@shared/crypto";
+import { serviceAccounts, serviceAccountKeys } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
+import {
+  clearPublicKeyCache,
+  createArcToken,
+  exportKeyToJwk,
+  generateArcKeyPair,
+} from "@shared/crypto";
 import { Effect } from "effect";
 import { describe, it, expect, beforeEach } from "vitest";
 
@@ -121,6 +127,78 @@ describe("requireArc — valid structure but unregistered service", () => {
       "graph:read",
     );
     expect(result).toBeNull();
+    expect(set.status).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// X1: issuer binding. requireArc passes the peeked `iss` to verifyArcToken as
+// expectedIssuer, so the signed `iss` is cryptographically required to match
+// the issuer its `kid` is registered under in the DB.
+// ---------------------------------------------------------------------------
+describe("requireArc — issuer binding (X1)", () => {
+  /** Register a service + key under `serviceId`, return a signing key pair + keyId. */
+  async function registerKey(serviceId: string, scopes = "graph:read") {
+    const kp = await generateArcKeyPair();
+    const pubJwk = await exportKeyToJwk(kp.publicKey);
+    const keyId = crypto.randomUUID();
+    const now = new Date();
+    await run(
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        yield* Effect.tryPromise({
+          try: () =>
+            db
+              .insert(serviceAccounts)
+              .values({ serviceId, allowedScopes: scopes, createdAt: now, updatedAt: now }),
+          catch: (e) => e,
+        });
+        yield* Effect.tryPromise({
+          try: () =>
+            db.insert(serviceAccountKeys).values({
+              keyId,
+              serviceId,
+              publicKeyJwk: pubJwk,
+              registeredAt: now,
+              expiresAt: null,
+              revokedAt: null,
+            }),
+          catch: (e) => e,
+        });
+      }),
+    );
+    return { keyPair: kp, keyId };
+  }
+
+  it("accepts a token whose signed iss matches the kid's registered issuer", async () => {
+    const { keyPair, keyId } = await registerKey("pulse-api");
+    const token = await createArcToken(keyPair.privateKey, {
+      iss: "pulse-api",
+      aud: "osn-api",
+      scope: "graph:read",
+      kid: keyId,
+    });
+    const set = makeSet();
+    const caller = await requireArc(`ARC ${token}`, set, run, "osn-api", "graph:read");
+    expect(caller).not.toBeNull();
+    expect(caller?.iss).toBe("pulse-api");
+    expect(set.status).toBeUndefined();
+  });
+
+  it("rejects a token whose signed iss differs from the kid's registered issuer", async () => {
+    // Key registered under "real-svc", but token claims iss "evil-api" while
+    // re-using the same kid. The kid→issuer DB binding rejects it at resolve,
+    // and even if it resolved, X1's expectedIssuer check would reject it.
+    const { keyPair, keyId } = await registerKey("real-svc");
+    const forged = await createArcToken(keyPair.privateKey, {
+      iss: "evil-api",
+      aud: "osn-api",
+      scope: "graph:read",
+      kid: keyId,
+    });
+    const set = makeSet();
+    const caller = await requireArc(`ARC ${forged}`, set, run, "osn-api", "graph:read");
+    expect(caller).toBeNull();
     expect(set.status).toBe(401);
   });
 });

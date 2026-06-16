@@ -141,11 +141,16 @@ export async function requireArc(
     return null;
   }
   try {
+    // X1: pass the registered issuer as expectedIssuer so jose cryptographically
+    // binds the signed `iss` to the kid's registered service. The explicit
+    // post-verify equality check below is kept as defence-in-depth (and can be
+    // dropped one release after this adoption settles).
     const payload: ArcTokenPayload = await verifyArcToken(
       raw,
       registered.publicKey,
       expectedAudience,
       requiredScope,
+      registered.issuer,
     );
     if (payload.iss !== registered.issuer) {
       set.status = 401;

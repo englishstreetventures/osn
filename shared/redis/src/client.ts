@@ -10,6 +10,8 @@ import { createHash } from "node:crypto";
 
 import IORedis from "ioredis";
 
+import { RATE_LIMIT_SCRIPT } from "./rate-limiter";
+
 /**
  * Backend-agnostic Redis client contract. Production uses ioredis via
  * `wrapIoRedis()`; dev/test uses `createMemoryClient()`.
@@ -173,7 +175,17 @@ export function createMemoryClient(maxEntries = DEFAULT_MAX_ENTRIES): RedisClien
   }
 
   return {
-    async eval(_script, keys, args) {
+    async eval(script, keys, args) {
+      // X5: this in-memory eval ONLY emulates the fixed-window rate-limit Lua
+      // script (INCR + PEXPIRE). It does not interpret arbitrary Lua. Guard so
+      // a future, semantically-different script can't silently inherit
+      // rate-limit behaviour — fail loud instead of returning a wrong answer.
+      if (script !== RATE_LIMIT_SCRIPT) {
+        throw new Error(
+          "createMemoryClient.eval only supports the rate-limit Lua script (RATE_LIMIT_SCRIPT); " +
+            "got an unrecognised script. The in-memory backend cannot execute arbitrary Lua.",
+        );
+      }
       // Fixed-window rate limit: KEYS[1] = key, ARGV[1] = maxRequests, ARGV[2] = windowMs
       const key = keys[0]!;
       const maxRequests = Number(args[0]);

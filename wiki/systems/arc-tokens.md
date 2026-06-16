@@ -22,7 +22,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-06-16
 security-fixes:
   - S-H100
   - S-H101
@@ -74,7 +74,7 @@ sequenceDiagram
   Receiver->>Receiver: peekClaims → kid, iss
   Receiver->>DB: resolvePublicKey(kid, iss, [scope])
   DB-->>Receiver: publicKey (rejects revoked / expired)
-  Receiver->>Receiver: verifyArcToken(token, publicKey, "osn-api", scope)
+  Receiver->>Receiver: verifyArcToken(token, publicKey, "osn-api", scope, iss)
   Receiver-->>Caller: 200 { ... }
 ```
 
@@ -108,10 +108,10 @@ barrel** — the barrel pulls `arc.ts → @osn/db → @shared/db-utils → bun:s
 generateArcKeyPair()                                           // → CryptoKeyPair (ES256)
 exportKeyToJwk(key)                                            // → JSON string (for DB storage)
 importKeyFromJwk(jwk)                                          // → CryptoKey
-createArcToken(privateKey, { iss, aud, scope, kid }, ttl?)     // → signed JWT string; kid in header
-verifyArcToken(token, publicKey, expectedAud, scope?)           // → ArcTokenPayload or throws
-resolvePublicKey(kid, issuer, tokenScopes?)                    // → Effect<CryptoKey, ArcTokenError, Db>
-getOrCreateArcToken(privateKey, { iss, aud, scope, kid }, ttl?) // → cached JWT (cache key: kid:iss:aud:scope)
+createArcToken(privateKey, { iss, aud, scope, kid }, ttl?)              // → signed JWT string; kid in header
+verifyArcToken(token, publicKey, expectedAud, scope?, expectedIssuer?)  // → ArcTokenPayload or throws
+resolvePublicKey(kid, issuer, tokenScopes?)                            // → Effect<CryptoKey, ArcTokenError, Db>
+getOrCreateArcToken(privateKey, { iss, aud, scope, kid }, ttl?)         // → cached JWT (cache key: kid:iss:aud:canonical(scope):ttl)
 clearTokenCache() / clearPublicKeyCache()                      // → for testing / key rotation
 evictPublicKeyCacheEntry(kid)                                  // → immediate per-key cache eviction (call on revoke)
 evictExpiredTokens()                                           // → force-sweep expired tokens (no debounce)
@@ -165,7 +165,9 @@ const arcMiddleware = (requiredScope: string) => async (ctx) => {
   const publicKey = await Effect.runPromise(
     resolvePublicKey(kid, iss, [requiredScope]).pipe(Effect.provide(DbLive))
   );
-  const claims = await verifyArcToken(token, publicKey, "osn-api", requiredScope);
+  // Pass the resolved issuer as expectedIssuer (X1) so jose enforces the
+  // signed `iss` matches the kid's registered service.
+  const claims = await verifyArcToken(token, publicKey, "osn-api", requiredScope, iss);
   // claims.iss, claims.aud, claims.scope are now verified
 };
 ```
@@ -217,6 +219,30 @@ INTERNAL_SERVICE_SECRET=<shared-random-string>
 `DELETE /graph/internal/service-keys/:keyId` (also protected by `INTERNAL_SERVICE_SECRET`) sets `revoked_at` in the DB AND evicts the in-process public key cache entry immediately — revocation takes effect on the next request with no wait for the 5-minute cache TTL (S-H100).
 
 `/register-service` validates requested `allowedScopes` against a server-side allowlist (`PERMITTED_SCOPES`). Any unknown scope returns 400 — a service cannot self-promote its scope set (S-M101).
+
+### Cross-process revocation window (X4)
+
+Revocation is immediate *in the process that performs it* (it calls `evictPublicKeyCacheEntry(kid)`). Other processes that have already cached the key keep serving it until their own `publicKeyCache` entry expires — at most one cache TTL.
+
+- TTL defaults to **300 s** and is overridable via the `ARC_PUBLIC_KEY_CACHE_TTL_SECONDS` env var (kept finite; a lower value shrinks the window at the cost of more DB lookups).
+- So the **worst-case cross-process revocation latency is ≤ the configured TTL (≤5 min by default)**. The DB row is updated synchronously, so a process with a cold/expired cache rejects the revoked key immediately — only warm caches on *other* nodes lag.
+- A Redis pub/sub fan-out that evicts `(kid)` across all processes on revoke (closing this window to ~0) is backlogged in `wiki/TODO.md`.
+
+## Issuer binding (X1)
+
+`verifyArcToken` accepts an optional `expectedIssuer`. When supplied, jose enforces that the signed `iss` claim equals it. The OSN ARC middleware (`requireArc`) passes the issuer it resolved the key for (`peeked.iss`), so the signed `iss` is **cryptographically** bound to the `kid`→issuer DB mapping, not just checked via the DB lookup. A token whose signed `iss` differs from the service its `kid` is registered under is rejected at verification.
+
+Pulse's in-memory ARC receiver (`pulse/api/src/lib/arc-middleware.ts`) also passes the registered issuer as `expectedIssuer`; its pre-existing explicit `payload.iss !== registered.issuer` check is retained as defence-in-depth and can be dropped one release later.
+
+`expectedIssuer` is **optional** for backward compatibility — omitting it leaves `iss` unenforced (existing crypto-level behaviour).
+
+## Token cache key (X3)
+
+The in-process token cache key is `kid:iss:aud:canonical(scope):ttl`:
+
+- **`ttl` is part of the key** — a token requested with a shorter TTL never reuses a longer-lived cached entry whose remaining life exceeds the caller's intent.
+- **scope is canonicalised** with the same normalisation (`normaliseScopes` in `@shared/crypto/jwk`) the signer applies (trim + lowercase + drop empties), so formatting-only differences (`" Graph:Read "` vs `"graph:read"`) hit the same entry as the signed token.
+- **scope is NOT sorted** — `"graph:read,graph:write"` and `"graph:write,graph:read"` stay distinct cache entries, matching the distinct `scope` claims `signArcToken` signs (it preserves order). Sorting would be a safe, trivial collapse but would also reorder the signed claim, so it's left as a deliberate non-change.
 
 ## Current S2S Strategy
 

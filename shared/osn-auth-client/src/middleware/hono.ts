@@ -19,6 +19,7 @@ export function osnAuth(options: OsnAuthOptions): MiddlewareHandler {
     const claims = await extractClaims(authHeader, options.jwksUrl, {
       testKey: options._testKey,
       audience: options.audience,
+      issuer: options.issuer,
     });
     if (!claims) return c.json({ error: "unauthorised" }, 401);
 

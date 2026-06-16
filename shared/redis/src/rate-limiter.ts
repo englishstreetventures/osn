@@ -24,8 +24,12 @@ const NAMESPACE_RE = /^[a-zA-Z0-9_:.-]+$/;
  * ARGV[2] = windowMs (PEXPIRE milliseconds)
  *
  * Returns 1 (allowed) or 0 (rate-limited).
+ *
+ * Exported (value) so the in-memory client can assert that the only Lua script
+ * it ever evaluates is *this* one (X5) — its `eval` hardcodes rate-limit
+ * semantics, so a different script must never be silently run through it.
  */
-const RATE_LIMIT_SCRIPT = `
+export const RATE_LIMIT_SCRIPT = `
 local current = redis.call('INCR', KEYS[1])
 if current == 1 then
   redis.call('PEXPIRE', KEYS[1], ARGV[2])
