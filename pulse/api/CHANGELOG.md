@@ -1,5 +1,76 @@
 # @osn/api
 
+## 0.21.1
+
+### Patch Changes
+
+- af2cf69: Bring cire under the OSN oxlint + oxfmt conventions cleanly — cire was the
+  source of 34 of the repo's 40 oxlint warnings; it is now warning-free under
+  the shared `oxlintrc.json`.
+
+  Lint fixes (behaviour-preserving):
+
+  - `unicorn/no-array-sort` — replaced mutating `Array#sort()` with
+    non-mutating `Array#toSorted()` in test assertions across `cire/api`
+    (`claim`, `rsvp`, `spreadsheet` service + route tests).
+  - `unicorn/prefer-add-event-listener` — `FileReader`/`script` `on*`
+    assignments converted to `addEventListener(...)` in
+    `cire/organiser` `ImportPanel`, `cire/web` `PinterestBoard`, and the
+    `cire/web` calendar test.
+  - `unicorn/consistent-function-scoping` — hoisted scope-independent
+    helpers (`pad` in `cire/web/calendar`, `tooManyRows` / `cellTooLarge`
+    in `cire/api/spreadsheet`) to module scope.
+  - `no-console` — annotated the `cire/api` local-dev server banner
+    (`local.ts`, a Bun shim, not the deployed Worker) with the repo's
+    standard `eslint-disable-next-line no-console -- …` justification.
+
+  Tooling parity:
+
+  - The root `fmt` / `fmt:check` scripts now include `cire` (the `lint`
+    script already covered it via `.`), so CI's format check enforces cire
+    too. The two cire `astro.config.mjs` files were import-sorted to match.
+
+  Also cleared the remaining 6 repo-wide oxlint warnings so the whole tree
+  is warning-free under the shared config:
+
+  - `@pulse/api` events feed — `Array#sort()` → `Array#toSorted()`.
+  - `@pulse/app` Explore — hoisted `isDark` to module scope
+    (`consistent-function-scoping`) and prefixed an unused mock param.
+  - `@osn/api` outbound-arc + `@shared/osn-auth-client` jwks-cache test —
+    justified `no-await-in-loop` disables where the sequential `await` is
+    intentional (short-circuit on a configured stack / LRU access order
+    under test), plus a hoisted test url helper.
+
+- 04e0bf2: Audit + align cross-workspace dependency ranges and adopt TypeScript 6.0.
+
+  - Resolve declared-range drift: `solid-js` → `^1.9.13` and `vitest` → `^4.1.8`
+    everywhere they were behind; `@osn/landing` switched from pinned
+    `astro@6.1.10` / `@astrojs/solid-js@6.0.1` to the caret ranges (`^6.4.2` /
+    `^6.0.1`) used by the cire Astro apps.
+  - Bump `typescript` `^5.9.3` → `^6.0.3` across the repo. The shared tsconfig was
+    already TS 6.0-clean (`strict: true`, `target` ≥ ES2015, ESNext modules, no
+    removed flags), so no `ignoreDeprecations` shim was needed. Three call sites
+    surfaced by the stricter compiler were fixed:
+    - `@osn/social`: added the missing `src/vite-env.d.ts`
+      (`/// <reference types="vite/client" />`) so side-effect CSS imports type
+      again (TS2882).
+    - `@pulse/api`: dropped the now-deprecated `baseUrl` from `tsconfig.json`
+      (the `#db` / `#routes` `paths` are already tsconfig-relative; TS5101).
+    - `@pulse/api`: annotated `createClient`'s return type as
+      `Treaty.Create<App>` to satisfy the tightened declaration-portability check
+      (TS2883).
+
+- Updated dependencies [d04dc20]
+- Updated dependencies [77f91a4]
+- Updated dependencies [04e0bf2]
+- Updated dependencies [940561f]
+  - @shared/crypto@0.7.0
+  - @shared/observability@0.10.1
+  - @pulse/db@0.17.1
+  - @zap/db@0.3.2
+  - @shared/osn-auth-client@0.1.2
+  - @shared/rate-limit@0.2.2
+
 ## 0.21.0
 
 ### Minor Changes
