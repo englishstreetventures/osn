@@ -7,7 +7,7 @@ related:
   - "[[rate-limiting]]"
   - "[[redis]]"
   - "[[osn-core]]"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-06-16
 ---
 
 # Rate Limit Incident Runbook
@@ -42,13 +42,14 @@ Current limits (defined in `osn/api/src/routes/auth.ts` and bound at the composi
 | `GET /passkeys` | 30 | Settings listing — cheap reads |
 | `POST /recovery/generate` | 1/day/IP (recoveryGenerate) | Stop-gap for S-M1 |
 
-### 3. Check X-Forwarded-For Header Trust
+### 3. Check Client-IP Trust Policy (S-M34)
 
-The rate limiter uses `getClientIp(headers)` which reads `X-Forwarded-For`. Without a trusted reverse proxy, clients can spoof this header.
+The rate limiter resolves the keying IP via `getClientIp(headers, clientIpConfig)` under a **fail-closed** trust policy (see [[rate-limiting]] → Client-IP Trust Policy). For `@osn/api` the policy is driven by the `TRUSTED_PROXY_COUNT` env var:
 
-- **If behind a proxy**: verify the proxy is setting `X-Forwarded-For` correctly
-- **If NOT behind a proxy**: the raw client IP is used, which is correct
-- **Known issue (S-M34)**: there is no `trustProxy` configuration flag yet. The limiter trusts `X-Forwarded-For` unconditionally
+- **`TRUSTED_PROXY_COUNT` unset / 0 (direct mode)**: the IP comes from the Bun socket peer (`server.requestIP`), NOT `X-Forwarded-For`. Behind an *undeclared* reverse proxy / load balancer, every user collapses onto the LB's IP → mass 429s. Look for the startup warning `TRUSTED_PROXY_COUNT is unset` in logs. Fix: set `TRUSTED_PROXY_COUNT` to the number of trusted hops.
+- **`TRUSTED_PROXY_COUNT = N` (proxy mode)**: the IP is taken N entries from the **right** of `X-Forwarded-For`. If N is too high (more than the real hop count), a shared proxy IP gets selected or the entry resolves as malformed → spurious 429s. Verify N matches the actual proxy chain depth.
+- **Unresolved IP → deny**: a request whose IP can't be resolved under the policy (no XFF under a proxy, chain shorter than N, malformed entry, no socket peer) is denied with 429 by design, rather than sharing an "unknown" bucket. A spike of 429s with no obvious abuser may mean the policy is mis-set (e.g. proxy not actually sending XFF) — reconcile `TRUSTED_PROXY_COUNT` with the deployment topology.
+- **Cloudflare**: when fronted by CF, the policy uses `trustCloudflare` (`cf-connecting-ip`) instead; a missing `cf-connecting-ip` fails closed (never falls back to XFF).
 
 ### 4. Check Backend Health (Redis vs in-memory)
 
@@ -70,7 +71,7 @@ If many IPs are hitting rate limits simultaneously:
 | Cause | Signs | Resolution |
 |-------|-------|------------|
 | Shared IP (NAT/corporate) | Single IP, many legitimate users | Consider user-ID-based limiting for authenticated endpoints; accept the trade-off for unauthenticated endpoints |
-| Misconfigured proxy headers (S-M34) | `X-Forwarded-For` is missing or wrong | Fix proxy configuration; add `trustProxy` flag when implemented |
+| Mis-set proxy trust (S-M34) | Mass 429s; startup warning `TRUSTED_PROXY_COUNT is unset`, or N doesn't match the real hop count | Set `TRUSTED_PROXY_COUNT` to the actual number of trusted proxies (or `trustCloudflare` behind CF); verify the proxy actually emits `X-Forwarded-For` |
 | Redis outage (fail-closed) | Spike of 429s correlated with `redis.command.errors` | Restore Redis; do **not** flip individual checks to fail-open |
 | Aggressive client retry | Single user hitting limits rapidly | Check client-side retry logic; add exponential backoff |
 | Fixed-window boundary burst | Brief spike of 2x normal rate at window boundary | Known limitation of fixed-window algorithm; not actionable unless switching to sliding window |
@@ -90,12 +91,12 @@ If many IPs are hitting rate limits simultaneously:
 
 ### Long-term
 
-- **S-M34**: add a `trustProxy` configuration flag to control `X-Forwarded-For` trust
+- **S-M34 (done)**: `getClientIp` now takes a fail-closed `ClientIpOptions` trust policy; `@osn/api` drives it via `TRUSTED_PROXY_COUNT`. Ensure each deploy sets the correct hop count. Pulse/Zap/Cire adopt the options in their own workstreams.
 - Consider sliding-window algorithm if boundary bursts become a real problem
 
 ## Known Limitations
 
-- **Trusts `X-Forwarded-For` unconditionally** (S-M34): clients can spoof without a trusted reverse proxy
+- **`X-Forwarded-For` trust is policy-gated** (S-M34, fixed): trust is opt-in via `ClientIpOptions` and fails closed. Residual caveat is operational — each service must declare its proxy topology (`TRUSTED_PROXY_COUNT` for `@osn/api`) or fall back to socket-peer / unresolved-deny.
 - **Fixed window**: a burst at the window boundary can allow 2x the configured limit
 - **In-memory fallback**: when `REDIS_URL` is unset, state is process-local and resets on restart — by design for local dev
 
