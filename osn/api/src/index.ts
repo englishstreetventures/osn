@@ -102,7 +102,14 @@ if (envNonLocal && (!sessionIpPepper || sessionIpPepper.length < 32)) {
 const authConfig = {
   rpId: process.env.OSN_RP_ID || "localhost",
   rpName: process.env.OSN_RP_NAME || "OSN",
-  origin: process.env.OSN_ORIGIN || "http://localhost:5173",
+  // Comma-separated list of accepted WebAuthn origins (passed straight to
+  // @simplewebauthn's `expectedOrigin`, which accepts string[]). Lets every dev
+  // frontend (pulse 1420, social 1422, cire organiser 4322, SDK 5173) run a
+  // passkey ceremony against one API. Parsed like OSN_CORS_ORIGIN below.
+  origin: (process.env.OSN_ORIGIN || "http://localhost:5173")
+    .split(",")
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0),
   issuerUrl: process.env.OSN_ISSUER_URL || `http://localhost:${port}`,
   jwtPrivateKey,
   jwtPublicKey,

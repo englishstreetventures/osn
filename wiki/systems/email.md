@@ -21,7 +21,7 @@ related:
 packages:
   - "@shared/email"
   - "@osn/api"
-last-reviewed: 2026-04-24
+last-reviewed: 2026-06-16
 ---
 
 # Email Transport
@@ -117,6 +117,14 @@ Content-Type: application/json
   `recorded()`), emits a single `Effect.logDebug` line with `template`
   + `subject` + `to` — **never** the OTP code. Tests that need to
   assert on captured content read the recorder directly.
+
+> Dev-only OTP visibility: the email transport never logs the code, but
+> `osn/api`'s auth service has a **separate** `logDevOtp` helper that emits a
+> `[dev-otp] … code=…` debug line for registration / step-up / email-change
+> flows. It is gated strictly on `OSN_ENV` being unset or `"local"` (returns
+> `Effect.void` otherwise), so the code is never logged in staging/production.
+> This makes email-OTP dev flows testable without a real inbox. See
+> `osn/api/src/services/auth.ts`.
 
 Selection in `osn/api/src/index.ts`: `CLOUDFLARE_ACCOUNT_ID` +
 `CLOUDFLARE_EMAIL_API_TOKEN` set → `CloudflareEmailLive`; unset →

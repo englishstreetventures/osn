@@ -101,8 +101,12 @@ export interface AuthConfig {
   rpId: string;
   /** Human-readable RP name */
   rpName: string;
-  /** Origin for WebAuthn (e.g. "http://localhost:5173") */
-  origin: string;
+  /**
+   * Accepted WebAuthn origin(s) — a single origin or several (e.g. one per dev
+   * frontend). Passed straight to @simplewebauthn's `expectedOrigin`, which
+   * matches the ceremony's origin against the string or any member of the array.
+   */
+  origin: string | string[];
   /** Issuer URL (JWT issuer) */
   issuerUrl: string;
   /** ES256 private key for signing access and refresh tokens */
@@ -375,6 +379,21 @@ function genOtpCode(): string {
     crypto.getRandomValues(buf);
   } while (buf[0]! >= ceil);
   return (100_000 + (buf[0]! % 900_000)).toString();
+}
+
+/**
+ * Local-dev convenience: surface a freshly minted OTP in the server log so an
+ * operator can complete an email-OTP flow (registration, step-up, email change)
+ * without a real inbox — `LogEmailLive` records the body in-memory but never
+ * logs the code. Gated strictly on a local environment (`OSN_ENV` unset or
+ * "local") so a code is NEVER logged in staging/production. Emitted at debug:
+ * local dev defaults to the debug log level (so it shows), non-local defaults to
+ * info (a second guard on top of the env check).
+ */
+function logDevOtp(purpose: string, to: string, code: string): Effect.Effect<void> {
+  const isLocal = !process.env.OSN_ENV || process.env.OSN_ENV === "local";
+  if (!isLocal) return Effect.void;
+  return Effect.logDebug(`[dev-otp] ${purpose} to=${to} code=${code}`);
 }
 
 /**
@@ -960,6 +979,8 @@ export function createAuthService(config: AuthConfig) {
         attempts: 0,
         expiresAt: Date.now() + otpTtl * 1000,
       });
+
+      yield* logDevOtp("registration", normalisedEmail, code);
 
       // S-M3: the EmailService layer decides whether to actually dispatch
       // or just log. `LogEmailLive` (local dev + tests) captures the
@@ -3043,6 +3064,7 @@ export function createAuthService(config: AuthConfig) {
         attempts: 0,
         expiresAt: Date.now() + otpTtl * 1000,
       });
+      yield* logDevOtp("step-up", account.email, code);
       const email = yield* EmailService;
       yield* email
         .send({
@@ -3377,6 +3399,8 @@ export function createAuthService(config: AuthConfig) {
         attempts: 0,
         expiresAt: Date.now() + otpTtl * 1000,
       });
+
+      yield* logDevOtp("email-change", normalised, code);
 
       // S-L5 framing lives in the template itself
       // (shared/email/src/templates/otp.ts → renderEmailChangeOtp).
