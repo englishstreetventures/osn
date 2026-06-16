@@ -11,8 +11,8 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/ui"
-last-reviewed: 2026-04-22
-updated: 2026-04-22
+last-reviewed: 2026-06-16
+updated: 2026-06-16
 ---
 
 # Recovery Codes
@@ -121,10 +121,20 @@ Spans: `auth.recovery.generate`, `auth.recovery.consume`, `auth.login.recovery_c
 
 Redaction deny-list adds `recoveryCode`, `recovery_code`, `recoveryCodes`, `recovery_codes`, `codeHash`, `code_hash`, `securityEventId`, `security_event_id` — see `shared/observability/src/logger/redact.ts`.
 
+## Per-account lockout (O2)
+
+`consumeRecoveryCode` adds a per-account failed-attempt ceiling on top of the per-IP rate limit. The counter is keyed on the **resolved `accountId`**, never the caller-supplied identifier — keying on the identifier would let an attacker lock a victim out by spamming their handle (DoS) and would also leak existence ("this identifier can be locked, therefore it exists"). An unknown identifier resolves to no account and so can never move a counter.
+
+- **Threshold / window:** 5 failed attempts → 15-minute lockout (`RECOVERY_LOCKOUT_THRESHOLD` / `RECOVERY_LOCKOUT_MS` in `osn/api/src/lib/recovery-lockout-store.ts`).
+- **Both "wrong code" and "already-used code" count** as failures.
+- **On lockout** the consume still runs the same indexed SELECT for latency parity and returns the **same generic `Invalid request`** error — a locked account is indistinguishable from a wrong code (no enumeration oracle).
+- **Audit + reset:** crossing the threshold writes a `recovery_code_lockout` security-event row (surfaced in the in-app banner) and emits `osn.auth.recovery.lockout{result}`. A successful consume resets the counter.
+- **Store:** injectable triple-pattern (interface → in-memory default → `createRedisRecoveryLockoutStore` for multi-pod, atomic `INCR`+`PEXPIRE`). **Fail-open** on Redis outage — an unavailable counter must not lock every account out; the per-IP limit and the 2^64 search space remain in force. See `[[redis]]`.
+
 ## Threat model
 
 - **Target risk:** an adversary with a leaked DB tries to brute-force a user's code. Per-user search space is 10 codes × 2^64 / 2^64 ≈ 2^64 operations on average to hit any code — infeasible. SHA-256 is fine: the tokens are uniformly random high-entropy secrets, not password-derived.
-- **Online brute force** against one account is bounded by the IP rate limit (5/hr) + the 10-code × 2^64 search space. Effectively zero.
+- **Online brute force** against one account is bounded by the IP rate limit (5/hr), the **per-account lockout (O2)**, and the 10-code × 2^64 search space. Effectively zero.
 - **Leaked code at rest** (screenshot, shared notes): single-use, and regenerating invalidates it. The user's footgun surface is "I saved them badly"; the UI requires an explicit "I've saved these" checkbox before it will dismiss the one-time view.
 - **No enumeration oracle** — every failure returns the same payload.
 

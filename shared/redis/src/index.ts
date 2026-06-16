@@ -9,3 +9,4 @@ export {
 export { Redis, type RedisService, RedisLive, RedisMemoryLive, sanitizeCause } from "./service";
 export { createRedisRateLimiter, type RedisRateLimiterConfig } from "./rate-limiter";
 export { checkRedisHealth } from "./health";
+export type { RedisNamespace } from "./metrics";

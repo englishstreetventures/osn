@@ -11,6 +11,7 @@ import type { CookieSessionConfig } from "./lib/cookie-session";
 import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
 import { createOriginGuard } from "./lib/origin-guard";
 import { startOutboundKeyRotation } from "./lib/outbound-arc";
+import { createRedisCeremonyStores } from "./lib/redis-ceremony-stores";
 import {
   createRedisAuthRateLimiters,
   createRedisGraphRateLimiter,
@@ -158,6 +159,23 @@ const rotatedSessionStore = createRedisRotatedSessionStore(redisClient, {
   },
 });
 
+// INTEGRATION: O3/O2 (W6) — Redis-backed ceremony / pending-state stores, the
+// recovery-code lockout counter, and the two per-account caps. All built from
+// the same `redisClient` as the limiters above. Errors are routed to the
+// Effect logger (credential-redacted via `sanitizeCause`) so a Redis blip
+// surfaces in ops dashboards; the stores themselves fail-open/closed per their
+// documented posture. Wired into `authConfig` at the `createAuthRoutes` call
+// below alongside `stepUpJtiStore` / `rotatedSessionStore`.
+const { ceremonyStores, recoveryLockoutStore, profileSwitchCap, emailChangeBeginCap } =
+  createRedisCeremonyStores(redisClient, (store, op, cause) => {
+    void Effect.runPromise(
+      Effect.logWarning("Ceremony/lockout store Redis error").pipe(
+        Effect.annotateLogs({ store, op, error: sanitizeCause(cause) }),
+        Effect.provide(observabilityLayer),
+      ),
+    );
+  });
+
 const authRateLimiters = createRedisAuthRateLimiters(redisClient);
 const graphRateLimiter = createRedisGraphRateLimiter(redisClient);
 const orgRateLimiter = createRedisOrgRateLimiter(redisClient);
@@ -257,7 +275,17 @@ const app = new Elysia()
   .get("/", () => ({ status: "ok", service: "osn-auth" }))
   .use(
     createAuthRoutes(
-      { ...authConfig, stepUpJtiStore, rotatedSessionStore },
+      // INTEGRATION: O3/O2 (W6) — ceremonyStores + recoveryLockoutStore + the
+      // two caps join stepUpJtiStore / rotatedSessionStore on the auth config.
+      {
+        ...authConfig,
+        stepUpJtiStore,
+        rotatedSessionStore,
+        ceremonyStores,
+        recoveryLockoutStore,
+        profileSwitchCap,
+        emailChangeBeginCap,
+      },
       dbAndEmailLayer,
       observabilityLayer,
       authRateLimiters,
