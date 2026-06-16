@@ -1150,9 +1150,18 @@ export function createAuthService(config: AuthConfig) {
         metricAuthHandleCheck("taken");
         return { available: false };
       }
-      const existing = yield* findProfileByHandle(handle);
-      metricAuthHandleCheck(existing === null ? "available" : "taken");
-      return { available: existing === null };
+      // Availability only needs existence, not the profile — a single-column
+      // `users.handle` probe instead of `findProfileByHandle`'s account join
+      // (which exists to hydrate the email for its other callers). Keeps this
+      // high-frequency, debounced endpoint as light as possible.
+      const { db } = yield* Db;
+      const existing = yield* Effect.tryPromise({
+        try: () => db.select({ id: users.id }).from(users).where(eq(users.handle, handle)).limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const taken = existing.length > 0;
+      metricAuthHandleCheck(taken ? "taken" : "available");
+      return { available: !taken };
     }).pipe(Effect.withSpan("auth.handle.check"));
 
   // -------------------------------------------------------------------------

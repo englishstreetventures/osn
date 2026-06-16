@@ -577,6 +577,7 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [x] P-I1 — `evictExpiredTokens` iterates full cache on every `getOrCreateArcToken` call. **Fixed as P-W102** — debounced internal sweep — see [[arc-tokens]]
 - [x] P-I100 — `rotateKey` retry had no jitter; simultaneous failures on horizontal instances caused thundering-herd on `/register-service`. **Fixed** — retry delay is `5 min ± 30 s` — see [[arc-tokens]]
 - [x] P-I101 — `startKeyRotation` scheduled a rotation timer for the pre-distributed key path that always silently no-oped. **Fixed** — pre-distributed key path removed entirely; all rotation is ephemeral auto-rotation — see [[arc-tokens]]
+- [ ] P-I1 (osn-runtime) — The shared `appRuntime` (`osn/api/src/index.ts`) has no `dispose()` wired to a SIGTERM/SIGINT handler, so a clean shutdown defers the final OTel exporter flush + SQLite close to the platform's grace period. One-time, process-lifetime concern (the opposite of the per-request rebuild it replaced); add a shutdown hook if a graceful-drain story is needed — see [[architecture/backend-patterns]]
 - [ ] P-I2 — `new TextEncoder()` allocated per JWT sign/verify call — cache or import `CryptoKey` once
 - [ ] P-I3 — `new TextEncoder()` per `verifyPkceChallenge` call — move to module scope
 - [ ] P-I1 (pulse) — `Register`/`SignIn` eagerly imported in `Header.tsx` — lazy-load for authenticated users — see [[component-library]]

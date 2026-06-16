@@ -172,6 +172,7 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 |---|---|
 | Apps | Tauri apps created via CLI (`bunx create-tauri-app`), not manually |
 | Functional core | Effect.ts trial in OSN/Pulse first, decision tracked in `wiki/TODO.md` Deferred Decisions |
+| Effect runtime | Build the layer graph **once** (shared `ManagedRuntime` at boot), never `Effect.provide(DbLive/observability)` inside a per-request `runPromise` — it rebuilds the layer (restarts the OTel SDK + opens a new DB conn) every call. `@osn/api` threads one runtime through route factories via `makeAppRunner`. See `[[wiki/architecture/backend-patterns]]` |
 | Messaging | `@zap/api` shared backend — Pulse consumes for event chats; users don't need Zap install |
 | Privacy | E2E encryption everywhere; all personalisation data user-accessible + resettable |
 | Platform priority | iOS > Web > Android (Android deferred) |

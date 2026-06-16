@@ -1,8 +1,9 @@
 import { DbLive, type Db } from "@osn/db/service";
-import { Effect, Layer } from "effect";
+import { Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { requireArc } from "../lib/arc-middleware";
+import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { createOrganisationService } from "../services/organisation";
 
 // ---------------------------------------------------------------------------
@@ -32,11 +33,14 @@ function safeError(e: unknown): string {
 // Internal organisation routes — ARC token protected
 // ---------------------------------------------------------------------------
 
-export function createInternalOrganisationRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
+export function createInternalOrganisationRoutes(
+  dbLayer: Layer.Layer<Db> = DbLive,
+  /** Shared application runtime (see `createAuthRoutes`). */
+  runtime?: AppRuntime,
+) {
   const org = createOrganisationService();
 
-  const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
-    Effect.runPromise(eff.pipe(Effect.provide(dbLayer)) as Effect.Effect<A, never, never>);
+  const { run } = makeAppRunner(runtime, dbLayer);
 
   return new Elysia({ prefix: "/organisations/internal" })
     .get(

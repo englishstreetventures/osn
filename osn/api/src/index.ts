@@ -4,7 +4,7 @@ import { generateArcKeyPair, importKeyFromJwk, thumbprintKid } from "@shared/cry
 import { makeCloudflareEmailLive, makeLogEmailLive } from "@shared/email";
 import { healthRoutes, initObservability, observabilityPlugin } from "@shared/observability";
 import { sanitizeCause } from "@shared/redis";
-import { Effect, Layer, Logger } from "effect";
+import { Effect, Layer, Logger, ManagedRuntime } from "effect";
 import { Elysia } from "elysia";
 
 import type { CookieSessionConfig } from "./lib/cookie-session";
@@ -201,6 +201,19 @@ const emailLayer =
 
 const dbAndEmailLayer = Layer.merge(DbLive, emailLayer);
 
+// Build the application layer graph ONCE into a long-lived runtime and thread
+// it through every route factory below. Previously each route's `run` helper
+// did `Effect.runPromise(eff.pipe(Effect.provide(dbAndEmailLayer),
+// Effect.provide(observabilityLayer)))`, which rebuilds the layer graph on
+// EVERY request — starting and tearing down the full OpenTelemetry NodeSdk
+// (BatchSpanProcessor + OTLP exporters + a PeriodicExportingMetricReader) and
+// opening a fresh `bun:sqlite` connection each time. The teardown's exporter
+// flush is what made interactive endpoints (e.g. the debounced handle-
+// availability check) feel slow locally. A single shared runtime collapses all
+// of that to a one-time boot cost; the SDK's own batch/flush timers handle
+// export, and the SQLite connection is reused.
+const appRuntime = ManagedRuntime.make(Layer.merge(dbAndEmailLayer, observabilityLayer));
+
 // S-L1: Restrict CORS to the known app origin instead of the open wildcard.
 // Derivation + S-L4 fail-closed invariant live in `./lib/cors-config` so they
 // can be unit-tested without booting the whole app. `cookieConfig.secure` is
@@ -223,15 +236,22 @@ const app = new Elysia()
       observabilityLayer,
       authRateLimiters,
       cookieConfig,
+      appRuntime,
     ),
   )
-  .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter))
-  .use(createInternalGraphRoutes(DbLive))
-  .use(createOrganisationRoutes(authConfig, DbLive, observabilityLayer, orgRateLimiter))
-  .use(createInternalOrganisationRoutes(DbLive))
-  .use(createProfileRoutes(authConfig, DbLive, observabilityLayer, profileRateLimiters))
+  .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter, appRuntime))
+  .use(createInternalGraphRoutes(DbLive, appRuntime))
+  .use(createOrganisationRoutes(authConfig, DbLive, observabilityLayer, orgRateLimiter, appRuntime))
+  .use(createInternalOrganisationRoutes(DbLive, appRuntime))
+  .use(createProfileRoutes(authConfig, DbLive, observabilityLayer, profileRateLimiters, appRuntime))
   .use(
-    createRecommendationRoutes(authConfig, DbLive, observabilityLayer, recommendationRateLimiter),
+    createRecommendationRoutes(
+      authConfig,
+      DbLive,
+      observabilityLayer,
+      recommendationRateLimiter,
+      appRuntime,
+    ),
   )
   .use(
     createAccountErasureRoutes(
@@ -240,9 +260,10 @@ const app = new Elysia()
       observabilityLayer,
       undefined,
       cookieConfig,
+      appRuntime,
     ),
   )
-  .use(createInternalAccountRoutes(authConfig, DbLive));
+  .use(createInternalAccountRoutes(authConfig, DbLive, appRuntime));
 
 if (process.env.NODE_ENV !== "test") {
   app.listen({ port, reusePort: false });

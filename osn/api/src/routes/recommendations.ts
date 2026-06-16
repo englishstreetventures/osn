@@ -3,6 +3,7 @@ import { createRateLimiter, type RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
+import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createRecommendationService } from "../services/recommendations";
 
@@ -49,6 +50,8 @@ export function createRecommendationRoutes(
    * Redis-backed backend in production via `createRedisRecommendationRateLimiter`.
    */
   rateLimiter: RateLimiterBackend = createDefaultRecommendationRateLimiter(),
+  /** Shared application runtime (see `createAuthRoutes`). */
+  runtime?: AppRuntime,
 ) {
   if (typeof rateLimiter?.check !== "function") {
     throw new Error("Recommendations rateLimiter must have a check() method");
@@ -57,14 +60,7 @@ export function createRecommendationRoutes(
   const auth = createAuthService(authConfig);
   const recommendations = createRecommendationService();
 
-  const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
-    Effect.runPromise(
-      eff.pipe(Effect.provide(dbLayer), Effect.provide(loggerLayer)) as Effect.Effect<
-        A,
-        never,
-        never
-      >,
-    );
+  const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
 
   async function requireAuth(
     authorization: string | undefined,

@@ -4,6 +4,7 @@ import { createRateLimiter, type RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
+import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createOrganisationService } from "../services/organisation";
 
@@ -91,6 +92,8 @@ export function createOrganisationRoutes(
   dbLayer: Layer.Layer<Db> = DbLive,
   loggerLayer: Layer.Layer<never> = Layer.empty,
   rateLimiter: RateLimiterBackend = createDefaultOrgRateLimiter(),
+  /** Shared application runtime (see `createAuthRoutes`). */
+  runtime?: AppRuntime,
 ) {
   if (typeof rateLimiter?.check !== "function") {
     throw new Error("Org rateLimiter must have a check() method");
@@ -99,14 +102,7 @@ export function createOrganisationRoutes(
   const auth = createAuthService(authConfig);
   const org = createOrganisationService();
 
-  const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
-    Effect.runPromise(
-      eff.pipe(Effect.provide(dbLayer), Effect.provide(loggerLayer)) as Effect.Effect<
-        A,
-        never,
-        never
-      >,
-    );
+  const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
 
   async function requireAuth(
     authorization: string | undefined,

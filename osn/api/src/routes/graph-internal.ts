@@ -6,6 +6,7 @@ import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { requireArc } from "../lib/arc-middleware";
+import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { createGraphService } from "../services/graph";
 
 // ---------------------------------------------------------------------------
@@ -72,11 +73,14 @@ function safeError(e: unknown): string {
  *
  * @param dbLayer - Effect Layer providing Db (defaults to DbLive)
  */
-export function createInternalGraphRoutes(dbLayer: Layer.Layer<Db> = DbLive) {
+export function createInternalGraphRoutes(
+  dbLayer: Layer.Layer<Db> = DbLive,
+  /** Shared application runtime (see `createAuthRoutes`). */
+  runtime?: AppRuntime,
+) {
   const graph = createGraphService();
 
-  const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
-    Effect.runPromise(eff.pipe(Effect.provide(dbLayer)) as Effect.Effect<A, never, never>);
+  const { run } = makeAppRunner(runtime, dbLayer);
 
   return (
     new Elysia({ prefix: "/graph/internal" })

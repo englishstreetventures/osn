@@ -6,12 +6,16 @@ related:
   - "[[redis]]"
   - "[[arc-tokens]]"
   - "[[component-library]]"
-last-reviewed: 2026-06-12
+last-reviewed: 2026-06-16
 ---
 
 # Performance Fixes — Completed
 
 Archived completed performance findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Performance Backlog in [[TODO]].
+
+## OSN API per-request layer rebuild (2026-06-16)
+
+- **P-W1 (osn-runtime)** — Every `@osn/api` route's `run` helper executed service effects via `Effect.runPromise(eff.pipe(Effect.provide(dbLayer), Effect.provide(loggerLayer)))`. Because `Effect.provide` rebuilds a layer on each run and layer memoization is per-build, **every request reconstructed the entire layer graph**: the observability layer's `NodeSdk` (BatchSpanProcessor + OTLP trace/metric exporters + PeriodicExportingMetricReader) was started and then torn down per request, and `DbLive` opened a fresh, never-closed `bun:sqlite` connection each time. The OTel teardown blocks on an exporter flush — ≈3 s locally where no OTLP collector is listening. This was most visible on the debounced username-availability check (`GET /handle/:handle`), which fires repeatedly while typing: each pause stalled ~3 s. A focused benchmark measured ≈3019 ms/request for the provide-per-request pattern vs ≈0.09 ms/request against a shared runtime. **Fixed:** the application layer graph is built once at boot into a `ManagedRuntime` (`osn/api/src/index.ts`) and threaded through all nine route factories via `makeAppRunner` (`osn/api/src/lib/route-runtime.ts`); tests that pass a bare layer get a one-time `ManagedRuntime` wrapper instead of a per-request rebuild. Result: exactly one OTel SDK + one DB connection process-wide, and the SDK's own batch/flush timers handle export. See [[architecture/backend-patterns]] (“Build the layer graph ONCE”) and [[observability/overview]].
 
 ## Cire Hono → Elysia migration (2026-06-12)
 

@@ -1,11 +1,12 @@
 import { DbLive, type Db } from "@osn/db/service";
 import type { AuthRateLimitedEndpoint } from "@shared/observability/metrics";
 import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
-import { Effect, Layer } from "effect";
+import { Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { resolveAccountId } from "../lib/auth-derive";
 import { publicError } from "../lib/public-error";
+import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { metricAuthRateLimited } from "../metrics";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createProfileService } from "../services/profile";
@@ -37,6 +38,8 @@ export function createProfileRoutes(
   dbLayer: Layer.Layer<Db> = DbLive,
   loggerLayer: Layer.Layer<never> = Layer.empty,
   rateLimiters: ProfileRateLimiters = createDefaultProfileRateLimiters(),
+  /** Shared application runtime (see `createAuthRoutes`). */
+  runtime?: AppRuntime,
 ) {
   for (const [key, backend] of Object.entries(rateLimiters)) {
     if (typeof (backend as RateLimiterBackend)?.check !== "function") {
@@ -47,14 +50,7 @@ export function createProfileRoutes(
   const auth = createAuthService(authConfig);
   const profile = createProfileService(auth);
 
-  const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
-    Effect.runPromise(
-      eff.pipe(Effect.provide(dbLayer), Effect.provide(loggerLayer)) as Effect.Effect<
-        A,
-        never,
-        never
-      >,
-    );
+  const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
 
   const handleError = (e: unknown) => publicError(e, loggerLayer);
 

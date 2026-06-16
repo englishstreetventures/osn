@@ -1,12 +1,13 @@
 import { DbLive, type Db } from "@osn/db/service";
 import { EmailService, makeLogEmailLive } from "@shared/email";
 import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
-import { Effect, Layer } from "effect";
+import { Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../lib/auth-derive";
 import { readSessionCookie, type CookieSessionConfig } from "../lib/cookie-session";
 import { publicError } from "../lib/public-error";
+import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { metricAccountDeletionRequested, metricAuthRateLimited } from "../metrics";
 import * as accountErasure from "../services/account-erasure";
 import { createAuthService, type AuthConfig } from "../services/auth";
@@ -42,18 +43,13 @@ export function createAccountErasureRoutes(
   loggerLayer: Layer.Layer<never> = Layer.empty,
   rateLimiters: AccountErasureRateLimiters = createDefaultAccountErasureRateLimiters(),
   cookieConfig: CookieSessionConfig = { secure: false },
+  /** Shared application runtime (see `createAuthRoutes`). */
+  runtime?: AppRuntime,
 ) {
   const auth = createAuthService(authConfig);
   const rl = rateLimiters;
 
-  const run = <A, E>(eff: Effect.Effect<A, E, Db | EmailService>): Promise<A> =>
-    Effect.runPromise(
-      eff.pipe(Effect.provide(dbLayer), Effect.provide(loggerLayer)) as Effect.Effect<
-        A,
-        never,
-        never
-      >,
-    );
+  const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
 
   const handleError = (e: unknown) => publicError(e, loggerLayer);
 

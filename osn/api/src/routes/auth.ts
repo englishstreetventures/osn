@@ -2,7 +2,7 @@ import { DbLive, type Db } from "@osn/db/service";
 import { EmailService, makeLogEmailLive } from "@shared/email";
 import type { AuthRateLimitedEndpoint } from "@shared/observability/metrics";
 import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
-import { Effect, Layer } from "effect";
+import { Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../lib/auth-derive";
@@ -13,6 +13,7 @@ import {
   type CookieSessionConfig,
 } from "../lib/cookie-session";
 import { publicError } from "../lib/public-error";
+import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { deriveUaLabel } from "../lib/ua-label";
 import { metricAuthJwksServed, metricAuthRateLimited } from "../metrics";
 import { createAuthService, type AuthConfig } from "../services/auth";
@@ -175,6 +176,13 @@ export function createAuthRoutes(
    * (local dev mode).
    */
   cookieConfig: CookieSessionConfig = { secure: false },
+  /**
+   * Shared application runtime (built once in `index.ts`). When provided, all
+   * handlers run against it so the observability SDK + DB connection are
+   * reused process-wide instead of being rebuilt per request. When omitted
+   * (tests), a runtime is built once from `dbLayer` + `loggerLayer`.
+   */
+  runtime?: AppRuntime,
 ) {
   // Fail-fast: validate every limiter slot at construction time (S-L2) so a
   // partially-valid object surfaces immediately instead of on the first
@@ -203,14 +211,7 @@ export function createAuthRoutes(
 
   const auth = createAuthService(authConfig);
 
-  const run = <A, E>(eff: Effect.Effect<A, E, Db | EmailService>): Promise<A> =>
-    Effect.runPromise(
-      eff.pipe(Effect.provide(dbLayer), Effect.provide(loggerLayer)) as Effect.Effect<
-        A,
-        never,
-        never
-      >,
-    );
+  const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
 
   const handleError = (e: unknown) => publicError(e, loggerLayer);
 

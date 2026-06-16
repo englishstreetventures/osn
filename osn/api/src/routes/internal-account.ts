@@ -1,8 +1,9 @@
 import { DbLive, type Db } from "@osn/db/service";
-import { Effect, Layer } from "effect";
+import { Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { requireArc } from "../lib/arc-middleware";
+import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import * as accountErasure from "../services/account-erasure";
 import { joinApp } from "../services/app-enrollments";
 import { createAuthService, type AuthConfig } from "../services/auth";
@@ -28,10 +29,11 @@ const SCOPE_APP_ENROLLMENT_WRITE = "app-enrollment:write";
 export function createInternalAccountRoutes(
   authConfig: AuthConfig,
   dbLayer: Layer.Layer<Db> = DbLive,
+  /** Shared application runtime (see `createAuthRoutes`). */
+  runtime?: AppRuntime,
 ) {
   const auth = createAuthService(authConfig);
-  const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
-    Effect.runPromise(eff.pipe(Effect.provide(dbLayer)) as Effect.Effect<A, never, never>);
+  const { run } = makeAppRunner(runtime, dbLayer);
 
   return new Elysia({ prefix: "/internal" })
     .post(

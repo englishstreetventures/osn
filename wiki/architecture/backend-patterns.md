@@ -18,7 +18,7 @@ packages:
   - "@pulse/api"
   - "@osn/api"
   - "@zap/api"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-06-16
 ---
 
 # Backend Code Patterns
@@ -51,6 +51,26 @@ Key points:
 - TypeBox stays structural -- strings stay strings (no transforms)
 - `set.status` is used explicitly for non-200 responses
 - Effect pipelines are run via `Effect.runPromise` at the route boundary
+
+### Build the layer graph ONCE — never re-provide expensive layers per request
+
+`Effect.provide(layer)` **rebuilds** the layer every time the effect runs. Layer memoization is per-build, so calling `Effect.runPromise(eff.pipe(Effect.provide(someLayer)))` inside a request handler reconstructs `someLayer`'s entire resource graph on every request. For the observability layer this is severe: `makeObservabilityLayer` wraps `NodeSdk.layer` (a `BatchSpanProcessor`, OTLP trace + metric exporters, and a `PeriodicExportingMetricReader`), so each request **starts and tears down the whole OpenTelemetry SDK** — and the teardown blocks on an exporter flush (≈3s locally when no collector is listening). `DbLive` similarly opens a fresh, never-closed `bun:sqlite` connection per request.
+
+In `@osn/api` this surfaced as multi-second stalls on the debounced username-availability check. The fix: build the graph once into a long-lived `ManagedRuntime` at boot and run every request against it.
+
+```typescript
+// index.ts — build once
+const appRuntime = ManagedRuntime.make(Layer.merge(dbAndEmailLayer, observabilityLayer));
+
+// route factory — reuse per request (see osn/api/src/lib/route-runtime.ts → makeAppRunner)
+const { run } = makeAppRunner(appRuntime, Layer.merge(dbLayer, loggerLayer));
+//   run(eff)  ⇒  appRuntime.runPromise(eff)   — no per-request layer rebuild
+
+// handler
+const result = await run(createEvent(body));
+```
+
+Route factories keep accepting `dbLayer` / `loggerLayer` for tests (where `makeAppRunner` wraps the test layer in a one-time `ManagedRuntime`); production threads the single shared `appRuntime` through every factory so there is exactly one OTel SDK + one DB connection process-wide. Cheap, stateless effects that need no services (e.g. JWT verification) can still use a bare `Effect.runPromise` — the rule is specifically: do not re-provide `DbLive` or the observability layer inside a hot request path.
 
 ## Service Layer -- Effect Schema for domain validation + transforms
 

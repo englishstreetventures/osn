@@ -4,6 +4,7 @@ import { createRateLimiter, type RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
+import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createGraphService } from "../services/graph";
 
@@ -91,6 +92,8 @@ export function createGraphRoutes(
    * processes (Phase 2 of the Redis migration plan).
    */
   rateLimiter: RateLimiterBackend = createDefaultGraphRateLimiter(),
+  /** Shared application runtime (see `createAuthRoutes`). */
+  runtime?: AppRuntime,
 ) {
   // Fail-fast: validate the injected rate limiter at construction time (S-L2).
   if (typeof rateLimiter?.check !== "function") {
@@ -100,14 +103,7 @@ export function createGraphRoutes(
   const auth = createAuthService(authConfig);
   const graph = createGraphService();
 
-  const run = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
-    Effect.runPromise(
-      eff.pipe(Effect.provide(dbLayer), Effect.provide(loggerLayer)) as Effect.Effect<
-        A,
-        never,
-        never
-      >,
-    );
+  const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
 
   // Verify token and return caller claims, or set 401
   async function requireAuth(
