@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-06-14
+last-reviewed: 2026-06-16
 ---
 
 # Security Backlog
@@ -29,6 +29,7 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 - [ ] Re-run `bun install` once devalue 5.8.1+ ages past `minimumReleaseAge` (3 days) and drop the last `--ignore=GHSA-77vg-94rm-hx3p` from `lefthook.yml`
 - [x] Bump hono to `^4.12.18` — closed cookie name validation, JSX HTML injection, serveStatic slash bypass, IPv4-mapped IPv6 in `ipRestriction()` (PR #25)
 - [ ] Bump transitive `smol-toml ^1.6.1+`, `postcss ^8.5.10+`, `esbuild >0.24.2` once their upstream dependents allow it — 3 remaining transitive `moderate` advisories. None affect production paths today (smol-toml is via wrangler, postcss via tailwind/vite, esbuild dev-server only) but worth tracking.
+- [ ] Drop `--ignore=GHSA-gv7w-rqvm-qjhr` from `lefthook.yml` once astro / drizzle-kit / vite / wrangler ship esbuild ≥0.28.1. Advisory is the esbuild Deno-module binary-integrity RCE via `NPM_CONFIG_REGISTRY` — reachable only through build/dev tooling (esbuild never runs in any Worker/production path), so suppressed in the pre-push audit gate pending upstream bumps.
 - [ ] Revisit `overrides.vite` in root `package.json` when Astro publishes Vite 8 support — current `^7.3.2` pin would force-downgrade an Astro-with-Vite-8 install (see PR #25 perf review)
 - [x] Bump drizzle-orm to ^0.45.2 to clear `GHSA-gpj5-g38j-94v9` (SQL injection via improperly escaped identifiers) — was `^0.41.0`
 
@@ -57,6 +58,13 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 - [ ] Whitelist 422 `MalformedSpreadsheet` reason strings — currently safe (only static literals are surfaced) but document the constraint so future contributors don't interpolate cell contents into the `reason` field (PR-C review)
 - [ ] CSP headers on `cire/web` — once a Cloudflare Pages `_headers` file or Workers transform is set up, allow `script-src https://assets.pinterest.com` (the script-widget loads `pinit_main.js` from there) and `connect-src https://widgets.pinterest.com` (pidgets data fetch) and `img-src https://i.pinimg.com` (pin thumbnails); `frame-src` is no longer needed since PR #28 dropped the iframe.
 - [x] Outbound-link Pinterest fallback when the embed can't render — PR #28 ships a "View moodboard on Pinterest" link button that takes over after a 2.5s grace window if `pinit_main.js` is blocked (uBlock / Brave Shields / Privacy Badger fire `blocked:other` on EasyPrivacy filters) or fails to transform our `<a data-pin-do>` placeholder. Static-image / R2 snapshot path remains a future upgrade if blocker-fallback rates grow uncomfortable.
+
+### Invite builder — review findings
+
+- [x] **IB-S-M1** (fixed PR #112 — added `X-Content-Type-Options: nosniff` to the image-serve `Response`; the served content type already derives from the upload-time magic-byte allowlist via R2 `httpMetadata`) — Public image-serve endpoint `GET /api/invite/:slug/image/:slot` (`cire/api/src/routes/invite.ts`) reflects the R2-stored content type onto the `Response` with no `X-Content-Type-Options: nosniff`, and `createApp` adds no global security-header middleware. Upload-time magic-byte sniffing (`detectImageType` in `invite-assets.ts`) is the primary control and is sound, so stored objects are JPEG/PNG/WebP today — this is defence-in-depth (OWASP A05) against MIME confusion if any future path stores an attacker-influenced content type. Fix: add `X-Content-Type-Options: nosniff` (and ideally re-derive the served type from a fixed allowlist keyed off the R2 key) on the image route. See `[[wiki/systems/cire-auth]]`.
+- [x] **IB-S-L1** (fixed PR #112 — per-IP `rateLimitMiddleware` (30 req/min, overridable via `AppOptions.inviteLimiter`) applied to the organiser invite instance, ahead of auth; 429 test added) — Organiser invite write routes (`PUT /invite/text`, `POST /invite/image/:slot`, `DELETE /invite/image/:slot` in `cire/api/src/routes/invite.ts`) have no per-user rate limiter, unlike the pre-auth `claim` / `account-link` surfaces. A valid organiser token can drive unbounded 5 MB R2 writes (storage/cost amplifier; prior object only best-effort deleted). Blast radius limited (caller must own the wedding). Fix: apply a modest per-user/per-wedding limiter to the image POST, mirroring the `/api/claim` limiter.
+- [ ] **IB-S-L2** (partial PR #112 — data-map + retention rows added documenting the orphan/erasure gap; the fix proper still needs an R2 lifecycle rule or a scheduled sweeper, folded into C-H1) — Orphaned R2 objects are never reclaimed when `setImage` / `removeImage` (`cire/api/src/services/invite.ts`) best-effort cleanup of a superseded key fails (warn-and-continue only); no out-of-band sweeper exists. Repeated re-uploads whose cleanup fails accumulate orphaned objects holding personal data (wedding photos) with no lifecycle. Fix: add an R2 lifecycle rule or a scheduled sweeper reconciling `assets/<weddingId>/*` against keys referenced in `wedding_invite_customisations`. Intersects IB-C-L1.
+- [x] **IB-C-L1** (compliance — done PR #112: `[[wiki/compliance/data-map]]` + `[[wiki/compliance/retention]]` rows added for the `cire-assets` images + `wedding_invite_customisations`; the erasure-reachability gap (D1 cascade doesn't reach R2, no wedding-delete flow) is recorded there and folds into C-H1 / IB-S-L2) — Uploaded hero/story images are new personal data (wedding photos) in the new `cire-assets` R2 bucket via `wedding_invite_customisations` (migration `0009`). No `[[wiki/compliance/data-map]]` / `[[wiki/compliance/retention]]` rows added. The D1 row's `ON DELETE cascade` does not fan out to R2 objects, so combined with IB-S-L2 there is no defined erasure path. Add data-map + retention rows and confirm images are reachable by wedding/account deletion. Tracked into root `[[wiki/TODO.md]]` Compliance Backlog.
 
 ### Account linking (guest → OSN/Pulse) — review findings
 

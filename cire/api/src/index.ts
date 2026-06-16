@@ -11,6 +11,10 @@ import { createAccountResolverFromEnv } from "./services/osn-bridge";
 export interface Env {
   DB?: D1Database;
   SHEETS?: R2Bucket;
+  // R2 bucket for invite-builder images. Separate from SHEETS (different
+  // lifecycle: binary, served publicly). Absent ⇒ image upload/serve fail at
+  // use, text customisation still works.
+  ASSETS?: R2Bucket;
   WEB_ORIGIN: string;
   OSN_JWKS_URL: string;
   OSN_AUDIENCE: string;
@@ -85,6 +89,7 @@ const handler: ExportedHandler<Env> = {
           webOrigin: origins[0],
           allowedOrigins: origins,
           r2: env.SHEETS,
+          assets: env.ASSETS,
           osnJwksUrl: env.OSN_JWKS_URL,
           osnAudience: env.OSN_AUDIENCE,
           resolveOsnAccountId,

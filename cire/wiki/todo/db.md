@@ -4,13 +4,15 @@ tags: [todo, db]
 related:
   - "[[index]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-06-12
+  - "[[invite-builder]]"
+last-reviewed: 2026-06-15
 ---
 
 # cire/db
 
 Schema and migration work. See [[monorepo-structure]] for how this package fits into the dependency graph.
 
+- [x] **`wedding_invite_customisations` table** (migration `0009_invite_customisations.sql`) — per-wedding invite-builder presentation overrides. `wedding_id` PK + cascade FK (1:1). Nullable text slots (`hero_title`, `hero_subtitle`, `story_eyebrow`, `story_heading`, `story_body`) + nullable R2 image keys (`hero_image_key`, `story_image_key`); null ⇒ built-in default. LOCKSTEP mirror updated in `cire/api/src/db/setup.ts`. See `[[invite-builder]]`. ⚠️ Image rows reference photos (personal data) — folds into the existing cire retention gap.
 - [x] **`guest_account_links` table** (migration `0008_guest_account_links.sql`) — optional per-invitee link to an OSN account. Columns: `guest_id`/`family_id`/`wedding_id` (all cascade FKs), `osn_account_id` + `osn_profile_id` (opaque cross-DB refs, no FK), `linked_at`/`updated_at`. Unique on `guest_id` (one link per invitee) and `(family_id, osn_account_id)` (no double-seating); indexed on `osn_account_id` (reverse lookup) and `family_id`. LOCKSTEP mirrors updated in `cire/api/src/db/setup.ts` + `db/schema.test.ts`. See `[[wiki/systems/cire-auth]]` (root).
 - [x] Events: `startAt`, `endAt`, `timezone`, `address`, `dressCodeDescription`, `dressCodePalette`, `pinterestUrl`, `mapsUrl`, `sortOrder` (PR-A)
 - [x] `imports` table for spreadsheet-upload tracking with R2 keys + status lifecycle (PR-A)

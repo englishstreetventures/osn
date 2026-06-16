@@ -1,8 +1,25 @@
 ---
 import '../styles/global.css'
-import Hero from '../components/Hero.astro'
-import OurStory from '../components/OurStory.astro'
+import InviteHeader, { type InviteCustomisation } from '../components/InviteHeader'
 import InvitePage from '../components/InvitePage'
+
+const apiUrl = import.meta.env.PUBLIC_API_URL ?? 'http://localhost:8787'
+const weddingSlug = import.meta.env.PUBLIC_WEDDING_SLUG ?? 'cire-wedding'
+
+// Resolve the invite customisation at build time so the hero renders with the
+// real image + copy in the SSR'd HTML, avoiding a client fetch waterfall on the
+// largest-contentful element (IB-P-W1). If the API isn't reachable at build
+// (e.g. an offline build), fall back to null and let the island client-fetch.
+let initialInvite: InviteCustomisation | null = null
+try {
+  const res = await fetch(`${apiUrl}/api/invite/${weddingSlug}`)
+  if (res.ok) initialInvite = (await res.json()) as InviteCustomisation
+} catch {
+  initialInvite = null
+}
+const preloadHero = initialInvite?.hero.imageUrl
+  ? `${apiUrl}${initialInvite.hero.imageUrl}`
+  : null
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -21,10 +38,10 @@ import InvitePage from '../components/InvitePage'
     <noscript>
       <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
     </noscript>
+    {preloadHero && <link rel="preload" as="image" href={preloadHero} />}
   </head>
   <body>
-    <Hero />
-    <OurStory />
+    <InviteHeader client:load apiUrl={apiUrl} slug={weddingSlug} initial={initialInvite} />
     <InvitePage
       client:visible
       apiUrl={import.meta.env.PUBLIC_API_URL}

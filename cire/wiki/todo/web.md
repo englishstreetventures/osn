@@ -3,19 +3,22 @@ title: "Cire TODO — cire/web"
 tags: [todo, web]
 related:
   - "[[index]]"
-last-reviewed: 2026-06-12
+  - "[[invite-builder]]"
+last-reviewed: 2026-06-15
 ---
 
 # cire/web
 
 Frontend feature work. Tick items as PRs land; add new entries when scope is discovered. Don't edit `wiki/todo/status.md` for area-specific items.
 
+- [x] **Invite-builder guest rendering** — static `Hero.astro` / `OurStory.astro` replaced by a `client:load` SolidJS island `InviteHeader.tsx` that fetches `GET /api/invite/:slug` and applies the organiser's image + copy overrides on top of the original (uncustomised ⇒ renders exactly as before). `PUBLIC_WEDDING_SLUG` env selects the wedding. This subsumes the three placeholders below (hero photo / monogram / Our Story copy) — they're now organiser-editable rather than hard-coded. See `[[invite-builder]]`.
+
 - [ ] **"Link my Pulse account" affordance (account-linking frontend)** — backend shipped (`/api/account/link`, see `[[api]]` + root `[[wiki/systems/cire-auth]]`). The guest UI must: obtain an OSN access token via `@osn/client` (a Pulse/OSN sign-in), let the invitee pick which household member they are, then `POST /api/account/link` with `{ guestId }` + the `Authorization: Bearer <token>` and the `cire_session` cookie. Handle 401 (token expired → `authFetch` refresh), 409 (already linked), 503 (linking disabled). Add a per-member linked/unlinked indicator (`GET /api/account/link`) and an unlink control (`DELETE /api/account/link/:guestId`).
 - [x] Per-event metadata in `EventSummary` shape (calendar / dress-code / address / Pinterest / Maps fields landed in PR-A)
 - [x] Rework `OrganiserView` to consume the new `OrganiserGuestRow` shape — moved to `cire/organiser/src/components/GuestTable.tsx`
-- [ ] Replace hero photo placeholder with actual photo
-- [ ] Customise monogram with couple's initials
-- [ ] Write Our Story content
+- [x] ~~Replace hero photo placeholder with actual photo~~ — now organiser-editable via the invite builder (`hero` image slot). See `[[invite-builder]]`.
+- [x] ~~Customise monogram with couple's initials~~ — now organiser-editable via the invite builder (`heroTitle`). See `[[invite-builder]]`.
+- [x] ~~Write Our Story content~~ — now organiser-editable via the invite builder (`storyEyebrow` / `storyHeading` / `storyBody`). See `[[invite-builder]]`.
 - [x] Populate dress code colour palette swatches from `event.dressCodePalette` (PR-E)
 - [x] Embed actual Pinterest board URLs via `event.pinterestUrl` (PR-D); reworked in PR #28 — switched from `<iframe>` to Pinterest's documented script-widget pattern (`<a data-pin-do="embedBoard">` + `pinit_main.js`, daily-guard bypassed via cache-busted query so SPA re-mounts re-scan), with a 2.5s timeout fallback to a "View moodboard on Pinterest" link when tracker blockers fire `blocked:other` on `assets.pinterest.com`. `toEmbedUrl` removed; `isValidPinterestUrl` retained as the URL gate.
 - [x] Wire RSVP modal to API using surfaced `guestId` per member (PR-F)

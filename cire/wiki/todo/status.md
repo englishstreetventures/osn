@@ -3,6 +3,7 @@ title: "Cire TODO — status + up next"
 tags: [todo, status]
 related:
   - "[[index]]"
+  - "[[invite-builder]]"
 last-reviewed: 2026-06-15
 ---
 
@@ -35,3 +36,5 @@ Monorepo built and functional. `cire/db` models families with a shareable `publi
 - [x] Rate-limit claim attempts to prevent brute force — see [[overview]] for logging rules
 - [x] Wire guest-app RSVP modal to `POST /api/rsvp` (PR-F)
 - [x] Add-to-calendar links on event cards (Google / Apple / .ics) (PR-G)
+- [x] **Invite builder** — organiser-editable hero/story images + copy (`wedding_invite_customisations` table, `cire-assets` R2 bucket, `inviteService` + public/organiser routes, `InviteBuilder` tab, `InviteHeader` guest island). Source of truth for events/guests stays in the CSV import. See `[[invite-builder]]`. ⚠️ create `cire-assets` R2 bucket before deploy.
+- [ ] **Invite builder follow-ups** — create the `cire-assets` (+ preview) R2 bucket before first deploy; consider a live preview pane + more slots (footer/RSVP banner) once the basic version proves out.

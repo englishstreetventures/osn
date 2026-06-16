@@ -3,13 +3,15 @@ title: "Cire TODO — cire/api"
 tags: [todo, api]
 related:
   - "[[index]]"
-last-reviewed: 2026-06-12
+  - "[[invite-builder]]"
+last-reviewed: 2026-06-15
 ---
 
 # cire/api
 
 Backend feature work. The Elysia + Effect + Drizzle layer in `cire/api`.
 
+- [x] **Invite builder (backend)** — `inviteService` (Effect) + sibling route instances in `routes/invite.ts`. Public reads (`GET /api/invite/:slug`, `GET /api/invite/:slug/image/:slot`) kept off the `osnAuth` gate; organiser writes (`GET` / `PUT /text` / `POST,DELETE /image/:slot` under `/api/organiser/weddings/:weddingId/invite`) behind `osnAuth()` + `weddingOwner()` (403-not-401). Images in a new `cire-assets` R2 bucket via binary `AssetsR2Service` (the CSV-import R2 service is text-only); uploads size-capped (5MB) + magic-byte sniffed (JPEG/PNG/WebP). Closed `hero|story` slot union; `cire.invite.*` spans + `Effect.log*`. See `[[invite-builder]]`. ⚠️ `cire-assets` (+ preview) bucket must be created before deploy.
 - [x] **Optional guest → OSN/Pulse account linking (backend)** — `account-link` Effect service + `/api/account/link` routes (POST dual-credential, GET/DELETE guest-only), as Elysia route factories (`createAccountLinkRoutes` + `createAccountLinkPostRoute`). POST binds the guest session (`familyId`) to an OSN account: validates `{ guestId }` ∈ family, resolves `profileId → accountId` over ARC via `services/osn-bridge.ts` (workerd-safe `signArcToken` from `@shared/crypto/jwk`; stable `CIRE_API_ARC_PRIVATE_KEY` key), and writes `guest_account_links`. `osnAuth` is method-gated to POST by mounting it on a sibling instance; resolver injectable via `createApp({ resolveOsnAccountId })`; absent ⇒ 503. See `[[wiki/systems/cire-auth]]` (root). Frontend deferred — see `[[web]]`.
 - [x] **Hono → Elysia migration** — `cire/api` now matches the platform convention: route factories (`createClaimRoutes` etc.), middleware as Elysia plugins (scoped `derive` + `onBeforeHandle`), organiser auth via the shared `@shared/osn-auth-client/middleware/elysia` adapter. `aot: false` (Workers forbids `new Function`); POST routes use a sentinel `parse` hook so handlers keep the lenient manual `request.json()` semantics. All routes/status codes/bodies/headers preserved; 169-test suite unchanged and green; wrangler dry-run + Miniflare (workerd) smoke-verified
 - [x] Surface `guestId` on every claim member + extended event metadata (PR-A)

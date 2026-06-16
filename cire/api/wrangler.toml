@@ -25,6 +25,16 @@ binding = "SHEETS"
 bucket_name = "cire-sheets"
 preview_bucket_name = "cire-sheets-preview"
 
+# R2 bucket for invite-builder images (hero / story photos). Separate from
+# SHEETS: binary content, served publicly through the API, different retention.
+# Bucket must be created before first deploy:
+#   bunx wrangler r2 bucket create cire-assets
+#   bunx wrangler r2 bucket create cire-assets-preview
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "cire-assets"
+preview_bucket_name = "cire-assets-preview"
+
 [env.production.vars]
 WEB_ORIGIN = "https://cire.pages.dev"
 # TODO: real OSN issuer origin before prod deploy

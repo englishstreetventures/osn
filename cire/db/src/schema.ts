@@ -197,6 +197,32 @@ export const guestAccountLinks = sqliteTable(
   ],
 );
 
+// Per-wedding presentation overrides for the guest invite ("invite builder").
+// Strictly additive + presentational: the event/guest source of truth stays in
+// the CSV-imported `events`/`families`/`guests` tables — this row only lets an
+// organiser swap a few images and rewrite a few copy blocks on top of the
+// existing animated invite. One row per wedding (PK = weddingId enforces 1:1);
+// a missing row (or a null column) means "use the built-in default", so the
+// invite renders unchanged until an organiser customises it.
+//
+// Image columns store **R2 object keys** (not URLs) — bytes live in the
+// `cire-assets` bucket and are served through the API, mirroring how `imports`
+// stores `eventsR2Key`/`guestsR2Key`. The fixed slot set (hero, story) is a
+// closed union in `cire/api/src/schemas/invite.ts`.
+export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisations", {
+  weddingId: text("wedding_id")
+    .primaryKey()
+    .references(() => weddings.id, { onDelete: "cascade" }),
+  heroTitle: text("hero_title"),
+  heroSubtitle: text("hero_subtitle"),
+  storyEyebrow: text("story_eyebrow"),
+  storyHeading: text("story_heading"),
+  storyBody: text("story_body"),
+  heroImageKey: text("hero_image_key"),
+  storyImageKey: text("story_image_key"),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
 // Tracks every spreadsheet upload through the organiser portal so we can
 // preview, apply, and (later) revert a batch import. See [[wiki/TODO.md]] →
 // "Organiser Spreadsheet Import" for the surrounding flow.

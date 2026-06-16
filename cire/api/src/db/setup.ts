@@ -105,6 +105,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS guest_account_links_family_account_uniq ON gue
 CREATE INDEX IF NOT EXISTS guest_account_links_account_idx ON guest_account_links(osn_account_id);
 CREATE INDEX IF NOT EXISTS guest_account_links_family_idx ON guest_account_links(family_id);
 
+CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
+  wedding_id TEXT PRIMARY KEY REFERENCES weddings(id) ON DELETE CASCADE,
+  hero_title TEXT,
+  hero_subtitle TEXT,
+  story_eyebrow TEXT,
+  story_heading TEXT,
+  story_body TEXT,
+  hero_image_key TEXT,
+  story_image_key TEXT,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS imports (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,

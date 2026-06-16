@@ -2,8 +2,9 @@ import { createSignal, Show } from "solid-js";
 
 import EventTable from "./EventTable";
 import GuestTable from "./GuestTable";
+import InviteBuilder from "./InviteBuilder";
 
-type Tab = "guests" | "events";
+type Tab = "guests" | "events" | "invite";
 
 interface DashboardTabsProps {
   weddingId: string;
@@ -12,12 +13,15 @@ interface DashboardTabsProps {
 const TABS: { id: Tab; label: string }[] = [
   { id: "guests", label: "Guests" },
   { id: "events", label: "Events" },
+  { id: "invite", label: "Invite" },
 ];
 
 function initialTab(): Tab {
   if (typeof window === "undefined") return "guests";
   const hash = window.location.hash.replace("#", "");
-  return hash === "events" ? "events" : "guests";
+  if (hash === "events") return "events";
+  if (hash === "invite") return "invite";
+  return "guests";
 }
 
 export default function DashboardTabs(props: DashboardTabsProps) {
@@ -55,6 +59,9 @@ export default function DashboardTabs(props: DashboardTabsProps) {
       </Show>
       <Show when={active() === "events"}>
         <EventTable weddingId={props.weddingId} />
+      </Show>
+      <Show when={active() === "invite"}>
+        <InviteBuilder weddingId={props.weddingId} />
       </Show>
     </div>
   );

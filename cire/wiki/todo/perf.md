@@ -4,12 +4,20 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-06-14
+last-reviewed: 2026-06-16
 ---
 
 # Performance Backlog
 
 See [[review-findings]] for severity prefix conventions.
+
+### Invite builder — review findings
+
+- [x] **IB-P-W1** (fixed PR #112) — Guest hero LCP regressed from static SSR to a client-fetch waterfall. Fixed: `index.astro` resolves the customisation at build time (`await fetch` the public endpoint, graceful null fallback) and passes it to `InviteHeader` as `initial`, so the hero title/copy + `<img src>` are in the SSR'd HTML; the island seeds `createResource` with it and revalidates on mount for post-build changes.
+- [x] **IB-P-W2** (fixed PR #112) — Custom hero image was invisible to the preload scanner. Fixed: `index.astro` emits `<link rel="preload" as="image">` for the build-resolved hero image (immutably cached).
+- [x] **IB-P-W3** (fixed PR #112) — `getForWeddingId` now does one `weddings LEFT JOIN wedding_invite_customisations` query (was slug-lookup + customisation-lookup); `upsertText` / `removeImage` re-call it after the write (now write + 1 join).
+- [x] **IB-P-I1** (fixed PR #112) — `imageKeyForSlug` now uses a single `LEFT JOIN` keyed on `weddings.slug`: a missing weddings row is the 404, a null-joined customisation is "no image yet" — one round-trip.
+- [ ] **IB-P-I2** — `fetchAsset` (`cire/api/src/services/invite-assets.ts`) materialises the full image via `obj.arrayBuffer()` (≤5 MB held in Worker memory) rather than streaming R2's `obj.body` into the `Response`. Bounded by the cap + CDN caching, hence Info. Fix on serve path only (upload buffering is needed for the magic-byte sniff).
 
 ### Account linking (guest → OSN/Pulse) — review notes (Info, no action)
 
