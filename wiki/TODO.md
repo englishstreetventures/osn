@@ -484,7 +484,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [x] S-M102 — `resolvePublicKey` cache hit skipped scope check when `tokenScopes` empty. **Fixed** — cache entry now stores `allowedScopes`; scope validated on every cache hit — see [[arc-tokens]]
 - [ ] S-M1 (pulse-onboarding) — `/graph/internal/profile-account` is gated only by the generic `graph:read` scope, so any future ARC consumer of OSN's internal graph API could enumerate `profileId → accountId` and dissolve the multi-account privacy invariant ([[identity-model]] §"Privacy Rules"). Introduce a dedicated `graph:resolve-account` scope (extend `PERMITTED_SCOPES` in `osn/api/src/routes/graph-internal.ts`, grant only to `pulse-api` in its `service_accounts` row, and switch `pulse-api/src/services/graphBridge.ts:getAccountIdForProfile` to request that scope). Today only pulse-api consumes the endpoint, so impact is bounded to a service-key compromise — but principle of least privilege wants the constraint declarative — see [[pulse-onboarding]]
 - [ ] S-M1 (zap) — No rate limiting on Zap API endpoints — see [[rate-limiting]]
-- [ ] S-M2 (zap) — CORS wildcard on `@zap/api` — restrict to known client origins
+- [x] S-M2 (zap) — CORS wildcard on `@zap/api`. **Fixed** — `cors()` consumes `ZAP_CORS_ORIGIN`; local dev falls back to the monorepo Tauri dev ports (`:1420`, `:1422`); non-local deploys fail closed at boot via `assertCorsOriginsConfigured` (`zap/api/src/lib/cors-config.ts`, mirrors OSN's `OSN_CORS_ORIGIN`) — see [[apps/zap]]
 - [ ] S-M3 (zap) — `zapBridge.provisionEventChat` does not verify caller owns event
 - [ ] S-M4 (zap) — Non-atomic cross-DB writes in `zapBridge.provisionEventChat`
 - [ ] S-M5 (zap) — `addEventChatMember` does not verify chat is type "event"
@@ -541,9 +541,9 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [x] S-L23 — ~~`pkceStore` has no size bound or eviction sweep~~ — **Obsolete**: `pkceStore` deleted
 - [ ] S-L24 — `/token` and legacy `POST /register` have no rate limiting (partial: `authorization_code` grant deleted; `refresh_token` grant and legacy `POST /register` still unthrottled)
 - [ ] S-L30 — `createInternalGraphRoutes` has no `loggerLayer` — see [[arc-tokens]], [[observability/overview]]
-- [ ] S-L1 (zap) — `jwtVerify` does not restrict algorithms — pass `{ algorithms: ['HS256'] }`
-- [ ] S-L2 (zap) — DM chats have no member count enforcement
-- [ ] S-L3 (zap) — Admin can remove themselves leaving chat with no admin
+- [x] S-L1 (zap) — `jwtVerify` did not restrict algorithms (HS256 shared secret). **Fixed** — token verification migrated to ES256/JWKS via `@shared/osn-auth-client` (`extractClaims`, `algorithms: ["ES256"]` + `audience: "osn-access"` enforced in-pass); `OSN_JWT_SECRET` removed; non-local plaintext-JWKS boot guard added; AUDIT-Z2 chokepoint rejects non-`usr_` subs — see [[apps/zap]], [[identity-model]]
+- [x] S-L2 (zap) — DM chats had no member count enforcement. **Fixed** — `createChat`/`addMember` enforce DM = exactly two members (`InvalidDmMembership`) — see [[apps/zap]]
+- [x] S-L3 (zap) — Admin could remove themselves leaving chat with no admin. **Fixed** — `removeMember` rejects removing the last remaining admin (`LastAdmin`, 409) — see [[apps/zap]]
 - [x] S-L1 (passkey) — `PasskeysView` `window.confirm` race could swap pending delete id on rapid double-click. **Fixed** — every Rename / Delete button is disabled while a step-up ceremony is in flight (`locked()`); pending action stored as a single tagged signal — see [[identity-model]]
 - [x] S-L2 (passkey) — `listPasskeys` exposed raw `credentialId` to the browser without UI need. **Fixed** — projection drops `credentialId`; opaque `pk_<hex>` `id` is the only handle reaching the client — see [[identity-model]]
 - [x] S-L3 (passkey) — Fallback "no caller session" branch in `deletePasskey` nuked all sessions silently. **Fixed** — branch now `Effect.logWarning`s the anomalous condition before the wipe — see [[sessions]]

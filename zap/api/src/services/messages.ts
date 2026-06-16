@@ -104,7 +104,7 @@ export const listMessages = (
   chatId: string,
   profileId: string,
   opts: { limit?: number; cursor?: string } = {},
-): Effect.Effect<Message[], ChatNotFound | NotChatMember | DatabaseError, Db> =>
+): Effect.Effect<Message[], ChatNotFound | NotChatMember | ValidationError | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
 
@@ -126,17 +126,24 @@ export const listMessages = (
     // Cursor-based pagination: fetch messages older than the cursor.
     const conditions = [eq(messages.chatId, chatId)];
     if (opts.cursor) {
-      // The cursor is a message ID. Look up its createdAt to paginate.
+      // Z6: the cursor is a message ID. Scope the lookup to THIS chat so a
+      // cursor from another chat can't be used to probe message timing, and
+      // reject an unknown/foreign cursor with a validation error instead of
+      // silently falling back to page 1 (which masks a malformed client or a
+      // cross-chat probe).
       const cursorRows = yield* Effect.tryPromise({
         try: (): Promise<Message[]> =>
-          db.select().from(messages).where(eq(messages.id, opts.cursor!)).limit(1) as Promise<
-            Message[]
-          >,
+          db
+            .select()
+            .from(messages)
+            .where(and(eq(messages.id, opts.cursor!), eq(messages.chatId, chatId)))
+            .limit(1) as Promise<Message[]>,
         catch: (cause) => new DatabaseError({ cause }),
       });
-      if (cursorRows.length > 0) {
-        conditions.push(lt(messages.createdAt, cursorRows[0]!.createdAt));
+      if (cursorRows.length === 0) {
+        return yield* Effect.fail(new ValidationError({ cause: "Unknown cursor for this chat" }));
       }
+      conditions.push(lt(messages.createdAt, cursorRows[0]!.createdAt));
     }
 
     const results = yield* Effect.tryPromise({
