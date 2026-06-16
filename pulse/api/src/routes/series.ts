@@ -1,9 +1,11 @@
 import { DbLive, type Db } from "@pulse/db/service";
 import { extractClaims } from "@shared/osn-auth-client/verify";
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { DEFAULT_JWKS_URL } from "../lib/jwks";
+import { checkWriteRateLimit, createDefaultWriteRateLimiter } from "../lib/rate-limit";
 import { canViewEvent } from "../services/eventAccess";
 import {
   cancelSeries,
@@ -26,7 +28,19 @@ export const createSeriesRoutes = (
   dbLayer: Layer.Layer<Db> = DbLive,
   jwksUrl: string = DEFAULT_JWKS_URL,
   _testKey?: CryptoKey,
+  /**
+   * Per-USER write limiters keyed on `claims.profileId` (W4). Defaults are
+   * in-memory; production wires Redis backends at the composition root.
+   */
+  writeRateLimiters: {
+    seriesCreate?: RateLimiterBackend;
+    seriesUpdate?: RateLimiterBackend;
+  } = {},
 ) => {
+  const seriesCreateLimiter =
+    writeRateLimiters.seriesCreate ?? createDefaultWriteRateLimiter("series_create");
+  const seriesUpdateLimiter =
+    writeRateLimiters.seriesUpdate ?? createDefaultWriteRateLimiter("series_update");
   return new Elysia({ prefix: "/series" })
     .post(
       "/",
@@ -38,6 +52,10 @@ export const createSeriesRoutes = (
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
+        }
+        if (!(await checkWriteRateLimit(seriesCreateLimiter, "series_create", claims.profileId))) {
+          set.status = 429;
+          return { error: "Too many requests" } as const;
         }
         const creator = {
           createdByProfileId: claims.profileId,
@@ -186,6 +204,10 @@ export const createSeriesRoutes = (
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
+        }
+        if (!(await checkWriteRateLimit(seriesUpdateLimiter, "series_update", claims.profileId))) {
+          set.status = 429;
+          return { error: "Too many requests" } as const;
         }
         const result = await Effect.runPromise(
           updateSeries(params.id, body, claims.profileId).pipe(

@@ -92,12 +92,35 @@ export const PULSE_METRICS = {
   accountDeletionEnrollmentNotify: "pulse.account.deletion.enrollment_notify",
   hostCancelledEvents: "pulse.events.host_cancelled",
   hostCancelledHardDeleted: "pulse.events.host_cancelled.hard_delete",
+  // Per-user write rate limiting (W4 — events/RSVP/invite/blast/series/close-friends)
+  writeRateLimited: "pulse.write.rate_limited",
 } as const;
 
 // ---------------------------------------------------------------------------
 // Attribute shapes — bounded string-literal unions ONLY.
 // TypeScript rejects unknown keys, so cardinality is enforced at compile time.
 // ---------------------------------------------------------------------------
+
+/**
+ * Closed set of authenticated write surfaces guarded by a per-user
+ * rate limiter (W4). Bounded so the `pulse.write.rate_limited` counter's
+ * `endpoint` attribute can never be inflated by a crafted value — same
+ * discipline as `AuthRateLimitedEndpoint` in `osn/api`. Extend the union
+ * when a new per-user-limited write endpoint is added.
+ */
+export type PulseWriteEndpoint =
+  | "event_create"
+  | "event_update"
+  | "rsvp_upsert"
+  | "event_invite"
+  | "comms_blast"
+  | "series_create"
+  | "series_update"
+  | "close_friend_mutate";
+
+type WriteRateLimitedAttrs = {
+  endpoint: PulseWriteEndpoint;
+};
 
 /**
  * Closed set of event categories allowed as a metric attribute value.
@@ -994,6 +1017,18 @@ export const metricPulseHostCancelled = (result: Result): void =>
 
 export const metricPulseHostCancelledHardDelete = (result: Result): void =>
   hostCancelledHardDeleted.inc({ result });
+
+// --- Per-user write rate limiting (W4) ---
+
+const writeRateLimited = createCounter<WriteRateLimitedAttrs>({
+  name: PULSE_METRICS.writeRateLimited,
+  description:
+    "Authenticated write requests rejected by the per-user rate limiter (429), by endpoint — a spike signals abuse or a runaway client",
+  unit: "{rejection}",
+});
+
+export const metricWriteRateLimited = (endpoint: PulseWriteEndpoint): void =>
+  writeRateLimited.inc({ endpoint });
 
 const measureSecondsHelper =
   (onDuration: (seconds: number, outcome: "ok" | "error") => void) =>

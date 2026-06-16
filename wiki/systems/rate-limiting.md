@@ -25,6 +25,7 @@ finding-ids:
   - P-W16
 packages:
   - "@osn/api"
+  - "@pulse/api"
   - "@zap/api"
   - "@shared/rate-limit"
   - "@shared/redis"
@@ -125,6 +126,29 @@ verification and the social-graph consent gate — see [[apps/zap]]. The limiter
 check runs first so an unauthenticated flood is shed before any crypto or S2S
 work.
 
+### Pulse Per-User Write Limits (W4)
+
+`@pulse/api` applies **per-user** fixed-window limiting to every authenticated write endpoint. The key is the JWT-asserted `claims.profileId`, **not** the client IP — so the Pulse write layer has no dependency on the `X-Forwarded-For` trust model (S-M34) that gates the unauthenticated reads. Limits live in one place (`pulse/api/src/lib/rate-limit.ts`, `PULSE_WRITE_LIMITS`) and are shared byte-for-byte between the in-memory defaults and the Redis namespaces.
+
+| Endpoint | Limit | Rationale |
+|----------|-------|-----------|
+| `POST /events` (create) | 20 / 5 min | Heaviest write (insert + re-read); covers a power-organiser batching a week of events |
+| `PATCH /events/:id` (update) | 60 / min | Cheap, legitimately bursty (drag-resize, typo fix); matches osn graph-write posture |
+| `POST /events/:id/rsvps` | 30 / min | User-initiated + idempotent; absorbs double-taps |
+| `POST /events/:id/invite` | 10 / min | Organiser-only; fans out to many rows per call |
+| `POST /events/:id/comms/blasts` | 5 / min | Most expensive/abusable write (SMS/email fan-out) |
+| `POST /series` (create) | 10 / hr | Materialises many instances; hourly window |
+| `PATCH /series/:id` | 60 / hr | Re-materialises future instances; generous for iterative editing |
+| `POST/DELETE /close-friends/:id` | 60 / min | Tiny list writes; absorbs rapid picker toggling |
+
+The shared `checkWriteRateLimit(limiter, endpoint, profileId)` helper performs the check **after** authentication (so anonymous callers get 401, not 429), is **fail-closed** (a thrown/rejected backend `check()` counts as rate-limited), and records the bounded `pulse.write.rate_limited{ endpoint }` counter on every deny. The `endpoint` attribute is the closed `PulseWriteEndpoint` union — same cardinality discipline as `AuthRateLimitedEndpoint`.
+
+Pulse's composition root (`pulse/api/src/index.ts` + `pulse/api/src/redis.ts`) mirrors osn/api: it builds Redis-backed write limiters via `createRedisWriteRateLimiters` when `REDIS_URL` is set, and falls back to the in-memory client otherwise.
+
+### Pulse Per-IP Read / Share Limits (W4 / P4)
+
+The **unauthenticated** Pulse surfaces — `GET /events/discover`, `POST /events/:id/share`, `POST /events/:id/exposure` — are limited **per IP** (discover 60/min, share 60/min, exposure 120/min; the exposure ceiling is higher because legitimate page reloads, link previews, and bot scans of a sourced URL all register there). The keying IP is resolved through the spoofing-resistant `getClientIp(headers, options)` trust policy (`PULSE_TRUSTED_PROXY_COUNT`, or `trustCloudflare` behind CF; `socketIp` wired from Bun's `server.requestIP` in direct mode). An **unresolved IP fails closed** (429) via `isUnresolvedIp` rather than sharing a single `unknown` bucket — see [[#Client-IP Trust Policy (S-M34)]]. Redis namespaces: `pulse:discover`, `pulse:share`, `pulse:exposure`. A deferred follow-up will bind these pings to an HMAC-signed share token so the counters cannot be inflated by a caller who simply replays the endpoint with a fresh IP.
+
 ## Config
 
 ```typescript
@@ -209,4 +233,8 @@ A consuming service migrates off the deprecated default by:
 - [osn/api/src/index.ts](../../osn/api/src/index.ts) — composition root with env-driven Redis/memory selection
 - [shared/redis/src/rate-limiter.ts](../../shared/redis/src/rate-limiter.ts) — `createRedisRateLimiter()` Lua script backend
 - [shared/observability/src/metrics/attrs.ts](../../shared/observability/src/metrics/attrs.ts) — `AuthRateLimitedEndpoint` type
+- [pulse/api/src/lib/rate-limit.ts](../../pulse/api/src/lib/rate-limit.ts) — `PULSE_WRITE_LIMITS`, `checkWriteRateLimit`, in-memory defaults (W4)
+- [pulse/api/src/lib/redis-rate-limiters.ts](../../pulse/api/src/lib/redis-rate-limiters.ts) — Pulse Redis-backed write + discover/share/exposure limiters
+- [pulse/api/src/redis.ts](../../pulse/api/src/redis.ts) — Pulse Redis composition root (env-driven backend selection)
+- [pulse/api/src/routes/events.ts](../../pulse/api/src/routes/events.ts) — per-IP discover/share/exposure limiting + `getClientIp` trust policy (P4)
 - [CLAUDE.md](../../CLAUDE.md) — "Rate Limiting" section

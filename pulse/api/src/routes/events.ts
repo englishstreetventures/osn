@@ -1,12 +1,19 @@
 import { DbLive, type Db } from "@pulse/db/service";
 import { extractClaims } from "@shared/osn-auth-client/verify";
-import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
+import {
+  createRateLimiter,
+  getClientIp,
+  isUnresolvedIp,
+  type ClientIpOptions,
+  type RateLimiterBackend,
+} from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { MAX_PRICE_MAJOR } from "../lib/currency";
 import { DEFAULT_JWKS_URL } from "../lib/jwks";
 import { MAX_EVENT_GUESTS } from "../lib/limits";
+import { checkWriteRateLimit, createDefaultWriteRateLimiter } from "../lib/rate-limit";
 import { shareSourceTypeBox, type ShareSource } from "../lib/shareSource";
 import {
   metricCalendarIcsGenerated,
@@ -18,7 +25,7 @@ import {
 import { buildIcs } from "../services/calendar";
 import { listBlasts, parseCommsChannels, sendBlast } from "../services/comms";
 import { discoverEvents } from "../services/discovery";
-import { checkEventVisibility, loadVisibleEvent } from "../services/eventAccess";
+import { canViewAttendees, checkEventVisibility, loadVisibleEvent } from "../services/eventAccess";
 import {
   createEvent,
   deleteEvent,
@@ -186,7 +193,74 @@ export const createEventsRoutes = (
    * URL register here.
    */
   exposureRateLimiter: RateLimiterBackend = createDefaultExposureRateLimiter(),
+  /**
+   * Per-USER write limiters for the authenticated mutating endpoints (W4).
+   * Keyed on `claims.profileId` (not IP), so there's no dependency on the
+   * proxy trust model. Defaults are in-memory; production wires Redis
+   * backends at the composition root. See `lib/rate-limit.ts` for the limit
+   * rationale.
+   */
+  writeRateLimiters: {
+    eventCreate?: RateLimiterBackend;
+    eventUpdate?: RateLimiterBackend;
+    rsvpUpsert?: RateLimiterBackend;
+    eventInvite?: RateLimiterBackend;
+    commsBlast?: RateLimiterBackend;
+  } = {},
+  /**
+   * Client-IP trust policy (S-M34) for the per-IP limiters on the
+   * unauthenticated discover / share / exposure surfaces. The composition
+   * root builds this from `PULSE_TRUSTED_PROXY_COUNT` (or sets
+   * `trustCloudflare` behind CF). Defaults to `{}` — direct mode, where the
+   * keying IP comes solely from the transport socket peer (`socketIp`, wired
+   * per-request from Bun's `server.requestIP`), never a spoofable
+   * `x-forwarded-for`. Tests that drive per-IP buckets via an
+   * `x-forwarded-for` header pass `{ trustedProxyCount: 1 }` here.
+   */
+  clientIpConfig: Omit<ClientIpOptions, "socketIp"> = {},
 ) => {
+  const eventCreateLimiter =
+    writeRateLimiters.eventCreate ?? createDefaultWriteRateLimiter("event_create");
+  const eventUpdateLimiter =
+    writeRateLimiters.eventUpdate ?? createDefaultWriteRateLimiter("event_update");
+  const rsvpUpsertLimiter =
+    writeRateLimiters.rsvpUpsert ?? createDefaultWriteRateLimiter("rsvp_upsert");
+  const eventInviteLimiter =
+    writeRateLimiters.eventInvite ?? createDefaultWriteRateLimiter("event_invite");
+  const commsBlastLimiter =
+    writeRateLimiters.commsBlast ?? createDefaultWriteRateLimiter("comms_blast");
+
+  /**
+   * Resolve the trusted per-IP key for the unauthenticated surfaces under
+   * the configured policy (S-M34). `server` is absent under `app.handle(...)`
+   * in tests, so `socketIp` is `null` there — direct mode then yields
+   * `UNRESOLVED_IP`, which the callers translate to a 429 deny (never a
+   * shared bucket). Returns the {@link RateLimiterBackend} verdict.
+   */
+  const resolveIp = (
+    headers: Record<string, string | undefined>,
+    server: { requestIP?: (req: Request) => { address?: string } | null } | null,
+    request: Request,
+  ): string =>
+    getClientIp(headers, {
+      ...clientIpConfig,
+      socketIp: server?.requestIP?.(request)?.address ?? null,
+    });
+
+  /**
+   * Run a per-IP limiter for an unauthenticated surface. Fail-closed: an
+   * unresolved IP (S-M34) or a backend error both deny — a shared
+   * `unresolved` bucket would be a DoS amplifier and a spoofing bypass.
+   */
+  const checkPerIpLimit = async (ip: string, limiter: RateLimiterBackend): Promise<boolean> => {
+    if (isUnresolvedIp(ip)) return false;
+    try {
+      return await limiter.check(ip);
+    } catch {
+      return false;
+    }
+  };
+
   return (
     new Elysia({ prefix: "/events" })
       .get(
@@ -248,18 +322,13 @@ export const createEventsRoutes = (
       )
       .get(
         "/discover",
-        async ({ query, headers, set }) => {
-          // S-L3: per-IP rate limit. Failures are treated as "deny" to
-          // avoid the limiter becoming a bypass when the backend is
-          // unhealthy (matches the osn/api graph-routes posture).
-          const ip = getClientIp(headers);
-          let allowed: boolean;
-          try {
-            allowed = await discoveryRateLimiter.check(ip);
-          } catch {
-            allowed = false;
-          }
-          if (!allowed) {
+        async ({ query, headers, set, server, request }) => {
+          // S-L3 / S-M34: per-IP rate limit under the configured trust
+          // policy. Fail-closed — an unresolved IP or an unhealthy backend
+          // both deny so the limiter can't become a bypass (matches the
+          // osn/api graph-routes posture).
+          const ip = resolveIp(headers, server, request);
+          if (!(await checkPerIpLimit(ip, discoveryRateLimiter))) {
             set.status = 429;
             return { error: "Too many requests" } as const;
           }
@@ -371,6 +440,10 @@ export const createEventsRoutes = (
             set.status = 401;
             return { message: "Unauthorized" } as const;
           }
+          if (!(await checkWriteRateLimit(eventCreateLimiter, "event_create", claims.profileId))) {
+            set.status = 429;
+            return { error: "Too many requests" } as const;
+          }
           const creator = {
             createdByProfileId: claims.profileId,
             createdByName:
@@ -429,6 +502,10 @@ export const createEventsRoutes = (
             return { message: "Unauthorized" } as const;
           }
           const profileId = claims.profileId;
+          if (!(await checkWriteRateLimit(eventUpdateLimiter, "event_update", profileId))) {
+            set.status = 429;
+            return { error: "Too many requests" } as const;
+          }
           const result = await Effect.runPromise(
             updateEvent(params.id, body, profileId).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
@@ -566,6 +643,12 @@ export const createEventsRoutes = (
           }
           return {
             rsvps: (result as RsvpWithProfile[]).map((row) => serializeRsvp(row, isOrganiser)),
+            // Additive, non-breaking signal (W4 / P5): tells the client
+            // whether the viewer is entitled to enumerate attendee
+            // identities. Organiser-only today; the organiser-only payload
+            // cutover is deferred so existing clients keep rendering the
+            // list. See services/eventAccess.ts.
+            canViewAttendees: canViewAttendees(event, viewerId),
           };
         },
         {
@@ -653,6 +736,9 @@ export const createEventsRoutes = (
           }
           return {
             rsvps: (result as RsvpWithProfile[]).map((row) => serializeRsvp(row, isOrganiser)),
+            // Additive attendee-visibility flag (W4 / P5) — mirrors
+            // GET /:id/rsvps.
+            canViewAttendees: canViewAttendees(event, viewerId),
           };
         },
         {
@@ -670,6 +756,10 @@ export const createEventsRoutes = (
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
+          }
+          if (!(await checkWriteRateLimit(rsvpUpsertLimiter, "rsvp_upsert", claims.profileId))) {
+            set.status = 429;
+            return { error: "Too many requests" } as const;
           }
           const result = await Effect.runPromise(
             upsertRsvp(params.id, claims.profileId, body).pipe(
@@ -711,15 +801,12 @@ export const createEventsRoutes = (
       // the only state they touch is the metric counters.
       .post(
         "/:id/share",
-        async ({ params, body, headers, set }) => {
-          const ip = getClientIp(headers);
-          let allowed: boolean;
-          try {
-            allowed = await shareRateLimiter.check(ip);
-          } catch {
-            allowed = false;
-          }
-          if (!allowed) {
+        async ({ params, body, headers, set, server, request }) => {
+          // P4 / S-M34: per-IP rate limit on the unauthenticated share ping
+          // under the configured trust policy. Fail-closed on an unresolved
+          // IP or a backend error so the metric counter can't be poisoned.
+          const ip = resolveIp(headers, server, request);
+          if (!(await checkPerIpLimit(ip, shareRateLimiter))) {
             set.status = 429;
             return { error: "Too many requests" } as const;
           }
@@ -750,15 +837,12 @@ export const createEventsRoutes = (
       )
       .post(
         "/:id/exposure",
-        async ({ params, body, headers, set }) => {
-          const ip = getClientIp(headers);
-          let allowed: boolean;
-          try {
-            allowed = await exposureRateLimiter.check(ip);
-          } catch {
-            allowed = false;
-          }
-          if (!allowed) {
+        async ({ params, body, headers, set, server, request }) => {
+          // P4 / S-M34: per-IP rate limit on the unauthenticated exposure
+          // ping under the configured trust policy. Fail-closed on an
+          // unresolved IP or a backend error.
+          const ip = resolveIp(headers, server, request);
+          if (!(await checkPerIpLimit(ip, exposureRateLimiter))) {
             set.status = 429;
             return { error: "Too many requests" } as const;
           }
@@ -800,6 +884,10 @@ export const createEventsRoutes = (
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
+          }
+          if (!(await checkWriteRateLimit(eventInviteLimiter, "event_invite", claims.profileId))) {
+            set.status = 429;
+            return { error: "Too many requests" } as const;
           }
           const result = await Effect.runPromise(
             inviteGuests(params.id, claims.profileId, body).pipe(
@@ -914,6 +1002,10 @@ export const createEventsRoutes = (
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
+          }
+          if (!(await checkWriteRateLimit(commsBlastLimiter, "comms_blast", claims.profileId))) {
+            set.status = 429;
+            return { error: "Too many requests" } as const;
           }
           const result = await Effect.runPromise(
             sendBlast(params.id, claims.profileId, body).pipe(

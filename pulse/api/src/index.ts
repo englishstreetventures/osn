@@ -1,17 +1,27 @@
 import { cors } from "@elysiajs/cors";
 import { DbLive } from "@pulse/db/service";
 import { healthRoutes, initObservability, observabilityPlugin } from "@shared/observability";
+import type { ClientIpOptions, RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Logger } from "effect";
 import { Elysia } from "elysia";
 
+import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
+import { DEFAULT_JWKS_URL } from "./lib/jwks";
 import { registerLeaveAppKeyWithOsnApi } from "./lib/outbound-arc";
-import { accountRoutes } from "./routes/account";
-import { closeFriendsRoutes } from "./routes/closeFriends";
-import { eventsRoutes, settingsRoutes } from "./routes/events";
-import { internalRoutes } from "./routes/internal";
-import { onboardingRoutes } from "./routes/onboarding";
-import { seriesRoutes } from "./routes/series";
-import { venuesRoutes } from "./routes/venues";
+import {
+  createRedisDiscoveryRateLimiter,
+  createRedisExposureRateLimiter,
+  createRedisShareRateLimiter,
+  createRedisWriteRateLimiters,
+} from "./lib/redis-rate-limiters";
+import { initRedisClient } from "./redis";
+import { createAccountRoutes } from "./routes/account";
+import { createCloseFriendsRoutes } from "./routes/closeFriends";
+import { createEventsRoutes, createSettingsRoutes } from "./routes/events";
+import { createInternalRoutes } from "./routes/internal";
+import { createOnboardingRoutes } from "./routes/onboarding";
+import { createSeriesRoutes } from "./routes/series";
+import { createVenuesRoutes } from "./routes/venues";
 import * as accountErasure from "./services/accountErasure";
 import { startKeyRotation } from "./services/graphBridge";
 
@@ -20,29 +30,125 @@ import { startKeyRotation } from "./services/graphBridge";
 const SERVICE_NAME = "pulse-api";
 const { layer: observabilityLayer } = initObservability({ serviceName: SERVICE_NAME });
 
+const nonLocalEnv = !!process.env.OSN_ENV && process.env.OSN_ENV !== "local";
+
+// ---------------------------------------------------------------------------
+// Client-IP trust policy (S-M34) for the per-IP limiters on the unauthenticated
+// discover / share / exposure surfaces. `PULSE_TRUSTED_PROXY_COUNT` is the
+// number of trusted reverse proxies in front of pulse-api: the keying IP is
+// taken that many hops from the right of `x-forwarded-for` (the only
+// spoofing-resistant strategy). Unset → direct mode (key off the socket peer).
+// Behind Cloudflare, set `trustCloudflare: true` here instead.
+// ---------------------------------------------------------------------------
+function parseTrustedProxyCount(raw: string | undefined): number {
+  if (raw === undefined) return 0;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(
+      `PULSE_TRUSTED_PROXY_COUNT must be a non-negative integer (got ${JSON.stringify(raw)})`,
+    );
+  }
+  return n;
+}
+
+const trustedProxyCount = parseTrustedProxyCount(process.env.PULSE_TRUSTED_PROXY_COUNT);
+const trustedProxyCountUnconfigured = process.env.PULSE_TRUSTED_PROXY_COUNT === undefined;
+const clientIpConfig: Omit<ClientIpOptions, "socketIp"> = { trustedProxyCount };
+
+// ---------------------------------------------------------------------------
+// Redis composition root — env-driven backend selection (mirrors osn/api).
+//
+// `REDIS_URL` set → Redis-backed limiters (shared across processes, survives
+// restarts). Unset → in-memory fallback. The route factories accept injected
+// `RateLimiterBackend`s, so the only thing that changes between local and
+// production is the backing store, never the policy / call sites.
+// ---------------------------------------------------------------------------
+
+const redisClient = await initRedisClient({
+  redisUrl: process.env.REDIS_URL,
+  redisRequired: process.env.REDIS_REQUIRED === "true",
+  nodeEnv: process.env.NODE_ENV,
+  loggerLayer: observabilityLayer,
+});
+
+// When REDIS_URL is unset, `initRedisClient` returns an in-memory client and
+// the Redis-backed factories degrade to process-local counters — identical
+// semantics to the route-factory in-memory defaults, so we wire the same path
+// in both cases and keep one code branch.
+const writeRateLimiters = createRedisWriteRateLimiters(redisClient);
+const discoveryRateLimiter: RateLimiterBackend = createRedisDiscoveryRateLimiter(redisClient);
+const shareRateLimiter: RateLimiterBackend = createRedisShareRateLimiter(redisClient);
+const exposureRateLimiter: RateLimiterBackend = createRedisExposureRateLimiter(redisClient);
+
+const jwksUrl = process.env.OSN_JWKS_URL ?? DEFAULT_JWKS_URL;
+
+// ---------------------------------------------------------------------------
+// CORS allowlist — replaces the bare `cors()` wildcard (P3).
+//
+// Pulse is a bearer-token API (no cookie-CSRF surface, hence no Origin guard),
+// but a wildcard ACAO still lets any site read responses from a victim's
+// session. Pin to the configured app origin(s); fail closed in non-local envs
+// where `PULSE_CORS_ORIGIN` is unset. Local dev falls back to the Tauri port.
+// ---------------------------------------------------------------------------
+
+const corsOrigins = resolveCorsOrigins(process.env, nonLocalEnv);
+assertCorsOriginsConfigured(corsOrigins, nonLocalEnv);
+
 const app = new Elysia()
-  .use(cors())
+  .use(cors({ origin: corsOrigins, credentials: true }))
   .use(observabilityPlugin({ serviceName: SERVICE_NAME }))
   .use(healthRoutes({ serviceName: SERVICE_NAME }))
   .get("/", () => ({ status: "ok", service: "osn-api" }))
-  .use(eventsRoutes)
-  .use(seriesRoutes)
-  .use(venuesRoutes)
-  .use(settingsRoutes)
-  .use(closeFriendsRoutes)
-  .use(onboardingRoutes)
-  .use(accountRoutes)
-  .use(internalRoutes);
+  .use(
+    createEventsRoutes(
+      DbLive,
+      jwksUrl,
+      undefined,
+      discoveryRateLimiter,
+      shareRateLimiter,
+      exposureRateLimiter,
+      {
+        eventCreate: writeRateLimiters.event_create,
+        eventUpdate: writeRateLimiters.event_update,
+        rsvpUpsert: writeRateLimiters.rsvp_upsert,
+        eventInvite: writeRateLimiters.event_invite,
+        commsBlast: writeRateLimiters.comms_blast,
+      },
+      clientIpConfig,
+    ),
+  )
+  .use(
+    createSeriesRoutes(DbLive, jwksUrl, undefined, {
+      seriesCreate: writeRateLimiters.series_create,
+      seriesUpdate: writeRateLimiters.series_update,
+    }),
+  )
+  .use(createVenuesRoutes())
+  .use(createSettingsRoutes(DbLive, jwksUrl))
+  .use(createCloseFriendsRoutes(DbLive, jwksUrl, undefined, writeRateLimiters.close_friend_mutate))
+  .use(createOnboardingRoutes(DbLive, jwksUrl))
+  .use(createAccountRoutes())
+  .use(createInternalRoutes());
 
 const port = process.env.PORT || 3001;
 
 if (process.env.NODE_ENV !== "test") {
   // S-H3: fetching public keys over plaintext HTTP in a deployed env allows
   // any process with network access to serve a forged JWK set. Fail fast.
-  const jwksUrl = process.env.OSN_JWKS_URL ?? "http://localhost:4000/.well-known/jwks.json";
-  const nonLocal = process.env.OSN_ENV && process.env.OSN_ENV !== "local";
-  if (nonLocal && jwksUrl.startsWith("http://")) {
+  if (nonLocalEnv && jwksUrl.startsWith("http://")) {
     throw new Error("OSN_JWKS_URL must use HTTPS in non-local environments");
+  }
+
+  // S-M34: warn when running non-local without an explicit proxy count — the
+  // per-IP limiters then key off the socket peer (direct mode). Behind a load
+  // balancer that means everyone shares the LB's IP; set
+  // PULSE_TRUSTED_PROXY_COUNT to the number of trusted hops.
+  if (nonLocalEnv && trustedProxyCountUnconfigured) {
+    void Effect.runPromise(
+      Effect.logWarning(
+        "PULSE_TRUSTED_PROXY_COUNT is unset — per-IP rate limiting will key off the socket peer (direct mode). If @pulse/api sits behind a reverse proxy / load balancer, set PULSE_TRUSTED_PROXY_COUNT to the number of trusted hops so x-forwarded-for is honoured spoof-safely.",
+      ).pipe(Effect.provide(Logger.pretty), Effect.provide(observabilityLayer)),
+    ).catch(() => undefined);
   }
 
   app.listen({ port, reusePort: false });

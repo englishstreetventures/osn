@@ -24,7 +24,7 @@ finding-ids:
   - S-H16
 packages:
   - "@pulse/api"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-06-16
 ---
 
 # Event Access Control
@@ -98,6 +98,14 @@ Non-authorised viewers receive 404, not 403. Returning 403 would confirm that th
 
 `listRsvps` has an additional gate beyond `loadVisibleEvent`: queries with `status: "invited"` return empty unless the viewer is the event organiser. Invitees never opted into being listed -- the public guest-list override applies only to people who have actually RSVPed.
 
+## Attendee Visibility — `canViewAttendees` (W4)
+
+**Seeing that an event exists** (`canViewEvent`) and **enumerating its attendees** are distinct concerns. An invited guest can open a private event, but the organiser may not want the full guest list exposed to every attendee.
+
+`canViewAttendees(event, viewerId)` is a pure, synchronous policy in `services/eventAccess.ts` that captures the second concern. It is **organiser-only** today (`viewerId === event.createdByProfileId`) — the creator is the one party guaranteed to be allowed to enumerate guests. It needs no DB round trip and accepts a trimmed `{ createdByProfileId }` projection.
+
+It is surfaced as an **additive, non-breaking** `canViewAttendees` boolean on the `GET /events/:id/rsvps` and `/events/:id/rsvps/latest` responses. The decision (locked in W4) is *additive flag now, organiser-only payload cutover deferred*: existing clients keep rendering the `rsvps` array unchanged while the UI migrates to consult the flag. When the cutover lands, the row payload itself becomes organiser-only and `canViewAttendees` gates it.
+
 ## Friends Discovery — Graph-Symmetry Assumption
 
 The `friendsOnly` discovery branch in `discoverEvents` interprets `pulse_users.attendance_visibility = "connections"` as "visible to people the *RSVPer* is connected to". Today this is equivalent to "people who claim the RSVPer as a connection" because the OSN social graph is **symmetric** (see `[[social-graph]]`). The predicate gates on the *viewer's* connection set without re-validating the friendship from the RSVPer's side.
@@ -138,7 +146,7 @@ Both endpoints are unauthenticated. Per-IP fail-closed limiters defend the metri
 
 ## Source Files
 
-- [pulse/api/src/services/eventAccess.ts](../pulse/api/src/services/eventAccess.ts) -- `canViewEvent`, `loadVisibleEvent`, `checkEventVisibility`, `buildVisibilityFilter`
+- [pulse/api/src/services/eventAccess.ts](../pulse/api/src/services/eventAccess.ts) -- `canViewEvent`, `loadVisibleEvent`, `checkEventVisibility`, `canViewAttendees`, `buildVisibilityFilter`
 - [pulse/api/src/lib/shareSource.ts](../pulse/api/src/lib/shareSource.ts) -- `SHARE_SOURCES`, `ShareSourceSchema`, `shareSourceTypeBox`
 - [pulse/api/src/services/rsvps.ts](../pulse/api/src/services/rsvps.ts) -- `upsertRsvp` attribution writes + organiser self-RSVP exclusion
 - [pulse/api/src/services/events.ts](../pulse/api/src/services/events.ts) -- `listEvents` (consumes `buildVisibilityFilter`)

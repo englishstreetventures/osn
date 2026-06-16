@@ -13,6 +13,21 @@ import { createTestLayer, seedEvent } from "../helpers/db";
  */
 const allowAllLimiter: RateLimiterBackend = { check: () => true };
 
+/**
+ * Trust policy used by these tests: pretend pulse-api sits behind a single
+ * proxy so the per-IP limiter can resolve a keying IP from the injected
+ * `x-forwarded-for` header (under `app.handle(...)` there is no socket peer,
+ * so direct mode would resolve to UNRESOLVED → fail-closed 429). Matches the
+ * osn/api auth-route test convention.
+ */
+const TEST_IP_CONFIG = { trustedProxyCount: 1 } as const;
+
+/** Inject a stable client IP so the per-IP limiter resolves under TEST_IP_CONFIG. */
+const withIp = (init: RequestInit = {}): RequestInit => ({
+  ...init,
+  headers: { "x-forwarded-for": "203.0.113.7", ...(init.headers as Record<string, string>) },
+});
+
 const FUTURE = (ms: number) => new Date(Date.now() + ms).toISOString();
 
 let testPrivateKey: CryptoKey;
@@ -37,11 +52,20 @@ describe("GET /events/discover", () => {
 
   beforeEach(() => {
     layer = createTestLayer();
-    app = createEventsRoutes(layer, "", testPublicKey, allowAllLimiter);
+    app = createEventsRoutes(
+      layer,
+      "",
+      testPublicKey,
+      allowAllLimiter,
+      undefined,
+      undefined,
+      undefined,
+      TEST_IP_CONFIG,
+    );
   });
 
   it("returns 200 with an empty page when there are no events", async () => {
-    const res = await app.handle(new Request("http://localhost/events/discover"));
+    const res = await app.handle(new Request("http://localhost/events/discover", withIp()));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ events: [], nextCursor: null, series: {} });
   });
@@ -50,7 +74,7 @@ describe("GET /events/discover", () => {
     await Effect.runPromise(
       seedEvent({ title: "Public", startTime: FUTURE(60_000) }).pipe(Effect.provide(layer)),
     );
-    const res = await app.handle(new Request("http://localhost/events/discover"));
+    const res = await app.handle(new Request("http://localhost/events/discover", withIp()));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { events: { title: string }[] };
     expect(body.events.map((e) => e.title)).toEqual(["Public"]);
@@ -64,23 +88,29 @@ describe("GET /events/discover", () => {
         visibility: "private",
       }).pipe(Effect.provide(layer)),
     );
-    const res = await app.handle(new Request("http://localhost/events/discover"));
+    const res = await app.handle(new Request("http://localhost/events/discover", withIp()));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ events: [], nextCursor: null, series: {} });
   });
 
   it("returns 401 for friendsOnly without a token", async () => {
-    const res = await app.handle(new Request("http://localhost/events/discover?friendsOnly=true"));
+    const res = await app.handle(
+      new Request("http://localhost/events/discover?friendsOnly=true", withIp()),
+    );
     expect(res.status).toBe(401);
   });
 
   it("returns 422 when lat is provided without lng/radiusKm", async () => {
-    const res = await app.handle(new Request("http://localhost/events/discover?lat=51.5"));
+    const res = await app.handle(
+      new Request("http://localhost/events/discover?lat=51.5", withIp()),
+    );
     expect(res.status).toBe(422);
   });
 
   it("returns 422 for priceMin without currency", async () => {
-    const res = await app.handle(new Request("http://localhost/events/discover?priceMin=5"));
+    const res = await app.handle(
+      new Request("http://localhost/events/discover?priceMin=5", withIp()),
+    );
     expect(res.status).toBe(422);
   });
 
@@ -95,7 +125,9 @@ describe("GET /events/discover", () => {
         Effect.provide(layer),
       ),
     );
-    const res = await app.handle(new Request("http://localhost/events/discover?category=music"));
+    const res = await app.handle(
+      new Request("http://localhost/events/discover?category=music", withIp()),
+    );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { events: { title: string }[] };
     expect(body.events.map((e) => e.title)).toEqual(["Show"]);
@@ -103,8 +135,17 @@ describe("GET /events/discover", () => {
 
   it("returns 429 when the rate limiter denies the request", async () => {
     const blockingLimiter: RateLimiterBackend = { check: () => false };
-    const blockedApp = createEventsRoutes(layer, "", testPublicKey, blockingLimiter);
-    const res = await blockedApp.handle(new Request("http://localhost/events/discover"));
+    const blockedApp = createEventsRoutes(
+      layer,
+      "",
+      testPublicKey,
+      blockingLimiter,
+      undefined,
+      undefined,
+      undefined,
+      TEST_IP_CONFIG,
+    );
+    const res = await blockedApp.handle(new Request("http://localhost/events/discover", withIp()));
     expect(res.status).toBe(429);
     expect(await res.json()).toEqual({ error: "Too many requests" });
   });
@@ -115,8 +156,25 @@ describe("GET /events/discover", () => {
         throw new Error("redis down");
       },
     };
-    const failedApp = createEventsRoutes(layer, "", testPublicKey, failingLimiter);
-    const res = await failedApp.handle(new Request("http://localhost/events/discover"));
+    const failedApp = createEventsRoutes(
+      layer,
+      "",
+      testPublicKey,
+      failingLimiter,
+      undefined,
+      undefined,
+      undefined,
+      TEST_IP_CONFIG,
+    );
+    const res = await failedApp.handle(new Request("http://localhost/events/discover", withIp()));
+    expect(res.status).toBe(429);
+  });
+
+  it("returns 429 when the client IP cannot be resolved (fail-closed)", async () => {
+    // No x-forwarded-for under trustedProxyCount:1 → UNRESOLVED_IP → deny,
+    // even though the limiter itself would allow. Guards the S-M34 invariant
+    // that an unresolved IP never shares a bucket.
+    const res = await app.handle(new Request("http://localhost/events/discover"));
     expect(res.status).toBe(429);
   });
 
@@ -126,9 +184,10 @@ describe("GET /events/discover", () => {
     );
     const token = await makeToken("usr_alice");
     const res = await app.handle(
-      new Request("http://localhost/events/discover?limit=10", {
-        headers: { Authorization: `Bearer ${token}` },
-      }),
+      new Request(
+        "http://localhost/events/discover?limit=10",
+        withIp({ headers: { Authorization: `Bearer ${token}` } }),
+      ),
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as {

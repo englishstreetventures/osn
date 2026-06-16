@@ -324,7 +324,13 @@ describe("Share-attribution routes", () => {
       Effect.succeed(new Map<string, ProfileDisplay>()),
     );
     layer = createTestLayer();
-    app = createEventsRoutes(layer, "", testPublicKey);
+    // P4: the share / exposure pings are rate-limited per IP. Under
+    // `app.handle(...)` there is no socket peer, so we declare a single
+    // trusted proxy and feed a stable `x-forwarded-for` so the limiter can
+    // resolve a keying IP (matches the osn/api auth-route test convention).
+    app = createEventsRoutes(layer, "", testPublicKey, undefined, undefined, undefined, undefined, {
+      trustedProxyCount: 1,
+    });
     aliceToken = await makeToken("usr_alice");
     bobToken = await makeToken("usr_bob");
     const res = await post(app, "/events", { title: "Party", startTime: FUTURE }, aliceToken);
@@ -332,18 +338,32 @@ describe("Share-attribution routes", () => {
     eventId = event.id;
   });
 
+  // Per-IP-keyed POST that injects a resolvable client IP for the limiter.
+  const postIp = (path: string, body: unknown, token?: string, ip = "203.0.113.9") =>
+    app.handle(
+      new Request(`http://localhost${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-forwarded-for": ip,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+
   it("POST /events/:id/share returns 204 for a valid source", async () => {
-    const res = await post(app, `/events/${eventId}/share`, { source: "whatsapp" });
+    const res = await postIp(`/events/${eventId}/share`, { source: "whatsapp" });
     expect(res.status).toBe(204);
   });
 
   it("POST /events/:id/share rejects an unknown source with 422", async () => {
-    const res = await post(app, `/events/${eventId}/share`, { source: "myspace" });
+    const res = await postIp(`/events/${eventId}/share`, { source: "myspace" });
     expect(res.status).toBe(422);
   });
 
   it("POST /events/:id/share returns 404 for a missing event", async () => {
-    const res = await post(app, "/events/evt_missing/share", { source: "instagram" });
+    const res = await postIp("/events/evt_missing/share", { source: "instagram" });
     expect(res.status).toBe(404);
   });
 
@@ -356,25 +376,36 @@ describe("Share-attribution routes", () => {
       aliceToken,
     );
     const { event } = (await createRes.json()) as { event: { id: string } };
-    const res = await post(app, `/events/${event.id}/share`, { source: "instagram" }, bobToken);
+    const res = await postIp(`/events/${event.id}/share`, { source: "instagram" }, bobToken);
     expect(res.status).toBe(404);
   });
 
+  it("POST /events/:id/share returns 429 when the client IP is unresolved", async () => {
+    // No x-forwarded-for under trustedProxyCount:1 → fail-closed (S-M34).
+    const res = await post(app, `/events/${eventId}/share`, { source: "whatsapp" });
+    expect(res.status).toBe(429);
+  });
+
   it("POST /events/:id/exposure returns 204 for a valid source", async () => {
-    const res = await post(app, `/events/${eventId}/exposure`, { source: "tiktok" });
+    const res = await postIp(`/events/${eventId}/exposure`, { source: "tiktok" });
     expect(res.status).toBe(204);
   });
 
   it("POST /events/:id/exposure rejects an unknown source with 422", async () => {
-    const res = await post(app, `/events/${eventId}/exposure`, { source: "myspace" });
+    const res = await postIp(`/events/${eventId}/exposure`, { source: "myspace" });
     expect(res.status).toBe(422);
   });
 
   it("POST /events/:id/exposure returns 204 silently for the organiser's own view", async () => {
     // Organiser self-views shouldn't pollute exposure analytics, but the
     // endpoint still 204s so the client doesn't need to special-case it.
-    const res = await post(app, `/events/${eventId}/exposure`, { source: "x" }, aliceToken);
+    const res = await postIp(`/events/${eventId}/exposure`, { source: "x" }, aliceToken);
     expect(res.status).toBe(204);
+  });
+
+  it("POST /events/:id/exposure returns 429 when the client IP is unresolved", async () => {
+    const res = await post(app, `/events/${eventId}/exposure`, { source: "tiktok" });
+    expect(res.status).toBe(429);
   });
 });
 
