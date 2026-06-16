@@ -10,12 +10,23 @@ import { resolvePublicKeyForKid, refreshPublicKeyForKid } from "./jwks-cache";
  * accept tokens that aren't ES256 or lack a `kid` header.
  *
  * Signature:
- *   extractClaims(authHeader, jwksUrl, { testKey?, audience? })
+ *   extractClaims(authHeader, jwksUrl, { testKey?, audience?, issuer? })
  *
  * - `jwksUrl`   — the route-level JWKS endpoint, passed straight through.
  * - `testKey`   — injected verifying key for tests (skips the JWKS fetch).
  * - `audience`  — when set, the expected `aud` is enforced *inside* the single
  *                 `jwtVerify` pass (P-I1); a mismatch is terminal (no refetch).
+ * - `issuer`    — when set, the expected `iss` is enforced inside the same
+ *                 `jwtVerify` pass; a mismatch is terminal (no refetch).
+ *                 **Optional and unset by default** — when unset, `iss` is not
+ *                 checked, so pre-issuer-stamping tokens still verify (X2
+ *                 rollout safety). A fresh JWKS key can neither change a
+ *                 token's `iss` nor its `aud`, so neither mismatch warrants a
+ *                 refetch.
+ *
+ * Clock skew (X2): verification allows ±30s of `clockTolerance`, matching the
+ * ARC / W6 issuer contract, so small clock drift between issuer and verifier
+ * doesn't reject otherwise-valid tokens.
  *
  * Returns `null` for any failure — never throws, never differentiates reasons
  * (callers map to 401 uniformly).
@@ -39,7 +50,16 @@ export type ExtractClaimsOptions = {
   testKey?: CryptoKey;
   /** Expected `aud` claim — enforced inside the jwtVerify pass when set. */
   audience?: string;
+  /**
+   * Expected `iss` claim — enforced inside the jwtVerify pass when set.
+   * Optional and unset by default (X2): when unset, `iss` is not checked so
+   * pre-issuer-stamping tokens still verify. A mismatch is terminal.
+   */
+  issuer?: string;
 };
+
+/** Allowed clock skew (seconds) — matches the ARC / W6 issuer contract (X2). */
+const CLOCK_TOLERANCE_SECONDS = 30;
 
 /** Outcome of a single verify attempt against one key. */
 type VerifyOutcome =
@@ -60,9 +80,16 @@ async function verifyTokenWithKey(
   token: string,
   key: CryptoKey,
   audience: string | undefined,
+  issuer: string | undefined,
 ): Promise<VerifyOutcome> {
   try {
-    const { payload } = await jwtVerify(token, key, { algorithms: ["ES256"], audience });
+    const { payload } = await jwtVerify(token, key, {
+      algorithms: ["ES256"],
+      audience,
+      // Unset issuer ⇒ omit the option ⇒ jose does not enforce `iss` (X2).
+      ...(issuer ? { issuer } : {}),
+      clockTolerance: CLOCK_TOLERANCE_SECONDS,
+    });
     const profileId = typeof payload.sub === "string" ? payload.sub : null;
     if (!profileId) return { kind: "terminal" };
     return {
@@ -92,6 +119,7 @@ export async function extractClaims(
   if (!authHeader?.startsWith("Bearer ")) return null;
   const token = authHeader.slice(7);
   const audience = options?.audience;
+  const issuer = options?.issuer;
 
   let header: { kid?: string; alg?: string };
   try {
@@ -103,7 +131,7 @@ export async function extractClaims(
   const kid = header.kid;
 
   if (options?.testKey) {
-    const outcome = await verifyTokenWithKey(token, options.testKey, audience);
+    const outcome = await verifyTokenWithKey(token, options.testKey, audience, issuer);
     return outcome.kind === "ok" ? outcome.claims : null;
   }
 
@@ -114,14 +142,15 @@ export async function extractClaims(
   const key = await resolvePublicKeyForKid(kid, jwksUrl);
   if (!key) return null;
 
-  const outcome = await verifyTokenWithKey(token, key, audience);
+  const outcome = await verifyTokenWithKey(token, key, audience, issuer);
   if (outcome.kind === "ok") return outcome.claims;
   // Only a signature mismatch against a successfully-resolved key warrants
-  // re-fetching the JWKS (possible rotation). Anything else is terminal.
+  // re-fetching the JWKS (possible rotation). Anything else — including an
+  // issuer mismatch — is terminal: a fresh key cannot change a token's `iss`.
   if (outcome.kind !== "signature-mismatch") return null;
 
   const freshKey = await refreshPublicKeyForKid(kid, jwksUrl);
   if (!freshKey) return null;
-  const retried = await verifyTokenWithKey(token, freshKey, audience);
+  const retried = await verifyTokenWithKey(token, freshKey, audience, issuer);
   return retried.kind === "ok" ? retried.claims : null;
 }

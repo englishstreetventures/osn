@@ -348,6 +348,8 @@ eligible under the Digital ID Act 2024.
 
 - [x] JWKS endpoint + ES256 access tokens — `GET /.well-known/jwks.json` live in `@osn/api`; `@pulse/api` verifies via JWKS cache — see [[arc-tokens]]
 - [ ] JWKS URL fallback in `resolvePublicKey` for third-party apps (currently first-party only via `service_account_keys`)
+- [x] **W7 issuer hardening** — `verifyArcToken` gains optional `expectedIssuer` (X1: `requireArc` binds signed `iss` to the kid→issuer DB row); ARC token cache key now includes `ttl` + canonicalised scope (X3); ARC public-key cache TTL configurable via `ARC_PUBLIC_KEY_CACHE_TTL_SECONDS` (X4); `@shared/osn-auth-client` `extractClaims`/`osnAuth` gain optional `issuer` + 30s `clockTolerance` (X2, issuer optional/unset for rollout safety); `@shared/redis` memory `eval` asserts the rate-limit script (X5). See [[arc-tokens]]. (Move to `[[changelog/completed-features]]` on merge.)
+- [ ] **Enforce access-token `issuer` in downstream verifiers** — once all live access tokens carry a matching `iss`, set `issuer` on `@shared/osn-auth-client` `osnAuth` consumers (currently optional/unset for rollout safety, X2).
 
 ### UI Components (`osn/ui`)
 
@@ -366,6 +368,9 @@ Phases 1–3 complete (abstraction layer, `@shared/redis` package, wire-up). Det
 - [ ] `magicStore` → Redis with TTL
 - [x] ~~`pkceStore` → Redis with TTL + size bound (resolves S-L23)~~ — **Obsolete**: `pkceStore` deleted entirely with the PKCE flow removal (Phase 5b)
 - [ ] `pendingRegistrations` → Redis with TTL
+
+**Phase 4 — ARC key revocation fan-out (X4 follow-up) — see [[arc-tokens]]**
+- [ ] Redis pub/sub eviction of `service_account_keys` revocations across processes — publish `(kid)` on revoke; every process subscribes and calls `evictPublicKeyCacheEntry(kid)`. Closes the ≤5-min cross-process revocation window (currently bounded by `ARC_PUBLIC_KEY_CACHE_TTL_SECONDS`, default 300).
 
 **Observability (Redis)**
 - [ ] Logs: `Effect.logError` on Redis connection failures + command errors; `Effect.logWarning` on fallback-to-in-memory transitions; add `redisPassword` / `redis_password` to redaction deny-list

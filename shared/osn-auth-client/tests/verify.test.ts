@@ -77,15 +77,16 @@ describe("extractClaims", () => {
   });
 
   it("returns null for expired token", async () => {
+    // Expire well outside the 30s clockTolerance (X2) so the token is
+    // unambiguously expired rather than merely within the skew window.
+    const past = Math.floor(Date.now() / 1000) - 120;
     const token = await new SignJWT({})
       .setProtectedHeader({ alg: "ES256", kid })
       .setSubject("usr_alice")
-      .setIssuedAt()
-      .setExpirationTime("0s")
+      .setIssuedAt(past - 60)
+      .setExpirationTime(past)
       .sign(signKey);
 
-    // wait a tick so the token is actually expired
-    await new Promise((r) => setTimeout(r, 10));
     const result = await extractClaims(`Bearer ${token}`, "http://test/.well-known/jwks.json", {
       testKey: verifyKey,
     });
@@ -181,13 +182,14 @@ describe("extractClaims — negative + rotation paths", () => {
   });
 
   it("expired token → null with NO refresh fetch (P-C1)", async () => {
+    // Expire outside the 30s clockTolerance (X2) so it's genuinely expired.
+    const past = Math.floor(Date.now() / 1000) - 120;
     const token = await new SignJWT({})
       .setProtectedHeader({ alg: "ES256", kid: kidA })
       .setSubject("usr_a")
-      .setIssuedAt()
-      .setExpirationTime("0s")
+      .setIssuedAt(past - 60)
+      .setExpirationTime(past)
       .sign(keyA.signKey);
-    await new Promise((r) => setTimeout(r, 10));
 
     const result = await extractClaims(`Bearer ${token}`, JWKS_URL);
     expect(result).toBeNull();
@@ -235,5 +237,101 @@ describe("extractClaims — negative + rotation paths", () => {
     // Cached keyA fails signature → one forced refresh picks up keyB.
     expect(rotated?.profileId).toBe("usr_b");
     expect(fetchCount).toBe(1);
+  });
+
+  // X2: issuer enforcement matrix.
+  const ISS = "https://osn-api.example.com";
+
+  it("issuer set + matching iss → claims resolve", async () => {
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid: kidA })
+      .setSubject("usr_a")
+      .setIssuer(ISS)
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(keyA.signKey);
+
+    const result = await extractClaims(`Bearer ${token}`, JWKS_URL, { issuer: ISS });
+    expect(result?.profileId).toBe("usr_a");
+  });
+
+  it("issuer set + mismatched iss → null, terminal (NO refresh fetch)", async () => {
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid: kidA })
+      .setSubject("usr_a")
+      .setIssuer("https://evil.example.com")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(keyA.signKey);
+
+    const result = await extractClaims(`Bearer ${token}`, JWKS_URL, { issuer: ISS });
+    expect(result).toBeNull();
+    // Issuer mismatch is terminal — a fresh key cannot change `iss`.
+    expect(fetchCount).toBe(1); // resolve only, no rotation retry
+  });
+
+  it("issuer UNSET → any iss accepted (rollout safety: pre-O1 tokens verify)", async () => {
+    // Token with an arbitrary iss, verified WITHOUT an expected issuer.
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid: kidA })
+      .setSubject("usr_a")
+      .setIssuer("https://anything.example.com")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(keyA.signKey);
+
+    const result = await extractClaims(`Bearer ${token}`, JWKS_URL);
+    expect(result?.profileId).toBe("usr_a");
+
+    // And a token with NO iss claim at all still verifies when issuer unset.
+    const noIss = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid: kidA })
+      .setSubject("usr_b")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(keyA.signKey);
+    const result2 = await extractClaims(`Bearer ${noIss}`, JWKS_URL);
+    expect(result2?.profileId).toBe("usr_b");
+  });
+
+  // X2: clock-skew tolerance (±30s).
+  it("token expired 10s ago → still accepted (within 30s clockTolerance)", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid: kidA })
+      .setSubject("usr_a")
+      .setIssuedAt(now - 70)
+      .setExpirationTime(now - 10) // 10s in the past, inside the 30s skew
+      .sign(keyA.signKey);
+
+    const result = await extractClaims(`Bearer ${token}`, JWKS_URL);
+    expect(result?.profileId).toBe("usr_a");
+  });
+
+  it("token issued 10s in the future → accepted (nbf/iat within 30s skew)", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid: kidA })
+      .setSubject("usr_a")
+      .setNotBefore(now + 10) // not-yet-valid, but inside the 30s skew
+      .setIssuedAt(now + 10)
+      .setExpirationTime(now + 300)
+      .sign(keyA.signKey);
+
+    const result = await extractClaims(`Bearer ${token}`, JWKS_URL);
+    expect(result?.profileId).toBe("usr_a");
+  });
+
+  it("token expired 60s ago → rejected (outside 30s clockTolerance)", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid: kidA })
+      .setSubject("usr_a")
+      .setIssuedAt(now - 120)
+      .setExpirationTime(now - 60) // 60s past, beyond the 30s skew
+      .sign(keyA.signKey);
+
+    const result = await extractClaims(`Bearer ${token}`, JWKS_URL);
+    expect(result).toBeNull();
   });
 });

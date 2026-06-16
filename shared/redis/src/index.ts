@@ -7,5 +7,9 @@ export {
   createClientFromUrl,
 } from "./client";
 export { Redis, type RedisService, RedisLive, RedisMemoryLive, sanitizeCause } from "./service";
-export { createRedisRateLimiter, type RedisRateLimiterConfig } from "./rate-limiter";
+export {
+  createRedisRateLimiter,
+  type RedisRateLimiterConfig,
+  RATE_LIMIT_SCRIPT,
+} from "./rate-limiter";
 export { checkRedisHealth } from "./health";

@@ -129,6 +129,24 @@ function normaliseScopes(raw: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Canonicalises a comma-separated scope string the same way it is normalised
+ * at signing time (trim + lowercase + drop empties, joined back with commas).
+ * Used for the token cache key so that semantically-identical scope strings
+ * (e.g. " Graph:Read " vs "graph:read") map to the same cache entry — matching
+ * the value that `createArcToken` actually signs.
+ *
+ * NOTE (X3): scopes are NOT sorted. "graph:read,graph:write" and
+ * "graph:write,graph:read" remain distinct cache keys because they also sign
+ * distinct `scope` claims (createArcToken preserves order). Sorting would be a
+ * safe, trivial improvement to collapse those into one entry, but it would
+ * change the signed claim ordering too — so it's left as a deliberate
+ * non-change here rather than a silent semantic shift.
+ */
+function canonicaliseScope(raw: string): string {
+  return normaliseScopes(raw).join(",");
+}
+
 /** Validates that every scope token matches the allowed pattern. */
 function validateScopeFormat(scopes: string[]): void {
   for (const s of scopes) {
@@ -190,12 +208,18 @@ export async function createArcToken(
  * @param publicKey - The issuer's public key
  * @param expectedAudience - The service ID that this token should be addressed to
  * @param requiredScope - If provided, the token must include this scope
+ * @param expectedIssuer - If provided, the token's `iss` claim must match (X1).
+ *   Receivers should pass the service-account issuer the public key was
+ *   resolved for, so jose cryptographically binds the signed `iss` to the
+ *   kid→issuer DB mapping. Optional for backward compatibility with callers
+ *   that don't yet enforce issuer.
  */
 export async function verifyArcToken(
   token: string,
   publicKey: CryptoKey,
   expectedAudience: string,
   requiredScope?: string,
+  expectedIssuer?: string,
 ): Promise<ArcTokenPayload> {
   // We don't know the issuer until we've parsed the token, so we record
   // the metric once we have it. On early failure (bad signature, etc.)
@@ -205,6 +229,9 @@ export async function verifyArcToken(
     const { payload } = await jwtVerify(token, publicKey, {
       algorithms: [ARC_ALG],
       audience: expectedAudience,
+      // X1: when expectedIssuer is set, jose enforces `iss` matches —
+      // cryptographically binding the signed issuer to the kid→issuer DB row.
+      ...(expectedIssuer ? { issuer: expectedIssuer } : {}),
     }).catch((cause) => {
       throw new ArcTokenError({ message: "ARC token verification failed", cause });
     });
@@ -259,7 +286,20 @@ const publicKeyCache = new Map<
  * Avoids the Map delete+re-insert on the hot cache-hit path.
  */
 const publicKeyLastAccess = new Map<string, number>();
-const PUBLIC_KEY_CACHE_TTL_SECONDS = 300; // 5 min
+
+/**
+ * Public-key cache TTL (seconds). Bounds the cross-process key-revocation
+ * window (X4): an in-process call to `evictPublicKeyCacheEntry(kid)` on the
+ * revoking node is immediate (S-H100), but *other* nodes that already cached
+ * the key keep serving it until their own entry expires — at most this TTL.
+ * Overridable via `ARC_PUBLIC_KEY_CACHE_TTL_SECONDS`; defaults to 300 (5 min).
+ * A finite, conservative default is the trade-off for not yet having a Redis
+ * pub/sub fan-out eviction (backlogged in `wiki/TODO.md`).
+ */
+const PUBLIC_KEY_CACHE_TTL_SECONDS = (() => {
+  const raw = Number(process.env.ARC_PUBLIC_KEY_CACHE_TTL_SECONDS);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 300;
+})();
 
 // Mutable cap — overrideable in tests via _setPublicKeyCacheMaxSizeForTest.
 let _publicKeyCacheMaxSize = MAX_CACHE_SIZE;
@@ -439,8 +479,16 @@ interface CachedToken {
 const tokenCache = new Map<string, CachedToken>();
 const tokenLastAccess = new Map<string, number>();
 
-function cacheKey(kid: string, iss: string, aud: string, scope: string): string {
-  return `${kid}:${iss}:${aud}:${scope}`;
+/**
+ * Builds the token-cache key. Includes `ttl` (X3) so a token requested with a
+ * shorter TTL never reuses a longer-lived cached entry whose remaining life
+ * exceeds the caller's intent. The scope is canonicalised (X3) — same
+ * normalisation `createArcToken` applies at signing — so cache hits line up
+ * with what is actually signed and minor formatting differences don't fork the
+ * cache. Scope is NOT sorted; see {@link canonicaliseScope}.
+ */
+function cacheKey(kid: string, iss: string, aud: string, scope: string, ttl: number): string {
+  return `${kid}:${iss}:${aud}:${canonicaliseScope(scope)}:${ttl}`;
 }
 
 /**
@@ -455,7 +503,7 @@ export async function getOrCreateArcToken(
 ): Promise<string> {
   validateTtl(ttl);
 
-  const key = cacheKey(claims.kid, claims.iss, claims.aud, claims.scope);
+  const key = cacheKey(claims.kid, claims.iss, claims.aud, claims.scope, ttl);
   const now = Math.floor(Date.now() / 1000);
 
   // Debounced eviction — avoid O(n) scan on every outbound S2S request (P-W102).
