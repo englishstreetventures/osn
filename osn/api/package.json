@@ -28,6 +28,6 @@
   "devDependencies": {
     "@effect/vitest": "^0.29.0",
     "@shared/typescript-config": "workspace:*",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.8"
   }
 }

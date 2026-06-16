@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
-    "vitest": "^4.1.6",
+    "vitest": "^4.1.8",
     "hono": "^4.12.23",
     "elysia": "^1.4.28"
   }
