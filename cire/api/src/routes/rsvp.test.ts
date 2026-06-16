@@ -44,9 +44,13 @@ beforeAll(() => {
   wilsonJamesGuestId = allGuests.find((g) => g.firstName === "Bo")!.id;
 });
 
+// The composed app enforces the Origin guard on state-changing methods, so a
+// real browser POST carries an allowlisted Origin (the default WEB_ORIGIN).
+const ORIGIN = "http://localhost:4321";
+
 const post = (body: unknown, cookie: string | null) =>
   Effect.promise(() => {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = { "Content-Type": "application/json", Origin: ORIGIN };
     if (cookie) headers["Cookie"] = cookie;
     return app.fetch(
       new Request("http://localhost/api/rsvp", {
@@ -57,12 +61,18 @@ const post = (body: unknown, cookie: string | null) =>
     );
   });
 
+// /api/claim is rate-limited and keys on cf-connecting-ip; supply it so the
+// limiter doesn't fail closed (C4).
 const claim = (publicId: string) =>
   Effect.promise(() =>
     app.fetch(
       new Request("http://localhost/api/claim", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Origin: ORIGIN,
+          "cf-connecting-ip": "1.2.3.4",
+        },
         body: JSON.stringify({ publicId }),
       }),
     ),
@@ -240,6 +250,7 @@ describe("POST /api/rsvp", () => {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
+                Origin: ORIGIN,
                 Cookie: cookie,
                 "Content-Length": String(512 * 1024),
               },
@@ -248,6 +259,51 @@ describe("POST /api/rsvp", () => {
           ),
         );
         expect(res.status).toBe(413);
+      }),
+    ),
+  );
+
+  it(
+    "returns 403 when the Origin header is missing (S-L3 CSRF guard)",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        const res = yield* Effect.promise(() =>
+          app.fetch(
+            new Request("http://localhost/api/rsvp", {
+              method: "POST",
+              // No Origin header — the guard runs before sessionAuth.
+              headers: { "Content-Type": "application/json", Cookie: cookie },
+              body: JSON.stringify({ rsvps: [] }),
+            }),
+          ),
+        );
+        expect(res.status).toBe(403);
+        const data = yield* Effect.promise(() => res.json<{ error: string }>());
+        expect(data.error).toBe("forbidden");
+      }),
+    ),
+  );
+
+  it(
+    "returns 403 when the Origin header is not allowlisted (S-L3 CSRF guard)",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        const res = yield* Effect.promise(() =>
+          app.fetch(
+            new Request("http://localhost/api/rsvp", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Origin: "https://evil.example.com",
+                Cookie: cookie,
+              },
+              body: JSON.stringify({ rsvps: [] }),
+            }),
+          ),
+        );
+        expect(res.status).toBe(403);
       }),
     ),
   );

@@ -8,7 +8,7 @@ related:
   - "[[cire]]"
   - "[[data-map]]"
   - "[[access-control]]"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-06-16
 ---
 
 # Cire two-system auth
@@ -28,9 +28,9 @@ Cire runs **two deliberately separate auth systems** that never overlap. Guests 
 
 1. A family receives a shareable claim code — `families.public_id`, e.g. `SHARMA-IVY-QM42` (family name + word + 4-char hash; collisions on family name are fine, the word/hash disambiguates).
 2. `POST /api/claim` looks up the code and mints a 256-bit random session token. The token is stored **SHA-256-hashed** in cire's `sessions` table (DB read never yields a usable credential); the raw value goes only into the cookie.
-3. Cookie attributes: `cire_session`, `HttpOnly; SameSite=Lax; Path=/`, 30-day TTL, host-scoped (no `Domain=` until a production root domain lands). CORS echoes the configured origin with `credentials: true`.
+3. Cookie attributes: `cire_session`, `HttpOnly; SameSite=Lax; Path=/`, 30-day TTL, host-scoped (no `Domain=` until a production root domain lands). CORS echoes the configured origin with `credentials: true`. Because the cookie carries auth state, an **Origin guard** (`cire/api/src/lib/origin-guard.ts`, S-L3) validates the `Origin` header on every state-changing method (POST/PUT/PATCH/DELETE) against the same `WEB_ORIGIN`-derived allowlist CORS uses — 403 on missing/mismatch when an allowlist is configured. cire has no inbound ARC/S2S routes, so the guard has no exemption (unlike osn-api's).
 4. `sessionAuth()` middleware gates `/api/rsvp`: parses the cookie, validates the hash against `sessions`, and sets `c.var.familyId` for downstream handlers. Any failure is a generic 401 `Unauthorized` — no session-state leakage.
-5. `POST /api/claim` is rate-limited (KV-backed, via `@shared/rate-limit`) to keep code brute-force impractical.
+5. `POST /api/claim` is rate-limited to keep code brute-force impractical. The throttle is the **native Cloudflare Workers Rate Limiting binding** (`[[unsafe.bindings]]` type `ratelimit` in `cire/api/wrangler.toml`, 5 attempts / 60s) — enforced globally + atomically at the edge, not the old per-isolate map. `cire/api`'s `RateLimiterBackend` interface (`@shared/rate-limit`) abstracts it: `createWorkersRateLimiter` (`cire/api/src/lib/workers-rate-limiter.ts`) wraps the binding for prod; the in-memory limiter is the local-dev/test default when the binding is absent. Both fail closed. The per-IP key comes from the trusted `cf-connecting-ip` header only (`cire/api/src/lib/client-ip.ts`); a request with no resolvable IP is denied, never bucketed under a shared `"unknown"` key (C4).
 
 **Why guests never get OSN accounts:** the guest journey is "tap a link at the dinner table, pick who's coming". Any registration ceremony — even a passkey one — would lose RSVPs. The claim code is deliberately low-friction and family-scoped; the security bar is "unguessable + rate-limited + revocable", not "authenticated identity". A future optional claim-code → OSN account link is tracked in `wiki/TODO.md` (Cire section), but it must stay optional.
 

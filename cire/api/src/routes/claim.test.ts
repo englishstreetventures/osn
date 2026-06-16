@@ -32,12 +32,24 @@ beforeAll(() => {
   seedDb(db);
 });
 
+// The composed app enforces the Origin guard on POST, so a real browser claim
+// carries an allowlisted Origin (the default WEB_ORIGIN). Behind Cloudflare it
+// also carries cf-connecting-ip, which the per-IP rate limiter keys on (without
+// it the limiter fails closed — C4).
+const ORIGIN = "http://localhost:4321";
+const CF_IP = "1.2.3.4";
+const baseHeaders = {
+  "Content-Type": "application/json",
+  Origin: ORIGIN,
+  "cf-connecting-ip": CF_IP,
+};
+
 const post = (body: unknown) =>
   Effect.promise(() =>
     app.fetch(
       new Request("http://localhost/api/claim", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: baseHeaders,
         body: JSON.stringify(body),
       }),
     ),
@@ -128,7 +140,7 @@ describe("POST /api/claim", () => {
           app.fetch(
             new Request("http://localhost/api/claim", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: baseHeaders,
               body: "{not-json",
             }),
           ),
@@ -178,6 +190,45 @@ describe("POST /api/claim", () => {
         const data = yield* Effect.promise(() => res.json<ClaimOk>());
         expect(typeof data.familyId).toBe("string");
         expect(data.familyId.length).toBeGreaterThan(0);
+      }),
+    ),
+  );
+
+  it(
+    "returns 403 when the Origin header is missing (S-L3 CSRF guard)",
+    eff(
+      Effect.gen(function* () {
+        const res = yield* Effect.promise(() =>
+          app.fetch(
+            new Request("http://localhost/api/claim", {
+              method: "POST",
+              // No Origin header — the guard runs before the rate limiter + handler.
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ publicId: "TESTONE-IVY-AA11" }),
+            }),
+          ),
+        );
+        expect(res.status).toBe(403);
+        const data = yield* Effect.promise(() => res.json<{ error: string }>());
+        expect(data.error).toBe("forbidden");
+      }),
+    ),
+  );
+
+  it(
+    "returns 403 when the Origin header is not allowlisted (S-L3 CSRF guard)",
+    eff(
+      Effect.gen(function* () {
+        const res = yield* Effect.promise(() =>
+          app.fetch(
+            new Request("http://localhost/api/claim", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Origin: "https://evil.example.com" },
+              body: JSON.stringify({ publicId: "TESTONE-IVY-AA11" }),
+            }),
+          ),
+        );
+        expect(res.status).toBe(403);
       }),
     ),
   );

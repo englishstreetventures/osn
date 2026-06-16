@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-06-10
+last-reviewed: 2026-06-16
 ---
 
 # Security Backlog
@@ -15,7 +15,7 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 ## Critical
 
 - [x] `GET /api/organiser/guests` is currently unauthenticated and exposes every family's `publicId` — must be gated behind organiser auth (or removed from the deployed app) before any public launch. **Fixed** in the OSN merge: all `/api/organiser/*` routes sit behind `osnAuth()` (OSN access-JWT verification) plus `weddingOwner()` / `ownedWedding()` ownership gates — see `[[wiki/systems/cire-auth]]` in the root OSN wiki.
-- [x] Rate-limit `POST /api/claim` — KV-backed limiter via `cire/api/src/middleware/rate-limit.ts`
+- [x] Rate-limit `POST /api/claim` — throttled by the **native Cloudflare Workers Rate Limiting binding** (`[[unsafe.bindings]]` type `ratelimit` in `cire/api/wrangler.toml`, 5/60s), enforced globally + atomically at the edge. `cire/api/src/lib/workers-rate-limiter.ts` wraps it behind the `@shared/rate-limit` `RateLimiterBackend` interface (`createWorkersRateLimiter`); the in-memory limiter is the local-dev/test fallback when the binding is absent. Both fail closed. (Corrects the earlier "KV-backed" description — the limiter was never KV-backed.) Applied via `cire/api/src/middleware/rate-limit.ts`.
 
 ## High
 
@@ -44,6 +44,8 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 
 ## Low
 
+- [x] **S-L3 — CSRF Origin guard.** The `cire_session` cookie carries auth state, so add server-side Origin validation as defence-in-depth on top of `SameSite=Lax`. `cire/api/src/lib/origin-guard.ts` (ported from `osn/api`) runs on every state-changing method (POST/PUT/PATCH/DELETE) under `/api/*`, validating the `Origin` header against the same `WEB_ORIGIN`-derived allowlist CORS uses — 403 on missing/mismatch when an allowlist is configured, pass-through in dev. cire has no inbound ARC/S2S routes, so no exemption. Bounded `cire.origin_guard.rejections` metric (`reason: missing|mismatch`). See `[[wiki/systems/cire-auth]]`.
+- [x] **C4 — rate-limit IP hardening (fail closed).** `cire/api/src/lib/client-ip.ts` now resolves the per-IP key from the trusted `cf-connecting-ip` header only — the spoofable `x-forwarded-for` fallback and the shared `"unknown"` bucket are gone. An unresolvable IP returns `null`; `rate-limit.ts` treats that as a deny (429) on these pre-auth state-changing routes, so a header-stripping caller can't escape the limiter.
 - [ ] Verify `ORGANISER_TOKEN` is not set as a CF secret on the deployed cire-api worker — the `X-Organiser-Token` code path is deleted, but a secret set during the interim would linger as stale config. If present: `wrangler secret delete ORGANISER_TOKEN` (manual, from `cire/api`).
 - [ ] Review Cloudflare Worker CSP headers on the web app
 - [ ] Confirm all D1 queries go through Drizzle (no raw SQL interpolation anywhere)

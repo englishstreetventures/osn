@@ -36,7 +36,10 @@ function buildApp() {
   const db = createDb(":memory:");
   seedBootstrapWedding(db);
   const r2 = createR2Stub();
-  const app = createApp(db, { r2, osnTestKey: auth.key });
+  // No allowlist ⇒ Origin guard runs in dev pass-through mode; these tests
+  // exercise organiser auth + import logic, not the CSRF guard (covered in
+  // origin-guard.test.ts + the claim/rsvp integration tests).
+  const app = createApp(db, { r2, osnTestKey: auth.key, allowedOrigins: [] });
   return { db, r2, app };
 }
 

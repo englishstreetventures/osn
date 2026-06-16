@@ -4,6 +4,9 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 
 import type { Db } from "./db";
+import { originGuard } from "./lib/origin-guard";
+import { createWorkersRateLimiter } from "./lib/workers-rate-limiter";
+import type { WorkersRateLimitBinding } from "./lib/workers-rate-limiter";
 import { sessionAuth } from "./middleware/auth";
 import { osnAuth } from "./middleware/osn-auth";
 import { rateLimitMiddleware } from "./middleware/rate-limit";
@@ -36,8 +39,20 @@ export interface AppOptions {
   webOrigin?: string;
   /** Extra origins allowed by CORS (organiser portal, etc). Defaults to `[webOrigin]`. */
   allowedOrigins?: string[];
-  /** Override the claim rate limiter (useful for testing). */
+  /**
+   * Explicit claim rate limiter. Takes precedence over `claimRateLimitBinding`
+   * — used by tests to inject an in-memory limiter with a known budget.
+   */
   claimLimiter?: RateLimiterBackend;
+  /**
+   * Native Cloudflare Workers Rate Limiting binding (C1/C4). When present (and
+   * `claimLimiter` is not), the claim endpoint is throttled globally + atomically
+   * at the edge instead of by the per-isolate in-memory limiter. Absent ⇒ the
+   * in-memory default is used (local dev / tests). The window/limit live in
+   * `wrangler.toml` (`simple = { limit = 5, period = 60 }`), matching the 5/min
+   * in-memory default.
+   */
+  claimRateLimitBinding?: WorkersRateLimitBinding;
   /** R2 bucket binding for the organiser import flow. */
   r2?: R2Bucket;
   /** JWKS endpoint of the OSN issuer that signs organiser access tokens. */
@@ -52,12 +67,19 @@ export function createApp(db: Db, options: AppOptions = {}) {
   const {
     webOrigin = "http://localhost:4321",
     allowedOrigins,
-    claimLimiter = defaultClaimLimiter,
+    claimLimiter,
+    claimRateLimitBinding,
     r2,
     osnJwksUrl = "http://localhost:4000/.well-known/jwks.json",
     osnAudience = "osn-access",
     osnTestKey,
   } = options;
+  // Backend selection (C1/C4): an explicit limiter wins (tests); otherwise the
+  // native Workers binding when present (prod); otherwise the in-memory default
+  // (local dev). One throttle, one source of truth for its window in wrangler.toml.
+  const resolvedClaimLimiter: RateLimiterBackend =
+    claimLimiter ??
+    (claimRateLimitBinding ? createWorkersRateLimiter(claimRateLimitBinding) : defaultClaimLimiter);
   const corsOrigins = new Set(allowedOrigins ?? [webOrigin]);
   const app = new Hono<{ Variables: AppVariables }>();
 
@@ -82,8 +104,16 @@ export function createApp(db: Db, options: AppOptions = {}) {
     }),
   );
 
+  // CSRF defence (S-L3): validate the Origin header on every state-changing
+  // request, uniformly, sourced from the same allowlist CORS uses. cire has no
+  // inbound ARC/S2S routes, so there is no exemption. Runs after CORS (so the
+  // preflight still resolves) and before any auth/route handler. A missing or
+  // mismatched Origin on POST/PUT/PATCH/DELETE returns 403 when an allowlist is
+  // configured; in dev (no allowlist) it's a pass-through.
+  app.use("/api/*", originGuard({ allowedOrigins: corsOrigins }));
+
   // Rate limit the claim endpoint (brute-force protection — S-C2)
-  app.use("/api/claim", rateLimitMiddleware(claimLimiter));
+  app.use("/api/claim", rateLimitMiddleware(resolvedClaimLimiter));
 
   // Gate /api/rsvp behind a valid session cookie. Mounted before `app.route`
   // so the middleware fires on every method under that prefix.
