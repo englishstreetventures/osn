@@ -16,7 +16,6 @@
 "@shared/osn-auth-client": patch
 "@shared/rate-limit": patch
 "@shared/redis": patch
-"@cire/organiser": patch
 ---
 
 Audit + align cross-workspace dependency ranges and adopt TypeScript 6.0.

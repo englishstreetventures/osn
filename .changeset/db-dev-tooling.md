@@ -1,6 +1,4 @@
 ---
-"@cire/api": patch
-"@cire/db": patch
 "@osn/db": patch
 "@pulse/db": patch
 "@zap/db": patch

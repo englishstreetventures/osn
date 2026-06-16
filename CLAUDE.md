@@ -181,7 +181,7 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | oxfmt | `.oxfmtrc.json` — import sorting + Tailwind class sorting |
 | Runtime | Use `bunx --bun` for all tooling |
 | Branching | PRs required to merge to main; always work on feature branch |
-| Changesets | Every PR includes changeset (`bun run changeset`) — CI fails without. Package names must match workspace `name` field exactly (e.g. `"@pulse/app"`, not `"pulse"`); Changeset Check enforces |
+| Changesets | Every PR includes changeset (`bun run changeset`) — CI fails without. Package names must match workspace `name` field exactly (e.g. `"@pulse/app"`, not `"pulse"`). Never mix ignored (version-less, e.g. `@cire/*`) and versioned packages in one changeset — split them; Changeset Check (`scripts/validate-changesets.sh`) enforces both rules |
 | Versioning | Automatic — changesets consumed + committed by CI on merge to main |
 
 ## Commands

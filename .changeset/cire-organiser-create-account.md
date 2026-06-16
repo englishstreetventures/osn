@@ -1,5 +1,4 @@
 ---
-"@cire/organiser": minor
 "@osn/ui": minor
 ---
 

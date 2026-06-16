@@ -1,6 +1,4 @@
 ---
-"@cire/api": minor
-"@cire/db": minor
 "@shared/crypto": minor
 "@shared/observability": patch
 ---

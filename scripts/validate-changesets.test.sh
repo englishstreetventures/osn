@@ -18,6 +18,16 @@ make_fixture() {
   printf '{ "name": "@osn/api" }\n' > "$root/osn/api/package.json"
 }
 
+# Fixture with both a versioned package (@shared/crypto, not ignored) and a
+# version-less package (@cire/api, ignored by changesets) — to exercise the
+# mixed-changeset rule.
+make_mixed_fixture() {
+  local root="$1"
+  mkdir -p "$root/shared/crypto" "$root/cire/api" "$root/.changeset"
+  printf '{ "name": "@shared/crypto", "version": "1.0.0" }\n' > "$root/shared/crypto/package.json"
+  printf '{ "name": "@cire/api" }\n' > "$root/cire/api/package.json"
+}
+
 run_case() {
   local name="$1" root="$2" want="$3"
   CHANGESET_ROOT="$root" bash "$validator" >/dev/null 2>&1
@@ -64,6 +74,28 @@ n="$tmp/noworkspaces"
 mkdir -p "$n/.changeset"
 printf -- '---\n"@osn/api": patch\n---\n' > "$n/.changeset/change.md"
 run_case "empty workspace set fails fast" "$n" 1
+
+# Mixed changeset: one file naming both an ignored (version-less @cire/api) and
+# a versioned (@shared/crypto) package → fail. This is the exact class that
+# crashes post-merge `changeset version`.
+m="$tmp/mixed"
+make_mixed_fixture "$m"
+printf -- '---\n"@cire/api": minor\n"@shared/crypto": patch\n---\nsummary\n' > "$m/.changeset/change.md"
+run_case "mixed ignored + versioned changeset fails" "$m" 1
+
+# Same packages, but split across two changeset files (one ignored-only, one
+# versioned-only) → pass. Guards against a cross-file false positive.
+s="$tmp/split"
+make_mixed_fixture "$s"
+printf -- '---\n"@cire/api": minor\n---\nsummary\n' > "$s/.changeset/cire.md"
+printf -- '---\n"@shared/crypto": patch\n---\nsummary\n' > "$s/.changeset/shared.md"
+run_case "split ignored/versioned changesets pass" "$s" 0
+
+# Single all-ignored changeset (only version-less packages) → pass.
+g="$tmp/ignoredonly"
+make_mixed_fixture "$g"
+printf -- '---\n"@cire/api": minor\n---\nsummary\n' > "$g/.changeset/change.md"
+run_case "all-ignored changeset passes" "$g" 0
 
 echo
 echo "passed: $pass, failed: $fail"

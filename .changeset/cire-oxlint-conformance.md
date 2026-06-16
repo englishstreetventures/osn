@@ -1,7 +1,4 @@
 ---
-"@cire/organiser": patch
-"@cire/web": patch
-"@cire/api": patch
 "@pulse/api": patch
 "@pulse/app": patch
 "@osn/api": patch
