@@ -24,7 +24,7 @@ simple = { limit = 5, period = 60 }
 [[d1_databases]]
 binding = "DB"
 database_name = "cire-db"
-database_id = "placeholder-replace-after-d1-create"
+database_id = "e0ebc94c-77df-47a6-af52-40a8c39b3afb"
 migrations_dir = "../db/migrations"
 
 # R2 bucket used by the organiser spreadsheet import flow to stash the raw
@@ -48,8 +48,41 @@ bucket_name = "cire-assets"
 preview_bucket_name = "cire-assets-preview"
 
 [env.production.vars]
-WEB_ORIGIN = "https://cire.pages.dev"
-# TODO: real OSN issuer origin before prod deploy
+# Comma-separated allowlist (index.ts splits on "," and trims). Entry 0 is the
+# guest site; the organiser portal origin MUST also be present or organiser
+# writes to /api/organiser/* fail the CORS origin guard with 403.
+# TODO: replace <ORGANISER-ORIGIN-PLACEHOLDER> with the real organiser portal
+# production origin (cire/organiser Cloudflare Pages deployment URL).
+WEB_ORIGIN = "https://cire.pages.dev,https://<ORGANISER-ORIGIN-PLACEHOLDER>"
+# REQUIRED BEFORE PROD — real OSN origin (placeholder host osn-api.example.com)
 OSN_JWKS_URL = "https://osn-api.example.com/.well-known/jwks.json"
+# REQUIRED BEFORE PROD — real OSN origin (placeholder host osn-api.example.com)
 OSN_ISSUER_URL = "https://osn-api.example.com"
 OSN_AUDIENCE = "osn-access"
+
+# Wrangler named environments do NOT inherit top-level [[d1_databases]] /
+# [[r2_buckets]] / [[unsafe.bindings]] — they must be redeclared per-env.
+# Without these, `wrangler deploy --env production` ships with no DB/R2 (worker
+# fail-closes 503 at index.ts) and no CLAIM_RATE_LIMITER (the claim endpoint
+# loses its edge rate limit). Keep these in sync with the top-level bindings.
+[[env.production.unsafe.bindings]]
+name = "CLAIM_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 5, period = 60 }
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "cire-db"
+database_id = "e0ebc94c-77df-47a6-af52-40a8c39b3afb"
+migrations_dir = "../db/migrations"
+
+[[env.production.r2_buckets]]
+binding = "SHEETS"
+bucket_name = "cire-sheets"
+preview_bucket_name = "cire-sheets-preview"
+
+[[env.production.r2_buckets]]
+binding = "ASSETS"
+bucket_name = "cire-assets"
+preview_bucket_name = "cire-assets-preview"
