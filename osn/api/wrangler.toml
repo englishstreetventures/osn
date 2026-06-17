@@ -67,7 +67,10 @@ crons = ["0 */6 * * *"]
 # ── staging ──────────────────────────────────────────────────────────────────
 [env.staging.vars]
 OSN_ENV = "staging"
-# TODO(prod-domains): replace placeholders with the real staging domain.
+# TODO(prod-domains): PLACEHOLDERS. Default deploy URL is
+# https://osn-api.<account-subdomain>.workers.dev — set OSN_ISSUER_URL to that at
+# deploy. OSN_RP_ID/OSN_ORIGIN need a real custom domain (workers.dev can't be a
+# WebAuthn RP ID across surfaces), so staging passkeys are deferred until then.
 OSN_RP_ID = "staging.osn.example"
 OSN_RP_NAME = "OSN (staging)"
 OSN_ORIGIN = "https://staging.osn.example"
@@ -86,7 +89,11 @@ crons = ["0 */6 * * *"]
 # ── production ───────────────────────────────────────────────────────────────
 [env.production.vars]
 OSN_ENV = "production"
-# TODO(prod-domains): replace placeholders with the real production domain.
+# TODO(prod-domains): PLACEHOLDERS. Default deploy URL is
+# https://osn-api.<account-subdomain>.workers.dev — set OSN_ISSUER_URL to that at
+# deploy. OSN_RP_ID/OSN_ORIGIN need a real custom domain (workers.dev can't be a
+# WebAuthn RP ID across surfaces), so prod passkeys are DEFERRED per project decision
+# until a custom domain is provisioned. See wiki/runbooks/production-deploy.md §5.1.
 OSN_RP_ID = "osn.example"
 OSN_RP_NAME = "OSN"
 OSN_ORIGIN = "https://osn.example"
@@ -110,8 +117,8 @@ crons = ["0 */6 * * *"]
 #   OSN_JWT_PRIVATE_KEY        base64 JWK (ES256 private)  — REQUIRED non-local
 #   OSN_JWT_PUBLIC_KEY         base64 JWK (ES256 public)   — REQUIRED non-local
 #   OSN_SESSION_IP_PEPPER      ≥32-byte HMAC key           — REQUIRED non-local
-#   UPSTASH_REDIS_REST_URL     Upstash REST URL            — REQUIRED non-local (S-L1)
-#   UPSTASH_REDIS_REST_TOKEN   Upstash REST token          — REQUIRED non-local (S-L1)
+#   UPSTASH_REDIS_REST_URL     Upstash REST URL            — REQUIRED non-local (S-L1; region TBD C-M18)
+#   UPSTASH_REDIS_REST_TOKEN   Upstash REST token          — REQUIRED non-local (S-L1; region TBD C-M18)
 #   CLOUDFLARE_ACCOUNT_ID      for the Email Service REST API — REQUIRED non-local
 #   CLOUDFLARE_EMAIL_API_TOKEN bearer token for email send  — REQUIRED non-local
 #   OSN_EMAIL_FROM             verified sender (also settable as a [vars])

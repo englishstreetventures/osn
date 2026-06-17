@@ -5,71 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1773708933548,
-      "tag": "0000_messy_epoch",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1775050483600,
-      "tag": "0001_pink_invisible_woman",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1743724800000,
-      "tag": "0002_add_user_handle",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1744675200000,
-      "tag": "0003_add_passkey_user_id",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1776556800000,
-      "tag": "0004_add_recovery_codes",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1776988800000,
-      "tag": "0005_sessions_metadata_and_email_change",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1777420800000,
-      "tag": "0006_security_events",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1777852800000,
-      "tag": "0007_passkey_management",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1778000000000,
-      "tag": "0008_drop_close_friends",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "6",
-      "when": 1779494400000,
-      "tag": "0009_account_deletion",
+      "when": 1781699460643,
+      "tag": "0000_optimal_thunderbolt",
       "breakpoints": true
     }
   ]
