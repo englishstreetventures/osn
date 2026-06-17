@@ -6,7 +6,8 @@ related:
   - "[[gdpr]]"
   - "[[scope-matrix]]"
   - "[[sessions]]"
-last-reviewed: 2026-04-26
+  - "[[changelog/compliance-fixes]]"
+last-reviewed: 2026-06-17
 ---
 
 # ePrivacy Directive
@@ -58,7 +59,7 @@ Per the EDPB Guidelines 2/2023:
 
 Tracked with `C-` IDs:
 
-1. **Cookie + storage inventory** in the privacy notice — the table above, in plain language. ID: rolled into **C-H4**.
+1. **Cookie + storage inventory** in the privacy notice — the table above, in plain language. **Partly done (C-H4, PR #124):** the cire guest site now publishes a `/privacy` notice covering its first-party storage. The OSN-landing-side inventory (the table above) is still pending. See [[changelog/compliance-fixes]]. ID: rolled into **C-H4**.
 2. **Lint rule against new third-party scripts** — pre-commit hook fails if any HTML / Astro template references a script tag with a non-OSN origin. Forces explicit decision. ID: **C-L18**.
 3. **CSP `connect-src` audit** — Pulse Tauri CSP has a transitional `https:` entry (S-L3-follow-up); pin to known origins so no hidden third-party requests can fire. Also covers ePrivacy. ID: rolled into existing S-L3.
 4. **Banner scaffold** in `@osn/landing` — built but not mounted; mounting requires a code change + DPO sign-off. Forces deliberate decision the day someone wants to add an analytics tag. ID: **C-L19**.

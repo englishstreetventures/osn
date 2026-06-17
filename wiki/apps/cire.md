@@ -14,7 +14,7 @@ related:
   - "[[passkey-primary]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-06-17
 ---
 
 # Cire
@@ -79,6 +79,18 @@ dev-only — neither runs in the deployed Worker (entry `src/index.ts`).
 `cire/db` drizzle.config points `db:studio` at the local D1 sqlite (override via
 `CIRE_DATABASE_URL`; the content-hashed path changes on `db:reset`).
 
+## Deployment
+
+The cire stack deploys via a **GitHub Actions workflow** (`.github/workflows/deploy.yml`,
+PR #128): gated on a build/test job, it applies the remote cire D1 migrations, then
+deploys the **cire-api Worker** and the **cire-web Pages** project. Prod wrangler config
+is wired (PR #121): the real D1 `database_id` (`e0ebc94c-77df-47a6-af52-40a8c39b3afb`),
+the organiser-portal origin in the prod `WEB_ORIGIN` allowlist, the OSN issuer/JWKS URLs
+flagged required-before-prod, and D1 + R2 bindings redeclared under `[env.production]`
+(named envs don't inherit top-level bindings). The full secret/var checklist, migration
++ bootstrap-owner steps, and post-deploy smoke checks live in the
+[[production-deploy]] runbook.
+
 ## Cire-internal docs
 
 Cire keeps its own knowledge graph: `cire/CLAUDE.md` is the AI entry point and `cire/wiki/` is the Obsidian vault (architecture, conventions, observability, per-area TODO shards under `cire/wiki/todo/`). This page and [[cire-auth]] cover the OSN-facing integration surface only.
@@ -95,10 +107,11 @@ Guest data (family/guest names, RSVP status, **special-category dietary
 free-text**, claim codes) lives in cire's own Cloudflare D1 + R2 and is
 recorded in the OSN compliance programme:
 
-- [[data-map]] — cire section (fields, lawful basis, recipients); C-H1 retention + C-L1 age-gate note
-- [[dpia/cire-guest-data]] — Art. 35 DPIA (dietary special-category; sign-off pending on consent capture, C-H2)
-- [[retention]] — cire rows (no purge / sweeper / R2 lifecycle yet — C-H1)
+- [[data-map]] — cire section (fields, lawful basis, recipients); dietary Art. 9(2)(a) consent captured (C-H2 (cire dietary), PR #123); residual C-H1 R2 retention + C-L1 age-gate note
+- [[dpia/cire-guest-data]] — Art. 35 DPIA (dietary special-category; gating consent mitigation RESOLVED PR #123, sign-off pending residual C-H1)
+- [[retention]] — cire rows: guest data swept at 1 year (PR #132) + expired guest sessions swept daily (PR #127); R2-object lifecycle still open (C-H1)
 - [[subprocessors]] — Cloudflare D1/R2 (guest-PII volume) + Pinterest embed (C-H3)
+- privacy notice — guest site publishes `/privacy` + `/terms` (PR #124, C-H4); see [[changelog/compliance-fixes]]
 - [[dsar]] — cross-DB reachability + orphan-tolerance decision (C-M1)
 - [[access-control]] — cire D1/R2 operator access + the two cire credential classes (C-M3)
 - [[soc2]] — `@cire/api` observability exception; redaction deny-list interim guard (C-M2)

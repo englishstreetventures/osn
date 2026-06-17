@@ -80,6 +80,7 @@ Phase 1 surfaces:
 | Work on Pulse | `[[wiki/apps/pulse]]` |
 | Work on Zap | `[[wiki/apps/zap]]` |
 | Work on cire (wedding invites) | `[[wiki/apps/cire]]`, `[[wiki/systems/cire-auth]]` |
+| Deploy osn-api + cire to production (secrets/vars, migrations, CI pipeline, smoke checks) | `[[wiki/runbooks/production-deploy]]` |
 | Debug auth failure | `[[wiki/runbooks/auth-failure]]` |
 | Debug ARC verification failure | `[[wiki/runbooks/arc-token-debugging]]` |
 | Debug rate-limit incident | `[[wiki/runbooks/rate-limit-incident]]` |

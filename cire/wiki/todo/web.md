@@ -4,7 +4,7 @@ tags: [todo, web]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-06-15
+last-reviewed: 2026-06-17
 ---
 
 # cire/web
@@ -21,7 +21,9 @@ Frontend feature work. Tick items as PRs land; add new entries when scope is dis
 - [x] ~~Write Our Story content~~ — now organiser-editable via the invite builder (`storyEyebrow` / `storyHeading` / `storyBody`). See `[[invite-builder]]`.
 - [x] Populate dress code colour palette swatches from `event.dressCodePalette` (PR-E)
 - [x] Embed actual Pinterest board URLs via `event.pinterestUrl` (PR-D); reworked in PR #28 — switched from `<iframe>` to Pinterest's documented script-widget pattern (`<a data-pin-do="embedBoard">` + `pinit_main.js`, daily-guard bypassed via cache-busted query so SPA re-mounts re-scan), with a 2.5s timeout fallback to a "View moodboard on Pinterest" link when tracker blockers fire `blocked:other` on `assets.pinterest.com`. `toEmbedUrl` removed; `isValidPinterestUrl` retained as the URL gate.
+- [x] **Pinterest consent gate now one-time, page-wide, persisted** (PR #126) — the third-party `pinit_main.js` embed stays consent-gated, but the opt-in is no longer session-scoped: consent persists in **localStorage** (survives the visit, never re-prompts on return) behind a single shared signal, so accepting on one board immediately reveals every other Pinterest board on the page. The consent prompt links the `/privacy` notice; the "View moodboard on Pinterest" fallback link is always available without consent. See `[[deferred]]` (resolved) + [[eprivacy]] (root compliance).
 - [x] Wire RSVP modal to API using surfaced `guestId` per member (PR-F)
+- [x] **Dietary-consent checkbox in `RsvpModal`** (C-H2 (cire dietary), PR #123) — once a guest enters dietary free-text (special-category Art. 9(2)(a)), the modal shows an explicit, **unticked-by-default** consent checkbox and gates submit on it, linking the `/privacy` notice. The server 422s a non-empty dietary without consent and stamps the consent record. See `[[api]]` + `[[dpia/cire-guest-data]]` (root compliance).
 - [ ] "Open in Maps" button on event cards driven by `event.mapsUrl`
 - [x] Add-to-calendar links (Google Calendar, Apple Calendar, .ics) sourced from `event.startAt` / `endAt` / `timezone` (PR-G)
 - [x] ~~Passkey registration + login UI~~ — **Obsolete**: guests use claim codes (no accounts); organiser sign-in reuses OSN's `<SignIn>` from `@osn/ui` on the portal (OSN merge)

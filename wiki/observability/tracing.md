@@ -10,7 +10,7 @@ related:
   - "[[arc-tokens]]"
 packages: ["@shared/observability"]
 finding-ids: [S-H18, S-H20]
-last-reviewed: 2026-04-12
+last-reviewed: 2026-06-17
 ---
 
 # Tracing
@@ -32,6 +32,23 @@ Span names are **hierarchical** and **snake_case**. Dots separate layers; unders
 ## Route-level spans
 
 **Do not create spans at route level** -- the Elysia plugin already creates a span per request with `http.*` attributes. Creating a second span inside the handler is redundant; add service spans inside the Effect pipeline instead.
+
+## Exporter: env-driven, true no-op when unset (PR #129)
+
+`makeTracingLayer` reads `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS`
+from env:
+
+- **Endpoint unset** → a **true `NoopTracingLive`** layer. No NodeSdk, no exporter,
+  no perpetually-failing background export. (Previously an `undefined` exporter URL
+  was silently resolved to `http://localhost:4318` and spammed failed exports — that
+  is gone.)
+- **Endpoint set** → real OTLP export to `<endpoint>/v1/traces` (built by the pure
+  `otlpExporterUrl` helper, trailing slash stripped). `OTEL_EXPORTER_OTLP_HEADERS`
+  supplies the auth header and is a **secret**.
+
+Setting the two env vars (plus optional `OTEL_SERVICE_NAME`) is all that's needed to
+start exporting spans. See [[overview]] and [[observability-setup]] for the full env
+list.
 
 ## Trace propagation
 

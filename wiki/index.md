@@ -2,7 +2,7 @@
 title: OSN Wiki
 aliases: [home, map of content, MOC]
 tags: [index]
-last-reviewed: 2026-06-11
+last-reviewed: 2026-06-17
 ---
 
 # OSN Wiki
@@ -91,9 +91,11 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[changelog/completed-features]] — archived completed feature work
 - [[changelog/security-fixes]] — archived completed security findings
 - [[changelog/performance-fixes]] — archived completed performance findings
+- [[changelog/compliance-fixes]] — archived closed compliance findings (`C-` prefix)
 
 ## Runbooks
 
+- [[production-deploy]] — first production cut-over of osn-api + the cire stack (secret/var checklist, migrations, CI pipeline, smoke checks)
 - [[auth-failure]] — passkey / recovery / refresh / step-up debugging
 - [[rate-limit-incident]] — false positives, tuning, Redis health
 - [[observability-setup]] — Grafana Cloud provisioning, OTEL wiring

@@ -7,7 +7,8 @@ related:
   - "[[data-map]]"
   - "[[dsar]]"
   - "[[cire]]"
-last-reviewed: 2026-06-11
+  - "[[changelog/compliance-fixes]]"
+last-reviewed: 2026-06-17
 ---
 
 # Retention
@@ -44,10 +45,10 @@ already enforced in code; others need a sweeper job.
 | `chat_members` | While membership active | App code | OK | Zap |
 | `org_chats` transcripts (M3) | Per controller-org's setting; default 24 months | App code: per-org retention setting | **TODO** — Zap M3 | Zap |
 | `localities` + `locality_subscriptions` (M4) | Until user opts out; travel subs have explicit expiry | App code | **TODO** — Zap M4 | Zap |
-| Cire guest data (`families`, `guests`, `rsvps`) | Tied to the wedding's lifecycle — kept while the wedding is active; should be purged when the wedding is deleted/archived | Cascade on wedding delete (FK `ON DELETE CASCADE`) + a wedding-lifecycle/archival flow | **TODO** — no wedding-delete/archival flow exists yet; no automated purge. **Backlog C-H1.** | Cire |
-| Cire `sessions` (expired guest session rows) | 30-day cookie TTL; expired rows are storage-only after that | Needs a sweeper (per the C-M15 contract) | **TODO** — **no sweeper exists; expired rows are never purged. Backlog C-H1.** Sliding-window auth already prevents reuse; purge is for hygiene + DSAR completeness. | Cire |
-| Cire `imports` table rows | Tied to wedding lifecycle; reverted imports should not linger | Cascade on wedding delete; revert should hard-delete the reverted import's rows | **TODO** — reverted-import rows are retained, not deleted on revert. **Backlog C-H1.** | Cire |
-| Cire R2 `imports/<id>/{events,guests}.csv` (raw uploads in `cire-sheets`) | Tied to wedding lifecycle; reverted imports' CSVs should not linger | R2 lifecycle rule / TTL OR app-code delete on revert + wedding delete | **TODO** — **no R2 lifecycle/TTL; CSVs retained indefinitely including across reverts. Backlog C-H1.** | Cire |
+| Cire guest data (`families`, `guests`, `rsvps` incl. `dietary` + its Art. 9(2)(a) consent record) | **1 year after the wedding's final event** (`RETENTION_AFTER_FINAL_EVENT_MS` = 365 days), per the published privacy notice (PR #124). | `retentionService.sweepExpiredGuestData(now)` (Effect, `cire/api/src/services/retention.ts`, PR #132) — daily cron `scheduled` sweep deletes `rsvps` / `guests` / `families` / `imports` for every wedding whose latest `events.date` is >365 days past; the wedding+events shell is kept, and no-events weddings are kept. `cire.guest_data.swept` metric. | **OK** — automated 1-year sweep enforced. | Cire |
+| Cire `sessions` (expired guest session rows) | 30-day cookie TTL; expired rows are storage-only after that | `session.ts` sweep on a daily Cloudflare cron `scheduled` handler (PR #127), `cire.session.swept` metric | **OK** — **expired-guest-session purge now exists** (distinct from the still-open osn-api C-M2 / C-M15 in-process sweeper). Sliding-window auth already prevents reuse; the purge is for hygiene + DSAR completeness. | Cire |
+| Cire `imports` table rows | Tied to wedding lifecycle; reverted imports should not linger | DB rows swept by `sweepExpiredGuestData` (1 year after final event, PR #132); cascade on wedding delete | **Partial** — expired weddings' import DB rows are now swept at 1 year; the R2 objects they reference are **not** (see next row + the R2 follow-up below). | Cire |
+| Cire R2 `imports/<id>/{events,guests}.csv` (raw uploads in `cire-sheets`) | Tied to wedding lifecycle; should be reaped with the 1-year guest-data sweep | R2 lifecycle rule / TTL OR an R2-aware pass in the retention sweep | **TODO (open follow-up)** — the 1-year sweep (PR #132) deletes the `imports` **DB rows** but NOT the R2 objects they reference (uploaded sheets carry guest PII). Reap via a separate R2-aware pass or an R2 lifecycle rule on the `imports/` prefix (`retention-r2` TODO in `services/retention.ts`). **Backlog C-H1.** | Cire |
 | Cire `wedding_invite_customisations` (invite-builder copy + image keys) | Tied to wedding lifecycle | Cascade on wedding delete (FK `ON DELETE cascade`) | **OK for the D1 row** (cascades with the wedding); the R2 images it references do **not** — see below | Cire |
 | Cire R2 `assets/<weddingId>/*` (invite hero/story **images** in `cire-assets`) | Tied to wedding lifecycle; superseded/removed/orphaned images should not linger | R2 lifecycle rule / TTL OR app-code delete (best-effort delete exists on re-upload/remove) + a wedding-delete fan-out to R2 | **TODO** — **D1 cascade does not reach R2; best-effort cleanup can orphan; no lifecycle/sweeper. Backlog C-H1 / IB-S-L2.** | Cire |
 | Grafana Cloud traces | 14 days (free tier) | Vendor-enforced | OK | Platform |
@@ -68,7 +69,7 @@ Tracked with `C-` IDs:
 4. **`sessions` expired-row purge** — sliding-window expiry already prevents valid use; the purge is for storage hygiene + DSAR completeness. ID: **C-M2** (bundled).
 5. **Pulse event archival flow** — `archived_events` view or a status flag + `endTime + 90 d` cutoff. ID: **C-L20**.
 6. **Deletion-tombstone retention** — keep enough info to explain "this user deleted their account on YYYY-MM-DD" for 30 d in case of recovery, then purge per the C-M15 contract. ID: rolled into **C-H2**.
-7. **Cire guest-data lifecycle** — wedding-delete/archival flow that cascades to `families` / `guests` / `rsvps` / `imports`; an expired-`cire_session` sweeper (own D1, may need a Cloudflare-native cron rather than the C-M15 in-process worker); an R2 lifecycle rule (or app-code delete) for `cire-sheets` CSVs that also fires on import revert. None exist today — guest data, import rows, and raw CSVs are retained indefinitely including across reverts. ID: **C-H1** (cire data-map + retention gate).
+7. **Cire guest-data lifecycle** — **largely shipped this session.** A daily Cloudflare-native cron `scheduled` handler now runs both an **expired-`cire_session` sweeper** (`session.ts`, PR #127, `cire.session.swept` metric) and a **1-year guest-data sweep** (`retentionService.sweepExpiredGuestData`, PR #132, `cire.guest_data.swept` metric) that deletes `families` / `guests` / `rsvps` (incl. dietary + its consent record) / `imports` DB rows for any wedding whose final event is >365 days past — the window enforced from the published privacy notice (PR #124). **Remaining open item:** the R2 objects referenced by swept `imports` rows (raw `cire-sheets` CSVs carrying guest PII) are not yet reaped — needs an R2-aware pass or an R2 lifecycle rule on the `imports/` prefix. ID: **C-H1** (cire data-map + retention gate; now narrowed to the R2-object follow-up).
 
 ## Sweeper design contract (C-M15)
 
@@ -104,3 +105,4 @@ The minimum information per row:
 | 6 months DSA reports | Art. 20 mandates appeal availability for at least 6 months after a moderation action. |
 | 30 d soft-delete tombstone | Lets us reverse an accidental account-delete while bounding the window for the user-facing erasure right. Mention in privacy notice. |
 | 14 d traces | Free-tier Grafana ceiling. Sufficient for incident postmortems. |
+| 1 yr cire guest data (after final event) | The window **published in the cire `/privacy` notice** (PR #124) and enforced by `sweepExpiredGuestData` (PR #132). One year past the last event covers post-wedding thank-yous / late corrections while honouring storage limitation for special-category dietary data. |

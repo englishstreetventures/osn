@@ -10,7 +10,7 @@ related:
   - "[[feature-checklist]]"
   - "[[observability-setup]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-04-12
+last-reviewed: 2026-06-17
 ---
 
 # Observability Overview
@@ -39,6 +39,24 @@ shared/observability/
 2. **Never construct OTel meters/tracers directly.** Use the typed helpers from `@shared/observability/metrics`. Raw `metrics.getMeter(...)` calls are banned (lint rule enforces this). See [[metrics]] for the factory API and naming conventions.
 
 3. **Never put unbounded values in metric attributes.** No `userId`, no `requestId`, no `eventId`, no email, no handle. Those belong in traces (spans) or logs (annotations), never metrics. See [[metrics]] for the cardinality rules.
+
+## Exporter wiring (env-driven; true no-op when unset)
+
+The OTLP exporter reads its destination from env, so dashboards can be turned on
+without a code change (PR #129):
+
+- **`OTEL_EXPORTER_OTLP_ENDPOINT` unset** → `makeTracingLayer` returns a **true
+  `NoopTracingLive`**. Previously it built the NodeSdk with an `undefined` exporter
+  URL, which the OTLP/HTTP exporter silently resolved to `http://localhost:4318`
+  and then spammed perpetually-failing export attempts. There is now no exporter and
+  no failing retries when the endpoint is absent (the local/dev default).
+- **`OTEL_EXPORTER_OTLP_ENDPOINT` set** → real OTLP export. The per-signal URL is
+  built by a pure `otlpExporterUrl(endpoint, signal)` helper (`<base>/v1/traces`,
+  `<base>/v1/metrics`; trailing slash stripped so it never emits `//v1/...`).
+- **`OTEL_EXPORTER_OTLP_HEADERS`** carries the auth header
+  (`Authorization=Basic <base64(instance:token)>`) and is a **secret** — set it via
+  the deploy environment / `wrangler secret put`, never commit it. `OTEL_SERVICE_NAME`
+  is the optional third var. See [[observability-setup]] and [[tracing]].
 
 ## Pillar pages
 

@@ -10,7 +10,7 @@ related:
   - "[[subprocessors]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-06-17
 ---
 
 # DPIA — Cire guest data
@@ -22,9 +22,20 @@ religion and health) about **guests at scale** who are not the controller's
 direct users, which meets the Art. 35(3) / EDPB criteria (sensitive data +
 data subjects in a position of asymmetry relative to the controller).
 
-**Status: sign-off pending.** This is the initial assessment filed with the
-cire merge; the dietary-consent affordance it depends on (C-H2) is **not yet
-implemented**, so the DPIA cannot be signed off until that lands.
+**Status: gating mitigation resolved; sign-off pending on the residual
+C-H1 items.** This is the initial assessment filed with the cire merge. The
+dietary-consent affordance it depended on — **C-H2 (cire dietary)** — **shipped
+in this session (PR #123)**: the RSVP form now captures explicit Art. 9(2)(a)
+consent via an unticked opt-in checkbox, the API rejects (422) any non-empty
+dietary submitted without it, and a server-stamped consent record
+(`rsvps.dietary_consent_at` + `dietary_consent_version`, default
+`DIETARY_CONSENT_VERSION = "2026-06-17"`; migration `0012_dietary_consent.sql`)
+evidences the condition. The lawful-processing blocker is therefore **closed**;
+final sign-off now turns only on the residual retention gaps (C-H1) below.
+
+> **Label note.** This finding is labelled **C-H2 (cire dietary)** to
+> disambiguate it from the root Compliance Backlog **C-H2** (OSN account-erasure
+> endpoint), which is a separate finding tracked in `[[TODO]]`.
 
 ## 1. Description of the processing
 
@@ -56,19 +67,25 @@ implemented**, so the DPIA cannot be signed off until that lands.
   guests volunteer more than needed (e.g. naming a medical condition). The
   form copy should ask only for dietary requirements, not reasons.
 - **Lawful basis.** Art. 6(1)(a) consent for the dietary field; the
-  special-category condition is **Art. 9(2)(a) explicit consent**. Other
+  special-category condition is **Art. 9(2)(a) explicit consent** —
+  **now captured at the RSVP form via an explicit opt-in checkbox + a stored
+  server-stamped consent record** (C-H2 (cire dietary), shipped PR #123). Other
   guest fields rest on Art. 6(1)(f) (organiser-controlled wedding
   administration) per [[data-map]]. Explicit consent is the appropriate
   Art. 9 condition because no employment/vital-interest/substantial-public-
   interest condition applies to a wedding RSVP.
-- **Retention.** Tied to the wedding lifecycle; see [[retention]]. **No
-  automated purge exists yet (C-H1)** — a proportionality gap to close.
+- **Retention.** Tied to the wedding lifecycle; see [[retention]]. A daily
+  **1-year guest-data sweep now exists** (`retentionService.sweepExpiredGuestData`,
+  PR #132): `rsvps` (incl. dietary + its consent record), `guests`, `families`,
+  and `imports` rows are deleted for any wedding whose final event is >365 days
+  past. The residual C-H1 gap is the R2-object follow-up (uploaded sheets carry
+  guest PII; not yet reaped).
 
 ## 3. Risks to data subjects
 
 | Risk | Likelihood | Impact | Notes |
 |---|---|---|---|
-| Special-category data collected **without a valid Art. 9(2)(a) consent affordance** | **High (current state)** | High | The RSVP form has **no consent checkbox and captures no consent record today** — collecting dietary free-text in this state is unlawful processing of special-category data. **Blocking — C-H2.** |
+| Special-category data collected without a valid Art. 9(2)(a) consent affordance | **Low (residual)** | High | **RESOLVED — C-H2 (cire dietary), PR #123.** The RSVP form now shows an explicit, unticked opt-in checkbox once dietary text is entered, the API rejects (422) any non-empty dietary without consent, and a server-stamped consent record (`rsvps.dietary_consent_at` / `dietary_consent_version`) evidences the Art. 9(2)(a) condition. Collection is now lawful. |
 | Dietary free-text reveals more than intended (religion, medical condition) | Medium | Medium | Free-text invites over-disclosure; mitigated by form copy + minimisation guidance, not technically enforceable. |
 | Indefinite retention of guest PII + raw CSVs (incl. across reverts) | High | Medium | No purge / R2 lifecycle yet (C-H1). Storage-limitation breach over time. |
 | Cross-DB deletion orphan — OSN-account deletion does not erase cire guest data | Medium | Medium | No fan-out; orphan-tolerance documented in [[dsar]] (C-M1). |
@@ -78,12 +95,15 @@ implemented**, so the DPIA cannot be signed off until that lands.
 
 ## 4. Mitigations
 
-- **C-H2 (blocking).** Add a consent affordance at the RSVP form for the
-  dietary field — an explicit, unticked opt-in with clear text — and
-  **persist a consent record** (who/when/what version of the copy) so the
-  Art. 9(2)(a) condition is evidenced. Until this ships, the dietary field
-  must not be collected in production. This is the gating mitigation for
-  sign-off.
+- **C-H2 (cire dietary) — RESOLVED (PR #123).** The RSVP form shows an
+  explicit, unticked opt-in checkbox with clear text (linking the `/privacy`
+  notice) once dietary text is entered, gates submit on it, and the API rejects
+  (422) any non-empty dietary submitted without consent. A consent record is
+  **persisted and server-stamped** — `rsvps.dietary_consent_at` +
+  `rsvps.dietary_consent_version` (server-set to `DIETARY_CONSENT_VERSION`,
+  currently `"2026-06-17"`; migration `0012_dietary_consent.sql`) — so the
+  Art. 9(2)(a) condition is evidenced (who/when/which copy version). This was
+  the gating mitigation for sign-off and is now in place.
 - **C-H1.** Implement the wedding-lifecycle purge, the expired-`cire_session`
   sweeper, and an R2 lifecycle rule that also fires on import revert. See
   [[retention]].
@@ -99,19 +119,20 @@ implemented**, so the DPIA cannot be signed off until that lands.
 
 ## 5. Consultation
 
-No supervisory-authority prior consultation (Art. 36) is required while the
-C-H2 mitigation is in place before production collection — residual risk is
-not "high" once explicit consent + a consent record gate the field. If the
-dietary field were to ship without consent, Art. 36 consultation would be
-mandatory.
+No supervisory-authority prior consultation (Art. 36) is required: the
+C-H2 (cire dietary) mitigation is now in place — explicit consent + a stored
+consent record gate the field, so residual risk is not "high". (Had the
+dietary field shipped without consent, Art. 36 consultation would have been
+mandatory.)
 
 ## 6. Sign-off
 
 | Role | Name | Decision | Date |
 |---|---|---|---|
-| DPO / privacy owner | <pending> | **Pending** — blocked on C-H2 consent capture | — |
+| DPO / privacy owner | <pending> | **Pending** — gating C-H2 (cire dietary) consent capture resolved (PR #123); confirm residual C-H1 retention posture | — |
 | Cire engineering owner | <pending> | Pending | — |
 
-**Outcome: do not collect `rsvps.dietary` in production until C-H2 ships.**
-Re-review this DPIA when C-H1, C-M1, and C-M2 close, and at each material
-change to the guest data flow.
+**Outcome: the lawful-processing blocker is closed — `rsvps.dietary` may now
+be collected in production behind the shipped explicit-consent gate (C-H2 (cire
+dietary), PR #123).** Re-review this DPIA when the residual C-H1 retention items
+close, and at each material change to the guest data flow.

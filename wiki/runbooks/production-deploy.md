@@ -4,11 +4,11 @@ description: End-to-end runbook for the first production deploy of osn-api and t
 tags: [runbook, deploy, production, osn, cire, secrets, cloudflare]
 severity: high
 related:
-  - "[[runbooks/observability-setup]]"
-  - "[[systems/cire-auth]]"
-  - "[[systems/database-environments]]"
-  - "[[systems/redis]]"
-  - "[[systems/email]]"
+  - "[[observability-setup]]"
+  - "[[cire-auth]]"
+  - "[[database-environments]]"
+  - "[[redis]]"
+  - "[[email]]"
 last-reviewed: 2026-06-17
 ---
 
@@ -16,12 +16,15 @@ last-reviewed: 2026-06-17
 
 > Scope: the first production cut-over of **osn-api** (identity/auth, a long-running
 > Bun process) and the **cire** wedding-invite stack (**cire-api** Worker + **cire/web**
-> guest Pages site + **cire/organiser** Pages portal). Deploy steps are **manual
-> wrangler / process commands today** — a sibling PR adds the CI pipeline; when that
-> lands, replace section 5.
+> guest Pages site + **cire/organiser** Pages portal).
 >
-> Read alongside [[runbooks/observability-setup]] (OTel/Grafana wiring) and
-> [[systems/cire-auth]] (the two-auth model + the cire→osn ARC bridge).
+> **CI pipeline:** a GitHub Actions deploy workflow (`.github/workflows/deploy.yml`,
+> PR #128) now deploys the cire Worker + Pages sites; the manual `wrangler` / process
+> commands in section 5 remain the reference for what the pipeline runs and for the
+> osn-api Bun process (not yet a Worker — §2.3).
+>
+> Read alongside [[observability-setup]] (OTel/Grafana wiring) and
+> [[cire-auth]] (the two-auth model + the cire→osn ARC bridge).
 
 ⚠️ **Never put real secret values in this file or any committed file.** Every secret
 below is set out-of-band (`wrangler secret put` for the cire Worker; the process
@@ -124,7 +127,7 @@ Redis-backed in production (`osn/api/src/index.ts:133-165`). Set both:
 ### 1.5 OTel / Grafana endpoint
 
 Observability ships via OpenTelemetry → Grafana Cloud. Provision the OTLP endpoint +
-auth header per [[runbooks/observability-setup]]; you'll set `OTEL_EXPORTER_OTLP_ENDPOINT`
+auth header per [[observability-setup]]; you'll set `OTEL_EXPORTER_OTLP_ENDPOINT`
 and `OTEL_EXPORTER_OTLP_HEADERS` (plus `DEPLOYMENT_ENVIRONMENT=production`) on osn-api and
 the cire Worker.
 
@@ -206,8 +209,8 @@ manager) — *not* `wrangler secret put`.
 | `REDIS_URL` | process env | **Yes** | Use `rediss://` (TLS). Plain `redis://` logs an unencrypted-connection warning (`redis.ts:55-58`). §1.4 |
 | `REDIS_REQUIRED` | process env = `true` | **Yes** | Fail-closed: abort startup if Redis is unreachable (`redis.ts:83-88`). §1.4 |
 | `TRUSTED_PROXY_COUNT` | process env | **Yes (behind a proxy)** | Per-IP rate limits key off the client IP from `x-forwarded-for` (`shared/rate-limit/src/index.ts:85-88`). Behind a reverse proxy / load balancer, set this to the number of trusted proxy hops so the real client IP is used; otherwise every request can share one IP and rate limiting breaks (or is spoofable). |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | process env | **Yes** | Grafana OTLP gateway (`…/otlp`). [[runbooks/observability-setup]] |
-| `OTEL_EXPORTER_OTLP_HEADERS` | process env | **Yes** | `Authorization=Basic <base64(instance:token)>`. [[runbooks/observability-setup]] |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | process env | **Yes** | Grafana OTLP gateway (`…/otlp`). [[observability-setup]] |
+| `OTEL_EXPORTER_OTLP_HEADERS` | process env | **Yes** | `Authorization=Basic <base64(instance:token)>`. [[observability-setup]] |
 | `DEPLOYMENT_ENVIRONMENT` | process env = `production` | Recommended | Classifies telemetry; keep prod/dev data separate. |
 | `NODE_ENV` | process env = `production` | Recommended | JSON+redacted logging; TLS-warning logic (`redis.ts:55`). |
 | `INTERNAL_SERVICE_SECRET` | process env | **Conditional** | Bearer secret guarding `POST /graph/internal/register-service` (`routes/graph-internal.ts:203-214`). Needed **only** to register cire-api's ARC public key for the guest account-linking bridge (§6.2). Endpoint returns 501 when unset. |
@@ -227,7 +230,7 @@ manager) — *not* `wrangler secret put`.
 | `CIRE_API_ARC_PRIVATE_KEY` | `wrangler secret put CIRE_API_ARC_PRIVATE_KEY` | **Conditional** | ES256 JWK (string). Only if guest account-linking is enabled (§6.2). Absent ⇒ linking `POST` answers 503 (`src/index.ts:78-85`, `services/osn-bridge.ts:99-113`). |
 | `CIRE_API_ARC_KEY_ID` | `wrangler secret put CIRE_API_ARC_KEY_ID` | **Conditional** | `kid` matching the public key registered in osn-api `service_accounts` for serviceId `cire-api`. §6.2 |
 | `OSN_API_URL` | `wrangler secret put OSN_API_URL` (or var) | **Conditional** | osn-api base URL the ARC bridge calls. §6.2 |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | `wrangler secret put` | Recommended | Worker observability. [[runbooks/observability-setup]] |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | `wrangler secret put` | Recommended | Worker observability. [[observability-setup]] |
 
 > ⚠️ **cire `wrangler.toml` env nuance:** the D1 + R2 bindings are at the **top level**
 > (not under `[env.production]`), while the prod URLs live under `[env.production.vars]`.
@@ -254,8 +257,9 @@ time** — set them in the build environment, not at runtime.
 
 ### 4.1 Apply cire D1 migrations (remote)
 
-Migrations live in `cire/db/migrations/` (`0001`…`0010`). After the `database_id` is
-substituted (§2.1):
+Migrations live in `cire/db/migrations/` (`0001`…`0012`, incl.
+`0012_dietary_consent.sql`). The `database_id` is already wired
+(`e0ebc94c-77df-47a6-af52-40a8c39b3afb`, §2.1):
 
 ```bash
 # from cire/api (wrangler.toml lives there)
@@ -303,9 +307,11 @@ bunx wrangler d1 execute cire-db --remote \
 
 ---
 
-## 5. Deploy steps (manual today)
+## 5. Deploy steps (CI + manual reference)
 
-> A sibling PR adds a CI pipeline; until it lands, these are run by hand.
+> The cire Worker + Pages sites deploy via `.github/workflows/deploy.yml` (PR #128).
+> The commands below are the manual equivalents — they document what the pipeline runs
+> and remain the path for the osn-api Bun process (not yet covered by the pipeline).
 
 ### 5.1 osn-api (Bun process)
 
@@ -441,8 +447,8 @@ Run these in order; each maps to a startup requirement enumerated above.
 
 ## Related
 
-- [[runbooks/observability-setup]] — OTel/Grafana endpoint + header wiring
-- [[systems/cire-auth]] — guest/organiser two-auth model + cire→osn ARC bridge
-- [[systems/database-environments]] — local bun:sqlite vs dev/staging/prod D1
-- [[systems/redis]] — Redis-backed rate limiters + session stores
-- [[systems/email]] — transactional email transport (Cloudflare Email Service)
+- [[observability-setup]] — OTel/Grafana endpoint + header wiring
+- [[cire-auth]] — guest/organiser two-auth model + cire→osn ARC bridge
+- [[database-environments]] — local bun:sqlite vs dev/staging/prod D1
+- [[redis]] — Redis-backed rate limiters + session stores
+- [[email]] — transactional email transport (Cloudflare Email Service)

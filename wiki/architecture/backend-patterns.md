@@ -14,11 +14,12 @@ related:
   - "[[schema-layers]]"
   - "[[testing-patterns]]"
   - "[[observability/overview]]"
+  - "[[database-environments]]"
 packages:
   - "@pulse/api"
   - "@osn/api"
   - "@zap/api"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-06-17
 ---
 
 # Backend Code Patterns
@@ -120,14 +121,32 @@ Every backend uses route factories that accept dependency layers, so tests can s
 export const createAuthRoutes = (config: AuthConfig, dbLayer?: Layer) => { ... }
 export const createGraphRoutes = (dbLayer?: Layer) => { ... }
 
-// osn/api/src/index.ts — composition root
-const app = new Elysia()
-  .use(createAuthRoutes(authConfig))
-  .use(createGraphRoutes())
-  .listen(4000);
+// osn/api/src/app.ts — pure createApp factory (no process.env reads)
+export const createApp = (deps: AppDeps) =>
+  new Elysia()
+    .use(createAuthRoutes(deps.authConfig))
+    .use(createGraphRoutes(deps.loggerLayer));
+
+// osn/api/src/local.ts — env-driven Bun entry
+const deps = buildAppDeps();          // loads JWT keys, pepper, Redis stores, builds the shared appRuntime ONCE
+startBunServer(createApp(deps));      // app.listen + ephemeral-key warning + ARC rotation + erasure sweeper
 ```
 
 Auth routes require an `AuthConfig` parameter (no global default). Graph routes accept an optional `loggerLayer` so the host application can provide its observability layer for Effect pipeline logging.
+
+**App factory / entry split (osn-api, PR #131).** osn-api now uses the same
+factory/entry split as **Zap** and **Pulse**: `src/app.ts` exports a pure
+`createApp(deps)` that composes the routes and never reads `process.env`, while
+`src/local.ts` owns all env-driven wiring (`buildAppDeps()` loads the JWT key
+pair, validates the session-IP pepper, initialises Redis-backed stores + rate
+limiters, selects the email transport, and builds the Effect layer graph once
+into the shared `appRuntime`; `startBunServer()` keeps `app.listen`, the
+ephemeral-key warning, outbound ARC key rotation, and the account-erasure
+sweeper). This is Phase 1 (P1) of the Cloudflare Workers migration — the
+Workers `fetch` entry (`index.ts` + `main` in `wrangler.toml`) and the
+Upstash-REST Redis backend are later phases (see [[TODO]] "OSN core → Workers
+hosting"). Zap/Pulse already ship `createApp` + `local.ts` + Workers `index.ts`
+per [[database-environments]].
 
 ## Error Handling Pattern
 
