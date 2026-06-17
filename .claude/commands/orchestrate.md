@@ -63,9 +63,9 @@ Do not re-implement or second-guess its design; let it work. Its final message i
 
 Run the `/prep-pr` flow on the branch. Beyond its standard steps (validate the changeset against the affected packages, build + tests, the `review-tests` pass, and the parallel **performance + security reviews**), this skill's contract is stronger: **after the reviews, dispatch fix-subagents to add the missing tests and fix every security and performance finding** (Critical/High/Medium at minimum; apply Low/Info when cheap), then re-verify. Carry forward any finding you deliberately defer as a tracked follow-up in the PR body. Scale review depth to the change (a docs/config PR doesn't need three review agents; an auth/route/binding change does). Then write the structured PR body (Summary / Workspaces / four-field Decisions & issues incl. each finding's disposition / Test plan) and **push + open the PR**.
 
-### Step 5 — Watch the PR + squash-merge (or resolve conflicts)
+### Step 5 — Watch the PR + squash-merge (or resolve conflicts) + tear down
 
-Poll until terminal, then merge:
+You may run this inline, but it's well-suited to delegate to a **PR-shepherd subagent** (it offloads the slow CI-polling from your context): the subagent watches the PR, merges it, and **removes the worktree once merged** (next bullet). Poll until terminal, then merge:
 
 ```bash
 gh pr ready <n>            # if it was opened as a draft — THEN wait before polling (see gotcha)
@@ -75,7 +75,7 @@ gh pr view <n> --json mergeStateStatus,statusCheckRollup,state
 - **All checks green + `mergeStateStatus: CLEAN`** → `gh pr merge <n> --squash --delete-branch`.
 - **`mergeStateStatus: DIRTY`/`BEHIND` (conflicts / behind main)** → rebase the branch onto the latest `origin/main`, **resolve the conflicts** (sibling PRs that merged first are usually additive — keep both sides; for changeset/version churn from the release workflow, take the regenerated state), re-run the touched package's tests, force-push (`--force-with-lease --no-verify`), and re-poll.
 - **A real check failure** → read the failing job, dispatch a fix-subagent, push, re-poll. Don't merge red.
-- After merge, **remove the worktree** (`git worktree remove --force <dir>`) and delete the local branch.
+- **Once the PR is `MERGED`, a subagent tears down the worktree — not the orchestrator inline.** The PR-shepherd subagent (or a short dedicated teardown subagent) confirms the merge, then runs `git worktree remove --force <dir>` and deletes the local branch, and reports back. The agent that carried the task through to merge closes out its own workspace; never leave a merged task's worktree lying around.
 
 ### Between dependent tasks
 
