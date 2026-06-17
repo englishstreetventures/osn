@@ -4,7 +4,7 @@ tags: [todo, web]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-06-17
+last-reviewed: 2026-06-18
 ---
 
 # cire/web
@@ -25,6 +25,7 @@ Frontend feature work. Tick items as PRs land; add new entries when scope is dis
 - [x] Wire RSVP modal to API using surfaced `guestId` per member (PR-F)
 - [x] **Dietary-consent checkbox in `RsvpModal`** (C-H2 (cire dietary), PR #123) — once a guest enters dietary free-text (special-category Art. 9(2)(a)), the modal shows an explicit, **unticked-by-default** consent checkbox and gates submit on it, linking the `/privacy` notice. The server 422s a non-empty dietary without consent and stamps the consent record. See `[[api]]` + `[[dpia/cire-guest-data]]` (root compliance).
 - [ ] "Open in Maps" button on event cards driven by `event.mapsUrl`
+- [x] **Real Google Maps Embed preview in the event-details "Where" section** (key-optional) — `MapPreview.tsx` renders a Google Maps Embed API `place` iframe (free, unlimited, queried by the free-text venue `address` — no lat/lng, no geocoding, no schema change) when `PUBLIC_GOOGLE_MAPS_EMBED_KEY` is configured at build time; when the key is unset/blank, or the event has no address to query, it falls back to the existing CSS-drawn map card, so it is a pure enhancement and ships safely before any key exists. Address-only interpolation, always `encodeURIComponent`-escaped; iframe has a meaningful `title`, `loading="lazy"`, `referrerpolicy="no-referrer-when-downgrade"`, and a fixed height matching the card (no layout shift). The "Open in Maps" affordance keeps working in both modes (in the iframe path it moves to the footer, since the iframe captures pointer events). New env var documented in `cire/web/.env.example` + production-deploy runbook §3.3; human step is to create a referrer-restricted Maps-Embed-only key. `resolveMapsEmbedUrl` helper in `event-details.ts`.
 - [x] Add-to-calendar links (Google Calendar, Apple Calendar, .ics) sourced from `event.startAt` / `endAt` / `timezone` (PR-G)
 - [x] ~~Passkey registration + login UI~~ — **Obsolete**: guests use claim codes (no accounts); organiser sign-in reuses OSN's `<SignIn>` from `@osn/ui` on the portal (OSN merge)
 - [x] ~~Magic link email fallback UI~~ — **Obsolete**: no magic-link factor in the two-system auth model

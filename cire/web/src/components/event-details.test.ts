@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   formatEventDay,
   formatTimeRange,
+  resolveMapsEmbedUrl,
   resolveMapsUrl,
   timezoneLabel,
   venueLine,
@@ -107,5 +108,38 @@ describe("resolveMapsUrl", () => {
 
   it("returns null when there is nothing to point at", () => {
     expect(resolveMapsUrl({ mapsUrl: null, address: null, location: "" })).toBeNull();
+  });
+});
+
+describe("resolveMapsEmbedUrl", () => {
+  const KEY = "test-embed-key";
+
+  it("builds a Maps Embed place URL with an encoded address query", () => {
+    const out = resolveMapsEmbedUrl(base, KEY);
+    expect(out).toContain("https://www.google.com/maps/embed/v1/place?");
+    expect(out).toContain(`key=${encodeURIComponent(KEY)}`);
+    expect(out).toContain(`q=${encodeURIComponent("12 Banksia Lane, Strathfield")}`);
+  });
+
+  it("falls back to the deprecated location when address is null", () => {
+    const out = resolveMapsEmbedUrl({ ...base, address: null }, KEY);
+    expect(out).toContain(`q=${encodeURIComponent("The Sharma Residence")}`);
+  });
+
+  it("returns null when no key is configured", () => {
+    expect(resolveMapsEmbedUrl(base, undefined)).toBeNull();
+    expect(resolveMapsEmbedUrl(base, "")).toBeNull();
+    expect(resolveMapsEmbedUrl(base, "   ")).toBeNull();
+  });
+
+  it("returns null when there is no venue address to query", () => {
+    expect(resolveMapsEmbedUrl({ ...base, address: null, location: "" }, KEY)).toBeNull();
+  });
+
+  it("encodes special characters in the address so they cannot break the query", () => {
+    const out = resolveMapsEmbedUrl({ ...base, address: "Café & Co, 1 A&B St #2" }, KEY);
+    expect(out).toContain(`q=${encodeURIComponent("Café & Co, 1 A&B St #2")}`);
+    // The raw ampersand must not appear unescaped in the query segment.
+    expect(out?.split("&q=")[1]).not.toContain("&");
   });
 });

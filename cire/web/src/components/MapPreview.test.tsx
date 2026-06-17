@@ -1,5 +1,5 @@
 import { render, cleanup } from "@solidjs/testing-library";
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 
 import { MapPreview } from "./MapPreview";
 import type { EventSummary } from "./types";
@@ -22,7 +22,10 @@ const baseEvent: EventSummary = {
 };
 
 describe("MapPreview", () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllEnvs();
+  });
 
   it("links to a derived Google Maps search when only an address is present", () => {
     const { getByRole } = render(() => <MapPreview event={baseEvent} />);
@@ -84,5 +87,68 @@ describe("MapPreview", () => {
     expect(link.href.startsWith("https://www.google.com/maps/search/")).toBe(true);
     expect(link.href).not.toContain("javascript:");
     expect(link.href).toContain(encodeURIComponent("12 Banksia Lane, Strathfield"));
+  });
+
+  describe("with PUBLIC_GOOGLE_MAPS_EMBED_KEY configured", () => {
+    const KEY = "test-embed-key";
+
+    it("renders a Google Maps Embed iframe keyed on the encoded address", () => {
+      vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
+      const { container } = render(() => <MapPreview event={baseEvent} />);
+
+      const iframe = container.querySelector("iframe");
+      expect(iframe).not.toBeNull();
+      const src = iframe!.getAttribute("src") ?? "";
+      expect(src).toContain("https://www.google.com/maps/embed/v1/place?");
+      expect(src).toContain(`key=${encodeURIComponent(KEY)}`);
+      expect(src).toContain(`q=${encodeURIComponent("12 Banksia Lane, Strathfield")}`);
+    });
+
+    it("gives the iframe an accessible title, lazy loading, and a safe referrerpolicy", () => {
+      vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
+      const { container } = render(() => <MapPreview event={baseEvent} />);
+
+      const iframe = container.querySelector("iframe")!;
+      expect(iframe.getAttribute("title")).toBe("Map of 12 Banksia Lane, Strathfield");
+      expect(iframe.getAttribute("loading")).toBe("lazy");
+      // S-L2: matches the page-level referrer policy so the slug-bearing path
+      // is not leaked to Google; only the origin (which the key restriction
+      // needs) is sent cross-origin.
+      expect(iframe.getAttribute("referrerpolicy")).toBe("strict-origin-when-cross-origin");
+      // S-L1: least-privilege sandbox — no top-navigation / forms.
+      const sandbox = iframe.getAttribute("sandbox") ?? "";
+      expect(sandbox).toContain("allow-scripts");
+      expect(sandbox).toContain("allow-same-origin");
+      expect(sandbox).not.toContain("allow-top-navigation");
+    });
+
+    it("keeps the 'Open in Maps' link working alongside the iframe", () => {
+      vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
+      const { getByRole } = render(() => <MapPreview event={baseEvent} />);
+
+      const link = getByRole("link") as HTMLAnchorElement;
+      expect(link.href).toContain("https://www.google.com/maps/search/?api=1&query=");
+      expect(link.href).toContain(encodeURIComponent("12 Banksia Lane, Strathfield"));
+      expect(link.target).toBe("_blank");
+      expect(link.rel).toBe("noopener noreferrer");
+    });
+
+    it("falls back to the CSS card (no iframe) when there is no address to query", () => {
+      vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
+      // mapsUrl present so the component still renders, but no address/location
+      // means there is nothing to feed the Embed API `q` — so no iframe.
+      const { container, getByRole } = render(() => (
+        <MapPreview
+          event={{
+            ...baseEvent,
+            address: null,
+            location: "",
+            mapsUrl: "https://maps.google.com/?q=somewhere",
+          }}
+        />
+      ));
+      expect(container.querySelector("iframe")).toBeNull();
+      expect(getByRole("link")).toBeTruthy();
+    });
   });
 });

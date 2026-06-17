@@ -306,6 +306,7 @@ time** — set them in the build environment, not at runtime.
 |---|---|---|---|
 | `PUBLIC_API_URL` | cire/web | **Yes** | cire-api prod origin (`cire/web/src/pages/index.astro:6`, default `http://localhost:8787`). |
 | `PUBLIC_SITE_URL` | cire/web | Recommended | Guest site canonical URL (`index.astro:50`). |
+| `PUBLIC_GOOGLE_MAPS_EMBED_KEY` | cire/web | Optional | Google Maps Platform key with the **Maps Embed API** enabled. When set, the event "Where" section renders a real Maps Embed iframe (queried by the free-text venue address — no coordinates, no geocoding); when unset/blank it falls back to the CSS-drawn map card, so it is a pure enhancement (`cire/web/src/components/MapPreview.tsx`). **Human step:** create the key, **enable only the Maps Embed API**, and **restrict it by HTTP referrer** to the guest-site origin(s) — the key bakes into static HTML, and a referrer-restricted Embed-only key is safe to ship. |
 | `PUBLIC_CIRE_API_URL` | cire/organiser | **Yes** | cire-api prod origin (`cire/organiser/src/lib/osn.ts:8-9`; `PUBLIC_API_URL` honoured as legacy fallback). |
 | `PUBLIC_OSN_ISSUER_URL` | cire/organiser | **Yes** | osn-api prod origin for organiser passkey sign-in (`osn.ts:3`, default `http://localhost:4000`). |
 | `PUBLIC_CIRE_WEB_URL` | cire/organiser | Recommended | Guest site URL used in organiser links (`osn.ts:14`). |

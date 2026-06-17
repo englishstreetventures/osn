@@ -100,3 +100,34 @@ function isHttpUrl(s: string): boolean {
     return false;
   }
 }
+
+/**
+ * Resolve a Google Maps Embed API `place` URL for the event's venue, or null.
+ *
+ * The Embed API takes a free-text address as its `q` query — no coordinates and
+ * no geocoding — so it slots straight onto the `address` cire already stores
+ * (see `venueLine`). The result is meant for an `<iframe>` `src`.
+ *
+ * Returns null (so the caller renders the CSS-card fallback) when:
+ *  - no `key` is configured (the var is unset/blank at build time), or
+ *  - there is no venue address to query.
+ *
+ * The address is the only interpolated value and is always `encodeURIComponent`-
+ * escaped, so organiser-supplied text can never break out of the query string.
+ * The key is referrer-restricted at the Google Maps Platform console, which is
+ * what makes baking it into static HTML safe; it must never be logged.
+ */
+export function resolveMapsEmbedUrl(
+  event: Pick<EventSummary, "address" | "location">,
+  key: string | undefined,
+): string | null {
+  const trimmedKey = key?.trim();
+  if (!trimmedKey) return null;
+
+  const venue = venueLine(event);
+  if (!venue) return null;
+
+  return `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(
+    trimmedKey,
+  )}&q=${encodeURIComponent(venue)}`;
+}
