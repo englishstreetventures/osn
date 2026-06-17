@@ -1,19 +1,29 @@
 import { sessions } from "@cire/db";
-import { eq } from "drizzle-orm";
+import { eq, lte } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
-import { metricSessionCreated } from "../metrics";
+import { metricSessionCreated, metricSessionSwept } from "../metrics";
 
 export class SessionInvalid extends Data.TaggedError("SessionInvalid")<{
   reason: "missing" | "expired";
 }> {}
 
 export class SessionWriteError extends Data.TaggedError("SessionWriteError")<{
-  op: "insert" | "delete" | "deleteAllForFamily";
+  op: "insert" | "delete" | "deleteAllForFamily" | "sweep";
   reason: string;
 }> {}
+
+/**
+ * Rows changed by a Drizzle `.run()` write, normalised across drivers.
+ * bun:sqlite returns `{ changes }`; Cloudflare D1 returns `{ meta: { changes } }`.
+ */
+function rowsChanged(result: unknown): number {
+  if (typeof result !== "object" || result === null) return 0;
+  const r = result as { changes?: number; meta?: { changes?: number } };
+  return r.meta?.changes ?? r.changes ?? 0;
+}
 
 const DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60;
 
@@ -200,5 +210,32 @@ export const sessionService = {
         ),
       );
     }).pipe(Effect.withSpan("cire.session.revokeAllForFamily"));
+  },
+
+  /**
+   * Prune every session whose `expiresAt` has passed (`<= now`). A guest login
+   * leaves a row that is dead the moment its 30-day window lapses but is never
+   * deleted on the read path (`validate` only *reports* expiry); without this
+   * the table grows unbounded (C-M2/C-M15). Run from the Worker's `scheduled`
+   * cron handler. Boundary is inclusive so a row expiring exactly at `now` is
+   * swept. Returns the number of rows deleted.
+   */
+  sweepExpired(now: Date = new Date()): Effect.Effect<number, SessionWriteError, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const result = yield* Effect.tryPromise({
+        try: () => Promise.resolve(db.delete(sessions).where(lte(sessions.expiresAt, now)).run()),
+        catch: (e) => new SessionWriteError({ op: "sweep", reason: String(e) }),
+      }).pipe(
+        Effect.tapError((err) => Effect.logError("session sweep failed", { reason: err.reason })),
+      );
+      const deleted = rowsChanged(result);
+      yield* Effect.sync(() => metricSessionSwept("ok", deleted));
+      yield* Effect.logInfo("session sweep complete", { deleted });
+      return deleted;
+    }).pipe(
+      Effect.tapError(() => Effect.sync(() => metricSessionSwept("error"))),
+      Effect.withSpan("cire.session.sweepExpired"),
+    );
   },
 };

@@ -1,8 +1,11 @@
+import { Effect, Layer } from "effect";
+
 import { createApp } from "./app";
-import { createD1Db } from "./db";
+import { createD1Db, DbService } from "./db";
 import { createWorkersRateLimiter } from "./lib/workers-rate-limiter";
 import type { WorkersRateLimitBinding } from "./lib/workers-rate-limiter";
 import { createAccountResolverFromEnv } from "./services/osn-bridge";
+import { sessionService } from "./services/session";
 
 // Worker bindings + vars. Mirrors `wrangler.toml` ([[d1_databases]], [[r2_buckets]],
 // [vars]); regenerate the full set with `bunx wrangler types` when bindings change.
@@ -116,6 +119,28 @@ const handler: ExportedHandler<Env> = {
     }
 
     return cached.app.fetch(request);
+  },
+
+  // Cron-triggered expired-session sweep (C-M2/C-M15). Configured by the
+  // `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Guest logins
+  // leave session rows that are never deleted on the read path, so the table
+  // grows unbounded without this. The sweep deletes rows whose 30-day window
+  // has lapsed; there is no separate retention knob — `expiresAt` already
+  // encodes when a row becomes dead. `waitUntil` keeps the isolate alive until
+  // the delete settles.
+  async scheduled(_event, env, ctx) {
+    if (!env.DB) return;
+    const db = createD1Db(env.DB);
+    ctx.waitUntil(
+      Effect.runPromise(
+        sessionService.sweepExpired().pipe(
+          Effect.catchAll((err) =>
+            Effect.logError("scheduled session sweep failed", { reason: err.reason }),
+          ),
+          Effect.provide(Layer.succeed(DbService, db)),
+        ),
+      ),
+    );
   },
 };
 

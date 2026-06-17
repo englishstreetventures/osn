@@ -215,3 +215,94 @@ describe("sessionService.revokeAllForFamily", () => {
     ),
   );
 });
+
+describe("sessionService.sweepExpired", () => {
+  // Insert a raw session row with an explicit expiry. Mirrors the production
+  // write shape (token stored as a 64-hex hash) but lets the test choose the
+  // expiry directly — `create()` only ever writes future-dated rows.
+  function insertSession(familyId: string, expiresAt: Date): Effect.Effect<void, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const hash = Array.from(
+        new Uint8Array(
+          yield* Effect.promise(() =>
+            crypto.subtle.digest("SHA-256", new TextEncoder().encode(crypto.randomUUID())),
+          ),
+        ),
+      )
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      db.insert(sessions)
+        .values({
+          id: crypto.randomUUID(),
+          familyId,
+          token: hash,
+          expiresAt,
+          createdAt: new Date(expiresAt.getTime() - 60_000),
+        })
+        .run();
+    });
+  }
+
+  function countSessions(): Effect.Effect<number, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      return db.select().from(sessions).all().length;
+    });
+  }
+
+  it(
+    "deletes expired rows and keeps live ones, returning the deleted count",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const familyId = db.select({ id: families.id }).from(families).all()[0]!.id;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+
+        // Two already-expired (one long dead, one just-now), one live.
+        yield* insertSession(familyId, new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000));
+        yield* insertSession(familyId, new Date(now.getTime() - 1));
+        yield* insertSession(familyId, new Date(now.getTime() + 60_000));
+
+        const deleted = yield* sessionService.sweepExpired(now);
+        expect(deleted).toBe(2);
+
+        const remaining = yield* countSessions();
+        expect(remaining).toBe(1);
+      }),
+    ),
+  );
+
+  it(
+    "treats a row expiring exactly at now as expired (boundary <=)",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const familyId = db.select({ id: families.id }).from(families).all()[0]!.id;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+
+        yield* insertSession(familyId, now);
+
+        const deleted = yield* sessionService.sweepExpired(now);
+        expect(deleted).toBe(1);
+        expect(yield* countSessions()).toBe(0);
+      }),
+    ),
+  );
+
+  it(
+    "is a no-op when every session is still live",
+    withDb(
+      Effect.gen(function* () {
+        const familyId = yield* pickFamilyId();
+        const now = new Date();
+        yield* sessionService.create(familyId, 3600);
+        yield* sessionService.create(familyId, 3600);
+
+        const deleted = yield* sessionService.sweepExpired(now);
+        expect(deleted).toBe(0);
+        expect(yield* countSessions()).toBe(2);
+      }),
+    ),
+  );
+});

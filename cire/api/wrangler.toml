@@ -3,6 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2025-03-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Scheduled expired-session sweep (C-M2/C-M15). Daily 04:00 UTC — off-peak for
+# the AU/EU guest audience, low contention with normal traffic. Sessions carry
+# a 30-day TTL so once-a-day pruning bounds the dead-row backlog to <1 day.
+[triggers]
+crons = ["0 4 * * *"]
+
 [vars]
 WEB_ORIGIN = "http://localhost:4321"
 OSN_JWKS_URL = "http://localhost:4000/.well-known/jwks.json"

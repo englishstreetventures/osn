@@ -35,6 +35,8 @@ export const CIRE_METRICS = {
   claimLookupDuration: "cire.claim.lookup.duration",
   // Guest sessions.
   sessionCreated: "cire.session.created",
+  // Scheduled expired-session sweep (cron).
+  sessionSwept: "cire.session.swept",
   // Organiser host-code (invite preview) provisioning.
   hostCodeEnsured: "cire.host_code.ensured",
   // RSVP.
@@ -103,6 +105,7 @@ export type FamilyCodeRegenResult = "ok" | "error";
 type ClaimAttemptsAttrs = { result: ClaimResult };
 type ClaimLookupDurationAttrs = { result: "ok" | "error" };
 type SessionCreatedAttrs = { result: "ok" | "error" };
+type SessionSweptAttrs = { result: "ok" | "error" };
 type HostCodeEnsuredAttrs = { result: "ok" | "error" };
 type RsvpUpsertedAttrs = { status: RsvpStatus; result: "ok" | "error" };
 type ImportSimpleAttrs = { result: "ok" | "error" };
@@ -136,6 +139,13 @@ const claimLookupDuration = createHistogram<ClaimLookupDurationAttrs>({
 const sessionCreated = createCounter<SessionCreatedAttrs>({
   name: CIRE_METRICS.sessionCreated,
   description: "Guest session-cookie creations, by outcome",
+  unit: "{session}",
+});
+
+const sessionSwept = createCounter<SessionSweptAttrs>({
+  name: CIRE_METRICS.sessionSwept,
+  description:
+    "Expired guest sessions deleted by the scheduled sweeper — increment is the row count, so the sum tracks reclaimed rows",
   unit: "{session}",
 });
 
@@ -241,6 +251,12 @@ export const metricClaimAttempt = (result: ClaimResult): void => claimAttempts.i
 
 export const metricSessionCreated = (result: "ok" | "error"): void =>
   sessionCreated.inc({ result });
+
+/** Record a sweep: on success `count` is the number of expired rows deleted, so
+ *  the counter sum tracks reclaimed sessions over time. A failed sweep records a
+ *  single `error` increment. */
+export const metricSessionSwept = (result: "ok" | "error", count = 1): void =>
+  sessionSwept.add(count, { result });
 
 export const metricHostCodeEnsured = (result: "ok" | "error"): void =>
   hostCodeEnsured.inc({ result });
