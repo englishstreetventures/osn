@@ -7,7 +7,7 @@ import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
-import { ownedWedding } from "../middleware/owned-wedding";
+import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
 import { ApplyBody, PreviewBody, RevertBody } from "../schemas/import";
 import type { ImportPlan, ParsedFamily } from "../schemas/import";
@@ -32,10 +32,12 @@ const ONE_MB = 1 * 1024 * 1024;
 const manualParse = { parse: () => ({}) };
 
 /**
- * Organiser import routes, mounted under /api/organiser/import. The routes
- * carry no :weddingId param — osnAuth() gates every request, then
- * ownedWedding() derives the caller's single owned wedding (404 for
- * non-owners, 400 if ambiguous) and every import operation is scoped to it.
+ * Organiser import routes, mounted under
+ * /api/organiser/weddings/:weddingId/import. osnAuth() gates every request and
+ * weddingOwner() proves the caller owns the :weddingId in the path (404 for
+ * unknown weddings, 403 for non-owners), deriving `weddingId`. Every import
+ * operation is scoped to that wedding — an organiser who owns several weddings
+ * picks the target explicitly in the URL.
  *
  * `r2` mirrors the previous app-level optional binding: a deployment without
  * the SHEETS bucket fails at first use, not at startup.
@@ -45,365 +47,373 @@ export const createOrganiserImportRoutes = (
   r2: R2Bucket | undefined,
   osnAuthOptions: OsnAuthOptions,
 ) =>
-  new Elysia({ prefix: "/api/organiser/import" })
+  new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
-    .use(ownedWedding(db))
-    .post(
-      "/preview",
-      async ({ request, weddingId, set }) => {
-        // ownedWedding() always derives this; the guard keeps a future remount
-        // without the plugin from compiling into an unscoped insert.
-        if (!weddingId) {
-          set.status = 500;
-          return { error: "Internal error" };
-        }
-
-        // Content-Length pre-check — reject obviously-oversized payloads BEFORE
-        // we pay the cost of parsing JSON. We keep the post-parse byte check
-        // below as a backup since some CDNs strip / lie about Content-Length.
-        const contentLengthHeader = request.headers.get("content-length");
-        if (contentLengthHeader) {
-          const declared = Number.parseInt(contentLengthHeader, 10);
-          if (Number.isFinite(declared) && declared > ONE_MB) {
-            set.status = 413;
-            return { error: "Payload too large" };
-          }
-        }
-
-        const raw: unknown = await request.json().catch(() => null);
-
-        return runCire(
-          Effect.gen(function* () {
-            const body = yield* Schema.decodeUnknown(PreviewBody)(raw);
-
-            const totalBytes =
-              new TextEncoder().encode(body.eventsCsv).length +
-              new TextEncoder().encode(body.guestsCsv).length;
-            if (totalBytes > ONE_MB) {
-              set.status = 413;
-              return { error: "Upload too large (max 1MB total)" };
+    .group("/weddings/:weddingId/import", (group) =>
+      group
+        .use(weddingOwner(db))
+        .post(
+          "/preview",
+          async ({ request, weddingId, set }) => {
+            // weddingOwner() always derives this; the guard keeps a future remount
+            // without the plugin from compiling into an unscoped insert.
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
             }
 
-            const importId = crypto.randomUUID();
-            const { eventsKey, guestsKey } = yield* storeUpload(
-              body.eventsCsv,
-              body.guestsCsv,
-              importId,
-            );
+            // Content-Length pre-check — reject obviously-oversized payloads BEFORE
+            // we pay the cost of parsing JSON. We keep the post-parse byte check
+            // below as a backup since some CDNs strip / lie about Content-Length.
+            const contentLengthHeader = request.headers.get("content-length");
+            if (contentLengthHeader) {
+              const declared = Number.parseInt(contentLengthHeader, 10);
+              if (Number.isFinite(declared) && declared > ONE_MB) {
+                set.status = 413;
+                return { error: "Payload too large" };
+              }
+            }
 
-            const parsedEvents = yield* parseEventsCsv(body.eventsCsv);
-            const parsedFamilies = yield* parseGuestsCsv(body.guestsCsv, parsedEvents);
-            const plan: ImportPlan = yield* diffAgainstDb(
-              parsedEvents,
-              parsedFamilies as ParsedFamily[],
-              weddingId,
-            );
+            const raw: unknown = await request.json().catch(() => null);
 
-            const dbService = yield* DbService;
-            yield* dbQuery(() =>
-              dbService
-                .insert(imports)
-                .values({
-                  id: importId,
-                  // Scoped to the caller's owned wedding (ownedWedding plugin).
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknown(PreviewBody)(raw);
+
+                const totalBytes =
+                  new TextEncoder().encode(body.eventsCsv).length +
+                  new TextEncoder().encode(body.guestsCsv).length;
+                if (totalBytes > ONE_MB) {
+                  set.status = 413;
+                  return { error: "Upload too large (max 1MB total)" };
+                }
+
+                const importId = crypto.randomUUID();
+                const { eventsKey, guestsKey } = yield* storeUpload(
+                  body.eventsCsv,
+                  body.guestsCsv,
+                  importId,
+                );
+
+                const parsedEvents = yield* parseEventsCsv(body.eventsCsv);
+                const parsedFamilies = yield* parseGuestsCsv(body.guestsCsv, parsedEvents);
+                const plan: ImportPlan = yield* diffAgainstDb(
+                  parsedEvents,
+                  parsedFamilies as ParsedFamily[],
                   weddingId,
-                  uploadedAt: Date.now(),
-                  format: "csv",
-                  eventsR2Key: eventsKey,
-                  guestsR2Key: guestsKey,
-                  summary: JSON.stringify({
-                    eventCreates: plan.eventCreates.length,
-                    eventUpdates: plan.eventUpdates.length,
-                    eventRemoves: plan.eventRemoves.length,
-                    familyCreates: plan.familyCreates.length,
-                    familyRemoves: plan.familyRemoves.length,
-                    guestCreates: plan.guestCreates.length,
-                    guestUpdates: plan.guestUpdates.length,
-                    guestRemoves: plan.guestRemoves.length,
+                );
+
+                const dbService = yield* DbService;
+                yield* dbQuery(() =>
+                  dbService
+                    .insert(imports)
+                    .values({
+                      id: importId,
+                      // Scoped to the :weddingId in the path (weddingOwner plugin).
+                      weddingId,
+                      uploadedAt: Date.now(),
+                      format: "csv",
+                      eventsR2Key: eventsKey,
+                      guestsR2Key: guestsKey,
+                      summary: JSON.stringify({
+                        eventCreates: plan.eventCreates.length,
+                        eventUpdates: plan.eventUpdates.length,
+                        eventRemoves: plan.eventRemoves.length,
+                        familyCreates: plan.familyCreates.length,
+                        familyRemoves: plan.familyRemoves.length,
+                        guestCreates: plan.guestCreates.length,
+                        guestUpdates: plan.guestUpdates.length,
+                        guestRemoves: plan.guestRemoves.length,
+                      }),
+                      status: "preview",
+                    })
+                    .run(),
+                );
+
+                yield* Effect.logInfo(
+                  `import preview accepted: families=${parsedFamilies.length} guests=${parsedFamilies.reduce((n, f) => n + f.guests.length, 0)} events=${parsedEvents.length}`,
+                  { importId },
+                );
+
+                return {
+                  importId,
+                  plan: {
+                    ...plan,
+                    // Force readonly arrays into plain arrays for JSON.
+                    eventCreates: [...plan.eventCreates],
+                    eventUpdates: [...plan.eventUpdates],
+                    eventRemoves: [...plan.eventRemoves],
+                    familyCreates: [...plan.familyCreates],
+                    familyRemoves: [...plan.familyRemoves],
+                    guestCreates: [...plan.guestCreates],
+                    guestUpdates: [...plan.guestUpdates],
+                    guestRemoves: [...plan.guestRemoves],
+                    eventLinkCreates: [...plan.eventLinkCreates],
+                    eventLinkRemoves: [...plan.eventLinkRemoves],
+                    warnings: [...plan.warnings],
+                  },
+                  warnings: [...plan.warnings],
+                };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.provideService(R2Service, r2 as R2Bucket),
+                Effect.catchTag("ParseError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
                   }),
-                  status: "preview",
-                })
-                .run(),
+                ),
+                Effect.catchTag("FormulaInjectionDetected", (e: FormulaInjectionDetected) =>
+                  Effect.gen(function* () {
+                    yield* Effect.logWarning(`formula injection rejected`, {
+                      row: e.row,
+                      column: e.column,
+                    });
+                    // Surface coords but NOT contents. Snippet stays in logs only.
+                    set.status = 422;
+                    return {
+                      error: "Formula-injection guard tripped",
+                      row: e.row,
+                      column: e.column,
+                    };
+                  }),
+                ),
+                Effect.catchTag("MissingRequiredColumn", (e: MissingRequiredColumn) =>
+                  Effect.sync(() => {
+                    set.status = 422;
+                    return { error: "Missing required column", column: e.column };
+                  }),
+                ),
+                Effect.catchTag("UnmatchedEventColumn", (e: UnmatchedEventColumn) =>
+                  Effect.sync(() => {
+                    set.status = 422;
+                    return { error: "Unmatched event column", column: e.column };
+                  }),
+                ),
+                Effect.catchTag("MalformedSpreadsheet", (e: MalformedSpreadsheet) =>
+                  Effect.sync(() => {
+                    set.status = 422;
+                    return { error: "Malformed spreadsheet", reason: e.reason, row: e.row ?? null };
+                  }),
+                ),
+                Effect.catchTag("R2Error", () =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Storage error" };
+                  }),
+                ),
+              ),
             );
-
-            yield* Effect.logInfo(
-              `import preview accepted: families=${parsedFamilies.length} guests=${parsedFamilies.reduce((n, f) => n + f.guests.length, 0)} events=${parsedEvents.length}`,
-              { importId },
-            );
-
-            return {
-              importId,
-              plan: {
-                ...plan,
-                // Force readonly arrays into plain arrays for JSON.
-                eventCreates: [...plan.eventCreates],
-                eventUpdates: [...plan.eventUpdates],
-                eventRemoves: [...plan.eventRemoves],
-                familyCreates: [...plan.familyCreates],
-                familyRemoves: [...plan.familyRemoves],
-                guestCreates: [...plan.guestCreates],
-                guestUpdates: [...plan.guestUpdates],
-                guestRemoves: [...plan.guestRemoves],
-                eventLinkCreates: [...plan.eventLinkCreates],
-                eventLinkRemoves: [...plan.eventLinkRemoves],
-                warnings: [...plan.warnings],
-              },
-              warnings: [...plan.warnings],
-            };
-          }).pipe(
-            Effect.provideService(DbService, db),
-            Effect.provideService(R2Service, r2 as R2Bucket),
-            Effect.catchTag("ParseError", () =>
-              Effect.sync(() => {
-                set.status = 400;
-                return { error: "Missing or invalid fields" };
-              }),
-            ),
-            Effect.catchTag("FormulaInjectionDetected", (e: FormulaInjectionDetected) =>
-              Effect.gen(function* () {
-                yield* Effect.logWarning(`formula injection rejected`, {
-                  row: e.row,
-                  column: e.column,
-                });
-                // Surface coords but NOT contents. Snippet stays in logs only.
-                set.status = 422;
-                return { error: "Formula-injection guard tripped", row: e.row, column: e.column };
-              }),
-            ),
-            Effect.catchTag("MissingRequiredColumn", (e: MissingRequiredColumn) =>
-              Effect.sync(() => {
-                set.status = 422;
-                return { error: "Missing required column", column: e.column };
-              }),
-            ),
-            Effect.catchTag("UnmatchedEventColumn", (e: UnmatchedEventColumn) =>
-              Effect.sync(() => {
-                set.status = 422;
-                return { error: "Unmatched event column", column: e.column };
-              }),
-            ),
-            Effect.catchTag("MalformedSpreadsheet", (e: MalformedSpreadsheet) =>
-              Effect.sync(() => {
-                set.status = 422;
-                return { error: "Malformed spreadsheet", reason: e.reason, row: e.row ?? null };
-              }),
-            ),
-            Effect.catchTag("R2Error", () =>
-              Effect.sync(() => {
-                set.status = 500;
-                return { error: "Storage error" };
-              }),
-            ),
-          ),
-        );
-      },
-      manualParse,
-    )
-    .post(
-      "/apply",
-      async ({ request, weddingId, set }) => {
-        if (!weddingId) {
-          set.status = 500;
-          return { error: "Internal error" };
-        }
-
-        const raw: unknown = await request.json().catch(() => null);
-
-        return runCire(
-          Effect.gen(function* () {
-            const { importId } = yield* Schema.decodeUnknown(ApplyBody)(raw);
-            const dbService = yield* DbService;
-
-            const [row] = yield* dbQuery(() =>
-              dbService.select().from(imports).where(eq(imports.id, importId)).all(),
-            );
-            // A foreign wedding's import is indistinguishable from a missing one.
-            if (!row || row.weddingId !== weddingId) {
-              set.status = 404;
-              return { error: "Import not found" };
-            }
-            if (row.status !== "preview") {
-              set.status = 409;
-              return { error: "Import is not in preview status" };
+          },
+          manualParse,
+        )
+        .post(
+          "/apply",
+          async ({ request, weddingId, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
             }
 
-            // Re-fetch CSV from R2 and re-diff (TOCTOU defence — DB may have shifted
-            // since the preview snapshot).
-            const eventsCsv = yield* fetchUpload(row.eventsR2Key);
-            const guestsCsv = yield* fetchUpload(row.guestsR2Key);
+            const raw: unknown = await request.json().catch(() => null);
 
-            const parsedEvents = yield* parseEventsCsv(eventsCsv);
-            const parsedFamilies = yield* parseGuestsCsv(guestsCsv, parsedEvents);
-            const plan = yield* diffAgainstDb(
-              parsedEvents,
-              parsedFamilies as ParsedFamily[],
-              weddingId,
-            );
-
-            const summary = yield* applyImport(importId, plan, weddingId);
-
-            yield* dbQuery(() =>
-              dbService
-                .update(imports)
-                .set({ status: "applied", appliedAt: Date.now() })
-                .where(eq(imports.id, importId))
-                .run(),
-            );
-
-            return { summary };
-          }).pipe(
-            Effect.provideService(DbService, db),
-            Effect.provideService(R2Service, r2 as R2Bucket),
-            Effect.catchTag("ParseError", () =>
-              Effect.sync(() => {
-                set.status = 400;
-                return { error: "Missing or invalid fields" };
-              }),
-            ),
-            Effect.catchTag("FormulaInjectionDetected", () =>
-              Effect.sync(() => {
-                set.status = 422;
-                return { error: "Formula-injection guard tripped" };
-              }),
-            ),
-            Effect.catchTag("MissingRequiredColumn", (e: MissingRequiredColumn) =>
-              Effect.sync(() => {
-                set.status = 422;
-                return { error: "Missing required column", column: e.column };
-              }),
-            ),
-            Effect.catchTag("UnmatchedEventColumn", (e: UnmatchedEventColumn) =>
-              Effect.sync(() => {
-                set.status = 422;
-                return { error: "Unmatched event column", column: e.column };
-              }),
-            ),
-            Effect.catchTag("MalformedSpreadsheet", () =>
-              Effect.sync(() => {
-                set.status = 422;
-                return { error: "Malformed spreadsheet" };
-              }),
-            ),
-            Effect.catchTag("R2Error", () =>
-              Effect.sync(() => {
-                set.status = 500;
-                return { error: "Storage error" };
-              }),
-            ),
-            Effect.catchTag("ImportError", () =>
+            return runCire(
               Effect.gen(function* () {
-                yield* Effect.logError("import apply failed");
-                set.status = 500;
-                return { error: "Apply failed" };
-              }),
-            ),
-          ),
-        );
-      },
-      manualParse,
-    )
-    .post(
-      "/revert",
-      async ({ request, weddingId, set }) => {
-        if (!weddingId) {
-          set.status = 500;
-          return { error: "Internal error" };
-        }
+                const { importId } = yield* Schema.decodeUnknown(ApplyBody)(raw);
+                const dbService = yield* DbService;
 
-        const raw: unknown = await request.json().catch(() => null);
+                const [row] = yield* dbQuery(() =>
+                  dbService.select().from(imports).where(eq(imports.id, importId)).all(),
+                );
+                // A foreign wedding's import is indistinguishable from a missing one.
+                if (!row || row.weddingId !== weddingId) {
+                  set.status = 404;
+                  return { error: "Import not found" };
+                }
+                if (row.status !== "preview") {
+                  set.status = 409;
+                  return { error: "Import is not in preview status" };
+                }
 
-        return runCire(
-          Effect.gen(function* () {
-            const { importId } = yield* Schema.decodeUnknown(RevertBody)(raw);
-            const summary = yield* revertImport(importId, weddingId);
-            return { summary };
-          }).pipe(
-            Effect.provideService(DbService, db),
-            Effect.provideService(R2Service, r2 as R2Bucket),
-            Effect.catchTag("ParseError", () =>
-              Effect.sync(() => {
-                set.status = 400;
-                return { error: "Missing or invalid fields" };
-              }),
-            ),
-            Effect.catchTag("NoPriorImport", () =>
-              Effect.sync(() => {
-                set.status = 409;
-                return { error: "No prior applied import to revert to" };
-              }),
-            ),
-            Effect.catchTag("R2Error", () =>
-              Effect.sync(() => {
-                set.status = 500;
-                return { error: "Storage error" };
-              }),
-            ),
-            Effect.catchTag("RevertParseError", () =>
-              Effect.sync(() => {
-                set.status = 500;
-                return { error: "Stored CSV failed to re-parse" };
-              }),
-            ),
-            Effect.catchTag("ImportError", () =>
-              Effect.gen(function* () {
-                yield* Effect.logError("import revert failed");
-                set.status = 500;
-                return { error: "Revert failed" };
-              }),
-            ),
-          ),
-        );
-      },
-      manualParse,
-    )
-    .get("/list", async ({ weddingId, query, set }) => {
-      if (!weddingId) {
-        set.status = 500;
-        return { error: "Internal error" };
-      }
+                // Re-fetch CSV from R2 and re-diff (TOCTOU defence — DB may have shifted
+                // since the preview snapshot).
+                const eventsCsv = yield* fetchUpload(row.eventsR2Key);
+                const guestsCsv = yield* fetchUpload(row.guestsR2Key);
 
-      // Pagination — `?limit=N` (default 50, clamped 1..100) and `?cursor=<ms>`.
-      // The cursor is the `uploadedAt` of the last row from the previous page;
-      // we ask for `uploadedAt < cursor` and return `nextCursor` so the client
-      // can keep walking. Backed by the composite `imports_wedding_uploaded_at_idx`
-      // (wedding_id, uploaded_at) index — covers the wedding scope + the
-      // uploaded_at cursor/order in one b-tree (P-W1).
-      const limitParam = query.limit;
-      const parsedLimit = limitParam ? Number.parseInt(limitParam, 10) : NaN;
-      const limit = Number.isFinite(parsedLimit) ? Math.min(100, Math.max(1, parsedLimit)) : 50;
+                const parsedEvents = yield* parseEventsCsv(eventsCsv);
+                const parsedFamilies = yield* parseGuestsCsv(guestsCsv, parsedEvents);
+                const plan = yield* diffAgainstDb(
+                  parsedEvents,
+                  parsedFamilies as ParsedFamily[],
+                  weddingId,
+                );
 
-      const cursorParam = query.cursor;
-      const cursor = cursorParam ? Number.parseInt(cursorParam, 10) : NaN;
-      const hasCursor = Number.isFinite(cursor);
+                const summary = yield* applyImport(importId, plan, weddingId);
 
-      const scope = eq(imports.weddingId, weddingId);
-      const rows = await db
-        .select()
-        .from(imports)
-        .where(hasCursor ? and(scope, lt(imports.uploadedAt, cursor)) : scope)
-        .orderBy(desc(imports.uploadedAt))
-        .limit(limit + 1)
-        .all();
+                yield* dbQuery(() =>
+                  dbService
+                    .update(imports)
+                    .set({ status: "applied", appliedAt: Date.now() })
+                    .where(eq(imports.id, importId))
+                    .run(),
+                );
 
-      const page = rows.slice(0, limit);
-      const nextCursor = rows.length > limit ? (page[page.length - 1]?.uploadedAt ?? null) : null;
-
-      return {
-        imports: page.map((r) => ({
-          id: r.id,
-          uploadedAt: r.uploadedAt,
-          format: r.format,
-          status: r.status,
-          appliedAt: r.appliedAt,
-          revertedAt: r.revertedAt,
-          summary: (() => {
-            try {
-              return JSON.parse(r.summary);
-            } catch {
-              return {};
+                return { summary };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.provideService(R2Service, r2 as R2Bucket),
+                Effect.catchTag("ParseError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
+                Effect.catchTag("FormulaInjectionDetected", () =>
+                  Effect.sync(() => {
+                    set.status = 422;
+                    return { error: "Formula-injection guard tripped" };
+                  }),
+                ),
+                Effect.catchTag("MissingRequiredColumn", (e: MissingRequiredColumn) =>
+                  Effect.sync(() => {
+                    set.status = 422;
+                    return { error: "Missing required column", column: e.column };
+                  }),
+                ),
+                Effect.catchTag("UnmatchedEventColumn", (e: UnmatchedEventColumn) =>
+                  Effect.sync(() => {
+                    set.status = 422;
+                    return { error: "Unmatched event column", column: e.column };
+                  }),
+                ),
+                Effect.catchTag("MalformedSpreadsheet", () =>
+                  Effect.sync(() => {
+                    set.status = 422;
+                    return { error: "Malformed spreadsheet" };
+                  }),
+                ),
+                Effect.catchTag("R2Error", () =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Storage error" };
+                  }),
+                ),
+                Effect.catchTag("ImportError", () =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError("import apply failed");
+                    set.status = 500;
+                    return { error: "Apply failed" };
+                  }),
+                ),
+              ),
+            );
+          },
+          manualParse,
+        )
+        .post(
+          "/revert",
+          async ({ request, weddingId, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
             }
-          })(),
-        })),
-        nextCursor,
-      };
-    });
+
+            const raw: unknown = await request.json().catch(() => null);
+
+            return runCire(
+              Effect.gen(function* () {
+                const { importId } = yield* Schema.decodeUnknown(RevertBody)(raw);
+                const summary = yield* revertImport(importId, weddingId);
+                return { summary };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.provideService(R2Service, r2 as R2Bucket),
+                Effect.catchTag("ParseError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
+                Effect.catchTag("NoPriorImport", () =>
+                  Effect.sync(() => {
+                    set.status = 409;
+                    return { error: "No prior applied import to revert to" };
+                  }),
+                ),
+                Effect.catchTag("R2Error", () =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Storage error" };
+                  }),
+                ),
+                Effect.catchTag("RevertParseError", () =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Stored CSV failed to re-parse" };
+                  }),
+                ),
+                Effect.catchTag("ImportError", () =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError("import revert failed");
+                    set.status = 500;
+                    return { error: "Revert failed" };
+                  }),
+                ),
+              ),
+            );
+          },
+          manualParse,
+        )
+        .get("/list", async ({ weddingId, query, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+
+          // Pagination — `?limit=N` (default 50, clamped 1..100) and `?cursor=<ms>`.
+          // The cursor is the `uploadedAt` of the last row from the previous page;
+          // we ask for `uploadedAt < cursor` and return `nextCursor` so the client
+          // can keep walking. Backed by the composite `imports_wedding_uploaded_at_idx`
+          // (wedding_id, uploaded_at) index — covers the wedding scope + the
+          // uploaded_at cursor/order in one b-tree (P-W1).
+          const limitParam = query.limit;
+          const parsedLimit = limitParam ? Number.parseInt(limitParam, 10) : NaN;
+          const limit = Number.isFinite(parsedLimit) ? Math.min(100, Math.max(1, parsedLimit)) : 50;
+
+          const cursorParam = query.cursor;
+          const cursor = cursorParam ? Number.parseInt(cursorParam, 10) : NaN;
+          const hasCursor = Number.isFinite(cursor);
+
+          const scope = eq(imports.weddingId, weddingId);
+          const rows = await db
+            .select()
+            .from(imports)
+            .where(hasCursor ? and(scope, lt(imports.uploadedAt, cursor)) : scope)
+            .orderBy(desc(imports.uploadedAt))
+            .limit(limit + 1)
+            .all();
+
+          const page = rows.slice(0, limit);
+          const nextCursor =
+            rows.length > limit ? (page[page.length - 1]?.uploadedAt ?? null) : null;
+
+          return {
+            imports: page.map((r) => ({
+              id: r.id,
+              uploadedAt: r.uploadedAt,
+              format: r.format,
+              status: r.status,
+              appliedAt: r.appliedAt,
+              revertedAt: r.revertedAt,
+              summary: (() => {
+                try {
+                  return JSON.parse(r.summary);
+                } catch {
+                  return {};
+                }
+              })(),
+            })),
+            nextCursor,
+          };
+        }),
+    );

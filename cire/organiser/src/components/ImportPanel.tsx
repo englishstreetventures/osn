@@ -48,12 +48,14 @@ function readFile(file: File): Promise<string> {
 }
 
 /**
- * Imports are authorised by the caller's OSN access JWT alone (attached by
- * authFetch) — the server scopes the import to the signed-in organiser's
- * owned wedding.
+ * Imports are authorised by the caller's OSN access JWT (attached by authFetch)
+ * plus ownership of the wedding named in the path — the organiser picks the
+ * target wedding upstream and every import call is scoped to it.
  */
-export default function ImportPanel() {
+export default function ImportPanel(props: { weddingId: string }) {
   const { authFetch } = useAuth();
+  const importUrl = (op: string) =>
+    apiUrl(`/api/organiser/weddings/${props.weddingId}/import/${op}`);
   const [eventsFile, setEventsFile] = createSignal<File | null>(null);
   const [guestsFile, setGuestsFile] = createSignal<File | null>(null);
   const [busy, setBusy] = createSignal(false);
@@ -75,7 +77,7 @@ export default function ImportPanel() {
     setBusy(true);
     try {
       const [eventsCsv, guestsCsv] = await Promise.all([readFile(events), readFile(guests)]);
-      const res = await authFetch(apiUrl("/api/organiser/import/preview"), {
+      const res = await authFetch(importUrl("preview"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ eventsCsv, guestsCsv }),
@@ -99,7 +101,7 @@ export default function ImportPanel() {
     setError(null);
     setBusy(true);
     try {
-      const res = await authFetch(apiUrl("/api/organiser/import/apply"), {
+      const res = await authFetch(importUrl("apply"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ importId: p.importId }),

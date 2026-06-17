@@ -9,7 +9,7 @@ related:
   - "[[data-map]]"
   - "[[access-control]]"
   - "[[arc-tokens]]"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-06-18
 ---
 
 # Cire two-system auth
@@ -22,7 +22,7 @@ Cire runs **two deliberately separate auth systems** that never overlap. Guests 
 | Token | Opaque 256-bit session token | ES256 access JWT, `aud: "osn-access"`, 5-min TTL |
 | Storage at rest | SHA-256 hash in cire's `sessions` table | Nothing in cire — verification is stateless via JWKS |
 | Transport | `cire_session` HttpOnly cookie (30 days) | `Authorization: Bearer` via `@osn/client` `authFetch` |
-| Middleware | `sessionAuth()` (`cire/api/src/middleware/auth.ts`) | `osnAuth()` + `weddingOwner()` / `ownedWedding()` |
+| Middleware | `sessionAuth()` (`cire/api/src/middleware/auth.ts`) | `osnAuth()` + `weddingOwner()` |
 | Routes | `/api/rsvp` | `/api/organiser/*` |
 
 ## Guest path: claim code → session cookie
@@ -85,10 +85,13 @@ Organisers who don't yet have an OSN account can create one from the same page: 
 
 ### Authorization: wedding ownership
 
-`weddings.owner_osn_profile_id` stores the owning OSN profile id as an **opaque string** — no cross-DB FK (cire's D1 and OSN's DB are separate databases; the id is a foreign-system reference, not a relation). Two middlewares enforce it:
+`weddings.owner_osn_profile_id` stores the owning OSN profile id as an **opaque string** — no cross-DB FK (cire's D1 and OSN's DB are separate databases; the id is a foreign-system reference, not a relation). One middleware enforces it:
 
-- **`weddingOwner()`** — for `/api/organiser/weddings/:weddingId/*`. Loads the wedding row: unknown wedding → **404** `wedding_not_found` (don't disclose existence), owner mismatch → **403** `forbidden`. Sets `c.var.weddingId`.
-- **`ownedWedding()`** — for organiser routes with no `:weddingId` param (the import routes). Derives the caller's single owned wedding: zero owned → **404** `no_weddings`; more than one → **400** `multiple_weddings` with a hint to use the explicit wedding-scoped routes.
+- **`weddingOwner()`** — for `/api/organiser/weddings/:weddingId/*` (the dashboard reads, regenerate-code, preview-code, **and the import routes** at `/api/organiser/weddings/:weddingId/import/*`). Loads the wedding row: unknown wedding → **404** `wedding_not_found` (don't disclose existence), owner mismatch → **403** `forbidden`. Sets `c.var.weddingId`.
+
+`POST /api/organiser/weddings` (create) and `GET /api/organiser/weddings` (list) carry no `:weddingId` and are gated by `osnAuth()` alone — the owner is the verified caller, taken from the token, never the body.
+
+> The earlier `ownedWedding()` middleware (which derived a single owned wedding and 400'd when a caller owned more than one) was **removed** when organisers gained the ability to own multiple weddings — the import routes now take an explicit `:weddingId` under `weddingOwner()`.
 
 ### Error-code design: 403 vs 401 (real bug class)
 

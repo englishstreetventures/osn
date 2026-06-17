@@ -6,7 +6,7 @@ AI coding assistant reference. For full spec see README.md. For progress/decisio
 
 Cire is a bespoke digital wedding invite — Astro + SolidJS frontends with a Cloudflare Workers backend (Elysia + D1 + Drizzle), designed to feel tactile and animated. It lives inside the **OSN monorepo** as the `cire/` workspace (merged from cire.git, 2026-06). Packages: `cire/web` (guest site, :4321), `cire/organiser` (organiser portal, :4322), `cire/api` (backend, :8787), `cire/db` (Drizzle schema + D1 migrations). All paths in this file are relative to the OSN repo root.
 
-Auth is a **two-system model** (see `[[wiki/systems/cire-auth]]` in the OSN wiki): guests claim a family code (`POST /api/claim` → hashed-at-rest `cire_session` cookie, `sessionAuth()` on `/api/rsvp` — no OSN account); organisers sign in with their **OSN passkey** on the portal, and `cire/api` verifies the OSN access JWT via `osnAuth()` (`@shared/osn-auth-client`) plus `weddingOwner()` / `ownedWedding()` ownership gates on `/api/organiser/*`. The interim `X-Organiser-Token` shared secret is gone.
+Auth is a **two-system model** (see `[[wiki/systems/cire-auth]]` in the OSN wiki): guests claim a family code (`POST /api/claim` → hashed-at-rest `cire_session` cookie, `sessionAuth()` on `/api/rsvp` — no OSN account); organisers sign in with their **OSN passkey** on the portal, and `cire/api` verifies the OSN access JWT via `osnAuth()` (`@shared/osn-auth-client`) plus the `weddingOwner()` per-`:weddingId` ownership gate on `/api/organiser/weddings/:weddingId/*` (list + create are `osnAuth()`-only; owner = caller). The interim `X-Organiser-Token` shared secret is gone. Organisers can host **multiple** weddings — the portal lands on a wedding list/selector and a create form.
 
 ## File Responsibilities
 
@@ -163,7 +163,7 @@ describe("POST /api/claim", () => {
 
 - Routes in `cire/api/src/routes/` — one route factory per domain (claim, rsvp, organiser, import), composed by `createApp` in `src/app.ts`
 - `createApp` uses `aot: false` — Elysia's AOT compiles handlers via `new Function`, which CF Workers forbids
-- Middleware in `cire/api/src/middleware/` are Elysia plugins (scoped `derive` + `onBeforeHandle`) — `auth.ts` (`sessionAuth`, guest cookie), `osn-auth.ts` (`osnAuth`, organiser JWT via the shared Elysia adapter), `wedding-owner.ts` / `owned-wedding.ts` (ownership authz), `rate-limit.ts`
+- Middleware in `cire/api/src/middleware/` are Elysia plugins (scoped `derive` + `onBeforeHandle`) — `auth.ts` (`sessionAuth`, guest cookie), `osn-auth.ts` (`osnAuth`, organiser JWT via the shared Elysia adapter), `wedding-owner.ts` (`weddingOwner`, per-`:weddingId` ownership authz — gates every wedding-scoped organiser route incl. import), `rate-limit.ts`. (An `ownedWedding` "single owned wedding" middleware existed pre-multi-wedding; it was removed once organisers could own several weddings.)
 - POST routes pass a sentinel `parse` hook (`{ parse: () => ({}) }`) and read `request.json()` by hand, so malformed JSON degrades to the schema's 400 instead of a framework parse error
 - Business logic in `cire/api/src/services/` — routes delegate to services, no logic in handlers
 - Services return `Effect.Effect<A, E>` — use `Effect.runPromise` / `Effect.runSync` in route handlers to unwrap

@@ -1,18 +1,14 @@
 import { AuthProvider, useAuth } from "@osn/client/solid";
-import { createEffect, createResource, Show, type ParentProps } from "solid-js";
+import { createEffect, createResource, createSignal, Show, type ParentProps } from "solid-js";
 import { Toaster } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { OSN_ISSUER_URL } from "../lib/osn";
+import type { WeddingSummary } from "./CreateWeddingForm";
 import DashboardTabs from "./DashboardTabs";
 import ImportPanel from "./ImportPanel";
 import PreviewInviteButton from "./PreviewInviteButton";
-
-interface WeddingSummary {
-  id: string;
-  slug: string;
-  displayName: string;
-}
+import WeddingList from "./WeddingList";
 
 type WeddingsState =
   | { kind: "error"; message: string }
@@ -44,10 +40,38 @@ function RequireAuth(props: ParentProps) {
   );
 }
 
+/** The chosen wedding's dashboard — the existing tabbed guests/events/invite
+ *  view, now scoped to whichever wedding the organiser opened. */
+function WeddingDashboard(props: { wedding: WeddingSummary; onBack: () => void }) {
+  return (
+    <div class="flex flex-col gap-12">
+      <div class="flex flex-col gap-4">
+        <button
+          type="button"
+          onClick={() => props.onBack()}
+          class="font-body text-text-muted hover:text-gold self-start text-[0.78rem] tracking-[0.1em] uppercase underline-offset-4 transition hover:underline"
+        >
+          ← All weddings
+        </button>
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <p class="font-display text-gold-dim text-[1.2rem] italic">{props.wedding.displayName}</p>
+          <PreviewInviteButton weddingId={props.wedding.id} />
+        </div>
+      </div>
+      <ImportPanel weddingId={props.wedding.id} />
+      <DashboardTabs weddingId={props.wedding.id} />
+    </div>
+  );
+}
+
 function Dashboard() {
   const { authFetch, logout } = useAuth();
+  // Locally-tracked weddings so a freshly-created one shows up without a
+  // refetch. Seeded from the initial load.
+  const [weddings, setWeddings] = createSignal<WeddingSummary[] | null>(null);
+  const [selectedId, setSelectedId] = createSignal<string | null>(null);
 
-  const [weddings] = createResource<WeddingsState>(async () => {
+  const [loaded] = createResource<WeddingsState>(async () => {
     try {
       const res = await authFetch(apiUrl("/api/organiser/weddings"));
       if (res.status === 401) {
@@ -56,6 +80,7 @@ function Dashboard() {
       }
       if (!res.ok) return { kind: "error", message: `Could not load weddings (${res.status}).` };
       const body = (await res.json()) as { weddings: WeddingSummary[] };
+      setWeddings(body.weddings);
       return { kind: "ready", weddings: body.weddings };
     } catch (err) {
       if (isAuthExpired(err)) {
@@ -67,17 +92,21 @@ function Dashboard() {
   });
 
   const loadError = () => {
-    const state = weddings();
+    const state = loaded();
     return state?.kind === "error" ? state.message : null;
   };
-  const wedding = () => {
-    const state = weddings();
-    return state?.kind === "ready" ? state.weddings[0] : undefined;
+
+  const selected = () => {
+    const id = selectedId();
+    return weddings()?.find((w) => w.id === id) ?? null;
   };
-  const empty = () => {
-    const state = weddings();
-    return state?.kind === "ready" && state.weddings.length === 0;
-  };
+
+  function handleCreated(wedding: WeddingSummary) {
+    setWeddings((prev) => [...(prev ?? []), wedding]);
+    // Open the new wedding straight away — the organiser just made it to fill
+    // it in.
+    setSelectedId(wedding.id);
+  }
 
   async function signOut() {
     await logout();
@@ -96,7 +125,7 @@ function Dashboard() {
         </button>
       </div>
 
-      <Show when={weddings()} fallback={<Loading label="Loading weddings…" />}>
+      <Show when={loaded()} fallback={<Loading label="Loading weddings…" />}>
         <Show when={loadError()}>
           {(message) => (
             <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
@@ -105,22 +134,22 @@ function Dashboard() {
           )}
         </Show>
 
-        <Show when={empty()}>
-          <p class="border-border bg-surface/30 text-text-muted rounded-sm border p-6 text-[0.88rem]">
-            No weddings are linked to your account yet. Contact support to get set up.
-          </p>
-        </Show>
-
-        <Show when={wedding()}>
-          {(w) => (
-            <div class="flex flex-col gap-12">
-              <div class="flex flex-wrap items-center justify-between gap-4">
-                <p class="font-display text-gold-dim text-[1.2rem] italic">{w().displayName}</p>
-                <PreviewInviteButton weddingId={w().id} />
-              </div>
-              <ImportPanel />
-              <DashboardTabs weddingId={w().id} />
-            </div>
+        <Show when={!loadError() && weddings()}>
+          {(list) => (
+            <Show
+              when={selected()}
+              fallback={
+                <WeddingList
+                  weddings={list()}
+                  onSelect={(w) => setSelectedId(w.id)}
+                  onCreated={handleCreated}
+                />
+              }
+            >
+              {(wedding) => (
+                <WeddingDashboard wedding={wedding()} onBack={() => setSelectedId(null)} />
+              )}
+            </Show>
           )}
         </Show>
       </Show>

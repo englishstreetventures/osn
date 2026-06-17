@@ -2,7 +2,7 @@
 title: "Monorepo Structure"
 tags: [architecture]
 related: [[contributing]], [[index]]
-last-reviewed: 2026-06-12
+last-reviewed: 2026-06-18
 ---
 
 # Monorepo Structure
@@ -27,7 +27,7 @@ Cire lives inside the **OSN monorepo** as the `cire/` workspace directory (merge
 │   │   ├── src/
 │   │   │   ├── routes/      # One route factory per domain
 │   │   │   ├── services/    # Business logic (Effect-based)
-│   │   │   ├── middleware/  # sessionAuth, osnAuth, weddingOwner, ownedWedding, rate-limit (Elysia plugins)
+│   │   │   ├── middleware/  # sessionAuth, osnAuth, weddingOwner, rate-limit (Elysia plugins)
 │   │   │   └── index.ts     # Worker entry (builds the Elysia app per request)
 │   │   ├── wrangler.toml
 │   │   └── package.json

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, events, families, guests, sessions, weddings } from "@cire/db";
+import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../app";
@@ -108,6 +109,120 @@ describe("GET /api/organiser/weddings", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { weddings: unknown[] };
     expect(body.weddings).toEqual([]);
+  });
+});
+
+describe("POST /api/organiser/weddings", () => {
+  async function createWedding(
+    app: ReturnType<typeof buildApp>["app"],
+    body: unknown,
+    profileId?: string,
+  ) {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (profileId) headers.Authorization = `Bearer ${await auth.sign(profileId)}`;
+    return appRequest(app, "/api/organiser/weddings", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("returns 401 without a token", async () => {
+    const { app } = buildApp();
+    const res = await createWedding(app, { displayName: "Nadia & Sam" });
+    expect(res.status).toBe(401);
+  });
+
+  it("creates a wedding owned by the caller and returns it", async () => {
+    const { app, db } = buildApp();
+    const res = await createWedding(app, { displayName: "Nadia & Sam" }, "usr_newcomer");
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      wedding: { id: string; slug: string; displayName: string };
+    };
+    expect(body.wedding.displayName).toBe("Nadia & Sam");
+    expect(body.wedding.id).toMatch(/^wed_[0-9a-f]{32}$/);
+    expect(body.wedding.slug).toMatch(/^nadia-sam-[0-9a-f]{6}$/);
+
+    // Persisted, owned by the caller.
+    const [row] = db.select().from(weddings).where(eq(weddings.id, body.wedding.id)).all();
+    expect(row!.ownerOsnProfileId).toBe("usr_newcomer");
+    expect(row!.codeStyle).toBe("secure");
+  });
+
+  it("appears in the caller's wedding list after creation", async () => {
+    const { app } = buildApp();
+    const created = await createWedding(app, { displayName: "Second One" }, "usr_multi");
+    const id = ((await created.json()) as { wedding: { id: string } }).wedding.id;
+
+    // Create a second one for the same owner — both must list.
+    await createWedding(app, { displayName: "Third One" }, "usr_multi");
+
+    const list = await get(app, "/api/organiser/weddings", "usr_multi");
+    const body = (await list.json()) as { weddings: { id: string }[] };
+    expect(body.weddings).toHaveLength(2);
+    expect(body.weddings.map((w) => w.id)).toContain(id);
+  });
+
+  it("trims the display name and still derives a clean slug", async () => {
+    const { app } = buildApp();
+    const res = await createWedding(app, { displayName: "  Pádraig's Big Day  " }, "usr_trim");
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { wedding: { slug: string; displayName: string } };
+    expect(body.wedding.displayName).toBe("Pádraig's Big Day");
+    expect(body.wedding.slug).toMatch(/^padraig-s-big-day-[0-9a-f]{6}$/);
+  });
+
+  it("returns 400 for a missing displayName", async () => {
+    const { app } = buildApp();
+    const res = await createWedding(app, {}, "usr_x");
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for a blank displayName", async () => {
+    const { app } = buildApp();
+    const res = await createWedding(app, { displayName: "   " }, "usr_x");
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for an over-long displayName", async () => {
+    const { app } = buildApp();
+    const res = await createWedding(app, { displayName: "x".repeat(121) }, "usr_x");
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for malformed JSON", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, "/api/organiser/weddings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${await auth.sign("usr_x")}`,
+      },
+      body: "{not json",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("falls back to a 'wedding' slug base when the name has no slug-safe chars", async () => {
+    const { app } = buildApp();
+    const res = await createWedding(app, { displayName: "🎉💍" }, "usr_emoji");
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { wedding: { slug: string } };
+    expect(body.wedding.slug).toMatch(/^wedding-[0-9a-f]{6}$/);
+  });
+
+  it("429s once the per-IP create limit is exceeded (S-L1)", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const app = createApp(db, {
+      osnTestKey: auth.key,
+      weddingCreateLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    });
+    const first = await createWedding(app, { displayName: "One" }, "usr_spammer");
+    expect(first.status).toBe(201);
+    const second = await createWedding(app, { displayName: "Two" }, "usr_spammer");
+    expect(second.status).toBe(429);
   });
 });
 

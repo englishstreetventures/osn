@@ -4,12 +4,14 @@ tags: [todo, api]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-06-17
+last-reviewed: 2026-06-18
 ---
 
 # cire/api
 
 Backend feature work. The Elysia + Effect + Drizzle layer in `cire/api`.
+
+- [x] **Multi-wedding organiser support** — `POST /api/organiser/weddings` (osnAuth-only; owner = caller) creates a wedding via `weddingsService.createForOwner` (server-generated `wed_<uuid-hex>` id + unique slug from the display name + random suffix; default `secure` code style; `cire.wedding.created` metric). The single-owned-wedding `ownedWedding()` middleware is **removed**; the import routes moved from `/api/organiser/import/*` to `/api/organiser/weddings/:weddingId/import/{preview,apply,revert,list}` under `weddingOwner()`, so an organiser who owns several weddings picks the target explicitly. Portal lands on a wedding list/selector + create form. See `[[wiki/systems/cire-auth]]` (root).
 
 - [x] **Invite builder (backend)** — `inviteService` (Effect) + sibling route instances in `routes/invite.ts`. Public reads (`GET /api/invite/:slug`, `GET /api/invite/:slug/image/:slot`) kept off the `osnAuth` gate; organiser writes (`GET` / `PUT /text` / `POST,DELETE /image/:slot` under `/api/organiser/weddings/:weddingId/invite`) behind `osnAuth()` + `weddingOwner()` (403-not-401). Images in a new `cire-assets` R2 bucket via binary `AssetsR2Service` (the CSV-import R2 service is text-only); uploads size-capped (5MB) + magic-byte sniffed (JPEG/PNG/WebP). Closed `hero|story` slot union; `cire.invite.*` spans + `Effect.log*`. See `[[invite-builder]]`. ⚠️ `cire-assets` (+ preview) bucket must be created before deploy.
 - [x] **Optional guest → OSN/Pulse account linking (backend)** — `account-link` Effect service + `/api/account/link` routes (POST dual-credential, GET/DELETE guest-only), as Elysia route factories (`createAccountLinkRoutes` + `createAccountLinkPostRoute`). POST binds the guest session (`familyId`) to an OSN account: validates `{ guestId }` ∈ family, resolves `profileId → accountId` over ARC via `services/osn-bridge.ts` (workerd-safe `signArcToken` from `@shared/crypto/jwk`; stable `CIRE_API_ARC_PRIVATE_KEY` key), and writes `guest_account_links`. `osnAuth` is method-gated to POST by mounting it on a sibling instance; resolver injectable via `createApp({ resolveOsnAccountId })`; absent ⇒ 503. See `[[wiki/systems/cire-auth]]` (root). Frontend deferred — see `[[web]]`.

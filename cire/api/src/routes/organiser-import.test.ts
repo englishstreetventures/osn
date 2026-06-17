@@ -11,10 +11,13 @@ import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
 // OSN JWT minted for the seeded bootstrap-wedding owner. Required by the
-// osnAuth gate on /api/organiser/*; the ownedWedding middleware then scopes
-// every import operation to the caller's owned wedding.
+// osnAuth gate on /api/organiser/*; weddingOwner() then proves the caller owns
+// the :weddingId in the path and scopes every import operation to it.
 let auth: OsnTestAuth;
 let bearer: string;
+
+// Every import operation is scoped to an explicit wedding in the URL.
+const IMPORT_BASE = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/import`;
 
 beforeAll(async () => {
   auth = await makeOsnTestAuth();
@@ -43,7 +46,7 @@ function buildApp() {
 }
 
 async function preview(app: ReturnType<typeof buildApp>["app"], body: object) {
-  return appRequest(app, "/api/organiser/import/preview", {
+  return appRequest(app, `${IMPORT_BASE}/preview`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -53,10 +56,10 @@ async function preview(app: ReturnType<typeof buildApp>["app"], body: object) {
   });
 }
 
-describe("POST /api/organiser/import/preview", () => {
+describe("POST /api/organiser/weddings/:weddingId/import/preview", () => {
   it("returns 401 without an OSN JWT", async () => {
     const { app } = buildApp();
-    const res = await appRequest(app, "/api/organiser/import/preview", {
+    const res = await appRequest(app, `${IMPORT_BASE}/preview`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV }),
@@ -64,9 +67,9 @@ describe("POST /api/organiser/import/preview", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns 404 no_weddings for an authenticated caller who owns no wedding", async () => {
+  it("returns 403 for an authenticated caller who does not own the wedding", async () => {
     const { app } = buildApp();
-    const res = await appRequest(app, "/api/organiser/import/preview", {
+    const res = await appRequest(app, `${IMPORT_BASE}/preview`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -74,8 +77,37 @@ describe("POST /api/organiser/import/preview", () => {
       },
       body: JSON.stringify({ eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV }),
     });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "forbidden" });
+  });
+
+  it("returns 404 for an unknown wedding in the path", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, "/api/organiser/weddings/wed_nope/import/preview", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${bearer}`,
+      },
+      body: JSON.stringify({ eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV }),
+    });
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "no_weddings" });
+    expect(await res.json()).toEqual({ error: "wedding_not_found" });
+  });
+
+  it("rejects a non-owner before parsing the body (403, not 400) (T-S1)", async () => {
+    const { app } = buildApp();
+    // Malformed body — if the gate ran after parse, this would 400. The
+    // ownership gate must fire first, so a non-owner gets 403 regardless.
+    const res = await appRequest(app, `${IMPORT_BASE}/preview`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${await auth.sign("usr_not_an_owner")}`,
+      },
+      body: "{not json",
+    });
+    expect(res.status).toBe(403);
   });
 
   it("returns 200 + plan for a valid upload, scoped to the caller's wedding", async () => {
@@ -120,13 +152,13 @@ describe("POST /api/organiser/import/preview", () => {
   });
 });
 
-describe("POST /api/organiser/import/apply", () => {
+describe("POST /api/organiser/weddings/:weddingId/import/apply", () => {
   it("applies a previewed import", async () => {
     const { app, db } = buildApp();
     const res = await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
     const previewBody = (await res.json()) as { importId: string };
 
-    const apply = await appRequest(app, "/api/organiser/import/apply", {
+    const apply = await appRequest(app, `${IMPORT_BASE}/apply`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -146,7 +178,7 @@ describe("POST /api/organiser/import/apply", () => {
 
   it("returns 404 for an unknown importId", async () => {
     const { app } = buildApp();
-    const res = await appRequest(app, "/api/organiser/import/apply", {
+    const res = await appRequest(app, `${IMPORT_BASE}/apply`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -165,7 +197,7 @@ describe("POST /api/organiser/import/apply", () => {
     // Simulate a concurrent apply by flipping the row to applied first.
     db.update(imports).set({ status: "applied" }).where(eq(imports.id, importId)).run();
 
-    const apply = await appRequest(app, "/api/organiser/import/apply", {
+    const apply = await appRequest(app, `${IMPORT_BASE}/apply`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -177,14 +209,14 @@ describe("POST /api/organiser/import/apply", () => {
   });
 });
 
-describe("POST /api/organiser/import/revert", () => {
+describe("POST /api/organiser/weddings/:weddingId/import/revert", () => {
   it("reverts the latest applied import", async () => {
     const { app, db } = buildApp();
 
     // Preview + apply v1
     const r1 = await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
     const id1 = ((await r1.json()) as { importId: string }).importId;
-    await appRequest(app, "/api/organiser/import/apply", {
+    await appRequest(app, `${IMPORT_BASE}/apply`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -210,7 +242,7 @@ describe("POST /api/organiser/import/revert", () => {
     ].join("\n");
     const r2 = await preview(app, { eventsCsv: eventsV2, guestsCsv: guestsV2 });
     const id2 = ((await r2.json()) as { importId: string }).importId;
-    await appRequest(app, "/api/organiser/import/apply", {
+    await appRequest(app, `${IMPORT_BASE}/apply`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -225,7 +257,7 @@ describe("POST /api/organiser/import/revert", () => {
 
     expect(db.select().from(events).all()).toHaveLength(3);
 
-    const revert = await appRequest(app, "/api/organiser/import/revert", {
+    const revert = await appRequest(app, `${IMPORT_BASE}/revert`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -238,13 +270,13 @@ describe("POST /api/organiser/import/revert", () => {
   });
 });
 
-describe("GET /api/organiser/import/list", () => {
+describe("GET /api/organiser/weddings/:weddingId/import/list", () => {
   it("returns past imports newest-first", async () => {
     const { app } = buildApp();
     const r1 = await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
     const id1 = ((await r1.json()) as { importId: string }).importId;
 
-    const list = await appRequest(app, "/api/organiser/import/list", {
+    const list = await appRequest(app, `${IMPORT_BASE}/list`, {
       headers: { Authorization: `Bearer ${bearer}` },
     });
     expect(list.status).toBe(200);
@@ -269,7 +301,7 @@ describe("GET /api/organiser/import/list", () => {
     db.update(imports).set({ uploadedAt: 3_000 }).where(eq(imports.id, id3)).run();
 
     // Page 1: limit=2 → expect [id3, id2] + nextCursor=2000.
-    const page1Res = await appRequest(app, "/api/organiser/import/list?limit=2", {
+    const page1Res = await appRequest(app, `${IMPORT_BASE}/list?limit=2`, {
       headers: { Authorization: `Bearer ${bearer}` },
     });
     const page1 = (await page1Res.json()) as {
@@ -280,7 +312,7 @@ describe("GET /api/organiser/import/list", () => {
     expect(page1.nextCursor).toBe(2_000);
 
     // Page 2: cursor=2000, limit=2 → expect [id1] + nextCursor=null.
-    const page2Res = await appRequest(app, "/api/organiser/import/list?limit=2&cursor=2000", {
+    const page2Res = await appRequest(app, `${IMPORT_BASE}/list?limit=2&cursor=2000`, {
       headers: { Authorization: `Bearer ${bearer}` },
     });
     const page2 = (await page2Res.json()) as {
@@ -296,14 +328,14 @@ describe("GET /api/organiser/import/list", () => {
     await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
 
     // limit=0 → clamped to 1
-    const tiny = await appRequest(app, "/api/organiser/import/list?limit=0", {
+    const tiny = await appRequest(app, `${IMPORT_BASE}/list?limit=0`, {
       headers: { Authorization: `Bearer ${bearer}` },
     });
     const tinyBody = (await tiny.json()) as { imports: unknown[] };
     expect(tinyBody.imports).toHaveLength(1);
 
     // limit=999 → clamped to 100 (we only have 1 row, so just check it doesn't 500)
-    const huge = await appRequest(app, "/api/organiser/import/list?limit=999", {
+    const huge = await appRequest(app, `${IMPORT_BASE}/list?limit=999`, {
       headers: { Authorization: `Bearer ${bearer}` },
     });
     expect(huge.status).toBe(200);
@@ -312,8 +344,8 @@ describe("GET /api/organiser/import/list", () => {
 
 describe("wedding scoping: import is tenant-isolated", () => {
   // A SECOND wedding owned by someone else, pre-populated with its own event,
-  // family and guest. The bearer still owns exactly one wedding (bootstrap), so
-  // ownedWedding() scopes every import to bootstrap — the second tenant's rows
+  // family and guest. The import calls here all target the bootstrap wedding's
+  // path (`IMPORT_BASE`), gated by weddingOwner() — the second tenant's rows
   // must be invisible to the diff and untouched by apply.
   const OTHER_EVENT = "evt_second_party";
   const OTHER_FAMILY = "fam_second";
@@ -401,7 +433,7 @@ describe("wedding scoping: import is tenant-isolated", () => {
     const res = await preview(app, { eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV });
     const { importId } = (await res.json()) as { importId: string };
 
-    const apply = await appRequest(app, "/api/organiser/import/apply", {
+    const apply = await appRequest(app, `${IMPORT_BASE}/apply`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -421,10 +453,10 @@ describe("wedding scoping: import is tenant-isolated", () => {
   });
 });
 
-describe("POST /api/organiser/import/preview content-length", () => {
+describe("POST /api/organiser/weddings/:weddingId/import/preview content-length", () => {
   it("returns 413 when Content-Length declares > 1MB", async () => {
     const { app } = buildApp();
-    const res = await appRequest(app, "/api/organiser/import/preview", {
+    const res = await appRequest(app, `${IMPORT_BASE}/preview`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

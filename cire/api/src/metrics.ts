@@ -66,6 +66,8 @@ export const CIRE_METRICS = {
   originGuardRejections: "cire.origin_guard.rejections",
   // Per-family claim-code regeneration (C2).
   familyCodeRegenerated: "cire.family_code.regenerated",
+  // Organiser wedding creation (multi-wedding portal).
+  weddingCreated: "cire.wedding.created",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -109,6 +111,9 @@ export type OriginRejectReason = "missing" | "mismatch";
 /** Outcome of a per-family claim-code regeneration (C2). */
 export type FamilyCodeRegenResult = "ok" | "error";
 
+/** Outcome of an organiser wedding creation. */
+export type WeddingCreatedResult = "ok" | "error";
+
 type ClaimAttemptsAttrs = { result: ClaimResult };
 type ClaimLookupDurationAttrs = { result: "ok" | "error" };
 type SessionCreatedAttrs = { result: "ok" | "error" };
@@ -142,6 +147,7 @@ type AccountLinkUnlinksAttrs = { result: "ok" | "error" };
 type AccountLinkResolveDurationAttrs = { result: ResolveResult };
 type OriginGuardRejectionsAttrs = { reason: OriginRejectReason };
 type FamilyCodeRegeneratedAttrs = { result: FamilyCodeRegenResult };
+type WeddingCreatedAttrs = { result: WeddingCreatedResult };
 
 // ---------------------------------------------------------------------------
 // Instruments.
@@ -282,6 +288,12 @@ const familyCodeRegenerated = createCounter<FamilyCodeRegeneratedAttrs>({
   unit: "{regeneration}",
 });
 
+const weddingCreated = createCounter<WeddingCreatedAttrs>({
+  name: CIRE_METRICS.weddingCreated,
+  description: "Organiser wedding creations (multi-wedding portal), by outcome",
+  unit: "{wedding}",
+});
+
 // ---------------------------------------------------------------------------
 // Recording helpers — the ONLY way cire code should emit metrics.
 // ---------------------------------------------------------------------------
@@ -372,6 +384,9 @@ export const metricOriginGuardRejection = (reason: OriginRejectReason): void =>
 
 export const metricFamilyCodeRegenerated = (result: FamilyCodeRegenResult): void =>
   familyCodeRegenerated.inc({ result });
+
+export const metricWeddingCreated = (result: WeddingCreatedResult): void =>
+  weddingCreated.inc({ result });
 
 // ---------------------------------------------------------------------------
 // Effect combinators for timed operations (mirrors pulse `measureSeconds`).

@@ -13,6 +13,7 @@ import { createInviteOrganiserRoutes, createInvitePublicRoutes } from "./routes/
 import { createOrganiserImportRoutes } from "./routes/organiser-import";
 import {
   createOrganiserPreviewRoutes,
+  createOrganiserWeddingCreateRoute,
   createOrganiserWeddingsRoutes,
 } from "./routes/organiser-weddings";
 import { createRsvpRoutes } from "./routes/rsvp";
@@ -42,6 +43,12 @@ const defaultInviteLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_0
  * 30/min is generous for clicking "Preview invite".
  */
 const defaultPreviewLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
+/**
+ * Default per-IP limiter for the organiser wedding-create endpoint (S-L1).
+ * Owner-gated already, so this just caps the unbounded-insert amplifier; 10/min
+ * is generous for hand-creating weddings in the portal.
+ */
+const defaultWeddingCreateLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
 
 export interface AppOptions {
   /** Primary origin (used for the session cookie's `secure` flag). */
@@ -56,6 +63,8 @@ export interface AppOptions {
   inviteLimiter?: RateLimiterBackend;
   /** Override the host preview-code rate limiter (useful for testing). */
   previewLimiter?: RateLimiterBackend;
+  /** Override the wedding-create rate limiter (useful for testing). */
+  weddingCreateLimiter?: RateLimiterBackend;
   /** R2 bucket binding for the organiser import flow. */
   r2?: R2Bucket;
   /** R2 bucket binding for invite-builder images (separate from `r2`). */
@@ -88,6 +97,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     accountLinkLimiter = defaultAccountLinkLimiter,
     inviteLimiter = defaultInviteLimiter,
     previewLimiter = defaultPreviewLimiter,
+    weddingCreateLimiter = defaultWeddingCreateLimiter,
     r2,
     assets,
     images,
@@ -146,6 +156,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createClaimRoutes(db, { webOrigin, limiter: claimLimiter }))
       .use(createRsvpRoutes(db))
       .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))
+      .use(createOrganiserWeddingCreateRoute(db, osnAuthOptions, weddingCreateLimiter))
       .use(createOrganiserPreviewRoutes(db, osnAuthOptions, previewLimiter))
       .use(createOrganiserImportRoutes(db, r2, osnAuthOptions))
       // Invite builder. Public reads (guest site) + organiser writes split into

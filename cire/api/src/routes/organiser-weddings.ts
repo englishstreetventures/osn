@@ -1,5 +1,5 @@
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
 import { DbService } from "../db";
@@ -9,10 +9,16 @@ import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
+import { CreateWeddingBody } from "../schemas/wedding";
 import { claimService } from "../services/claim";
 import { hostCodeService } from "../services/host-code";
 import { regenerateCodeService } from "../services/regenerate-code";
 import { weddingsService } from "../services/weddings";
+
+// Sentinel parse hook: stops Elysia from consuming the body so the handler can
+// parse it by hand — a malformed payload degrades to the schema's 400 instead
+// of Elysia's parser error. Same idiom as the import routes.
+const manualParse = { parse: () => ({}) };
 
 /**
  * Wedding-scoped organiser routes, mounted under /api/organiser. osnAuth()
@@ -113,6 +119,63 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
             ),
           );
         }),
+    );
+
+/**
+ * Create a new wedding owned by the caller, split into its own instance so the
+ * per-IP rate limiter (S-L1) gates only this mutating insert and not the
+ * `GET /weddings` list above. osnAuth() supplies the owner — the body carries
+ * only the display name (slug + id are server-generated). Same sibling-instance
+ * pattern as the preview + account-link POSTs.
+ */
+export const createOrganiserWeddingCreateRoute = (
+  db: Db,
+  osnAuthOptions: OsnAuthOptions,
+  limiter: RateLimiterBackend,
+) =>
+  new Elysia({ prefix: "/api/organiser" })
+    .use(osnAuth(osnAuthOptions))
+    .use(rateLimitMiddleware(limiter))
+    .post(
+      "/weddings",
+      async ({ osnProfileId, request, set }) => {
+        if (!osnProfileId) {
+          set.status = 401;
+          return { error: "unauthorised" };
+        }
+
+        const raw: unknown = await request.json().catch(() => null);
+
+        return runCire(
+          Effect.gen(function* () {
+            const body = yield* Schema.decodeUnknown(CreateWeddingBody)(raw);
+            const wedding = yield* weddingsService.createForOwner(osnProfileId, body.displayName);
+            set.status = 201;
+            return { wedding };
+          }).pipe(
+            Effect.provideService(DbService, db),
+            Effect.catchTag("ParseError", () =>
+              Effect.sync(() => {
+                set.status = 400;
+                return { error: "Missing or invalid fields" };
+              }),
+            ),
+            Effect.catchTag("WeddingCreateError", () =>
+              Effect.sync(() => {
+                set.status = 500;
+                return { error: "Could not create wedding" };
+              }),
+            ),
+            Effect.catchAllDefect(() =>
+              Effect.sync(() => {
+                set.status = 500;
+                return { error: "Internal error" };
+              }),
+            ),
+          ),
+        );
+      },
+      manualParse,
     );
 
 /**
