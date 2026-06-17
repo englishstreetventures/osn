@@ -9,7 +9,7 @@ related:
   - "[[data-map]]"
   - "[[access-control]]"
   - "[[arc-tokens]]"
-last-reviewed: 2026-06-15
+last-reviewed: 2026-06-16
 ---
 
 # Cire two-system auth
@@ -34,6 +34,15 @@ Cire runs **two deliberately separate auth systems** that never overlap. Guests 
 5. `POST /api/claim` is rate-limited (KV-backed, via `@shared/rate-limit`) to keep code brute-force impractical.
 
 **Why guests never get OSN accounts:** the guest journey is "tap a link at the dinner table, pick who's coming". Any registration ceremony — even a passkey one — would lose RSVPs. The claim code is deliberately low-friction and family-scoped; the security bar is "unguessable + rate-limited + revocable", not "authenticated identity". Guests may **optionally** link an OSN account on top of the guest session — see [Guest account linking](#guest-account-linking-the-one-deliberate-dual-credential-route) — but the claim-code session stays the primary credential.
+
+### Host preview code (organiser "Preview invite")
+
+Every wedding can have **one synthetic host family** (`families.kind = 'host'`, enforced unique per wedding by the partial index `families_one_host_per_wedding`) whose claim code lets the organiser open the guest invite and see **every** event — there is no visibility flag or bypass in the read path, the host is just a real `families` row + one guest linked to all events, so `claimService.lookup` runs unchanged.
+
+- **Provisioning** is owner-gated: `POST /api/organiser/weddings/:weddingId/preview-code` (behind `osnAuth` + `weddingOwner`) calls `hostCodeService.ensureForWedding`, which idempotently find-or-creates the host family + its guest and (re-)links it to all current events. Returns a `HOST-*` `public_id` (128-bit CSPRNG suffix via `crypto.getRandomValues` — well above the 112-bit credential bar and far stronger than the 32-bit family code, since it unlocks the whole wedding).
+- **Preview-only.** The claim response carries `preview: true`; the guest web app shows a "Preview mode" banner and disables RSVP, and `POST /api/rsvp` rejects host-family sessions with **403** so the host code can never pollute real RSVP data.
+- **Import-safe.** Host families are excluded from the spreadsheet-import diff (`kind != 'host'` on the family/guest/link scans), so a CSV re-import never removes or churns them. New events created by an import are picked up on the next preview-code call (the re-link step).
+- The organiser dashboard's "Preview invite" button POSTs the endpoint, then opens the guest site (`PUBLIC_CIRE_WEB_URL`) at `?code=<host code>`, which the web app auto-claims on mount.
 
 ## Organiser path: OSN passkey → access JWT → wedding ownership
 

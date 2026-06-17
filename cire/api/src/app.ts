@@ -10,7 +10,10 @@ import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/ac
 import { createClaimRoutes } from "./routes/claim";
 import { createInviteOrganiserRoutes, createInvitePublicRoutes } from "./routes/invite";
 import { createOrganiserImportRoutes } from "./routes/organiser-import";
-import { createOrganiserWeddingsRoutes } from "./routes/organiser-weddings";
+import {
+  createOrganiserPreviewRoutes,
+  createOrganiserWeddingsRoutes,
+} from "./routes/organiser-weddings";
 import { createRsvpRoutes } from "./routes/rsvp";
 import type { AssetsBucket } from "./services/invite-assets";
 import type { OsnAccountResolver } from "./services/osn-bridge";
@@ -31,6 +34,12 @@ const defaultAccountLinkLimiter = createRateLimiter({ maxRequests: 20, windowMs:
  * amplifier.
  */
 const defaultInviteLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
+/**
+ * Default per-IP limiter for the host preview-code endpoint (S-M2). Owner-gated
+ * already, so this just caps the find-or-create + event-relink write amplifier;
+ * 30/min is generous for clicking "Preview invite".
+ */
+const defaultPreviewLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 
 export interface AppOptions {
   /** Primary origin (used for the session cookie's `secure` flag). */
@@ -43,6 +52,8 @@ export interface AppOptions {
   accountLinkLimiter?: RateLimiterBackend;
   /** Override the invite-builder write rate limiter (useful for testing). */
   inviteLimiter?: RateLimiterBackend;
+  /** Override the host preview-code rate limiter (useful for testing). */
+  previewLimiter?: RateLimiterBackend;
   /** R2 bucket binding for the organiser import flow. */
   r2?: R2Bucket;
   /** R2 bucket binding for invite-builder images (separate from `r2`). */
@@ -69,6 +80,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     claimLimiter = defaultClaimLimiter,
     accountLinkLimiter = defaultAccountLinkLimiter,
     inviteLimiter = defaultInviteLimiter,
+    previewLimiter = defaultPreviewLimiter,
     r2,
     assets,
     osnJwksUrl = "http://localhost:4000/.well-known/jwks.json",
@@ -122,6 +134,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createClaimRoutes(db, { webOrigin, limiter: claimLimiter }))
       .use(createRsvpRoutes(db))
       .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))
+      .use(createOrganiserPreviewRoutes(db, osnAuthOptions, previewLimiter))
       .use(createOrganiserImportRoutes(db, r2, osnAuthOptions))
       // Invite builder. Public reads (guest site) + organiser writes split into
       // sibling instances so the guest GET isn't behind osnAuth.

@@ -65,6 +65,7 @@ export default function InvitePage(props: InvitePageProps) {
                       <EventCard
                         event={event}
                         siteUrl={siteUrl()}
+                        preview={data().preview}
                         onRespond={setRsvpEvent}
                         onDetails={setDetailsEvent}
                       />

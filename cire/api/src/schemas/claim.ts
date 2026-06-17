@@ -59,6 +59,9 @@ export const ClaimResponse = Schema.Struct({
   familyId: Schema.String,
   publicId: Schema.String,
   familyName: Schema.String,
+  // True only for the synthetic per-wedding host family (organiser preview).
+  // The guest web app shows a "preview" banner and disables RSVP when set.
+  preview: Schema.Boolean,
   members: Schema.Array(FamilyMember),
   events: Schema.Array(EventSummary),
   rsvps: Schema.Array(RsvpSummary),

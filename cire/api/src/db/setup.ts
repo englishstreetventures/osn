@@ -28,11 +28,13 @@ CREATE TABLE IF NOT EXISTS families (
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
   public_id TEXT NOT NULL UNIQUE,
   family_name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'guest',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS families_family_name_idx ON families(family_name);
 CREATE INDEX IF NOT EXISTS families_wedding_idx ON families(wedding_id);
+CREATE UNIQUE INDEX IF NOT EXISTS families_one_host_per_wedding ON families(wedding_id) WHERE kind = 'host';
 
 CREATE TABLE IF NOT EXISTS guests (
   id TEXT PRIMARY KEY,

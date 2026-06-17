@@ -39,6 +39,8 @@ export interface RsvpSummary {
 export interface ClaimResult {
   publicId: string;
   familyName: string;
+  /** True for the organiser host preview session — disables RSVP in the UI. */
+  preview?: boolean;
   members: FamilyMember[];
   events: EventSummary[];
   rsvps: RsvpSummary[];

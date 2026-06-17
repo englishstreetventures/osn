@@ -1,4 +1,4 @@
-import { createSignal, Show, For } from "solid-js";
+import { createSignal, onMount, Show, For } from "solid-js";
 
 import type { ClaimResult } from "./types";
 import { isValidClaimResponse } from "./utils";
@@ -16,8 +16,9 @@ export function LoginSection(props: LoginSectionProps) {
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
-  async function handleSubmit(e: SubmitEvent) {
-    e.preventDefault();
+  async function submitCode(rawCode: string) {
+    const publicId = rawCode.trim().toUpperCase();
+    if (!publicId) return;
     setError(null);
     setLoading(true);
 
@@ -28,7 +29,7 @@ export function LoginSection(props: LoginSectionProps) {
         // Include cookies so the API's Set-Cookie response sticks for follow-up
         // calls (e.g. /api/rsvp). Requires CORS `credentials: true` server-side.
         credentials: "include",
-        body: JSON.stringify({ publicId: code().trim().toUpperCase() }),
+        body: JSON.stringify({ publicId }),
       });
 
       if (res.status === 401) {
@@ -55,6 +56,28 @@ export function LoginSection(props: LoginSectionProps) {
       setLoading(false);
     }
   }
+
+  async function handleSubmit(e: SubmitEvent) {
+    e.preventDefault();
+    await submitCode(code());
+  }
+
+  // Organiser "Preview invite" deep-link: ?code=<host code> auto-claims so the
+  // host lands straight on the events view without retyping the code.
+  onMount(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const prefill = url.searchParams.get("code");
+    if (prefill && !props.result) {
+      setCode(prefill.trim().toUpperCase());
+      // S-L1: strip the credential from the address bar + forward history
+      // immediately. submitCode already captured the value, and the claim sets
+      // the session cookie, so the URL copy is no longer needed.
+      url.searchParams.delete("code");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      void submitCode(prefill);
+    }
+  });
 
   return (
     <section class="border-border border-b px-6 py-16 md:px-8 md:py-20">
@@ -101,6 +124,14 @@ export function LoginSection(props: LoginSectionProps) {
 
         {/* Welcome message — visible after claim */}
         <div ref={props.welcomeRef} style={{ display: props.result ? "" : "none" }}>
+          <Show when={props.result?.preview}>
+            <p
+              class="border-gold/40 bg-gold/5 text-gold mx-auto mb-6 max-w-[420px] rounded-sm border px-4 py-3 text-[0.78rem] tracking-[0.08em] uppercase"
+              role="status"
+            >
+              Preview mode — every event is shown. RSVP is disabled.
+            </p>
+          </Show>
           <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">Welcome</p>
           <h2 class="font-display text-gold mb-3 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic">
             The {props.result?.familyName} Family

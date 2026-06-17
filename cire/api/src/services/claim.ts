@@ -1,5 +1,5 @@
 import { families, guests, events, guestEvents, rsvps } from "@cire/db";
-import { eq, asc, inArray } from "drizzle-orm";
+import { eq, and, asc, inArray, ne } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
@@ -163,6 +163,7 @@ export const claimService = {
         familyId: family.id,
         publicId: family.publicId,
         familyName: family.familyName,
+        preview: family.kind === "host",
         members: Array.from(memberMap.values()),
         events: eventList,
         rsvps: rsvpRows,
@@ -250,7 +251,9 @@ export const claimService = {
           .from(guests)
           .innerJoin(families, eq(guests.familyId, families.id))
           .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
-          .where(eq(families.weddingId, weddingId))
+          // Exclude the synthetic host preview family — it must never appear in
+          // the organiser's real guest roster or counts.
+          .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
           .orderBy(asc(guests.sortOrder))
           .all(),
       );

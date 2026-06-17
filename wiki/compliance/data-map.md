@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-06-16
 ---
 
 # Data Map
@@ -108,6 +108,7 @@ organiser-initiated wedding administration.
 |---|---|---|---|---|---|
 | `families.family_name` | Guest household label on the invite + organiser guest table | Art. 6(1)(f) — legit interest in wedding administration (organiser-controlled) | Tied to wedding lifecycle — no automated purge yet (C-H1) | `@cire/api` + the wedding owner (organiser) | [[cire-auth]] |
 | `families.public_id` (claim CODE, e.g. `SHARMA-IVY-QM42`) | **Credential** — exchanged at `POST /api/claim` for a guest session; not a public identifier | Art. 6(1)(b) — contract (the access mechanism for the guest's RSVP) | Tied to wedding lifecycle (C-H1) | `@cire/api` only (treated as a secret — redacted in logs, C-M2) | [[cire-auth]] |
+| `families.public_id` where `kind = 'host'` (host preview CODE, `HOST-*`) | **Credential** — organiser-provisioned code that opens the guest invite to see every event ("Preview invite"). Synthetic host family carries no real guest personal data (one placeholder member "Wedding Host"); preview-only, cannot RSVP | Art. 6(1)(f) — wedding administration (organiser self-service preview) | Tied to wedding lifecycle (C-H1) | `@cire/api` only (treated as a secret — redacted via the `publicId`/`public_id` deny-list) | [[cire-auth]] |
 | `guests.first_name`, `last_name` | Per-guest identity on the invite + RSVP attribution | Art. 6(1)(f) — wedding administration (organiser-controlled) | Tied to wedding lifecycle (C-H1) | `@cire/api` + wedding owner | [[cire-auth]] |
 | `rsvps.status` (attending/declined/pending) | RSVP tracking for the organiser | Art. 6(1)(f) — wedding administration | Tied to wedding lifecycle (C-H1) | `@cire/api` + wedding owner | [[cire-auth]] |
 | `rsvps.dietary` (FREE TEXT) | Cater for dietary needs | **Special-category — Art. 9(2)(a) explicit consent.** Free text reveals religion (halal/kosher) + health (allergies/coeliac). Consent affordance + consent-record capture **REQUIRED at the RSVP form — NOT yet implemented; blocking backlog item C-H2.** Underlying Art. 6 basis: Art. 6(1)(a) consent. | Tied to wedding lifecycle (C-H1); consent records once captured (C-H2) | `@cire/api` + wedding owner | [[cire-auth]], [[dpia/cire-guest-data]] |

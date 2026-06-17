@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   sqliteTable,
   text,
@@ -40,12 +41,26 @@ export const families = sqliteTable(
       .references(() => weddings.id, { onDelete: "cascade" }),
     publicId: text("public_id").notNull().unique(),
     familyName: text("family_name").notNull(),
+    // Distinguishes a real invited household ("guest") from the synthetic
+    // per-wedding "host" preview family. A wedding has at most one host family:
+    // its claim code (a `HOST-*` public_id) lets the organiser open the guest
+    // invite and see every event. Host families are excluded from the
+    // spreadsheet-import diff (a CSV re-import must never remove them) and are
+    // barred from submitting RSVPs (preview-only, see `cire/api` rsvp route).
+    kind: text("kind", { enum: ["guest", "host"] })
+      .notNull()
+      .default("guest"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [
     index("families_family_name_idx").on(t.familyName),
     index("families_wedding_idx").on(t.weddingId),
+    // At most one host family per wedding. A partial unique index makes the
+    // host-code find-or-create race-safe at the DB layer.
+    uniqueIndex("families_one_host_per_wedding")
+      .on(t.weddingId)
+      .where(sql`kind = 'host'`),
   ],
 );
 

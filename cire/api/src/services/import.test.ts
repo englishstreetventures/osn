@@ -16,6 +16,8 @@ import { DbService } from "../db";
 import type { Db } from "../db";
 import { createDb, seedBootstrapWedding, seedDb } from "../db/setup";
 import type { ParsedEvent, ParsedFamily } from "../schemas/import";
+import { claimService } from "./claim";
+import { hostCodeService } from "./host-code";
 import { applyImport, diffAgainstDb } from "./import";
 import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
 
@@ -181,6 +183,38 @@ describe("applyImport + re-diff (idempotent)", () => {
         expect(p2.eventLinkCreates).toHaveLength(0);
         expect(p2.eventLinkRemoves).toHaveLength(0);
       }).pipe(Effect.provide(sharedLayer)),
+    );
+  });
+
+  it("leaves the host preview family + its links untouched on re-import", async () => {
+    const { ev, fam } = await parsedFromCsv();
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+    const layer = Layer.succeed(DbService, db);
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        // Populate the wedding, then provision the host preview family.
+        const plan = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
+        yield* applyImport("import-1", plan, BOOTSTRAP_WEDDING_ID);
+        const { publicId } = yield* hostCodeService.ensureForWedding(BOOTSTRAP_WEDDING_ID);
+
+        // The host family is invisible to the diff — never removed, never churned.
+        const rediff = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
+        expect(rediff.familyRemoves).toHaveLength(0);
+        expect(rediff.eventLinkRemoves).toHaveLength(0);
+
+        // Apply the (no-op) re-diff, then confirm the host code still resolves
+        // to every event.
+        yield* applyImport("import-2", rediff, BOOTSTRAP_WEDDING_ID);
+        const claimed = yield* claimService.lookup(publicId);
+        expect(claimed.preview).toBe(true);
+        expect(claimed.events.length).toBe(ev.length);
+
+        const hostRows = db.select().from(families).where(eq(families.kind, "host")).all();
+        expect(hostRows).toHaveLength(1);
+        expect(hostRows[0]!.publicId).toBe(publicId);
+      }).pipe(Effect.provide(layer)),
     );
   });
 });

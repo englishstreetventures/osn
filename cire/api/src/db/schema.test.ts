@@ -22,9 +22,11 @@ CREATE TABLE families (
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
   public_id TEXT NOT NULL UNIQUE,
   family_name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'guest',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE UNIQUE INDEX families_one_host_per_wedding ON families(wedding_id) WHERE kind = 'host';
 CREATE TABLE guests (
   id TEXT PRIMARY KEY,
   family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
@@ -93,6 +95,48 @@ describe("families schema", () => {
     insertFamily(db, "fam-2", "TESTFOR-SKY-FF66", "Placeholder");
     const rows = db.select().from(families).all();
     expect(rows).toHaveLength(2);
+  });
+
+  it("defaults kind to 'guest'", () => {
+    const db = makeDb();
+    insertFamily(db, "fam-1", "KINDDEF-IVY-AA11", "Defaulter");
+    const [row] = db.select().from(families).all();
+    expect(row?.kind).toBe("guest");
+  });
+
+  it("allows at most one host family per wedding (partial unique index)", () => {
+    const db = makeDb();
+    db.insert(families)
+      .values({
+        id: "fam-host-1",
+        weddingId: "wed_bootstrap",
+        publicId: "HOST-AAAAAAAAAAAA",
+        familyName: "Host Preview",
+        kind: "host",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    expect(() => {
+      db.insert(families)
+        .values({
+          id: "fam-host-2",
+          weddingId: "wed_bootstrap",
+          publicId: "HOST-BBBBBBBBBBBB",
+          familyName: "Host Preview",
+          kind: "host",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }).toThrow();
+  });
+
+  it("does not constrain guest families by the host partial index", () => {
+    const db = makeDb();
+    insertFamily(db, "fam-1", "GUESTONE-IVY-AA11", "Guesty");
+    insertFamily(db, "fam-2", "GUESTTWO-IVY-BB22", "Guesty");
+    expect(db.select().from(families).all()).toHaveLength(2);
   });
 });
 

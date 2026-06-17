@@ -1,5 +1,5 @@
 import { events, families, guests, guestEvents, rsvps } from "@cire/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
 
@@ -118,8 +118,16 @@ export function diffAgainstDb(
     }
 
     // ── Families ────────────────────────────────────────────────────────────
+    // Host preview families (kind = 'host') are synthetic and CSV-invisible:
+    // they are never in the parsed sheet, so a naive scan would mark them — and
+    // their event links — for removal on every re-import. Excluding them here
+    // (and from the guest + link scans below) makes imports leave them intact.
     const existingFamilies = yield* dbQuery(() =>
-      db.select().from(families).where(eq(families.weddingId, weddingId)).all(),
+      db
+        .select()
+        .from(families)
+        .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+        .all(),
     );
     const existingFamilyByNorm = new Map(
       existingFamilies.map((f) => [normaliseName(f.familyName), f]),
@@ -167,7 +175,7 @@ export function diffAgainstDb(
         })
         .from(guests)
         .innerJoin(families, eq(guests.familyId, families.id))
-        .where(eq(families.weddingId, weddingId))
+        .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
         .all(),
     );
 
@@ -257,7 +265,7 @@ export function diffAgainstDb(
         .from(guestEvents)
         .innerJoin(guests, eq(guestEvents.guestId, guests.id))
         .innerJoin(families, eq(guests.familyId, families.id))
-        .where(eq(families.weddingId, weddingId))
+        .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
         .all(),
     );
     const existingLinkSet = new Set(existingLinks.map((l) => `${l.guestId}::${l.eventId}`));

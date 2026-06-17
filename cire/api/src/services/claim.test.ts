@@ -39,6 +39,7 @@ describe("claimService.lookup", () => {
           [CATHOLIC_ID, HINDU_ID, RECEPTION_ID].toSorted(),
         );
         expect(result.rsvps).toEqual([]);
+        expect(result.preview).toBe(false);
       }),
     ),
   );

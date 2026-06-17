@@ -58,6 +58,38 @@ describe("InvitePage", () => {
     cleanup();
     capturedProps.value = null;
     vi.restoreAllMocks();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("auto-claims from a ?code= deep-link, shows the preview banner, and disables RSVP", async () => {
+    const previewClaim: ClaimResult = { ...claim, preview: true };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(previewClaim), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { getByText, getByRole } = render(() => <InvitePage apiUrl="https://api.test" />);
+
+    // The events view renders without the guest typing anything.
+    await waitFor(() => expect(getByText(/Preview mode/i)).toBeTruthy(), { timeout: 2000 });
+
+    // The claim POST carried the host code from the URL.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      publicId: "HOST-ABCDEF0123456789ABCDEF01",
+    });
+
+    // RSVP is disabled in preview mode.
+    const respond = getByRole("button", { name: /Respond/i }) as HTMLButtonElement;
+    expect(respond.disabled).toBe(true);
+
+    // S-L1: the host code is stripped from the URL after the one-time claim.
+    expect(window.location.search).not.toContain("code");
   });
 
   it("threads existingRsvps, apiUrl, members and onSubmitted into RsvpModal", async () => {

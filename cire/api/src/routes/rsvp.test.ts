@@ -1,14 +1,16 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { guests } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, guests } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { Effect } from "effect";
 
 import { createApp } from "../app";
 import eventsData from "../data/events.json";
+import { DbService } from "../db";
 import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
 import { parseSessionToken } from "../lib/cookie";
+import { hostCodeService } from "../services/host-code";
 import { eff } from "../test-helpers";
 
 const HINDU_ID = eventsData.hindu.id;
@@ -202,6 +204,34 @@ describe("POST /api/rsvp", () => {
           cookie,
         );
         expect(res.status).toBe(403);
+      }),
+    ),
+  );
+
+  it(
+    "returns 403 for a host preview session (preview-only, no RSVP)",
+    eff(
+      Effect.gen(function* () {
+        // Provision the wedding's host preview code, then claim it for a cookie.
+        const { publicId } = yield* hostCodeService
+          .ensureForWedding(BOOTSTRAP_WEDDING_ID)
+          .pipe(Effect.provideService(DbService, db));
+        const cookie = yield* claimAndCookie(publicId);
+
+        // The host guest is linked to every event, so this pair IS invited —
+        // the 403 must come from the host guard, not the invitation check.
+        const hostGuestId = db
+          .select({ id: guests.id, firstName: guests.firstName })
+          .from(guests)
+          .all()
+          .find((g) => g.firstName === "Wedding")!.id;
+        const res = yield* post(
+          { rsvps: [{ guestId: hostGuestId, eventId: HINDU_ID, status: "attending" }] },
+          cookie,
+        );
+        expect(res.status).toBe(403);
+        const data = yield* Effect.promise(() => res.json<{ error: string }>());
+        expect(data.error).toBe("Preview sessions cannot submit RSVPs");
       }),
     ),
   );

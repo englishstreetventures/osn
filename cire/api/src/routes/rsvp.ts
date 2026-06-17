@@ -1,4 +1,4 @@
-import { guests, guestEvents } from "@cire/db";
+import { families, guests, guestEvents } from "@cire/db";
 import { eq, inArray } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
@@ -47,6 +47,20 @@ export const createRsvpRoutes = (db: Db) =>
             const body = yield* Schema.decodeUnknown(BulkRsvpBody)(raw);
 
             const dbService = yield* DbService;
+
+            // The host preview family is read-only — its code unlocks every
+            // event for the organiser, but it must never write real RSVP data.
+            const [family] = yield* dbQuery(() =>
+              dbService
+                .select({ kind: families.kind })
+                .from(families)
+                .where(eq(families.id, familyId))
+                .all(),
+            );
+            if (family?.kind === "host") {
+              set.status = 403;
+              return { error: "Preview sessions cannot submit RSVPs" };
+            }
 
             // Guest IDs that belong to the session's family.
             const familyGuests = yield* dbQuery(() =>

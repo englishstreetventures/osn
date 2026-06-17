@@ -11,6 +11,14 @@ last-reviewed: 2026-06-16
 
 See [[review-findings]] for severity prefix conventions.
 
+### Host invite preview — review findings (host-preview-code branch)
+
+Branch-scoped IDs (distinct from the numbered items below).
+
+- [x] **HP-P-W1** — `hostCodeService.ensureForWedding` linked the host guest to every event with one `db.insert(guestEvents).run()` per event (N D1 round-trips on first preview / after an import adds events). **Fixed:** the missing-link inserts are collected into one `db.batch([...])` (sequential on bun:sqlite), mirroring `import.ts`'s `commitWriteSet`.
+- [x] **HP-P-W2** (no change — deliberate) — the new `ne(families.kind,'host')` predicates in `claim.getAllGuests` + `import.diffAgainstDb` aren't index-backed, but `families_wedding_idx` scopes the scan and the residual filter rejects ≤1 host row per wedding; a dedicated index would be wasted write-amplification.
+- [x] **HP-P-I1** (no change) — the RSVP host-kind guard adds one PK-indexed `SELECT kind` per RSVP submit; trivial on a low-frequency authenticated write, kept standalone for readability.
+
 ### Invite builder — review findings
 
 - [x] **IB-P-W1** (fixed PR #112) — Guest hero LCP regressed from static SSR to a client-fetch waterfall. Fixed: `index.astro` resolves the customisation at build time (`await fetch` the public endpoint, graceful null fallback) and passes it to `InviteHeader` as `initial`, so the hero title/copy + `<img src>` are in the SSR'd HTML; the island seeds `createResource` with it and revalidates on mount for post-build changes.

@@ -1,3 +1,4 @@
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect } from "effect";
 import { Elysia } from "elysia";
 
@@ -5,9 +6,11 @@ import { DbService } from "../db";
 import type { Db } from "../db";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
+import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
 import { claimService } from "../services/claim";
+import { hostCodeService } from "../services/host-code";
 import { weddingsService } from "../services/weddings";
 
 /**
@@ -66,6 +69,50 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
           return runCire(
             claimService.listEvents(weddingId).pipe(
               Effect.provideService(DbService, db),
+              Effect.catchAllDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        }),
+    );
+
+/**
+ * Host preview-code provisioning, split into its own instance so the per-IP
+ * rate limiter gates only this mutating route (the find-or-create + event-relink
+ * amplifier — S-M2) and not the dashboard's read endpoints above. Same
+ * osnAuth + weddingOwner ownership gate; same sibling-instance pattern as the
+ * account-link POST. The organiser dashboard opens the guest invite with
+ * `?code=<publicId>` so the host sees every event.
+ */
+export const createOrganiserPreviewRoutes = (
+  db: Db,
+  osnAuthOptions: OsnAuthOptions,
+  limiter: RateLimiterBackend,
+) =>
+  new Elysia({ prefix: "/api/organiser" })
+    .use(osnAuth(osnAuthOptions))
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingOwner(db))
+        .use(rateLimitMiddleware(limiter))
+        .post("/preview-code", ({ weddingId, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            hostCodeService.ensureForWedding(weddingId).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchTag("HostCodeError", () =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
               Effect.catchAllDefect(() =>
                 Effect.sync(() => {
                   set.status = 500;

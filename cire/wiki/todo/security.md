@@ -12,6 +12,14 @@ last-reviewed: 2026-06-16
 
 See [[overview]] for observability rules that apply to all security-sensitive code paths. See [[review-findings]] for severity prefix conventions.
 
+### Host invite preview — review findings (all fixed on the host-preview-code branch)
+
+Branch-scoped IDs (distinct from the numbered backlog below). See `[[wiki/systems/cire-auth]]` → Host preview code.
+
+- [x] **S-M1** — `mintHostPublicId` derived the `HOST-*` code from `crypto.randomUUID().slice(0,24)`, yielding only ~90 effective bits (fixed v4 version/variant nibbles) with a dead second-UUID call, below the 112-bit credential bar for a code that unlocks the whole wedding. **Fixed:** now 16 `crypto.getRandomValues` bytes (128-bit) hex-encoded; comment + wiki entropy claim corrected.
+- [x] **S-M2** — `POST /api/organiser/weddings/:weddingId/preview-code` had no rate limit (unlike `/api/claim` and `/api/account/link`), letting an authenticated owner drive the find-or-create + event-relink write amplifier. **Fixed:** split into its own sibling instance behind `rateLimitMiddleware` (30/min per IP) so only the mutating route is gated, not the dashboard reads.
+- [x] **S-L1** — the host code travelled in the guest-site `?code=` query (history/`Referer` leakage). **Fixed:** `LoginSection` strips it via `history.replaceState` after the one-time auto-claim, and `index.astro` sets `Referrer-Policy: strict-origin-when-cross-origin`.
+
 ## Critical
 
 - [x] `GET /api/organiser/guests` is currently unauthenticated and exposes every family's `publicId` — must be gated behind organiser auth (or removed from the deployed app) before any public launch. **Fixed** in the OSN merge: all `/api/organiser/*` routes sit behind `osnAuth()` (OSN access-JWT verification) plus `weddingOwner()` / `ownedWedding()` ownership gates — see `[[wiki/systems/cire-auth]]` in the root OSN wiki.

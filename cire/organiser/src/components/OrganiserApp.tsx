@@ -6,6 +6,7 @@ import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { OSN_ISSUER_URL } from "../lib/osn";
 import DashboardTabs from "./DashboardTabs";
 import ImportPanel from "./ImportPanel";
+import PreviewInviteButton from "./PreviewInviteButton";
 
 interface WeddingSummary {
   id: string;
@@ -113,7 +114,10 @@ function Dashboard() {
         <Show when={wedding()}>
           {(w) => (
             <div class="flex flex-col gap-12">
-              <p class="font-display text-gold-dim text-[1.2rem] italic">{w().displayName}</p>
+              <div class="flex flex-wrap items-center justify-between gap-4">
+                <p class="font-display text-gold-dim text-[1.2rem] italic">{w().displayName}</p>
+                <PreviewInviteButton weddingId={w().id} />
+              </div>
               <ImportPanel />
               <DashboardTabs weddingId={w().id} />
             </div>
