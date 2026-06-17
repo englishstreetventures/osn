@@ -77,6 +77,11 @@ export function createInternalGraphRoutes(
   dbLayer: Layer.Layer<Db> = DbLive,
   /** Shared application runtime (see `createAuthRoutes`). */
   runtime?: AppRuntime,
+  // INTERNAL_SERVICE_SECRET gates `/register-service` + `/service-keys/:keyId`.
+  // Threaded in by the caller because on workerd secrets live ONLY on the `env`
+  // binding, not `process.env`. Defaults to `process.env` for the Bun path;
+  // unset ⇒ those endpoints answer 501 (service registration disabled).
+  internalServiceSecret: string | undefined = process.env.INTERNAL_SERVICE_SECRET,
 ) {
   const graph = createGraphService();
 
@@ -203,7 +208,7 @@ export function createInternalGraphRoutes(
       .post(
         "/register-service",
         async ({ body, headers, set }) => {
-          const secret = process.env.INTERNAL_SERVICE_SECRET;
+          const secret = internalServiceSecret;
           if (!secret) {
             set.status = 501;
             return { error: "Service registration is disabled on this instance" };
@@ -329,7 +334,7 @@ export function createInternalGraphRoutes(
       .delete(
         "/service-keys/:keyId",
         async ({ params, headers, set }) => {
-          const secret = process.env.INTERNAL_SERVICE_SECRET;
+          const secret = internalServiceSecret;
           if (!secret) {
             set.status = 501;
             return { error: "Service registration is disabled on this instance" };

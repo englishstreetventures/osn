@@ -42,8 +42,25 @@ const FANOUT_TIMEOUT_MS = 10_000;
 /** Sentinel timestamp used when a bridge target is not enrolled at soft-delete time. */
 const NOT_APPLICABLE_SENTINEL = -1;
 
-const PULSE_API_URL = process.env.PULSE_API_URL ?? "http://localhost:3001";
-const ZAP_API_URL = process.env.ZAP_API_URL ?? "http://localhost:3002";
+/**
+ * Downstream service base URLs for the deletion fan-out. Threaded in by the
+ * caller (Bun `local.ts` reads `process.env`; the Workers `scheduled` handler
+ * reads the `env` binding) because on workerd these arrive via wrangler `[vars]`
+ * — module-top `process.env` reads are not reliable for bindings there. Falls
+ * back to the local dev ports when unset.
+ */
+export interface FanOutUrls {
+  pulseApiUrl?: string;
+  zapApiUrl?: string;
+}
+
+const DEFAULT_PULSE_API_URL = "http://localhost:3001";
+const DEFAULT_ZAP_API_URL = "http://localhost:3002";
+
+const resolveFanOutUrls = (urls: FanOutUrls = {}): { pulse: string; zap: string } => ({
+  pulse: urls.pulseApiUrl ?? process.env.PULSE_API_URL ?? DEFAULT_PULSE_API_URL,
+  zap: urls.zapApiUrl ?? process.env.ZAP_API_URL ?? DEFAULT_ZAP_API_URL,
+});
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -384,13 +401,15 @@ const markBridgeDone = (
  */
 export const runFanOut = (
   job: Pick<DeletionJob, "accountId" | "pulseDoneAt" | "zapDoneAt">,
+  urls: FanOutUrls = {},
 ): Effect.Effect<void, AccountErasureDbError, Db> =>
   Effect.gen(function* () {
+    const { pulse, zap } = resolveFanOutUrls(urls);
     const body = yield* buildBridgeBody(job.accountId);
     const tasks: Array<Effect.Effect<void, never, Db>> = [];
     if (job.pulseDoneAt === null) {
       tasks.push(
-        dispatchBridge("pulse", PULSE_API_URL, "account:erase", body).pipe(
+        dispatchBridge("pulse", pulse, "account:erase", body).pipe(
           Effect.flatMap(() => markBridgeDone("pulse", job.accountId)),
           Effect.catchAll(() => Effect.void),
         ),
@@ -398,7 +417,7 @@ export const runFanOut = (
     }
     if (job.zapDoneAt === null) {
       tasks.push(
-        dispatchBridge("zap", ZAP_API_URL, "account:erase", body).pipe(
+        dispatchBridge("zap", zap, "account:erase", body).pipe(
           Effect.flatMap(() => markBridgeDone("zap", job.accountId)),
           Effect.catchAll(() => Effect.void),
         ),
@@ -558,7 +577,7 @@ const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasur
  * chronically-stuck bridge.
  */
 export const runFanOutRetrySweep = (
-  opts: { batchSize?: number; nowMs?: number } = {},
+  opts: { batchSize?: number; nowMs?: number } & FanOutUrls = {},
 ): Effect.Effect<{ retried: number }, AccountErasureDbError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
@@ -598,7 +617,7 @@ export const runFanOutRetrySweep = (
         const age = nowSec - row.hardDeleteAt;
         if (row.pulseDoneAt === null) metricAccountDeletionFanoutPendingAge("pulse", age);
         if (row.zapDoneAt === null) metricAccountDeletionFanoutPendingAge("zap", age);
-        return runFanOut(row);
+        return runFanOut(row, { pulseApiUrl: opts.pulseApiUrl, zapApiUrl: opts.zapApiUrl });
       },
       { concurrency: 8, discard: true },
     );

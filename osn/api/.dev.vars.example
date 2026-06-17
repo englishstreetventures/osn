@@ -1,0 +1,42 @@
+# Local secret overrides for `wrangler dev` (workerd).
+#
+# Copy to `.dev.vars` (gitignored) and fill in to exercise the deployed-shaped
+# code paths locally. With NONE of these set, `wrangler dev` runs in the fully
+# local posture: OSN_ENV=local (from wrangler.toml [vars]) ⇒ in-memory rate
+# limiters (no Upstash), miniflare local D1, ephemeral JWT keys, log-only email.
+# That needs NO external services — it is the recommended default.
+#
+# Note: the FAST devloop is still `bun run dev` (Bun, :4000, native passkey/OTP,
+# full OTel). Use `bun run dev:wrangler` only for workerd parity checks.
+#
+# To force the non-local code paths locally, set OSN_ENV to something other than
+# "local" — but then ALL of the REQUIRED secrets below must be set or the Worker
+# fails closed with a 503 (by design: S-L1 Upstash gate, JWT/pepper/email gates).
+
+# --- Persistent JWT keys (else ephemeral; tokens reset each isolate) ---
+# Generate a base64 JWK pair (see src/build-deps.ts header for the one-liner).
+# OSN_JWT_PRIVATE_KEY = "base64-jwk-private"
+# OSN_JWT_PUBLIC_KEY  = "base64-jwk-public"
+
+# --- Session IP pepper (HMAC key for sessions.ip_hash; ≥32 bytes) ---
+# OSN_SESSION_IP_PEPPER = "at-least-32-bytes-of-random-here-______"
+
+# --- Upstash Redis REST (cross-isolate rate limiters / step-up jti) ---
+# Absent locally ⇒ in-memory fallback (fine for OSN_ENV=local). REQUIRED when
+# OSN_ENV != local (S-L1 gate refuses the in-memory downgrade otherwise).
+# UPSTASH_REDIS_REST_URL   = "https://<db>.upstash.io"
+# UPSTASH_REDIS_REST_TOKEN = "<token>"
+
+# --- Email (Cloudflare Email Service REST API) ---
+# Absent locally ⇒ LogEmailLive (records sends in-memory, prints template name).
+# CLOUDFLARE_ACCOUNT_ID      = "<account-id>"
+# CLOUDFLARE_EMAIL_API_TOKEN = "<token>"
+# OSN_EMAIL_FROM             = "noreply@osn.example"
+
+# --- S2S + fan-out (optional) ---
+# INTERNAL_SERVICE_SECRET = "<shared-secret>"   # enables /graph/internal/register-service
+# PULSE_API_URL = "http://localhost:3001"
+# ZAP_API_URL   = "http://localhost:3002"
+
+# --- Rate-limit IP keying behind a proxy (optional) ---
+# TRUSTED_PROXY_COUNT = "1"

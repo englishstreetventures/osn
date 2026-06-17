@@ -118,10 +118,17 @@ export async function registerWithDownstream(
   serviceUrl: string,
   serviceSelfId: string,
   allowedScopes: string,
+  // INTERNAL_SERVICE_SECRET + OSN_ENV threaded in by the caller. On workerd
+  // secrets live ONLY on the `env` binding (not `process.env`), so they cannot
+  // be read at module scope here. Defaults preserve the Bun path.
+  secretEnv: { internalServiceSecret?: string; osnEnv?: string } = {
+    internalServiceSecret: process.env.INTERNAL_SERVICE_SECRET,
+    osnEnv: process.env.OSN_ENV,
+  },
 ): Promise<boolean> {
-  const secret = process.env.INTERNAL_SERVICE_SECRET;
+  const secret = secretEnv.internalServiceSecret;
   if (!secret) {
-    if (!process.env.OSN_ENV || process.env.OSN_ENV === "local") return false;
+    if (!secretEnv.osnEnv || secretEnv.osnEnv === "local") return false;
     throw new Error(
       "INTERNAL_SERVICE_SECRET must be set — osn-api cannot register its outbound ARC key without it",
     );
@@ -159,7 +166,13 @@ export async function registerWithDownstream(
 export async function startOutboundKeyRotation(opts: {
   pulseApiUrl?: string;
   zapApiUrl?: string;
+  // INTERNAL_SERVICE_SECRET + OSN_ENV threaded in by the caller (see
+  // `registerWithDownstream`). Defaults preserve the Bun `process.env` path.
+  internalServiceSecret?: string;
+  osnEnv?: string;
 }): Promise<void> {
+  const osnEnv = opts.osnEnv ?? process.env.OSN_ENV;
+  const internalServiceSecret = opts.internalServiceSecret ?? process.env.INTERNAL_SERVICE_SECRET;
   const services = [
     { url: opts.pulseApiUrl, selfId: "osn-api" as const, scopes: "account:erase" },
     { url: opts.zapApiUrl, selfId: "osn-api" as const, scopes: "account:erase" },
@@ -168,13 +181,13 @@ export async function startOutboundKeyRotation(opts: {
   for (const s of services) {
     try {
       // eslint-disable-next-line no-await-in-loop -- sequential so a configured-stack failure short-circuits before the next downstream
-      await registerWithDownstream(s.url, s.selfId, s.scopes);
+      await registerWithDownstream(s.url, s.selfId, s.scopes, { internalServiceSecret, osnEnv });
     } catch (err) {
       // Local dev with a downstream that hasn't booted yet — fall through.
       // Production / staging surfaces a fast-fail boot error via registerWithDownstream
       // when INTERNAL_SERVICE_SECRET is missing; non-network failures on a
       // configured stack still throw out of this loop.
-      if (process.env.OSN_ENV && process.env.OSN_ENV !== "local") throw err;
+      if (osnEnv && osnEnv !== "local") throw err;
     }
   }
 

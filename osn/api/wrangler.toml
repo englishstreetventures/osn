@@ -1,58 +1,127 @@
 name = "osn-api"
+main = "src/index.ts"
 compatibility_date = "2025-03-01"
 compatibility_flags = ["nodejs_compat"]
 
-# ⚠️ No `main` / deploy target yet. osn-api's DB layer is D1-ready (all writes go
-# through the `commitBatch` batch/sequential helper), but full Cloudflare Workers
-# HOSTING is still blocked on replacing the ioredis-backed rate-limiters + session
-# stores with a Workers-compatible Redis (e.g. Upstash REST) and moving env-based
-# JWT-key loading into the request path. Until then this config exists so the D1
-# databases can be created and migrated for free, locally and remotely:
+# osn-api now runs on Cloudflare Workers via `export default { fetch, scheduled }`
+# in `src/index.ts` (Phase 6). The Bun dev server (`src/local.ts`) is unchanged
+# and remains the default fast devloop (`bun run dev`); `wrangler dev` is the
+# workerd parity loop (`bun run dev:wrangler`).
 #
+# Migrate the D1 databases for free, locally and remotely:
 #   bun run --cwd osn/db db:migrate:local     # miniflare local D1
 #   bun run --cwd osn/db db:migrate:dev       # remote dev D1
 #
 # Tracked in wiki/TODO.md (Four-environment DB story).
 
-# ── dev ────────────────────────────────────────────────────────────────────
+# ── Top-level (local `wrangler dev`) ─────────────────────────────────────────
+# These apply to `wrangler dev` with no `--env`. OSN_ENV is unset/"local" here,
+# so: in-memory rate limiters (no Upstash needed), miniflare local D1, no Secure
+# cookies, localhost issuer/CORS/RP defaults baked into the factory. Needs NO
+# external services.
+[vars]
+OSN_ENV = "local"
+OSN_RP_ID = "localhost"
+OSN_RP_NAME = "OSN"
+OSN_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322,http://localhost:5173"
+OSN_ISSUER_URL = "http://localhost:8787"
+OSN_CORS_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322"
+
+# Local `wrangler dev` D1 (miniflare). database_id is ignored locally but
+# required syntactically; reuse the dev id so `--local` and `--remote dev` share
+# one migrations_dir.
+[[d1_databases]]
+binding = "DB"
+database_name = "osn-db"
+database_id = "0439bb0d-7bef-42c1-9a8e-00ae356b531f"
+migrations_dir = "../db/drizzle"
+
+# ── Scheduled maintenance (cron) ─────────────────────────────────────────────
+# Replaces the Bun `setInterval` deletion sweeper. Cadence matches the Bun
+# SWEEPER_INTERVAL default (6 h) — runs the account-erasure fan-out-retry +
+# hard-delete sweeps. ARC outbound-key rotation is NOT cron'd: it lazily inits
+# on first outbound use (see `lib/outbound-arc.ts`).
+[triggers]
+crons = ["0 */6 * * *"]
+
+# ── dev ──────────────────────────────────────────────────────────────────────
+[env.dev.vars]
+OSN_ENV = "dev"
+# TODO(prod-domains): replace with the real dev frontend origin once a
+# workers.dev / dev domain is provisioned. Until then point at the dev SPA host.
+OSN_RP_ID = "localhost"
+OSN_RP_NAME = "OSN (dev)"
+OSN_ORIGIN = "http://localhost:1422"
+OSN_ISSUER_URL = "http://localhost:8787"
+OSN_CORS_ORIGIN = "http://localhost:1422"
+
 [[env.dev.d1_databases]]
 binding = "DB"
 database_name = "osn-db"
-database_id = "placeholder-replace-after-d1-create"
+database_id = "0439bb0d-7bef-42c1-9a8e-00ae356b531f"
 migrations_dir = "../db/drizzle"
 
+[env.dev.triggers]
+crons = ["0 */6 * * *"]
+
 # ── staging ──────────────────────────────────────────────────────────────────
+[env.staging.vars]
+OSN_ENV = "staging"
+# TODO(prod-domains): replace placeholders with the real staging domain.
+OSN_RP_ID = "staging.osn.example"
+OSN_RP_NAME = "OSN (staging)"
+OSN_ORIGIN = "https://staging.osn.example"
+OSN_ISSUER_URL = "https://api.staging.osn.example"
+OSN_CORS_ORIGIN = "https://staging.osn.example"
+
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "osn-db-staging"
-database_id = "placeholder-replace-after-d1-create"
+database_id = "9408b9e9-618d-471a-a7cf-55adfbc411cf"
 migrations_dir = "../db/drizzle"
 
+[env.staging.triggers]
+crons = ["0 */6 * * *"]
+
 # ── production ───────────────────────────────────────────────────────────────
+[env.production.vars]
+OSN_ENV = "production"
+# TODO(prod-domains): replace placeholders with the real production domain.
+OSN_RP_ID = "osn.example"
+OSN_RP_NAME = "OSN"
+OSN_ORIGIN = "https://osn.example"
+OSN_ISSUER_URL = "https://api.osn.example"
+OSN_CORS_ORIGIN = "https://osn.example"
+
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "osn-db-prod"
-database_id = "placeholder-replace-after-d1-create"
+database_id = "6af4af9f-d938-4e35-a1ac-d0e0e2e15b79"
 migrations_dir = "../db/drizzle"
 
-# ── OpenTelemetry export ─────────────────────────────────────────────────────
-# Read by `@shared/observability` `loadConfig` at boot. With the endpoint UNSET,
-# tracing + metrics are a true no-op (zero export attempts) — safe by default.
-# Set the base OTLP/HTTP endpoint to turn export on; `@shared/observability`
-# appends `/v1/traces` + `/v1/metrics` itself. (osn-api isn't Workers-hosted yet
-# — see the note above — so today these are consumed from the process env of the
-# long-lived `bun run` host; declared here so the wiring is identical once it
-# moves to Workers.)
+[env.production.triggers]
+crons = ["0 */6 * * *"]
+
+# ── Secrets (NOT in this file) ───────────────────────────────────────────────
+# Provision per env with `wrangler secret put <NAME> --env <dev|staging|production>`.
+# On workerd these are surfaced ONLY on the `env` binding (never process.env),
+# which is why `src/index.ts` threads `env` through `buildAppDeps`.
 #
-#   OTEL_SERVICE_NAME            non-secret (defaults to "osn-api")
-#   OTEL_EXPORTER_OTLP_ENDPOINT  non-secret base URL (Grafana Cloud OTLP gateway)
-#   OTEL_EXPORTER_OTLP_HEADERS   SECRET — carries the auth token, never commit it
-#
-# Non-secret placeholders (uncomment + set the real endpoint before deploy):
-# [env.production.vars]
-#   OTEL_SERVICE_NAME = "osn-api"
-#   OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp-gateway-<region>.grafana.net/otlp"
-#
-# The headers carry a bearer/basic auth token → provision as a Worker SECRET:
-#   bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS --env production
-#     value: "authorization=Basic <base64(instanceID:apiToken)>"
+#   OSN_JWT_PRIVATE_KEY        base64 JWK (ES256 private)  — REQUIRED non-local
+#   OSN_JWT_PUBLIC_KEY         base64 JWK (ES256 public)   — REQUIRED non-local
+#   OSN_SESSION_IP_PEPPER      ≥32-byte HMAC key           — REQUIRED non-local
+#   UPSTASH_REDIS_REST_URL     Upstash REST URL            — REQUIRED non-local (S-L1)
+#   UPSTASH_REDIS_REST_TOKEN   Upstash REST token          — REQUIRED non-local (S-L1)
+#   CLOUDFLARE_ACCOUNT_ID      for the Email Service REST API — REQUIRED non-local
+#   CLOUDFLARE_EMAIL_API_TOKEN bearer token for email send  — REQUIRED non-local
+#   OSN_EMAIL_FROM             verified sender (also settable as a [vars])
+#   INTERNAL_SERVICE_SECRET    S2S registration shared secret (optional)
+#   PULSE_API_URL / ZAP_API_URL deletion fan-out targets (optional; also [vars])
+#   TRUSTED_PROXY_COUNT        proxy hops for XFF keying (optional; CF sets cf-connecting-ip)
+#   OTEL_EXPORTER_OTLP_HEADERS Grafana Cloud auth (optional, deferred export)
+
+# ── OpenTelemetry export (deferred on workerd) ───────────────────────────────
+# OTEL_SERVICE_NAME / OTEL_EXPORTER_OTLP_ENDPOINT are non-secret [vars]; the
+# headers token is a secret. Metric/trace EXPORT on workerd is deferred — the
+# redacting logger (osnLoggerLayer) is active, recording call-sites are no-ops
+# until an exporter is attached.

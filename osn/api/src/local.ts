@@ -1,248 +1,42 @@
 import { DbLive } from "@osn/db/service";
-import { generateArcKeyPair, importKeyFromJwk, thumbprintKid } from "@shared/crypto";
 import { makeCloudflareEmailLive, makeLogEmailLive } from "@shared/email";
 import { initObservability } from "@shared/observability";
-import { sanitizeCause } from "@shared/redis";
-import { Effect, Layer, Logger, ManagedRuntime } from "effect";
+import { Effect, Layer, Logger } from "effect";
 
-import type { App, AppDeps } from "./app";
-import type { CookieSessionConfig } from "./lib/cookie-session";
-import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
-import { createOriginGuard } from "./lib/origin-guard";
+import { createApp, type App } from "./app";
+import { buildAppDeps, type BuiltDeps, SERVICE_NAME } from "./build-deps";
 import { startOutboundKeyRotation } from "./lib/outbound-arc";
-import { createRedisCeremonyStores } from "./lib/redis-ceremony-stores";
-import {
-  createRedisAuthRateLimiters,
-  createRedisGraphRateLimiter,
-  createRedisOrgRateLimiter,
-  createRedisProfileRateLimiters,
-  createRedisRecommendationRateLimiter,
-} from "./lib/redis-rate-limiters";
-import { createRedisRotatedSessionStore } from "./lib/rotated-session-store";
-import { createRedisJtiStore } from "./lib/step-up-jti-store";
 import { initRedisClient } from "./redis";
 import * as accountErasure from "./services/account-erasure";
 
-export const SERVICE_NAME = "osn-api";
+export { SERVICE_NAME };
 export const port = Number(process.env.PORT) || 4000;
 
-// ---------------------------------------------------------------------------
-// JWT key pair — ES256 (ECDSA P-256)
-//
-// In production, OSN_JWT_PRIVATE_KEY and OSN_JWT_PUBLIC_KEY must be set to
-// base64-encoded JWK JSON. Generate once with:
-//   node -e "const {subtle}=globalThis.crypto; subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']).then(async k=>{const {exportJWK}=await import('jose');console.log('private:',btoa(JSON.stringify(await exportJWK(k.privateKey))));console.log('public:',btoa(JSON.stringify(await exportJWK(k.publicKey))))})"
-//
-// In local dev without these vars, an ephemeral key pair is generated (tokens
-// are invalidated on restart — acceptable for local development).
-// ---------------------------------------------------------------------------
-
-async function loadJwtKeyPair() {
-  const { exportJWK } = await import("jose");
-  const rawPriv = process.env.OSN_JWT_PRIVATE_KEY;
-  const rawPub = process.env.OSN_JWT_PUBLIC_KEY;
-
-  // S-H2: use OSN_ENV (the project's canonical env discriminator) rather than
-  // NODE_ENV. A staging deploy with NODE_ENV=development would silently fall
-  // through to an ephemeral key pair and issue tokens that can't survive restarts.
-  const nonLocal = process.env.OSN_ENV && process.env.OSN_ENV !== "local";
-  if (nonLocal && (!rawPriv || !rawPub)) {
-    throw new Error(
-      "OSN_JWT_PRIVATE_KEY and OSN_JWT_PUBLIC_KEY must be set in non-local environments",
-    );
-  }
-
-  if (rawPriv && rawPub) {
-    const privateKey = await importKeyFromJwk(JSON.parse(atob(rawPriv)) as Record<string, unknown>);
-    const publicKey = await importKeyFromJwk(JSON.parse(atob(rawPub)) as Record<string, unknown>);
-    const kid = await thumbprintKid(publicKey);
-    const jwtPublicKeyJwk = (await exportJWK(publicKey)) as Record<string, unknown>;
-    return { privateKey, publicKey, kid, jwtPublicKeyJwk };
-  }
-
-  // Ephemeral dev pair — warn via Effect logger after observability is ready.
-  const { privateKey, publicKey } = await generateArcKeyPair();
-  const kid = await thumbprintKid(publicKey);
-  const jwtPublicKeyJwk = (await exportJWK(publicKey)) as Record<string, unknown>;
-  return { privateKey, publicKey, kid, jwtPublicKeyJwk, ephemeral: true };
-}
-
-// ---------------------------------------------------------------------------
-// Client-IP trust policy (S-M34)
-//
-// Controls how the rate limiter (and session-IP persistence) derives the
-// caller's keying IP. `x-forwarded-for` is only trusted when this service
-// actually sits behind a known number of reverse proxies — otherwise a
-// client can forge the header and either evade or amplify per-IP limits.
-//
-//   TRUSTED_PROXY_COUNT  Integer ≥ 0. Number of trusted reverse proxies in
-//                        front of @osn/api. The keying IP is taken N entries
-//                        from the RIGHT of `x-forwarded-for` (spoofing-safe).
-//                        Default 0 → direct mode: the IP comes solely from the
-//                        Bun socket peer (`server.requestIP`), never XFF.
-//
-// (When deployed behind Cloudflare, set `trustCloudflare: true` here instead
-// and key off `cf-connecting-ip`; this codebase isn't fronted by CF yet, so
-// only the proxy-count knob is wired.)
-//
-// W3.3: in a non-local deployment with TRUSTED_PROXY_COUNT unset, we fall
-// back to socket-peer attribution and emit a startup warning so an operator
-// who forgot to configure the proxy count notices before users behind a load
-// balancer all collapse onto the LB's IP (or get denied as unresolved).
-// ---------------------------------------------------------------------------
-
-function parseTrustedProxyCount(raw: string | undefined): number {
-  if (raw === undefined || raw.trim() === "") return 0;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 0) {
-    throw new Error(
-      `TRUSTED_PROXY_COUNT must be a non-negative integer (got ${JSON.stringify(raw)})`,
-    );
-  }
-  return n;
-}
-
 /**
- * What {@link buildAppDeps} returns: the {@link AppDeps} struct `createApp`
- * needs, plus the Bun-runtime-only handles the dev entry uses after the app is
- * composed (the observability layer + ephemeral-key warning flag + the W3.3
- * trusted-proxy startup-warning predicates).
+ * Bun composition root: read every `process.env`-driven input, initialise the
+ * FULL observability layer (OTel SDK) + the ioredis-or-memory client + the
+ * email transport, then hand them to the shared {@link buildAppDeps} (which is
+ * runtime-agnostic and shared with the Workers `index.ts` entry). The Effect
+ * layer graph is built ONCE inside `buildAppDeps` into a shared `ManagedRuntime`
+ * (CLAUDE.md > Effect runtime).
  */
-export interface BuiltDeps {
-  deps: AppDeps;
-  observabilityLayer: Layer.Layer<never>;
-  jwtEphemeral: boolean | undefined;
-  /** True in a non-local deployment (drives W3.3 + key warnings). */
-  envNonLocal: boolean;
-  /** True when TRUSTED_PROXY_COUNT was never set (W3.3 startup warning). */
-  trustedProxyCountUnconfigured: boolean;
-}
-
-/**
- * Read every `process.env`-driven input, build the Effect layer graph ONCE into
- * a shared `ManagedRuntime`, construct the Redis-backed stores/limiters, and
- * package it all into the {@link AppDeps} struct `createApp` consumes. All the
- * runtime/secret wiring lives here so `app.ts` stays a pure factory — and so
- * the future Workers entry can supply its own (env-binding-driven) version.
- */
-export async function buildAppDeps(): Promise<BuiltDeps> {
+export async function buildAppDeps_Bun(): Promise<
+  BuiltDeps & { observabilityLayer: Layer.Layer<never> }
+> {
   // Initialise observability (logger, tracing, metrics) before building the app.
   const { layer: observabilityLayer } = initObservability({ serviceName: SERVICE_NAME });
 
-  const {
-    privateKey: jwtPrivateKey,
-    publicKey: jwtPublicKey,
-    kid: jwtKid,
-    jwtPublicKeyJwk,
-    ephemeral: jwtEphemeral,
-  } = await loadJwtKeyPair();
-
-  // S-M2: Session IP pepper is the HMAC key used to turn issuing IPs into
-  // rainbow-table-resistant hashes on the `sessions.ip_hash` column. Fail
-  // loudly if it's missing in a non-local deployment — silently dropping
-  // the hash degrades the Sessions panel's "is this device mine" signal.
-  const envNonLocal = process.env.OSN_ENV && process.env.OSN_ENV !== "local";
-  const sessionIpPepper = process.env.OSN_SESSION_IP_PEPPER;
-  if (envNonLocal && (!sessionIpPepper || sessionIpPepper.length < 32)) {
-    throw new Error(
-      "OSN_SESSION_IP_PEPPER must be set to at least 32 bytes in non-local environments",
-    );
-  }
-
-  const authConfig = {
-    rpId: process.env.OSN_RP_ID || "localhost",
-    rpName: process.env.OSN_RP_NAME || "OSN",
-    // Comma-separated list of accepted WebAuthn origins (passed straight to
-    // @simplewebauthn's `expectedOrigin`, which accepts string[]). Lets every dev
-    // frontend (pulse 1420, social 1422, cire organiser 4322, SDK 5173) run a
-    // passkey ceremony against one API. Parsed like OSN_CORS_ORIGIN below.
-    origin: (process.env.OSN_ORIGIN || "http://localhost:5173")
-      .split(",")
-      .map((o) => o.trim())
-      .filter((o) => o.length > 0),
-    issuerUrl: process.env.OSN_ISSUER_URL || `http://localhost:${port}`,
-    jwtPrivateKey,
-    jwtPublicKey,
-    jwtKid,
-    jwtPublicKeyJwk,
-    // 5 min default — short TTL caps XSS blast radius on the access token.
-    // Refresh token is in an HttpOnly cookie (C3) so silent refresh on 401
-    // is transparent to the user.
-    accessTokenTtl: Number(process.env.OSN_ACCESS_TOKEN_TTL) || 300,
-    refreshTokenTtl: Number(process.env.OSN_REFRESH_TOKEN_TTL) || 2592000,
-    sessionIpPepper,
-  };
-
   // -------------------------------------------------------------------------
-  // Redis client — env-driven backend selection (S-M2)
-  //
-  // See `./redis.ts` for the full initialisation logic (TLS warning, credential
-  // redaction, REDIS_REQUIRED fail-closed mode, lazyConnect lifecycle).
+  // Redis client — env-driven backend selection (S-M2). See `./redis.ts` for
+  // the full lifecycle (TLS warning, credential redaction, REDIS_REQUIRED
+  // fail-closed mode, lazyConnect).
   // -------------------------------------------------------------------------
-
   const redisClient = await initRedisClient({
     redisUrl: process.env.REDIS_URL,
     redisRequired: process.env.REDIS_REQUIRED === "true",
     nodeEnv: process.env.NODE_ENV,
     loggerLayer: observabilityLayer,
   });
-
-  // S-H1: cluster-safe single-use guard for step-up JWTs. Wired into
-  // `authConfig` below so verifyStepUpToken consults Redis on every
-  // check rather than an in-process Map.
-  const stepUpJtiStore = createRedisJtiStore(redisClient);
-
-  // S-H1 (session): cluster-safe record of rotated-out session hashes so
-  // C2 reuse detection works across pods. Errors are logged via the Effect
-  // logger layer so a Redis blip surfaces in ops dashboards. S-M1 —
-  // `sanitizeCause` strips any credentialed URL (redis://user:pass@…) that
-  // ioredis may embed in connection-level error strings.
-  const rotatedSessionStore = createRedisRotatedSessionStore(redisClient, {
-    onError: (action, cause) => {
-      void Effect.runPromise(
-        Effect.logWarning("Rotated-session store Redis error").pipe(
-          Effect.annotateLogs({ action, error: sanitizeCause(cause) }),
-          Effect.provide(observabilityLayer),
-        ),
-      );
-    },
-  });
-
-  // INTEGRATION: O3/O2 (W6) — Redis-backed ceremony / pending-state stores, the
-  // recovery-code lockout counter, and the two per-account caps. All built from
-  // the same `redisClient` as the limiters below. Errors are routed to the
-  // Effect logger (credential-redacted via `sanitizeCause`) so a Redis blip
-  // surfaces in ops dashboards; the stores themselves fail-open/closed per their
-  // documented posture. Wired into `authConfig` at the `createAuthRoutes` call
-  // in `createApp` alongside `stepUpJtiStore` / `rotatedSessionStore`.
-  const { ceremonyStores, recoveryLockoutStore, profileSwitchCap, emailChangeBeginCap } =
-    createRedisCeremonyStores(redisClient, (store, op, cause) => {
-      void Effect.runPromise(
-        Effect.logWarning("Ceremony/lockout store Redis error").pipe(
-          Effect.annotateLogs({ store, op, error: sanitizeCause(cause) }),
-          Effect.provide(observabilityLayer),
-        ),
-      );
-    });
-
-  const authRateLimiters = createRedisAuthRateLimiters(redisClient);
-  const graphRateLimiter = createRedisGraphRateLimiter(redisClient);
-  const orgRateLimiter = createRedisOrgRateLimiter(redisClient);
-  const profileRateLimiters = createRedisProfileRateLimiters(redisClient);
-  const recommendationRateLimiter = createRedisRecommendationRateLimiter(redisClient);
-
-  // Client-IP trust policy (S-M34). The keying IP for per-IP rate limiting +
-  // the session-IP hash is taken `trustedProxyCount` entries from the right of
-  // `x-forwarded-for` (spoofing-safe); direct mode (count 0) uses the socket
-  // peer only. The W3.3 startup warning predicates ride along in `BuiltDeps`.
-  const trustedProxyCount = parseTrustedProxyCount(process.env.TRUSTED_PROXY_COUNT);
-  const trustedProxyCountUnconfigured = process.env.TRUSTED_PROXY_COUNT === undefined;
-  const clientIpConfig = { trustedProxyCount } as const;
-
-  // C3: Cookie session config — Secure flag + __Host- prefix in non-local envs.
-  const cookieConfig: CookieSessionConfig = {
-    secure: !!process.env.OSN_ENV && process.env.OSN_ENV !== "local",
-  };
 
   // -------------------------------------------------------------------------
   // Email transport (@shared/email)
@@ -251,12 +45,10 @@ export async function buildAppDeps(): Promise<BuiltDeps> {
   //   - CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_EMAIL_API_TOKEN required
   //   - OSN_EMAIL_FROM is the verified sender address (e.g. noreply@osn.app)
   //
-  // Local dev / tests: no env vars → LogEmailLive records sends to an
-  // in-memory ring, so an operator sees `[email:log] template=...` lines
-  // but no OTP codes end up in logs. Test code reads the recorder
-  // directly via `makeLogEmailLive()` in its own composition.
+  // Local dev / tests: no env vars → LogEmailLive records sends to an in-memory
+  // ring, so no OTP codes end up in logs.
   // -------------------------------------------------------------------------
-
+  const envNonLocal = !!process.env.OSN_ENV && process.env.OSN_ENV !== "local";
   const cfAccountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const cfEmailToken = process.env.CLOUDFLARE_EMAIL_API_TOKEN;
   if (envNonLocal && (!cfAccountId || !cfEmailToken)) {
@@ -264,7 +56,6 @@ export async function buildAppDeps(): Promise<BuiltDeps> {
       "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_EMAIL_API_TOKEN must be set in non-local environments",
     );
   }
-
   const emailLayer =
     cfAccountId && cfEmailToken
       ? makeCloudflareEmailLive({
@@ -274,76 +65,30 @@ export async function buildAppDeps(): Promise<BuiltDeps> {
         })
       : makeLogEmailLive().layer;
 
-  const dbAndEmailLayer = Layer.merge(DbLive, emailLayer);
-
-  // Build the application layer graph ONCE into a long-lived runtime and thread
-  // it through every route factory below. Previously each route's `run` helper
-  // did `Effect.runPromise(eff.pipe(Effect.provide(dbAndEmailLayer),
-  // Effect.provide(observabilityLayer)))`, which rebuilds the layer graph on
-  // EVERY request — starting and tearing down the full OpenTelemetry NodeSdk
-  // (BatchSpanProcessor + OTLP exporters + a PeriodicExportingMetricReader) and
-  // opening a fresh `bun:sqlite` connection each time. The teardown's exporter
-  // flush is what made interactive endpoints (e.g. the debounced handle-
-  // availability check) feel slow locally. A single shared runtime collapses all
-  // of that to a one-time boot cost; the SDK's own batch/flush timers handle
-  // export, and the SQLite connection is reused.
-  const appRuntime = ManagedRuntime.make(Layer.merge(dbAndEmailLayer, observabilityLayer));
-
-  // S-L1: Restrict CORS to the known app origin instead of the open wildcard.
-  // Derivation + S-L4 fail-closed invariant live in `./lib/cors-config` so they
-  // can be unit-tested without booting the whole app. `cookieConfig.secure` is
-  // the single non-local predicate — a deploy that forgets both `OSN_ENV` and
-  // `OSN_CORS_ORIGIN` still fails closed at `assertCorsOriginsConfigured`.
-  const corsOrigins = resolveCorsOrigins(process.env, cookieConfig.secure);
-  assertCorsOriginsConfigured(corsOrigins, cookieConfig.secure);
-  const originGuard = createOriginGuard({ allowedOrigins: new Set(corsOrigins) });
-
-  const deps: AppDeps = {
-    serviceName: SERVICE_NAME,
+  const built = await buildAppDeps(process.env, {
+    redisClient,
+    dbAndEmailLayer: Layer.merge(DbLive, emailLayer),
+    observabilityLayer,
     // Bun path keeps the full per-request observability plugin (server span +
-    // RED metrics). The Workers entry will pass `false` — see AppDeps.
+    // RED metrics). The Workers entry passes `false` — see AppDeps.
     includeObservabilityPlugin: true,
-    authConfig,
-    cookieConfig,
-    corsOrigins,
-    originGuard,
-    dbAndEmailLayer,
-    observabilityLayer,
-    appRuntime,
-    authRateLimiters,
-    graphRateLimiter,
-    orgRateLimiter,
-    profileRateLimiters,
-    recommendationRateLimiter,
-    stepUpJtiStore,
-    rotatedSessionStore,
-    ceremonyStores,
-    recoveryLockoutStore,
-    profileSwitchCap,
-    emailChangeBeginCap,
-    clientIpConfig,
-  };
-
-  return {
-    deps,
-    observabilityLayer,
-    jwtEphemeral,
-    envNonLocal: !!envNonLocal,
-    trustedProxyCountUnconfigured,
-  };
+  });
+  // Surface the concrete observability layer for the startup banner (the
+  // AppDeps field is typed loosely as `Layer | undefined`).
+  return { ...built, observabilityLayer };
 }
 
 /**
  * Bun-only startup side effects: bind the port, warn about ephemeral keys, kick
  * off outbound ARC key rotation, and start the account-erasure sweeper. Kept
- * out of `app.ts` (the pure factory) and out of the Workers path entirely.
+ * out of `app.ts` (the pure factory) and out of the Workers path entirely (the
+ * Workers entry moves the sweeper to a cron `scheduled` handler).
  */
 export function startBunServer(
   app: App,
-  built: Pick<
-    BuiltDeps,
-    "observabilityLayer" | "jwtEphemeral" | "envNonLocal" | "trustedProxyCountUnconfigured"
-  >,
+  built: Pick<BuiltDeps, "jwtEphemeral" | "envNonLocal" | "trustedProxyCountUnconfigured"> & {
+    observabilityLayer: Layer.Layer<never>;
+  },
 ): void {
   const { observabilityLayer, jwtEphemeral, envNonLocal, trustedProxyCountUnconfigured } = built;
 
@@ -377,18 +122,24 @@ export function startBunServer(
   void startOutboundKeyRotation({
     pulseApiUrl: process.env.PULSE_API_URL,
     zapApiUrl: process.env.ZAP_API_URL,
+    internalServiceSecret: process.env.INTERNAL_SERVICE_SECRET,
+    osnEnv: process.env.OSN_ENV,
   }).catch(() => undefined);
 
   // Hard-delete + fan-out retry sweeper. Single-instance — production should
   // wrap with a Redis lock; for now the fixed 6-hour cadence + idempotent
   // per-row writes keep multi-instance safe enough that a stray double-pass
-  // is a non-event.
+  // is a non-event. (The Workers entry runs the same two sweeps on a cron.)
   const SWEEPER_INTERVAL_MS =
     Number(process.env.OSN_DELETION_SWEEPER_INTERVAL_MS) || 6 * 60 * 60 * 1_000;
+  const fanoutUrls = {
+    pulseApiUrl: process.env.PULSE_API_URL,
+    zapApiUrl: process.env.ZAP_API_URL,
+  };
   const runSweep = (): void => {
     void Effect.runPromise(
       Effect.gen(function* () {
-        yield* accountErasure.runFanOutRetrySweep();
+        yield* accountErasure.runFanOutRetrySweep(fanoutUrls);
         yield* accountErasure.runHardDeleteSweep();
       }).pipe(Effect.provide(DbLive), Effect.provide(observabilityLayer)) as Effect.Effect<
         unknown,
@@ -398,4 +149,27 @@ export function startBunServer(
     ).catch(() => undefined);
   };
   setInterval(runSweep, SWEEPER_INTERVAL_MS).unref?.();
+}
+
+// ---------------------------------------------------------------------------
+// Bun dev entry (the default `dev` script: `bun run --watch src/local.ts`).
+//
+// The fast, native devloop: stable :4000, real passkey/OTP ceremonies, full
+// OTel observability, ioredis-or-memory rate limiters, bun:sqlite. The
+// Cloudflare Workers `index.ts` entry mirrors this composition from the `env`
+// binding instead of `process.env`. Tests do NOT import this module — they
+// build the app via `createApp` + a test layer.
+// ---------------------------------------------------------------------------
+
+const built = await buildAppDeps_Bun();
+export const app = createApp(built.deps);
+export type { App };
+
+if (process.env.NODE_ENV !== "test") {
+  startBunServer(app, {
+    observabilityLayer: built.observabilityLayer,
+    jwtEphemeral: built.jwtEphemeral,
+    envNonLocal: built.envNonLocal,
+    trustedProxyCountUnconfigured: built.trustedProxyCountUnconfigured,
+  });
 }

@@ -57,12 +57,22 @@ export async function createDrizzleClient<S extends Record<string, unknown>>(
 
 export function makeDbLive<S extends Record<string, unknown>, A extends { readonly db: Db<S> }>(
   tag: Context.Tag<any, A>,
-  dbPath: string,
+  // Accepts a thunk so a caller whose path derivation is Bun-only (e.g.
+  // `fileURLToPath(import.meta.url)`, which throws on workerd where
+  // `import.meta.url` is undefined) can defer it INTO the lazy Layer. On the
+  // Workers runtime `DbLive` is imported as a value but its layer is never
+  // built (the entry uses `makeD1DbLive`), so the thunk never runs there.
+  dbPath: string | (() => string),
   schema: S,
 ) {
   return Layer.effect(
     tag,
-    Effect.promise(async () => ({ db: await createDrizzleClient(dbPath, schema) }) as A),
+    Effect.promise(
+      async () =>
+        ({
+          db: await createDrizzleClient(typeof dbPath === "function" ? dbPath() : dbPath, schema),
+        }) as A,
+    ),
   );
 }
 

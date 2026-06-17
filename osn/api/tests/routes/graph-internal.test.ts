@@ -9,7 +9,7 @@ import {
 } from "@shared/crypto";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
-import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
 import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
 import { createAuthService } from "../../src/services/auth";
@@ -487,7 +487,9 @@ describe("internal graph routes (ARC-protected)", () => {
     };
 
     beforeEach(async () => {
-      process.env.INTERNAL_SERVICE_SECRET = SECRET;
+      // The secret is now threaded into the factory (not read from process.env
+      // inside the handler), so rebuild the app with it set for this block.
+      app = createInternalGraphRoutes(layer, undefined, SECRET);
       // S-M1 requires a genuinely importable JWK — generate a real key pair.
       const kp = await generateArcKeyPair();
       validBody = {
@@ -498,13 +500,10 @@ describe("internal graph routes (ARC-protected)", () => {
       };
     });
 
-    afterEach(() => {
-      delete process.env.INTERNAL_SERVICE_SECRET;
-    });
-
     it("returns 501 when INTERNAL_SERVICE_SECRET is unset", async () => {
-      delete process.env.INTERNAL_SERVICE_SECRET;
-      const res = await app.handle(
+      // Build with the secret undefined — the endpoint must answer 501.
+      const unconfigured = createInternalGraphRoutes(layer, undefined, undefined);
+      const res = await unconfigured.handle(
         new Request("http://localhost/graph/internal/register-service", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${SECRET}` },
@@ -601,16 +600,13 @@ describe("internal graph routes (ARC-protected)", () => {
     const SECRET = "test-internal-secret";
 
     beforeEach(() => {
-      process.env.INTERNAL_SERVICE_SECRET = SECRET;
-    });
-
-    afterEach(() => {
-      delete process.env.INTERNAL_SERVICE_SECRET;
+      // Secret threaded into the factory — rebuild with it set for this block.
+      app = createInternalGraphRoutes(layer, undefined, SECRET);
     });
 
     it("returns 501 when INTERNAL_SERVICE_SECRET is unset", async () => {
-      delete process.env.INTERNAL_SERVICE_SECRET;
-      const res = await app.handle(
+      const unconfigured = createInternalGraphRoutes(layer, undefined, undefined);
+      const res = await unconfigured.handle(
         new Request("http://localhost/graph/internal/service-keys/some-key", {
           method: "DELETE",
           headers: { Authorization: `Bearer ${SECRET}` },

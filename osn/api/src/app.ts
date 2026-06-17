@@ -93,6 +93,19 @@ export interface AppDeps {
    * session-IP hash are spoofing-safe behind a known proxy topology.
    */
   clientIpConfig: Omit<ClientIpOptions, "socketIp">;
+  /**
+   * Shared `INTERNAL_SERVICE_SECRET` gating `/graph/internal/register-service`
+   * + `/graph/internal/service-keys/:keyId`. Threaded through the factory (not
+   * read from `process.env` inside the route) because on workerd secrets live
+   * ONLY on the `env` binding. `undefined` ⇒ those endpoints answer 501.
+   */
+  internalServiceSecret: string | undefined;
+  /**
+   * Elysia ahead-of-time handler compilation. AOT uses `new Function(...)`,
+   * which workerd forbids ("Code generation from strings disallowed"). The Bun
+   * path leaves this `true` (default, faster); the Workers entry passes `false`.
+   */
+  aot: boolean;
 }
 
 /**
@@ -124,9 +137,16 @@ export function createApp(deps: AppDeps) {
     profileSwitchCap,
     emailChangeBeginCap,
     clientIpConfig,
+    internalServiceSecret,
+    aot,
   } = deps;
 
-  const base = new Elysia()
+  // `aot: false` disables Elysia's ahead-of-time handler compilation, which
+  // uses `new Function(...)` — forbidden on workerd ("Code generation from
+  // strings disallowed"). The Workers path passes `false`; the Bun path keeps
+  // AOT on (default). Mirrors cire's Workers app. The flag propagates to the
+  // route plugins composed via `.use()` below.
+  const base = new Elysia({ aot })
     .use(cors({ origin: corsOrigins, credentials: true }))
     .onBeforeHandle(originGuard);
 
@@ -163,7 +183,7 @@ export function createApp(deps: AppDeps) {
       ),
     )
     .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter, appRuntime))
-    .use(createInternalGraphRoutes(DbLive, appRuntime))
+    .use(createInternalGraphRoutes(DbLive, appRuntime, internalServiceSecret))
     .use(
       createOrganisationRoutes(authConfig, DbLive, observabilityLayer, orgRateLimiter, appRuntime),
     )
