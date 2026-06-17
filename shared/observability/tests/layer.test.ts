@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config";
 import { initObservability, makeObservabilityLayer } from "../src/index";
 import { makeLoggerLayer } from "../src/logger/layer";
-import { makeTracingLayer } from "../src/tracing/layer";
+import { makeTracingLayer, otlpExporterUrl } from "../src/tracing/layer";
+import { NoopTracingLive } from "../src/tracing/noop";
 
 /**
  * Layer-construction smoke tests. These don't spin up a real OTel
@@ -79,30 +80,70 @@ describe("makeLoggerLayer", () => {
   });
 });
 
-describe("makeTracingLayer", () => {
-  it("builds without throwing when no OTLP endpoint is configured", () => {
-    const config = loadConfig({ serviceName: "test", env: "dev" });
-    expect(config.otlpEndpoint).toBeUndefined();
-    expect(() => makeTracingLayer(config)).not.toThrow();
+describe("otlpExporterUrl", () => {
+  it("suffixes the per-signal path onto the base endpoint", () => {
+    expect(otlpExporterUrl("https://otlp.grafana.net/otlp", "traces")).toBe(
+      "https://otlp.grafana.net/otlp/v1/traces",
+    );
+    expect(otlpExporterUrl("https://otlp.grafana.net/otlp", "metrics")).toBe(
+      "https://otlp.grafana.net/otlp/v1/metrics",
+    );
   });
 
-  it("builds without throwing when an OTLP endpoint is configured", () => {
+  it("collapses a trailing slash so it never emits //v1", () => {
+    expect(otlpExporterUrl("http://localhost:4318/", "traces")).toBe(
+      "http://localhost:4318/v1/traces",
+    );
+  });
+
+  it("returns undefined when no endpoint is configured", () => {
+    expect(otlpExporterUrl(undefined, "traces")).toBeUndefined();
+  });
+});
+
+describe("makeTracingLayer", () => {
+  it("is a true no-op (NoopTracingLive) when no OTLP endpoint is configured", () => {
+    const config = loadConfig({ serviceName: "test", env: "dev" });
+    expect(config.otlpEndpoint).toBeUndefined();
+    // An unset endpoint must NOT spin up the NodeSdk pointed at
+    // localhost:4318 — it must return the empty no-op layer so there are
+    // zero export attempts. Identity check pins exactly that.
+    expect(makeTracingLayer(config)).toBe(NoopTracingLive);
+  });
+
+  it("honours the endpoint from env and builds a real exporter layer", () => {
     const prev = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
-    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318";
+    const prevHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS;
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp.grafana.net/otlp";
+    process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer test-token";
     try {
       const config = loadConfig({ serviceName: "test", env: "dev" });
-      expect(config.otlpEndpoint).toBe("http://localhost:4318");
+      // The endpoint + auth header are read straight from env.
+      expect(config.otlpEndpoint).toBe("https://otlp.grafana.net/otlp");
+      expect(config.otlpHeaders).toEqual({ authorization: "Bearer test-token" });
+      // With an endpoint set we get the real NodeSdk layer, not the no-op.
+      const layer = makeTracingLayer(config);
+      expect(layer).not.toBe(NoopTracingLive);
+      expect(layer).toBeDefined();
+    } finally {
+      if (prev === undefined) delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+      else process.env.OTEL_EXPORTER_OTLP_ENDPOINT = prev;
+      if (prevHeaders === undefined) delete process.env.OTEL_EXPORTER_OTLP_HEADERS;
+      else process.env.OTEL_EXPORTER_OTLP_HEADERS = prevHeaders;
+    }
+  });
+
+  it("builds without throwing in production mode with tight sampling", () => {
+    const prev = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp.grafana.net/otlp";
+    try {
+      const config = loadConfig({ serviceName: "test", env: "production" });
+      expect(config.traceSampleRatio).toBe(0.1);
       expect(() => makeTracingLayer(config)).not.toThrow();
     } finally {
       if (prev === undefined) delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
       else process.env.OTEL_EXPORTER_OTLP_ENDPOINT = prev;
     }
-  });
-
-  it("builds without throwing in production mode with tight sampling", () => {
-    const config = loadConfig({ serviceName: "test", env: "production" });
-    expect(config.traceSampleRatio).toBe(0.1);
-    expect(() => makeTracingLayer(config)).not.toThrow();
   });
 });
 

@@ -34,3 +34,25 @@ binding = "DB"
 database_name = "osn-db-prod"
 database_id = "placeholder-replace-after-d1-create"
 migrations_dir = "../db/drizzle"
+
+# ── OpenTelemetry export ─────────────────────────────────────────────────────
+# Read by `@shared/observability` `loadConfig` at boot. With the endpoint UNSET,
+# tracing + metrics are a true no-op (zero export attempts) — safe by default.
+# Set the base OTLP/HTTP endpoint to turn export on; `@shared/observability`
+# appends `/v1/traces` + `/v1/metrics` itself. (osn-api isn't Workers-hosted yet
+# — see the note above — so today these are consumed from the process env of the
+# long-lived `bun run` host; declared here so the wiring is identical once it
+# moves to Workers.)
+#
+#   OTEL_SERVICE_NAME            non-secret (defaults to "osn-api")
+#   OTEL_EXPORTER_OTLP_ENDPOINT  non-secret base URL (Grafana Cloud OTLP gateway)
+#   OTEL_EXPORTER_OTLP_HEADERS   SECRET — carries the auth token, never commit it
+#
+# Non-secret placeholders (uncomment + set the real endpoint before deploy):
+# [env.production.vars]
+#   OTEL_SERVICE_NAME = "osn-api"
+#   OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp-gateway-<region>.grafana.net/otlp"
+#
+# The headers carry a bearer/basic auth token → provision as a Worker SECRET:
+#   bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS --env production
+#     value: "authorization=Basic <base64(instanceID:apiToken)>"
