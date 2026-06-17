@@ -1,10 +1,8 @@
-import { AddToCalendar } from "./AddToCalendar";
 import type { EventSummary } from "./types";
 import { formatDate } from "./utils";
 
 interface EventCardProps {
   event: EventSummary;
-  siteUrl: string;
   /** Host preview session — RSVP is disabled. */
   preview?: boolean;
   onRespond: (event: EventSummary) => void;
@@ -35,9 +33,8 @@ export function EventCard(props: EventCardProps) {
           class="border-border font-body text-text-muted hover:border-gold hover:text-gold rounded-sm border bg-transparent px-5 py-2.5 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200"
           onClick={() => props.onDetails(props.event)}
         >
-          More Details
+          View Event
         </button>
-        <AddToCalendar event={props.event} siteUrl={props.siteUrl} />
       </div>
     </article>
   );

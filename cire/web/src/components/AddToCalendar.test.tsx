@@ -148,4 +148,16 @@ describe("AddToCalendar", () => {
     unmount();
     expect(revokeObjectURL).toHaveBeenCalledWith(created);
   });
+
+  it("renders a filled primary trigger when variant is primary", () => {
+    const { getByRole } = render(() => (
+      <AddToCalendar event={baseEvent} siteUrl={SITE_URL} variant="primary" />
+    ));
+    const button = getByRole("button", { name: /add to calendar/i });
+    // The primary variant fills with the gold token; the outline variant is
+    // transparent. Asserting the class keeps the two visually distinct.
+    expect(button.className).toContain("bg-gold");
+    // Still behaves as a menu trigger regardless of variant.
+    expect(button.getAttribute("aria-haspopup")).toBe("menu");
+  });
 });

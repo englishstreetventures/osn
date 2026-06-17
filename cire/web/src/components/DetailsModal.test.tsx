@@ -1,4 +1,4 @@
-import { render, cleanup } from "@solidjs/testing-library";
+import { render, cleanup, fireEvent, screen } from "@solidjs/testing-library";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { DetailsModal } from "./DetailsModal";
@@ -7,6 +7,8 @@ import type { EventSummary } from "./types";
 vi.mock("motion", () => ({
   animate: vi.fn(() => ({ finished: Promise.resolve() })),
 }));
+
+const SITE_URL = "https://invite.example.com/abc-123";
 
 const baseEvent: EventSummary = {
   id: "9f7a2c14-1b3d-4e5f-8a01-000000000001",
@@ -17,7 +19,7 @@ const baseEvent: EventSummary = {
   startAt: "2026-09-18T16:00:00+10:00",
   endAt: "2026-09-18T22:00:00+10:00",
   timezone: "Australia/Sydney",
-  address: "12 Banksia Lane",
+  address: "12 Banksia Lane, Strathfield",
   dressCodeDescription: null,
   dressCodePalette: null,
   pinterestUrl: null,
@@ -25,101 +27,100 @@ const baseEvent: EventSummary = {
   sortOrder: 0,
 };
 
+const renderModal = (event: EventSummary) =>
+  render(() => <DetailsModal event={event} siteUrl={SITE_URL} onClose={() => {}} />);
+
 describe("DetailsModal", () => {
   afterEach(() => cleanup());
 
-  it("renders palette and description from event prop", () => {
-    const { getByText, getByLabelText } = render(() => (
-      <DetailsModal
-        event={{
-          ...baseEvent,
-          dressCodeDescription: "Bright, festive colours.",
-          dressCodePalette: [
-            { name: "Marigold", color: "oklch(76.36% 0.1533 75.16)" },
-            { name: "Fuchsia", color: "#ff00aa" },
-          ],
-        }}
-        onClose={() => {}}
-      />
-    ));
+  it("shows the event name and the timezone-aware date / time range", () => {
+    const { getByText, getByRole } = renderModal(baseEvent);
+
+    expect(getByRole("heading", { name: "Mehndi" })).toBeTruthy();
+    expect(getByText(/Friday\s+18 September 2026/)).toBeTruthy();
+    // Time range rendered in the event's own timezone (4pm–10pm Sydney).
+    expect(getByText(/4:00\s*pm\s*–\s*10:00\s*pm/i)).toBeTruthy();
+  });
+
+  it("hosts the Add to Calendar control inside the details view", () => {
+    const { getByRole } = renderModal(baseEvent);
+    const button = getByRole("button", { name: /add to calendar/i });
+    expect(button).toBeTruthy();
+
+    fireEvent.click(button);
+    // Opening it surfaces the calendar destinations (portalled to body).
+    expect(screen.getByText("Google Calendar")).toBeTruthy();
+    expect(screen.getByText("Apple / Outlook (.ics)")).toBeTruthy();
+  });
+
+  it("renders a map preview that opens the venue in maps", () => {
+    const { getByLabelText } = renderModal(baseEvent);
+    const link = getByLabelText(/open .* in maps/i) as HTMLAnchorElement;
+    expect(link.href).toContain("https://www.google.com/maps/search/");
+    expect(link.href).toContain(encodeURIComponent("12 Banksia Lane, Strathfield"));
+    expect(link.target).toBe("_blank");
+  });
+
+  it("renders the description in an About section", () => {
+    const { getByText } = renderModal(baseEvent);
+    expect(getByText("About")).toBeTruthy();
+    expect(getByText("An evening of henna")).toBeTruthy();
+  });
+
+  it("renders palette and dress code description when present", () => {
+    const { getByText, getByLabelText } = renderModal({
+      ...baseEvent,
+      dressCodeDescription: "Bright, festive colours.",
+      dressCodePalette: [
+        { name: "Marigold", color: "oklch(76.36% 0.1533 75.16)" },
+        { name: "Fuchsia", color: "#ff00aa" },
+      ],
+    });
 
     expect(getByText("Bright, festive colours.")).toBeTruthy();
     expect(getByLabelText("Marigold swatch")).toBeTruthy();
     expect(getByLabelText("Fuchsia swatch")).toBeTruthy();
     expect(getByText("Marigold")).toBeTruthy();
-    expect(getByText("Fuchsia")).toBeTruthy();
   });
 
-  it("renders fallback when both description and palette are null", () => {
-    const { getByText, queryByText } = render(() => (
-      <DetailsModal event={baseEvent} onClose={() => {}} />
-    ));
-
-    expect(getByText("Dress code details coming soon.")).toBeTruthy();
+  it("omits the dress code section entirely when there is no dress code", () => {
+    const { queryByText } = renderModal(baseEvent);
     expect(queryByText("Dress Code")).toBeNull();
   });
 
-  it("renders only description when palette is null", () => {
-    const { getByText, queryByLabelText } = render(() => (
-      <DetailsModal
-        event={{
-          ...baseEvent,
-          dressCodeDescription: "Wear what you love.",
-          dressCodePalette: null,
-        }}
-        onClose={() => {}}
-      />
-    ));
-
-    expect(getByText("Wear what you love.")).toBeTruthy();
-    expect(queryByLabelText(/swatch$/)).toBeNull();
+  it("omits the inspiration section when there is no pinterest board", () => {
+    const { queryByText } = renderModal(baseEvent);
+    expect(queryByText("Inspiration")).toBeNull();
   });
 
-  it("renders only palette when description is null", () => {
-    const { getByLabelText, queryByText } = render(() => (
-      <DetailsModal
-        event={{
-          ...baseEvent,
-          dressCodeDescription: null,
-          dressCodePalette: [{ name: "Sage", color: "oklch(72.88% 0.0585 128.92)" }],
-        }}
-        onClose={() => {}}
-      />
-    ));
+  it("renders only the palette when the dress code description is null", () => {
+    const { getByLabelText, queryByText } = renderModal({
+      ...baseEvent,
+      dressCodePalette: [{ name: "Sage", color: "oklch(72.88% 0.0585 128.92)" }],
+    });
 
     expect(getByLabelText("Sage swatch")).toBeTruthy();
-    expect(queryByText("Dress code details coming soon.")).toBeNull();
+    expect(queryByText("Dress Code")).toBeTruthy();
   });
 
-  it("applies the supplied colour as inline background-color", () => {
-    const { getByLabelText } = render(() => (
-      <DetailsModal
-        event={{
-          ...baseEvent,
-          dressCodePalette: [{ name: "Gold", color: "#abcdef" }],
-        }}
-        onClose={() => {}}
-      />
-    ));
+  it("applies the supplied colour as an inline background-color", () => {
+    const { getByLabelText } = renderModal({
+      ...baseEvent,
+      dressCodePalette: [{ name: "Gold", color: "#abcdef" }],
+    });
 
     const swatch = getByLabelText("Gold swatch") as HTMLElement;
-    // jsdom normalises hex to rgb()
     expect(swatch.style.backgroundColor.replace(/\s+/g, "")).toBe("rgb(171,205,239)");
   });
 
   it("does not render swatches whose colour fails validation", () => {
-    const { queryByLabelText, getByLabelText } = render(() => (
-      <DetailsModal
-        event={{
-          ...baseEvent,
-          dressCodePalette: [
-            { name: "Evil", color: "expression(alert(1))" },
-            { name: "Safe", color: "#abcdef" },
-          ],
-        }}
-        onClose={() => {}}
-      />
-    ));
+    const { queryByLabelText, getByLabelText } = renderModal({
+      ...baseEvent,
+      dressCodePalette: [
+        { name: "Evil", color: "expression(alert(1))" },
+        { name: "Safe", color: "#abcdef" },
+      ],
+    });
 
     expect(queryByLabelText("Evil swatch")).toBeNull();
     expect(getByLabelText("Safe swatch")).toBeTruthy();

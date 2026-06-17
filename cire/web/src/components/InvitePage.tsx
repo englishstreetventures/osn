@@ -64,7 +64,6 @@ export default function InvitePage(props: InvitePageProps) {
                     <div data-event-card>
                       <EventCard
                         event={event}
-                        siteUrl={siteUrl()}
                         preview={data().preview}
                         onRespond={setRsvpEvent}
                         onDetails={setDetailsEvent}
@@ -96,7 +95,9 @@ export default function InvitePage(props: InvitePageProps) {
       </Show>
 
       <Show when={detailsEvent()}>
-        {(event) => <DetailsModal event={event()} onClose={() => setDetailsEvent(null)} />}
+        {(event) => (
+          <DetailsModal event={event()} siteUrl={siteUrl()} onClose={() => setDetailsEvent(null)} />
+        )}
       </Show>
     </>
   );

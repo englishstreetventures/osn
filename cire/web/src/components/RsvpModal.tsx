@@ -1,4 +1,4 @@
-import { createMemo, createSignal, onCleanup, Show, For } from "solid-js";
+import { createMemo, createSignal, createUniqueId, onCleanup, Show, For } from "solid-js";
 
 import { AnimatedModal } from "./AnimatedModal";
 import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
@@ -56,6 +56,7 @@ export function RsvpModal(props: RsvpModalProps) {
   const [responses, setResponses] = createSignal<Record<string, MemberState>>(initialResponses());
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
+  const titleId = createUniqueId();
 
   // Abort the in-flight submit if the modal unmounts mid-request — keeps the
   // setError / setLoading writes from landing on a disposed instance.
@@ -167,9 +168,9 @@ export function RsvpModal(props: RsvpModalProps) {
   }
 
   return (
-    <AnimatedModal onClose={props.onClose}>
+    <AnimatedModal onClose={props.onClose} labelledBy={titleId}>
       <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">Respond</p>
-      <h3 class="font-display text-text mb-6 text-[1.6rem] font-light italic">
+      <h3 id={titleId} class="font-display text-text mb-6 text-[1.6rem] font-light italic">
         {props.event.name}
       </h3>
 
