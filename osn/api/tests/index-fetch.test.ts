@@ -1,6 +1,8 @@
-import { describe, it, expect } from "vitest";
+import type { ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 
 import { handler, type Env } from "../src/index";
+import { _resetOutboundKeyForTests } from "../src/lib/outbound-arc";
 
 /**
  * T-R1 — Workers `fetch` handler fail-closed paths.
@@ -66,5 +68,92 @@ describe("handler.fetch — fail-closed (T-R1)", () => {
     expect(error).not.toContain("OSN_ISSUER_URL");
     expect(error).not.toContain("OSN_CORS_ORIGIN");
     expect(error).not.toContain("OSN_RP_ID");
+  });
+});
+
+/**
+ * T-R2 — the cron `scheduled` handler registers osn's outbound ARC public key
+ * with each downstream BEFORE the fan-out sweeps. Pulse/Zap verify osn's ARC
+ * tokens against a pre-registered key, so without this the very first
+ * `/internal/account-deleted` POST is 401'd and GDPR Art. 17 erasure stalls.
+ *
+ * Drives the real exported `handler.scheduled(event, env, ctx)` with a fake
+ * env + a `waitUntil` collector. The DB-backed sweeps run against a stub D1
+ * binding and fail internally — they're wrapped in `Effect.catchAll`/`logError`
+ * so they never throw out of `scheduled`; this test only asserts the
+ * registration POSTs fired and are once-per-isolate.
+ */
+describe("handler.scheduled — outbound ARC key registration (T-R2)", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  const collectWaitUntil = (): { ctx: ExecutionContext; settled: () => Promise<void> } => {
+    const promises: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil: (p: Promise<unknown>) => promises.push(p.catch(() => undefined)),
+      passThroughOnException: () => {},
+      props: {},
+    } as unknown as ExecutionContext;
+    return { ctx, settled: async () => void (await Promise.all(promises)) };
+  };
+
+  const registerCalls = (): number =>
+    fetchSpy.mock.calls.filter((c: Parameters<typeof fetch>) => {
+      const input = c[0];
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      return url.includes("/internal/register-service");
+    }).length;
+
+  const env: Env = {
+    DB: {} as Env["DB"],
+    OSN_ENV: "production",
+    PULSE_API_URL: "https://pulse.test",
+    ZAP_API_URL: "https://zap.test",
+    INTERNAL_SERVICE_SECRET: "s3cr3t",
+  };
+
+  const scheduledEvent = {
+    scheduledTime: Date.now(),
+    cron: "0 */6 * * *",
+    noRetry: () => {},
+  } as unknown as ScheduledController;
+
+  beforeEach(() => {
+    _resetOutboundKeyForTests();
+    fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+    _resetOutboundKeyForTests();
+  });
+
+  it("POSTs register-service to each downstream on the first cron tick", async () => {
+    const { ctx, settled } = collectWaitUntil();
+    await handler.scheduled(scheduledEvent, env, ctx);
+    await settled();
+    // One register-service POST per downstream (pulse + zap).
+    expect(registerCalls()).toBe(2);
+  });
+
+  it("does NOT re-register on a second tick within the same isolate", async () => {
+    const first = collectWaitUntil();
+    await handler.scheduled(scheduledEvent, env, first.ctx);
+    await first.settled();
+    expect(registerCalls()).toBe(2);
+
+    const second = collectWaitUntil();
+    await handler.scheduled(scheduledEvent, env, second.ctx);
+    await second.settled();
+    // Still 2 — the once-per-isolate latch suppressed the second pass.
+    expect(registerCalls()).toBe(2);
+  });
+
+  it("does not throw when env.DB is absent (early return)", async () => {
+    const { ctx } = collectWaitUntil();
+    await expect(handler.scheduled(scheduledEvent, {} as Env, ctx)).resolves.toBeUndefined();
+    expect(registerCalls()).toBe(0);
   });
 });

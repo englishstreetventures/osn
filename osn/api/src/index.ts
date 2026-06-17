@@ -5,6 +5,7 @@ import { Effect, Layer } from "effect";
 
 import { createApp, type App } from "./app";
 import { buildAppDeps, type EnvRecord } from "./build-deps";
+import { registerOutboundKeysOnce } from "./lib/outbound-arc";
 import { osnLoggerLayer } from "./observability";
 import { initRedisClientFromEnv } from "./redis";
 import * as accountErasure from "./services/account-erasure";
@@ -212,24 +213,54 @@ export const handler: {
   // its own `waitUntil` + `catchAll` so a failure in one never aborts the other
   // and the isolate stays alive until each settles.
   //
-  // ARC outbound-key rotation is NOT scheduled here: it lazily inits on first
-  // outbound use (`outbound-arc.ts`), so on Workers we rely on cron-triggered
-  // fan-out + that lazy init rather than the Bun `setTimeout` self-reschedule.
+  // ARC outbound-key registration on the Workers path. Pulse + Zap verify
+  // inbound ARC tokens against a PRE-REGISTERED public key (Pulse:
+  // `arc-middleware.ts` looks the kid up in an in-memory registry seeded by
+  // `POST /internal/register-service`; osn's own register-service stores keys
+  // in `service_account_keys` — there is NO JWKS-by-kid pull). The Bun server
+  // registers osn's outbound key at boot via `startOutboundKeyRotation` in
+  // `local.ts`. A workerd isolate has no boot hook, so we register here, once
+  // per isolate, BEFORE the fan-out sweeps run — otherwise the very first
+  // `/internal/account-deleted` POST would be 401'd by the downstream and the
+  // GDPR Art. 17 erasure would stall. `outbound-arc.ts`'s lazy init only mints
+  // the keypair; it does NOT publish the public key downstream. Registration is
+  // an idempotent upsert; the once-per-isolate latch keeps every later cron
+  // tick from re-POSTing. A failure here is logged and swallowed so a transient
+  // downstream outage never aborts the sweeps (the next tick retries).
   async scheduled(_event, env, ctx) {
     if (!env.DB) return;
     const dbLayer = makeDbD1Live(env.DB);
     const fanoutUrls = { pulseApiUrl: env.PULSE_API_URL, zapApiUrl: env.ZAP_API_URL };
 
+    // Register the outbound ARC key, THEN run the fan-out retry sweep — awaited in
+    // sequence within the tick so the first `/internal/account-deleted` POST on a
+    // fresh isolate isn't 401'd before the key is published downstream. A
+    // registration failure is logged and does not block the sweep (the POST then
+    // 401s and is retried on the next tick, per the fail-and-retry posture below).
     ctx.waitUntil(
-      Effect.runPromise(
-        accountErasure.runFanOutRetrySweep(fanoutUrls).pipe(
-          Effect.catchAll((err) =>
-            Effect.logError("scheduled fan-out retry sweep failed", { reason: String(err) }),
+      (async () => {
+        await registerOutboundKeysOnce({
+          pulseApiUrl: env.PULSE_API_URL,
+          zapApiUrl: env.ZAP_API_URL,
+          internalServiceSecret: env.INTERNAL_SERVICE_SECRET,
+          osnEnv: env.OSN_ENV,
+        }).catch((err) =>
+          Effect.runPromise(
+            Effect.logError("scheduled outbound ARC key registration failed", {
+              reason: String(err),
+            }).pipe(Effect.provide(osnLoggerLayer)),
           ),
-          Effect.provide(dbLayer),
-          Effect.provide(osnLoggerLayer),
-        ),
-      ),
+        );
+        await Effect.runPromise(
+          accountErasure.runFanOutRetrySweep(fanoutUrls).pipe(
+            Effect.catchAll((err) =>
+              Effect.logError("scheduled fan-out retry sweep failed", { reason: String(err) }),
+            ),
+            Effect.provide(dbLayer),
+            Effect.provide(osnLoggerLayer),
+          ),
+        );
+      })(),
     );
 
     ctx.waitUntil(

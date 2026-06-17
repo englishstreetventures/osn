@@ -201,9 +201,74 @@ export async function startOutboundKeyRotation(opts: {
 }
 
 /**
+ * Once-per-isolate registration guard for the Workers `scheduled` path.
+ *
+ * The Bun server self-reschedules rotation via `startOutboundKeyRotation`'s
+ * `setTimeout`, but a workerd isolate has no long-lived timer — every cron
+ * tick re-enters `scheduled`. `registerWithDownstream` is an idempotent
+ * upsert, so repeating it is harmless, but POSTing osn's public key to every
+ * downstream on *every* tick is wasteful. This flag is flipped on the first
+ * successful registration pass so subsequent ticks within the same isolate
+ * skip the network round-trips. A fresh isolate starts unregistered and
+ * registers again on its first tick. Note: workerd has no rotation timer, so
+ * the latch is never reset within an isolate's life; the downstream
+ * registration TTL (~24h) only bites an isolate that outlives it — in practice
+ * isolates are short-lived, and a lapsed registration just 401s the fan-out,
+ * which is retried next tick (fail-and-retry, never a silent erasure drop).
+ */
+let _downstreamRegistered = false;
+
+/**
+ * Registers osn's outbound ARC public key with each configured downstream
+ * (Pulse + Zap) exactly once per isolate. Intended for the Workers
+ * `scheduled` handler, which has no boot hook to run `startOutboundKeyRotation`
+ * (the Bun path does that in `local.ts`).
+ *
+ * Reuses `registerWithDownstream` (no duplicated POST logic). Idempotent at
+ * two levels: the module flag skips the network calls after the first success
+ * this isolate, and `registerWithDownstream` itself is a PUT/upsert downstream.
+ *
+ * Resolves to `true` once registration has been attempted+succeeded (or was
+ * already done this isolate), `false` when there is nothing to register (no
+ * downstream URLs configured) so the caller can tell a no-op apart. Any
+ * registration failure rejects — the caller is expected to log + swallow so a
+ * transient downstream outage never aborts the cron sweeps.
+ */
+export async function registerOutboundKeysOnce(opts: {
+  pulseApiUrl?: string;
+  zapApiUrl?: string;
+  internalServiceSecret?: string;
+  osnEnv?: string;
+}): Promise<boolean> {
+  if (_downstreamRegistered) return true;
+
+  const osnEnv = opts.osnEnv ?? process.env.OSN_ENV;
+  const internalServiceSecret = opts.internalServiceSecret ?? process.env.INTERNAL_SERVICE_SECRET;
+  const services = [
+    { url: opts.pulseApiUrl, selfId: "osn-api" as const, scopes: "account:erase" },
+    { url: opts.zapApiUrl, selfId: "osn-api" as const, scopes: "account:erase" },
+  ].filter((s): s is { url: string; selfId: "osn-api"; scopes: string } => Boolean(s.url));
+
+  if (services.length === 0) return false;
+
+  for (const s of services) {
+    // eslint-disable-next-line no-await-in-loop -- sequential so a configured-stack failure short-circuits before the next downstream (mirrors startOutboundKeyRotation)
+    await registerWithDownstream(s.url, s.selfId, s.scopes, { internalServiceSecret, osnEnv });
+  }
+
+  // Only latch once every configured downstream accepted the key — a partial
+  // failure throws above, leaving the flag false so the next tick retries.
+  _downstreamRegistered = true;
+  return true;
+}
+
+/**
  * Reset hook for tests — clears the in-memory keypair singleton so each
- * test that exercises outbound ARC starts with a fresh key.
+ * test that exercises outbound ARC starts with a fresh key. Also clears the
+ * once-per-isolate downstream-registration latch so registration can be
+ * re-exercised.
  */
 export function _resetOutboundKeyForTests(): void {
   _keyInitPromise = null;
+  _downstreamRegistered = false;
 }

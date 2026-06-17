@@ -22,7 +22,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-06-18
 security-fixes:
   - S-H100
   - S-H101
@@ -213,6 +213,31 @@ Env vars: `INTERNAL_SERVICE_SECRET`, `KEY_TTL_HOURS` (default 24), `KEY_ROTATION
 # Both env files need:
 INTERNAL_SERVICE_SECRET=<shared-random-string>
 ```
+
+### osn-api as issuer — outbound key registration (deletion fan-out)
+
+The flow above has `pulse-api` / `zap-api` registering **with** osn-api. The
+reverse also holds: when osn-api fans out a full-account erasure it acts as the
+ARC **issuer**, POSTing `/internal/account-deleted` to Pulse + Zap with
+`scope: account:erase`. Because those downstreams verify against a
+**pre-registered** key (Pulse's `arc-middleware.ts` looks the `kid` up in an
+in-memory registry seeded by `POST /internal/register-service`; there is **no**
+JWKS-by-kid pull), osn-api must first publish *its own* outbound ARC public key
+to each downstream — otherwise the first `/internal/account-deleted` POST is
+401'd and the GDPR Art. 17 erasure stalls.
+
+- **Bun path** (`local.ts`): `startOutboundKeyRotation()` in
+  `osn/api/src/lib/outbound-arc.ts` registers with Pulse + Zap at boot and
+  self-reschedules rotation via an unref'd `setTimeout`.
+- **Workers path** (`osn/api/src/index.ts` `scheduled`): a workerd isolate has
+  no boot hook, so `registerOutboundKeysOnce()` runs inside the cron
+  `scheduled` handler, **before** the fan-out sweeps, registering once per
+  isolate (a module-level latch suppresses re-POSTing on later ticks; the
+  downstream upsert makes a repeat harmless anyway). A registration failure is
+  logged via `Effect.logError` and swallowed so a transient downstream outage
+  never aborts the sweeps — the next tick retries (the latch only flips on full
+  success). The lazy key init in `outbound-arc.ts` only *mints* the keypair; it
+  does **not** publish the public key, so this explicit registration is required.
 
 ### Key revocation
 
