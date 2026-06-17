@@ -1,9 +1,17 @@
+import { BOOTSTRAP_WEDDING_ID, weddings } from "@cire/db";
+import { and, eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
 import { createApp } from "./app";
-import { createD1Db, DbService } from "./db";
+import { createD1Db, DbService, type Db } from "./db";
+import {
+  BOOTSTRAP_OWNER_SENTINEL,
+  isDeployedEnv,
+  resolveBootstrapOwnerProfileId,
+} from "./db/bootstrap-owner";
 import { createWorkersRateLimiter } from "./lib/workers-rate-limiter";
 import type { WorkersRateLimitBinding } from "./lib/workers-rate-limiter";
+import { runCire } from "./observability";
 import { createAccountResolverFromEnv } from "./services/osn-bridge";
 import { sessionService } from "./services/session";
 
@@ -43,6 +51,47 @@ export interface Env {
 // binding identity rebuilds defensively if that ever changes. The ARC account
 // resolver (which imports the signing key) is built alongside it, once.
 let cached: { app: ReturnType<typeof createApp>; dbBinding: D1Database } | undefined;
+
+/**
+ * Repoint the bootstrap wedding from migration 0006's inert sentinel owner to
+ * the real organiser profile id (BOOTSTRAP_OWNER_PROFILE_ID). Migrations bake
+ * only the sentinel; this is the prod path that gives the bootstrap wedding a
+ * real owner — `seedDb` (which carries the local/dev default) never runs
+ * against D1. Runs once per isolate alongside app construction.
+ *
+ * Idempotent + safe to re-run: the UPDATE is guarded to the sentinel, so once
+ * the row carries a real owner this is a no-op. `resolveBootstrapOwnerProfileId`
+ * THROWS in a deployed env when the var is missing/placeholder — that throw
+ * propagates to `fetch` and is turned into a 503, so a misconfigured deploy
+ * fails loud rather than serving a wedding owned by a nonexistent profile.
+ */
+export async function ensureBootstrapOwner(
+  db: Db,
+  env: Record<string, string | undefined> = process.env,
+): Promise<void> {
+  // Only deployed tiers (dev/staging/prod) get a D1 repoint. Locally the seed —
+  // not this fixup — owns the row, so never write the dev default to D1. In a
+  // deployed env `resolveBootstrapOwnerProfileId` returns a real usr_* id or
+  // THROWS (⇒ 503), so a misconfigured deploy fails loud.
+  if (!isDeployedEnv(env)) return;
+  const owner = resolveBootstrapOwnerProfileId(env);
+
+  await Promise.resolve(
+    db
+      .update(weddings)
+      .set({ ownerOsnProfileId: owner })
+      .where(
+        and(
+          eq(weddings.id, BOOTSTRAP_WEDDING_ID),
+          eq(weddings.ownerOsnProfileId, BOOTSTRAP_OWNER_SENTINEL),
+        ),
+      )
+      .run(),
+  );
+  await runCire(
+    Effect.logInfo("bootstrap wedding owner ensured", { weddingId: BOOTSTRAP_WEDDING_ID }),
+  );
+}
 
 const misconfigured = (detail: string) =>
   new Response(JSON.stringify({ error: `Worker misconfigured: ${detail}` }), {
@@ -84,6 +133,15 @@ const handler: ExportedHandler<Env> = {
 
     if (!cached || cached.dbBinding !== env.DB) {
       const db = createD1Db(env.DB);
+      // Repoint the bootstrap wedding off migration 0006's inert sentinel onto
+      // the real organiser id. Throws (⇒ 503) in a deployed env when
+      // BOOTSTRAP_OWNER_PROFILE_ID is missing/placeholder — fail loud rather
+      // than serve a wedding owned by a nonexistent profile.
+      try {
+        await ensureBootstrapOwner(db);
+      } catch (error) {
+        return misconfigured(error instanceof Error ? error.message : "bootstrap owner unset");
+      }
       // Built once per isolate with the app. Returns null (⇒ linking disabled,
       // POST answers 503) when the ARC config is absent.
       const resolveOsnAccountId =

@@ -45,7 +45,7 @@ Two deliberately separate systems — full contract in [[cire-auth]]:
 - `weddings` is the root table; `families`, `events`, and `imports` carry a `wedding_id` NOT NULL FK (cascade). Multi-tenant scaffold, single wedding in practice today.
 - `guest_account_links` records the optional per-invitee OSN link: `guest_id`/`family_id`/`wedding_id` (cascade FKs) + opaque `osn_account_id` / `osn_profile_id` (no cross-DB FK). See [[cire-auth]].
 - Ownership is interim single-owner: `weddings.owner_osn_profile_id` stores an opaque OSN profile id (`usr_*` string — **no cross-DB FK**; cire's D1 and OSN's DB are separate databases).
-- Migration `0006_multi_tenant.sql` uses a deliberate `__keep_*` snapshot/restore idiom — DROP TABLE under enforced FKs fires ON DELETE CASCADE into children on D1 (the pragma can't be disabled there), verified empirically. Its bootstrap row `wed_bootstrap` ships with placeholder owner `usr_REPLACE_BEFORE_PROD`, which **must** be substituted with the real OSN profile id before the migration is applied to remote/production D1.
+- Migration `0006_multi_tenant.sql` uses a deliberate `__keep_*` snapshot/restore idiom — DROP TABLE under enforced FKs fires ON DELETE CASCADE into children on D1 (the pragma can't be disabled there), verified empirically. Its bootstrap row `wed_bootstrap` ships with an **inert sentinel owner** `usr_unclaimed_bootstrap` — no real profile, so the ownership gate fails CLOSED. The real owner is **not** baked into the migration: it comes from the `BOOTSTRAP_OWNER_PROFILE_ID` env var. `resolveBootstrapOwnerProfileId` (`cire/api/src/db/setup.ts`) feeds the local/test seed (dev default `usr_dev_bootstrap_owner` when `OSN_ENV` is local), and `ensureBootstrapOwner` (`cire/api/src/index.ts`) runs once per isolate to repoint the D1 row off the sentinel in a deployed environment. A missing / placeholder / non-`usr_*` value in any deployed tier THROWS → the worker answers 503 (fail loud). Set `BOOTSTRAP_OWNER_PROFILE_ID` (the real organiser `usr_*` id) as a wrangler secret before the first deployed-D1 boot.
 
 ## Local dev
 
@@ -64,8 +64,8 @@ bun run --cwd cire/db db:seed             # seed only (runs scripts/cire-db-seed
 ```
 
 `scripts/cire-db-seed.sh` seeds the local miniflare D1 and then re-points the
-bootstrap wedding (`wed_bootstrap`, which migration `0006` seeds with the
-`usr_REPLACE_BEFORE_PROD` placeholder owner) to `CIRE_DEV_OWNER_PROFILE_ID` so
+bootstrap wedding (`wed_bootstrap`, which migration `0006` seeds with the inert
+sentinel owner `usr_unclaimed_bootstrap`) to `CIRE_DEV_OWNER_PROFILE_ID` so
 the wedding is owned by your signed-in dev account. Set it in `cire/db/.env`:
 
 ```bash

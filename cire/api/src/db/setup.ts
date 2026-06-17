@@ -5,6 +5,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import eventsData from "../data/events.json";
 import guestsData from "../data/guests.json";
+import { type EnvSource, resolveBootstrapOwnerProfileId } from "./bootstrap-owner";
 import type { Db } from "./index";
 
 // LOCKSTEP CONTRACT: this DDL is a hand-maintained mirror of
@@ -147,18 +148,32 @@ export function createDb(path: string = ":memory:"): Db {
   return drizzle(sqlite, { schema });
 }
 
+// Re-exported so existing `./setup` importers (tests, seed) keep one import
+// site. The actual logic lives in the workerd-safe `./bootstrap-owner` module
+// (no `bun:sqlite`), which the Worker entry point imports directly.
+export {
+  BOOTSTRAP_OWNER_SENTINEL,
+  type EnvSource,
+  isDeployedEnv,
+  REPLACE_OWNER_PLACEHOLDER,
+  resolveBootstrapOwnerProfileId,
+} from "./bootstrap-owner";
+
 // Bootstrap wedding mirroring migration 0006 — every seeded family/event is
-// scoped to it. The owner id is a placeholder substituted with the real OSN
-// profile id before the remote D1 push. Exported so tests that build their
-// own fixtures on a bare createDb() can satisfy the wedding_id FK.
-export function seedBootstrapWedding(db: Db): void {
+// scoped to it. The owner id is resolved from the environment
+// (BOOTSTRAP_OWNER_PROFILE_ID); see `resolveBootstrapOwnerProfileId`. Exported
+// so tests that build their own fixtures on a bare createDb() can satisfy the
+// wedding_id FK. This runtime seed is the local/test path; prod D1 gets the
+// inert sentinel from migration 0006 and is repointed by the owner-fixup in
+// the Worker entry point.
+export function seedBootstrapWedding(db: Db, env: EnvSource = process.env): void {
   const now = new Date();
   db.insert(schema.weddings)
     .values({
       id: schema.BOOTSTRAP_WEDDING_ID,
       slug: "cire-wedding",
       displayName: "Cire Wedding",
-      ownerOsnProfileId: "usr_REPLACE_BEFORE_PROD",
+      ownerOsnProfileId: resolveBootstrapOwnerProfileId(env),
       createdAt: now,
       updatedAt: now,
     })

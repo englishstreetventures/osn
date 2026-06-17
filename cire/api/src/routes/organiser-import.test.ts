@@ -18,7 +18,8 @@ let bearer: string;
 
 beforeAll(async () => {
   auth = await makeOsnTestAuth();
-  bearer = await auth.sign("usr_REPLACE_BEFORE_PROD");
+  // Local dev default owner from resolveBootstrapOwnerProfileId (OSN_ENV unset).
+  bearer = await auth.sign("usr_dev_bootstrap_owner");
 });
 
 const EVENTS_CSV = [

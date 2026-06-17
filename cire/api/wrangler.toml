@@ -65,6 +65,13 @@ OSN_JWKS_URL = "https://osn-api.example.com/.well-known/jwks.json"
 # REQUIRED BEFORE PROD — real OSN origin (placeholder host osn-api.example.com)
 OSN_ISSUER_URL = "https://osn-api.example.com"
 OSN_AUDIENCE = "osn-access"
+# BOOTSTRAP_OWNER_PROFILE_ID — the organiser's real OSN profile id (usr_*).
+# REQUIRED before the first deployed-D1 boot: migration 0006 seeds the bootstrap
+# wedding with the inert sentinel owner; ensureBootstrapOwner (src/index.ts)
+# repoints it to this value on first isolate boot, or fails loud (503) if unset.
+# Set it (with OSN_ENV) as a secret, NOT a plaintext var:
+#   bunx wrangler secret put BOOTSTRAP_OWNER_PROFILE_ID
+#   bunx wrangler secret put OSN_ENV   # must be dev|staging|production
 
 # Wrangler named environments do NOT inherit top-level [[d1_databases]] /
 # [[r2_buckets]] / [[unsafe.bindings]] — they must be redeclared per-env.

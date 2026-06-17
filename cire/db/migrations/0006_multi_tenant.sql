@@ -29,15 +29,20 @@ CREATE UNIQUE INDEX `weddings_slug_unique` ON `weddings` (`slug`);
 --> statement-breakpoint
 CREATE INDEX `weddings_owner_idx` ON `weddings` (`owner_osn_profile_id`);
 --> statement-breakpoint
--- Bootstrap row for the existing bespoke wedding. The owner id is a
--- placeholder: substitute the real OSN profile id (usr_*) before this
--- migration is applied to the remote/production D1.
+-- Bootstrap row for the existing bespoke wedding. The owner id is an INERT
+-- sentinel ('usr_unclaimed_bootstrap'), NOT the real organiser: it satisfies
+-- the NOT NULL owner column + the families/events FK backfill below while
+-- matching no real OSN profile, so the organiser ownership gate fails CLOSED.
+-- The real owner is NOT baked into this migration — it is supplied at runtime
+-- from BOOTSTRAP_OWNER_PROFILE_ID and written by the Worker's bootstrap
+-- owner-fixup (see cire/api/src/index.ts → ensureBootstrapOwner), which UPDATEs
+-- this row away from the sentinel on first boot in a deployed environment.
 INSERT INTO `weddings` (`id`, `slug`, `display_name`, `owner_osn_profile_id`, `created_at`, `updated_at`)
 VALUES (
   'wed_bootstrap',
   'cire-wedding',
   'Cire Wedding',
-  'usr_REPLACE_BEFORE_PROD',
+  'usr_unclaimed_bootstrap',
   CAST(strftime('%s','now') AS INTEGER),
   CAST(strftime('%s','now') AS INTEGER)
 );

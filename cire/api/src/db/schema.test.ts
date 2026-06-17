@@ -52,7 +52,7 @@ CREATE UNIQUE INDEX guest_account_links_guest_uniq ON guest_account_links(guest_
 CREATE UNIQUE INDEX guest_account_links_family_account_uniq ON guest_account_links(family_id, osn_account_id);
 CREATE INDEX guest_account_links_account_idx ON guest_account_links(osn_account_id);
 CREATE INDEX guest_account_links_family_idx ON guest_account_links(family_id);
-INSERT INTO weddings VALUES ('wed_bootstrap', 'cire-wedding', 'Cire Wedding', 'usr_REPLACE_BEFORE_PROD', 'secure', 0, 0);
+INSERT INTO weddings VALUES ('wed_bootstrap', 'cire-wedding', 'Cire Wedding', 'usr_unclaimed_bootstrap', 'secure', 0, 0);
 `;
 
 function makeDb() {

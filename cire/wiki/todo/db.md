@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-06-17
 ---
 
 # cire/db
@@ -21,7 +21,7 @@ Schema and migration work. See [[monorepo-structure]] for how this package fits 
 - [x] `guests.externalId` nullable column for forward-looking spreadsheet stable IDs (PR-A)
 - [x] ~~Add `organisers` + `organiser_sessions` tables once auth lands~~ — **Obsolete**: organiser auth reuses OSN passkeys (stateless JWT verification, no cire-side organiser tables); ownership lives on `weddings.owner_osn_profile_id`. See `[[wiki/systems/cire-auth]]` in the root OSN wiki.
 - [x] Multi-tenant scaffold (OSN merge) — `weddings` root table; `families`/`events`/`imports` carry `wedding_id` NOT NULL FK cascade; migration `0006_multi_tenant.sql` uses the `__keep_*` snapshot/restore idiom because DROP TABLE under enforced FKs fires ON DELETE CASCADE into children on D1 (pragma can't be disabled) — verified empirically
-- [ ] **Substitute the `0006_multi_tenant.sql` bootstrap owner `usr_REPLACE_BEFORE_PROD`** (`wed_bootstrap` row) with the real OSN profile id **before** the migration is applied to remote/production D1
+- [x] **Bootstrap owner is env-driven + fail-loud** — migration `0006_multi_tenant.sql` no longer bakes the real owner; the `wed_bootstrap` row ships with an inert sentinel `usr_unclaimed_bootstrap` (ownership gate fails CLOSED). The real owner comes from `BOOTSTRAP_OWNER_PROFILE_ID` at runtime: `resolveBootstrapOwnerProfileId` (in `cire/api/src/db/setup.ts`) feeds the local/test seed (dev default `usr_dev_bootstrap_owner` when `OSN_ENV` local) and the prod owner-fixup `ensureBootstrapOwner` (in `cire/api/src/index.ts`, runs once per isolate, UPDATEs the row off the sentinel). In any deployed tier (dev/staging/prod) a missing / placeholder / non-`usr_*` value THROWS → 503. **VALUE STILL NEEDED: the organiser's real `usr_*` OSN profile id, set as `BOOTSTRAP_OWNER_PROFILE_ID` secret before the first deployed-D1 boot.**
 - [ ] Multi-owner weddings — replace `weddings.owner_osn_profile_id` with a `wedding_owners(wedding_id, osn_profile_id, role owner/editor/viewer)` join table (also tracked in root `wiki/TODO.md` Cire section)
 - [x] Add `dietary_requirements` column to rsvps (added as `dietary` text NOT NULL DEFAULT '' in migration `0002_add_rsvp_dietary.sql`; per-event dietary lives on `rsvps` row)
 - [ ] Retire deprecated `events.date` / `events.location` columns (kept in 0003 for backwards compatibility — D1 is forward-only so this needs a separate copy-and-drop migration)

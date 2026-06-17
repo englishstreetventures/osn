@@ -13,7 +13,7 @@ describe("multi-tenant schema", () => {
     const weddings = db.select().from(schema.weddings).all();
     expect(weddings).toHaveLength(1);
     expect(weddings[0]!.id).toBe("wed_bootstrap");
-    expect(weddings[0]!.ownerOsnProfileId).toBe("usr_REPLACE_BEFORE_PROD");
+    expect(weddings[0]!.ownerOsnProfileId).toBe("usr_dev_bootstrap_owner");
 
     const families = db.select().from(schema.families).all();
     expect(families.length).toBeGreaterThan(0);
