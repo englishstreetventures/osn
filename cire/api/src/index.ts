@@ -13,6 +13,7 @@ import { createWorkersRateLimiter } from "./lib/workers-rate-limiter";
 import type { WorkersRateLimitBinding } from "./lib/workers-rate-limiter";
 import { runCire } from "./observability";
 import { createAccountResolverFromEnv } from "./services/osn-bridge";
+import { retentionService } from "./services/retention";
 import { sessionService } from "./services/session";
 
 // Worker bindings + vars. Mirrors `wrangler.toml` ([[d1_databases]], [[r2_buckets]],
@@ -179,23 +180,44 @@ const handler: ExportedHandler<Env> = {
     return cached.app.fetch(request);
   },
 
-  // Cron-triggered expired-session sweep (C-M2/C-M15). Configured by the
-  // `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Guest logins
-  // leave session rows that are never deleted on the read path, so the table
-  // grows unbounded without this. The sweep deletes rows whose 30-day window
-  // has lapsed; there is no separate retention knob — `expiresAt` already
-  // encodes when a row becomes dead. `waitUntil` keeps the isolate alive until
-  // the delete settles.
+  // Cron-triggered daily maintenance (C-M2/C-M15 + retention). Configured by the
+  // single `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Two
+  // independent sweeps share the cron:
+  //
+  //  1. Expired-session sweep — guest logins leave session rows that are never
+  //     deleted on the read path, so the table grows unbounded without this. The
+  //     sweep deletes rows whose 30-day window has lapsed; `expiresAt` already
+  //     encodes when a row becomes dead.
+  //  2. Guest-data retention sweep — enforces the published privacy promise
+  //     (cire/web privacy.astro): guest PII (guests/families/rsvps incl. dietary
+  //     + consent, plus imports bookkeeping) is deleted 1 year after a wedding's
+  //     final event.
+  //
+  // Each is its own `waitUntil` + `catchAll`, so a failure in one never aborts
+  // the other and the isolate stays alive until each delete settles.
   async scheduled(_event, env, ctx) {
     if (!env.DB) return;
     const db = createD1Db(env.DB);
+    const dbLayer = Layer.succeed(DbService, db);
+
     ctx.waitUntil(
       Effect.runPromise(
         sessionService.sweepExpired().pipe(
           Effect.catchAll((err) =>
             Effect.logError("scheduled session sweep failed", { reason: err.reason }),
           ),
-          Effect.provide(Layer.succeed(DbService, db)),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+
+    ctx.waitUntil(
+      Effect.runPromise(
+        retentionService.sweepExpiredGuestData().pipe(
+          Effect.catchAll((err) =>
+            Effect.logError("scheduled guest-data retention sweep failed", { reason: err.reason }),
+          ),
+          Effect.provide(dbLayer),
         ),
       ),
     );

@@ -37,6 +37,9 @@ export const CIRE_METRICS = {
   sessionCreated: "cire.session.created",
   // Scheduled expired-session sweep (cron).
   sessionSwept: "cire.session.swept",
+  // Scheduled guest-data retention sweep (cron) — deletes guest PII 1 year
+  // after a wedding's final event.
+  guestDataSwept: "cire.guest_data.swept",
   // Organiser host-code (invite preview) provisioning.
   hostCodeEnsured: "cire.host_code.ensured",
   // RSVP.
@@ -106,6 +109,7 @@ type ClaimAttemptsAttrs = { result: ClaimResult };
 type ClaimLookupDurationAttrs = { result: "ok" | "error" };
 type SessionCreatedAttrs = { result: "ok" | "error" };
 type SessionSweptAttrs = { result: "ok" | "error" };
+type GuestDataSweptAttrs = { result: "ok" | "error" };
 type HostCodeEnsuredAttrs = { result: "ok" | "error" };
 type RsvpUpsertedAttrs = { status: RsvpStatus; result: "ok" | "error" };
 type ImportSimpleAttrs = { result: "ok" | "error" };
@@ -147,6 +151,13 @@ const sessionSwept = createCounter<SessionSweptAttrs>({
   description:
     "Expired guest sessions deleted by the scheduled sweeper — increment is the row count, so the sum tracks reclaimed rows",
   unit: "{session}",
+});
+
+const guestDataSwept = createCounter<GuestDataSweptAttrs>({
+  name: CIRE_METRICS.guestDataSwept,
+  description:
+    "Guest rows deleted by the scheduled retention sweep (1 year after a wedding's final event) — increment is the row count, so the sum tracks reclaimed guest records",
+  unit: "{guest}",
 });
 
 const hostCodeEnsured = createCounter<HostCodeEnsuredAttrs>({
@@ -257,6 +268,12 @@ export const metricSessionCreated = (result: "ok" | "error"): void =>
  *  single `error` increment. */
 export const metricSessionSwept = (result: "ok" | "error", count = 1): void =>
   sessionSwept.add(count, { result });
+
+/** Record a retention sweep: on success `count` is the number of guest rows
+ *  deleted, so the counter sum tracks reclaimed guest records over time. A
+ *  failed sweep records a single `error` increment. */
+export const metricGuestDataSwept = (result: "ok" | "error", count = 1): void =>
+  guestDataSwept.add(count, { result });
 
 export const metricHostCodeEnsured = (result: "ok" | "error"): void =>
   hostCodeEnsured.inc({ result });

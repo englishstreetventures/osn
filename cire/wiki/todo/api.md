@@ -4,7 +4,7 @@ tags: [todo, api]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-06-15
+last-reviewed: 2026-06-17
 ---
 
 # cire/api
@@ -29,4 +29,6 @@ Backend feature work. The Elysia + Effect + Drizzle layer in `cire/api`.
 - [x] ~~Auth middleware — validate passkey session or magic link token~~ — **Obsolete**: superseded by the two-system model (guest `sessionAuth` cookie + organiser `osnAuth` JWT); no cire-local passkey/magic-link layer
 - [x] ~~Passkey (WebAuthn) registration + authentication endpoints~~ — **Obsolete**: organisers reuse OSN's passkey infra (`@osn/api` issuer); cire ships no WebAuthn endpoints of its own
 - [x] ~~Magic link email dispatch (Resend)~~ — **Obsolete**: no magic-link factor in the two-system model
+- [x] **1-year guest-data retention deletion** — `retentionService.sweepExpiredGuestData(now)` (Effect, `services/retention.ts`) deletes guest PII (`rsvps` incl. dietary + Art. 9(2)(a) consent, `guests`, `families`, plus `imports` rows) for every wedding whose latest `events.date` is > `RETENTION_AFTER_FINAL_EVENT_MS` (365 days) before now. Window enforced from the published privacy notice. Wedding+events shell kept; no-events weddings kept. Wired into the existing daily-cron `scheduled` handler alongside the session sweep; `cire.guest_data.swept` metric.
+- [ ] **Retention R2 follow-up** — the retention sweep deletes expired weddings' `imports` DB rows but NOT the R2 objects they reference (`eventsR2Key`/`guestsR2Key` — uploaded sheets carry guest PII). Reap them via a separate R2-aware pass or an R2 lifecycle rule on the `imports/` prefix. (TODO `retention-r2` in `services/retention.ts`.)
 - [ ] Admin endpoints — view RSVPs, regenerate passwords, deactivate families
