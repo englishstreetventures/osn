@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PinterestBoard } from "./PinterestBoard";
+import { PinterestBoard, resetPinterestConsentForTest } from "./PinterestBoard";
 
 const VALID_URL = "https://www.pinterest.com.au/example/catholic-wedding-guest-moodboard/";
 const CONSENT_KEY = "cire:pinterest-consent";
@@ -43,14 +43,16 @@ describe("PinterestBoard", () => {
   let scriptHandle: ReturnType<typeof captureScripts>;
 
   beforeEach(() => {
-    sessionStorage.clear();
+    localStorage.clear();
+    resetPinterestConsentForTest();
     scriptHandle = captureScripts();
   });
 
   afterEach(() => {
     cleanup();
     scriptHandle.restore();
-    sessionStorage.clear();
+    localStorage.clear();
+    resetPinterestConsentForTest();
     vi.useRealTimers();
   });
 
@@ -106,22 +108,49 @@ describe("PinterestBoard", () => {
     expect(container.textContent ?? "").toContain("View moodboard on Pinterest");
   });
 
-  it("persists consent for the session so a remount does not re-prompt", () => {
+  it("persists consent across visits so a later mount does not re-prompt", () => {
     const first = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
     grantConsent(first.container);
-    expect(sessionStorage.getItem(CONSENT_KEY)).toBe("granted");
+    // localStorage (not sessionStorage) so the choice survives the visit.
+    expect(localStorage.getItem(CONSENT_KEY)).toBe("granted");
     cleanup();
+    // Simulate a brand-new page load: drop the in-memory signal, keep storage.
+    resetPinterestConsentForTest();
 
-    // Remount (e.g. details modal reopens): consent is restored, script injects
-    // without another prompt.
+    // A later visit reads the persisted consent, injects the script, no prompt.
     const second = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
     expect(second.container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
     expect(second.container.querySelector("button")).toBeNull();
     expect(scriptHandle.all().length).toBeGreaterThan(0);
   });
 
-  it("defaults to un-consented on a fresh session (opt-in, not opt-out)", () => {
-    expect(sessionStorage.getItem(CONSENT_KEY)).toBeNull();
+  it("mounts already-consented (no prompt) when consent was persisted in a previous visit", () => {
+    localStorage.setItem(CONSENT_KEY, "granted");
+    resetPinterestConsentForTest();
+    const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+    expect(container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
+    expect(container.querySelector("button")).toBeNull();
+    expect(scriptHandle.all().length).toBeGreaterThan(0);
+  });
+
+  it("accepting on one board immediately unlocks other boards on the same page", () => {
+    // Two boards mounted at once (different events). Both start gated.
+    const a = render(() => <PinterestBoard url={VALID_URL} eventName="Ceremony" />);
+    const b = render(() => <PinterestBoard url={VALID_URL} eventName="Reception" />);
+    expect(a.container.querySelector("a[data-pin-do]")).toBeNull();
+    expect(b.container.querySelector("a[data-pin-do]")).toBeNull();
+
+    // Accept on board A only.
+    grantConsent(a.container);
+
+    // Board B reveals its embed reactively — no second click, no re-prompt.
+    expect(a.container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
+    expect(b.container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
+    expect(b.container.querySelector("button")).toBeNull();
+  });
+
+  it("defaults to un-consented on a fresh visit (opt-in, not opt-out)", () => {
+    expect(localStorage.getItem(CONSENT_KEY)).toBeNull();
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
     expect(container.querySelector("a[data-pin-do]")).toBeNull();
     expect(scriptHandle.all()).toHaveLength(0);

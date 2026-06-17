@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 
 import { isValidPinterestUrl } from "./pinterest";
 
@@ -11,30 +11,47 @@ interface PinterestBoardProps {
 let nextId = 0;
 const nextAnchorId = () => `pin-board-${++nextId}`;
 
-// Session-scoped consent key. Opt-IN only: the absence of this key (the
-// default for every fresh visit) means "no consent", so the Pinterest tracker
-// script never loads until the guest explicitly clicks "Load Pinterest board".
-// We persist within the session so the choice isn't re-asked on every mount
-// (boards remount when the details modal reopens), but it never survives the
-// visit — a returning guest starts un-consented again.
+// Persisted consent key. Opt-IN only: the absence of this key (the default for
+// every first visit) means "no consent", so the Pinterest tracker script never
+// loads until the guest explicitly clicks "Load Pinterest board". We persist in
+// localStorage so the choice survives the visit — a returning guest who already
+// accepted is never re-prompted, and every board after the first loads straight
+// away.
 const CONSENT_KEY = "cire:pinterest-consent";
 
-function readConsent(): boolean {
+// Shared, module-level reactive consent state. A SINGLE signal backs every
+// PinterestBoard on the page, so accepting on one board immediately flips all
+// the others (the details modal can render several boards at once, and the page
+// may show more than one). Seeded lazily from localStorage on first read so the
+// persisted choice is picked up without re-prompting.
+const [consentGranted, setConsentGranted] = createSignal(readPersistedConsent());
+
+function readPersistedConsent(): boolean {
   try {
-    return sessionStorage.getItem(CONSENT_KEY) === "granted";
+    return localStorage.getItem(CONSENT_KEY) === "granted";
   } catch {
     // Private-mode / storage-disabled: treat as un-consented (safe default).
     return false;
   }
 }
 
-function persistConsent(): void {
+function grantConsentGlobally(): void {
   try {
-    sessionStorage.setItem(CONSENT_KEY, "granted");
+    localStorage.setItem(CONSENT_KEY, "granted");
   } catch {
-    // Storage unavailable — consent still applies for this mount via the
-    // in-memory signal; we just can't remember it across remounts.
+    // Storage unavailable — consent still applies for this page via the shared
+    // in-memory signal below; we just can't remember it across visits.
   }
+  setConsentGranted(true);
+}
+
+/**
+ * Test-only: reset the shared in-memory consent signal to whatever localStorage
+ * currently says. Lets a test simulate a fresh page load (new module evaluation)
+ * after seeding or clearing localStorage, without a real reload.
+ */
+export function resetPinterestConsentForTest(): void {
+  setConsentGranted(readPersistedConsent());
 }
 
 // Grace period for Pinterest's script to load, run, and transform our `<a>`
@@ -53,8 +70,8 @@ const EMBED_TIMEOUT_MS = 2500;
 /**
  * Renders a Pinterest board using Pinterest's documented embed widget pattern
  * (https://developers.pinterest.com/docs/web-features/widgets/#board-widget),
- * behind a session-scoped opt-in consent gate, with a graceful fallback to a
- * plain outbound link whenever the embed isn't shown (no consent, invalid
+ * behind a persisted, page-wide opt-in consent gate, with a graceful fallback
+ * to a plain outbound link whenever the embed isn't shown (no consent, invalid
  * URL, or a tracker blocker stopping the embed from rendering).
  *
  * Consent gate (S-H3 / C-H3): `assets.pinterest.com/js/pinit_main.js` is a
@@ -65,6 +82,11 @@ const EMBED_TIMEOUT_MS = 2500;
  * board?" affordance, and the script only injects after the guest clicks it.
  * The fallback link stays visible regardless so non-consenting guests still
  * reach the board.
+ *
+ * One-time, page-wide consent: the choice is backed by a single shared signal
+ * (see `consentGranted` above) and persisted to localStorage. Accepting on one
+ * board flips every other board on the page in the same tick, and the next
+ * visit reads the persisted consent so the guest is never re-prompted.
  *
  * SRI: Pinterest publishes no stable Subresource-Integrity hash for
  * pinit_main.js (the IIFE is rolled frequently and the URL is cache-busted),
@@ -85,22 +107,22 @@ const EMBED_TIMEOUT_MS = 2500;
  */
 export function PinterestBoard(props: PinterestBoardProps) {
   const id = nextAnchorId();
-  const [consented, setConsented] = createSignal(false);
   const [embedFailed, setEmbedFailed] = createSignal(false);
   let anchorRef: HTMLAnchorElement | undefined;
 
   // Injected script + fallback timer, tracked at component scope so the single
-  // top-level onCleanup below can tear them down. `injectEmbedScript` runs from
-  // a click handler (outside the reactive owner), so it can't register its own
-  // onCleanup — we centralise teardown here instead.
+  // top-level onCleanup below can tear them down.
   let injectedScript: HTMLScriptElement | undefined;
   let timeoutId: number | undefined;
 
-  onMount(() => {
-    // Restore a consent granted earlier in this session so we don't re-prompt
-    // on remount. Still opt-in: a fresh visit has no stored consent.
-    if (readConsent()) {
-      setConsented(true);
+  // React to the shared, page-wide consent signal. This fires for all three
+  // paths uniformly: (1) consent already persisted at mount, (2) this board's
+  // own "Load Pinterest board" click, (3) another board on the page granting
+  // consent (the shared signal flips, this effect re-runs and reveals us too).
+  // Guarded so the tracker injects exactly once per mount.
+  createEffect(() => {
+    if (consentGranted() && !injectedScript) {
+      setEmbedFailed(false);
       injectEmbedScript();
     }
   });
@@ -110,8 +132,8 @@ export function PinterestBoard(props: PinterestBoardProps) {
     injectedScript?.remove();
   });
 
-  // Injects the tracker script. Only ever called after consent (restored from
-  // session storage on mount, or via an explicit user click) — never on a
+  // Injects the tracker script. Only ever called after consent (persisted on
+  // mount, or via an explicit user click on this or another board) — never on a
   // fresh, un-consented mount.
   function injectEmbedScript() {
     if (!isValidPinterestUrl(props.url)) return;
@@ -140,10 +162,9 @@ export function PinterestBoard(props: PinterestBoardProps) {
   }
 
   function grantConsent() {
-    persistConsent();
-    setConsented(true);
-    setEmbedFailed(false);
-    injectEmbedScript();
+    // Flip the shared signal + persist. The createEffect above does the actual
+    // injection — for this board and every other one mounted on the page.
+    grantConsentGlobally();
   }
 
   return (
@@ -162,20 +183,24 @@ export function PinterestBoard(props: PinterestBoardProps) {
       </div>
 
       <Show
-        when={consented() && !embedFailed()}
+        when={consentGranted() && !embedFailed()}
         fallback={
           // Default state: opt-in consent affordance. No script has loaded.
           <div class="font-body text-fg/70 mt-2 flex flex-col items-center gap-2 text-center text-[0.72rem]">
             <p>
-              Load Pinterest board? This loads content from Pinterest, which may set cookies or
-              collect usage data.
+              Load Pinterest board? This embeds content from Pinterest, a third party that may set
+              cookies and collect usage data. Your choice is remembered for this site. See our{" "}
+              <a href="/privacy" class="text-gold underline">
+                privacy notice
+              </a>
+              .
             </p>
             <button
               type="button"
               onClick={grantConsent}
               class="border-gold text-gold hover:bg-gold hover:text-bg rounded-sm border px-4 py-1.5 text-[0.7rem] tracking-[0.12em] uppercase transition-colors duration-200"
             >
-              Load Pinterest board
+              Load Pinterest content
             </button>
           </div>
         }
