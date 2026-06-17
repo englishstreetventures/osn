@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, guests } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, guests, rsvps } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../app";
@@ -10,6 +11,7 @@ import { DbService } from "../db";
 import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
 import { parseSessionToken } from "../lib/cookie";
+import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
 import { hostCodeService } from "../services/host-code";
 import { eff } from "../test-helpers";
 
@@ -106,6 +108,7 @@ describe("POST /api/rsvp", () => {
                 eventId: HINDU_ID,
                 status: "attending",
                 dietary: "Vegetarian",
+                dietaryConsent: true,
               },
             ],
           },
@@ -266,6 +269,87 @@ describe("POST /api/rsvp", () => {
           cookie,
         );
         expect(res.status).toBe(400);
+      }),
+    ),
+  );
+
+  it(
+    "returns 422 when dietary text is submitted without consent (C-H2)",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        const res = yield* post(
+          {
+            rsvps: [
+              {
+                guestId: sharmaGuestId,
+                eventId: HINDU_ID,
+                status: "attending",
+                dietary: "Vegetarian",
+                // dietaryConsent omitted → defaults false
+              },
+            ],
+          },
+          cookie,
+        );
+        expect(res.status).toBe(422);
+        const data = yield* Effect.promise(() => res.json<{ error: string }>());
+        expect(data.error).toBe("Dietary requirements need your consent to store");
+      }),
+    ),
+  );
+
+  it(
+    "returns 200 and persists a consent record when dietary is submitted WITH consent (C-H2)",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        const res = yield* post(
+          {
+            rsvps: [
+              {
+                guestId: sharmaGuestId,
+                eventId: HINDU_ID,
+                status: "attending",
+                dietary: "Coeliac",
+                dietaryConsent: true,
+              },
+            ],
+          },
+          cookie,
+        );
+        expect(res.status).toBe(200);
+
+        const [row] = db
+          .select({
+            dietary: rsvps.dietary,
+            at: rsvps.dietaryConsentAt,
+            version: rsvps.dietaryConsentVersion,
+          })
+          .from(rsvps)
+          .where(eq(rsvps.guestId, sharmaGuestId))
+          .all();
+        expect(row?.dietary).toBe("Coeliac");
+        expect(row?.at).toBeInstanceOf(Date);
+        expect(row?.version).toBe(DIETARY_CONSENT_VERSION);
+      }),
+    ),
+  );
+
+  it(
+    "returns 200 with no consent needed when dietary is empty (C-H2)",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        const res = yield* post(
+          {
+            rsvps: [
+              { guestId: sharmaGuestId, eventId: HINDU_ID, status: "attending", dietary: "" },
+            ],
+          },
+          cookie,
+        );
+        expect(res.status).toBe(200);
       }),
     ),
   );

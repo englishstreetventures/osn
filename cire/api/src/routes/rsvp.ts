@@ -102,6 +102,18 @@ export const createRsvpRoutes = (db: Db) =>
               }
             }
 
+            // Art. 9(2)(a) gate: the special-category `dietary` free-text may
+            // only be collected with the guest's explicit opt-in. Reject the
+            // whole batch (422) if any non-empty dietary lacks consent — the
+            // form blocks this, so reaching here means a tampered/legacy client.
+            // See [[wiki/compliance/dpia/cire-guest-data]] → C-H2.
+            for (const rsvp of body.rsvps) {
+              if (rsvp.dietary.length > 0 && !rsvp.dietaryConsent) {
+                set.status = 422;
+                return { error: "Dietary requirements need your consent to store" };
+              }
+            }
+
             // Ownership + invitation already validated above — service method does
             // not re-check.
             for (const rsvp of body.rsvps) {
@@ -110,6 +122,9 @@ export const createRsvpRoutes = (db: Db) =>
                 eventId: rsvp.eventId,
                 status: rsvp.status,
                 dietary: rsvp.dietary,
+                // Only stamp a consent record when there is special-category
+                // data to authorise; clearing dietary clears the record too.
+                dietaryConsent: rsvp.dietary.length > 0 && rsvp.dietaryConsent,
               });
             }
 

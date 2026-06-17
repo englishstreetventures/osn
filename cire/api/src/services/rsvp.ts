@@ -4,6 +4,7 @@ import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import { metricRsvpUpserted } from "../metrics";
+import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
 import type { RsvpRecord } from "../schemas/rsvp";
 
 export const rsvpService = {
@@ -18,11 +19,17 @@ export const rsvpService = {
     eventId: string;
     status: "attending" | "declined" | "maybe";
     dietary: string;
+    // True only when the guest opted in AND there is dietary text to authorise
+    // (the route already collapses both conditions). Stamps an Art. 9(2)(a)
+    // consent record; false clears any prior record (e.g. dietary removed).
+    dietaryConsent: boolean;
   }): Effect.Effect<void, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
       const now = new Date();
+      const dietaryConsentAt = input.dietaryConsent ? now : null;
+      const dietaryConsentVersion = input.dietaryConsent ? DIETARY_CONSENT_VERSION : null;
       yield* dbQuery(() =>
         db
           .insert(rsvps)
@@ -32,6 +39,8 @@ export const rsvpService = {
             eventId: input.eventId,
             status: input.status,
             dietary: input.dietary,
+            dietaryConsentAt,
+            dietaryConsentVersion,
             createdAt: now,
           })
           .onConflictDoUpdate({
@@ -39,6 +48,8 @@ export const rsvpService = {
             set: {
               status: input.status,
               dietary: input.dietary,
+              dietaryConsentAt,
+              dietaryConsentVersion,
             },
           })
           .run(),

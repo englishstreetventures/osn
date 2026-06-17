@@ -17,6 +17,11 @@ type Attending = "attending" | "declined" | null;
 interface MemberState {
   attending: Attending;
   dietary: string;
+  // Explicit Art. 9(2)(a) opt-in for the special-category dietary free-text.
+  // Unticked by default; gates submit when `dietary` is non-empty. Prefilled
+  // true when an existing RSVP already carries dietary text (consent was
+  // captured at the prior submit). See cire-guest-data DPIA → C-H2.
+  dietaryConsent: boolean;
 }
 
 export function RsvpModal(props: RsvpModalProps) {
@@ -35,9 +40,14 @@ export function RsvpModal(props: RsvpModalProps) {
         else if (existing.status === "declined") attending = "declined";
         // "maybe" → null (UX is binary now)
       }
+      const dietary = existing?.dietary ?? "";
       map[m.guestId] = {
         attending,
-        dietary: existing?.dietary ?? "",
+        dietary,
+        // Existing dietary text was only stored because consent was given, so
+        // a prefilled value implies prior consent — keep the box ticked so an
+        // unchanged response re-submits cleanly.
+        dietaryConsent: dietary.length > 0,
       };
     }
     return map;
@@ -66,6 +76,13 @@ export function RsvpModal(props: RsvpModalProps) {
     }));
   }
 
+  function setDietaryConsent(guestId: string, dietaryConsent: boolean) {
+    setResponses((prev) => ({
+      ...prev,
+      [guestId]: { ...prev[guestId]!, dietaryConsent },
+    }));
+  }
+
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
     setError(null);
@@ -78,16 +95,34 @@ export function RsvpModal(props: RsvpModalProps) {
       return;
     }
 
+    // Art. 9(2)(a) gate: dietary free-text is special-category data and may only
+    // be sent with the guest's explicit opt-in. Block submit if anyone entered
+    // dietary text but left the consent box unticked. (The server also enforces
+    // this with a 422 — see cire-guest-data DPIA → C-H2.)
+    const missingConsent = visible.some((m) => {
+      const state = current[m.guestId]!;
+      return (
+        state.attending === "attending" && state.dietary.trim().length > 0 && !state.dietaryConsent
+      );
+    });
+    if (missingConsent) {
+      setError("Please tick the box to let us store your dietary requirements.");
+      return;
+    }
+
     setLoading(true);
 
     const body = {
       rsvps: visible.map((m) => {
         const state = current[m.guestId]!;
+        const attending = state.attending === "attending";
+        const dietary = attending ? state.dietary : "";
         return {
           guestId: m.guestId,
           eventId: props.event.id,
           status: state.attending!,
-          dietary: state.attending === "attending" ? state.dietary : "",
+          dietary,
+          dietaryConsent: dietary.trim().length > 0 && state.dietaryConsent,
         };
       }),
     };
@@ -194,6 +229,34 @@ export function RsvpModal(props: RsvpModalProps) {
                       disabled={loading()}
                     />
                   </label>
+
+                  {/* Explicit, unticked-by-default consent — only shown once the
+                      guest has actually entered dietary text (special-category
+                      data). See cire-guest-data DPIA → C-H2. */}
+                  <Show when={(responses()[guestId]?.dietary.trim().length ?? 0) > 0}>
+                    <label class="font-body text-text-muted mt-3 flex items-start gap-2.5 text-[0.78rem] leading-relaxed normal-case">
+                      <input
+                        type="checkbox"
+                        class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
+                        checked={responses()[guestId]?.dietaryConsent ?? false}
+                        onChange={(e) => setDietaryConsent(guestId, e.currentTarget.checked)}
+                        disabled={loading()}
+                      />
+                      <span>
+                        I agree to my dietary requirements above being stored and shared with the
+                        caterers for this wedding. See our{" "}
+                        <a
+                          href="/privacy"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="text-gold underline underline-offset-2"
+                        >
+                          privacy notice
+                        </a>
+                        .
+                      </span>
+                    </label>
+                  </Show>
                 </Show>
               </fieldset>
             );

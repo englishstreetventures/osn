@@ -153,11 +153,12 @@ describe("RsvpModal", () => {
       />
     ));
 
-    // Priya: attending + dietary
+    // Priya: attending + dietary (+ consent box ticked, required for dietary)
     const priyaFs = fieldsetFor("Priya");
     fireEvent.click(within(priyaFs).getByText("Attending"));
     const dietary = within(priyaFs).getByPlaceholderText(/Vegetarian/) as HTMLInputElement;
     fireEvent.input(dietary, { target: { value: "Vegetarian" } });
+    fireEvent.click(within(priyaFs).getByRole("checkbox"));
 
     // Raj: declined
     fireEvent.click(within(fieldsetFor("Raj")).getByText("Not attending"));
@@ -176,8 +177,20 @@ describe("RsvpModal", () => {
     expect(parsed).not.toHaveProperty("familyPublicId");
     expect(parsed).toEqual({
       rsvps: [
-        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "Vegetarian" },
-        { guestId: "guest-raj", eventId: "event-1", status: "declined", dietary: "" },
+        {
+          guestId: "guest-priya",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "Vegetarian",
+          dietaryConsent: true,
+        },
+        {
+          guestId: "guest-raj",
+          eventId: "event-1",
+          status: "declined",
+          dietary: "",
+          dietaryConsent: false,
+        },
       ],
     });
 
@@ -323,6 +336,98 @@ describe("RsvpModal", () => {
     expect(within(fs).getByText("Not attending").getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("hides the consent checkbox until dietary text is entered (C-H2)", () => {
+    render(() => (
+      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+    ));
+
+    const fs = fieldsetFor("Priya");
+    // Attending, no dietary text yet → no checkbox.
+    fireEvent.click(within(fs).getByText("Attending"));
+    expect(within(fs).queryByRole("checkbox")).toBeNull();
+
+    // Enter dietary text → consent checkbox appears, unticked, linking /privacy.
+    fireEvent.input(within(fs).getByPlaceholderText(/Vegetarian/), {
+      target: { value: "Vegan" },
+    });
+    const checkbox = within(fs).getByRole("checkbox") as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+    const privacyLink = within(fs)
+      .getByText(/privacy notice/i)
+      .closest("a") as HTMLAnchorElement;
+    expect(privacyLink.getAttribute("href")).toBe("/privacy");
+  });
+
+  it("blocks submit and shows an error when dietary is entered without consent (C-H2)", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const { getByText } = render(() => (
+      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+    ));
+
+    const fs = fieldsetFor("Priya");
+    fireEvent.click(within(fs).getByText("Attending"));
+    fireEvent.input(within(fs).getByPlaceholderText(/Vegetarian/), {
+      target: { value: "Vegan" },
+    });
+    // Leave the consent box unticked.
+    fireEvent.click(getByText("Save"));
+
+    await waitFor(() => {
+      expect(
+        getByText("Please tick the box to let us store your dietary requirements."),
+      ).toBeTruthy();
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows submit with empty dietary and no consent needed (C-H2)", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ rsvps: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const { getByText } = render(() => (
+      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+    ));
+
+    // Attending, no dietary text → no consent gate.
+    fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+    fireEvent.click(getByText("Save"));
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    const parsed = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(parsed.rsvps[0]).toEqual({
+      guestId: "guest-priya",
+      eventId: "event-1",
+      status: "attending",
+      dietary: "",
+      dietaryConsent: false,
+    });
+  });
+
+  it("prefills the consent box as ticked when an existing RSVP carries dietary (C-H2)", () => {
+    const existing: RsvpSummary[] = [
+      { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "Vegan" },
+    ];
+    render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya]}
+        existingRsvps={existing}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+
+    const checkbox = within(fieldsetFor("Priya")).getByRole("checkbox") as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+  });
+
   it("does not log dietary input to console (frontend redaction sanity)", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -347,6 +452,7 @@ describe("RsvpModal", () => {
     fireEvent.input(within(fs).getByPlaceholderText(/Vegetarian/), {
       target: { value: "peanut allergy" },
     });
+    fireEvent.click(within(fs).getByRole("checkbox"));
     fireEvent.click(getByText("Save"));
 
     await waitFor(() => expect(fetchSpy).toHaveBeenCalled());

@@ -158,6 +158,16 @@ export const rsvps = sqliteTable(
       enum: ["attending", "declined", "maybe"],
     }).notNull(),
     dietary: text("dietary").notNull().default(""),
+    // Explicit Art. 9(2)(a) consent record for the special-category `dietary`
+    // free-text (see [[wiki/compliance/dpia/cire-guest-data]] → C-H2). Captured
+    // here, 1:1 with the RSVP, because consent authorises exactly this row's
+    // dietary data and the `(guest_id, event_id)` upsert already keys it — a
+    // separate table would duplicate that key and add a join for no gain. Both
+    // columns are null unless the guest ticked the opt-in for non-empty dietary
+    // text; `dietary_consent_at` is when they consented, `dietary_consent_version`
+    // pins which privacy-notice/copy version they agreed to.
+    dietaryConsentAt: integer("dietary_consent_at", { mode: "timestamp" }),
+    dietaryConsentVersion: text("dietary_consent_version"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [uniqueIndex("rsvps_guest_event_uniq").on(t.guestId, t.eventId)],
