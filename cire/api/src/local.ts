@@ -47,5 +47,18 @@ const app = createApp(db, {
   osnAudience: process.env.OSN_AUDIENCE,
 });
 
-const server = Bun.serve({ port, fetch: (request: Request) => app.fetch(request) });
+const server = Bun.serve({
+  port,
+  fetch(request: Request, srv: Bun.Server) {
+    // Local dev has no Cloudflare edge, so `cf-connecting-ip` is absent and the
+    // fail-closed rate limiter (W5) 429s every gated route (claim, preview-code,
+    // account-link, invite writes). Inject the socket peer as the trusted client
+    // IP so per-IP limiting works locally. Prod (index.ts) is unaffected —
+    // Cloudflare sets the real header at the edge.
+    const ip = srv.requestIP(request)?.address ?? "127.0.0.1";
+    const headers = new Headers(request.headers);
+    if (!headers.has("cf-connecting-ip")) headers.set("cf-connecting-ip", ip);
+    return app.fetch(new Request(request, { headers }));
+  },
+});
 runCireSync(Effect.logInfo("cire-api dev server listening", { port: server.port }));

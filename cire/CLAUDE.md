@@ -189,7 +189,7 @@ All commands run from the **OSN repo root**.
 bun run dev:cire                     # cire API + web + organiser, plus @osn/api (organiser sign-in needs the OSN issuer)
 bun run --cwd cire/web dev           # Guest site only (:4321)
 bun run --cwd cire/organiser dev     # Organiser portal only (:4322)
-bun run --cwd cire/api dev           # API only (wrangler dev, :8787)
+bun run --cwd cire/api dev           # API only (Bun.serve local entry, :8787; wrangler via dev:wrangler)
 
 # Build
 bun run build                        # Build all packages (turbo)
