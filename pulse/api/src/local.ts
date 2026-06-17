@@ -1,9 +1,12 @@
 import { DbLive } from "@pulse/db/service";
 import { initObservability } from "@shared/observability";
+import type { ClientIpOptions } from "@shared/rate-limit";
 import { Effect, Logger } from "effect";
 
 import { createApp, SERVICE_NAME } from "./app";
+import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
 import { registerLeaveAppKeyWithOsnApi } from "./lib/outbound-arc";
+import { initRedisClient, makeRateLimiters } from "./redis";
 import * as accountErasure from "./services/accountErasure";
 import { startKeyRotation } from "./services/graphBridge";
 
@@ -15,16 +18,70 @@ import { startKeyRotation } from "./services/graphBridge";
 // (tracked in wiki/TODO.md).
 const { layer: observabilityLayer } = initObservability({ serviceName: SERVICE_NAME });
 
-const app = createApp();
-
-const port = process.env.PORT || 3001;
+const nonLocal = process.env.OSN_ENV && process.env.OSN_ENV !== "local";
 
 // S-H3: fetching public keys over plaintext HTTP in a deployed env allows
 // any process with network access to serve a forged JWK set. Fail fast.
 const jwksUrl = process.env.OSN_JWKS_URL ?? "http://localhost:4000/.well-known/jwks.json";
-const nonLocal = process.env.OSN_ENV && process.env.OSN_ENV !== "local";
 if (nonLocal && jwksUrl.startsWith("http://")) {
   throw new Error("OSN_JWKS_URL must use HTTPS in non-local environments");
+}
+
+// ---------------------------------------------------------------------------
+// Redis composition root — env-driven backend selection (mirrors osn/api).
+// `REDIS_URL` set → Redis-backed limiters (shared across processes, survives
+// restarts). Unset → in-memory fallback. The route factories accept injected
+// backends, so the only thing that changes between local and production is the
+// backing store, never the policy / call sites.
+// ---------------------------------------------------------------------------
+const redisClient = await initRedisClient({
+  redisUrl: process.env.REDIS_URL,
+  redisRequired: process.env.REDIS_REQUIRED === "true",
+  nodeEnv: process.env.NODE_ENV,
+  loggerLayer: observabilityLayer,
+});
+const rateLimiters = makeRateLimiters(redisClient);
+
+// ---------------------------------------------------------------------------
+// Client-IP trust policy (S-M34) for the per-IP limiters on the
+// unauthenticated discover / share / exposure surfaces.
+// `PULSE_TRUSTED_PROXY_COUNT` is the number of trusted reverse proxies: the
+// keying IP is taken that many hops from the right of `x-forwarded-for`.
+// Unset → direct mode (socket peer). Behind Cloudflare set `trustCloudflare`.
+// ---------------------------------------------------------------------------
+function parseTrustedProxyCount(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return 0;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(
+      `PULSE_TRUSTED_PROXY_COUNT must be a non-negative integer (got ${JSON.stringify(raw)})`,
+    );
+  }
+  return n;
+}
+const trustedProxyCount = parseTrustedProxyCount(process.env.PULSE_TRUSTED_PROXY_COUNT);
+const trustedProxyCountUnconfigured = process.env.PULSE_TRUSTED_PROXY_COUNT === undefined;
+const clientIpConfig: Omit<ClientIpOptions, "socketIp"> = { trustedProxyCount };
+
+// CORS allowlist (P3) — replaces the bare `cors()` wildcard; fail closed in
+// non-local envs where `PULSE_CORS_ORIGIN` is unset.
+const corsOrigins = resolveCorsOrigins(process.env, !!nonLocal);
+assertCorsOriginsConfigured(corsOrigins, !!nonLocal);
+
+const app = createApp({ jwksUrl, rateLimiters, clientIpConfig, corsOrigins });
+
+const port = process.env.PORT || 3001;
+
+// S-M34: warn when running non-local without an explicit proxy count — the
+// per-IP limiters then key off the socket peer (direct mode). Behind a load
+// balancer that means everyone shares the LB's IP; set
+// PULSE_TRUSTED_PROXY_COUNT to the number of trusted hops.
+if (nonLocal && trustedProxyCountUnconfigured) {
+  void Effect.runPromise(
+    Effect.logWarning(
+      "PULSE_TRUSTED_PROXY_COUNT is unset — per-IP rate limiting will key off the socket peer (direct mode). If @pulse/api sits behind a reverse proxy / load balancer, set PULSE_TRUSTED_PROXY_COUNT to the number of trusted hops so x-forwarded-for is honoured spoof-safely.",
+    ).pipe(Effect.provide(Logger.pretty), Effect.provide(observabilityLayer)),
+  ).catch(() => undefined);
 }
 
 app.listen({ port, reusePort: false });

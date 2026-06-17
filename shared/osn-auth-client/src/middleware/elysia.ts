@@ -27,6 +27,7 @@ export function osnAuth(options: OsnAuthOptions) {
         const claims = await extractClaims(headers.authorization, options.jwksUrl, {
           testKey: options._testKey,
           audience: options.audience,
+          issuer: options.issuer,
         });
         if (!claims) return unauthenticated;
         return { osnProfileId: claims.profileId as string | undefined };

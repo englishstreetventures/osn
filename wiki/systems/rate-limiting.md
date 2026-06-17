@@ -25,9 +25,11 @@ finding-ids:
   - P-W16
 packages:
   - "@osn/api"
+  - "@pulse/api"
+  - "@zap/api"
   - "@shared/rate-limit"
   - "@shared/redis"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-06-16
 ---
 
 # Rate Limiting
@@ -114,6 +116,39 @@ Send `maxRequests + 1` requests and assert the last returns 429.
 
 Graph write endpoints are rate-limited at 60 requests per user per minute (S-M16). Recommendations reads (`/recommendations/connections`) are rate-limited at 20 requests per user per minute — tighter because each call runs an FOF fan-out query (S-H1/P-C2).
 
+### Zap (`@zap/api`)
+
+Zap applies the same per-IP fixed-window limiter to its write endpoints
+(`createDefaultZapRateLimiters` in `zap/api/src/routes/chats.ts`):
+`POST /chats` 20/min, `POST /chats/:id/messages` 60/min,
+`POST /chats/:id/members` 30/min. These sit in front of ES256/JWKS token
+verification and the social-graph consent gate — see [[apps/zap]]. The limiter
+check runs first so an unauthenticated flood is shed before any crypto or S2S
+work.
+
+### Pulse Per-User Write Limits (W4)
+
+`@pulse/api` applies **per-user** fixed-window limiting to every authenticated write endpoint. The key is the JWT-asserted `claims.profileId`, **not** the client IP — so the Pulse write layer has no dependency on the `X-Forwarded-For` trust model (S-M34) that gates the unauthenticated reads. Limits live in one place (`pulse/api/src/lib/rate-limit.ts`, `PULSE_WRITE_LIMITS`) and are shared byte-for-byte between the in-memory defaults and the Redis namespaces.
+
+| Endpoint | Limit | Rationale |
+|----------|-------|-----------|
+| `POST /events` (create) | 20 / 5 min | Heaviest write (insert + re-read); covers a power-organiser batching a week of events |
+| `PATCH /events/:id` (update) | 60 / min | Cheap, legitimately bursty (drag-resize, typo fix); matches osn graph-write posture |
+| `POST /events/:id/rsvps` | 30 / min | User-initiated + idempotent; absorbs double-taps |
+| `POST /events/:id/invite` | 10 / min | Organiser-only; fans out to many rows per call |
+| `POST /events/:id/comms/blasts` | 5 / min | Most expensive/abusable write (SMS/email fan-out) |
+| `POST /series` (create) | 10 / hr | Materialises many instances; hourly window |
+| `PATCH /series/:id` | 60 / hr | Re-materialises future instances; generous for iterative editing |
+| `POST/DELETE /close-friends/:id` | 60 / min | Tiny list writes; absorbs rapid picker toggling |
+
+The shared `checkWriteRateLimit(limiter, endpoint, profileId)` helper performs the check **after** authentication (so anonymous callers get 401, not 429), is **fail-closed** (a thrown/rejected backend `check()` counts as rate-limited), and records the bounded `pulse.write.rate_limited{ endpoint }` counter on every deny. The `endpoint` attribute is the closed `PulseWriteEndpoint` union — same cardinality discipline as `AuthRateLimitedEndpoint`.
+
+Pulse's composition root (`pulse/api/src/index.ts` + `pulse/api/src/redis.ts`) mirrors osn/api: it builds Redis-backed write limiters via `createRedisWriteRateLimiters` when `REDIS_URL` is set, and falls back to the in-memory client otherwise.
+
+### Pulse Per-IP Read / Share Limits (W4 / P4)
+
+The **unauthenticated** Pulse surfaces — `GET /events/discover`, `POST /events/:id/share`, `POST /events/:id/exposure` — are limited **per IP** (discover 60/min, share 60/min, exposure 120/min; the exposure ceiling is higher because legitimate page reloads, link previews, and bot scans of a sourced URL all register there). The keying IP is resolved through the spoofing-resistant `getClientIp(headers, options)` trust policy (`PULSE_TRUSTED_PROXY_COUNT`, or `trustCloudflare` behind CF; `socketIp` wired from Bun's `server.requestIP` in direct mode). An **unresolved IP fails closed** (429) via `isUnresolvedIp` rather than sharing a single `unknown` bucket — see [[#Client-IP Trust Policy (S-M34)]]. Redis namespaces: `pulse:discover`, `pulse:share`, `pulse:exposure`. A deferred follow-up will bind these pings to an HMAC-signed share token so the counters cannot be inflated by a caller who simply replays the endpoint with a fresh IP.
+
 ## Config
 
 ```typescript
@@ -146,9 +181,33 @@ If the rate limiter backend throws (e.g. Redis connection failure), the check de
 
 Expired entries are evicted on every `check()` call when at least one window has elapsed since the last sweep. The `maxEntries` cap is a hard backstop; periodic sweeping keeps memory deterministic under normal load.
 
+## Client-IP Trust Policy (S-M34)
+
+`getClientIp(headers, options?)` in `@shared/rate-limit` resolves the keying IP under an explicit, **fail-closed** trust policy. Resolution order:
+
+1. `trustCloudflare: true` → trust `cf-connecting-ip` only. Never falls back to `x-forwarded-for` (Cloudflare also sets XFF, but an attacker upstream of CF could pollute it). Missing/invalid → `UNRESOLVED_IP`.
+2. `trustedProxyCount: N` (N > 0) → take the entry **N from the right** of `x-forwarded-for`. The right-most entry is the one the closest trusted proxy appended and is the only entry a client cannot forge — counting from the right is the only spoofing-resistant strategy. Chain missing / shorter than N / selected entry malformed → `UNRESOLVED_IP`.
+3. otherwise (direct / dev) → trust the transport **socket peer** (`socketIp`, e.g. Bun `server.requestIP(request)?.address`) only; absent/invalid → `UNRESOLVED_IP`.
+
+`isUnresolvedIp(ip)` reports the sentinel; `isValidIp(value)` is a cheap shape-only guard. **Callers MUST deny (429) on an unresolved IP** rather than rate-limiting on it — a shared "unknown" bucket is both a DoS amplifier (one attacker drains everyone's budget) and a spoofing bypass.
+
+**Backward compatibility:** the no-options form `getClientIp(headers)` is `@deprecated` but preserved — it keeps the legacy left-most-XFF / `"unknown"` behaviour so un-migrated services still build. Hardening is opt-in per service via the options argument.
+
+**`@osn/api` wiring:** the composition root (`osn/api/src/index.ts`) reads `TRUSTED_PROXY_COUNT` (validated non-negative integer, **default 0** = direct/socket-peer mode), passes it as `clientIpConfig` to `createAuthRoutes` / `createProfileRoutes`, and feeds the per-request `socketIp` from Bun's `server.requestIP`. A non-local deploy with `TRUSTED_PROXY_COUNT` unset logs a startup warning (socket-peer attribution can collapse all users behind an undeclared load balancer onto one IP). When behind Cloudflare, set `trustCloudflare: true` in `clientIpConfig` instead (not yet wired — CF doesn't front this service today). Pulse / Zap / Cire still use the legacy default and adopt the options in their own workstreams (see Integration Notes below).
+
+## Integration Notes — adopting the hardened policy
+
+A consuming service migrates off the deprecated default by:
+
+1. Deciding its edge topology and passing the matching option to `getClientIp`: `{ trustCloudflare: true }` behind Cloudflare, or `{ trustedProxyCount: N }` behind N trusted proxies (wire `socketIp` from the runtime's socket peer for direct/Bun deployments).
+2. Treating `isUnresolvedIp(ip) === true` as **deny**, not as a bucket key.
+
+- **Pulse** (`pulse/api/src/routes/{events,onboarding,venues}.ts`) and **Zap** (`zap/api/src/routes/chats.ts`) call `getClientIp(headers)` with no options today and run on Bun behind whatever proxy the deployment fronts them with — they adopt `{ trustedProxyCount: N }` (+ `socketIp`) when their own hardening workstreams land.
+- **Cire** runs on Cloudflare Workers and has its own `cire/api/src/lib/client-ip.ts` (CF-aware already); when it consolidates onto `@shared/rate-limit` it passes `{ trustCloudflare: true }`.
+
 ## Known Limitations
 
-- **Trusts `X-Forwarded-For`** -- clients can spoof the header without a trusted reverse proxy. S-M34 tracks adding a `trustProxy` config flag.
+- **`X-Forwarded-For` trust is now policy-gated (S-M34, fixed)** -- see Client-IP Trust Policy above. The residual caveat is operational: each service must declare its proxy topology (`TRUSTED_PROXY_COUNT` for `@osn/api`) or it falls back to socket-peer / unresolved-deny.
 - **Fixed window** -- a burst at the window boundary can allow 2x the limit. Acceptable for auth endpoints; sliding window is overkill for current traffic.
 - **In-memory fallback** -- when `REDIS_URL` is unset (or Redis unreachable at startup), rate limits are process-local and reset on restart. S-M2 is resolved for production (Redis-backed) but the dev fallback retains the limitation by design.
 
@@ -159,7 +218,7 @@ Expired entries are evicted on every `check()` call when at least one window has
 | S-H1 | Fixed | Rate limit all auth endpoints (per-IP fixed-window) |
 | S-H2 | Fixed | `/handle/:handle` rate limited at 10 req/IP/min |
 | S-M2 | Fixed | In-memory rate limiter resets on restart -- migrated to Redis (Phase 3) |
-| S-M34 | Open | Trusts `X-Forwarded-For` without reverse-proxy guarantee |
+| S-M34 | Fixed | Trusted `X-Forwarded-For` without a reverse-proxy guarantee. `getClientIp` now takes a fail-closed `ClientIpOptions` trust policy (`trustCloudflare` / `trustedProxyCount` / `socketIp`); unresolved IPs are denied, not bucketed. `@osn/api` opts in via `TRUSTED_PROXY_COUNT`. Legacy no-options form kept `@deprecated` for incremental rollout. |
 | S-M36 | Fixed | Async backend rejection was fail-open (now fail-closed) |
 | P-W1 | Fixed | Graph rate-limit store grew without bound (now uses shared limiter) |
 | P-W16 | Fixed | Auth rate limiter Maps swept proactively |
@@ -174,4 +233,8 @@ Expired entries are evicted on every `check()` call when at least one window has
 - [osn/api/src/index.ts](../../osn/api/src/index.ts) — composition root with env-driven Redis/memory selection
 - [shared/redis/src/rate-limiter.ts](../../shared/redis/src/rate-limiter.ts) — `createRedisRateLimiter()` Lua script backend
 - [shared/observability/src/metrics/attrs.ts](../../shared/observability/src/metrics/attrs.ts) — `AuthRateLimitedEndpoint` type
+- [pulse/api/src/lib/rate-limit.ts](../../pulse/api/src/lib/rate-limit.ts) — `PULSE_WRITE_LIMITS`, `checkWriteRateLimit`, in-memory defaults (W4)
+- [pulse/api/src/lib/redis-rate-limiters.ts](../../pulse/api/src/lib/redis-rate-limiters.ts) — Pulse Redis-backed write + discover/share/exposure limiters
+- [pulse/api/src/redis.ts](../../pulse/api/src/redis.ts) — Pulse Redis composition root (env-driven backend selection)
+- [pulse/api/src/routes/events.ts](../../pulse/api/src/routes/events.ts) — per-IP discover/share/exposure limiting + `getClientIp` trust policy (P4)
 - [CLAUDE.md](../../CLAUDE.md) — "Rate Limiting" section

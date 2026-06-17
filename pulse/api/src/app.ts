@@ -1,9 +1,11 @@
 import { cors } from "@elysiajs/cors";
 import { DbLive, type Db } from "@pulse/db/service";
 import { healthRoutes, observabilityPlugin } from "@shared/observability";
+import type { ClientIpOptions } from "@shared/rate-limit";
 import type { Layer } from "effect";
 import { Elysia } from "elysia";
 
+import { makeMemoryRateLimiters, type PulseRateLimiters } from "./redis";
 import { createAccountRoutes } from "./routes/account";
 import { createCloseFriendsRoutes } from "./routes/closeFriends";
 import { createEventsRoutes, createSettingsRoutes } from "./routes/events";
@@ -23,31 +25,81 @@ export interface AppOptions {
   dbLayer?: Layer.Layer<Db>;
   /** JWKS endpoint of the OSN issuer that signs access tokens. */
   jwksUrl?: string;
+  /**
+   * Rate limiter backends (W4). The composition root (`local.ts` long-lived
+   * Bun host, or the per-isolate `index.ts` Worker) builds these from Redis
+   * when `REDIS_URL` is configured and falls back to in-memory counters
+   * otherwise. Omitted → in-memory limiters built here (tests / local).
+   */
+  rateLimiters?: PulseRateLimiters;
+  /**
+   * Client-IP trust policy (S-M34) for the per-IP limiters on the
+   * unauthenticated discover / share / exposure surfaces. The composition
+   * root derives this from `PULSE_TRUSTED_PROXY_COUNT` (or `trustCloudflare`
+   * behind CF). Defaults to `{}` — direct mode, socket peer only.
+   */
+  clientIpConfig?: Omit<ClientIpOptions, "socketIp">;
+  /**
+   * CORS allowlist (P3). Replaces the bare `cors()` wildcard. The composition
+   * root resolves + fail-closed-validates this via `lib/cors-config`. Omitted
+   * → wildcard `cors()` (tests only).
+   */
+  corsOrigins?: string[];
 }
 
 /**
  * Compose the Pulse Elysia app. Factored out of the entry points so the same
  * graph runs on Bun.serve (`local.ts`, bun:sqlite) and on Cloudflare Workers
- * (`index.ts`, D1), with only the injected DB layer differing. Each route
- * factory already accepts the `dbLayer` (defaulting to `DbLive`), so the switch
- * is a single argument threaded through here.
+ * (`index.ts`, D1), with only the injected DB layer + rate-limiter backends
+ * differing. Each route factory accepts the `dbLayer` and its rate limiters,
+ * so the local/prod switch is purely a matter of the arguments threaded here.
  */
 export function createApp(options: AppOptions = {}) {
-  const { dbLayer = DbLive, jwksUrl } = options;
+  const {
+    dbLayer = DbLive,
+    jwksUrl,
+    rateLimiters = makeMemoryRateLimiters(),
+    clientIpConfig = {},
+    corsOrigins,
+  } = options;
+
+  const { write, discovery, share, exposure } = rateLimiters;
 
   return (
     // `aot: false` — Elysia's ahead-of-time compilation builds handlers via
     // `new Function`, which Cloudflare Workers forbid (no dynamic code eval).
     new Elysia({ aot: false })
-      .use(cors())
+      .use(corsOrigins ? cors({ origin: corsOrigins, credentials: true }) : cors())
       .use(observabilityPlugin({ serviceName: SERVICE_NAME }))
       .use(healthRoutes({ serviceName: SERVICE_NAME }))
       .get("/", () => ({ status: "ok", service: SERVICE_NAME }))
-      .use(createEventsRoutes(dbLayer, jwksUrl))
-      .use(createSeriesRoutes(dbLayer, jwksUrl))
+      .use(
+        createEventsRoutes(
+          dbLayer,
+          jwksUrl,
+          undefined,
+          discovery,
+          share,
+          exposure,
+          {
+            eventCreate: write.event_create,
+            eventUpdate: write.event_update,
+            rsvpUpsert: write.rsvp_upsert,
+            eventInvite: write.event_invite,
+            commsBlast: write.comms_blast,
+          },
+          clientIpConfig,
+        ),
+      )
+      .use(
+        createSeriesRoutes(dbLayer, jwksUrl, undefined, {
+          seriesCreate: write.series_create,
+          seriesUpdate: write.series_update,
+        }),
+      )
       .use(createVenuesRoutes(dbLayer, jwksUrl))
       .use(createSettingsRoutes(dbLayer, jwksUrl))
-      .use(createCloseFriendsRoutes(dbLayer, jwksUrl))
+      .use(createCloseFriendsRoutes(dbLayer, jwksUrl, undefined, write.close_friend_mutate))
       .use(createOnboardingRoutes(dbLayer, jwksUrl))
       .use(createAccountRoutes(dbLayer, jwksUrl))
       .use(createInternalRoutes(dbLayer))

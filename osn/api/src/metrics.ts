@@ -11,6 +11,7 @@
 import {
   createCounter,
   createHistogram,
+  createUpDownCounter,
   LATENCY_BUCKETS_SECONDS,
 } from "@shared/observability/metrics";
 import type {
@@ -48,6 +49,7 @@ import type {
   StepUpStep,
   StepUpVerifyResult,
 } from "@shared/observability/metrics";
+import type { RedisNamespace } from "@shared/redis";
 import { Effect } from "effect";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
@@ -67,7 +69,10 @@ export const OSN_METRICS = {
   authSessionFamilyRevoked: "osn.auth.session.family_revoked",
   authSessionRotatedStoreOps: "osn.auth.session.rotated_store.operations",
   authSessionRotatedStoreDuration: "osn.auth.session.rotated_store.duration",
+  authCeremonyStoreOps: "osn.auth.ceremony_store.operations",
+  authCeremonyStoreEntries: "osn.auth.ceremony_store.entries",
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
+  authRecoveryLockout: "osn.auth.recovery.lockout",
   authRecoveryCodesGenerated: "osn.auth.recovery.codes_generated",
   authRecoveryCodeConsumed: "osn.auth.recovery.code_consumed",
   authRecoveryDuration: "osn.auth.recovery.duration",
@@ -528,6 +533,62 @@ export const metricRotatedStoreDuration = (
   seconds: number,
   attrs: RotatedStoreDurationAttrs,
 ): void => authSessionRotatedStoreDuration.record(seconds, attrs);
+
+// ---------------------------------------------------------------------------
+// Ceremony / pending-state stores (O3: Redis-backed ceremony state)
+//
+// Every challenge / pending-registration / OTP / email-change / cross-device
+// store shares one bounded metric surface, dimensioned by the `RedisNamespace`
+// it occupies and its backend. `entries` is an UpDownCounter (set → +1,
+// delete/expiry-consume → -1) giving a live per-namespace key-count gauge
+// without polling Redis (the `redis.store.keys` coverage the migration plan
+// calls for). `ops` counts set / get / delete by namespace + backend.
+// ---------------------------------------------------------------------------
+
+type CeremonyStoreBackend = "memory" | "redis";
+type CeremonyStoreOp = "set" | "get" | "delete";
+type CeremonyStoreOpAttrs = {
+  namespace: RedisNamespace;
+  op: CeremonyStoreOp;
+  backend: CeremonyStoreBackend;
+};
+type CeremonyStoreEntriesAttrs = { namespace: RedisNamespace; backend: CeremonyStoreBackend };
+
+const authCeremonyStoreOps = createCounter<CeremonyStoreOpAttrs>({
+  name: OSN_METRICS.authCeremonyStoreOps,
+  description: "Ceremony/pending-state store operations by namespace, op, and backend",
+  unit: "{operation}",
+});
+
+const authCeremonyStoreEntries = createUpDownCounter<CeremonyStoreEntriesAttrs>({
+  name: OSN_METRICS.authCeremonyStoreEntries,
+  description: "Live ceremony/pending-state store entry count by namespace and backend",
+  unit: "{entry}",
+});
+
+export const metricCeremonyStoreOp = (attrs: CeremonyStoreOpAttrs): void =>
+  authCeremonyStoreOps.inc(attrs);
+
+/** +1 on insert, -1 on delete — net is the live entry count per namespace. */
+export const metricCeremonyStoreEntryDelta = (
+  delta: number,
+  attrs: CeremonyStoreEntriesAttrs,
+): void => authCeremonyStoreEntries.add(delta, attrs);
+
+// ---------------------------------------------------------------------------
+// Recovery-code per-account lockout (O2)
+// ---------------------------------------------------------------------------
+
+type RecoveryLockoutAttrs = { result: "recorded" | "locked" | "reset" };
+
+const authRecoveryLockout = createCounter<RecoveryLockoutAttrs>({
+  name: OSN_METRICS.authRecoveryLockout,
+  description: "Recovery-code per-account lockout events by outcome",
+  unit: "{event}",
+});
+
+export const metricRecoveryLockout = (result: RecoveryLockoutAttrs["result"]): void =>
+  authRecoveryLockout.inc({ result });
 
 // ---------------------------------------------------------------------------
 // Recovery codes (Copenhagen Book M2)

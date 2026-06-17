@@ -4,10 +4,11 @@ import { makeLogEmailLive } from "@shared/email";
 import { Effect, Layer } from "effect";
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 
-import { createAuthRoutes } from "../../src/routes/auth";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
+// S-M34: wrapped factory (trust XFF under app.handle). See helpers/routes.
+import { createAuthRoutes } from "../helpers/routes";
 
 /**
  * Route-level coverage for the passkey management surface:

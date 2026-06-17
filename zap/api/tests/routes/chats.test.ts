@@ -1,15 +1,26 @@
+import { generateArcKeyPair } from "@shared/crypto";
 import { SignJWT } from "jose";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
 import { createChatsRoutes } from "../../src/routes/chats";
+import { setConsentGate } from "../../src/services/consent";
 import { createTestLayer } from "../helpers/db";
 
-const TEST_JWT_SECRET = "test-secret";
+let testPrivateKey: CryptoKey;
+let testPublicKey: CryptoKey;
 
+beforeAll(async () => {
+  const pair = await generateArcKeyPair();
+  testPrivateKey = pair.privateKey;
+  testPublicKey = pair.publicKey;
+});
+
+/** Mints an ES256 access token shaped exactly like an osn/api user token. */
 async function makeToken(profileId: string): Promise<string> {
   return new SignJWT({ sub: profileId })
-    .setProtectedHeader({ alg: "HS256" })
-    .sign(new TextEncoder().encode(TEST_JWT_SECRET));
+    .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
+    .setAudience("osn-access")
+    .sign(testPrivateKey);
 }
 
 const json = (body: unknown) => JSON.stringify(body);
@@ -25,6 +36,11 @@ function req(
       method,
       headers: {
         "Content-Type": "application/json",
+        // S-H1: write endpoints derive the rate-limit key from `cf-connecting-ip`
+        // (Zap runs behind Cloudflare) and fail closed (429) when it is
+        // unresolved. Supply a stable test IP so the limiter buckets requests
+        // deterministically instead of denying every header-less request.
+        "cf-connecting-ip": "203.0.113.7",
         ...(opts.token ? { Authorization: `Bearer ${opts.token}` } : {}),
       },
       ...(opts.body ? { body: json(opts.body) } : {}),
@@ -42,8 +58,12 @@ describe("chats routes", () => {
   let bobToken: string;
 
   beforeEach(async () => {
+    // Default consent gate for the auth/CRUD suite: everyone is connected so
+    // these tests exercise routing + membership, not the social-graph matrix
+    // (which has its own dedicated suite below). Each test resets it.
+    setConsentGate(() => Promise.resolve(true));
     layer = createTestLayer();
-    app = createChatsRoutes(layer, TEST_JWT_SECRET);
+    app = createChatsRoutes(layer, "", testPublicKey);
     aliceToken = await makeToken("usr_alice");
     bobToken = await makeToken("usr_bob");
   });
@@ -69,6 +89,50 @@ describe("chats routes", () => {
     const res = await req(app, "POST", "/chats/chat_123/messages", {
       body: { ciphertext: "x", nonce: "y" },
     });
+    expect(res.status).toBe(401);
+  });
+
+  // ── Token verification (W1: ES256 / JWKS) ─────────────────────────────────
+
+  it("GET /chats returns 401 for a token signed with the wrong key", async () => {
+    const otherPair = await generateArcKeyPair();
+    const forged = await new SignJWT({ sub: "usr_alice" })
+      .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
+      .setAudience("osn-access")
+      .sign(otherPair.privateKey);
+    const res = await req(app, "GET", "/chats", { token: forged });
+    expect(res.status).toBe(401);
+  });
+
+  it("GET /chats returns 401 for an HS256 (shared-secret) token", async () => {
+    const hs256 = await new SignJWT({ sub: "usr_alice" })
+      .setProtectedHeader({ alg: "HS256" })
+      .setAudience("osn-access")
+      .sign(new TextEncoder().encode("dev-secret-change-in-prod"));
+    const res = await req(app, "GET", "/chats", { token: hs256 });
+    expect(res.status).toBe(401);
+  });
+
+  it("GET /chats returns 401 for a token with the wrong audience", async () => {
+    const wrongAud = await new SignJWT({ sub: "usr_alice" })
+      .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
+      .setAudience("osn-step-up")
+      .sign(testPrivateKey);
+    const res = await req(app, "GET", "/chats", { token: wrongAud });
+    expect(res.status).toBe(401);
+  });
+
+  it("GET /chats returns 401 for a token with no audience", async () => {
+    const noAud = await new SignJWT({ sub: "usr_alice" })
+      .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
+      .sign(testPrivateKey);
+    const res = await req(app, "GET", "/chats", { token: noAud });
+    expect(res.status).toBe(401);
+  });
+
+  it("GET /chats returns 401 for a verified token whose sub is not a usr_ id (Z2)", async () => {
+    const orgToken = await makeToken("org_evil");
+    const res = await req(app, "GET", "/chats", { token: orgToken });
     expect(res.status).toBe(401);
   });
 
@@ -134,9 +198,11 @@ describe("chats routes", () => {
       token: aliceToken,
       body: { type: "group", title: "Chat A" },
     });
+    // A DM is exactly two members; pair alice with charlie (not bob) so bob
+    // still sees nothing below.
     await req(app, "POST", "/chats", {
       token: aliceToken,
-      body: { type: "dm" },
+      body: { type: "dm", memberProfileIds: ["usr_charlie"] },
     });
 
     const res = await req(app, "GET", "/chats", { token: aliceToken });
@@ -263,6 +329,60 @@ describe("chats routes", () => {
       token: aliceToken,
     });
     expect(res.status).toBe(204);
+  });
+
+  // ── Consent + invariants (W2) ─────────────────────────────────────────────
+
+  it("POST /chats/:id/members returns 403 when consent is denied", async () => {
+    const createRes = await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "group", title: "Closed" },
+    });
+    const chatId = (await body(createRes)).chat.id;
+
+    setConsentGate(() => Promise.resolve(false));
+    const res = await req(app, "POST", `/chats/${chatId}/members`, {
+      token: aliceToken,
+      body: { profileId: "usr_bob" },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("POST /chats/:id/members returns 403 (fail-closed) when the graph is unreachable", async () => {
+    const createRes = await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "group", title: "Closed" },
+    });
+    const chatId = (await body(createRes)).chat.id;
+
+    setConsentGate(() => Promise.reject(new Error("ECONNREFUSED")));
+    const res = await req(app, "POST", `/chats/${chatId}/members`, {
+      token: aliceToken,
+      body: { profileId: "usr_bob" },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("POST /chats returns 422 for a DM without exactly one other member", async () => {
+    const res = await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "dm" },
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("DELETE /chats/:id/members/:profileId returns 409 when removing the last admin", async () => {
+    const createRes = await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "group", memberProfileIds: ["usr_bob"] },
+    });
+    const chatId = (await body(createRes)).chat.id;
+
+    // Alice is the sole admin — she cannot leave without handing off.
+    const res = await req(app, "DELETE", `/chats/${chatId}/members/usr_alice`, {
+      token: aliceToken,
+    });
+    expect(res.status).toBe(409);
   });
 
   // ── Messages ────────────────────────────────────────────────────────────

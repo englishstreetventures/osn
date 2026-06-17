@@ -1,5 +1,7 @@
 import { createApp } from "./app";
 import { createD1Db } from "./db";
+import { createWorkersRateLimiter } from "./lib/workers-rate-limiter";
+import type { WorkersRateLimitBinding } from "./lib/workers-rate-limiter";
 import { createAccountResolverFromEnv } from "./services/osn-bridge";
 
 // Worker bindings + vars. Mirrors `wrangler.toml` ([[d1_databases]], [[r2_buckets]],
@@ -25,6 +27,10 @@ export interface Env {
   OSN_API_URL?: string;
   CIRE_API_ARC_PRIVATE_KEY?: string;
   CIRE_API_ARC_KEY_ID?: string;
+  // Native Workers Rate Limiting binding (C1/C4). When present, the claim
+  // limiter is the global, atomic edge limiter; absent (local `wrangler dev`
+  // without the binding, or non-Workers runtimes) ⇒ the in-memory fallback.
+  CLAIM_RATE_LIMITER?: WorkersRateLimitBinding;
 }
 
 // P-W1: the Elysia app graph (root + cors + route factories + auth plugins) is
@@ -83,11 +89,23 @@ const handler: ExportedHandler<Env> = {
           arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
           arcKeyId: env.CIRE_API_ARC_KEY_ID,
         })) ?? undefined;
+      // C1/C4/AL-S-L1: prefer the native Workers rate-limit binding (global +
+      // atomic) for every pre-auth / amplifier surface — claim (brute-force),
+      // account-link (ARC-sign + S2S amplifier, membership oracle), invite
+      // (R2 write amplifier). One binding ⇒ one shared global budget, which is
+      // an acceptable (stricter) cap; absent the binding, each falls back to
+      // createApp's per-surface in-memory default.
+      const edgeLimiter = env.CLAIM_RATE_LIMITER
+        ? createWorkersRateLimiter(env.CLAIM_RATE_LIMITER)
+        : undefined;
       cached = {
         dbBinding: env.DB,
         app: createApp(db, {
           webOrigin: origins[0],
           allowedOrigins: origins,
+          claimLimiter: edgeLimiter,
+          accountLinkLimiter: edgeLimiter,
+          inviteLimiter: edgeLimiter,
           r2: env.SHEETS,
           assets: env.ASSETS,
           osnJwksUrl: env.OSN_JWKS_URL,

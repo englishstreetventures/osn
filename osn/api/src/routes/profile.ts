@@ -1,7 +1,13 @@
 import { DbLive, type Db } from "@osn/db/service";
 import type { AuthRateLimitedEndpoint } from "@shared/observability/metrics";
-import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
-import { Layer } from "effect";
+import {
+  createRateLimiter,
+  getClientIp,
+  isUnresolvedIp,
+  type ClientIpOptions,
+  type RateLimiterBackend,
+} from "@shared/rate-limit";
+import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { resolveAccountId } from "../lib/auth-derive";
@@ -38,6 +44,13 @@ export function createProfileRoutes(
   dbLayer: Layer.Layer<Db> = DbLive,
   loggerLayer: Layer.Layer<never> = Layer.empty,
   rateLimiters: ProfileRateLimiters = createDefaultProfileRateLimiters(),
+  /**
+   * Client-IP trust policy (S-M34). See `createAuthRoutes` for the full
+   * contract. Defaults to `{}` (direct mode, socket peer only). Tests that
+   * key per-IP buckets off an `x-forwarded-for` header pass
+   * `{ trustedProxyCount: 1 }`.
+   */
+  clientIpConfig: Omit<ClientIpOptions, "socketIp"> = {},
   /** Shared application runtime (see `createAuthRoutes`). */
   runtime?: AppRuntime,
 ) {
@@ -56,12 +69,27 @@ export function createProfileRoutes(
 
   const rl = rateLimiters;
 
+  /** Per-request transport socket peer (S-M34); `null` under `app.handle`. */
+  type IpCtx = {
+    server: { requestIP?: (req: Request) => { address?: string } | null } | null;
+    request: Request;
+  };
+  const socketIpOf = (ctx: IpCtx): string | null =>
+    ctx.server?.requestIP?.(ctx.request)?.address ?? null;
+
   async function rateLimit(
     headers: Record<string, string | undefined>,
+    socketIp: string | null,
     endpoint: AuthRateLimitedEndpoint,
     limiter: RateLimiterBackend,
   ): Promise<{ error: string } | null> {
-    const ip = getClientIp(headers);
+    const ip = getClientIp(headers, { ...clientIpConfig, socketIp });
+    // S-M34: never key the limiter on an unresolved IP — deny instead of
+    // sharing one bucket across all un-attributable requests.
+    if (isUnresolvedIp(ip)) {
+      metricAuthRateLimited(endpoint);
+      return { error: "rate_limited" };
+    }
     let allowed: boolean;
     try {
       allowed = await limiter.check(ip);
@@ -78,8 +106,13 @@ export function createProfileRoutes(
   return new Elysia({ prefix: "" })
     .post(
       "/profiles/create",
-      async ({ body, headers, set }) => {
-        const rlErr = await rateLimit(headers, "profile_create", rl.profileCreate);
+      async ({ body, headers, set, server, request }) => {
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "profile_create",
+          rl.profileCreate,
+        );
         if (rlErr) {
           set.status = 429;
           return rlErr;
@@ -110,8 +143,13 @@ export function createProfileRoutes(
     )
     .post(
       "/profiles/delete",
-      async ({ body, headers, set }) => {
-        const rlErr = await rateLimit(headers, "profile_delete", rl.profileDelete);
+      async ({ body, headers, set, server, request }) => {
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "profile_delete",
+          rl.profileDelete,
+        );
         if (rlErr) {
           set.status = 429;
           return rlErr;
@@ -138,8 +176,13 @@ export function createProfileRoutes(
     )
     .post(
       "/profiles/:profileId/default",
-      async ({ params, headers, set }) => {
-        const rlErr = await rateLimit(headers, "profile_set_default", rl.profileSetDefault);
+      async ({ params, headers, set, server, request }) => {
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "profile_set_default",
+          rl.profileSetDefault,
+        );
         if (rlErr) {
           set.status = 429;
           return rlErr;

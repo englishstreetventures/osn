@@ -5,6 +5,7 @@ import { Effect } from "effect";
 import { Elysia } from "elysia";
 
 import type { Db } from "./db";
+import { originGuard } from "./lib/origin-guard";
 import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
 import { createClaimRoutes } from "./routes/claim";
@@ -131,6 +132,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
         set.status = 500;
         return { error: "Internal error" };
       })
+      // C5 / S-L3: CSRF origin guard on every state-changing method, using the
+      // same allowlist CORS echoes. Mounted before the route factories so it
+      // gates the whole app. Empty allowlist (dev) disables it.
+      .use(originGuard(corsOrigins))
       .use(createClaimRoutes(db, { webOrigin, limiter: claimLimiter }))
       .use(createRsvpRoutes(db))
       .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))
@@ -145,6 +150,14 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // token. Splitting them is what method-gates `osnAuth` to POST without
       // gating the guest-only reads (same sibling pattern as rsvp + organiser).
       .use(createAccountLinkRoutes(db, accountLinkLimiter))
-      .use(createAccountLinkPostRoute(db, osnAuthOptions, accountLinkLimiter, resolveOsnAccountId))
+      .use(
+        createAccountLinkPostRoute(
+          db,
+          osnAuthOptions,
+          accountLinkLimiter,
+          resolveOsnAccountId,
+          webOrigin,
+        ),
+      )
   );
 }

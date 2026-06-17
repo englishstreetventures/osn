@@ -4,10 +4,16 @@ import { Effect, Layer } from "effect";
 import { SignJWT } from "jose";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
-import { createAuthRoutes, createDefaultAuthRateLimiters } from "../../src/routes/auth";
+import {
+  createAuthRoutes as createAuthRoutesRaw,
+  createDefaultAuthRateLimiters,
+} from "../../src/routes/auth";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
+// S-M34: route factory wrapped to trust XFF + default a loopback IP under
+// `app.handle(...)`. See `../helpers/routes` for the rationale.
+import { createAuthRoutes } from "../helpers/routes";
 
 /**
  * Builds a `LogEmailLive` + merged test layer + a lazy OTP accessor
@@ -985,6 +991,65 @@ describe("auth routes", () => {
       expect(blocked.status).toBe(429);
       const json = (await blocked.json()) as { error: string };
       expect(json.error).toBe("rate_limited");
+    });
+
+    // -----------------------------------------------------------------------
+    // S-M34: client-IP hardening. These use the RAW factory (no default-XFF
+    // wrapper) so they observe the production fail-closed behaviour.
+    // -----------------------------------------------------------------------
+    it("denies (429) a header-less request under a trusted-proxy policy (fail-closed)", async () => {
+      // trustedProxyCount:1 but no x-forwarded-for and no socket peer under
+      // app.handle → UNRESOLVED → deny rather than sharing an "unknown" bucket.
+      const freshApp = createAuthRoutesRaw(config, layer, Layer.empty, undefined, undefined, {
+        trustedProxyCount: 1,
+      });
+      const res = await freshApp.handle(new Request("http://localhost/handle/nobody"));
+      expect(res.status).toBe(429);
+      const json = (await res.json()) as { error: string };
+      expect(json.error).toBe("rate_limited");
+    });
+
+    it("denies (429) in direct mode when there is no socket peer (fail-closed)", async () => {
+      // Default direct mode ({}). Under app.handle there is no server peer, so
+      // even a populated (untrusted) XFF must not resolve a key.
+      const freshApp = createAuthRoutesRaw(config, layer);
+      const res = await freshApp.handle(
+        new Request("http://localhost/handle/nobody", {
+          headers: { "x-forwarded-for": "9.9.9.9" },
+        }),
+      );
+      expect(res.status).toBe(429);
+    });
+
+    it("keys off the right-most XFF entry under one trusted proxy (spoof-resistant)", async () => {
+      // Raw factory, trustedProxyCount:1. A spoofed left-hand entry is ignored;
+      // the real (right-most) IP is what gets rate-limited. Exhaust that IP,
+      // then prove a *different* right-most IP (with the SAME spoofed prefix)
+      // is still allowed — i.e. the left entry never keyed the bucket.
+      const freshApp = createAuthRoutesRaw(config, layer, Layer.empty, undefined, undefined, {
+        trustedProxyCount: 1,
+      });
+      for (let i = 0; i < 10; i++) {
+        // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
+        await freshApp.handle(
+          new Request(`http://localhost/handle/s${i}`, {
+            headers: { "x-forwarded-for": "1.1.1.1, 203.0.113.7" },
+          }),
+        );
+      }
+      const blocked = await freshApp.handle(
+        new Request("http://localhost/handle/s99", {
+          headers: { "x-forwarded-for": "1.1.1.1, 203.0.113.7" },
+        }),
+      );
+      expect(blocked.status).toBe(429);
+      // Same spoofed left entry, different real right entry → fresh bucket.
+      const allowed = await freshApp.handle(
+        new Request("http://localhost/handle/s99", {
+          headers: { "x-forwarded-for": "1.1.1.1, 203.0.113.8" },
+        }),
+      );
+      expect(allowed.status).not.toBe(429);
     });
   });
 

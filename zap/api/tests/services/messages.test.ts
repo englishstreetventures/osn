@@ -175,4 +175,48 @@ describe("messages service", () => {
       expect(page3[0]!.ciphertext).toBe("msg0");
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  // ── Z6 cursor scoping ────────────────────────────────────────────────────
+
+  it.effect("listMessages rejects an unknown cursor instead of returning page 1", () =>
+    Effect.gen(function* () {
+      const chat = yield* seedChat({ type: "group" });
+      yield* seedMember(chat.id, "usr_alice", "admin");
+      yield* seedMessage(chat.id, "usr_alice", "msg0", new Date("2030-01-01T00:00:00Z"));
+
+      const result = yield* Effect.either(
+        listMessages(chat.id, "usr_alice", { cursor: "msg_does_not_exist" }),
+      );
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("ValidationError");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("listMessages rejects a cursor that belongs to a different chat", () =>
+    Effect.gen(function* () {
+      const chatA = yield* seedChat({ type: "group" });
+      const chatB = yield* seedChat({ type: "group" });
+      yield* seedMember(chatA.id, "usr_alice", "admin");
+      yield* seedMember(chatB.id, "usr_alice", "admin");
+
+      yield* seedMessage(chatA.id, "usr_alice", "a0", new Date("2030-01-01T00:00:00Z"));
+      const foreign = yield* seedMessage(
+        chatB.id,
+        "usr_alice",
+        "b0",
+        new Date("2030-01-01T00:00:00Z"),
+      );
+
+      // A cursor minted in chat B must not paginate chat A.
+      const result = yield* Effect.either(
+        listMessages(chatA.id, "usr_alice", { cursor: foreign.id }),
+      );
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("ValidationError");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
 });

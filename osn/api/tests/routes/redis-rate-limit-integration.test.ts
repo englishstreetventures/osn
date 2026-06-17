@@ -16,11 +16,12 @@ import {
   createRedisAuthRateLimiters,
   createRedisGraphRateLimiter,
 } from "../../src/lib/redis-rate-limiters";
-import { createAuthRoutes } from "../../src/routes/auth";
 import { createGraphRoutes } from "../../src/routes/graph";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
+// S-M34: wrapped factory (trust XFF under app.handle). See helpers/routes.
+import { createAuthRoutes } from "../helpers/routes";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 

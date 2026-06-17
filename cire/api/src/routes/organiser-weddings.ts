@@ -11,6 +11,7 @@ import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
 import { claimService } from "../services/claim";
 import { hostCodeService } from "../services/host-code";
+import { regenerateCodeService } from "../services/regenerate-code";
 import { weddingsService } from "../services/weddings";
 
 /**
@@ -69,6 +70,40 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
           return runCire(
             claimService.listEvents(weddingId).pipe(
               Effect.provideService(DbService, db),
+              Effect.catchAllDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        })
+        // C2: rotate a family's claim code + revoke its sessions, atomically.
+        // weddingOwner() already proved the caller owns :weddingId; the service
+        // re-checks family ∈ wedding (404 FamilyNotInWedding otherwise) so an
+        // owner of wedding A can't rotate a family under wedding B.
+        .post("/families/:familyId/regenerate-code", ({ weddingId, params, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            regenerateCodeService.regenerate(weddingId, params.familyId).pipe(
+              Effect.provideService(DbService, db),
+              Effect.map((r) => ({ familyId: r.familyId, publicId: r.publicId })),
+              Effect.catchTags({
+                FamilyNotInWedding: () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "family_not_found" };
+                  }),
+                RegenerateWriteError: () =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Could not regenerate code" };
+                  }),
+              }),
               Effect.catchAllDefect(() =>
                 Effect.sync(() => {
                   set.status = 500;

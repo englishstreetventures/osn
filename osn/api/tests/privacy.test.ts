@@ -1,11 +1,11 @@
 import { Effect } from "effect";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
-import { createAuthRoutes } from "../src/routes/auth";
-import { createProfileRoutes } from "../src/routes/profile";
 import { createAuthService } from "../src/services/auth";
 import { makeTestAuthConfig } from "./helpers/auth-config";
 import { createTestLayer } from "./helpers/db";
+// S-M34: wrapped factories (trust XFF under app.handle). See helpers/routes.
+import { createAuthRoutes, createProfileRoutes } from "./helpers/routes";
 
 /**
  * Privacy invariant tests for multi-account P6.

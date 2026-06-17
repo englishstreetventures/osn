@@ -9,6 +9,18 @@ OSN_JWKS_URL = "http://localhost:4000/.well-known/jwks.json"
 OSN_ISSUER_URL = "http://localhost:4000"
 OSN_AUDIENCE = "osn-access"
 
+# Native Cloudflare Workers Rate Limiting binding for the pre-auth claim
+# endpoint (C1/C4). Enforced globally + atomically at the edge — unlike the
+# per-isolate in-memory limiter it replaces. `simple.limit`/`simple.period`
+# mirror the in-memory default (5 attempts / 60s); `period` must be 10 or 60.
+# `namespace_id` is an arbitrary stable integer scoping this limiter; bump it
+# only to deliberately reset the counter namespace.
+[[unsafe.bindings]]
+name = "CLAIM_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 5, period = 60 }
+
 [[d1_databases]]
 binding = "DB"
 database_name = "cire-db"

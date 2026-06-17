@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest";
 import { Effect, Either } from "effect";
-import { describe, expect } from "vitest";
+import { describe, expect, beforeEach, afterEach } from "vitest";
 
 import {
   createChat,
@@ -11,9 +11,17 @@ import {
   removeMember,
   getChatMembers,
 } from "../../src/services/chats";
+import { setConsentGate, resetConsentGate } from "../../src/services/consent";
 import { createTestLayer, seedChat, seedMember } from "../helpers/db";
 
 describe("chats service", () => {
+  // The CRUD suite exercises membership/admin logic, not the social graph, so
+  // default the consent gate to always-allow. The dedicated consent suite
+  // below overrides it per-case. Reset after each test so leakage can't mask
+  // a fail-closed regression.
+  beforeEach(() => setConsentGate(() => Promise.resolve(true)));
+  afterEach(() => resetConsentGate());
+
   it.effect("createChat creates a group chat with creator as admin", () =>
     Effect.gen(function* () {
       const chat = yield* createChat({ type: "group", title: "Test Group" }, "usr_alice");
@@ -30,11 +38,13 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("createChat creates a DM", () =>
+  it.effect("createChat creates a DM with exactly two members", () =>
     Effect.gen(function* () {
-      const chat = yield* createChat({ type: "dm" }, "usr_alice");
+      const chat = yield* createChat({ type: "dm", memberProfileIds: ["usr_bob"] }, "usr_alice");
       expect(chat.type).toBe("dm");
       expect(chat.title).toBeNull();
+      const members = yield* getChatMembers(chat.id);
+      expect(members).toHaveLength(2);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -253,6 +263,139 @@ describe("chats service", () => {
       if (Either.isLeft(result)) {
         expect(result.left._tag).toBe("ChatNotFound");
       }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // ── Z3/Z4 consent matrix ────────────────────────────────────────────────
+
+  it.effect("addMember allowed when the actor and target are connected", () =>
+    Effect.gen(function* () {
+      setConsentGate(() => Promise.resolve(true));
+      const chat = yield* seedChat({ type: "group" });
+      yield* seedMember(chat.id, "usr_alice", "admin");
+      const member = yield* addMember(chat.id, "usr_bob", "usr_alice");
+      expect(member.profileId).toBe("usr_bob");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("addMember rejected with ConsentDenied when not connected", () =>
+    Effect.gen(function* () {
+      setConsentGate(() => Promise.resolve(false));
+      const chat = yield* seedChat({ type: "group" });
+      yield* seedMember(chat.id, "usr_alice", "admin");
+      const result = yield* Effect.either(addMember(chat.id, "usr_bob", "usr_alice"));
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("ConsentDenied");
+        if (result.left._tag === "ConsentDenied") {
+          expect(result.left.reason).toBe("not_connected");
+        }
+      }
+      // No member should have been inserted.
+      const members = yield* getChatMembers(chat.id);
+      expect(members).toHaveLength(1);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("addMember fails closed (ConsentDenied/graph_unreachable) when the graph throws", () =>
+    Effect.gen(function* () {
+      setConsentGate(() => Promise.reject(new Error("ECONNREFUSED")));
+      const chat = yield* seedChat({ type: "group" });
+      yield* seedMember(chat.id, "usr_alice", "admin");
+      const result = yield* Effect.either(addMember(chat.id, "usr_bob", "usr_alice"));
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("ConsentDenied");
+        if (result.left._tag === "ConsentDenied") {
+          expect(result.left.reason).toBe("graph_unreachable");
+        }
+      }
+      const members = yield* getChatMembers(chat.id);
+      expect(members).toHaveLength(1);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect(
+    "createChat rejects when an initial member is not connected (no chat left behind)",
+    () =>
+      Effect.gen(function* () {
+        setConsentGate(() => Promise.resolve(false));
+        const result = yield* Effect.either(
+          createChat({ type: "group", title: "Spam", memberProfileIds: ["usr_bob"] }, "usr_alice"),
+        );
+        expect(Either.isLeft(result)).toBe(true);
+        if (Either.isLeft(result)) {
+          expect(result.left._tag).toBe("ConsentDenied");
+        }
+        // The chat must not have been created.
+        const mine = yield* listChats("usr_alice");
+        expect(mine).toHaveLength(0);
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // ── Z3 DM member-count invariant ────────────────────────────────────────
+
+  it.effect("createChat rejects a DM with no other member", () =>
+    Effect.gen(function* () {
+      const result = yield* Effect.either(createChat({ type: "dm" }, "usr_alice"));
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("InvalidDmMembership");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("createChat rejects a DM with more than two members", () =>
+    Effect.gen(function* () {
+      const result = yield* Effect.either(
+        createChat({ type: "dm", memberProfileIds: ["usr_bob", "usr_charlie"] }, "usr_alice"),
+      );
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("InvalidDmMembership");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("addMember rejects widening a DM into a group", () =>
+    Effect.gen(function* () {
+      const chat = yield* seedChat({ type: "dm" });
+      yield* seedMember(chat.id, "usr_alice", "admin");
+      yield* seedMember(chat.id, "usr_bob");
+      const result = yield* Effect.either(addMember(chat.id, "usr_charlie", "usr_alice"));
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("InvalidDmMembership");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // ── Z5 last-admin invariant ─────────────────────────────────────────────
+
+  it.effect("removeMember rejects removing the only admin", () =>
+    Effect.gen(function* () {
+      const chat = yield* seedChat({ type: "group" });
+      yield* seedMember(chat.id, "usr_alice", "admin");
+      yield* seedMember(chat.id, "usr_bob");
+      const result = yield* Effect.either(removeMember(chat.id, "usr_alice", "usr_alice"));
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("LastAdmin");
+      }
+      const members = yield* getChatMembers(chat.id);
+      expect(members).toHaveLength(2);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("removeMember allows removing an admin when another admin remains", () =>
+    Effect.gen(function* () {
+      const chat = yield* seedChat({ type: "group" });
+      yield* seedMember(chat.id, "usr_alice", "admin");
+      yield* seedMember(chat.id, "usr_bob", "admin");
+      yield* removeMember(chat.id, "usr_alice", "usr_bob");
+      const members = yield* getChatMembers(chat.id);
+      expect(members).toHaveLength(1);
+      expect(members[0]!.profileId).toBe("usr_bob");
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

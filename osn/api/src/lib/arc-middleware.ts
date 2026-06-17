@@ -111,12 +111,18 @@ export async function requireArc(
     // sole gate. The cryptographic verification below is authoritative.
     const publicKey = await run(resolvePublicKey(peeked.kid, peeked.iss, peeked.scopes));
 
-    // Verify signature, audience, expiry, and required scope (authoritative).
+    // Verify signature, audience, expiry, required scope, and issuer (X1).
+    // We pass `peeked.iss` as the expected issuer: the key was resolved by the
+    // (kid, iss) pair, so requiring the signed `iss` to equal it makes jose
+    // cryptographically enforce the kid→issuer binding rather than relying on
+    // the DB lookup alone. A token whose signed `iss` differs from the issuer
+    // its kid is registered under is now rejected at verification time.
     const payload: ArcTokenPayload = await verifyArcToken(
       raw,
       publicKey,
       expectedAudience,
       requiredScope,
+      peeked.iss,
     );
 
     return {

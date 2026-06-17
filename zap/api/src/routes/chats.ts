@@ -1,9 +1,15 @@
-import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
+import { extractClaims } from "@shared/osn-auth-client/verify";
+import {
+  createRateLimiter,
+  getClientIp,
+  isUnresolvedIp,
+  type RateLimiterBackend,
+} from "@shared/rate-limit";
 import { DbLive, type Db } from "@zap/db/service";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
-import { jwtVerify } from "jose";
 
+import { DEFAULT_JWKS_URL } from "../lib/jwks";
 import { MAX_CHAT_MEMBERS, MAX_CIPHERTEXT_LENGTH, MAX_NONCE_LENGTH } from "../lib/limits";
 import { metricAccessDenied } from "../metrics";
 import {
@@ -20,29 +26,37 @@ import { sendMessage, listMessages } from "../services/messages";
 
 const chatTypeEnum = t.Union([t.Literal("dm"), t.Literal("group"), t.Literal("event")]);
 
-/** Extracts verified claims from a Bearer token. Returns null on any failure. */
-async function extractClaims(
-  authHeader: string | undefined,
-  secret: Uint8Array,
-): Promise<{ profileId: string } | null> {
-  if (!authHeader?.startsWith("Bearer ")) return null;
-  try {
-    const { payload } = await jwtVerify(authHeader.slice(7), secret);
-    const profileId = typeof payload.sub === "string" ? payload.sub : null;
-    if (!profileId) return null;
-    return { profileId };
-  } catch {
-    return null;
-  }
-}
+/** Audience expected on user access tokens minted by osn/api. */
+const ACCESS_AUDIENCE = "osn-access";
 
-// S-H1: the dev convenience literal is only ever used in the `local`
-// environment. In any non-local env an unset secret resolves to "" so
-// `jwtVerify` fails closed (401) instead of trusting a publicly-known key. The
-// deployed Workers entry additionally refuses to boot without OSN_JWT_SECRET.
-const DEFAULT_JWT_SECRET =
-  process.env.OSN_JWT_SECRET ??
-  (process.env.OSN_ENV && process.env.OSN_ENV !== "local" ? "" : "dev-secret-change-in-prod");
+/**
+ * AUDIT-Z2 chokepoint. Verifies a Bearer token via the OSN JWKS (ES256) and
+ * returns the actor's `profileId` ONLY when the verified `sub` is a real OSN
+ * user id (prefix `usr_`).
+ *
+ * A verified-but-malformed `sub` (e.g. an org or service principal that
+ * somehow held an `osn-access` token) must never be written into
+ * `created_by_profile_id` / `sender_profile_id`, so every route derives its
+ * actor id through this single helper. Decision: prefix-only check (not a
+ * strict regex) — the issuer already guarantees the id shape; this is a cheap
+ * defence-in-depth guard.
+ *
+ * Returns `null` on any verification failure OR a non-`usr_` sub; callers map
+ * `null` to a uniform 401.
+ */
+async function resolveProfileId(
+  authHeader: string | undefined,
+  jwksUrl: string,
+  testKey: CryptoKey | undefined,
+): Promise<{ profileId: string } | null> {
+  const claims = await extractClaims(authHeader, jwksUrl, {
+    testKey: testKey as CryptoKey,
+    audience: ACCESS_AUDIENCE,
+  });
+  if (!claims) return null;
+  if (!claims.profileId.startsWith("usr_")) return null;
+  return { profileId: claims.profileId };
+}
 
 /** Rate limiter configuration for Zap write endpoints. */
 export interface ZapRateLimiters {
@@ -64,16 +78,15 @@ export function createDefaultZapRateLimiters(): ZapRateLimiters {
 
 export const createChatsRoutes = (
   dbLayer: Layer.Layer<Db> = DbLive,
-  jwtSecret: string = DEFAULT_JWT_SECRET,
+  jwksUrl: string = DEFAULT_JWKS_URL,
+  _testKey?: CryptoKey,
   rateLimiters: ZapRateLimiters = createDefaultZapRateLimiters(),
 ) => {
-  const secretBytes = new TextEncoder().encode(jwtSecret);
-
   return (
     new Elysia({ prefix: "/chats" })
       // ── List user's chats ─────────────────────────────────────────────
       .get("/", async ({ headers, set }) => {
-        const claims = await extractClaims(headers["authorization"], secretBytes);
+        const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
@@ -87,7 +100,7 @@ export const createChatsRoutes = (
       .get(
         "/:id",
         async ({ params, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -116,12 +129,16 @@ export const createChatsRoutes = (
       .post(
         "/",
         async ({ body, headers, set }) => {
-          const ip = getClientIp(headers);
-          if (!(await rateLimiters.createChat.check(ip))) {
+          // S-H1: Zap runs behind Cloudflare, so the only trustworthy client IP
+          // is `cf-connecting-ip` (W3 trust policy). A missing/malformed header
+          // yields the UNRESOLVED sentinel — fail closed (429) rather than
+          // bucket every header-less request together under a spoofable key.
+          const ip = getClientIp(headers, { trustCloudflare: true });
+          if (isUnresolvedIp(ip) || !(await rateLimiters.createChat.check(ip))) {
             set.status = 429;
             return { message: "Too many requests" } as const;
           }
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -132,6 +149,18 @@ export const createChatsRoutes = (
                 Effect.sync(() => {
                   set.status = 422;
                   return { error: String(e.cause) } as const;
+                }),
+              ),
+              Effect.catchTag("InvalidDmMembership", () =>
+                Effect.sync(() => {
+                  set.status = 422;
+                  return { error: "A DM must have exactly two members" } as const;
+                }),
+              ),
+              Effect.catchTag("ConsentDenied", () =>
+                Effect.sync(() => {
+                  set.status = 403;
+                  return { error: "Not permitted to message this profile" } as const;
                 }),
               ),
               Effect.provide(dbLayer),
@@ -154,7 +183,7 @@ export const createChatsRoutes = (
       .patch(
         "/:id",
         async ({ params, body, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -197,7 +226,7 @@ export const createChatsRoutes = (
       .get(
         "/:id/members",
         async ({ params, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -224,12 +253,13 @@ export const createChatsRoutes = (
       .post(
         "/:id/members",
         async ({ params, body, headers, set }) => {
-          const ip = getClientIp(headers);
-          if (!(await rateLimiters.addMember.check(ip))) {
+          // S-H1: Cloudflare-only client IP, fail closed when unresolved.
+          const ip = getClientIp(headers, { trustCloudflare: true });
+          if (isUnresolvedIp(ip) || !(await rateLimiters.addMember.check(ip))) {
             set.status = 429;
             return { message: "Too many requests" } as const;
           }
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -255,6 +285,18 @@ export const createChatsRoutes = (
                   return { error: "Already a member" } as const;
                 }),
               ),
+              Effect.catchTag("InvalidDmMembership", () =>
+                Effect.sync(() => {
+                  set.status = 422;
+                  return { error: "Cannot add members to a DM" } as const;
+                }),
+              ),
+              Effect.catchTag("ConsentDenied", () =>
+                Effect.sync(() => {
+                  set.status = 403;
+                  return { error: "Not permitted to add this profile" } as const;
+                }),
+              ),
               Effect.provide(dbLayer),
             ),
           );
@@ -275,7 +317,7 @@ export const createChatsRoutes = (
       .delete(
         "/:id/members/:profileId",
         async ({ params, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -296,6 +338,12 @@ export const createChatsRoutes = (
                   return { message: "Not a member" } as const;
                 }),
               ),
+              Effect.catchTag("LastAdmin", () =>
+                Effect.sync(() => {
+                  set.status = 409;
+                  return { message: "Cannot remove the last admin" } as const;
+                }),
+              ),
               Effect.provide(dbLayer),
             ),
           );
@@ -313,12 +361,13 @@ export const createChatsRoutes = (
       .post(
         "/:id/messages",
         async ({ params, body, headers, set }) => {
-          const ip = getClientIp(headers);
-          if (!(await rateLimiters.sendMessage.check(ip))) {
+          // S-H1: Cloudflare-only client IP, fail closed when unresolved.
+          const ip = getClientIp(headers, { trustCloudflare: true });
+          if (isUnresolvedIp(ip) || !(await rateLimiters.sendMessage.check(ip))) {
             set.status = 429;
             return { message: "Too many requests" } as const;
           }
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -362,7 +411,7 @@ export const createChatsRoutes = (
       .get(
         "/:id/messages",
         async ({ params, query, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], secretBytes);
+          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -380,6 +429,12 @@ export const createChatsRoutes = (
                   return { message: "Not a member" } as const;
                 }),
               ),
+              Effect.catchTag("ValidationError", () =>
+                Effect.sync(() => {
+                  set.status = 422;
+                  return { error: "Invalid cursor" } as const;
+                }),
+              ),
               Effect.provide(dbLayer),
             ),
           );
@@ -387,7 +442,7 @@ export const createChatsRoutes = (
             set.status = 404;
             return { message: "Chat not found" };
           }
-          if ("message" in result && !Array.isArray(result)) return result;
+          if (!Array.isArray(result) && ("message" in result || "error" in result)) return result;
           return { messages: result };
         },
         {

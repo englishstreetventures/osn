@@ -2,10 +2,11 @@ import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect } from "effect";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
-import { createProfileRoutes } from "../../src/routes/profile";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
+// S-M34: see `../helpers/routes` for why the factory is wrapped here.
+import { createProfileRoutes } from "../helpers/routes";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 

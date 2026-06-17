@@ -23,7 +23,7 @@ finding-ids:
 packages:
   - "@shared/redis"
   - "@osn/api"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-06-16
 ---
 
 # Redis Migration
@@ -78,7 +78,14 @@ Metrics in `shared/redis/src/metrics.ts`:
 Bounded attribute types:
 - `RedisCommand = "evalsha" | "ping" | "get" | "set" | "del" | "incr" | "other"`
 - `RedisResult = "ok" | "error" | "timeout"`
-- `RedisNamespace = "rate_limit" | "rotated_session" | "step_up_jti"`
+- `RedisNamespace` (closed union, single source of truth in `shared/redis/src/metrics.ts`):
+  - Pre-existing: `"rate_limit" | "rotated_session" | "step_up_jti"`
+  - O3 ceremony / pending-state stores: `"reg_challenge" | "login_challenge" | "pending_registration" | "step_up_challenge" | "step_up_otp" | "pending_email_change" | "cross_device"`
+  - O2 recovery-code lockout counter: `"recovery_lockout"`
+
+### O3: ceremony / pending-state stores
+
+Every short-lived ceremony / pending-state entry in the auth service (registration + login + step-up WebAuthn challenges, pending registrations, step-up OTP, pending email changes, cross-device requests) used to live in a process-local `Map` inside `auth.ts` — correct for single-process dev but silently partitioning in multi-pod deployments (a `begin` on pod A, a `complete` routed to pod B → spurious "challenge expired"; per-account caps trivially bypassed across pods). Each now follows the injectable triple-pattern used by `StepUpJtiStore` / `RotatedSessionStore`: an interface (`CeremonyStore<V>`) on `AuthConfig.ceremonyStores`, an in-memory default (TTL-swept, `CEREMONY_STORE_MAX`-bounded), and a Redis-backed impl (one key per entry, native PX expiry) wired from a single `RedisClient` in `osn/api/src/index.ts` via `createRedisCeremonyStores`. The two per-account caps (profile-switch 20/hr, email-change-begin 3/24h) route through `createRedisRateLimiter`. **Fail-conservative:** a Redis blip degrades a ceremony to "not found / re-begin" rather than a 500. Per-namespace op + live-entry telemetry: `osn.auth.ceremony_store.operations` / `osn.auth.ceremony_store.entries`.
 
 ## Deferred Decision: Provider Choice
 

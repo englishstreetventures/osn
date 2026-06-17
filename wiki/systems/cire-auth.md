@@ -27,11 +27,28 @@ Cire runs **two deliberately separate auth systems** that never overlap. Guests 
 
 ## Guest path: claim code → session cookie
 
-1. A family receives a shareable claim code — `families.public_id`, e.g. `SHARMA-IVY-QM42` (family name + word + 4-char hash; collisions on family name are fine, the word/hash disambiguates).
-2. `POST /api/claim` looks up the code and mints a 256-bit random session token. The token is stored **SHA-256-hashed** in cire's `sessions` table (DB read never yields a usable credential); the raw value goes only into the cookie.
+1. A family receives a shareable claim code — `families.public_id`, format **`SURNAME-WORD-HASH`** (see [Claim-code format](#claim-code-format-c1) below), e.g. `SHARMA-WIDGET-AB3K9-X7QPM`. Surname collisions are fine; the random word + hash carry the entropy.
+2. `POST /api/claim` looks up the code (case-insensitive — input is upper-cased before lookup) and mints a 256-bit random session token. The token is stored **SHA-256-hashed** in cire's `sessions` table (DB read never yields a usable credential); the raw value goes only into the cookie.
 3. Cookie attributes: `cire_session`, `HttpOnly; SameSite=Lax; Path=/`, 30-day TTL, host-scoped (no `Domain=` until a production root domain lands). CORS echoes the configured origin with `credentials: true`.
 4. `sessionAuth()` (an Elysia plugin) gates `/api/rsvp`: parses the cookie, validates the hash against `sessions`, and derives `familyId` for downstream handlers. Any failure is a generic 401 `Unauthorized` — no session-state leakage.
-5. `POST /api/claim` is rate-limited (KV-backed, via `@shared/rate-limit`) to keep code brute-force impractical.
+5. `POST /api/claim` is rate-limited to keep code brute-force impractical. The limiter is the **native Cloudflare Workers Rate Limiting binding** (`CLAIM_RATE_LIMITER` in `wrangler.toml`) — a global, atomic, per-IP edge limiter — wrapped as a `RateLimiterBackend` by `WorkersRateLimiterBackend` (`cire/api/src/lib/workers-rate-limiter.ts`), fail-closed on a binding throw. The in-memory `@shared/rate-limit` limiter is the dev/test fallback when the binding is absent. (This corrects the earlier note that called it "KV-backed" — it was never KV; it is the native ratelimit binding.) IP keying is Cloudflare-only and **fails closed**: `getClientIp` keys strictly on `cf-connecting-ip` via `@shared/rate-limit`'s hardened helper (`trustCloudflare: true`) and denies (429) when the header is missing/malformed rather than bucketing on a spoofable fallback (C4).
+
+### Claim-code format (C1)
+
+`SURNAME-WORD-HASH`, minted by `cire/api/src/services/family-code.ts`:
+
+- **SURNAME** — uppercased family surname, symbols stripped, capped. **Readability only / non-security** (surname collisions are expected); empty/symbol-only surnames degrade to `FAMILY`.
+- **WORD** — one word drawn uniformly at random (CSPRNG, rejection-sampled, no modulo bias) from the **EFF short wordlist** (1296 words → ~10.34 bits), bundled as a frozen data module (`cire/api/src/data/eff-short-wordlist.ts`) so it ships in the Worker bundle with no I/O.
+- **HASH** — Crockford base32 (alphabet `0123456789ABCDEFGHJKMNPQRSTVWXYZ`, excludes I/L/O/U; case-insensitive on entry), tier-driven length:
+
+| Tier | Hash | Grouping | Hash entropy | Total code |
+|---|---|---|---|---|
+| `secure` (**default**) | 10 chars | 5-5 (`AB3K9-X7QPM`) | ~50 bits | ~60 bits |
+| `simple` | 6 chars | ungrouped | ~30 bits | ~40 bits |
+
+The tier lives in the **`weddings.code_style`** column (enum `simple | secure`, default `secure`; migration `0011_wedding_code_style.sql`). The CSV-import diff reads it once per import and mints every new family code at that tier. **Re-mint:** legacy `NAME-XXXXXXXX` codes on the live wedding are rotated to the new format by the idempotent, tenant-scoped operator function `scripts/remint-family-codes.ts` (re-mints only single-hyphen legacy codes; a second run is a no-op).
+
+**Regenerating one family's code (C2):** `POST /api/organiser/weddings/:weddingId/families/:familyId/regenerate-code` (owner-gated by `weddingOwner()`, verifies family ∈ wedding) mints a fresh code on the wedding's tier and, **atomically in one D1 batch**, rotates `families.public_id` AND revokes every session for that family (`sessionService.revokeAllForFamily`) — so the old code and any session minted from it die in the same commit.
 
 **Why guests never get OSN accounts:** the guest journey is "tap a link at the dinner table, pick who's coming". Any registration ceremony — even a passkey one — would lose RSVPs. The claim code is deliberately low-friction and family-scoped; the security bar is "unguessable + rate-limited + revocable", not "authenticated identity". Guests may **optionally** link an OSN account on top of the guest session — see [Guest account linking](#guest-account-linking-the-one-deliberate-dual-credential-route) — but the claim-code session stays the primary credential.
 
@@ -107,7 +124,13 @@ An invitee may **optionally** attach their seat to a real OSN/Pulse account so t
 
 **ARC on Workers.** cire/api runs on workerd, so it mints the outbound ARC token via the DB-free, metric-free `@shared/crypto/jwk` `signArcToken` (the barrel `@shared/crypto` and `@shared/observability` don't bundle for workerd). Key distribution is a **stable** ES256 key (`CIRE_API_ARC_PRIVATE_KEY` wrangler secret) pre-registered in osn-api's `service_accounts` under serviceId `cire-api` — not the ephemeral-key self-registration + rotation that long-lived bun services use, because a Worker has no startup hook. When the ARC key is absent the POST answers **503** (linking is opt-in; the rest of cire is unaffected). The resolver is injectable (`createApp({ resolveOsnAccountId })`) so tests stub it.
 
+**Session rotation on link (C6).** A successful `POST /api/account/link` **rotates the guest session**: it mints a fresh token and revokes the presented one in a single atomic batch, then returns a new `Set-Cookie`. Linking is a privilege change (the household becomes bound to an OSN account), so any token an attacker may have planted before the legitimate user linked is invalidated in the same commit — a session-fixation defence (`sessionService.rotate`). Rotation is best-effort: if the write fails the link still stands and the existing session is kept (logged), rather than 500-ing a completed link. Clients must use the rotated cookie for subsequent requests; the old one no longer validates.
+
 The browser-side affordance (a "link my Pulse account" button on the guest site that obtains an OSN access token and POSTs it with the guest cookie) is **deferred** — backend only for now.
+
+## CSRF origin guard (C5 / S-L3)
+
+The guest `cire_session` cookie carries auth state, so cire needs CSRF defence beyond `SameSite=Lax`. A root-level Elysia `onBeforeHandle` (`cire/api/src/lib/origin-guard.ts`, mounted in `createApp` before the route factories) validates the `Origin` header on **every state-changing method** (POST/PUT/PATCH/DELETE) against the same allowlist CORS echoes (derived from `WEB_ORIGIN`). Missing or mismatched Origin → **403** with a bounded `cire.origin_guard.rejections{reason}` metric (`missing | mismatch`). cire has **no** inbound ARC/S2S routes (unlike osn-api, whose guard exempts them), so there is no exemption — every state-changing request is checked. An empty allowlist (local dev) disables the guard.
 
 ## Related
 

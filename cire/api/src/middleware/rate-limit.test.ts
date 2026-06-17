@@ -39,4 +39,26 @@ describe("rateLimitMiddleware", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toBe("60");
   });
+
+  // C4: fail closed when the IP can't be resolved — a request that reaches the
+  // Worker with no/invalid cf-connecting-ip must be denied, never bucketed into
+  // a shared fallback key. `appRequest` injects a default CF IP, so we bypass it
+  // and hit the app directly with no header to exercise the unresolved path.
+  it("returns 429 when no cf-connecting-ip is present (fail closed)", async () => {
+    const app = createTestApp(5);
+    const res = await app.fetch(new Request("http://localhost/test", { method: "POST" }));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("60");
+  });
+
+  it("returns 429 on a malformed cf-connecting-ip (fail closed)", async () => {
+    const app = createTestApp(5);
+    const res = await app.fetch(
+      new Request("http://localhost/test", {
+        method: "POST",
+        headers: { "cf-connecting-ip": "garbage" },
+      }),
+    );
+    expect(res.status).toBe(429);
+  });
 });
