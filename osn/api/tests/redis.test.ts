@@ -3,8 +3,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import { initRedisClient } from "../src/redis";
 
-// Mock @shared/redis to avoid real ioredis connections
-vi.mock("@shared/redis", async (importOriginal) => {
+// Mock the ioredis subpath to avoid real ioredis connections. `createClientFromUrl`
+// now lives in `@shared/redis/ioredis` (split out so it never lands in the Workers
+// bundle), so the mock targets that module rather than the top-level entry.
+vi.mock("@shared/redis/ioredis", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
@@ -13,11 +15,8 @@ vi.mock("@shared/redis", async (importOriginal) => {
   };
 });
 
-import {
-  createClientFromUrl,
-  createMemoryClient,
-  type ConnectableRedisClient,
-} from "@shared/redis";
+import { createMemoryClient } from "@shared/redis";
+import { createClientFromUrl, type ConnectableRedisClient } from "@shared/redis/ioredis";
 
 const mockedCreateClientFromUrl = vi.mocked(createClientFromUrl);
 

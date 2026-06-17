@@ -1,13 +1,12 @@
 export { RedisError } from "./errors";
+export { type RedisClient, createMemoryClient, registerMemoryCounterScript } from "./client";
 export {
-  type RedisClient,
-  type ConnectableRedisClient,
-  wrapIoRedis,
-  createMemoryClient,
-  createClientFromUrl,
-  registerMemoryCounterScript,
-} from "./client";
-export { Redis, type RedisService, RedisLive, RedisMemoryLive, sanitizeCause } from "./service";
+  type UpstashLike,
+  type UpstashClientConfig,
+  wrapUpstash,
+  createUpstashClient,
+} from "./upstash";
+export { Redis, type RedisService, RedisMemoryLive, sanitizeCause } from "./service";
 export {
   createRedisRateLimiter,
   type RedisRateLimiterConfig,

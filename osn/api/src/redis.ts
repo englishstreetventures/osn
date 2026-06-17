@@ -14,11 +14,15 @@
 
 import {
   createMemoryClient,
-  createClientFromUrl,
+  createUpstashClient,
   checkRedisHealth,
   sanitizeCause,
   type RedisClient,
 } from "@shared/redis";
+// ioredis is imported from the dedicated subpath so the Workers selector
+// (`initRedisClientFromEnv`, below) can be bundled without dragging ioredis —
+// which needs Node `net`/`tls` sockets — into the workerd bundle.
+import { createClientFromUrl } from "@shared/redis/ioredis";
 import { Effect, type Layer } from "effect";
 
 export interface InitRedisOptions {
@@ -98,4 +102,40 @@ export async function initRedisClient(opts: InitRedisOptions): Promise<RedisClie
     );
     return createMemoryClient();
   }
+}
+
+/**
+ * Subset of the Workers `env` binding object this selector reads. Provided as a
+ * loose record so the Phase-6 Workers entry can hand its generated `Env` type
+ * straight through without a structural mismatch.
+ */
+export interface RedisEnv {
+  readonly UPSTASH_REDIS_REST_URL?: string;
+  readonly UPSTASH_REDIS_REST_TOKEN?: string;
+}
+
+/**
+ * Workers-path Redis selector — synchronous, ioredis-free, side-effect-free.
+ *
+ * Unlike {@link initRedisClient} (the Bun composition root), this performs NO
+ * startup health check, has NO `REDIS_REQUIRED` fail-closed mode, and never
+ * calls `process.exit` — none of which apply on workerd, where there is no
+ * long-lived process to guard and Upstash's REST transport is stateless (the
+ * first real command surfaces any connectivity problem). It simply chooses a
+ * backend from the request-scoped `env` bindings:
+ *
+ * - both `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` set →
+ *   {@link createUpstashClient} (HTTP/REST, Workers-compatible).
+ * - otherwise → {@link createMemoryClient} (e.g. `wrangler dev` without
+ *   Upstash bindings).
+ *
+ * Wired into the Workers entry in Phase 6; unit-tested standalone for now.
+ */
+export function initRedisClientFromEnv(env: RedisEnv): RedisClient {
+  const url = env.UPSTASH_REDIS_REST_URL;
+  const token = env.UPSTASH_REDIS_REST_TOKEN;
+  if (url && token) {
+    return createUpstashClient({ url, token });
+  }
+  return createMemoryClient();
 }

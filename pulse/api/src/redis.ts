@@ -18,11 +18,11 @@
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import {
   checkRedisHealth,
-  createClientFromUrl,
   createMemoryClient,
   sanitizeCause,
   type RedisClient,
 } from "@shared/redis";
+import { createClientFromUrl } from "@shared/redis/ioredis";
 import { Effect, type Layer } from "effect";
 
 import {

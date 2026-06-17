@@ -758,6 +758,7 @@ Open compliance findings only. Closed items will be archived in a future `wiki/c
 - [ ] **C-M15** — Sweeper-job framework (cron-style worker in `@osn/api`). Foundation for C-M2. See `[[compliance/retention]]`.
 - [ ] **C-M16** — `admin_actions` audit log table (append-only) + Grafana log mirror. SOC 2 CC6 attribution requirement. See `[[compliance/access-control]]`.
 - [ ] **C-M17** — KYC vendor RFP must enumerate per-vendor data residency (storage region), SCC required (Y/N), DPA template available (Y/N), and sub-sub-processors disclosed (Y/N). Block vendor selection on these columns. See `[[verified-identity]]`, `[[compliance/subprocessors]]`.
+- [ ] **C-M18 (C-M1, Upstash region)** — Confirm Upstash region + GDPR Chapter V transfer basis before P6 deploy. The P2 Redis backend (`@shared/redis` Upstash REST client) is introduced but inactive — it holds only pseudonymised auth/rate-limit state (hashed session-family ids, step-up/ceremony jti, recovery-lockout counters, HMAC-peppered IP-hash + account-derived rate-limit keys). Upstash defaults to US (EU region available); the region **and** the transfer basis (SCC / adequacy, folds into C-H5's DPA pack) **must be chosen before the Phase-6 Workers entry is wired + deployed**, especially if any EU/UK data subjects are in scope. Don't let the decision lapse onto a live path. GDPR Art. 44-49. See `[[compliance/subprocessors]]`, `[[compliance/gdpr]]`.
 
 ### Low
 

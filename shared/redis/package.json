@@ -6,6 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
+    "./ioredis": "./src/ioredis.ts",
+    "./upstash": "./src/upstash.ts",
     "./rate-limiter": "./src/rate-limiter.ts",
     "./health": "./src/health.ts"
   },
@@ -15,6 +17,7 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
+    "@upstash/redis": "^1.38.0",
     "effect": "^3.21.2",
     "ioredis": "^5.10.1"
   },
