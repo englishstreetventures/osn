@@ -62,6 +62,28 @@ The plan should:
 
 ---
 
+**Skills to use while implementing** (invoke these — don't reinvent what a skill already encodes):
+
+| Part of the task | Skill to invoke |
+|---|---|
+| Any new UI — components, pages, layouts, visual/UX work | `frontend-design` (then review the result with `web-design-guidelines` for accessibility) |
+| Page-load / Core Web Vitals profiling | `web-perf` |
+| Anything Cloudflare (Workers, Pages, KV, **D1**, **R2**, Images, AI, caching, bindings, config) | `cloudflare`; writing/reviewing Worker code → `workers-best-practices`; running `wrangler` → `wrangler` |
+| Durable Objects (stateful coordination, RPC, alarms, WebSockets) | `durable-objects` |
+| Cloudflare Agents SDK / durable workflows / scheduled agents / MCP servers | `agents-sdk` |
+| Sandboxed / untrusted code execution | `sandbox-sdk` |
+| Sending or routing transactional email | `cloudflare-email-service` |
+| Turnstile / CAPTCHA / bot protection on a form | `turnstile-spin` |
+| Building an AI agent (tools, structured output, streaming) | `building-pydantic-ai-agents` (or `claude-api` for Anthropic SDK / model/pricing questions) |
+| Implementing any feature or bugfix logic | `test-driven-development` (write the failing test first) |
+| A bug, test failure, or unexpected behavior | `systematic-debugging` |
+| The feature is ambiguous / needs product direction | `brainstorming` **with the user first**, before implementing |
+| Importing from / pushing to Figma designs | the `figma-*` skills (`figma-use`, `figma-generate-design`, …) |
+
+If none apply, proceed with the repo's own conventions (root + area `CLAUDE.md`). When unsure whether a skill fits, invoke it — a wrong fit costs little.
+
+---
+
 After both agents complete, summarise:
 - The branch that was created (and, on PERSONAL, the worktree path)
 - The full implementation plan
