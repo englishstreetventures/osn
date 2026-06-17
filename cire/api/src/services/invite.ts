@@ -154,11 +154,19 @@ export const inviteService = {
     }).pipe(Effect.withSpan("cire.invite.getForSlug"));
   },
 
-  /** Resolve the R2 key backing a slug's image slot (for serving). */
+  /**
+   * Resolve the R2 key backing a slug's image slot (for serving) PLUS the row's
+   * `updatedAt` — the authoritative content version. The serve route derives its
+   * edge-cache key from this server-side `updatedAt` (not the client `?v=`), so
+   * an attacker can't loop distinct `?v=` values to force unbounded, per-call-
+   * billed transforms (S-M1). `updatedAt` is null when the wedding exists but has
+   * no customisation row yet (LEFT JOIN miss) — the slot key is then null too, so
+   * the route 404s before it ever builds a cache key.
+   */
   imageKeyForSlug(
     slug: string,
     slot: InviteImageSlot,
-  ): Effect.Effect<string | null, WeddingNotFound, DbService> {
+  ): Effect.Effect<{ key: string | null; updatedAt: Date | null }, WeddingNotFound, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       // Single LEFT JOIN keyed on the slug: a missing weddings row is a 404; a
@@ -170,6 +178,7 @@ export const inviteService = {
             weddingId: weddings.id,
             heroImageKey: weddingInviteCustomisations.heroImageKey,
             storyImageKey: weddingInviteCustomisations.storyImageKey,
+            updatedAt: weddingInviteCustomisations.updatedAt,
           })
           .from(weddings)
           .leftJoin(
@@ -180,7 +189,8 @@ export const inviteService = {
           .all(),
       );
       if (!row) return yield* Effect.fail(new WeddingNotFound({ slug }));
-      return slot === "hero" ? row.heroImageKey : row.storyImageKey;
+      const key = slot === "hero" ? row.heroImageKey : row.storyImageKey;
+      return { key, updatedAt: row.updatedAt };
     }).pipe(Effect.withSpan("cire.invite.imageKeyForSlug"));
   },
 

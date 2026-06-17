@@ -1,5 +1,26 @@
 import { createResource, createSignal, Show } from "solid-js";
 
+/**
+ * Responsive variant widths the API can transform an invite image to. Mirrors
+ * the bounded `IMAGE_VARIANTS` allowlist in `cire/api` — the API resolves an
+ * unknown/absent `?variant=` (and any environment without the Cloudflare Images
+ * binding) to the original bytes, so the plain `src` below always works as a
+ * progressive fallback even when `srcset` is ignored or transforms are off.
+ */
+const VARIANT_WIDTHS = { thumb: 320, card: 800, hero: 1600 } as const;
+type VariantName = keyof typeof VARIANT_WIDTHS;
+
+/**
+ * Build a `srcset` from a base image URL (which already carries the `?v=`
+ * content-version cache-buster) by appending the bounded `&variant=` for each
+ * width in `variants`. The browser picks the entry matching the rendered size +
+ * DPR; the API negotiates WebP/AVIF per request via Accept.
+ */
+export function buildSrcSet(baseUrl: string, variants: readonly VariantName[]): string {
+  const sep = baseUrl.includes("?") ? "&" : "?";
+  return variants.map((v) => `${baseUrl}${sep}variant=${v} ${VARIANT_WIDTHS[v]}w`).join(", ");
+}
+
 export interface InviteCustomisation {
   hero: { title: string | null; subtitle: string | null; imageUrl: string | null };
   story: {
@@ -73,6 +94,9 @@ export default function InviteHeader(props: InviteHeaderProps) {
           {(url) => (
             <img
               src={url()}
+              srcset={buildSrcSet(url(), ["thumb", "card", "hero"])}
+              // Hero spans the full viewport width at every breakpoint.
+              sizes="100vw"
               alt=""
               onLoad={() => setHeroLoaded(true)}
               class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
@@ -119,6 +143,9 @@ export default function InviteHeader(props: InviteHeaderProps) {
             {(url) => (
               <img
                 src={url()}
+                // Story photo renders at most 480px wide — thumb/card cover it.
+                srcset={buildSrcSet(url(), ["thumb", "card"])}
+                sizes="(min-width: 480px) 480px, 100vw"
                 alt=""
                 class="border-border mx-auto mb-8 max-h-80 w-full max-w-[480px] rounded-sm border object-cover"
               />

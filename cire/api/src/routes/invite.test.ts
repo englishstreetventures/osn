@@ -1,12 +1,18 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, weddingInviteCustomisations } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
+import { eq } from "drizzle-orm";
 
 import { createApp } from "../app";
 import { createDb, seedDb } from "../db/setup";
 import { createAssetsStub } from "../services/invite-assets";
+import type {
+  ImagesBindingLike,
+  ImageTransformHandle,
+  OutputFormat,
+} from "../services/invite-image-transform";
 import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -24,19 +30,60 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
-function buildApp(opts?: { inviteLimiter?: RateLimiterBackend }) {
+function buildApp(opts?: { inviteLimiter?: RateLimiterBackend; images?: ImagesBindingLike }) {
   const db = createDb(":memory:");
   seedDb(db);
   const assets = createAssetsStub();
   const app = createApp(db, {
     osnTestKey: auth.key,
     assets,
+    images: opts?.images,
     // Generous per-test limiter so the shared module default can't bleed across
     // tests; the rate-limit test below injects a tight one.
     inviteLimiter:
       opts?.inviteLimiter ?? createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
   });
   return { db, app, assets };
+}
+
+// Distinct bytes from the uploaded PNG so a test can tell a transformed serve
+// apart from the raw-original fallback.
+const TRANSFORMED = new Uint8Array([0xaa, 0xbb, 0xcc]);
+
+/** Stub Images binding. Echoes the requested format as content-type, records the
+ *  transform widths, and can be made to throw to exercise the fallback path. */
+function createImagesStub(opts?: { fail?: boolean }): ImagesBindingLike & {
+  widths: (number | undefined)[];
+} {
+  const widths: (number | undefined)[] = [];
+  return {
+    widths,
+    input() {
+      const handle: ImageTransformHandle = {
+        transform(t) {
+          widths.push(t.width);
+          return handle;
+        },
+        output(o: { format: OutputFormat }) {
+          if (opts?.fail) return Promise.reject(new Error("transform boom"));
+          return Promise.resolve({
+            response: () => new Response(TRANSFORMED, { headers: { "Content-Type": o.format } }),
+            contentType: () => o.format,
+          });
+        },
+      };
+      return handle;
+    },
+  };
+}
+
+async function uploadHero(app: ReturnType<typeof buildApp>["app"]): Promise<void> {
+  const up = await appRequest(app, `${orgBase}/image/hero`, {
+    method: "POST",
+    headers: await authHeaders(BOOTSTRAP_OWNER),
+    body: PNG,
+  });
+  expect(up.status).toBe(200);
 }
 
 const emptyText = JSON.stringify({
@@ -192,6 +239,273 @@ describe("invite image upload + serve + remove", () => {
     const { app } = buildApp();
     const res = await appRequest(app, `/api/invite/${SLUG}/image/story`);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("invite image transforms (Cloudflare Images)", () => {
+  it("falls back to the original bytes when no IMAGES binding is present", async () => {
+    // No `images` ⇒ the serve route serves the raw R2 original (today's
+    // behaviour), unchanged — the critical local-dev / test path.
+    const app = buildApp().app;
+    await uploadHero(app);
+    const img = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero`);
+    expect(img.status).toBe(200);
+    expect(img.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await img.arrayBuffer())).toEqual(PNG);
+  });
+
+  it("serves a transformed variant when the IMAGES binding is present", async () => {
+    const images = createImagesStub();
+    const app = buildApp({ images }).app;
+    await uploadHero(app);
+
+    const img = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero`, {
+      headers: { accept: "image/avif,image/webp,*/*" },
+    });
+    expect(img.status).toBe(200);
+    // AVIF negotiated from Accept; transformed bytes (not the original PNG).
+    expect(img.headers.get("content-type")).toBe("image/avif");
+    expect(img.headers.get("vary")).toBe("Accept");
+    expect(new Uint8Array(await img.arrayBuffer())).toEqual(TRANSFORMED);
+    // `hero` variant ⇒ 1600px render width.
+    expect(images.widths).toEqual([1600]);
+  });
+
+  it("negotiates WebP when AVIF is not advertised", async () => {
+    const images = createImagesStub();
+    const app = buildApp({ images }).app;
+    await uploadHero(app);
+
+    const img = await appRequest(app, `/api/invite/${SLUG}/image/hero`, {
+      headers: { accept: "image/webp,*/*" },
+    });
+    expect(img.status).toBe(200);
+    expect(img.headers.get("content-type")).toBe("image/webp");
+    // No ?variant ⇒ default `card` (800px).
+    expect(images.widths).toEqual([800]);
+  });
+
+  it("falls back to the original (never 500s) when a transform fails", async () => {
+    const images = createImagesStub({ fail: true });
+    const app = buildApp({ images }).app;
+    await uploadHero(app);
+
+    const img = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=card`, {
+      headers: { accept: "image/avif,*/*" },
+    });
+    expect(img.status).toBe(200);
+    // Transform threw ⇒ raw R2 original, with its stored content-type.
+    expect(img.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await img.arrayBuffer())).toEqual(PNG);
+  });
+});
+
+// ── Cache API short-circuit (Worker edge cache) ──────────────────────────────
+
+/** Map-backed `caches.default` stub. Records put/match calls so a test can assert
+ *  the binding only ran on a miss. Matches by the cache key's URL (what the real
+ *  Cache API keys on). */
+function createCacheStub() {
+  const store = new Map<string, Response>();
+  const calls = { match: 0, put: 0 };
+  const def = {
+    async match(req: Request | string): Promise<Response | undefined> {
+      calls.match += 1;
+      const url = typeof req === "string" ? req : req.url;
+      const hit = store.get(url);
+      return hit ? hit.clone() : undefined;
+    },
+    async put(req: Request | string, res: Response): Promise<void> {
+      calls.put += 1;
+      const url = typeof req === "string" ? req : req.url;
+      store.set(url, res);
+    },
+  };
+  return { calls, store, caches: { default: def } as unknown as CacheStorage };
+}
+
+/** Install a stub `globalThis.caches` for the duration of `fn`, restoring after. */
+async function withCaches<T>(stub: CacheStorage, fn: () => Promise<T>): Promise<T> {
+  const original = (globalThis as { caches?: CacheStorage }).caches;
+  (globalThis as { caches?: CacheStorage }).caches = stub;
+  try {
+    return await fn();
+  } finally {
+    (globalThis as { caches?: CacheStorage }).caches = original;
+  }
+}
+
+describe("invite image transforms — Cache API short-circuit", () => {
+  it("caches the first transform, then serves the second request from cache without re-invoking the binding", async () => {
+    const cache = createCacheStub();
+    await withCaches(cache.caches, async () => {
+      const images = createImagesStub();
+      const app = buildApp({ images }).app;
+      await uploadHero(app);
+
+      const accept = { accept: "image/avif,image/webp,*/*" };
+
+      // First request → miss → binding runs once + result cached.
+      const first = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero`, {
+        headers: accept,
+      });
+      expect(first.status).toBe(200);
+      expect(first.headers.get("content-type")).toBe("image/avif");
+      expect(new Uint8Array(await first.arrayBuffer())).toEqual(TRANSFORMED);
+      expect(images.widths).toEqual([1600]); // binding called once
+      expect(cache.calls.put).toBe(1); // cached on miss
+
+      // Second identical request → hit → served from cache, binding NOT called again.
+      const second = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero`, {
+        headers: accept,
+      });
+      expect(second.status).toBe(200);
+      expect(second.headers.get("content-type")).toBe("image/avif");
+      expect(new Uint8Array(await second.arrayBuffer())).toEqual(TRANSFORMED);
+      expect(images.widths).toEqual([1600]); // still one call — no re-invocation
+      expect(cache.calls.put).toBe(1); // no second write
+    });
+  });
+
+  it("keys a different variant separately (binding called again, new cache entry)", async () => {
+    const cache = createCacheStub();
+    await withCaches(cache.caches, async () => {
+      const images = createImagesStub();
+      const app = buildApp({ images }).app;
+      await uploadHero(app);
+
+      await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero`);
+      await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=thumb`);
+
+      // Two distinct variants ⇒ two binding invocations + two cache entries.
+      expect(images.widths).toEqual([1600, 320]);
+      expect(cache.store.size).toBe(2);
+    });
+  });
+
+  it("keys a different negotiated format separately (AVIF vs WebP cached apart)", async () => {
+    const cache = createCacheStub();
+    await withCaches(cache.caches, async () => {
+      const images = createImagesStub();
+      const app = buildApp({ images }).app;
+      await uploadHero(app);
+
+      const avif = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=card`, {
+        headers: { accept: "image/avif,*/*" },
+      });
+      const webp = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=card`, {
+        headers: { accept: "image/webp,*/*" },
+      });
+
+      expect(avif.headers.get("content-type")).toBe("image/avif");
+      expect(webp.headers.get("content-type")).toBe("image/webp");
+      // Same variant, different format ⇒ two binding calls + two cache entries.
+      expect(images.widths.length).toBe(2);
+      expect(cache.store.size).toBe(2);
+
+      // A WebP-only client must NOT get the AVIF entry: repeat WebP hits cache,
+      // binding count unchanged.
+      const webp2 = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=card`, {
+        headers: { accept: "image/webp,*/*" },
+      });
+      expect(webp2.headers.get("content-type")).toBe("image/webp");
+      expect(images.widths.length).toBe(2);
+    });
+  });
+
+  it("a re-upload (bumped updatedAt) creates a second cache entry and re-runs the binding (T-S1)", async () => {
+    const cache = createCacheStub();
+    await withCaches(cache.caches, async () => {
+      const images = createImagesStub();
+      const built = buildApp({ images });
+      const app = built.app;
+      await uploadHero(app);
+
+      const accept = { accept: "image/avif,image/webp,*/*" };
+
+      // First request → miss → binding runs once, one cache entry written under
+      // the current server `updatedAt`.
+      const first = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero`, {
+        headers: accept,
+      });
+      expect(first.status).toBe(200);
+      expect(images.widths).toEqual([1600]); // binding ran once
+      expect(cache.store.size).toBe(1);
+
+      // Simulate a re-upload by advancing the wedding's stored `updatedAt`. After
+      // the S-M1 fix the cache version is derived from this DB value (NOT the
+      // client ?v=), so a bump must mint a fresh key — the new image can't be
+      // served the stale cached transform.
+      built.db
+        .update(weddingInviteCustomisations)
+        .set({ updatedAt: new Date(Date.now() + 60_000) })
+        .where(eq(weddingInviteCustomisations.weddingId, BOOTSTRAP_WEDDING_ID))
+        .run();
+
+      // Same request URL (same ?variant, same Accept) → because the server
+      // version changed, this is a MISS against a new key → binding re-runs and a
+      // SECOND cache entry is created.
+      const second = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero`, {
+        headers: accept,
+      });
+      expect(second.status).toBe(200);
+      expect(second.headers.get("content-type")).toBe("image/avif");
+      expect(new Uint8Array(await second.arrayBuffer())).toEqual(TRANSFORMED);
+      expect(images.widths).toEqual([1600, 1600]); // binding ran a second time
+      expect(cache.store.size).toBe(2); // new version ⇒ distinct cache entry
+    });
+  });
+
+  it("ignores the client ?v= for cache keying — looping ?v= does NOT re-bill transforms (S-M1)", async () => {
+    const cache = createCacheStub();
+    await withCaches(cache.caches, async () => {
+      const images = createImagesStub();
+      const app = buildApp({ images }).app;
+      await uploadHero(app);
+
+      const accept = { accept: "image/avif,image/webp,*/*" };
+
+      // First request primes the cache (server-derived version).
+      const first = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero&v=1`, {
+        headers: accept,
+      });
+      expect(first.status).toBe(200);
+      expect(images.widths).toEqual([1600]);
+      expect(cache.store.size).toBe(1);
+
+      // An attacker loops distinct ?v= values on the same valid slug. The cache
+      // is already primed (above), so each MUST hit the SAME server-derived entry
+      // — the binding never re-runs and no new entries are minted, so the
+      // per-(slug,slot,variant,format) live transform count stays at exactly 1.
+      const responses = await Promise.all(
+        [2, 3, 4, 5].map((v) =>
+          appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero&v=${v}`, {
+            headers: accept,
+          }),
+        ),
+      );
+      const bodies = await Promise.all(responses.map((r) => r.arrayBuffer()));
+      for (const res of responses) expect(res.status).toBe(200);
+      for (const body of bodies) expect(new Uint8Array(body)).toEqual(TRANSFORMED);
+      expect(images.widths).toEqual([1600]); // still exactly one transform
+      expect(cache.store.size).toBe(1); // no extra cache entries
+    });
+  });
+
+  it("serves correctly via the binding when the Cache API is absent (no caches global)", async () => {
+    // No stub installed ⇒ `caches` is undefined in this runtime; the route must
+    // still serve the transform (just without caching).
+    const images = createImagesStub();
+    const app = buildApp({ images }).app;
+    await uploadHero(app);
+
+    const img = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero`, {
+      headers: { accept: "image/avif,*/*" },
+    });
+    expect(img.status).toBe(200);
+    expect(img.headers.get("content-type")).toBe("image/avif");
+    expect(new Uint8Array(await img.arrayBuffer())).toEqual(TRANSFORMED);
+    expect(images.widths).toEqual([1600]);
   });
 });
 

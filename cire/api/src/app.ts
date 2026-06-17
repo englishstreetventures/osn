@@ -17,6 +17,7 @@ import {
 } from "./routes/organiser-weddings";
 import { createRsvpRoutes } from "./routes/rsvp";
 import type { AssetsBucket } from "./services/invite-assets";
+import type { ImagesBindingLike } from "./services/invite-image-transform";
 import type { OsnAccountResolver } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
 
@@ -59,6 +60,11 @@ export interface AppOptions {
   r2?: R2Bucket;
   /** R2 bucket binding for invite-builder images (separate from `r2`). */
   assets?: AssetsBucket;
+  /**
+   * Cloudflare Images binding for on-the-fly transforms of the invite-image
+   * originals. Absent ⇒ the public serve route falls back to the raw R2 bytes.
+   */
+  images?: ImagesBindingLike;
   /** JWKS endpoint of the OSN issuer that signs organiser access tokens. */
   osnJwksUrl?: string;
   /** Expected `aud` claim on organiser access tokens. */
@@ -84,6 +90,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     previewLimiter = defaultPreviewLimiter,
     r2,
     assets,
+    images,
     osnJwksUrl = "http://localhost:4000/.well-known/jwks.json",
     osnAudience = "osn-access",
     osnTestKey,
@@ -143,7 +150,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createOrganiserImportRoutes(db, r2, osnAuthOptions))
       // Invite builder. Public reads (guest site) + organiser writes split into
       // sibling instances so the guest GET isn't behind osnAuth.
-      .use(createInvitePublicRoutes(db, assets))
+      .use(createInvitePublicRoutes(db, assets, images))
       .use(createInviteOrganiserRoutes(db, assets, osnAuthOptions, inviteLimiter))
       // Account linking. Two sibling instances on the same prefix: GET/DELETE
       // need only the guest session; the POST link additionally requires an OSN

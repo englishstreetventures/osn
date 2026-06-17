@@ -53,6 +53,16 @@ binding = "ASSETS"
 bucket_name = "cire-assets"
 preview_bucket_name = "cire-assets-preview"
 
+# Cloudflare Images binding — transforms the R2 invite-image originals into
+# responsive, modern-format (WebP/AVIF) variants on the public serve path
+# (GET /api/invite/:slug/image/:slot). The serve route falls back to the raw R2
+# bytes when this binding is absent (local `wrangler dev` / miniflare / tests) or
+# a transform fails, so it never 500s on a transform miss. The Images product
+# must be enabled on the Cloudflare account before deploy (transformations are
+# billed per unique transformation — see the human note in the PR).
+[images]
+binding = "IMAGES"
+
 [env.production.vars]
 # Comma-separated allowlist (index.ts splits on "," and trims). Entry 0 is the
 # guest site; the organiser portal origin MUST also be present or organiser
@@ -99,6 +109,13 @@ preview_bucket_name = "cire-sheets-preview"
 binding = "ASSETS"
 bucket_name = "cire-assets"
 preview_bucket_name = "cire-assets-preview"
+
+# Mirror of the top-level [images] binding — named environments do NOT inherit
+# top-level bindings (see the binding-inheritance note above), so the Images
+# binding must be redeclared here or `wrangler deploy --env production` ships
+# without it and every serve falls back to the un-transformed R2 original.
+[env.production.images]
+binding = "IMAGES"
 
 # ── OpenTelemetry export ─────────────────────────────────────────────────────
 # Read by `@shared/observability` `loadConfig` (workerd `nodejs_compat`

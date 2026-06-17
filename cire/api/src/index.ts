@@ -9,6 +9,7 @@ import {
   isDeployedEnv,
   resolveBootstrapOwnerProfileId,
 } from "./db/bootstrap-owner";
+import { setExecutionCtx } from "./lib/execution-ctx";
 import { createWorkersRateLimiter } from "./lib/workers-rate-limiter";
 import type { WorkersRateLimitBinding } from "./lib/workers-rate-limiter";
 import { runCire } from "./observability";
@@ -29,6 +30,11 @@ export interface Env {
   // lifecycle: binary, served publicly). Absent ⇒ image upload/serve fail at
   // use, text customisation still works.
   ASSETS?: R2Bucket;
+  // Cloudflare Workers Images binding — transforms the R2 originals into
+  // responsive, modern-format variants on the public serve path. Absent (local
+  // `wrangler dev` / miniflare / unit tests, or an account without the Images
+  // product) ⇒ the serve route falls back to the raw R2 bytes, never 500s.
+  IMAGES?: ImagesBinding;
   WEB_ORIGIN: string;
   OSN_JWKS_URL: string;
   OSN_AUDIENCE: string;
@@ -101,7 +107,7 @@ const misconfigured = (detail: string) =>
   });
 
 const handler: ExportedHandler<Env> = {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     // Fail closed at the edge if any required binding/var is missing, rather
     // than letting createApp fall back to its localhost dev defaults for the
     // OSN issuer/audience in a misconfigured production deployment (S-M1).
@@ -170,6 +176,7 @@ const handler: ExportedHandler<Env> = {
           inviteLimiter: edgeLimiter,
           r2: env.SHEETS,
           assets: env.ASSETS,
+          images: env.IMAGES,
           osnJwksUrl: env.OSN_JWKS_URL,
           osnAudience: env.OSN_AUDIENCE,
           resolveOsnAccountId,
@@ -177,6 +184,12 @@ const handler: ExportedHandler<Env> = {
       };
     }
 
+    // Bridge the Workers execution context to the in-flight request so route
+    // handlers can reach `ctx.waitUntil` (Elysia's `fetch` doesn't forward it).
+    // The public image serve route uses it to populate the Cache API in the
+    // background after a transform. Keyed by this exact Request instance, which
+    // Elysia passes straight through to the handler.
+    setExecutionCtx(request, ctx);
     return cached.app.fetch(request);
   },
 

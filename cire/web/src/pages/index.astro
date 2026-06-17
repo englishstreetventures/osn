@@ -18,8 +18,14 @@ try {
 } catch {
   initialInvite = null
 }
-const preloadHero = initialInvite?.hero.imageUrl
-  ? `${apiUrl}${initialInvite.hero.imageUrl}`
+// Preload the hero (the LCP element). It now renders responsively via srcset,
+// so preload the same candidate set + sizes — the browser preloads exactly the
+// variant it will pick, instead of the un-transformed original. Mirrors the
+// bounded variant allowlist in cire/api (thumb/card/hero → 320/800/1600w).
+const heroBase = initialInvite?.hero.imageUrl ? `${apiUrl}${initialInvite.hero.imageUrl}` : null
+const heroSep = heroBase?.includes('?') ? '&' : '?'
+const preloadHeroSrcset = heroBase
+  ? `${heroBase}${heroSep}variant=thumb 320w, ${heroBase}${heroSep}variant=card 800w, ${heroBase}${heroSep}variant=hero 1600w`
   : null
 ---
 <!DOCTYPE html>
@@ -41,7 +47,15 @@ const preloadHero = initialInvite?.hero.imageUrl
     <noscript>
       <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
     </noscript>
-    {preloadHero && <link rel="preload" as="image" href={preloadHero} />}
+    {heroBase && (
+      <link
+        rel="preload"
+        as="image"
+        href={heroBase}
+        imagesrcset={preloadHeroSrcset}
+        imagesizes="100vw"
+      />
+    )}
   </head>
   <body>
     <InviteHeader client:load apiUrl={apiUrl} slug={weddingSlug} initial={initialInvite} />
