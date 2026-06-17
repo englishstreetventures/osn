@@ -2,6 +2,7 @@
 import '../styles/global.css'
 import InviteHeader, { type InviteCustomisation } from '../components/InviteHeader'
 import InvitePage from '../components/InvitePage'
+import SiteFooter from '../components/SiteFooter.astro'
 
 const apiUrl = import.meta.env.PUBLIC_API_URL ?? 'http://localhost:8787'
 const weddingSlug = import.meta.env.PUBLIC_WEDDING_SLUG ?? 'cire-wedding'
@@ -49,5 +50,6 @@ const preloadHero = initialInvite?.hero.imageUrl
       apiUrl={apiUrl}
       siteUrl={import.meta.env.PUBLIC_SITE_URL}
     />
+    <SiteFooter />
   </body>
 </html>
