@@ -3,20 +3,9 @@
 Verifies OSN-issued access tokens (ES256, `aud: "osn-access"`) via JWKS
 with an LRU cache (5-min TTL, blocking refetch on expiry) and
 rotation-aware refresh on verification miss. Ships framework-agnostic
-primitives plus per-framework middleware adapters.
+primitives plus an Elysia middleware adapter.
 
-## Usage — Hono (cire)
-
-```ts
-import { osnAuth } from "@shared/osn-auth-client/middleware/hono";
-
-app.use("/api/organiser/*", osnAuth({
-  jwksUrl: process.env.OSN_JWKS_URL!,
-  audience: "osn-access",
-}));
-```
-
-## Usage — Elysia (pulse, osn)
+## Usage — Elysia (pulse, osn, cire)
 
 ```ts
 import { osnAuth } from "@shared/osn-auth-client/middleware/elysia";
