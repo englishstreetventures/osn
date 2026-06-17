@@ -300,6 +300,9 @@ export async function buildAppDeps(): Promise<BuiltDeps> {
 
   const deps: AppDeps = {
     serviceName: SERVICE_NAME,
+    // Bun path keeps the full per-request observability plugin (server span +
+    // RED metrics). The Workers entry will pass `false` — see AppDeps.
+    includeObservabilityPlugin: true,
     authConfig,
     cookieConfig,
     corsOrigins,

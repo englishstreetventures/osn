@@ -37,6 +37,19 @@ import type { AuthConfig } from "./services/auth";
 export interface AppDeps {
   /** Service name threaded through observability + health routes. */
   serviceName: string;
+  /**
+   * Whether to mount the Elysia `observabilityPlugin` (per-request server span
+   * + RED metrics + in-flight gauge). True on the Bun path. The future Workers
+   * entry passes `false`: the plugin calls `process.hrtime.bigint()` directly
+   * on every request (start timestamp + duration), which is not available on
+   * workerd without `nodejs_compat`, and even then it is a polyfill we'd rather
+   * not depend on for request hot-path timing. Its transitive imports are
+   * otherwise workerd-safe (only `@opentelemetry/api`'s no-op tracer/meter +
+   * the effect-only `redact`), so omitting it loses only the auto-emitted
+   * server span/metrics — the redacting logger (the load-bearing PII guard) and
+   * `healthRoutes` stay on both paths.
+   */
+  includeObservabilityPlugin: boolean;
   /** Auth config (rp id/name, origins, issuer, JWT key material, TTLs, pepper). */
   authConfig: AuthConfig;
   /** Cookie session config — drives Secure flag + `__Host-` prefix. */
@@ -91,6 +104,7 @@ export interface AppDeps {
 export function createApp(deps: AppDeps) {
   const {
     serviceName,
+    includeObservabilityPlugin,
     authConfig,
     cookieConfig,
     corsOrigins,
@@ -112,10 +126,19 @@ export function createApp(deps: AppDeps) {
     clientIpConfig,
   } = deps;
 
-  return new Elysia()
+  const base = new Elysia()
     .use(cors({ origin: corsOrigins, credentials: true }))
-    .onBeforeHandle(originGuard)
-    .use(observabilityPlugin({ serviceName }))
+    .onBeforeHandle(originGuard);
+
+  // The per-request observability plugin is gated behind a deps flag: the Bun
+  // path mounts it; the future Workers path omits it (see `includeObservabilityPlugin`
+  // in AppDeps for why — `process.hrtime` on the request hot path). `healthRoutes`
+  // and the redacting logger remain on both paths regardless.
+  const withObservability = includeObservabilityPlugin
+    ? base.use(observabilityPlugin({ serviceName }))
+    : base;
+
+  return withObservability
     .use(healthRoutes({ serviceName }))
     .get("/", () => ({ status: "ok", service: "osn-auth" }))
     .use(
