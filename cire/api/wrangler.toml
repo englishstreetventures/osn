@@ -30,7 +30,7 @@ simple = { limit = 5, period = 60 }
 [[d1_databases]]
 binding = "DB"
 database_name = "cire-db"
-database_id = "e0ebc94c-77df-47a6-af52-40a8c39b3afb"
+database_id = "6e835474-e0a7-4db9-8883-3247c3c891cd"
 migrations_dir = "../db/migrations"
 
 # R2 bucket used by the organiser spreadsheet import flow to stash the raw
@@ -87,7 +87,7 @@ simple = { limit = 5, period = 60 }
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "cire-db"
-database_id = "e0ebc94c-77df-47a6-af52-40a8c39b3afb"
+database_id = "6e835474-e0a7-4db9-8883-3247c3c891cd"
 migrations_dir = "../db/migrations"
 
 [[env.production.r2_buckets]]

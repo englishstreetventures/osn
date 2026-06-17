@@ -14,7 +14,7 @@ related:
   - "[[backend-patterns]]"
   - "[[schema-layers]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-06-18
 ---
 
 # Database Environments
@@ -123,6 +123,11 @@ Workers needs a Workers-compatible Redis (e.g. Upstash REST) and request-scoped
 key loading. Its `wrangler.toml` therefore has no `main`/deploy target yet — it
 exists so the osn D1 databases can be created/migrated for free. Tracked in
 `wiki/TODO.md`.
+
+**Region:** all four D1 databases (`cire-db` + osn-db dev/staging/prod) are in **`oc`
+(Oceania / Sydney)**, and the Workers Redis (Upstash) is in **`ap-southeast-2`
+(Sydney)** — co-located for low AU latency (the project is AU-centric). See
+[[production-deploy]] for the database ids.
 
 ## Worker bundling: keep `bun:sqlite` out of the Worker
 

@@ -84,7 +84,7 @@ dev-only — neither runs in the deployed Worker (entry `src/index.ts`).
 The cire stack deploys via a **GitHub Actions workflow** (`.github/workflows/deploy.yml`,
 PR #128): gated on a build/test job, it applies the remote cire D1 migrations, then
 deploys the **cire-api Worker** and the **cire-web Pages** project. Prod wrangler config
-is wired (PR #121): the real D1 `database_id` (`e0ebc94c-77df-47a6-af52-40a8c39b3afb`),
+is wired (PR #121): the real D1 `database_id` (`6e835474-e0a7-4db9-8883-3247c3c891cd`),
 the organiser-portal origin in the prod `WEB_ORIGIN` allowlist, the OSN issuer/JWKS URLs
 flagged required-before-prod, and D1 + R2 bindings redeclared under `[env.production]`
 (named envs don't inherit top-level bindings). The full secret/var checklist, migration

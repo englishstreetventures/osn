@@ -23,7 +23,7 @@ finding-ids:
 packages:
   - "@shared/redis"
   - "@osn/api"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-06-18
 ---
 
 # Redis Migration
@@ -96,7 +96,9 @@ Every short-lived ceremony / pending-state entry in the auth service (registrati
 | **Self-hosted** | Full control, lowest cost | Ops burden |
 | **Cloudflare Durable Objects** | Zero-latency at edge, no separate service | Vendor lock-in, reconsidered if deploying to Workers |
 
-Decision deferred until deploying beyond localhost.
+Decision deferred until deploying beyond localhost. **Resolved: Upstash, region
+`ap-southeast-2` (Sydney)** — co-located with the D1 databases (`oc`/Sydney) + AU edge
+traffic for low latency (C-M18; see [[compliance/subprocessors]], [[production-deploy]]).
 
 ## Finding Cross-References
 

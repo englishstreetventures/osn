@@ -33,7 +33,7 @@ OSN_CORS_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:
 [[d1_databases]]
 binding = "DB"
 database_name = "osn-db"
-database_id = "0439bb0d-7bef-42c1-9a8e-00ae356b531f"
+database_id = "a1dfceb8-2e7a-48eb-a161-ad428f3ddff5"
 migrations_dir = "../db/drizzle"
 
 # ── Scheduled maintenance (cron) ─────────────────────────────────────────────
@@ -58,7 +58,7 @@ OSN_CORS_ORIGIN = "http://localhost:1422"
 [[env.dev.d1_databases]]
 binding = "DB"
 database_name = "osn-db"
-database_id = "0439bb0d-7bef-42c1-9a8e-00ae356b531f"
+database_id = "a1dfceb8-2e7a-48eb-a161-ad428f3ddff5"
 migrations_dir = "../db/drizzle"
 
 [env.dev.triggers]
@@ -80,7 +80,7 @@ OSN_CORS_ORIGIN = "https://staging.osn.example"
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "osn-db-staging"
-database_id = "9408b9e9-618d-471a-a7cf-55adfbc411cf"
+database_id = "eb71428e-8540-4a30-815f-fb9cd4ae97ea"
 migrations_dir = "../db/drizzle"
 
 [env.staging.triggers]
@@ -103,7 +103,7 @@ OSN_CORS_ORIGIN = "https://osn.example"
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "osn-db-prod"
-database_id = "6af4af9f-d938-4e35-a1ac-d0e0e2e15b79"
+database_id = "767a9ac1-129b-4efa-9fcf-f68ed7a48c38"
 migrations_dir = "../db/drizzle"
 
 [env.production.triggers]

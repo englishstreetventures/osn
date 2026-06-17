@@ -58,13 +58,13 @@ marked **TBD** blocks the deploy.
 | `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **TBD — confirm prod domains** |
 | `OSN_EMAIL_FROM` (verified sender, e.g. `noreply@osn.app`) | osn-api | **TBD — pick + onboard sender domain** |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | **provision** (~1 week lead, section 1) |
-| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | osn-api | **provision** (section 1) — **region decision still pending (C-M18)** |
+| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | osn-api | **provision** (section 1) — region locked to **`ap-southeast-2` (Sydney)** (C-M18 resolved) |
 | `INTERNAL_SERVICE_SECRET` (S2S register-service) | osn-api | optional — only to register cire's ARC key (§6.2) |
 | `TRUSTED_PROXY_COUNT` (proxy hops in front of osn-api) | osn-api rate limits | optional — CF sets `cf-connecting-ip`, usually unneeded on Workers |
-| osn D1 `database_id` per env | osn-api wrangler.toml | **DONE** — dev `0439bb0d-7bef-42c1-9a8e-00ae356b531f`, staging `9408b9e9-618d-471a-a7cf-55adfbc411cf`, prod `6af4af9f-d938-4e35-a1ac-d0e0e2e15b79` |
+| osn D1 `database_id` per env | osn-api wrangler.toml | **DONE** — dev `a1dfceb8-2e7a-48eb-a161-ad428f3ddff5`, staging `eb71428e-8540-4a30-815f-fb9cd4ae97ea`, prod `767a9ac1-129b-4efa-9fcf-f68ed7a48c38` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` + `OTEL_EXPORTER_OTLP_HEADERS` | osn-api + cire | **provision** (Grafana, section 1) |
 | `INTERNAL_SERVICE_SECRET` | osn-api | needed only to register cire's ARC key (section 6.2) |
-| cire D1 `database_id` | cire-api wrangler.toml | **DONE** — `e0ebc94c-77df-47a6-af52-40a8c39b3afb` |
+| cire D1 `database_id` | cire-api wrangler.toml | **DONE** — `6e835474-e0a7-4db9-8883-3247c3c891cd` |
 | cire R2 buckets | cire-api | **DONE** — `cire-sheets[-preview]`, `cire-assets[-preview]` |
 | cire `WEB_ORIGIN` allowlist (guest **and** organiser origins) | cire-api | **TBD — confirm prod domains** |
 | cire `OSN_JWKS_URL` / `OSN_ISSUER_URL` | cire-api | **TBD — point at deployed osn-api `https://osn-api.<account-subdomain>.workers.dev` (+`/.well-known/jwks.json`); placeholder `osn-api.example.com` today** |
@@ -141,11 +141,11 @@ per-isolate in-memory limiters (`osn/api/src/index.ts:92-96`). Locally (`OSN_ENV
 unset/`local`) they are absent and the Worker uses in-memory fallbacks — no Upstash, no
 external service needed.
 
-> ⏳ **Deferred decision C-M18 — Upstash region.** The Upstash database region (and
-> whether to use a global/multi-region read replica) is **not yet decided**. Pick the
-> region closest to where the Workers run hot, provision the database, then mint a
-> REST token and set the two secrets above. Tracked in `wiki/TODO.md` Deferred
-> Decisions.
+> ✅ **C-M18 resolved — Upstash region = `ap-southeast-2` (Sydney).** Create the
+> Upstash database in **`ap-southeast-2`** — co-located with the D1 databases (all in
+> `oc` / Sydney) and the Australian edge traffic for low RSVP/auth-write latency (the
+> project is AU-centric). Provision the database in that region, mint a REST token, and
+> set the two secrets above. See `[[compliance/subprocessors]]`.
 
 ### 1.5 OTel / Grafana endpoint
 
@@ -163,8 +163,14 @@ the cire Worker.
 | Field | Value |
 |---|---|
 | name | `cire-db` |
-| database_id | `e0ebc94c-77df-47a6-af52-40a8c39b3afb` |
-| region | `WEUR` |
+| database_id | `6e835474-e0a7-4db9-8883-3247c3c891cd` |
+| region | `oc` (Oceania / Sydney) |
+
+> **Region note:** all four D1 databases (this `cire-db` + the three osn-db
+> dev/staging/prod below) are in **`oc` (Sydney)**, and Upstash must be created in
+> **`ap-southeast-2` (Sydney)** — co-located for low AU latency (the project is
+> AU-centric). The WEUR databases were deleted and recreated in `oc`; the ids above
+> and in §2.3 are the new Oceania ones.
 
 Substitute the id into `cire/api/wrangler.toml:15` (currently
 `database_id = "placeholder-replace-after-d1-create"`):
@@ -173,7 +179,7 @@ Substitute the id into `cire/api/wrangler.toml:15` (currently
 [[d1_databases]]
 binding = "DB"
 database_name = "cire-db"
-database_id = "e0ebc94c-77df-47a6-af52-40a8c39b3afb"
+database_id = "6e835474-e0a7-4db9-8883-3247c3c891cd"
 migrations_dir = "../db/migrations"
 ```
 
@@ -203,11 +209,12 @@ are wired into `osn/api/wrangler.toml` under each `[[env.<env>.d1_databases]]`:
 
 | Env | `database_name` | `database_id` |
 |---|---|---|
-| dev (also top-level local `wrangler dev`) | `osn-db` | `0439bb0d-7bef-42c1-9a8e-00ae356b531f` |
-| staging | `osn-db-staging` | `9408b9e9-618d-471a-a7cf-55adfbc411cf` |
-| production | `osn-db-prod` | `6af4af9f-d938-4e35-a1ac-d0e0e2e15b79` |
+| dev (also top-level local `wrangler dev`) | `osn-db` | `a1dfceb8-2e7a-48eb-a161-ad428f3ddff5` |
+| staging | `osn-db-staging` | `eb71428e-8540-4a30-815f-fb9cd4ae97ea` |
+| production | `osn-db-prod` | `767a9ac1-129b-4efa-9fcf-f68ed7a48c38` |
 
-All three are **freshly created and unmigrated** — apply the migrations per §4.3
+All three are in **`oc` (Sydney)** (co-located with cire-db + Upstash `ap-southeast-2`).
+They are **freshly created and unmigrated** — apply the migrations per §4.3
 before first use. (The `0002_add_user_handle` data-copy bug that blocked a clean
 apply was fixed in-place; all `0000`→latest migrations apply ✅ to a fresh local D1.)
 
@@ -261,7 +268,7 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 | `CLOUDFLARE_EMAIL_API_TOKEN` | `wrangler secret put` | **Yes** | Email transport bearer token; throws if missing. §1.1 |
 | `OSN_EMAIL_FROM` | `[env.<env>.vars]` (or secret) | **Yes (prod)** | Verified sender address, e.g. `noreply@osn.app`. Onboarded domain from §1.1. |
 | `UPSTASH_REDIS_REST_URL` | `wrangler secret put` | **Yes** | Upstash REST URL. Worker refuses to boot in non-local without it + the token (`index.ts:92-96`). §1.4 |
-| `UPSTASH_REDIS_REST_TOKEN` | `wrangler secret put` | **Yes** | Upstash REST token. §1.4 (region decision C-M18 pending) |
+| `UPSTASH_REDIS_REST_TOKEN` | `wrangler secret put` | **Yes** | Upstash REST token. §1.4 (region `ap-southeast-2` / Sydney — C-M18 resolved) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `[env.<env>.vars]` | Recommended | Grafana OTLP gateway. Metric/trace **export is deferred on workerd** — the redacting logger is active, recording call-sites are no-ops until an exporter is attached. [[observability-setup]] |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `wrangler secret put` | Recommended | `Authorization=Basic <base64(instance:token)>`. [[observability-setup]] |
 | `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Conditional** | Bearer secret guarding `POST /graph/internal/register-service` (`routes/graph-internal.ts`). Needed **only** to register cire-api's ARC public key (§6.2). Endpoint returns 501 when unset. |
@@ -274,7 +281,7 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 
 | Name | How to set | Required? | Notes |
 |---|---|---|---|
-| D1 `database_id` | edit `wrangler.toml:15` | **Yes** | §2.1 — `e0ebc94c-77df-47a6-af52-40a8c39b3afb`. |
+| D1 `database_id` | edit `wrangler.toml:15` | **Yes** | §2.1 — `6e835474-e0a7-4db9-8883-3247c3c891cd`. |
 | `WEB_ORIGIN` | `wrangler.toml` `[env.production.vars]:39` | **Yes** | Comma-sep allowlist; must include **both** the guest site origin **and** the organiser portal origin. Each entry must be `https://…` or the Worker fails closed at the edge (`src/index.ts:59-74`). Placeholder today: `https://cire.pages.dev`. |
 | `OSN_JWKS_URL` | `wrangler.toml` `[env.production.vars]:41` | **Yes** | Deployed osn-api JWKS URL (`<OSN_ISSUER_URL>/.well-known/jwks.json`), e.g. `https://osn-api.<account-subdomain>.workers.dev/.well-known/jwks.json`. Placeholder today: `https://osn-api.example.com/.well-known/jwks.json`. |
 | `OSN_ISSUER_URL` | `wrangler.toml` `[env.production.vars]:42` | **Yes** | Deployed osn-api origin; must equal osn-api's own `OSN_ISSUER_URL` (the workers.dev URL until a custom domain exists). Placeholder today: `https://osn-api.example.com`. |
@@ -311,7 +318,7 @@ time** — set them in the build environment, not at runtime.
 
 Migrations live in `cire/db/migrations/` (`0001`…`0012`, incl.
 `0012_dietary_consent.sql`). The `database_id` is already wired
-(`e0ebc94c-77df-47a6-af52-40a8c39b3afb`, §2.1):
+(`6e835474-e0a7-4db9-8883-3247c3c891cd`, §2.1):
 
 ```bash
 # from cire/api (wrangler.toml lives there)

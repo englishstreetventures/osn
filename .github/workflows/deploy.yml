@@ -71,7 +71,7 @@ jobs:
   # Migrations are applied to the REMOTE prod DB FIRST, then the Worker is
   # deployed — both in a single job so the order is guaranteed and the
   # migration runs exactly once. The cire-db D1 binding lives at the top level
-  # of cire/api/wrangler.toml (uuid e0ebc94c-77df-47a6-af52-40a8c39b3afb), so we
+  # of cire/api/wrangler.toml (uuid 6e835474-e0a7-4db9-8883-3247c3c891cd), so we
   # apply migrations against that config; the `--env production` overlay only
   # changes vars (WEB_ORIGIN / OSN issuer), not the DB.
   deploy-cire-api:
