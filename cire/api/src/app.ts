@@ -10,6 +10,10 @@ import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
 import { createClaimRoutes } from "./routes/claim";
 import { createInviteOrganiserRoutes, createInvitePublicRoutes } from "./routes/invite";
+import {
+  createOrganiserHostsReadRoutes,
+  createOrganiserHostsWriteRoutes,
+} from "./routes/organiser-hosts";
 import { createOrganiserImportRoutes } from "./routes/organiser-import";
 import {
   createOrganiserPreviewRoutes,
@@ -19,7 +23,7 @@ import {
 import { createRsvpRoutes } from "./routes/rsvp";
 import type { AssetsBucket } from "./services/invite-assets";
 import type { ImagesBindingLike } from "./services/invite-image-transform";
-import type { OsnAccountResolver } from "./services/osn-bridge";
+import type { OsnAccountResolver, OsnHandleResolver } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
 
 /** Default per-IP rate limiter for the claim endpoint: 5 attempts per minute. */
@@ -49,6 +53,13 @@ const defaultPreviewLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_
  * is generous for hand-creating weddings in the portal.
  */
 const defaultWeddingCreateLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+/**
+ * Default per-IP limiter for the co-host add/remove endpoints (S-L1). Owner-gated
+ * already, so this just caps the ARC-sign + S2S handle-resolve amplifier on add
+ * (and the management churn / handle-probe oracle); 20/min is generous for
+ * hand-managing a wedding's hosts.
+ */
+const defaultHostLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 
 export interface AppOptions {
   /** Primary origin (used for the session cookie's `secure` flag). */
@@ -65,6 +76,8 @@ export interface AppOptions {
   previewLimiter?: RateLimiterBackend;
   /** Override the wedding-create rate limiter (useful for testing). */
   weddingCreateLimiter?: RateLimiterBackend;
+  /** Override the co-host add/remove rate limiter (useful for testing). */
+  hostLimiter?: RateLimiterBackend;
   /** R2 bucket binding for the organiser import flow. */
   r2?: R2Bucket;
   /** R2 bucket binding for invite-builder images (separate from `r2`). */
@@ -87,6 +100,14 @@ export interface AppOptions {
    * without an ARC key simply doesn't offer it. Tests inject a stub.
    */
   resolveOsnAccountId?: OsnAccountResolver;
+  /**
+   * Resolves an OSN handle to a profile id (server-to-server, ARC) for the
+   * add-co-host POST. When omitted, the add-host endpoint answers 503 — adding
+   * hosts by handle is additive, so a deployment without an ARC key simply
+   * doesn't offer it (listing + removing existing hosts still work). Tests
+   * inject a stub.
+   */
+  resolveOsnProfileByHandle?: OsnHandleResolver;
 }
 
 export function createApp(db: Db, options: AppOptions = {}) {
@@ -98,6 +119,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     inviteLimiter = defaultInviteLimiter,
     previewLimiter = defaultPreviewLimiter,
     weddingCreateLimiter = defaultWeddingCreateLimiter,
+    hostLimiter = defaultHostLimiter,
     r2,
     assets,
     images,
@@ -105,6 +127,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     osnAudience = "osn-access",
     osnTestKey,
     resolveOsnAccountId,
+    resolveOsnProfileByHandle,
   } = options;
   const corsOrigins = allowedOrigins ?? [webOrigin];
 
@@ -158,6 +181,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))
       .use(createOrganiserWeddingCreateRoute(db, osnAuthOptions, weddingCreateLimiter))
       .use(createOrganiserPreviewRoutes(db, osnAuthOptions, previewLimiter))
+      // Co-host management. Reads (list hosts) admit owner OR co-host; writes
+      // (add/remove) are owner-only and behind a per-IP limiter — split into
+      // sibling instances so the read isn't gated by the write limiter.
+      .use(createOrganiserHostsReadRoutes(db, osnAuthOptions))
+      .use(
+        createOrganiserHostsWriteRoutes(db, osnAuthOptions, hostLimiter, resolveOsnProfileByHandle),
+      )
       .use(createOrganiserImportRoutes(db, r2, osnAuthOptions))
       // Invite builder. Public reads (guest site) + organiser writes split into
       // sibling instances so the guest GET isn't behind osnAuth.

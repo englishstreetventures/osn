@@ -13,7 +13,9 @@ vi.mock("./CreateWeddingForm", () => ({
   default: (props: { onCreated: (w: unknown) => void }) => (
     <button
       data-testid="create-form"
-      onClick={() => props.onCreated({ id: "wed_new", slug: "new-x", displayName: "Brand New" })}
+      onClick={() =>
+        props.onCreated({ id: "wed_new", slug: "new-x", displayName: "Brand New", role: "owner" })
+      }
     >
       stub-create
     </button>
@@ -22,10 +24,12 @@ vi.mock("./CreateWeddingForm", () => ({
 
 import WeddingList from "./WeddingList";
 
-const ONE = [{ id: "wed_a", slug: "alice-bob", displayName: "Alice & Bob" }];
+const ONE = [
+  { id: "wed_a", slug: "alice-bob", displayName: "Alice & Bob", role: "owner" as const },
+];
 const MANY = [
-  { id: "wed_a", slug: "alice-bob", displayName: "Alice & Bob" },
-  { id: "wed_c", slug: "cara-dan", displayName: "Cara & Dan" },
+  { id: "wed_a", slug: "alice-bob", displayName: "Alice & Bob", role: "owner" as const },
+  { id: "wed_c", slug: "cara-dan", displayName: "Cara & Dan", role: "host" as const },
 ];
 
 describe("WeddingList", () => {
@@ -73,6 +77,7 @@ describe("WeddingList", () => {
       id: "wed_new",
       slug: "new-x",
       displayName: "Brand New",
+      role: "owner",
     });
   });
 });

@@ -111,3 +111,80 @@ export async function createAccountResolverFromEnv(env: {
     arcKeyId: env.arcKeyId,
   });
 }
+
+/** Outcome of resolving an OSN handle (e.g. `@alice`) to a profile id. */
+export type OsnHandleResolution =
+  | { readonly ok: true; readonly profileId: string; readonly handle: string }
+  | { readonly ok: false; readonly reason: "profile_not_found" };
+
+/**
+ * Resolves an OSN handle (`@alice` / `alice`) to its profile id (`usr_*`).
+ * Returns `{ ok: false }` when osn-api reports no such handle; throws on any
+ * transport/infra failure so the caller can distinguish "not found" from "osn
+ * unavailable". osn-api owns handle normalisation (strips `@`, lowercases) —
+ * cire passes the raw handle through.
+ */
+export type OsnHandleResolver = (handle: string) => Promise<OsnHandleResolution>;
+
+/**
+ * Builds an {@link OsnHandleResolver} backed by a real ARC-authenticated call
+ * to `GET /graph/internal/profile-by-handle`. Same key + scope as the account
+ * resolver (`graph:read`), so a deployment that has the ARC key registered for
+ * account-linking automatically gets handle resolution too.
+ */
+export function createArcHandleResolver(config: ArcResolverConfig): OsnHandleResolver {
+  const base = config.osnApiUrl.replace(/\/+$/, "");
+
+  return async (handle) => {
+    const token = await signArcToken(config.arcPrivateKey, {
+      iss: ARC_ISSUER,
+      aud: ARC_AUDIENCE,
+      scope: ARC_SCOPE,
+      kid: config.arcKeyId,
+    });
+
+    const res = await instrumentedFetch(
+      `${base}/graph/internal/profile-by-handle?handle=${encodeURIComponent(handle)}`,
+      { headers: { authorization: `ARC ${token}` } },
+    );
+
+    if (res.status === 404) {
+      return { ok: false, reason: "profile_not_found" };
+    }
+    if (!res.ok) {
+      throw new Error(`osn-api GET /graph/internal/profile-by-handle returned ${res.status}`);
+    }
+
+    const data = (await res.json()) as { profileId?: unknown; handle?: unknown };
+    if (typeof data.profileId !== "string" || data.profileId.length === 0) {
+      throw new Error("osn-api profile-by-handle response missing profileId");
+    }
+    return {
+      ok: true,
+      profileId: data.profileId,
+      handle: typeof data.handle === "string" ? data.handle : handle,
+    };
+  };
+}
+
+/**
+ * Builds the handle resolver from raw env material — the sibling of
+ * {@link createAccountResolverFromEnv}. Returns `null` when any piece is absent
+ * so a deployment without the ARC key simply has co-host-by-handle disabled
+ * (the add-host POST then answers 503), never failing to boot.
+ */
+export async function createHandleResolverFromEnv(env: {
+  osnApiUrl?: string;
+  arcPrivateKeyJwk?: string;
+  arcKeyId?: string;
+}): Promise<OsnHandleResolver | null> {
+  if (!env.osnApiUrl || !env.arcPrivateKeyJwk || !env.arcKeyId) {
+    return null;
+  }
+  const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk);
+  return createArcHandleResolver({
+    osnApiUrl: env.osnApiUrl,
+    arcPrivateKey,
+    arcKeyId: env.arcKeyId,
+  });
+}

@@ -41,8 +41,11 @@ function RequireAuth(props: ParentProps) {
 }
 
 /** The chosen wedding's dashboard — the existing tabbed guests/events/invite
- *  view, now scoped to whichever wedding the organiser opened. */
+ *  view, now scoped to whichever wedding the organiser opened. Owner-only
+ *  surfaces (spreadsheet import, the host-management actions) are gated on
+ *  `isOwner`; a co-host gets the read/edit dashboard without them. */
 function WeddingDashboard(props: { wedding: WeddingSummary; onBack: () => void }) {
+  const isOwner = () => props.wedding.role === "owner";
   return (
     <div class="flex flex-col gap-12">
       <div class="flex flex-col gap-4">
@@ -54,12 +57,23 @@ function WeddingDashboard(props: { wedding: WeddingSummary; onBack: () => void }
           ← All weddings
         </button>
         <div class="flex flex-wrap items-center justify-between gap-4">
-          <p class="font-display text-gold-dim text-[1.2rem] italic">{props.wedding.displayName}</p>
+          <div class="flex items-center gap-3">
+            <p class="font-display text-gold-dim text-[1.2rem] italic">
+              {props.wedding.displayName}
+            </p>
+            <Show when={!isOwner()}>
+              <span class="border-gold/40 text-gold font-body rounded-sm border px-2 py-0.5 text-[0.62rem] tracking-[0.16em] uppercase">
+                Co-host
+              </span>
+            </Show>
+          </div>
           <PreviewInviteButton weddingId={props.wedding.id} />
         </div>
       </div>
-      <ImportPanel weddingId={props.wedding.id} />
-      <DashboardTabs weddingId={props.wedding.id} />
+      <Show when={isOwner()}>
+        <ImportPanel weddingId={props.wedding.id} />
+      </Show>
+      <DashboardTabs weddingId={props.wedding.id} canManage={isOwner()} />
     </div>
   );
 }

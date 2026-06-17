@@ -5,13 +5,14 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-06-17
+last-reviewed: 2026-06-18
 ---
 
 # cire/db
 
 Schema and migration work. See [[monorepo-structure]] for how this package fits into the dependency graph.
 
+- [x] **`wedding_hosts` table** (migration `0013_wedding_hosts.sql`) — co-hosts of a wedding (additive to the single `weddings.owner_osn_profile_id`; the owner is never rowed in here, so owner-OR-host is resolved in the authz gate and "remove host" can't strip the owner). Columns: `id` (`whost_*`), `wedding_id` (cascade FK), `osn_profile_id` + `added_by_osn_profile_id` (opaque cross-DB refs, no FK), `role` (`host`, default), `created_at`. Unique on `(wedding_id, osn_profile_id)` (no duplicate seat); indexed on `osn_profile_id` (reverse "weddings I co-host" lookup) and `wedding_id` (list a wedding's hosts). Forward-only (no drops). LOCKSTEP mirrors updated in `cire/api/src/db/setup.ts` + `db/schema.test.ts`. See `[[wiki/systems/cire-auth]]` (root).
 - [x] **`weddings.code_style` column** (migration `0011_wedding_code_style.sql`) — per-wedding claim-code tier (enum `simple | secure`, NOT NULL DEFAULT `secure`). Added in place via `ALTER TABLE … ADD COLUMN`; back-fills every existing wedding (incl. bootstrap) onto `secure`. Drives the tiered `SURNAME-WORD-HASH` generator (`cire/api/src/services/family-code.ts`). LOCKSTEP mirrors updated in `cire/api/src/db/setup.ts` + `db/schema.test.ts`. One-time legacy-code re-mint is the idempotent operator function `cire/api/src/scripts/remint-family-codes.ts`. See `[[wiki/systems/cire-auth]]` (root). (Renumbered 0010→0011 on merge — #120 took 0010.)
 - [x] **`families.kind` column** (migration `0010_family_kind.sql`) — `'guest' | 'host'`, default `'guest'`. Marks the synthetic per-wedding "host preview" family whose `HOST-*` code lets the organiser see every event (the "Preview invite" button). Partial unique index `families_one_host_per_wedding` (`wedding_id WHERE kind = 'host'`) caps it at one host family per wedding. Additive + self-backfilling (existing rows default to `guest`). LOCKSTEP mirrors updated in `cire/api/src/db/setup.ts` + `db/schema.test.ts`. See `[[wiki/systems/cire-auth]]` (root, Host preview code).
 - [x] **`wedding_invite_customisations` table** (migration `0009_invite_customisations.sql`) — per-wedding invite-builder presentation overrides. `wedding_id` PK + cascade FK (1:1). Nullable text slots (`hero_title`, `hero_subtitle`, `story_eyebrow`, `story_heading`, `story_body`) + nullable R2 image keys (`hero_image_key`, `story_image_key`); null ⇒ built-in default. LOCKSTEP mirror updated in `cire/api/src/db/setup.ts`. See `[[invite-builder]]`. ⚠️ Image rows reference photos (personal data) — folds into the existing cire retention gap.

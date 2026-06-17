@@ -44,7 +44,12 @@ vi.mock("./WeddingList", () => ({
       <button onClick={() => props.onSelect(props.weddings[0])}>select-first</button>
       <button
         onClick={() =>
-          props.onCreated({ id: "wed_new", slug: "new-x", displayName: "Fresh Wedding" })
+          props.onCreated({
+            id: "wed_new",
+            slug: "new-x",
+            displayName: "Fresh Wedding",
+            role: "owner",
+          })
         }
       >
         create
@@ -54,8 +59,10 @@ vi.mock("./WeddingList", () => ({
 }));
 
 vi.mock("./DashboardTabs", () => ({
-  default: (props: { weddingId: string }) => (
-    <div data-testid="dashboard-tabs">{props.weddingId}</div>
+  default: (props: { weddingId: string; canManage: boolean }) => (
+    <div data-testid="dashboard-tabs" data-can-manage={String(props.canManage)}>
+      {props.weddingId}
+    </div>
   ),
 }));
 vi.mock("./ImportPanel", () => ({
@@ -69,11 +76,16 @@ vi.mock("./PreviewInviteButton", () => ({
 
 import OrganiserApp from "./OrganiserApp";
 
-function listResponse(weddings: { id: string; slug: string; displayName: string }[]) {
-  return new Response(JSON.stringify({ weddings }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
+function listResponse(
+  weddings: { id: string; slug: string; displayName: string; role?: "owner" | "host" }[],
+) {
+  return new Response(
+    JSON.stringify({ weddings: weddings.map((w) => ({ role: "owner", ...w })) }),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
 }
 
 describe("OrganiserApp Dashboard", () => {
@@ -108,7 +120,23 @@ describe("OrganiserApp Dashboard", () => {
 
     fireEvent.click(screen.getByText("select-first"));
     expect(screen.getByTestId("dashboard-tabs").textContent).toBe("wed_a");
+    // Owner ⇒ management enabled + the owner-only import panel rendered.
+    expect(screen.getByTestId("dashboard-tabs").getAttribute("data-can-manage")).toBe("true");
     expect(screen.getByTestId("import-panel").textContent).toBe("wed_a");
+  });
+
+  it("hides owner-only surfaces and disables management when only co-hosting", async () => {
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_c", slug: "c", displayName: "Co-hosted", role: "host" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("select-first"));
+    expect(screen.getByTestId("dashboard-tabs").textContent).toBe("wed_c");
+    // Co-host ⇒ management disabled (threaded into the Hosts tab) + no import panel.
+    expect(screen.getByTestId("dashboard-tabs").getAttribute("data-can-manage")).toBe("false");
+    expect(screen.queryByTestId("import-panel")).toBeNull();
   });
 
   it("auto-opens a freshly created wedding's dashboard", async () => {

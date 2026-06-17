@@ -2,18 +2,23 @@ import { createSignal, Show } from "solid-js";
 
 import EventTable from "./EventTable";
 import GuestTable from "./GuestTable";
+import HostsPanel from "./HostsPanel";
 import InviteBuilder from "./InviteBuilder";
 
-type Tab = "guests" | "events" | "invite";
+type Tab = "guests" | "events" | "invite" | "hosts";
 
 interface DashboardTabsProps {
   weddingId: string;
+  /** Owner of this wedding? Owners can manage co-hosts; co-hosts see the list
+   *  read-only. Threaded into the Hosts tab. */
+  canManage: boolean;
 }
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "guests", label: "Guests" },
   { id: "events", label: "Events" },
   { id: "invite", label: "Invite" },
+  { id: "hosts", label: "Hosts" },
 ];
 
 function initialTab(): Tab {
@@ -21,6 +26,7 @@ function initialTab(): Tab {
   const hash = window.location.hash.replace("#", "");
   if (hash === "events") return "events";
   if (hash === "invite") return "invite";
+  if (hash === "hosts") return "hosts";
   return "guests";
 }
 
@@ -62,6 +68,9 @@ export default function DashboardTabs(props: DashboardTabsProps) {
       </Show>
       <Show when={active() === "invite"}>
         <InviteBuilder weddingId={props.weddingId} />
+      </Show>
+      <Show when={active() === "hosts"}>
+        <HostsPanel weddingId={props.weddingId} canManage={props.canManage} />
       </Show>
     </div>
   );

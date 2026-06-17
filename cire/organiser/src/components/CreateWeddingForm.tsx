@@ -7,6 +7,9 @@ export interface WeddingSummary {
   id: string;
   slug: string;
   displayName: string;
+  /** Whether the signed-in organiser owns this wedding or only co-hosts it.
+   *  Owners can manage hosts + destructive actions; co-hosts get read access. */
+  role: "owner" | "host";
 }
 
 const MAX_DISPLAY_NAME = 120;

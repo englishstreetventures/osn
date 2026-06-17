@@ -13,7 +13,7 @@ import { setExecutionCtx } from "./lib/execution-ctx";
 import { createWorkersRateLimiter } from "./lib/workers-rate-limiter";
 import type { WorkersRateLimitBinding } from "./lib/workers-rate-limiter";
 import { runCire } from "./observability";
-import { createAccountResolverFromEnv } from "./services/osn-bridge";
+import { createAccountResolverFromEnv, createHandleResolverFromEnv } from "./services/osn-bridge";
 import { retentionService } from "./services/retention";
 import { sessionService } from "./services/session";
 
@@ -157,6 +157,14 @@ const handler: ExportedHandler<Env> = {
           arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
           arcKeyId: env.CIRE_API_ARC_KEY_ID,
         })) ?? undefined;
+      // Sibling ARC resolver for add-co-host-by-handle, same key + graph:read
+      // scope. Null (⇒ add-host POST answers 503) when the ARC config is absent.
+      const resolveOsnProfileByHandle =
+        (await createHandleResolverFromEnv({
+          osnApiUrl: env.OSN_API_URL,
+          arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+          arcKeyId: env.CIRE_API_ARC_KEY_ID,
+        })) ?? undefined;
       // C1/C4/AL-S-L1: prefer the native Workers rate-limit binding (global +
       // atomic) for every pre-auth / amplifier surface — claim (brute-force),
       // account-link (ARC-sign + S2S amplifier, membership oracle), invite
@@ -180,6 +188,7 @@ const handler: ExportedHandler<Env> = {
           osnJwksUrl: env.OSN_JWKS_URL,
           osnAudience: env.OSN_AUDIENCE,
           resolveOsnAccountId,
+          resolveOsnProfileByHandle,
         }),
       };
     }

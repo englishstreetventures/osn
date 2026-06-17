@@ -25,6 +25,18 @@ CREATE TABLE IF NOT EXISTS weddings (
 );
 CREATE INDEX IF NOT EXISTS weddings_owner_idx ON weddings(owner_osn_profile_id);
 
+CREATE TABLE IF NOT EXISTS wedding_hosts (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  osn_profile_id TEXT NOT NULL,
+  added_by_osn_profile_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'host',
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS wedding_hosts_wedding_profile_uniq ON wedding_hosts(wedding_id, osn_profile_id);
+CREATE INDEX IF NOT EXISTS wedding_hosts_profile_idx ON wedding_hosts(osn_profile_id);
+CREATE INDEX IF NOT EXISTS wedding_hosts_wedding_idx ON wedding_hosts(wedding_id);
+
 CREATE TABLE IF NOT EXISTS families (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,

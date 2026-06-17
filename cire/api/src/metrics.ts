@@ -68,6 +68,11 @@ export const CIRE_METRICS = {
   familyCodeRegenerated: "cire.family_code.regenerated",
   // Organiser wedding creation (multi-wedding portal).
   weddingCreated: "cire.wedding.created",
+  // Co-host management (add/remove a wedding host by OSN handle).
+  hostAdded: "cire.host.added",
+  hostRemoved: "cire.host.removed",
+  // S2S osn-api handle→profile resolve latency (the ARC call for add-host).
+  hostResolveDuration: "cire.host.resolve.duration",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -114,6 +119,19 @@ export type FamilyCodeRegenResult = "ok" | "error";
 /** Outcome of an organiser wedding creation. */
 export type WeddingCreatedResult = "ok" | "error";
 
+/** Outcome of adding a co-host by handle. Mirrors the route's response branches. */
+export type HostAddResult =
+  | "ok"
+  | "handle_not_found"
+  | "osn_unavailable"
+  | "already_host"
+  | "owner_is_host"
+  | "disabled"
+  | "error";
+
+/** Outcome of removing a co-host. */
+export type HostRemoveResult = "ok" | "error";
+
 type ClaimAttemptsAttrs = { result: ClaimResult };
 type ClaimLookupDurationAttrs = { result: "ok" | "error" };
 type SessionCreatedAttrs = { result: "ok" | "error" };
@@ -148,6 +166,9 @@ type AccountLinkResolveDurationAttrs = { result: ResolveResult };
 type OriginGuardRejectionsAttrs = { reason: OriginRejectReason };
 type FamilyCodeRegeneratedAttrs = { result: FamilyCodeRegenResult };
 type WeddingCreatedAttrs = { result: WeddingCreatedResult };
+type HostAddedAttrs = { result: HostAddResult };
+type HostRemovedAttrs = { result: HostRemoveResult };
+type HostResolveDurationAttrs = { result: ResolveResult };
 
 // ---------------------------------------------------------------------------
 // Instruments.
@@ -294,6 +315,25 @@ const weddingCreated = createCounter<WeddingCreatedAttrs>({
   unit: "{wedding}",
 });
 
+const hostAdded = createCounter<HostAddedAttrs>({
+  name: CIRE_METRICS.hostAdded,
+  description: "Co-host add-by-handle attempts, by outcome",
+  unit: "{host}",
+});
+
+const hostRemoved = createCounter<HostRemovedAttrs>({
+  name: CIRE_METRICS.hostRemoved,
+  description: "Co-host removals, by outcome",
+  unit: "{host}",
+});
+
+const hostResolveDuration = createHistogram<HostResolveDurationAttrs>({
+  name: CIRE_METRICS.hostResolveDuration,
+  description: "S2S osn-api handle→profile resolve latency (the ARC call for add-host)",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
 // ---------------------------------------------------------------------------
 // Recording helpers — the ONLY way cire code should emit metrics.
 // ---------------------------------------------------------------------------
@@ -388,6 +428,10 @@ export const metricFamilyCodeRegenerated = (result: FamilyCodeRegenResult): void
 export const metricWeddingCreated = (result: WeddingCreatedResult): void =>
   weddingCreated.inc({ result });
 
+export const metricHostAdded = (result: HostAddResult): void => hostAdded.inc({ result });
+
+export const metricHostRemoved = (result: HostRemoveResult): void => hostRemoved.inc({ result });
+
 // ---------------------------------------------------------------------------
 // Effect combinators for timed operations (mirrors pulse `measureSeconds`).
 // ---------------------------------------------------------------------------
@@ -412,6 +456,12 @@ export const measureClaimLookup = measureSecondsHelper((seconds, outcome) =>
  *  records the finer `not_found` outcome separately via {@link metricAccountLinkRequest}. */
 export const measureAccountLinkResolve = measureSecondsHelper((seconds, outcome) =>
   accountLinkResolveDuration.record(seconds, { result: outcome }),
+);
+
+/** Time the S2S handle→profile resolve into `cire.host.resolve.duration`. The
+ *  caller records the finer `not_found` outcome separately via {@link metricHostAdded}. */
+export const measureHostResolve = measureSecondsHelper((seconds, outcome) =>
+  hostResolveDuration.record(seconds, { result: outcome }),
 );
 
 /** Re-export the canonical `Result` union for any future cire metric that needs

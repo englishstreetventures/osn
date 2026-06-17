@@ -7,6 +7,7 @@ import type { Db } from "../db";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
+import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
 import { CreateWeddingBody } from "../schemas/wedding";
@@ -22,8 +23,12 @@ const manualParse = { parse: () => ({}) };
 
 /**
  * Wedding-scoped organiser routes, mounted under /api/organiser. osnAuth()
- * gates every route in this instance (osnProfileId derived on every request);
- * weddingOwner() additionally gates the per-wedding subtree.
+ * gates every route in this instance (osnProfileId derived on every request).
+ *
+ * The per-wedding subtree splits by authorisation level:
+ *  - DASHBOARD READS (`/guests`, `/events`) use `weddingMember()` — owner OR
+ *    co-host. Co-hosts get the read dashboard, nothing destructive.
+ *  - DESTRUCTIVE actions (`regenerate-code`) use `weddingOwner()` — owner only.
  */
 export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
   new Elysia({ prefix: "/api/organiser" })
@@ -34,7 +39,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
         return { error: "unauthorised" };
       }
       return runCire(
-        weddingsService.listForOwner(osnProfileId).pipe(
+        weddingsService.listForMember(osnProfileId).pipe(
           Effect.provideService(DbService, db),
           Effect.map((list) => ({ weddings: list })),
           Effect.catchAllDefect(() =>
@@ -46,11 +51,12 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
         ),
       );
     })
+    // Dashboard reads — owner OR co-host (weddingMember).
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingOwner(db))
+        .use(weddingMember(db))
         .get("/guests", ({ weddingId, set }) => {
-          // weddingOwner() always derives this; the guard keeps a future
+          // weddingMember() always derives this; the guard keeps a future
           // remount without the plugin from compiling into an unscoped query.
           if (!weddingId) {
             set.status = 500;
@@ -84,7 +90,12 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
               ),
             ),
           );
-        })
+        }),
+    )
+    // Destructive — owner only (weddingOwner).
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingOwner(db))
         // C2: rotate a family's claim code + revoke its sessions, atomically.
         // weddingOwner() already proved the caller owns :weddingId; the service
         // re-checks family ∈ wedding (404 FamilyNotInWedding otherwise) so an

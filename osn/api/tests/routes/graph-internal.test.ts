@@ -1,4 +1,4 @@
-import { serviceAccounts, serviceAccountKeys } from "@osn/db/schema";
+import { accounts, serviceAccounts, serviceAccountKeys, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import type { Db as DbTag } from "@osn/db/service";
 import {
@@ -468,6 +468,147 @@ describe("internal graph routes (ARC-protected)", () => {
     it("rejects missing ARC token with 401", async () => {
       const res = await app.handle(
         new Request("http://localhost/graph/internal/profile-account?profileId=usr_x"),
+      );
+      expect(res.status).toBe(401);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /graph/internal/profile-by-handle
+  // -------------------------------------------------------------------------
+
+  describe("GET /graph/internal/profile-by-handle", () => {
+    it("resolves a handle to its profile id, handle, and display name", async () => {
+      const { token } = await setupArcService();
+      const alice = await registerProfile("alice@example.com", "alice");
+
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-by-handle?handle=alice", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        profileId: string;
+        handle: string;
+        displayName: string | null;
+      };
+      expect(body.profileId).toBe(alice);
+      expect(body.handle).toBe("alice");
+    });
+
+    it("strips a leading @ and folds case before resolving", async () => {
+      const { token } = await setupArcService();
+      const alice = await registerProfile("alice@example.com", "alice");
+
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-by-handle?handle=%40Alice", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { profileId: string };
+      expect(body.profileId).toBe(alice);
+    });
+
+    it("returns 404 for an unknown handle", async () => {
+      const { token } = await setupArcService();
+
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-by-handle?handle=nobody", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(404);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("Profile not found");
+    });
+
+    it("returns 404 for a handle that is only an @ sigil", async () => {
+      const { token } = await setupArcService();
+
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-by-handle?handle=%40", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(404);
+    });
+
+    it("does not resolve a soft-deleted account's handle (tombstone rule)", async () => {
+      const { token } = await setupArcService();
+      const alice = await registerProfile("alice@example.com", "alice");
+
+      // Soft-delete the owning account — it must become invisible to S2S
+      // resolution during the grace window, exactly like /profile-account.
+      await runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          const rows = yield* Effect.tryPromise({
+            try: () =>
+              db.select({ accountId: users.accountId }).from(users).where(eq(users.id, alice)),
+            catch: (e) => e,
+          });
+          const accountId = rows[0]!.accountId;
+          yield* Effect.tryPromise({
+            try: () =>
+              db
+                .update(accounts)
+                .set({ deletedAt: Math.floor(Date.now() / 1000) })
+                .where(eq(accounts.id, accountId)),
+            catch: (e) => e,
+          });
+        }),
+      );
+
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-by-handle?handle=alice", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(404);
+    });
+
+    it("rejects missing ARC token with 401", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-by-handle?handle=alice"),
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it("rejects a token with the wrong scope with 401 (pins requireArc args on this route)", async () => {
+      // The service is allowed graph:read; a graph:write token must be rejected.
+      // Asserted directly on /profile-by-handle so a fat-fingered scope constant
+      // on this route is caught even though the guard is shared.
+      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "graph:read", "osn-api");
+      const badToken = await createArcToken(kp.privateKey, {
+        iss: "pulse-api",
+        aud: "osn-api",
+        scope: "graph:write",
+        kid: keyId,
+      });
+      await registerProfile("alice@example.com", "alice");
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-by-handle?handle=alice", {
+          headers: { Authorization: `ARC ${badToken}` },
+        }),
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it("rejects a token with the wrong audience with 401", async () => {
+      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "graph:read", "osn-api");
+      const badToken = await createArcToken(kp.privateKey, {
+        iss: "pulse-api",
+        aud: "wrong-service",
+        scope: "graph:read",
+        kid: keyId,
+      });
+      await registerProfile("alice@example.com", "alice");
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-by-handle?handle=alice", {
+          headers: { Authorization: `ARC ${badToken}` },
+        }),
       );
       expect(res.status).toBe(401);
     });

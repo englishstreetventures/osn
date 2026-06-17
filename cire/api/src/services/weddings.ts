@@ -1,4 +1,4 @@
-import { weddings } from "@cire/db";
+import { weddingHosts, weddings } from "@cire/db";
 import { asc, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
@@ -9,6 +9,9 @@ export type WeddingSummary = {
   id: string;
   slug: string;
   displayName: string;
+  /** True when the caller co-hosts (rather than owns) this wedding. Lets the
+   *  portal label co-hosted weddings and hide owner-only management. */
+  role: "owner" | "host";
 };
 
 /** Raised when a new wedding row cannot be persisted (slug collisions are
@@ -47,11 +50,18 @@ function mintWeddingId(): string {
 }
 
 export const weddingsService = {
-  /** All weddings owned by the given OSN profile, oldest first. */
-  listForOwner(osnProfileId: string): Effect.Effect<WeddingSummary[], never, DbService> {
+  /**
+   * Every wedding the given OSN profile can reach: the ones they OWN plus the
+   * ones they CO-HOST, oldest-owned-first then oldest-hosted. Owned rows are
+   * tagged `role: "owner"`, co-hosted rows `role: "host"` so the portal can
+   * label them and gate owner-only management. A profile can't both own and
+   * co-host the same wedding (the owner is never rowed into `wedding_hosts`), so
+   * no dedupe is needed.
+   */
+  listForMember(osnProfileId: string): Effect.Effect<WeddingSummary[], never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const rows = yield* dbQuery(() =>
+      const owned = yield* dbQuery(() =>
         db
           .select({
             id: weddings.id,
@@ -67,8 +77,29 @@ export const weddingsService = {
           .limit(200)
           .all(),
       );
-      return rows;
-    }).pipe(Effect.withSpan("cire.wedding.listForOwner"));
+      const hosted = yield* dbQuery(() =>
+        db
+          .select({
+            id: weddings.id,
+            slug: weddings.slug,
+            displayName: weddings.displayName,
+          })
+          .from(weddingHosts)
+          .innerJoin(weddings, eq(weddingHosts.weddingId, weddings.id))
+          .where(eq(weddingHosts.osnProfileId, osnProfileId))
+          .orderBy(asc(weddingHosts.createdAt))
+          .limit(200)
+          .all(),
+      );
+      const summaries: WeddingSummary[] = [];
+      for (const w of owned) {
+        summaries.push({ id: w.id, slug: w.slug, displayName: w.displayName, role: "owner" });
+      }
+      for (const w of hosted) {
+        summaries.push({ id: w.id, slug: w.slug, displayName: w.displayName, role: "host" });
+      }
+      return summaries;
+    }).pipe(Effect.withSpan("cire.wedding.listForMember"));
   },
 
   /**
@@ -115,7 +146,10 @@ export const weddingsService = {
                 .run(),
             ),
         }).pipe(
-          Effect.map(() => ({ ok: true as const, summary: { id, slug, displayName: trimmed } })),
+          Effect.map(() => ({
+            ok: true as const,
+            summary: { id, slug, displayName: trimmed, role: "owner" as const },
+          })),
           Effect.catchAll((cause) =>
             // A UNIQUE violation on slug/id is retryable; surface anything else
             // on the final attempt as a WeddingCreateError.

@@ -40,6 +40,46 @@ export const weddings = sqliteTable(
   (t) => [index("weddings_owner_idx").on(t.ownerOsnProfileId)],
 );
 
+// Co-hosts of a wedding. The creator stays the single `weddings.owner_osn_profile_id`
+// (it answers "who may manage hosts + do destructive things"); this join table
+// adds *additional* organisers who can reach the wedding's dashboard. The owner
+// is NOT rowed in here — owner-OR-host is resolved in the authz gate — so the
+// owner can't be removed as a "host" and "who is the owner" stays unambiguous.
+//
+// `osn_profile_id` is an OSN profile id (`usr_*`), like `weddings.owner_osn_profile_id`:
+// an opaque cross-database reference, deliberately NOT a foreign key (cire's D1
+// and osn's D1 are separate databases). It's resolved from a typed handle via a
+// server-to-server ARC call to osn-api's `/graph/internal/profile-by-handle`
+// (cire never sees the handle→id mapping otherwise). `added_by_osn_profile_id`
+// records which owner added the host (audit only). `role` is a forward-looking
+// column — only `host` exists today, but the column pins the shape for a future
+// editor/viewer split without another migration.
+export const weddingHosts = sqliteTable(
+  "wedding_hosts",
+  {
+    id: text("id").primaryKey(), // whost_<uuid>
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    osnProfileId: text("osn_profile_id").notNull(),
+    addedByOsnProfileId: text("added_by_osn_profile_id").notNull(),
+    role: text("role", { enum: ["host"] })
+      .notNull()
+      .default("host"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    // One host row per (wedding, profile) — adding the same person twice is a
+    // no-op conflict the service swallows, never a duplicate seat.
+    uniqueIndex("wedding_hosts_wedding_profile_uniq").on(t.weddingId, t.osnProfileId),
+    // Reverse lookup: "which weddings does this profile co-host?" — backs the
+    // portal's combined owned-OR-hosted wedding list.
+    index("wedding_hosts_profile_idx").on(t.osnProfileId),
+    // List all hosts of a wedding (the management panel) in one b-tree scan.
+    index("wedding_hosts_wedding_idx").on(t.weddingId),
+  ],
+);
+
 export const families = sqliteTable(
   "families",
   {

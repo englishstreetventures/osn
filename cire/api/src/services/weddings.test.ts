@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { weddings } from "@cire/db";
+import { weddingHosts, weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -82,7 +82,7 @@ describe("weddingsService.createForOwner", () => {
   });
 });
 
-describe("weddingsService.listForOwner", () => {
+describe("weddingsService.listForMember", () => {
   const run = <A, E>(db: ReturnType<typeof createDb>, eff: Effect.Effect<A, E, DbService>) =>
     Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
 
@@ -132,13 +132,56 @@ describe("weddingsService.listForOwner", () => {
       })
       .run();
 
-    const list = await run(db, weddingsService.listForOwner("usr_owner"));
+    const list = await run(db, weddingsService.listForMember("usr_owner"));
     expect(list.map((w) => w.id)).toEqual(["wed_first", "wed_mid", "wed_last"]);
+    expect(list.every((w) => w.role === "owner")).toBe(true);
   });
 
   it("returns an empty list for an owner with no weddings", async () => {
     const db = createDb(":memory:");
-    const list = await run(db, weddingsService.listForOwner("usr_nobody"));
+    const list = await run(db, weddingsService.listForMember("usr_nobody"));
     expect(list).toEqual([]);
+  });
+
+  it("includes co-hosted weddings tagged role:host, after owned ones (T-U2)", async () => {
+    const db = createDb(":memory:");
+    const now = Date.now();
+    // One owned by the member.
+    db.insert(weddings)
+      .values({
+        id: "wed_owned",
+        slug: "owned",
+        displayName: "Owned",
+        ownerOsnProfileId: "usr_member",
+        createdAt: new Date(now + 1_000),
+        updatedAt: new Date(now + 1_000),
+      })
+      .run();
+    // One owned by someone else, co-hosted by the member.
+    db.insert(weddings)
+      .values({
+        id: "wed_cohosted",
+        slug: "cohosted",
+        displayName: "Co-hosted",
+        ownerOsnProfileId: "usr_other_owner",
+        createdAt: new Date(now),
+        updatedAt: new Date(now),
+      })
+      .run();
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_1",
+        weddingId: "wed_cohosted",
+        osnProfileId: "usr_member",
+        addedByOsnProfileId: "usr_other_owner",
+        createdAt: new Date(now + 5_000),
+      })
+      .run();
+
+    const list = await run(db, weddingsService.listForMember("usr_member"));
+    expect(list.map((w) => [w.id, w.role])).toEqual([
+      ["wed_owned", "owner"],
+      ["wed_cohosted", "host"],
+    ]);
   });
 });

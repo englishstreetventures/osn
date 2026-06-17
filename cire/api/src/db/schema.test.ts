@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, it, expect } from "bun:test";
 
 import * as schema from "@cire/db";
-import { families, guestAccountLinks, guests } from "@cire/db";
+import { families, guestAccountLinks, guests, weddingHosts } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -18,6 +18,17 @@ CREATE TABLE weddings (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE wedding_hosts (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  osn_profile_id TEXT NOT NULL,
+  added_by_osn_profile_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'host',
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX wedding_hosts_wedding_profile_uniq ON wedding_hosts(wedding_id, osn_profile_id);
+CREATE INDEX wedding_hosts_profile_idx ON wedding_hosts(osn_profile_id);
+CREATE INDEX wedding_hosts_wedding_idx ON wedding_hosts(wedding_id);
 CREATE TABLE families (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
@@ -138,6 +149,105 @@ describe("families schema", () => {
     insertFamily(db, "fam-1", "GUESTONE-IVY-AA11", "Guesty");
     insertFamily(db, "fam-2", "GUESTTWO-IVY-BB22", "Guesty");
     expect(db.select().from(families).all()).toHaveLength(2);
+  });
+});
+
+describe("wedding_hosts schema", () => {
+  const insertHost = (
+    db: ReturnType<typeof makeDb>,
+    id: string,
+    osnProfileId: string,
+    addedBy = "usr_owner",
+  ) =>
+    db
+      .insert(weddingHosts)
+      .values({
+        id,
+        weddingId: "wed_bootstrap",
+        osnProfileId,
+        addedByOsnProfileId: addedBy,
+        createdAt: now,
+      })
+      .run();
+
+  it("defaults role to 'host'", () => {
+    const db = makeDb();
+    insertHost(db, "whost-1", "usr_alice");
+    const [row] = db.select().from(weddingHosts).all();
+    expect(row?.role).toBe("host");
+  });
+
+  it("rejects the same profile twice on one wedding (unique index)", () => {
+    const db = makeDb();
+    insertHost(db, "whost-1", "usr_alice");
+    expect(() => insertHost(db, "whost-2", "usr_alice")).toThrow();
+  });
+
+  it("permits the same profile to co-host different weddings", () => {
+    const db = makeDb();
+    db.insert(schema.weddings)
+      .values({
+        id: "wed_two",
+        slug: "two",
+        displayName: "Two",
+        ownerOsnProfileId: "usr_owner",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    insertHost(db, "whost-1", "usr_alice");
+    db.insert(weddingHosts)
+      .values({
+        id: "whost-2",
+        weddingId: "wed_two",
+        osnProfileId: "usr_alice",
+        addedByOsnProfileId: "usr_owner",
+        createdAt: now,
+      })
+      .run();
+    expect(db.select().from(weddingHosts).all()).toHaveLength(2);
+  });
+
+  it("rejects a host whose wedding_id does not exist (FK enforcement)", () => {
+    const db = makeDb();
+    expect(() =>
+      db
+        .insert(weddingHosts)
+        .values({
+          id: "whost-1",
+          weddingId: "wed_missing",
+          osnProfileId: "usr_alice",
+          addedByOsnProfileId: "usr_owner",
+          createdAt: now,
+        })
+        .run(),
+    ).toThrow();
+  });
+
+  it("cascades deletion of a wedding to its host rows", () => {
+    const db = makeDb();
+    db.insert(schema.weddings)
+      .values({
+        id: "wed_doomed",
+        slug: "doomed",
+        displayName: "Doomed",
+        ownerOsnProfileId: "usr_owner",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(weddingHosts)
+      .values({
+        id: "whost-1",
+        weddingId: "wed_doomed",
+        osnProfileId: "usr_alice",
+        addedByOsnProfileId: "usr_owner",
+        createdAt: now,
+      })
+      .run();
+    expect(db.select().from(weddingHosts).all()).toHaveLength(1);
+    db.delete(schema.weddings).where(eq(schema.weddings.id, "wed_doomed")).run();
+    expect(db.select().from(weddingHosts).all()).toHaveLength(0);
   });
 });
 

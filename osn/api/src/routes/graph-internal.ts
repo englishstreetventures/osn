@@ -60,6 +60,18 @@ function safeError(e: unknown): string {
   return "Request failed";
 }
 
+/**
+ * Normalises a handle the same way the user-facing identifier resolution does:
+ * strips a leading `@` sigil and lowercases. `users.handle` is stored lowercase
+ * (the `^[a-z0-9_]{1,30}$` HandleSchema rejects uppercase at registration) and
+ * `findProfileByHandle` does an exact match, so a caller passing `@Alice` must
+ * be folded to `alice` to resolve. Returns `null` when nothing usable remains.
+ */
+function normaliseHandle(raw: string): string | null {
+  const stripped = (raw.startsWith("@") ? raw.slice(1) : raw).trim().toLowerCase();
+  return stripped.length > 0 ? stripped : null;
+}
+
 // ---------------------------------------------------------------------------
 // Internal graph routes — ARC token protected
 // ---------------------------------------------------------------------------
@@ -431,6 +443,81 @@ export function createInternalGraphRoutes(
         {
           query: t.Object({
             profileId: t.String({ minLength: 1 }),
+          }),
+        },
+      )
+      // -----------------------------------------------------------------------
+      // Handle → profile lookup
+      //
+      // Resolves the profile id (`usr_*`) that owns `handle`. Used by cire to
+      // turn an OSN handle an organiser types (e.g. `@alice`) into a profile id
+      // it can store as a wedding co-host — cire has no other way to map a
+      // handle to a profile.
+      //
+      // Same tombstone rule as /profile-account: the accounts join + deletedAt
+      // IS NULL means a soft-deleted account is invisible during the grace
+      // window, so a downstream service can't resolve (and then add as a host) a
+      // profile whose account is mid-deletion.
+      //
+      // Disclosure note: handle existence is already inferable from osn's own
+      // public surfaces (the user-facing handle lookup), so confirming a handle
+      // resolves to a profile leaks nothing beyond what /profile-displays (which
+      // returns handle + displayName for any known profile id) already exposes
+      // to graph:read holders. `displayName` is returned so cire can show the
+      // resolved person before the organiser confirms the add.
+      // -----------------------------------------------------------------------
+      .get(
+        "/profile-by-handle",
+        async ({ query, headers, set }) => {
+          const caller = await requireArc(
+            headers.authorization,
+            set,
+            run,
+            AUDIENCE,
+            SCOPE_GRAPH_READ,
+          );
+          if (!caller) return { error: "Unauthorized" };
+
+          const handle = normaliseHandle(query.handle);
+          if (!handle) {
+            set.status = 404;
+            return { error: "Profile not found" };
+          }
+
+          try {
+            const rows = await run(
+              Effect.gen(function* () {
+                const { db } = yield* Db;
+                return yield* Effect.tryPromise({
+                  try: () =>
+                    db
+                      .select({
+                        id: users.id,
+                        handle: users.handle,
+                        displayName: users.displayName,
+                      })
+                      .from(users)
+                      .innerJoin(accounts, eq(users.accountId, accounts.id))
+                      .where(and(eq(users.handle, handle), isNull(accounts.deletedAt)))
+                      .limit(1),
+                  catch: (cause) => new Error("DB query failed", { cause }),
+                });
+              }),
+            );
+            const row = rows[0];
+            if (!row) {
+              set.status = 404;
+              return { error: "Profile not found" };
+            }
+            return { profileId: row.id, handle: row.handle, displayName: row.displayName };
+          } catch (e) {
+            set.status = 500;
+            return { error: safeError(e) };
+          }
+        },
+        {
+          query: t.Object({
+            handle: t.String({ minLength: 1, maxLength: 64 }),
           }),
         },
       )
