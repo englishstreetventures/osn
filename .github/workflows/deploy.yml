@@ -1,0 +1,171 @@
+name: Deploy
+
+# Production deploy pipeline.
+#
+# Triggers:
+#   - push to `main` (after a merge)
+#   - manual `workflow_dispatch`
+#
+# The actual deploy jobs are gated on a `build` job that re-runs the same
+# install + build + test the CI workflow does, so we never ship a broken tree.
+# Cloudflare credentials come from the `production` GitHub Environment secrets;
+# secret VALUES are never embedded here.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never run two production deploys at once; let an in-flight deploy finish
+# before starting the next (do not cancel — a half-applied deploy is worse).
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ── Gate ─────────────────────────────────────────────────────────────────
+  # Re-run install + build + test before any deploy. If this fails, every
+  # deploy job below is skipped (they `needs: build`).
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Cache turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-build-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build
+        run: bun run build
+
+      - name: Test
+        run: bun run test
+
+  # ── cire API + D1 migrations ───────────────────────────────────────────────
+  # Migrations are applied to the REMOTE prod DB FIRST, then the Worker is
+  # deployed — both in a single job so the order is guaranteed and the
+  # migration runs exactly once. The cire-db D1 binding lives at the top level
+  # of cire/api/wrangler.toml (uuid e0ebc94c-77df-47a6-af52-40a8c39b3afb), so we
+  # apply migrations against that config; the `--env production` overlay only
+  # changes vars (WEB_ORIGIN / OSN issuer), not the DB.
+  deploy-cire-api:
+    name: Deploy cire/api (+ D1 migrate)
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      # Apply pending migrations to the remote prod cire-db BEFORE the new
+      # Worker code starts serving. Idempotent: wrangler skips already-applied
+      # migrations, so re-running the workflow is safe.
+      - name: Apply cire D1 migrations (remote prod)
+        run: bunx wrangler d1 migrations apply cire-db --remote
+        working-directory: cire/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy cire/api Worker
+        run: bunx wrangler deploy --env production
+        working-directory: cire/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ── cire web (Astro → Cloudflare Pages) ────────────────────────────────────
+  # Independent of the API job; runs in parallel once `build` passes.
+  deploy-cire-web:
+    name: Deploy cire/web (Pages)
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      # Build the static Astro site (output: "static" → ./dist).
+      - name: Build cire/web
+        run: bun run --cwd cire/web build
+
+      - name: Deploy cire/web to Cloudflare Pages
+        run: bunx wrangler pages deploy dist --project-name cire
+        working-directory: cire/web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ── osn/api ────────────────────────────────────────────────────────────────
+  # NOTE: osn/api is NOT deployed yet. Its wrangler.toml intentionally has no
+  # `main` / hosting target — full Workers hosting is still blocked on swapping
+  # the ioredis rate-limiters/session stores for a Workers-compatible Redis
+  # (see osn/api/wrangler.toml and wiki/TODO.md). When that lands, add a
+  # `deploy-osn-api` job here mirroring deploy-cire-api:
+  #
+  #   deploy-osn-api:
+  #     name: Deploy osn/api
+  #     needs: build
+  #     runs-on: ubuntu-latest
+  #     environment: production
+  #     steps:
+  #       - ... checkout / setup-bun / install ...
+  #       - run: bunx wrangler deploy --env production
+  #         working-directory: osn/api
+  #         env:
+  #           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  #           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
