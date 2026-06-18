@@ -79,6 +79,53 @@ export function createRateLimiter(config: RateLimiterConfig): RateLimiter {
 }
 
 /**
+ * Minimal shape of the Cloudflare Workers native Rate Limiting binding (the GA
+ * `[[ratelimits]]` binding — see `osn/api/wrangler.toml` / `cire/api/wrangler.toml`).
+ * We type only the one method we call rather than depending on the generated
+ * `RateLimit` type, mirroring the hand-typed `R2Bucket` / `D1Database` style used
+ * across the Workers entries. The window + budget live in `wrangler.toml`
+ * (`simple = { limit, period }`), NOT here, so the throttle has one source of
+ * truth — `check()` only forwards a key.
+ */
+export interface WorkersRateLimitBinding {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
+/**
+ * Wrap a Cloudflare Workers native `ratelimit` binding as a
+ * {@link RateLimiterBackend} so it drops into the same `check(key)` call sites as
+ * the in-memory / Redis backends with no changes.
+ *
+ * Unlike the in-memory {@link createRateLimiter} (per-isolate heap state that
+ * resets on eviction and never coordinates across isolates), the native binding
+ * is enforced globally + atomically at the edge — which is what brute-force
+ * protection on a pre-auth surface actually needs. The one trade-off it accepts
+ * is **per-colo** accounting: the count is maintained per Cloudflare location,
+ * not globally, so a caller spread across colos sees a slightly looser effective
+ * cap. That is acceptable for the 60s-window per-IP auth throttles (a single
+ * attacker is pinned to one colo) and was explicitly approved.
+ *
+ * **Fail-closed:** any throw from the binding (a transient platform error) is
+ * treated as "not allowed". These limiters gate credential-exchange endpoints,
+ * so degrading to "deny" on an unexpected error is correct — degrading to
+ * "allow" would open the brute-force window precisely when the platform is
+ * unhealthy. This matches the fail-closed posture of the Redis backends and the
+ * `isUnresolvedIp` → deny rule at the call sites.
+ */
+export function createWorkersRateLimiter(binding: WorkersRateLimitBinding): RateLimiterBackend {
+  return {
+    async check(key: string): Promise<boolean> {
+      try {
+        const { success } = await binding.limit({ key });
+        return success;
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
+/**
  * Sentinel returned by {@link getClientIp} when the caller's IP cannot be
  * resolved under the configured trust policy (header-less request behind a
  * proxy, missing `cf-connecting-ip` under Cloudflare, a malformed XFF chain,

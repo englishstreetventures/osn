@@ -1,10 +1,12 @@
 import type { D1Database, ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
 import { makeDbD1Live } from "@osn/db/service";
+import type { WorkersRateLimitBinding } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 
 import { createApp, type App } from "./app";
 import { buildAppDeps, type EnvRecord } from "./build-deps";
 import { selectEmailLayer } from "./lib/email-layer";
+import { readOsnRateLimitBindings } from "./lib/native-rate-limiters";
 import { registerOutboundKeysOnce } from "./lib/outbound-arc";
 import { osnLoggerLayer } from "./observability";
 import { initRedisClientFromEnv } from "./redis";
@@ -32,6 +34,16 @@ import * as accountErasure from "./services/account-erasure";
  */
 export interface Env {
   DB?: D1Database;
+  // Cloudflare Workers native Rate Limiting bindings (Part 2). Declared as
+  // `[[ratelimits]]` blocks in wrangler.toml (one per 60s budget tier), mirrored
+  // into every named env. Present ONLY on the Workers runtime; when present the
+  // 60s-window per-IP auth limiters run on these (global + atomic edge) instead
+  // of Upstash. All optional: absent ⇒ those limiters fall back to Upstash.
+  RL_AUTH_IP_5_60?: WorkersRateLimitBinding;
+  RL_AUTH_IP_10_60?: WorkersRateLimitBinding;
+  RL_AUTH_IP_20_60?: WorkersRateLimitBinding;
+  RL_AUTH_IP_30_60?: WorkersRateLimitBinding;
+  RL_AUTH_IP_60_60?: WorkersRateLimitBinding;
   // Non-secret vars (wrangler `[vars]`)
   OSN_ENV?: string;
   OSN_RP_ID?: string;
@@ -122,6 +134,15 @@ export async function buildAll(env: Env): Promise<App> {
     // workerd. `healthRoutes` + the redacting logger stay on (see AppDeps). The
     // x-request-id sanitization the plugin used to do is re-applied below (S-H3).
     includeObservabilityPlugin: false,
+    // Part 1: behind Cloudflare in every deployed tier, trust `cf-connecting-ip`
+    // exclusively for per-IP keying (never the spoofable XFF). Local `wrangler
+    // dev` (OSN_ENV unset/"local") has no real CF in front, so keep the legacy
+    // socket/XFF path there — `cf-connecting-ip` would be absent and every
+    // request would resolve to UNRESOLVED_IP → deny.
+    trustCloudflare: isNonLocal(env),
+    // Part 2: the native Workers rate-limit bindings, when declared. Absent on
+    // local `wrangler dev` without the bindings ⇒ all limiters stay on Upstash.
+    rateLimitBindings: readOsnRateLimitBindings(env as unknown as Record<string, unknown>),
   });
 
   return createApp(built.deps);

@@ -8,6 +8,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import type { AppDeps } from "./app";
 import type { CookieSessionConfig } from "./lib/cookie-session";
 import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
+import { type OsnRateLimitBindings, selectAuthRateLimiters } from "./lib/native-rate-limiters";
 import { createOriginGuard } from "./lib/origin-guard";
 import { createRedisCeremonyStores } from "./lib/redis-ceremony-stores";
 import {
@@ -133,6 +134,23 @@ export interface BuildParts {
   dbAndEmailLayer: Layer.Layer<Db | EmailService>;
   observabilityLayer: Layer.Layer<never>;
   includeObservabilityPlugin: boolean;
+  /**
+   * Client-IP trust policy selector (Part 1 / S-M34). When `true`, per-IP
+   * keying trusts Cloudflare's `cf-connecting-ip` header EXCLUSIVELY (never
+   * falls back to the spoofable `x-forwarded-for`). The Workers entry sets this
+   * for non-local tiers (osn-api runs behind Cloudflare on id.cireweddings.com);
+   * the Bun entry leaves it `false` so local dev keeps socket-peer keying. When
+   * `true`, `TRUSTED_PROXY_COUNT` is ignored (Cloudflare attribution wins).
+   */
+  trustCloudflare?: boolean;
+  /**
+   * Cloudflare Workers native Rate Limiting bindings (Part 2). Present only on
+   * the Workers runtime when the `[[ratelimits]]` bindings are declared; the
+   * Bun entry omits them. When present, the 60s-window per-IP auth limiters are
+   * built from these (global + atomic edge enforcement) instead of Redis; every
+   * other limiter/store stays on Redis. Absent ⇒ all limiters stay on Redis.
+   */
+  rateLimitBindings?: Partial<OsnRateLimitBindings>;
 }
 
 /**
@@ -148,7 +166,14 @@ export interface BuildParts {
  * other wiring is synchronous.
  */
 export async function buildAppDeps(env: EnvRecord, parts: BuildParts): Promise<BuiltDeps> {
-  const { redisClient, dbAndEmailLayer, observabilityLayer, includeObservabilityPlugin } = parts;
+  const {
+    redisClient,
+    dbAndEmailLayer,
+    observabilityLayer,
+    includeObservabilityPlugin,
+    trustCloudflare = false,
+    rateLimitBindings,
+  } = parts;
 
   const jwt = await loadJwtKeyPair(env);
   const {
@@ -220,16 +245,40 @@ export async function buildAppDeps(env: EnvRecord, parts: BuildParts): Promise<B
       );
     });
 
-  const authRateLimiters = createRedisAuthRateLimiters(redisClient);
+  // Part 2: the 60s-window per-IP auth limiters move onto the Cloudflare Workers
+  // native Rate Limiting binding when it's present (Workers, non-local), keyed
+  // `"<endpoint>:" + ip` so endpoints sharing a budget tier don't share a
+  // bucket. The three 1-hour-window per-IP limiters (recoveryGenerate,
+  // recoveryComplete, emailChangeBegin) stay on Redis because the native binding
+  // only supports period 10 or 60s. `selectAuthRateLimiters` leaves those slots
+  // (and a 60s slot whose tier binding is missing) on the Redis fallback, so the
+  // stateful stores' Upstash dependency is unchanged. Absent the bindings (Bun /
+  // local `wrangler dev`) every limiter stays on Redis.
+  const redisAuthRateLimiters = createRedisAuthRateLimiters(redisClient);
+  const authRateLimiters = rateLimitBindings
+    ? selectAuthRateLimiters(rateLimitBindings, redisAuthRateLimiters)
+    : redisAuthRateLimiters;
   const graphRateLimiter = createRedisGraphRateLimiter(redisClient);
   const orgRateLimiter = createRedisOrgRateLimiter(redisClient);
   const profileRateLimiters = createRedisProfileRateLimiters(redisClient);
   const recommendationRateLimiter = createRedisRecommendationRateLimiter(redisClient);
 
-  // Client-IP trust policy (S-M34).
-  const trustedProxyCount = parseTrustedProxyCount(env.TRUSTED_PROXY_COUNT);
-  const trustedProxyCountUnconfigured = env.TRUSTED_PROXY_COUNT === undefined;
-  const clientIpConfig = { trustedProxyCount } as const;
+  // Client-IP trust policy (Part 1 / S-M34). Behind Cloudflare (the non-local
+  // Workers runtime — osn-api serves id.cireweddings.com), trust
+  // `cf-connecting-ip` EXCLUSIVELY: `getClientIp({ trustCloudflare: true })`
+  // never falls back to the spoofable `x-forwarded-for`, closing the per-IP
+  // rate-limit bypass where an attacker forges XFF to rotate past the auth
+  // limits. `TRUSTED_PROXY_COUNT` is the legacy XFF path, used ONLY when not
+  // behind Cloudflare (e.g. local Bun dev keeps socket-peer keying with
+  // trustedProxyCount = 0). Unresolved IPs still deny (429) — never bucket-share
+  // — at the call sites via `isUnresolvedIp`.
+  const trustedProxyCount = trustCloudflare ? 0 : parseTrustedProxyCount(env.TRUSTED_PROXY_COUNT);
+  // The W3.3 startup warning only applies to the XFF/proxy path; under
+  // Cloudflare attribution the proxy count is irrelevant, so never warn there.
+  const trustedProxyCountUnconfigured = !trustCloudflare && env.TRUSTED_PROXY_COUNT === undefined;
+  const clientIpConfig = trustCloudflare
+    ? ({ trustCloudflare: true } as const)
+    : ({ trustedProxyCount } as const);
 
   // C3: Cookie session config — Secure flag + __Host- prefix in non-local envs.
   const cookieConfig: CookieSessionConfig = { secure: envNonLocal };

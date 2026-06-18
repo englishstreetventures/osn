@@ -36,6 +36,60 @@ database_name = "osn-db"
 database_id = "a1dfceb8-2e7a-48eb-a161-ad428f3ddff5"
 migrations_dir = "../db/drizzle"
 
+# ── Native Workers Rate Limiting bindings (GA `[[ratelimits]]`) ───────────────
+# Part 2: the 60s-window per-IP auth limiters run on Cloudflare's native Rate
+# Limiting binding (global + atomic at the edge) instead of Upstash. One binding
+# per request-budget tier (5/10/20/30/60 per 60s) so every endpoint keeps its
+# existing budget; `selectAuthRateLimiters` (src/lib/native-rate-limiters.ts)
+# namespaces the key per endpoint so endpoints sharing a tier never share a
+# bucket. The native binding only supports period 10 or 60s, so the three
+# 1-hour-window per-IP limiters (recovery generate/complete, email-change-begin)
+# and every per-user/per-account limiter + stateful store STAY on Upstash.
+#
+# TRADE-OFF: native rate limiting is counted PER-COLO, not globally — a caller
+# spread across Cloudflare locations sees a slightly looser effective cap. This
+# was explicitly approved; a single attacker is pinned to one colo, and the
+# stateful brute-force guards (recovery lockout) remain on Upstash.
+#
+# `namespace_id` is an account-scoped positive integer that uniquely identifies
+# the namespace. The values below are NEW and per-tier; bump/replace them if they
+# collide with another Worker's namespaces in this account. Named envs do NOT
+# inherit these — they are mirrored into [env.dev|staging|production] below.
+[[ratelimits]]
+name = "RL_AUTH_IP_5_60"
+namespace_id = "2001"
+simple = { limit = 5, period = 60 }
+
+[[ratelimits]]
+name = "RL_AUTH_IP_10_60"
+namespace_id = "2002"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "RL_AUTH_IP_20_60"
+namespace_id = "2003"
+simple = { limit = 20, period = 60 }
+
+[[ratelimits]]
+name = "RL_AUTH_IP_30_60"
+namespace_id = "2004"
+simple = { limit = 30, period = 60 }
+
+[[ratelimits]]
+name = "RL_AUTH_IP_60_60"
+namespace_id = "2005"
+simple = { limit = 60, period = 60 }
+
+# ── Workers observability (Part 3) ───────────────────────────────────────────
+# Free Workers Logs + invocation capture in the Cloudflare dashboard. This is the
+# interim observability while OTel export stays deferred on workerd (the
+# redacting osnLoggerLayer keeps structured logs; no logger/observability code
+# changes). head_sampling_rate = 1 captures every invocation at launch volume.
+# Named envs do NOT inherit this — mirrored into each [env.*] below.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 # ── Scheduled maintenance (cron) ─────────────────────────────────────────────
 # Replaces the Bun `setInterval` deletion sweeper. Cadence matches the Bun
 # SWEEPER_INTERVAL default (6 h) — runs the account-erasure fan-out-retry +
@@ -61,6 +115,36 @@ database_name = "osn-db"
 database_id = "a1dfceb8-2e7a-48eb-a161-ad428f3ddff5"
 migrations_dir = "../db/drizzle"
 
+# Native rate-limit bindings mirrored into dev (named envs don't inherit them).
+[[env.dev.ratelimits]]
+name = "RL_AUTH_IP_5_60"
+namespace_id = "2001"
+simple = { limit = 5, period = 60 }
+
+[[env.dev.ratelimits]]
+name = "RL_AUTH_IP_10_60"
+namespace_id = "2002"
+simple = { limit = 10, period = 60 }
+
+[[env.dev.ratelimits]]
+name = "RL_AUTH_IP_20_60"
+namespace_id = "2003"
+simple = { limit = 20, period = 60 }
+
+[[env.dev.ratelimits]]
+name = "RL_AUTH_IP_30_60"
+namespace_id = "2004"
+simple = { limit = 30, period = 60 }
+
+[[env.dev.ratelimits]]
+name = "RL_AUTH_IP_60_60"
+namespace_id = "2005"
+simple = { limit = 60, period = 60 }
+
+[env.dev.observability]
+enabled = true
+head_sampling_rate = 1
+
 [env.dev.triggers]
 crons = ["0 */6 * * *"]
 
@@ -82,6 +166,36 @@ binding = "DB"
 database_name = "osn-db-staging"
 database_id = "eb71428e-8540-4a30-815f-fb9cd4ae97ea"
 migrations_dir = "../db/drizzle"
+
+# Native rate-limit bindings mirrored into staging (named envs don't inherit).
+[[env.staging.ratelimits]]
+name = "RL_AUTH_IP_5_60"
+namespace_id = "2001"
+simple = { limit = 5, period = 60 }
+
+[[env.staging.ratelimits]]
+name = "RL_AUTH_IP_10_60"
+namespace_id = "2002"
+simple = { limit = 10, period = 60 }
+
+[[env.staging.ratelimits]]
+name = "RL_AUTH_IP_20_60"
+namespace_id = "2003"
+simple = { limit = 20, period = 60 }
+
+[[env.staging.ratelimits]]
+name = "RL_AUTH_IP_30_60"
+namespace_id = "2004"
+simple = { limit = 30, period = 60 }
+
+[[env.staging.ratelimits]]
+name = "RL_AUTH_IP_60_60"
+namespace_id = "2005"
+simple = { limit = 60, period = 60 }
+
+[env.staging.observability]
+enabled = true
+head_sampling_rate = 1
 
 [env.staging.triggers]
 crons = ["0 */6 * * *"]
@@ -126,6 +240,38 @@ database_name = "osn-db-prod"
 database_id = "767a9ac1-129b-4efa-9fcf-f68ed7a48c38"
 migrations_dir = "../db/drizzle"
 
+# Native rate-limit bindings mirrored into production (named envs don't inherit).
+# osn-api MUST be redeployed (`wrangler deploy --env production`) for these to
+# take effect; the namespace_ids are new.
+[[env.production.ratelimits]]
+name = "RL_AUTH_IP_5_60"
+namespace_id = "2001"
+simple = { limit = 5, period = 60 }
+
+[[env.production.ratelimits]]
+name = "RL_AUTH_IP_10_60"
+namespace_id = "2002"
+simple = { limit = 10, period = 60 }
+
+[[env.production.ratelimits]]
+name = "RL_AUTH_IP_20_60"
+namespace_id = "2003"
+simple = { limit = 20, period = 60 }
+
+[[env.production.ratelimits]]
+name = "RL_AUTH_IP_30_60"
+namespace_id = "2004"
+simple = { limit = 30, period = 60 }
+
+[[env.production.ratelimits]]
+name = "RL_AUTH_IP_60_60"
+namespace_id = "2005"
+simple = { limit = 60, period = 60 }
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1
+
 [env.production.triggers]
 crons = ["0 */6 * * *"]
 
@@ -150,7 +296,11 @@ crons = ["0 */6 * * *"]
 #                              throwing. Unset = fail-closed. Creds always win.
 #   INTERNAL_SERVICE_SECRET    S2S registration shared secret (optional)
 #   PULSE_API_URL / ZAP_API_URL deletion fan-out targets (optional; also [vars])
-#   TRUSTED_PROXY_COUNT        proxy hops for XFF keying (optional; CF sets cf-connecting-ip)
+#   TRUSTED_PROXY_COUNT        legacy XFF proxy-hop count. IGNORED in deployed
+#                              tiers: the Workers entry sets trustCloudflare for
+#                              non-local, so per-IP keying uses cf-connecting-ip
+#                              exclusively (Part 1). Only consulted by the Bun
+#                              dev server's XFF/socket path.
 #   OTEL_EXPORTER_OTLP_HEADERS Grafana Cloud auth (optional, deferred export)
 
 # ── OpenTelemetry export (deferred on workerd) ───────────────────────────────

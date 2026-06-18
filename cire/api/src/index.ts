@@ -1,4 +1,6 @@
 import { BOOTSTRAP_WEDDING_ID, weddings } from "@cire/db";
+import { createWorkersRateLimiter } from "@shared/rate-limit";
+import type { WorkersRateLimitBinding } from "@shared/rate-limit";
 import { and, eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
@@ -10,8 +12,6 @@ import {
   resolveBootstrapOwnerProfileId,
 } from "./db/bootstrap-owner";
 import { setExecutionCtx } from "./lib/execution-ctx";
-import { createWorkersRateLimiter } from "./lib/workers-rate-limiter";
-import type { WorkersRateLimitBinding } from "./lib/workers-rate-limiter";
 import { runCire } from "./observability";
 import { createAccountResolverFromEnv, createHandleResolverFromEnv } from "./services/osn-bridge";
 import { retentionService } from "./services/retention";

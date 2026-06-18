@@ -27,9 +27,10 @@ packages:
   - "@osn/api"
   - "@pulse/api"
   - "@zap/api"
+  - "@cire/api"
   - "@shared/rate-limit"
   - "@shared/redis"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-06-18
 ---
 
 # Rate Limiting
@@ -39,12 +40,15 @@ OSN uses **per-IP fixed-window rate limiting** on all auth endpoints and **per-u
 ## Architecture
 
 ```
-shared/rate-limit/src/                  # RateLimiterBackend interface + in-memory createRateLimiter + getClientIp
+shared/rate-limit/src/                  # RateLimiterBackend interface + in-memory createRateLimiter + getClientIp + createWorkersRateLimiter
 osn/api/src/lib/redis-rate-limiters.ts  # createRedisAuthRateLimiters() + createRedisGraphRateLimiter() + recommendation limiter
+osn/api/src/lib/native-rate-limiters.ts # selectAuthRateLimiters() — routes 60s per-IP auth limiters onto the native Workers binding
 osn/api/src/routes/auth.ts              # auth route limiter instances (one per endpoint group)
 osn/api/src/routes/graph.ts             # graph write rate limiter (60 req/user/min)
 osn/api/src/metrics.ts                  # osn.auth.rate_limited counter
-osn/api/src/index.ts                    # Composition root: env-driven Redis/memory backend selection
+osn/api/src/build-deps.ts               # buildAppDeps: clientIpConfig (trustCloudflare) + native-vs-Redis limiter selection
+osn/api/src/index.ts                    # Workers entry: reads native bindings + sets trustCloudflare for non-local
+osn/api/wrangler.toml                   # [[ratelimits]] tiers + [observability] (mirrored into every named env)
 shared/redis/src/rate-limiter.ts        # createRedisRateLimiter() — Lua INCR+PEXPIRE
 shared/observability/src/metrics/attrs.ts  # AuthRateLimitedEndpoint bounded union
 ```
@@ -59,6 +63,27 @@ At startup, `osn/api/src/index.ts` selects the rate limiter backend:
 | Unset | In-memory `createMemoryClient()` | Same semantics, process-local, resets on restart |
 
 If `REDIS_URL` is set but Redis is unreachable at startup, the app falls back to in-memory with a warning log. Individual rate limit checks are always **fail-closed** (S-M36) — a Redis error during `check()` denies the request.
+
+## Native Workers Rate Limiting (osn-api, behind Cloudflare)
+
+osn-api runs on Cloudflare Workers. The **60-second-window, per-IP auth limiters** run on the **Cloudflare Workers native Rate Limiting binding** (the GA `[[ratelimits]]` binding) instead of Upstash — global + atomic enforcement at the edge, with no per-request Upstash REST round-trip on the auth hot path. The wrapper `createWorkersRateLimiter(binding)` lives in `@shared/rate-limit` (shared with cire-api) and satisfies the same `RateLimiterBackend` contract, so route call sites are unchanged and **fail-closed** (a binding throw → deny).
+
+**What moved vs what stayed:**
+
+| Limiter group | Backend | Why |
+|---|---|---|
+| 60s-window per-IP auth limiters (register/login/passkey/step-up-complete/session/security-event/passkey-mgmt/cross-device — 25 endpoints) | **Native binding** | Brute-force-facing pre-auth throttles; the native binding's global+atomic edge enforcement beats the per-isolate in-memory fallback |
+| 1-hour-window per-IP limiters (`recoveryGenerate`, `recoveryComplete`, `emailChangeBegin`) | **Upstash** | The native binding only supports `period` 10 or 60s — 1-hour windows cannot move |
+| Per-user / per-account limiters (graph/org writes, recommendations, `profileSwitchCap`, `emailChangeBeginCap`) | **Upstash** | Keyed by user/account, not IP |
+| Stateful stores (recovery lockout, step-up JTI, rotated-session, ceremony stores) | **Upstash** | Need durable cross-isolate state |
+
+So the change **reduces but does not remove** the Upstash dependency — `UPSTASH_*` stays required in non-local (S-L1 gate).
+
+**Tiers + keying.** The native binding's `limit`/`period` live in `wrangler.toml`, so there is one binding per request-budget tier (`RL_AUTH_IP_{5,10,20,30,60}_60`, each `simple = { limit, period = 60 }`), declared at top level **and mirrored into every named env** (named envs do NOT inherit top-level bindings). Each endpoint keeps its existing budget by mapping to the matching tier; `selectAuthRateLimiters` (`osn/api/src/lib/native-rate-limiters.ts`) namespaces the key as `"<endpoint>:" + ip` so endpoints sharing a tier never share a counter bucket. `selectAuthRateLimiters` runs **once per isolate** (inside the per-isolate-cached `buildAll`), not per request.
+
+**Per-colo trade-off (accepted).** Native rate limiting is counted **per Cloudflare colo**, not globally — a caller spread across colos sees a slightly looser effective cap. This was explicitly approved: a single attacker is pinned to one colo, and the durable brute-force guards (recovery lockout) remain on Upstash. The `namespace_id`s (2001–2005) are account-scoped — verify they're unused in the account at deploy (S-L7).
+
+**Observability.** `[observability]` is enabled in `wrangler.toml` (every tier) so Workers Logs/invocations are captured in the Cloudflare dashboard — interim while OTel export stays deferred on workerd (the redacting `osnLoggerLayer` is unchanged).
 
 ## When to Add Rate Limiting
 
@@ -193,7 +218,7 @@ Expired entries are evicted on every `check()` call when at least one window has
 
 **Backward compatibility:** the no-options form `getClientIp(headers)` is `@deprecated` but preserved — it keeps the legacy left-most-XFF / `"unknown"` behaviour so un-migrated services still build. Hardening is opt-in per service via the options argument.
 
-**`@osn/api` wiring:** the composition root (`osn/api/src/index.ts`) reads `TRUSTED_PROXY_COUNT` (validated non-negative integer, **default 0** = direct/socket-peer mode), passes it as `clientIpConfig` to `createAuthRoutes` / `createProfileRoutes`, and feeds the per-request `socketIp` from Bun's `server.requestIP`. A non-local deploy with `TRUSTED_PROXY_COUNT` unset logs a startup warning (socket-peer attribution can collapse all users behind an undeclared load balancer onto one IP). When behind Cloudflare, set `trustCloudflare: true` in `clientIpConfig` instead (not yet wired — CF doesn't front this service today). Pulse / Zap / Cire still use the legacy default and adopt the options in their own workstreams (see Integration Notes below).
+**`@osn/api` wiring (now behind Cloudflare):** osn-api is deployed on Cloudflare Workers serving `id.cireweddings.com`, so every **non-local** tier now keys per-IP rate limiting on `cf-connecting-ip` **exclusively** (`trustCloudflare: true`), closing the XFF-spoof bypass. The Workers entry (`osn/api/src/index.ts` `buildAll`) sets `trustCloudflare: isNonLocal(env)`; `buildAppDeps` (`build-deps.ts`) then builds `clientIpConfig = { trustCloudflare: true }` for deployed tiers. `TRUSTED_PROXY_COUNT` is **ignored** in deployed tiers (it only feeds the legacy XFF/socket path on the local Bun dev server, where `trustCloudflare` is `false` and the per-request `socketIp` comes from Bun's `server.requestIP`). The W3.3 proxy-count startup warning is suppressed under Cloudflare. Unresolved IPs still deny (429) at the call sites via `isUnresolvedIp`. Pulse / Zap still use their own options; Cire is CF-aware in its own surface.
 
 ## Integration Notes — adopting the hardened policy
 
@@ -225,8 +250,10 @@ A consuming service migrates off the deprecated default by:
 
 ## Source Files
 
-- [shared/rate-limit/src/](../../shared/rate-limit/src/) — `RateLimiterBackend` interface + in-memory implementation + `getClientIp`
+- [shared/rate-limit/src/](../../shared/rate-limit/src/) — `RateLimiterBackend` interface + in-memory implementation + `getClientIp` + `createWorkersRateLimiter`
 - [osn/api/src/lib/redis-rate-limiters.ts](../../osn/api/src/lib/redis-rate-limiters.ts) — Redis-backed rate limiter factories
+- [osn/api/src/lib/native-rate-limiters.ts](../../osn/api/src/lib/native-rate-limiters.ts) — `selectAuthRateLimiters` (native binding routing for the 60s per-IP auth limiters)
+- [osn/api/wrangler.toml](../../osn/api/wrangler.toml) — `[[ratelimits]]` tier bindings + `[observability]` (mirrored into every named env)
 - [osn/api/src/routes/auth.ts](../../osn/api/src/routes/auth.ts) — auth route limiter instances
 - [osn/api/src/routes/graph.ts](../../osn/api/src/routes/graph.ts) — graph route rate limiting
 - [osn/api/src/metrics.ts](../../osn/api/src/metrics.ts) — `osn.auth.rate_limited` metric

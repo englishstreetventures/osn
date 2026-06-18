@@ -2,10 +2,12 @@ import { describe, it, expect } from "vitest";
 
 import {
   createRateLimiter,
+  createWorkersRateLimiter,
   getClientIp,
   isUnresolvedIp,
   isValidIp,
   UNRESOLVED_IP,
+  type WorkersRateLimitBinding,
 } from "../src/index";
 
 describe("createRateLimiter", () => {
@@ -274,5 +276,38 @@ describe("getClientIp — hardened trust policy (S-M34)", () => {
       expect(isValidIp("1.2.3.4:8080")).toBe(false);
       expect(isValidIp(UNRESOLVED_IP)).toBe(false);
     });
+  });
+});
+
+describe("createWorkersRateLimiter", () => {
+  it("allows when the binding reports success", async () => {
+    const binding: WorkersRateLimitBinding = { limit: async () => ({ success: true }) };
+    expect(await createWorkersRateLimiter(binding).check("1.2.3.4")).toBe(true);
+  });
+
+  it("denies when the binding reports failure (over budget)", async () => {
+    const binding: WorkersRateLimitBinding = { limit: async () => ({ success: false }) };
+    expect(await createWorkersRateLimiter(binding).check("1.2.3.4")).toBe(false);
+  });
+
+  it("fails CLOSED — a throwing binding denies (never allows)", async () => {
+    const binding: WorkersRateLimitBinding = {
+      limit: async () => {
+        throw new Error("platform error");
+      },
+    };
+    expect(await createWorkersRateLimiter(binding).check("1.2.3.4")).toBe(false);
+  });
+
+  it("forwards the key verbatim to the binding", async () => {
+    let seen: string | undefined;
+    const binding: WorkersRateLimitBinding = {
+      limit: async ({ key }) => {
+        seen = key;
+        return { success: true };
+      },
+    };
+    await createWorkersRateLimiter(binding).check("203.0.113.9");
+    expect(seen).toBe("203.0.113.9");
   });
 });
