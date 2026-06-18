@@ -203,11 +203,41 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       //
       // POST {issuer}/token with grant_type=refresh_token and
       // credentials: "include". The session (refresh) token lives only in the
-      // HttpOnly cookie (Copenhagen Book C3), so this single request both
-      // drives the authenticated 401-refresh path and the cold-start bootstrap
-      // below — the only difference is whether a local account already exists.
+      // HttpOnly cookie (Copenhagen Book C3), so this single request drives
+      // every refresh path: the authenticated 401-refresh, the cold-start
+      // bootstrap, and the reload-with-expired-access-token rehydrate below —
+      // the only difference is whether a local account already exists.
+      //
+      // Durability: the access token's TTL is short (5 min), so on a typical
+      // reload the cookie is the ONLY thing keeping the user signed in. A
+      // single dropped /token (cold Worker isolate, transient 5xx/429, or a
+      // network blip) must NOT read as "logged out" — that is the production
+      // reload-logout bug. We therefore distinguish two failure classes:
+      //
+      //   - TERMINAL (4xx, e.g. 401/400 invalid_grant): the cookie is genuinely
+      //     gone/expired/rotated-out. The user IS logged out — fail fast, no
+      //     retry (retrying a rejected grant is pointless and a rotated cookie
+      //     replay would only trip reuse detection).
+      //   - TRANSIENT (network error, 429, 5xx): the cookie is probably still
+      //     alive; the server just couldn't answer. Retry with bounded backoff
+      //     before giving up so a momentary hiccup doesn't evict a live session.
       // -----------------------------------------------------------------------
-      const fetchTokenGrant = () =>
+
+      // A 4xx from /token is a definitive "no/expired session" — surfaced as a
+      // terminal failure that callers must NOT retry. Carries the status so the
+      // retry policy can tell it apart from a transient/5xx error.
+      class TerminalGrantError {
+        readonly _tag = "TerminalGrantError";
+        constructor(readonly status: number) {}
+      }
+
+      // Bounded exponential backoff for transient /token failures. Three
+      // attempts total (~0 + 200ms + 400ms ≈ 0.6s worst case) keeps the
+      // cold-start path responsive while absorbing a single Worker cold-start
+      // or transient upstream blip. Terminal (4xx) failures short-circuit.
+      const TOKEN_GRANT_RETRY_DELAYS_MS = [200, 400] as const;
+
+      const fetchTokenGrantOnce = () =>
         Effect.gen(function* () {
           const raw = yield* Effect.tryPromise({
             try: () =>
@@ -219,19 +249,47 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
                   grant_type: "refresh_token",
                 }).toString(),
               }).then((r) => {
-                // A non-2xx (e.g. 401 invalid_grant — cookie gone/expired) is a
-                // genuine "no session", not a transport error. Surface it as a
-                // typed failure so the cold-start path can fail-safe to null.
-                if (!r.ok) throw new Error(`Token grant failed: ${r.status}`);
-                return r.json() as Promise<unknown>;
+                if (r.ok) return r.json() as Promise<unknown>;
+                // 4xx ⇒ terminal: cookie gone/expired/rotated. 429/5xx ⇒
+                // transient: throw a plain Error so the retry policy kicks in.
+                if (r.status >= 400 && r.status < 500 && r.status !== 429) {
+                  throw new TerminalGrantError(r.status);
+                }
+                throw new Error(`Token grant failed (transient): ${r.status}`);
               }),
-            catch: (cause) => new TokenRefreshError({ cause }),
+            // A TerminalGrantError must pass through untouched so the retry
+            // policy can refuse to retry it; anything else is transient.
+            catch: (cause) =>
+              cause instanceof TerminalGrantError ? cause : new TokenRefreshError({ cause }),
           });
 
           return yield* Effect.try({
             try: () => parseTokenResponse(raw),
             catch: (cause) => new TokenRefreshError({ cause }),
           });
+        });
+
+      const fetchTokenGrant = () =>
+        Effect.gen(function* () {
+          let lastError: TokenRefreshError = new TokenRefreshError({ cause: "no attempt" });
+          for (let attempt = 0; ; attempt += 1) {
+            const result = yield* Effect.either(fetchTokenGrantOnce());
+            if (result._tag === "Right") return result.right;
+
+            const err = result.left;
+            // Terminal 4xx ⇒ genuinely logged out: stop immediately. Map to a
+            // TokenRefreshError so the public surface stays a single error type.
+            if (err instanceof TerminalGrantError) {
+              return yield* Effect.fail(
+                new TokenRefreshError({ cause: `invalid_grant (${err.status})` }),
+              );
+            }
+
+            lastError = err;
+            const delay = TOKEN_GRANT_RETRY_DELAYS_MS[attempt];
+            if (delay === undefined) return yield* Effect.fail(lastError);
+            yield* Effect.sleep(`${delay} millis`);
+          }
         });
 
       // -----------------------------------------------------------------------
@@ -369,14 +427,34 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         });
 
       // loadSession — the session-load entry point the SolidJS resource calls
-      // on mount. Returns the local session when an account exists; otherwise
-      // attempts a cold-start bootstrap from the HttpOnly cookie before
-      // concluding the user is logged out.
+      // on mount. Three cases, in order:
+      //
+      //   1. No stored account → cold-start bootstrap from the HttpOnly cookie
+      //      (post-login full-page navigation).
+      //   2. Stored account WITH a still-valid cached access token → return it
+      //      directly (the fast path; no /token roundtrip).
+      //   3. Stored account whose cached access token has EXPIRED but which
+      //      still believes it `hasSession` → rehydrate from the cookie. This
+      //      is the common reload case: access tokens live only in memory with
+      //      a 5-minute TTL, so the persisted copy in localStorage is almost
+      //      always stale on reload. Without this branch, `toSession` returns
+      //      null for an expired token and the user is bounced to sign-in even
+      //      though the 30-day refresh cookie is alive — the production
+      //      "logged out on every reload" bug. We reuse the same cookie grant
+      //      as the cold-start path (single-flighted, retry/backoff on
+      //      transient errors, fail-safe to null on a terminal invalid_grant).
       const loadSession = () =>
         Effect.gen(function* () {
           const account = yield* getAccountSession();
-          if (account) return toSession(account);
-          return yield* bootstrapFromCookie();
+          if (!account) return yield* bootstrapFromCookie();
+
+          const live = toSession(account);
+          if (live) return live;
+
+          // Cached access token is expired (or absent). If the account still
+          // holds a server session, the refresh cookie should rehydrate it.
+          if (account.hasSession) return yield* bootstrapFromCookie();
+          return null;
         });
 
       const logout = () =>

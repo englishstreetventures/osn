@@ -146,6 +146,160 @@ it.effect(
     }).pipe(Effect.provide(createTestLayer())),
 );
 
+// ---------------------------------------------------------------------------
+// Reload with an expired cached access token (the "logged out on every reload"
+// regression). Access tokens have a short (5 min) TTL and live only in memory;
+// the persisted account in localStorage almost always carries a STALE access
+// token after a reload. loadSession must rehydrate it from the still-alive
+// refresh cookie via /token instead of reporting the user as logged out.
+// ---------------------------------------------------------------------------
+
+it.effect("loadSession rehydrates from the cookie when the stored access token has expired", () =>
+  Effect.gen(function* () {
+    const profileId = "usr_reload000001";
+    let tokenCalls = 0;
+    const freshToken = fakeJwt(profileId);
+    const fetchMock = vi
+      .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
+      .mockImplementation((input) => {
+        const url = typeof input === "string" ? input : ((input as Request).url ?? "");
+        if (url.endsWith("/token")) {
+          tokenCalls += 1;
+          return Promise.resolve(
+            mockResponse(200, {
+              access_token: freshToken,
+              token_type: "Bearer",
+              expires_in: 300,
+              scope: "openid profile",
+            }),
+          );
+        }
+        return Promise.resolve(mockResponse(404));
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = yield* OsnAuth;
+
+    // Persist an account whose access token is ALREADY expired — exactly what
+    // localStorage holds on a reload >5 min after the last token issuance.
+    yield* auth.setSession({
+      accessToken: fakeJwt(profileId),
+      idToken: null,
+      expiresAt: Date.now() - 1_000,
+      scopes: ["openid", "profile"],
+    });
+
+    const session = yield* auth.loadSession();
+
+    // Stayed logged in: a fresh session was minted from the cookie.
+    expect(session).not.toBeNull();
+    expect(session?.accessToken).toBe(freshToken);
+    expect(tokenCalls).toBe(1);
+
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("loadSession does NOT call /token when the stored access token is still valid", () =>
+  Effect.gen(function* () {
+    let tokenCalls = 0;
+    const fetchMock = vi
+      .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
+      .mockImplementation((input) => {
+        const url = typeof input === "string" ? input : ((input as Request).url ?? "");
+        if (url.endsWith("/token")) tokenCalls += 1;
+        return Promise.resolve(mockResponse(200, {}));
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = yield* OsnAuth;
+    yield* auth.setSession({
+      accessToken: fakeJwt("usr_stillvalid01"),
+      idToken: null,
+      expiresAt: Date.now() + 120_000,
+      scopes: ["openid", "profile"],
+    });
+
+    const session = yield* auth.loadSession();
+    expect(session).not.toBeNull();
+    // Fast path: the cached token is live, so the cookie is never replayed.
+    expect(tokenCalls).toBe(0);
+
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+// ---------------------------------------------------------------------------
+// Transient /token failures must be retried with backoff — a single cold
+// Worker isolate, 429, 5xx, or network blip must not evict a live session.
+// A terminal 4xx invalid_grant must NOT be retried (cookie is genuinely gone).
+// ---------------------------------------------------------------------------
+
+it.effect("fetchTokenGrant retries a transient 503 and recovers the session", () =>
+  Effect.gen(function* () {
+    const profileId = "usr_transient001";
+    // Mint once: fakeJwt embeds Date.now() in `iat`, so re-calling it would
+    // yield a different string. Hold the exact token we expect to recover.
+    const freshToken = fakeJwt(profileId);
+    let tokenCalls = 0;
+    const fetchMock = vi
+      .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
+      .mockImplementation((input) => {
+        const url = typeof input === "string" ? input : ((input as Request).url ?? "");
+        if (url.endsWith("/token")) {
+          tokenCalls += 1;
+          // First attempt fails transiently; second succeeds.
+          if (tokenCalls === 1) return Promise.resolve(mockResponse(503, { error: "upstream" }));
+          return Promise.resolve(
+            mockResponse(200, {
+              access_token: freshToken,
+              token_type: "Bearer",
+              expires_in: 300,
+              scope: "openid profile",
+            }),
+          );
+        }
+        return Promise.resolve(mockResponse(404));
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = yield* OsnAuth;
+    const session = yield* auth.loadSession();
+
+    expect(session).not.toBeNull();
+    expect(tokenCalls).toBe(2); // retried once, then succeeded
+    expect(session?.accessToken).toBe(freshToken);
+
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("fetchTokenGrant does NOT retry a terminal 401 invalid_grant", () =>
+  Effect.gen(function* () {
+    let tokenCalls = 0;
+    const fetchMock = vi
+      .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
+      .mockImplementation((input) => {
+        const url = typeof input === "string" ? input : ((input as Request).url ?? "");
+        if (url.endsWith("/token")) {
+          tokenCalls += 1;
+          return Promise.resolve(mockResponse(401, { error: "invalid_grant" }));
+        }
+        return Promise.resolve(mockResponse(404));
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = yield* OsnAuth;
+    const session = yield* auth.loadSession();
+
+    // Genuinely logged out — null, and only ONE attempt (no pointless retries).
+    expect(session).toBeNull();
+    expect(tokenCalls).toBe(1);
+
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
 it.effect("loadSession single-flights — concurrent cold-start loads fire ONE /token", () =>
   Effect.gen(function* () {
     let tokenCalls = 0;

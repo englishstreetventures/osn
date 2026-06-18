@@ -10,7 +10,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-06-19
 p4-completed: 2026-04-14
 p2-completed: 2026-04-14
 p3-completed: 2026-04-14
@@ -182,6 +182,27 @@ interface AccountSession {
 - An in-memory cache avoids redundant `localStorage.getItem` + `JSON.parse` round-trips within the same service instance.
 - All storage reads are validated against Effect Schema (`decodeAccountSession`) — malformed data is discarded rather than consumed.
 - Legacy sessions (pre-P4, stored under `@osn/client:session`) are migrated transparently on the first `getSession()` call.
+
+## Session load on mount — durable refresh across reloads
+
+`@osn/client` exposes `loadSession()` (the entry point the SolidJS `AuthProvider` calls on mount via the `session` resource). Because the access token has a **5-minute TTL** and lives only in memory, the `AccountSession` JSON persisted in `localStorage` almost always carries a **stale access token after a page reload**. The HttpOnly `__Host-osn_session` refresh cookie (30-day sliding window) is what actually keeps the organiser signed in; `loadSession` must consult it rather than trust the cached access token alone.
+
+`loadSession` resolves three cases, in order (`osn/client/src/service.ts`):
+
+| Stored account? | Cached access token | Action |
+|---|---|---|
+| none | — | **Cold-start bootstrap**: replay the cookie against `POST /token` and rebuild the account from the response (post-login full-page navigation). |
+| present | still valid | Return it directly — the fast path, no `/token` roundtrip. |
+| present | **expired** but `hasSession === true` | **Rehydrate from the cookie** via the same `/token` grant. |
+
+> **Reload-logout bug (fixed).** Previously `loadSession` returned `toSession(account)` whenever *any* stored account existed. `toSession` yields `null` for an expired access token, so on every reload more than 5 minutes after the last token issuance the organiser was reported logged-out and `RequireAuth` bounced them to sign-in — even though the refresh cookie was alive the whole time. The expired-token branch above now rehydrates from the cookie before concluding "logged out".
+
+**Single-flight + retry/backoff.** Both cold-start and rehydrate go through one shared, single-flighted cookie grant (`fetchTokenGrant`), so concurrent mounts fire **exactly one** `/token` — replaying a rotated cookie a second time would trip C2 reuse detection and revoke the family. The grant classifies failures:
+
+- **Terminal** (`/token` 4xx, e.g. `invalid_grant`): the cookie is genuinely gone/expired/rotated → fail fast, **no retry**, `loadSession` resolves to `null` (genuinely logged out, never throws).
+- **Transient** (network error, `429`, `5xx`): the cookie is probably still alive; the server just couldn't answer (cold Worker isolate, momentary blip) → **bounded exponential backoff** (3 attempts, ~0 + 200ms + 400ms) before giving up, so a single hiccup doesn't evict a live session.
+
+This keeps the short access-token TTL (XSS blast-radius cap) intact while making the *session* durable: the user stays signed in across reloads for as long as the refresh cookie lives. Cross-subdomain is a non-issue — the organiser (`app.cireweddings.com`) sends the cookie on its `credentials: "include"` `POST` to the issuer (`id.cireweddings.com`); both share the registrable domain `cireweddings.com`, so the `SameSite=Lax` `__Host-` cookie is **same-site** and is sent.
 
 ## Registration Flow
 

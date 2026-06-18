@@ -9,7 +9,7 @@ related:
   - "[[step-up]]"
   - "[[sessions]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-06-19
 ---
 
 # Auth Flow Failure Runbook
@@ -21,6 +21,7 @@ last-reviewed: 2026-04-23
 - Step-up actions (`/recovery/generate`, `/account/email/*`, `/account/security-events/ack*`, `DELETE /passkeys/:id`) returning 401 or 400
 - 429 spike on the `osn.auth.rate_limited` metric
 - "Sign out everywhere else" appearing to fail silently
+- Organiser (or any `@osn/client` consumer) reported **logged out on page reload** despite a recent sign-in — see §4
 
 ## Auth surface (cheat sheet)
 
@@ -85,6 +86,8 @@ Discoverable login (no `identifier`) returns identical-shape options for unknown
 | 401 with `family_revoked` | Reuse detection (C2) tripped | An old/leaked refresh token replayed; the entire family is revoked. The user must sign in again |
 | 401 with `expired` on a token <30 days old | Sliding window not extending | Check the rotated-session store metric `osn.auth.session.rotated_store.operations{result=error}` — Redis outage degrades reuse detection but should not block valid tokens |
 | Access token rejected with `aud_mismatch` | Token issued by a different audience | Verify the caller is using the JWKS at `/.well-known/jwks.json` and asserting `aud: "osn-access"` (S-M2) |
+| **Client logged out on every reload** (>5 min after sign-in) | Client treating the stale cached access token as the source of truth and not consulting the refresh cookie | Client-side bug, not server. `@osn/client` `loadSession` must rehydrate from the cookie when the cached access token is expired but `hasSession === true` (see [[identity-model]] "Session load on mount"). Confirm `POST /token` fires on reload with `credentials: "include"`. Fixed in `feat/organiser-session-refresh`. |
+| Reload logout only under load / on first request to a cold isolate | Single `/token` with no retry; a transient `5xx`/`429`/network blip read as logged-out | `fetchTokenGrant` now retries transient failures with bounded backoff and only treats a **4xx `invalid_grant`** as terminal. Check `/token` 5xx/429 rates if it recurs. |
 
 ## 5. Step-up
 
