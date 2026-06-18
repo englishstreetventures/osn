@@ -1,5 +1,7 @@
 import { createResource, createSignal, Show } from "solid-js";
 
+import { type InviteTheme, sectionThemeVars } from "./invite-theme";
+
 /**
  * Responsive variant widths the API can transform an invite image to. Mirrors
  * the bounded `IMAGE_VARIANTS` allowlist in `cire/api` — the API resolves an
@@ -21,6 +23,20 @@ export function buildSrcSet(baseUrl: string, variants: readonly VariantName[]): 
   return variants.map((v) => `${baseUrl}${sep}variant=${v} ${VARIANT_WIDTHS[v]}w`).join(", ");
 }
 
+// Styles that consume the per-section CSS variables with a built-in-token
+// fallback, so an unset variable resolves to the original gold / surface /
+// display values. `--invite-*` is only ever set to a validated value (see
+// sectionThemeVars). Hoisted to module scope — they're constant string literals.
+const ACCENT_TEXT = { color: "var(--invite-accent, var(--color-gold))" };
+// Dimmed accent (the original `text-gold-dim` is gold at 0.35 alpha). Applying
+// the accent colour at 0.35 element opacity reproduces that for any accent.
+const ACCENT_TEXT_DIM = { color: "var(--invite-accent, var(--color-gold))", opacity: "0.35" };
+const HEADING_FONT = { "font-family": "var(--invite-heading, var(--font-display))" };
+const STORY_SURFACE = {
+  "background-color": "var(--invite-surface, var(--color-surface))",
+  "font-family": "var(--invite-body, var(--font-body))",
+};
+
 export interface InviteCustomisation {
   hero: { title: string | null; subtitle: string | null; imageUrl: string | null };
   story: {
@@ -29,6 +45,7 @@ export interface InviteCustomisation {
     body: string | null;
     imageUrl: string | null;
   };
+  theme: InviteTheme;
 }
 
 interface InviteHeaderProps {
@@ -69,6 +86,14 @@ export default function InviteHeader(props: InviteHeaderProps) {
 
   const hero = () => data()?.hero;
   const story = () => data()?.story;
+  const theme = () => data()?.theme ?? null;
+
+  // Per-section CSS-variable maps. Each only contains the variables the organiser
+  // actually set (and that passed validation); an absent variable falls through
+  // to the built-in token via the `var(--invite-*, <default>)` fallbacks below,
+  // so an un-themed (or partially-themed) invite renders exactly as before.
+  const heroVars = () => sectionThemeVars(theme(), "hero");
+  const storyVars = () => sectionThemeVars(theme(), "story");
 
   const heroImageUrl = () => {
     const url = hero()?.imageUrl;
@@ -83,7 +108,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
 
   return (
     <>
-      <section class="relative h-dvh overflow-hidden">
+      <section class="relative h-dvh overflow-hidden" style={heroVars()}>
         {/* Default gradient — always present as the base layer / fallback. */}
         <div
           class="absolute inset-0 bg-cover bg-center"
@@ -109,27 +134,42 @@ export default function InviteHeader(props: InviteHeaderProps) {
             when={hero()?.title}
             fallback={
               <div class="flex items-center gap-3 select-none">
-                <span class="font-display text-gold text-[clamp(4rem,12vw,8rem)] leading-none font-light italic">
+                <span
+                  class="font-display text-gold text-[clamp(4rem,12vw,8rem)] leading-none font-light italic"
+                  style={{ ...ACCENT_TEXT, ...HEADING_FONT }}
+                >
                   V
                 </span>
-                <span class="font-display text-gold-dim text-[clamp(2.5rem,7vw,5rem)] leading-none font-light italic">
+                <span
+                  class="font-display text-gold-dim text-[clamp(2.5rem,7vw,5rem)] leading-none font-light italic"
+                  style={{ ...ACCENT_TEXT_DIM, ...HEADING_FONT }}
+                >
                   &amp;
                 </span>
-                <span class="font-display text-gold text-[clamp(4rem,12vw,8rem)] leading-none font-light italic">
+                <span
+                  class="font-display text-gold text-[clamp(4rem,12vw,8rem)] leading-none font-light italic"
+                  style={{ ...ACCENT_TEXT, ...HEADING_FONT }}
+                >
                   R
                 </span>
               </div>
             }
           >
             {(title) => (
-              <span class="font-display text-gold px-6 text-center text-[clamp(3rem,10vw,7rem)] leading-none font-light italic select-none">
+              <span
+                class="font-display text-gold px-6 text-center text-[clamp(3rem,10vw,7rem)] leading-none font-light italic select-none"
+                style={{ ...ACCENT_TEXT, ...HEADING_FONT }}
+              >
                 {title()}
               </span>
             )}
           </Show>
           <Show when={hero()?.subtitle}>
             {(subtitle) => (
-              <p class="font-body text-gold-dim px-6 text-center text-[0.8rem] tracking-[0.25em] uppercase">
+              <p
+                class="font-body text-gold-dim px-6 text-center text-[0.8rem] tracking-[0.25em] uppercase"
+                style={ACCENT_TEXT_DIM}
+              >
                 {subtitle()}
               </p>
             )}
@@ -137,7 +177,10 @@ export default function InviteHeader(props: InviteHeaderProps) {
         </div>
       </section>
 
-      <section class="bg-surface border-border border-y px-6 py-16 md:px-8 md:py-20">
+      <section
+        class="bg-surface border-border border-y px-6 py-16 md:px-8 md:py-20"
+        style={{ ...storyVars(), ...STORY_SURFACE }}
+      >
         <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
           <Show when={storyImageUrl()}>
             {(url) => (
@@ -151,10 +194,16 @@ export default function InviteHeader(props: InviteHeaderProps) {
               />
             )}
           </Show>
-          <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+          <p
+            class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase"
+            style={ACCENT_TEXT}
+          >
             {story()?.eyebrow ?? "Our Story"}
           </p>
-          <h2 class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic">
+          <h2
+            class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic"
+            style={HEADING_FONT}
+          >
             {story()?.heading ?? "How It All Began"}
           </h2>
           <div class="mx-auto max-w-[480px]">

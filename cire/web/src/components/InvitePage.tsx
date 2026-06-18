@@ -2,6 +2,7 @@ import { createSignal, Show, For } from "solid-js";
 
 import { DetailsModal } from "./DetailsModal";
 import { EventCard } from "./EventCard";
+import { type InviteTheme, sectionThemeVars } from "./invite-theme";
 import { LoginSection } from "./LoginSection";
 import { RsvpModal } from "./RsvpModal";
 import type { ClaimResult, EventSummary, RsvpSummary } from "./types";
@@ -9,6 +10,12 @@ import type { ClaimResult, EventSummary, RsvpSummary } from "./types";
 interface InvitePageProps {
   apiUrl: string;
   siteUrl?: string;
+  /**
+   * The per-section theme, resolved at build time in `index.astro` (same source
+   * as the hero). Drives the events ("details") section's accent + surface +
+   * fonts. Absent / null ⇒ the section renders with the built-in tokens.
+   */
+  theme?: InviteTheme | null;
 }
 
 export default function InvitePage(props: InvitePageProps) {
@@ -18,6 +25,10 @@ export default function InvitePage(props: InvitePageProps) {
 
   const siteUrl = () =>
     props.siteUrl ?? (typeof window !== "undefined" ? window.location.origin : "");
+
+  // Validated CSS-variable map for the "details" section; an unset field falls
+  // through to the built-in token via the var() fallbacks below.
+  const detailsVars = () => sectionThemeVars(props.theme ?? null, "details");
 
   let loginFormRef: HTMLDivElement;
   let welcomeRef: HTMLDivElement;
@@ -50,12 +61,22 @@ export default function InvitePage(props: InvitePageProps) {
           <section
             ref={eventsSectionRef}
             class="border-border bg-surface border-y px-6 py-16 opacity-0 md:px-8 md:py-20"
+            style={{
+              ...detailsVars(),
+              "background-color": "var(--invite-surface, var(--color-surface))",
+            }}
           >
             <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
-              <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+              <p
+                class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase"
+                style={{ color: "var(--invite-accent, var(--color-gold))" }}
+              >
                 Celebrate With Us
               </p>
-              <h2 class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic">
+              <h2
+                class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic"
+                style={{ "font-family": "var(--invite-heading, var(--font-display))" }}
+              >
                 Your Events
               </h2>
               <div class="flex flex-col gap-5 text-left">

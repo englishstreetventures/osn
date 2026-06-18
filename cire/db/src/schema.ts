@@ -293,6 +293,22 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   storyBody: text("story_body"),
   heroImageKey: text("hero_image_key"),
   storyImageKey: text("story_image_key"),
+  // Per-section presentation theme. All columns are nullable ⇒ "use the built-in
+  // default token". Fonts are a closed enum validated in
+  // `cire/api/src/schemas/invite.ts` (never a free-text font URL — that's a perf
+  // + CSS-injection risk on the static guest site); colours are validated against
+  // the same strict allow-list the dress-code palette uses before they reach an
+  // inline `style`. Two global font choices (heading + body) plus an accent +
+  // surface colour per named section (hero / story / details) — a bounded theme,
+  // not a generic CSS engine.
+  themeHeadingFont: text("theme_heading_font"),
+  themeBodyFont: text("theme_body_font"),
+  heroAccentColor: text("hero_accent_color"),
+  heroSurfaceColor: text("hero_surface_color"),
+  storyAccentColor: text("story_accent_color"),
+  storySurfaceColor: text("story_surface_color"),
+  detailsAccentColor: text("details_accent_color"),
+  detailsSurfaceColor: text("details_surface_color"),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 

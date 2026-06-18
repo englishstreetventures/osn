@@ -1,0 +1,149 @@
+// @vitest-environment happy-dom
+import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * InviteBuilder lets the organiser rewrite copy, swap images, and (this suite)
+ * set a per-section theme — fonts + accent/surface colours. The OSN auth + api
+ * helpers + toasts are stubbed; this asserts the theme wiring: the loaded theme
+ * seeds the controls, and "Save theme" PUTs the closed font enum + colour
+ * payload to /theme.
+ */
+
+const authFetchMock = vi.fn();
+const redirectSpy = vi.fn();
+const toastSuccess = vi.fn();
+const toastError = vi.fn();
+
+vi.mock("@osn/client/solid", () => ({
+  useAuth: () => ({ authFetch: authFetchMock }),
+}));
+
+vi.mock("solid-toast", () => ({
+  toast: { success: (m: string) => toastSuccess(m), error: (m: string) => toastError(m) },
+}));
+
+vi.mock("../lib/api", () => ({
+  apiUrl: (path: string) => `https://api.test${path}`,
+  isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
+  redirectToLogin: () => redirectSpy(),
+}));
+
+import InviteBuilder from "./InviteBuilder";
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+const EMPTY_CUSTOMISATION = {
+  hero: { title: null, subtitle: null, imageUrl: null },
+  story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+  theme: {
+    headingFont: null,
+    bodyFont: null,
+    hero: { accentColor: null, surfaceColor: null },
+    story: { accentColor: null, surfaceColor: null },
+    details: { accentColor: null, surfaceColor: null },
+  },
+};
+
+describe("InviteBuilder theme", () => {
+  afterEach(() => {
+    cleanup();
+    authFetchMock.mockReset();
+    redirectSpy.mockReset();
+    toastSuccess.mockReset();
+    toastError.mockReset();
+  });
+
+  it("seeds the font selects from the loaded theme", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        ...EMPTY_CUSTOMISATION,
+        theme: { ...EMPTY_CUSTOMISATION.theme, headingFont: "georgia", bodyFont: "system-sans" },
+      }),
+    );
+    render(() => <InviteBuilder weddingId="wed_1" />);
+
+    await waitFor(() => {
+      const heading = screen.getByLabelText("Heading font") as HTMLSelectElement;
+      expect(heading.value).toBe("georgia");
+    });
+    const body = screen.getByLabelText("Body font") as HTMLSelectElement;
+    expect(body.value).toBe("system-sans");
+  });
+
+  it("PUTs the theme payload (font enum + colours) on Save theme", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
+
+    render(() => <InviteBuilder weddingId="wed_1" />);
+
+    await waitFor(() => screen.getByText("Save theme"));
+
+    fireEvent.change(screen.getByLabelText("Heading font"), { target: { value: "cormorant" } });
+    // Three "Accent colour" inputs (one per section); the first is Hero.
+    const accents = screen.getAllByLabelText("Accent colour");
+    fireEvent.input(accents[0], { target: { value: "#112233" } });
+
+    fireEvent.click(screen.getByText("Save theme"));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    const [url, init] = authFetchMock.mock.calls[1];
+    expect(url).toBe("https://api.test/api/organiser/weddings/wed_1/invite/theme");
+    expect(init.method).toBe("PUT");
+    const sent = JSON.parse(init.body as string);
+    expect(sent.headingFont).toBe("cormorant");
+    expect(sent.heroAccentColor).toBe("#112233");
+    // Untouched fonts collapse to null ("default" ⇒ keep the built-in token).
+    expect(sent.bodyFont).toBeNull();
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+  });
+
+  it("seeds a null font as 'default' and sends a cleared colour as null", async () => {
+    // Loaded with a hero accent set + null fonts: the selects should read
+    // "default", and clearing the accent should PUT heroAccentColor: null.
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        ...EMPTY_CUSTOMISATION,
+        theme: {
+          ...EMPTY_CUSTOMISATION.theme,
+          hero: { accentColor: "#112233", surfaceColor: null },
+        },
+      }),
+    );
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
+
+    render(() => <InviteBuilder weddingId="wed_1" />);
+
+    await waitFor(() => {
+      const heading = screen.getByLabelText("Heading font") as HTMLSelectElement;
+      expect(heading.value).toBe("default");
+    });
+
+    // Hero accent was loaded as #112233, so its "Use default" clear control shows.
+    const clears = screen.getAllByText("Use default");
+    fireEvent.click(clears[0]);
+
+    fireEvent.click(screen.getByText("Save theme"));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    const sent = JSON.parse(authFetchMock.mock.calls[1][1].body as string);
+    expect(sent.heroAccentColor).toBeNull();
+    expect(sent.headingFont).toBeNull();
+  });
+
+  it("surfaces a server validation error (bad colour rejected)", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+    authFetchMock.mockResolvedValueOnce(json({ error: "Invalid colour or font" }, 400));
+
+    render(() => <InviteBuilder weddingId="wed_1" />);
+    await waitFor(() => screen.getByText("Save theme"));
+
+    fireEvent.click(screen.getByText("Save theme"));
+
+    await waitFor(() => expect(screen.getByText("Invalid colour or font")).toBeTruthy());
+  });
+});

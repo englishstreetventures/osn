@@ -1,10 +1,31 @@
 import { useAuth } from "@osn/client/solid";
-import { createResource, createSignal, Show } from "solid-js";
+import { createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 
 type ImageSlot = "hero" | "story";
+type ThemeSection = "hero" | "story" | "details";
+
+// Closed font allow-list — mirrors FONT_CHOICES in cire/api. The value is the
+// only thing persisted; the guest site owns the concrete font stack. Kept in
+// sync by hand (a server-side enum miss would 400 anyway).
+const FONT_OPTIONS = [
+  { value: "default", label: "Default" },
+  { value: "cormorant", label: "Cormorant (serif)" },
+  { value: "lato", label: "Lato (sans)" },
+  { value: "georgia", label: "Georgia (serif)" },
+  { value: "system-sans", label: "System sans" },
+  { value: "system-mono", label: "System mono" },
+] as const;
+
+interface InviteTheme {
+  headingFont: string | null;
+  bodyFont: string | null;
+  hero: { accentColor: string | null; surfaceColor: string | null };
+  story: { accentColor: string | null; surfaceColor: string | null };
+  details: { accentColor: string | null; surfaceColor: string | null };
+}
 
 interface InviteCustomisation {
   hero: { title: string | null; subtitle: string | null; imageUrl: string | null };
@@ -14,10 +35,16 @@ interface InviteCustomisation {
     body: string | null;
     imageUrl: string | null;
   };
+  theme: InviteTheme;
 }
 
 interface InviteBuilderProps {
   weddingId: string;
+}
+
+/** A "default" font selection collapses to null (keep the built-in token). */
+function fontOrDefault(value: string): string | null {
+  return value === "default" ? null : value;
 }
 
 // The built-in default copy, shown as placeholders so an organiser can see what
@@ -61,6 +88,22 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
+  // Theme edit buffers. Fonts default to "default"; each section's accent +
+  // surface colours are nullable (null ⇒ keep the built-in token).
+  const [headingFont, setHeadingFont] = createSignal("default");
+  const [bodyFont, setBodyFont] = createSignal("default");
+  const [accent, setAccent] = createSignal<Record<ThemeSection, string | null>>({
+    hero: null,
+    story: null,
+    details: null,
+  });
+  const [surface, setSurface] = createSignal<Record<ThemeSection, string | null>>({
+    hero: null,
+    story: null,
+    details: null,
+  });
+  const [savingTheme, setSavingTheme] = createSignal(false);
+
   // Seed the edit buffers once, when the resource first resolves.
   function seed(d: InviteCustomisation) {
     if (seeded()) return;
@@ -69,6 +112,18 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     setStoryEyebrow(d.story.eyebrow ?? "");
     setStoryHeading(d.story.heading ?? "");
     setStoryBody(d.story.body ?? "");
+    setHeadingFont(d.theme.headingFont ?? "default");
+    setBodyFont(d.theme.bodyFont ?? "default");
+    setAccent({
+      hero: d.theme.hero.accentColor,
+      story: d.theme.story.accentColor,
+      details: d.theme.details.accentColor,
+    });
+    setSurface({
+      hero: d.theme.hero.surfaceColor,
+      story: d.theme.story.surfaceColor,
+      details: d.theme.details.surfaceColor,
+    });
     setSeeded(true);
   }
 
@@ -99,6 +154,41 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       setError(err instanceof Error ? err.message : "Save failed.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveTheme(e: Event) {
+    e.preventDefault();
+    setError(null);
+    setSavingTheme(true);
+    try {
+      const a = accent();
+      const s = surface();
+      const res = await authFetch(apiUrl(`${base()}/theme`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          headingFont: fontOrDefault(headingFont()),
+          bodyFont: fontOrDefault(bodyFont()),
+          heroAccentColor: a.hero,
+          heroSurfaceColor: s.hero,
+          storyAccentColor: a.story,
+          storySurfaceColor: s.story,
+          detailsAccentColor: a.details,
+          detailsSurfaceColor: s.details,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `Save failed (${res.status})`);
+      }
+      mutate((await res.json()) as InviteCustomisation);
+      toast.success("Invite theme saved");
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      setError(err instanceof Error ? err.message : "Save failed.");
+    } finally {
+      setSavingTheme(false);
     }
   }
 
@@ -240,11 +330,139 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {saving() ? "Saving…" : "Save copy"}
                 </button>
               </div>
+
+              {/* ── Theme (fonts + colours) ──────────────────────────── */}
+              <fieldset class="border-border flex flex-col gap-5 rounded-sm border p-4">
+                <legend class="font-body text-gold-dim px-2 text-[0.72rem] tracking-[0.1em] uppercase">
+                  Theme
+                </legend>
+                <p class="font-body text-text-muted text-[0.82rem]">
+                  Pick fonts and per-section colours. Anything left on its default keeps the
+                  built-in look.
+                </p>
+
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <FontField label="Heading font" value={headingFont()} onChange={setHeadingFont} />
+                  <FontField label="Body font" value={bodyFont()} onChange={setBodyFont} />
+                </div>
+
+                <div class="flex flex-col gap-4">
+                  <SectionColors
+                    label="Hero"
+                    accent={accent().hero}
+                    surface={surface().hero}
+                    onAccent={(v) => setAccent((p) => ({ ...p, hero: v }))}
+                    onSurface={(v) => setSurface((p) => ({ ...p, hero: v }))}
+                  />
+                  <SectionColors
+                    label="Our Story"
+                    accent={accent().story}
+                    surface={surface().story}
+                    onAccent={(v) => setAccent((p) => ({ ...p, story: v }))}
+                    onSurface={(v) => setSurface((p) => ({ ...p, story: v }))}
+                  />
+                  <SectionColors
+                    label="Event Details"
+                    accent={accent().details}
+                    surface={surface().details}
+                    onAccent={(v) => setAccent((p) => ({ ...p, details: v }))}
+                    onSurface={(v) => setSurface((p) => ({ ...p, details: v }))}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={(e) => void saveTheme(e)}
+                  disabled={savingTheme()}
+                  class="border-gold bg-gold font-body text-bg hover:bg-gold-dim self-start rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+                >
+                  {savingTheme() ? "Saving…" : "Save theme"}
+                </button>
+              </fieldset>
             </div>
           );
         }}
       </Show>
     </section>
+  );
+}
+
+function FontField(props: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label class="flex flex-col gap-1.5">
+      <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+        {props.label}
+      </span>
+      <select
+        value={props.value}
+        onChange={(e) => props.onChange(e.currentTarget.value)}
+        class="border-border bg-bg font-body text-text focus:border-gold rounded-sm border px-3 py-2 text-[0.88rem] outline-none"
+      >
+        <For each={FONT_OPTIONS}>{(opt) => <option value={opt.value}>{opt.label}</option>}</For>
+      </select>
+    </label>
+  );
+}
+
+/** Accent + surface colour pickers for one named section, each clearable. */
+function SectionColors(props: {
+  label: string;
+  accent: string | null;
+  surface: string | null;
+  onAccent: (v: string | null) => void;
+  onSurface: (v: string | null) => void;
+}) {
+  return (
+    <div class="border-border/60 flex flex-col gap-3 rounded-sm border p-3">
+      <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+        {props.label}
+      </span>
+      <div class="flex flex-wrap gap-5">
+        <ColorPicker label="Accent" value={props.accent} onChange={props.onAccent} />
+        <ColorPicker label="Background" value={props.surface} onChange={props.onSurface} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A native colour input that round-trips to a nullable hex value. `null` ⇒ the
+ * built-in default (the swatch shows a neutral state + a "Use default" action).
+ * Native `<input type="color">` only ever emits a `#rrggbb`, so the value always
+ * passes the server-side colour allow-list — the UI can't submit an invalid hue.
+ */
+function ColorPicker(props: {
+  label: string;
+  value: string | null;
+  onChange: (v: string | null) => void;
+}) {
+  return (
+    <div class="flex flex-col items-start gap-1.5">
+      <span class="font-body text-text-muted text-[0.68rem] tracking-[0.08em] uppercase">
+        {props.label}
+      </span>
+      <div class="flex items-center gap-2">
+        <input
+          type="color"
+          aria-label={`${props.label} colour`}
+          value={props.value ?? "#d4af37"}
+          onInput={(e) => props.onChange(e.currentTarget.value)}
+          class="border-border h-9 w-12 cursor-pointer rounded-sm border bg-transparent p-0.5"
+        />
+        <Show
+          when={props.value}
+          fallback={<span class="font-body text-text-muted text-[0.72rem] italic">Default</span>}
+        >
+          <button
+            type="button"
+            onClick={() => props.onChange(null)}
+            class="font-body text-text-muted text-[0.72rem] underline-offset-4 hover:underline"
+          >
+            Use default
+          </button>
+        </Show>
+      </div>
+    </div>
   );
 }
 

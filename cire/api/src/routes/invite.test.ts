@@ -526,3 +526,161 @@ describe("invite write rate limiting (IB-S-L1)", () => {
     expect((await put(emptyText)).status).toBe(429);
   });
 });
+
+describe("PUT /invite/theme (organiser)", () => {
+  const validTheme = {
+    headingFont: "cormorant",
+    bodyFont: "system-sans",
+    heroAccentColor: "#d4af37",
+    heroSurfaceColor: "oklch(22.7% 0.0275 152.78)",
+    storyAccentColor: null,
+    storySurfaceColor: null,
+    detailsAccentColor: "rgb(212, 175, 55)",
+    detailsSurfaceColor: null,
+  };
+
+  it("401s without a token", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(validTheme),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("403s for a non-owner (never 401)", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders("usr_someone_else")) },
+      body: JSON.stringify(validTheme),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("persists the theme for the owner and surfaces it on the public read", async () => {
+    const { app } = buildApp();
+    const put = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify(validTheme),
+    });
+    expect(put.status).toBe(200);
+
+    const pub = await appRequest(app, `/api/invite/${SLUG}`);
+    const body = (await pub.json()) as {
+      theme: {
+        headingFont: string | null;
+        bodyFont: string | null;
+        hero: { accentColor: string | null; surfaceColor: string | null };
+        story: { accentColor: string | null; surfaceColor: string | null };
+        details: { accentColor: string | null; surfaceColor: string | null };
+      };
+    };
+    expect(body.theme.headingFont).toBe("cormorant");
+    expect(body.theme.bodyFont).toBe("system-sans");
+    expect(body.theme.hero.accentColor).toBe("#d4af37");
+    expect(body.theme.hero.surfaceColor).toBe("oklch(22.7% 0.0275 152.78)");
+    expect(body.theme.story.accentColor).toBeNull();
+    expect(body.theme.details.accentColor).toBe("rgb(212, 175, 55)");
+  });
+
+  it("defaults to a null theme when never customised", async () => {
+    const { app } = buildApp();
+    const pub = await appRequest(app, `/api/invite/${SLUG}`);
+    const body = (await pub.json()) as {
+      theme: {
+        headingFont: string | null;
+        hero: { accentColor: string | null; surfaceColor: string | null };
+      };
+    };
+    expect(body.theme.headingFont).toBeNull();
+    expect(body.theme.hero.accentColor).toBeNull();
+    expect(body.theme.hero.surfaceColor).toBeNull();
+  });
+
+  it("rejects a colour outside the allow-list with 400 (CSS-injection guard)", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({
+        ...validTheme,
+        // url() would be a CSS-injection / exfil vector if it ever reached a style.
+        heroAccentColor: "red; background:url(https://evil.example/x)",
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a named colour (not in the allow-list) with 400", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...validTheme, heroSurfaceColor: "rebeccapurple" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an unknown font with 400", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...validTheme, headingFont: "comic-sans-from-a-cdn" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a body missing a field with 400 (total replace, not partial merge)", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      // Omits detailsSurfaceColor — the body is total, so this must be a 400, not
+      // a partial update (guards against an accidental Schema.optional refactor).
+      body: JSON.stringify({
+        headingFont: "default",
+        bodyFont: "default",
+        heroAccentColor: null,
+        heroSurfaceColor: null,
+        storyAccentColor: null,
+        storySurfaceColor: null,
+        detailsAccentColor: null,
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an over-long colour past the 64-char cap with 400", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      // Pattern-shaped (rgb(...)) but 64+ chars — exercises the length guard, not
+      // just the character allow-list.
+      body: JSON.stringify({
+        ...validTheme,
+        heroAccentColor: `rgb(${" ".repeat(80)}0, 0, 0)`,
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("does not persist a partially-valid body (one bad colour rejects the whole write)", async () => {
+    const { app } = buildApp();
+    const bad = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...validTheme, storySurfaceColor: "javascript:alert(1)" }),
+    });
+    expect(bad.status).toBe(400);
+
+    // The valid fields in the same body must NOT have leaked through.
+    const pub = await appRequest(app, `/api/invite/${SLUG}`);
+    const body = (await pub.json()) as { theme: { headingFont: string | null } };
+    expect(body.theme.headingFont).toBeNull();
+  });
+});

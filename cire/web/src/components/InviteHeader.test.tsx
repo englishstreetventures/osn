@@ -31,11 +31,20 @@ describe("buildSrcSet (T-M1)", () => {
   });
 });
 
+const EMPTY_THEME = {
+  headingFont: null,
+  bodyFont: null,
+  hero: { accentColor: null, surfaceColor: null },
+  story: { accentColor: null, surfaceColor: null },
+  details: { accentColor: null, surfaceColor: null },
+} as const;
+
 describe("InviteHeader render", () => {
   it("renders the hero <img> with a responsive srcset + sizes from the initial data", async () => {
     const initial: InviteCustomisation = {
       hero: { title: null, subtitle: null, imageUrl: "/api/invite/s/image/hero?v=123" },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      theme: EMPTY_THEME,
     };
     // Keep the build-time data: a failed revalidation must not wipe the hero.
     vi.stubGlobal(
@@ -59,5 +68,51 @@ describe("InviteHeader render", () => {
         "https://api.test/api/invite/s/image/hero?v=123&variant=card 800w, " +
         "https://api.test/api/invite/s/image/hero?v=123&variant=hero 1600w",
     );
+  });
+
+  it("applies a validated theme accent as a CSS variable on the hero section", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      theme: { ...EMPTY_THEME, hero: { accentColor: "#d4af37", surfaceColor: null } },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { container } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    await waitFor(() => {
+      const section = container.querySelector("section") as HTMLElement;
+      expect(section.style.getPropertyValue("--invite-accent")).toBe("#d4af37");
+    });
+  });
+
+  it("ignores a malicious theme colour (never reaches the DOM)", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      theme: {
+        ...EMPTY_THEME,
+        hero: { accentColor: "red;background:url(https://evil.example)", surfaceColor: null },
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { container } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    await waitFor(() => {
+      expect(container.querySelector("section")).not.toBeNull();
+    });
+    const section = container.querySelector("section") as HTMLElement;
+    expect(section.style.getPropertyValue("--invite-accent")).toBe("");
   });
 });

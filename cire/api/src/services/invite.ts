@@ -4,7 +4,12 @@ import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import { metricInviteAssetUploaded, metricInviteSaved } from "../metrics";
-import type { InviteImageSlot, InviteTextBody } from "../schemas/invite";
+import type {
+  FontChoice,
+  InviteImageSlot,
+  InviteTextBody,
+  InviteThemeBody,
+} from "../schemas/invite";
 import { deleteAsset, storeAsset } from "./invite-assets";
 import type { AssetR2Error, AssetsR2Service } from "./invite-assets";
 
@@ -19,6 +24,22 @@ export class WeddingNotFound extends Data.TaggedError("WeddingNotFound")<{
  * prepend their API origin — carrying a `?v=` cache-buster keyed to the row's
  * `updatedAt` so a re-uploaded image isn't served stale.
  */
+/**
+ * Per-section theme as the invite renders it. Every field is nullable; `null`
+ * means "use the built-in default token", so an un-themed invite renders exactly
+ * as before. Fonts are bounded enum keys (the guest site maps them to a concrete
+ * font-family stack); colours have already passed the server-side allow-list on
+ * write, so the guest site can interpolate them into CSS variables safely (it
+ * still re-validates defensively).
+ */
+export interface InviteTheme {
+  headingFont: FontChoice | null;
+  bodyFont: FontChoice | null;
+  hero: { accentColor: string | null; surfaceColor: string | null };
+  story: { accentColor: string | null; surfaceColor: string | null };
+  details: { accentColor: string | null; surfaceColor: string | null };
+}
+
 export interface InviteCustomisation {
   hero: { title: string | null; subtitle: string | null; imageUrl: string | null };
   story: {
@@ -27,11 +48,21 @@ export interface InviteCustomisation {
     body: string | null;
     imageUrl: string | null;
   };
+  theme: InviteTheme;
 }
+
+const EMPTY_THEME: InviteTheme = {
+  headingFont: null,
+  bodyFont: null,
+  hero: { accentColor: null, surfaceColor: null },
+  story: { accentColor: null, surfaceColor: null },
+  details: { accentColor: null, surfaceColor: null },
+};
 
 const EMPTY: InviteCustomisation = {
   hero: { title: null, subtitle: null, imageUrl: null },
   story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+  theme: EMPTY_THEME,
 };
 
 /** Public path the invite image is served from. Clients prepend the API origin. */
@@ -57,6 +88,14 @@ function toCustomisation(
     storyBody: string | null;
     heroImageKey: string | null;
     storyImageKey: string | null;
+    themeHeadingFont: string | null;
+    themeBodyFont: string | null;
+    heroAccentColor: string | null;
+    heroSurfaceColor: string | null;
+    storyAccentColor: string | null;
+    storySurfaceColor: string | null;
+    detailsAccentColor: string | null;
+    detailsSurfaceColor: string | null;
     updatedAt: Date | null;
   },
 ): InviteCustomisation {
@@ -72,6 +111,15 @@ function toCustomisation(
       heading: c.storyHeading,
       body: c.storyBody,
       imageUrl: c.storyImageKey ? imagePath(slug, "story", version) : null,
+    },
+    theme: {
+      // Persisted theme fonts/colours already passed validation on write; the
+      // font is a bounded enum key, the colour an allow-listed CSS string.
+      headingFont: c.themeHeadingFont as FontChoice | null,
+      bodyFont: c.themeBodyFont as FontChoice | null,
+      hero: { accentColor: c.heroAccentColor, surfaceColor: c.heroSurfaceColor },
+      story: { accentColor: c.storyAccentColor, surfaceColor: c.storySurfaceColor },
+      details: { accentColor: c.detailsAccentColor, surfaceColor: c.detailsSurfaceColor },
     },
   };
 }
@@ -127,6 +175,14 @@ export const inviteService = {
             storyBody: weddingInviteCustomisations.storyBody,
             heroImageKey: weddingInviteCustomisations.heroImageKey,
             storyImageKey: weddingInviteCustomisations.storyImageKey,
+            themeHeadingFont: weddingInviteCustomisations.themeHeadingFont,
+            themeBodyFont: weddingInviteCustomisations.themeBodyFont,
+            heroAccentColor: weddingInviteCustomisations.heroAccentColor,
+            heroSurfaceColor: weddingInviteCustomisations.heroSurfaceColor,
+            storyAccentColor: weddingInviteCustomisations.storyAccentColor,
+            storySurfaceColor: weddingInviteCustomisations.storySurfaceColor,
+            detailsAccentColor: weddingInviteCustomisations.detailsAccentColor,
+            detailsSurfaceColor: weddingInviteCustomisations.detailsSurfaceColor,
             updatedAt: weddingInviteCustomisations.updatedAt,
           })
           .from(weddings)
@@ -218,6 +274,40 @@ export const inviteService = {
       yield* Effect.logInfo("invite text customisation saved", { weddingId });
       yield* Effect.sync(() => metricInviteSaved("ok"));
     }).pipe(Effect.withSpan("cire.invite.upsertText"));
+  },
+
+  /**
+   * Upsert the per-section theme (fonts + colours) for a wedding. The body has
+   * already been schema-validated (fonts ∈ closed enum, colours ∈ allow-list) at
+   * the route boundary, so by the time it reaches here every value is safe to
+   * persist; a `null` clears that field back to the built-in default token.
+   */
+  upsertTheme(weddingId: string, fields: InviteThemeBody): Effect.Effect<void, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const values = {
+        themeHeadingFont: fields.headingFont,
+        themeBodyFont: fields.bodyFont,
+        heroAccentColor: fields.heroAccentColor,
+        heroSurfaceColor: fields.heroSurfaceColor,
+        storyAccentColor: fields.storyAccentColor,
+        storySurfaceColor: fields.storySurfaceColor,
+        detailsAccentColor: fields.detailsAccentColor,
+        detailsSurfaceColor: fields.detailsSurfaceColor,
+      };
+      yield* dbQuery(() =>
+        db
+          .insert(weddingInviteCustomisations)
+          .values({ weddingId, ...values, updatedAt: new Date() })
+          .onConflictDoUpdate({
+            target: weddingInviteCustomisations.weddingId,
+            set: { ...values, updatedAt: new Date() },
+          })
+          .run(),
+      );
+      yield* Effect.logInfo("invite theme customisation saved", { weddingId });
+      yield* Effect.sync(() => metricInviteSaved("ok"));
+    }).pipe(Effect.withSpan("cire.invite.upsertTheme"));
   },
 
   /**

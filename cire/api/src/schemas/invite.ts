@@ -38,3 +38,95 @@ export const InviteTextBody = Schema.Struct({
   storyBody: copyField(4000),
 });
 export type InviteTextBody = Schema.Schema.Type<typeof InviteTextBody>;
+
+// ── Theme (per-section colours + fonts) ─────────────────────────────────────────
+
+/**
+ * The named sections an organiser can theme. Closed on purpose — same philosophy
+ * as the image slots: a few well-placed sections, not a page-builder. Bounds the
+ * theme columns and the CSS-variable namespace the guest site emits.
+ */
+export const THEME_SECTIONS = ["hero", "story", "details"] as const;
+export type ThemeSection = (typeof THEME_SECTIONS)[number];
+
+/**
+ * Closed allow-list of fonts the guest site is willing to load. Free-text font
+ * names / URLs are deliberately impossible: an arbitrary `@font-face`/Google-Fonts
+ * URL on the static Astro guest site is both a performance footgun (render-block,
+ * extra round-trips) and a CSS/SSRF-injection surface. Each entry maps to a
+ * concrete CSS `font-family` stack on the guest side (`fontStack` below); the
+ * value persisted + sent over the wire is only the bounded key. `"default"` (or
+ * a null column) means "use the built-in token", so an un-themed invite renders
+ * exactly as before.
+ *
+ *   serif fonts  → headings (display)      sans fonts → body
+ * All are either already loaded by the guest site (Cormorant Garamond, Lato) or
+ * resolve to a pure system-font stack — NO new web-font/CDN dependency is added.
+ */
+export const FONT_CHOICES = [
+  "default",
+  "cormorant", // Cormorant Garamond — the built-in display serif (already loaded)
+  "lato", // Lato — the built-in body sans (already loaded)
+  "georgia", // system serif stack
+  "system-sans", // system sans stack
+  "system-mono", // system monospace stack
+] as const;
+export type FontChoice = (typeof FONT_CHOICES)[number];
+
+export function isFontChoice(value: string): value is FontChoice {
+  return (FONT_CHOICES as readonly string[]).includes(value);
+}
+
+const FontField = Schema.NullOr(Schema.Literal(...FONT_CHOICES));
+
+/**
+ * Strict CSS-colour allow-list, server-side twin of the guest site's
+ * `isValidColor` (dress-code palette). Accepts only hex / rgb(a) / hsl(a) /
+ * oklch forms with a restricted inner-character set — no named colours, no
+ * `var(--…)`, no `url(...)`, no `expression(...)`. This is the security gate:
+ * an organiser's colour string is interpolated into a guest-facing inline
+ * `style`, so it must NEVER be persisted unvalidated (CSS-injection risk).
+ */
+const COLOR_INNER = "[\\d \\t,.%/+\\-a-zA-Z]*";
+const COLOR_PATTERNS = [
+  /^#[0-9a-fA-F]{3,8}$/,
+  new RegExp(`^rgb\\(${COLOR_INNER}\\)$`),
+  new RegExp(`^rgba\\(${COLOR_INNER}\\)$`),
+  new RegExp(`^hsl\\(${COLOR_INNER}\\)$`),
+  new RegExp(`^hsla\\(${COLOR_INNER}\\)$`),
+  new RegExp(`^oklch\\(${COLOR_INNER}\\)$`),
+];
+
+export function isThemeColor(value: string): boolean {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 64) return false;
+  return COLOR_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+// A nullable colour field: `null` clears back to the default token; a present
+// value must pass the allow-list or the whole body is rejected with a 400.
+const ColorField = Schema.NullOr(
+  Schema.String.pipe(
+    Schema.filter((s) => isThemeColor(s), {
+      message: () => "Invalid colour (use hex, rgb(a), hsl(a) or oklch)",
+    }),
+  ),
+);
+
+/**
+ * Full theme override body. Like the text body it's total — the builder always
+ * submits every field, and a `null` clears that field back to the built-in
+ * default token. Two global fonts plus an accent + surface colour per section.
+ */
+export const InviteThemeBody = Schema.Struct({
+  headingFont: FontField,
+  bodyFont: FontField,
+  heroAccentColor: ColorField,
+  heroSurfaceColor: ColorField,
+  storyAccentColor: ColorField,
+  storySurfaceColor: ColorField,
+  detailsAccentColor: ColorField,
+  detailsSurfaceColor: ColorField,
+});
+export type InviteThemeBody = Schema.Schema.Type<typeof InviteThemeBody>;

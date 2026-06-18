@@ -11,7 +11,7 @@ import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
-import { InviteTextBody, isInviteImageSlot } from "../schemas/invite";
+import { InviteTextBody, InviteThemeBody, isInviteImageSlot } from "../schemas/invite";
 import { inviteService } from "../services/invite";
 import {
   AssetsR2Service,
@@ -226,6 +226,7 @@ export const createInvitePublicRoutes = (
  *
  *   GET    /weddings/:weddingId/invite             → current customisation
  *   PUT    /weddings/:weddingId/invite/text        → text overrides
+ *   PUT    /weddings/:weddingId/invite/theme       → per-section fonts + colours
  *   POST   /weddings/:weddingId/invite/image/:slot → upload an image
  *   DELETE /weddings/:weddingId/invite/image/:slot → reset slot to default
  */
@@ -296,6 +297,47 @@ export const createInviteOrganiserRoutes = (
                 Effect.catchAllDefect(() =>
                   Effect.gen(function* () {
                     yield* Effect.logError("invite text save failed", { weddingId });
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
+              ),
+            );
+          },
+          manualParse,
+        )
+        .put(
+          "/invite/theme",
+          async ({ request, weddingId, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknown(InviteThemeBody)(raw);
+                yield* inviteService.upsertTheme(weddingId, body);
+                return yield* inviteService.getForWeddingId(weddingId);
+              }).pipe(
+                Effect.provideService(DbService, db),
+                // A bad colour (allow-list miss) or unknown font (enum miss) both
+                // surface here as a ParseError → 400, never persisted.
+                Effect.catchTag("ParseError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Invalid colour or font" };
+                  }),
+                ),
+                Effect.catchTag("WeddingNotFound", () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "Not found" };
+                  }),
+                ),
+                Effect.catchAllDefect(() =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError("invite theme save failed", { weddingId });
                     set.status = 500;
                     return { error: "Internal error" };
                   }),

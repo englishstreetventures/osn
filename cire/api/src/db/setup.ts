@@ -132,6 +132,14 @@ CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
   story_body TEXT,
   hero_image_key TEXT,
   story_image_key TEXT,
+  theme_heading_font TEXT,
+  theme_body_font TEXT,
+  hero_accent_color TEXT,
+  hero_surface_color TEXT,
+  story_accent_color TEXT,
+  story_surface_color TEXT,
+  details_accent_color TEXT,
+  details_surface_color TEXT,
   updated_at INTEGER NOT NULL
 );
 

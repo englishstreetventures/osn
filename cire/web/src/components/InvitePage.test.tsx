@@ -92,6 +92,66 @@ describe("InvitePage", () => {
     expect(window.location.search).not.toContain("code");
   });
 
+  it("applies the validated details-section theme to the events section", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ...claim, preview: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { getByText } = render(() => (
+      <InvitePage
+        apiUrl="https://api.test"
+        theme={{
+          headingFont: null,
+          bodyFont: null,
+          hero: { accentColor: null, surfaceColor: null },
+          story: { accentColor: null, surfaceColor: null },
+          // Only the details section is themed — proves the binding uses the
+          // "details" key, not a copy-pasted "hero".
+          details: { accentColor: "#abcdef", surfaceColor: "oklch(30% 0.02 150)" },
+        }}
+      />
+    ));
+
+    await waitFor(() => expect(getByText("Your Events")).toBeTruthy(), { timeout: 2000 });
+
+    const section = getByText("Your Events").closest("section") as HTMLElement;
+    expect(section.style.getPropertyValue("--invite-accent")).toBe("#abcdef");
+    expect(section.style.getPropertyValue("--invite-surface")).toBe("oklch(30% 0.02 150)");
+  });
+
+  it("ignores a malicious details colour (never reaches the events-section DOM)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ...claim, preview: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { getByText } = render(() => (
+      <InvitePage
+        apiUrl="https://api.test"
+        theme={{
+          headingFont: null,
+          bodyFont: null,
+          hero: { accentColor: null, surfaceColor: null },
+          story: { accentColor: null, surfaceColor: null },
+          details: { accentColor: "red;background:url(https://evil.example)", surfaceColor: null },
+        }}
+      />
+    ));
+
+    await waitFor(() => expect(getByText("Your Events")).toBeTruthy(), { timeout: 2000 });
+    const section = getByText("Your Events").closest("section") as HTMLElement;
+    expect(section.style.getPropertyValue("--invite-accent")).toBe("");
+  });
+
   it("threads existingRsvps, apiUrl, members and onSubmitted into RsvpModal", async () => {
     vi.stubGlobal(
       "fetch",
