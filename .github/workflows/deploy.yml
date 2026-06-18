@@ -154,7 +154,7 @@ jobs:
         env:
           PUBLIC_API_URL: https://api.cireweddings.com
           PUBLIC_SITE_URL: https://cireweddings.com
-          # PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
+          PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
 
       - name: Deploy cire/web to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire
@@ -201,7 +201,7 @@ jobs:
           # Optional Cloudflare Turnstile sitekey (public) for organiser passkey
           # sign-in. Uncomment once the widget exists; omitted ⇒ key-optional
           # no-op. Matching TURNSTILE_SECRET_KEY is a wrangler secret on osn-api.
-          # PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
+          PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
 
       - name: Deploy cire/organiser to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire-organiser
