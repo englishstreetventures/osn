@@ -4,7 +4,7 @@ tags: [todo, web]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-06-18
+last-reviewed: 2026-06-19
 ---
 
 # cire/web
@@ -23,6 +23,7 @@ Frontend feature work. Tick items as PRs land; add new entries when scope is dis
 - [x] Populate dress code colour palette swatches from `event.dressCodePalette` (PR-E)
 - [x] Embed actual Pinterest board URLs via `event.pinterestUrl` (PR-D); reworked in PR #28 — switched from `<iframe>` to Pinterest's documented script-widget pattern (`<a data-pin-do="embedBoard">` + `pinit_main.js`, daily-guard bypassed via cache-busted query so SPA re-mounts re-scan), with a 2.5s timeout fallback to a "View moodboard on Pinterest" link when tracker blockers fire `blocked:other` on `assets.pinterest.com`. `toEmbedUrl` removed; `isValidPinterestUrl` retained as the URL gate.
 - [x] **Pinterest consent gate now one-time, page-wide, persisted** (PR #126) — the third-party `pinit_main.js` embed stays consent-gated, but the opt-in is no longer session-scoped: consent persists in **localStorage** (survives the visit, never re-prompts on return) behind a single shared signal, so accepting on one board immediately reveals every other Pinterest board on the page. The consent prompt links the `/privacy` notice; the "View moodboard on Pinterest" fallback link is always available without consent. See `[[deferred]]` (resolved) + [[eprivacy]] (root compliance).
+- [x] **Graceful mood-board fallback — link always shows, even when the embed can't** (`feat/pinterest-board-fallback`) — fixes a prod bug where an event's `pinterest_url` rendered nothing on the Details view. Two causes: (1) the embed script (`assets.pinterest.com/js/pinit_main.js`) is commonly blocked/slow, and (2) the **entire** render — including the fallback link — was gated behind one over-strict validator, so a borderline-but-legitimate board URL (trailing slash already handled, but e.g. a `pin.it` short link, a board with a `/section` sub-path, or a profile-level link) rendered nothing at all. Fix splits the single `isValidPinterestUrl` gate (`cire/web/src/components/pinterest.ts`) into two: `isSafePinterestLinkUrl` (https + Pinterest-host allowlist incl. `pin.it`, loose on path) gates the **always-visible** "View moodboard on Pinterest" outbound link, and `isEmbeddablePinterestBoardUrl` (strict `/user/board[/section]` shape, no query/fragment, supported hosts only) gates the embed script + `<a data-pin-do>` anchor. Degradation is now: embed when it works → if blocked/slow/timeout/onerror OR un-embeddable URL → visible link. Consent prompt only shows for embeddable URLs. URL-shape unit tests cover valid boards, `pin.it` short links, trailing slash, section sub-paths, and non-Pinterest/`javascript:`/host-injection rejections.
 - [x] Wire RSVP modal to API using surfaced `guestId` per member (PR-F)
 - [x] **Dietary-consent checkbox in `RsvpModal`** (C-H2 (cire dietary), PR #123) — once a guest enters dietary free-text (special-category Art. 9(2)(a)), the modal shows an explicit, **unticked-by-default** consent checkbox and gates submit on it, linking the `/privacy` notice. The server 422s a non-empty dietary without consent and stamps the consent record. See `[[api]]` + `[[dpia/cire-guest-data]]` (root compliance).
 - [ ] "Open in Maps" button on event cards driven by `event.mapsUrl`

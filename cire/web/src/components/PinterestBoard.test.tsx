@@ -65,6 +65,26 @@ describe("PinterestBoard", () => {
     expect(container.textContent ?? "").not.toContain("Load Pinterest board");
   });
 
+  it("shows only the fallback link (no consent prompt, no embed) for a safe-but-un-embeddable pin.it link", () => {
+    const SHORT_URL = "https://pin.it/3xKp9Qd";
+    const { container } = render(() => (
+      <PinterestBoard url={SHORT_URL} eventName="Catholic Ceremony" />
+    ));
+
+    // The outbound link is present so the guest can still reach the board.
+    const link = container.querySelector<HTMLAnchorElement>('a[href="' + SHORT_URL + '"]');
+    expect(link).not.toBeNull();
+    expect(link!.textContent).toContain("View moodboard on Pinterest");
+    expect(link!.getAttribute("target")).toBe("_blank");
+
+    // No embed: a short link can't be rendered as a board widget, so there is
+    // no consent prompt and no embed anchor — and no tracker script.
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.textContent ?? "").not.toContain("Load Pinterest board");
+    expect(container.querySelector("a[data-pin-do]")).toBeNull();
+    expect(scriptHandle.all()).toHaveLength(0);
+  });
+
   it("renders the fallback link and consent prompt by default, with NO script injected", () => {
     const { container } = render(() => (
       <PinterestBoard url={VALID_URL} eventName="Catholic Ceremony" />

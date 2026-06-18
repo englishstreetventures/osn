@@ -1,6 +1,6 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 
-import { isValidPinterestUrl } from "./pinterest";
+import { isEmbeddablePinterestBoardUrl, isSafePinterestLinkUrl } from "./pinterest";
 
 interface PinterestBoardProps {
   url: string;
@@ -101,9 +101,15 @@ const EMBED_TIMEOUT_MS = 2500;
  * a cache-busted query re-runs its IIFE which re-scans the DOM and picks up
  * the new `<a data-pin-do>` we just rendered.
  *
- * URL safety: `isValidPinterestUrl` (strict host + path-segment allowlist)
- * gates the URL before it ever lands in a Pinterest script's hands or in our
- * fallback anchor's href.
+ * URL safety + graceful degradation: two separate gates (see `pinterest.ts`).
+ * `isSafePinterestLinkUrl` (https + Pinterest-host allowlist, loose on path)
+ * gates the always-visible outbound fallback link, so the moodboard stays
+ * reachable even when the URL is a `pin.it` short link or some other shape the
+ * board widget can't embed. `isEmbeddablePinterestBoardUrl` (the strict
+ * `/user/board` shape) is the stricter gate before the URL ever lands in the
+ * embed script or the `<a data-pin-do>` anchor. The fallback link therefore
+ * shows whenever the URL is a safe Pinterest link — even if the embed script is
+ * blocked/slow (timeout/onerror) OR the URL isn't an embeddable board.
  */
 export function PinterestBoard(props: PinterestBoardProps) {
   const id = nextAnchorId();
@@ -136,7 +142,7 @@ export function PinterestBoard(props: PinterestBoardProps) {
   // mount, or via an explicit user click on this or another board) — never on a
   // fresh, un-consented mount.
   function injectEmbedScript() {
-    if (!isValidPinterestUrl(props.url)) return;
+    if (!isEmbeddablePinterestBoardUrl(props.url)) return;
 
     const script = document.createElement("script");
     script.async = true;
@@ -167,10 +173,17 @@ export function PinterestBoard(props: PinterestBoardProps) {
     grantConsentGlobally();
   }
 
+  // Whether this URL can be rendered as an embedded board widget at all. A safe
+  // Pinterest link that isn't an embeddable board shape (a `pin.it` short link,
+  // a bare pin/profile) still gets the always-visible fallback link below — it
+  // just never shows the consent prompt or the embed anchor.
+  const embeddable = () => isEmbeddablePinterestBoardUrl(props.url);
+
   return (
-    <Show when={isValidPinterestUrl(props.url)}>
-      {/* The outbound fallback link is always present so every guest — */}
-      {/* consenting or not — can reach the board. */}
+    <Show when={isSafePinterestLinkUrl(props.url)}>
+      {/* The outbound fallback link is ALWAYS present whenever the URL is a safe */}
+      {/* Pinterest link — even if the embed is blocked, slow, or the URL isn't an */}
+      {/* embeddable board shape — so every guest can always reach the moodboard. */}
       <div class="mt-2 flex justify-center">
         <a
           href={props.url}
@@ -182,41 +195,46 @@ export function PinterestBoard(props: PinterestBoardProps) {
         </a>
       </div>
 
-      <Show
-        when={consentGranted() && !embedFailed()}
-        fallback={
-          // Default state: opt-in consent affordance. No script has loaded.
-          <div class="font-body text-fg/70 mt-2 flex flex-col items-center gap-2 text-center text-[0.72rem]">
-            <p>
-              Load Pinterest board? This embeds content from Pinterest, a third party that may set
-              cookies and collect usage data. Your choice is remembered for this site. See our{" "}
-              <a href="/privacy" class="text-gold underline">
-                privacy notice
-              </a>
-              .
-            </p>
-            <button
-              type="button"
-              onClick={grantConsent}
-              class="border-gold text-gold hover:bg-gold hover:text-bg rounded-sm border px-4 py-1.5 text-[0.7rem] tracking-[0.12em] uppercase transition-colors duration-200"
-            >
-              Load Pinterest content
-            </button>
+      {/* The consent prompt + embed anchor only exist when the URL is an */}
+      {/* embeddable board shape. A safe-but-not-embeddable link (pin.it short */}
+      {/* link, bare pin/profile) shows the fallback link above and nothing else. */}
+      <Show when={embeddable()}>
+        <Show
+          when={consentGranted() && !embedFailed()}
+          fallback={
+            // Default state: opt-in consent affordance. No script has loaded.
+            <div class="font-body text-fg/70 mt-2 flex flex-col items-center gap-2 text-center text-[0.72rem]">
+              <p>
+                Load Pinterest board? This embeds content from Pinterest, a third party that may set
+                cookies and collect usage data. Your choice is remembered for this site. See our{" "}
+                <a href="/privacy" class="text-gold underline">
+                  privacy notice
+                </a>
+                .
+              </p>
+              <button
+                type="button"
+                onClick={grantConsent}
+                class="border-gold text-gold hover:bg-gold hover:text-bg rounded-sm border px-4 py-1.5 text-[0.7rem] tracking-[0.12em] uppercase transition-colors duration-200"
+              >
+                Load Pinterest content
+              </button>
+            </div>
+          }
+        >
+          <div class="mt-2 flex justify-center">
+            <a
+              ref={anchorRef}
+              id={id}
+              data-pin-do="embedBoard"
+              data-pin-board-width="400"
+              data-pin-scale-height="240"
+              data-pin-scale-width="80"
+              href={props.url}
+              aria-label={`Pinterest board for ${props.eventName}`}
+            />
           </div>
-        }
-      >
-        <div class="mt-2 flex justify-center">
-          <a
-            ref={anchorRef}
-            id={id}
-            data-pin-do="embedBoard"
-            data-pin-board-width="400"
-            data-pin-scale-height="240"
-            data-pin-scale-width="80"
-            href={props.url}
-            aria-label={`Pinterest board for ${props.eventName}`}
-          />
-        </div>
+        </Show>
       </Show>
     </Show>
   );
