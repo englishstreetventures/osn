@@ -121,6 +121,54 @@ describe("buildAll Upstash gate non-local (S-L1)", () => {
   });
 });
 
+describe("buildAll email fail-closed + degraded opt-in (non-local)", () => {
+  // Shared non-local env with every OTHER guard satisfied so the EMAIL guard is
+  // the one under test. CF creds + OSN_EMAIL_OPTIONAL are toggled per case.
+  function emailEnv(over: Partial<Env>): Env {
+    return {
+      OSN_ENV: "production",
+      DB: {} as Env["DB"],
+      OSN_ISSUER_URL: "https://api.osn.test",
+      OSN_CORS_ORIGIN: "https://app.osn.test",
+      OSN_RP_ID: "osn.test",
+      OSN_JWT_PRIVATE_KEY: privB64,
+      OSN_JWT_PUBLIC_KEY: pubB64,
+      OSN_SESSION_IP_PEPPER: "x".repeat(32),
+      UPSTASH_REDIS_REST_URL: "https://upstash.test",
+      UPSTASH_REDIS_REST_TOKEN: "tok",
+      ...over,
+    } as Env;
+  }
+
+  it("creds absent + opt-in UNSET → 503 at the edge (safe default preserved)", async () => {
+    const res = await handler.fetch(new Request("https://api.osn.test/"), emailEnv({}));
+    expect(res.status).toBe(503);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toContain("Worker misconfigured");
+    expect(json.error).toContain("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_EMAIL_API_TOKEN");
+  });
+
+  it("creds absent + OSN_EMAIL_OPTIONAL=true → boots (200), no longer 503", async () => {
+    const res = await handler.fetch(
+      new Request("https://api.osn.test/"),
+      emailEnv({ OSN_EMAIL_OPTIONAL: "true" }),
+    );
+    // Boots degraded — the root route answers instead of a misconfig 503.
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { status: string; service: string };
+    expect(json.status).toBe("ok");
+    expect(json.service).toBe("osn-auth");
+  });
+
+  it("creds PRESENT → boots regardless of the opt-in (creds win)", async () => {
+    const res = await handler.fetch(
+      new Request("https://api.osn.test/"),
+      emailEnv({ CLOUDFLARE_ACCOUNT_ID: "acct", CLOUDFLARE_EMAIL_API_TOKEN: "tok" }),
+    );
+    expect(res.status).toBe(200);
+  });
+});
+
 describe("parseTrustedProxyCount (S-M34)", () => {
   it("throws on a negative count", () => {
     expect(() => parseTrustedProxyCount("-1")).toThrow(/non-negative integer/);

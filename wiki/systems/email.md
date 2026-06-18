@@ -21,7 +21,7 @@ related:
 packages:
   - "@shared/email"
   - "@osn/api"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-06-18
 ---
 
 # Email Transport
@@ -107,7 +107,7 @@ Content-Type: application/json
 
 ## Transports
 
-`@shared/email` exposes two production Layers + the `EmailService` Tag:
+`@shared/email` exposes three Layers + the `EmailService` Tag:
 
 - `makeCloudflareEmailLive(config)` — real dispatch. POSTs directly to
   Cloudflare's Email Service REST API via `instrumentedFetch` so the
@@ -116,7 +116,17 @@ Content-Type: application/json
   records the payload into an in-memory ring buffer (exposed via
   `recorded()`), emits a single `Effect.logDebug` line with `template`
   + `subject` + `to` — **never** the OTP code. Tests that need to
-  assert on captured content read the recorder directly.
+  assert on captured content read the recorder directly. **Dev/test
+  ONLY** — the ring buffer grows unbounded, so it is never used in
+  production.
+- `makeNoopEmailLive()` — degraded-mode production transport. Renders
+  the template (so template bugs still surface as `render_failed`) but
+  **DISCARDS** every send — no ring buffer, no network call. Emits one
+  redacted `Effect.logWarning` line `email suppressed (degraded mode):
+  <template>` containing **only** the bounded `template` literal — never
+  the recipient address or OTP code. Selected only via the explicit
+  `OSN_EMAIL_OPTIONAL` opt-in (below) so a non-local deploy can run
+  WITHOUT Cloudflare email instead of failing closed.
 
 > Dev-only OTP visibility: the email transport never logs the code, but
 > `osn/api`'s auth service has a **separate** `logDevOtp` helper that emits a
@@ -126,9 +136,26 @@ Content-Type: application/json
 > This makes email-OTP dev flows testable without a real inbox. See
 > `osn/api/src/services/auth.ts`.
 
-Selection in `osn/api/src/index.ts`: `CLOUDFLARE_ACCOUNT_ID` +
-`CLOUDFLARE_EMAIL_API_TOKEN` set → `CloudflareEmailLive`; unset →
-`LogEmailLive`. Required in non-local envs.
+Selection lives in `osn/api/src/lib/email-layer.ts` (`selectEmailLayer`,
+shared by the Bun `local.ts` and the Workers `index.ts` entries), in
+priority order:
+
+1. `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` present →
+   `CloudflareEmailLive` (**creds always win**, even if the opt-in is set).
+2. Local env (`OSN_ENV` unset/`"local"`) → `LogEmailLive` recorder.
+3. Non-local, creds absent, **`OSN_EMAIL_OPTIONAL` truthy** →
+   `NoopEmailLive` (degraded boot; loud startup warning naming the mail
+   classes that will not be delivered).
+4. Non-local, creds absent, opt-in **unset** → **throws** at startup
+   (fail-closed default; surfaced as a `503 Worker misconfigured` at the
+   Workers edge).
+
+`OSN_EMAIL_OPTIONAL` is a non-secret boolean `[vars]` entry (truthy =
+`true`/`1`/`yes`/`on`). It is the *only* way to suppress the non-local
+email requirement, so degradation is always explicit and observable —
+never silent. See [[production-deploy]] §1.1 for the deploy-time caveats
+(OTP step-up, email-change OTP, and security-notice emails are not
+delivered while degraded; passkey login is primary and unaffected).
 
 ## Configuration
 

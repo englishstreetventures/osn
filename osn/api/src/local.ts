@@ -1,10 +1,10 @@
 import { DbLive } from "@osn/db/service";
-import { makeCloudflareEmailLive, makeLogEmailLive } from "@shared/email";
 import { initObservability } from "@shared/observability";
 import { Effect, Layer, Logger } from "effect";
 
 import { createApp, type App } from "./app";
 import { buildAppDeps, type BuiltDeps, SERVICE_NAME } from "./build-deps";
+import { selectEmailLayer } from "./lib/email-layer";
 import { startOutboundKeyRotation } from "./lib/outbound-arc";
 import { initRedisClient } from "./redis";
 import * as accountErasure from "./services/account-erasure";
@@ -39,31 +39,19 @@ export async function buildAppDeps_Bun(): Promise<
   });
 
   // -------------------------------------------------------------------------
-  // Email transport (@shared/email)
+  // Email transport (@shared/email) — selection shared with the Workers entry
+  // via `selectEmailLayer`:
   //
-  // Production/staging: POST directly to Cloudflare's Email Service REST API.
-  //   - CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_EMAIL_API_TOKEN required
-  //   - OSN_EMAIL_FROM is the verified sender address (e.g. noreply@osn.app)
-  //
-  // Local dev / tests: no env vars → LogEmailLive records sends to an in-memory
-  // ring, so no OTP codes end up in logs.
+  //   - Production/staging with CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_EMAIL_API_TOKEN
+  //     → CloudflareEmailLive (POST to Cloudflare's Email Service REST API; creds
+  //     always win). OSN_EMAIL_FROM is the verified sender.
+  //   - Non-local WITHOUT creds but with OSN_EMAIL_OPTIONAL set truthy →
+  //     NoopEmailLive (degraded: mail discarded, loud startup warning).
+  //   - Non-local WITHOUT creds and WITHOUT the opt-in → throws (fail-closed).
+  //   - Local dev / tests → LogEmailLive records sends to an in-memory ring, so
+  //     no OTP codes end up in logs.
   // -------------------------------------------------------------------------
-  const envNonLocal = !!process.env.OSN_ENV && process.env.OSN_ENV !== "local";
-  const cfAccountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const cfEmailToken = process.env.CLOUDFLARE_EMAIL_API_TOKEN;
-  if (envNonLocal && (!cfAccountId || !cfEmailToken)) {
-    throw new Error(
-      "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_EMAIL_API_TOKEN must be set in non-local environments",
-    );
-  }
-  const emailLayer =
-    cfAccountId && cfEmailToken
-      ? makeCloudflareEmailLive({
-          accountId: cfAccountId,
-          apiToken: cfEmailToken,
-          fromAddress: process.env.OSN_EMAIL_FROM,
-        })
-      : makeLogEmailLive().layer;
+  const emailLayer = selectEmailLayer(process.env, observabilityLayer);
 
   const built = await buildAppDeps(process.env, {
     redisClient,

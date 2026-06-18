@@ -4,6 +4,8 @@ export { makeCloudflareEmailLive, type CloudflareEmailConfig } from "./cloudflar
 
 export { makeLogEmailLive, type RecordedEmail } from "./log";
 
+export { makeNoopEmailLive } from "./noop";
+
 export {
   renderTemplate,
   type EmailTemplate,

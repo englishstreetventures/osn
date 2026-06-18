@@ -1,10 +1,10 @@
 import type { D1Database, ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
 import { makeDbD1Live } from "@osn/db/service";
-import { makeCloudflareEmailLive, makeLogEmailLive } from "@shared/email";
 import { Effect, Layer } from "effect";
 
 import { createApp, type App } from "./app";
 import { buildAppDeps, type EnvRecord } from "./build-deps";
+import { selectEmailLayer } from "./lib/email-layer";
 import { registerOutboundKeysOnce } from "./lib/outbound-arc";
 import { osnLoggerLayer } from "./observability";
 import { initRedisClientFromEnv } from "./redis";
@@ -42,6 +42,10 @@ export interface Env {
   OSN_ACCESS_TOKEN_TTL?: string;
   OSN_REFRESH_TOKEN_TTL?: string;
   OSN_EMAIL_FROM?: string;
+  // Explicit opt-in: when truthy AND the Cloudflare email creds are absent in a
+  // non-local env, osn-api boots with a no-op email transport (transactional
+  // mail discarded, not delivered) instead of throwing. Unset = fail-closed.
+  OSN_EMAIL_OPTIONAL?: string;
   PULSE_API_URL?: string;
   ZAP_API_URL?: string;
   TRUSTED_PROXY_COUNT?: string;
@@ -97,22 +101,10 @@ export async function buildAll(env: Env): Promise<App> {
   }
   const redisClient = initRedisClientFromEnv(env);
 
-  // Email transport — same selection as the Bun path, from `env`.
-  const cfAccountId = env.CLOUDFLARE_ACCOUNT_ID;
-  const cfEmailToken = env.CLOUDFLARE_EMAIL_API_TOKEN;
-  if (isNonLocal(env) && (!cfAccountId || !cfEmailToken)) {
-    throw new Error(
-      "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_EMAIL_API_TOKEN must be set in non-local environments",
-    );
-  }
-  const emailLayer =
-    cfAccountId && cfEmailToken
-      ? makeCloudflareEmailLive({
-          accountId: cfAccountId,
-          apiToken: cfEmailToken,
-          fromAddress: env.OSN_EMAIL_FROM,
-        })
-      : makeLogEmailLive().layer;
+  // Email transport — same selection as the Bun path, from `env`. Fail-closed by
+  // default in non-local; boots with a no-op transport (loud warning) ONLY when
+  // the operator has explicitly set OSN_EMAIL_OPTIONAL. See `lib/email-layer`.
+  const emailLayer = selectEmailLayer(env as unknown as EnvRecord, osnLoggerLayer);
 
   // D1-backed DB layer for this isolate. `env.DB` presence is asserted in
   // `fetch` before `buildAll` runs.

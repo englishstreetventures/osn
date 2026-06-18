@@ -102,6 +102,15 @@ OSN_ORIGIN = "https://app.cireweddings.com"
 OSN_ISSUER_URL = "https://id.cireweddings.com"
 OSN_CORS_ORIGIN = "https://app.cireweddings.com"
 OSN_EMAIL_FROM = "noreply@cireweddings.com"
+# Degraded-email opt-in. We are launching WITHOUT Cloudflare email (it needs a
+# paid Workers plan + ~1 week sender-domain onboarding, §1.1). With this set
+# truthy AND the CLOUDFLARE_* email secrets absent, osn-api boots with a NO-OP
+# email transport (transactional mail DISCARDED, loud startup warning) instead
+# of throwing at startup. Passkey login is primary and unaffected; OTP step-up,
+# email-change OTPs, and security-notice emails will NOT be delivered while this
+# is set. Re-enable email: provision the CLOUDFLARE_* secrets, then REMOVE this
+# line (creds win, but unset the opt-in so a creds outage fails closed again).
+OSN_EMAIL_OPTIONAL = "true"
 
 # Custom-domain route: serves osn-api on id.cireweddings.com. `custom_domain =
 # true` auto-provisions DNS + edge cert because the cireweddings.com zone is in
@@ -131,8 +140,14 @@ crons = ["0 */6 * * *"]
 #   UPSTASH_REDIS_REST_URL     Upstash REST URL            — REQUIRED non-local (S-L1; region TBD C-M18)
 #   UPSTASH_REDIS_REST_TOKEN   Upstash REST token          — REQUIRED non-local (S-L1; region TBD C-M18)
 #   CLOUDFLARE_ACCOUNT_ID      for the Email Service REST API — REQUIRED non-local
+#                              UNLESS OSN_EMAIL_OPTIONAL is set (degraded mode)
 #   CLOUDFLARE_EMAIL_API_TOKEN bearer token for email send  — REQUIRED non-local
+#                              UNLESS OSN_EMAIL_OPTIONAL is set (degraded mode)
 #   OSN_EMAIL_FROM             verified sender (also settable as a [vars])
+#   OSN_EMAIL_OPTIONAL         non-secret [vars] boolean. Truthy = boot WITHOUT
+#                              email (no-op transport) when the CLOUDFLARE_*
+#                              creds are absent in a non-local env, instead of
+#                              throwing. Unset = fail-closed. Creds always win.
 #   INTERNAL_SERVICE_SECRET    S2S registration shared secret (optional)
 #   PULSE_API_URL / ZAP_API_URL deletion fan-out targets (optional; also [vars])
 #   TRUSTED_PROXY_COUNT        proxy hops for XFF keying (optional; CF sets cf-connecting-ip)
