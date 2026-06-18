@@ -104,7 +104,12 @@ export async function createAccountResolverFromEnv(env: {
   if (!env.osnApiUrl || !env.arcPrivateKeyJwk || !env.arcKeyId) {
     return null;
   }
-  const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk);
+  // A present-but-INVALID key (corrupt / garbled JWK) must degrade EXACTLY like
+  // an absent one — disable the feature (the POST then answers 503), never throw
+  // out of the builder. A malformed CIRE_API_ARC_PRIVATE_KEY once made cire-api
+  // throw on EVERY authed request and took down the whole organiser dashboard.
+  const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk).catch(() => null);
+  if (!arcPrivateKey) return null;
   return createArcAccountResolver({
     osnApiUrl: env.osnApiUrl,
     arcPrivateKey,
@@ -181,7 +186,11 @@ export async function createHandleResolverFromEnv(env: {
   if (!env.osnApiUrl || !env.arcPrivateKeyJwk || !env.arcKeyId) {
     return null;
   }
-  const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk);
+  // Present-but-INVALID key ⇒ degrade like absent (co-host-by-handle disabled,
+  // add-host POST answers 503) instead of throwing on every request. See the
+  // account-resolver builder above for the incident this guards against.
+  const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk).catch(() => null);
+  if (!arcPrivateKey) return null;
   return createArcHandleResolver({
     osnApiUrl: env.osnApiUrl,
     arcPrivateKey,

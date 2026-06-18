@@ -111,6 +111,31 @@ describe("createAccountResolverFromEnv", () => {
     expect(resolve).not.toBeNull();
     expect(await resolve!("usr_1")).toEqual({ ok: true, accountId: "acc_env" });
   });
+
+  // A PRESENT-but-INVALID ARC key must be treated EXACTLY like an absent one:
+  // the builder returns null (⇒ feature disabled, POST answers 503) and NEVER
+  // throws. A throw here propagated out of the Worker setup path and 500'd every
+  // authenticated request (the production dashboard login-loop incident).
+  it.each([
+    ["non-JSON garbage", "{not-json"],
+    ["plain string", "garbage"],
+    ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
+  ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
+    let resolve: unknown;
+    expect(async () => {
+      resolve = await createAccountResolverFromEnv({
+        osnApiUrl: "https://osn.example",
+        arcPrivateKeyJwk: badJwk,
+        arcKeyId: "kid-env",
+      });
+    }).not.toThrow();
+    resolve = await createAccountResolverFromEnv({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKeyJwk: badJwk,
+      arcKeyId: "kid-env",
+    });
+    expect(resolve).toBeNull();
+  });
 });
 
 describe("createArcHandleResolver", () => {
@@ -217,5 +242,27 @@ describe("createHandleResolverFromEnv", () => {
     });
     expect(resolve).not.toBeNull();
     expect(await resolve!("env")).toEqual({ ok: true, profileId: "usr_env", handle: "env" });
+  });
+
+  // Sibling of the account-resolver guard: a corrupt CIRE_API_ARC_PRIVATE_KEY
+  // must disable add-co-host-by-handle (POST 503), never crash the builder.
+  it.each([
+    ["non-JSON garbage", "{not-json"],
+    ["plain string", "garbage"],
+    ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
+  ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
+    expect(async () => {
+      await createHandleResolverFromEnv({
+        osnApiUrl: "https://osn.example",
+        arcPrivateKeyJwk: badJwk,
+        arcKeyId: "kid-env",
+      });
+    }).not.toThrow();
+    const resolve = await createHandleResolverFromEnv({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKeyJwk: badJwk,
+      arcKeyId: "kid-env",
+    });
+    expect(resolve).toBeNull();
   });
 });
