@@ -155,6 +155,9 @@ jobs:
           PUBLIC_API_URL: https://api.cireweddings.com
           PUBLIC_SITE_URL: https://cireweddings.com
           PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
+          # Google Maps Embed API key (public, referrer-restricted to *.cireweddings.com).
+          # Present ⇒ real Embed iframe; absent ⇒ CSS-card fallback (key-optional).
+          PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
 
       - name: Deploy cire/web to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire
