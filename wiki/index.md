@@ -2,7 +2,7 @@
 title: OSN Wiki
 aliases: [home, map of content, MOC]
 tags: [index]
-last-reviewed: 2026-06-17
+last-reviewed: 2026-06-18
 ---
 
 # OSN Wiki
@@ -96,6 +96,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 ## Runbooks
 
 - [[production-deploy]] — first production cut-over of osn-api + the cire stack (secret/var checklist, migrations, CI pipeline, smoke checks)
+- [[free-tier-limits]] — provider free-tier ceilings (Upstash / Workers / D1 / Pages / Turnstile / WAF), what breaks at each cap, the unavailability playbook, and the Cloudflare security-hardening TODO
 - [[auth-failure]] — passkey / recovery / refresh / step-up debugging
 - [[rate-limit-incident]] — false positives, tuning, Redis health
 - [[observability-setup]] — Grafana Cloud provisioning, OTEL wiring

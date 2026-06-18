@@ -9,6 +9,18 @@ compatibility_flags = ["nodejs_compat"]
 [triggers]
 crons = ["0 4 * * *"]
 
+# Cloudflare Workers Logs / invocations. `enabled = true` persists the Worker's
+# logs (and invocation records) for 7 days, viewable in the dashboard under
+# Workers & Pages → cire-api → Observability / Logs. Free + low-overhead.
+# `head_sampling_rate = 1` logs 100% of requests — correct at our current low
+# volume; drop it (e.g. 0.1) only if we ever approach the Workers Logs daily
+# ingest cap. See [[wiki/runbooks/free-tier-limits]] (Monitoring section).
+# Named environments do NOT inherit this top-level block — it is redeclared
+# under [env.production.observability] below.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 [vars]
 WEB_ORIGIN = "http://localhost:4321"
 OSN_JWKS_URL = "http://localhost:4000/.well-known/jwks.json"
@@ -125,6 +137,12 @@ preview_bucket_name = "cire-assets-preview"
 # without it and every serve falls back to the un-transformed R2 original.
 [env.production.images]
 binding = "IMAGES"
+
+# Mirror of the top-level [observability] block — named environments do NOT
+# inherit it, so without this the production Worker ships with logs disabled.
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1
 
 # ── OpenTelemetry export ─────────────────────────────────────────────────────
 # Read by `@shared/observability` `loadConfig` (workerd `nodejs_compat`
