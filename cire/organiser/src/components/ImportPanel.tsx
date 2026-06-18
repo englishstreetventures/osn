@@ -2,6 +2,14 @@ import { useAuth } from "@osn/client/solid";
 import { createSignal, Show, For } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import {
+  EVENT_REQUIRED_HEADERS,
+  EVENT_OPTIONAL_HEADERS,
+  GUEST_TEMPLATE_FIXED_HEADERS,
+  GUEST_TEMPLATE_EXAMPLE_EVENTS,
+  buildEventsTemplateCsv,
+  buildGuestsTemplateCsv,
+} from "../lib/import-templates";
 
 interface ImportPlan {
   eventCreates: unknown[];
@@ -45,6 +53,24 @@ function readFile(file: File): Promise<string> {
     reader.addEventListener("error", () => reject(reader.error ?? new Error("read failed")));
     reader.readAsText(file);
   });
+}
+
+/**
+ * Trigger a client-side download of `content` as `filename`. The CSV is built
+ * from code-authored static templates (see `../lib/import-templates`), so there
+ * is no server round-trip and no formula-injection surface. The object URL is
+ * revoked after the click so it can't leak.
+ */
+function downloadCsv(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 /**
@@ -140,7 +166,30 @@ export default function ImportPanel(props: { weddingId: string }) {
         <h2 class="font-display text-text text-[1.4rem] font-light italic">
           Upload events &amp; guests CSV
         </h2>
+        <p class="font-body text-text-muted text-[0.82rem]">
+          Import your two sheets as CSV — events first, then guests. Start from a template below, or
+          read the format guide if you're building your own.
+        </p>
       </header>
+
+      <div class="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => downloadCsv("cire-events-template.csv", buildEventsTemplateCsv())}
+          class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition"
+        >
+          Download events template
+        </button>
+        <button
+          type="button"
+          onClick={() => downloadCsv("cire-guests-template.csv", buildGuestsTemplateCsv())}
+          class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition"
+        >
+          Download guests template
+        </button>
+      </div>
+
+      <CsvFormatHelp />
 
       <form class="flex flex-col gap-4" onSubmit={handlePreview}>
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -306,5 +355,119 @@ function PlanCounts(props: { plan: ImportPlan }) {
         </For>
       </tbody>
     </table>
+  );
+}
+
+/** A small label for a column name inside the help copy. */
+function Col(props: { children: string }) {
+  return (
+    <code class="bg-bg/60 text-gold-dim rounded-[2px] px-1 py-0.5 font-mono text-[0.78rem]">
+      {props.children}
+    </code>
+  );
+}
+
+/**
+ * Collapsible "CSV format" guide. Mirrors the cire-api parser
+ * (`cire/api/src/services/spreadsheet.ts`) — required vs optional columns, the
+ * ISO-8601 + IANA date/timezone format, the one-column-per-event guest
+ * convention with truthy cells, family grouping by Family ID, and the
+ * events-before-guests ordering. Built on a native <details>/<summary> so it's
+ * keyboard- and screen-reader-accessible with no JS.
+ */
+function CsvFormatHelp() {
+  return (
+    <details class="border-border bg-bg/30 group rounded-sm border">
+      <summary class="font-body text-text hover:text-gold flex cursor-pointer items-center gap-2 px-4 py-3 text-[0.88rem] transition select-none">
+        <span class="text-gold inline-block transition-transform group-open:rotate-90" aria-hidden>
+          ›
+        </span>
+        CSV format — how to structure your two sheets
+      </summary>
+
+      <div class="border-border/60 flex flex-col gap-6 border-t px-4 py-5 text-[0.85rem]">
+        <p class="border-gold/20 bg-gold/5 text-text rounded-sm border px-3 py-2">
+          Import <strong class="text-gold-dim">events first</strong>, then guests. Each guest's
+          event columns are matched against events that already exist, so the events sheet has to go
+          in before the guests sheet.
+        </p>
+
+        <section class="flex flex-col gap-2">
+          <h3 class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">
+            Events sheet
+          </h3>
+          <p class="text-text-muted">
+            One row per event. These columns are <strong class="text-text">required</strong>:
+          </p>
+          <ul class="text-text-muted flex flex-wrap gap-x-2 gap-y-1.5">
+            <For each={EVENT_REQUIRED_HEADERS}>
+              {(h) => (
+                <li>
+                  <Col>{h}</Col>
+                </li>
+              )}
+            </For>
+          </ul>
+          <p class="text-text-muted">
+            <Col>Start</Col> and <Col>End</Col> are ISO-8601 timestamps with a UTC offset (e.g.{" "}
+            <span class="text-text font-mono text-[0.78rem]">2026-11-14T15:00:00+11:00</span>), and{" "}
+            <Col>Timezone</Col> is an IANA zone (e.g.{" "}
+            <span class="text-text font-mono text-[0.78rem]">Australia/Sydney</span>).
+          </p>
+          <p class="text-text-muted">
+            Optional columns you can add:{" "}
+            <For each={EVENT_OPTIONAL_HEADERS}>
+              {(h, i) => (
+                <>
+                  <Col>{h}</Col>
+                  {i() < EVENT_OPTIONAL_HEADERS.length - 1 ? " " : "."}
+                </>
+              )}
+            </For>{" "}
+            <Col>Pinterest URL</Col> and <Col>Maps URL</Col> must be full http(s) links.{" "}
+            <Col>Dress Code Palette</Col> is a list like{" "}
+            <span class="text-text font-mono text-[0.78rem]">Blush:#f4c2c2|Sage:#b2ac88</span>.
+          </p>
+        </section>
+
+        <section class="flex flex-col gap-2">
+          <h3 class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">
+            Guests sheet
+          </h3>
+          <p class="text-text-muted">
+            One row per guest. Start with these <strong class="text-text">required</strong> columns:
+          </p>
+          <ul class="text-text-muted flex flex-wrap gap-x-2 gap-y-1.5">
+            <For each={GUEST_TEMPLATE_FIXED_HEADERS}>
+              {(h) => (
+                <li>
+                  <Col>{h}</Col>
+                </li>
+              )}
+            </For>
+          </ul>
+          <p class="text-text-muted">
+            Then add <strong class="text-text">one extra column per event</strong>, and name each
+            column <em>exactly</em> after an event from your events sheet (e.g. <Col>Ceremony</Col>,{" "}
+            <Col>Reception</Col>). In each event column, mark the guests you're inviting with a
+            truthy value — <span class="text-text">true</span>, <span class="text-text">yes</span>,{" "}
+            <span class="text-text">1</span>, or <span class="text-text">x</span>. Leave the cell
+            blank for guests who aren't invited to that event.
+          </p>
+          <p class="text-text-muted">
+            Guests that share the same <Col>Family ID</Col> are grouped into one household — give
+            everyone in a family the same id so they claim and RSVP together.
+          </p>
+        </section>
+
+        <p class="text-text-muted text-[0.8rem]">
+          Not sure where to start? Use <span class="text-gold-dim">Download events template</span>{" "}
+          and <span class="text-gold-dim">Download guests template</span> above — each comes with
+          the correct headers and a couple of example rows. In the guests template, rename the{" "}
+          <Col>{GUEST_TEMPLATE_EXAMPLE_EVENTS[0]}</Col> /{" "}
+          <Col>{GUEST_TEMPLATE_EXAMPLE_EVENTS[1]}</Col> columns to your real event names.
+        </p>
+      </div>
+    </details>
   );
 }

@@ -1,0 +1,127 @@
+// @vitest-environment happy-dom
+import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * ImportPanel renders the upload form, the "CSV format" help disclosure, and the
+ * two "Download template" controls. These tests cover the new help + template
+ * affordances: the instructions render, the disclosure is keyboard-accessible,
+ * and clicking a download control produces a Blob whose first line is the exact
+ * header row the cire-api parser requires.
+ */
+
+const authFetchMock = vi.fn();
+
+vi.mock("@osn/client/solid", () => ({
+  useAuth: () => ({ authFetch: authFetchMock }),
+}));
+
+vi.mock("../lib/api", () => ({
+  apiUrl: (path: string) => `https://api.test${path}`,
+  isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
+  redirectToLogin: () => undefined,
+}));
+
+import ImportPanel from "./ImportPanel";
+
+// Capture the Blobs handed to URL.createObjectURL so we can read their text.
+// We patch only the two methods on the real URL constructor (rather than
+// replacing the whole global) so happy-dom's anchor-click navigation, which
+// calls `new URL(...)`, keeps working — and we point the anchor at a `blob:`
+// href that it won't try to navigate to.
+const createdBlobs: Blob[] = [];
+let revoked: string[] = [];
+const realCreate = URL.createObjectURL;
+const realRevoke = URL.revokeObjectURL;
+
+beforeEach(() => {
+  createdBlobs.length = 0;
+  revoked = [];
+  URL.createObjectURL = (blob: Blob) => {
+    createdBlobs.push(blob);
+    return `blob:mock/${createdBlobs.length}`;
+  };
+  URL.revokeObjectURL = (url: string) => {
+    revoked.push(url);
+  };
+});
+
+afterEach(() => {
+  cleanup();
+  authFetchMock.mockReset();
+  URL.createObjectURL = realCreate;
+  URL.revokeObjectURL = realRevoke;
+});
+
+async function blobText(blob: Blob): Promise<string> {
+  // happy-dom Blob exposes text(); fall back to FileReader otherwise.
+  if (typeof blob.text === "function") return blob.text();
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.readAsText(blob);
+  });
+}
+
+describe("ImportPanel — CSV format help", () => {
+  it("renders both upload inputs", () => {
+    render(() => <ImportPanel weddingId="wed_a" />);
+    expect(screen.getByText(/events\.csv/i)).toBeTruthy();
+    expect(screen.getByText(/guests\.csv/i)).toBeTruthy();
+  });
+
+  it("explains the events-before-guests ordering", () => {
+    render(() => <ImportPanel weddingId="wed_a" />);
+    // The instructions mention importing events before guests. Text spans nested
+    // elements (e.g. <strong>events first</strong>), so assert on the flattened
+    // body text rather than a single element.
+    const body = (document.body.textContent ?? "").toLowerCase();
+    expect(body).toContain("events first");
+    expect(body).toMatch(/events.*before the guests sheet|before the guests/);
+  });
+
+  it("documents the truthy invite cell values", () => {
+    render(() => <ImportPanel weddingId="wed_a" />);
+    const body = document.body.textContent ?? "";
+    expect(body).toMatch(/\btrue\b/);
+    expect(body).toMatch(/\byes\b/);
+  });
+
+  it("exposes the format help as a native disclosure (details/summary)", () => {
+    render(() => <ImportPanel weddingId="wed_a" />);
+    const summary = document.querySelector("details > summary");
+    expect(summary).toBeTruthy();
+    expect(summary?.textContent ?? "").toMatch(/csv format|how to|format/i);
+  });
+});
+
+describe("ImportPanel — download templates", () => {
+  it("downloads an events template whose first line is the exact parser header row", async () => {
+    render(() => <ImportPanel weddingId="wed_a" />);
+    fireEvent.click(screen.getByRole("button", { name: /download events template/i }));
+
+    await waitFor(() => expect(createdBlobs.length).toBeGreaterThan(0));
+    const text = await blobText(createdBlobs[0]!);
+    expect(text.split("\r\n")[0]).toBe(
+      "Event Name,Start,End,Timezone,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
+    );
+    expect(createdBlobs[0]!.type).toContain("text/csv");
+  });
+
+  it("downloads a guests template whose first line is the exact parser header row", async () => {
+    render(() => <ImportPanel weddingId="wed_a" />);
+    fireEvent.click(screen.getByRole("button", { name: /download guests template/i }));
+
+    await waitFor(() => expect(createdBlobs.length).toBeGreaterThan(0));
+    const text = await blobText(createdBlobs[0]!);
+    expect(text.split("\r\n")[0]).toBe(
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Ceremony,Reception",
+    );
+  });
+
+  it("revokes the object URL after triggering the download", async () => {
+    render(() => <ImportPanel weddingId="wed_a" />);
+    fireEvent.click(screen.getByRole("button", { name: /download events template/i }));
+    await waitFor(() => expect(revoked.length).toBeGreaterThan(0));
+  });
+});
