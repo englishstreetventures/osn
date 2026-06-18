@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 
 import {
   accounts,
@@ -53,6 +53,7 @@ import {
   createInMemoryRotatedSessionStore,
   type RotatedSessionStore,
 } from "../lib/rotated-session-store";
+import { timingSafeEqualString } from "../lib/timing-safe";
 import {
   classifyError,
   metricAuthHandleCheck,
@@ -515,16 +516,6 @@ function logDevOtp(purpose: string, to: string, code: string): Effect.Effect<voi
   const isLocal = !process.env.OSN_ENV || process.env.OSN_ENV === "local";
   if (!isLocal) return Effect.void;
   return Effect.logDebug(`[dev-otp] ${purpose} to=${to} code=${code}`);
-}
-
-/**
- * Constant-time string comparison. Falls back to `false` for length mismatch.
- * Used for comparing user-supplied OTP codes against expected values to remove
- * the (already small) timing side channel that JS string `===` exposes.
- */
-function timingSafeEqualString(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
 }
 
 // ---------------------------------------------------------------------------

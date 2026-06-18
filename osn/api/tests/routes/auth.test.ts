@@ -745,7 +745,13 @@ describe("auth routes", () => {
       expect(res.status).toBe(401);
     });
 
-    it("rejects with 401 when access token's sub mismatches body.profileId", async () => {
+    // Authorization is bound to the access token's own `sub`, not to a
+    // client-echoed `body.profileId` (Bug B). A mismatching profileId is
+    // therefore IGNORED rather than rejected: the begin still proceeds for
+    // the token's own account (bootstrap path here). The companion "Bug B
+    // guard" test below proves a *foreign* profileId can't redirect the
+    // enrolment onto another account.
+    it("ignores a body.profileId that mismatches the token sub (proceeds for the token's account)", async () => {
       const { accessToken } = await setupProfileAndAccessToken();
       const res = await app.handle(
         new Request("http://localhost/passkey/register/begin", {
@@ -757,7 +763,9 @@ describe("auth routes", () => {
           body: JSON.stringify({ profileId: "usr_someoneelse" }),
         }),
       );
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { challenge?: string };
+      expect(json.challenge).toBeTruthy();
     });
 
     it("accepts a valid access token whose sub matches body.profileId", async () => {
@@ -885,6 +893,138 @@ describe("auth routes", () => {
       // it to a 400 with a masked body. 400 or 403 are both acceptable
       // shapes for "missing step-up"; we care that it's NOT 200.
       expect([400, 403]).toContain(res.status);
+    });
+
+    // -----------------------------------------------------------------------
+    // Bug B (production): the organiser "Add passkey" 401.
+    //
+    // The enrol principal must be resolved from the ACCESS TOKEN'S OWN `sub`
+    // (the verified caller), not gated on the client echoing a matching
+    // `body.profileId`. A signed-in caller can present a valid token whose
+    // `sub` is one profile while the client-supplied `profileId` names a
+    // *different profile on the SAME account* (e.g. a stale `activeProfileId`
+    // after a silent token refresh re-issues for the account's default
+    // profile). The enrolment belongs to the caller's own account either way,
+    // so it MUST proceed — gating on the echo produced a spurious 401.
+    // -----------------------------------------------------------------------
+    it("Bug B: proceeds when body.profileId names another profile on the caller's own account", async () => {
+      const svc = createAuthService(config);
+      const profile = await Effect.runPromise(
+        svc.registerProfile("wendy@example.com", "wendy").pipe(Effect.provide(layer)),
+      );
+      // Mint a token for the (default) profile the caller signed in as.
+      const tokens = await Effect.runPromise(
+        svc
+          .issueTokens(
+            profile.id,
+            profile.accountId,
+            profile.email,
+            profile.handle,
+            profile.displayName,
+          )
+          .pipe(Effect.provide(layer)),
+      );
+      // Seed a SECOND, non-default profile on the SAME account.
+      const { users: usersTable } = await import("@osn/db/schema");
+      const { Db } = await import("@osn/db/service");
+      const secondProfileId = "usr_wendysecond0";
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          yield* Effect.tryPromise(() =>
+            db.insert(usersTable).values({
+              id: secondProfileId,
+              accountId: profile.accountId,
+              handle: "wendy_alt",
+              displayName: null,
+              isDefault: false,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            }),
+          );
+        }).pipe(Effect.provide(layer)),
+      );
+
+      // Token sub = profile.id (default), body.profileId = secondProfileId.
+      // Same account, no passkey yet ⇒ bootstrap path ⇒ no step-up needed.
+      const res = await app.handle(
+        new Request("http://localhost/passkey/register/begin", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${tokens.accessToken}`,
+          },
+          body: JSON.stringify({ profileId: secondProfileId }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { challenge?: string };
+      expect(json.challenge).toBeTruthy();
+    });
+
+    // Security guard for the Bug B fix: a caller MUST NOT be able to drive
+    // enrolment onto a DIFFERENT account by supplying a foreign
+    // `body.profileId`. The principal is the token's own account; the foreign
+    // profileId must be ignored, and the begin options must carry the
+    // CALLER'S passkey user handle (their account), never the victim's.
+    it("Bug B guard: a foreign body.profileId never enrols on another account", async () => {
+      const svc = createAuthService(config);
+      const caller = await Effect.runPromise(
+        svc.registerProfile("carol@example.com", "carol").pipe(Effect.provide(layer)),
+      );
+      const victim = await Effect.runPromise(
+        svc.registerProfile("victim@example.com", "victim").pipe(Effect.provide(layer)),
+      );
+      expect(caller.accountId).not.toBe(victim.accountId);
+
+      const tokens = await Effect.runPromise(
+        svc
+          .issueTokens(caller.id, caller.accountId, caller.email, caller.handle, caller.displayName)
+          .pipe(Effect.provide(layer)),
+      );
+
+      const res = await app.handle(
+        new Request("http://localhost/passkey/register/begin", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${tokens.accessToken}`,
+          },
+          // Foreign profileId: the victim's profile on a DIFFERENT account.
+          body: JSON.stringify({ profileId: victim.id }),
+        }),
+      );
+
+      // The begin proceeds for the CALLER'S own account (bootstrap path).
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as {
+        challenge?: string;
+        user?: { id?: string };
+      };
+      expect(json.challenge).toBeTruthy();
+      // The WebAuthn user handle in the options must be the caller's account
+      // passkey user id — proving enrolment is bound to the caller, not the
+      // victim. Resolve both account passkeyUserIds and assert.
+      const { accounts: accountsTable } = await import("@osn/db/schema");
+      const { Db: Db2 } = await import("@osn/db/service");
+      const { eq } = await import("drizzle-orm");
+      const [callerAcct, victimAcct] = await Effect.runPromise(
+        Effect.gen(function* () {
+          const { db } = yield* Db2;
+          const c = yield* Effect.tryPromise(() =>
+            db.select().from(accountsTable).where(eq(accountsTable.id, caller.accountId)).limit(1),
+          );
+          const v = yield* Effect.tryPromise(() =>
+            db.select().from(accountsTable).where(eq(accountsTable.id, victim.accountId)).limit(1),
+          );
+          return [c[0]!, v[0]!] as const;
+        }).pipe(Effect.provide(layer)),
+      );
+      // WebAuthn options encode `user.id` as base64url of the account's
+      // passkeyUserId. Decode and compare against the raw account ids.
+      const decodedUserId = Buffer.from(json.user?.id ?? "", "base64url").toString("utf8");
+      expect(decodedUserId).toBe(callerAcct.passkeyUserId);
+      expect(decodedUserId).not.toBe(victimAcct.passkeyUserId);
     });
   });
 

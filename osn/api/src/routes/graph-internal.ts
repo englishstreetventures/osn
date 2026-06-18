@@ -7,6 +7,7 @@ import { Elysia, t } from "elysia";
 
 import { requireArc } from "../lib/arc-middleware";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
+import { timingSafeEqualString } from "../lib/timing-safe";
 import { createGraphService } from "../services/graph";
 
 // ---------------------------------------------------------------------------
@@ -39,16 +40,6 @@ const PERMITTED_SCOPES = new Set([
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Constant-time string equality check for shared-secret comparison (S-H101).
- * Length inequality is checked first; a mismatch returns false immediately
- * since length is not secret in a `Bearer <secret>` scheme.
- */
-function isTimingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
-}
 
 /** Extracts a safe, non-leaking message from a caught error. */
 function safeError(e: unknown): string {
@@ -225,7 +216,7 @@ export function createInternalGraphRoutes(
             set.status = 501;
             return { error: "Service registration is disabled on this instance" };
           }
-          if (!isTimingSafeEqual(headers["authorization"] ?? "", `Bearer ${secret}`)) {
+          if (!timingSafeEqualString(headers["authorization"] ?? "", `Bearer ${secret}`)) {
             set.status = 401;
             return { error: "Unauthorized" };
           }
@@ -351,7 +342,7 @@ export function createInternalGraphRoutes(
             set.status = 501;
             return { error: "Service registration is disabled on this instance" };
           }
-          if (!isTimingSafeEqual(headers["authorization"] ?? "", `Bearer ${secret}`)) {
+          if (!timingSafeEqualString(headers["authorization"] ?? "", `Bearer ${secret}`)) {
             set.status = 401;
             return { error: "Unauthorized" };
           }

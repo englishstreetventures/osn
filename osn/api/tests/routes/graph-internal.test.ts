@@ -9,7 +9,7 @@ import {
 } from "@shared/crypto";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
-import { describe, it, expect, beforeEach, beforeAll } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
 
 import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
 import { createAuthService } from "../../src/services/auth";
@@ -730,6 +730,81 @@ describe("internal graph routes (ARC-protected)", () => {
       await makeRequest("graph:read");
       const res2 = await makeRequest("graph:read");
       expect(res2.status).toBe(200);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Bug A: workerd has no `crypto.timingSafeEqual` on the GLOBAL (Web Crypto)
+  // object. The secret-bearer compare must use a workerd-safe constant-time
+  // equality (node:crypto) so `/register-service` + `/service-keys/:keyId`
+  // never 500 on the live Worker. These tests simulate workerd by removing
+  // `timingSafeEqual` from the global `crypto` for their duration.
+  // -------------------------------------------------------------------------
+  describe("Bug A: workerd-safe secret compare (no global crypto.timingSafeEqual)", () => {
+    const SECRET = "test-internal-secret";
+    beforeEach(() => {
+      app = createInternalGraphRoutes(layer, undefined, SECRET);
+      // Simulate workerd: the global Web Crypto exposes no timingSafeEqual.
+      // In Bun it lives on the Crypto prototype, so shadow it on the instance
+      // with `undefined` (configurable so afterEach can remove the shadow).
+      Object.defineProperty(globalThis.crypto, "timingSafeEqual", {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+    });
+
+    afterEach(() => {
+      // Remove the instance-level shadow so the prototype method is visible
+      // again to the rest of the suite.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (globalThis.crypto as any).timingSafeEqual;
+    });
+
+    it("register-service: wrong secret returns 401, never throws (no global timingSafeEqual)", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/register-service", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer wrong-secret" },
+          body: JSON.stringify({
+            serviceId: "cire-api",
+            keyId: "key-bug-a-1",
+            publicKeyJwk: "{}",
+            allowedScopes: "graph:read",
+          }),
+        }),
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it("register-service: valid secret proceeds (200) without global timingSafeEqual", async () => {
+      const kp = await generateArcKeyPair();
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/register-service", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SECRET}` },
+          body: JSON.stringify({
+            serviceId: "cire-api",
+            keyId: "key-bug-a-2",
+            publicKeyJwk: await exportKeyToJwk(kp.publicKey),
+            allowedScopes: "graph:read",
+          }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean };
+      expect(body.ok).toBe(true);
+    });
+
+    it("service-keys delete: valid secret returns 200 without global timingSafeEqual", async () => {
+      const { keyId } = await setupArcService("bug-a-del-svc", "graph:read");
+      const res = await app.handle(
+        new Request(`http://localhost/graph/internal/service-keys/${keyId}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${SECRET}` },
+        }),
+      );
+      expect(res.status).toBe(200);
     });
   });
 

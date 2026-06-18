@@ -165,6 +165,25 @@ describe("Turnstile gate — CONFIGURED enforces siteverify (fail-closed)", () =
     expect(((await res.json()) as { error: string }).error).toBe("turnstile_failed");
   });
 
+  it("/login/passkey/begin EXEMPTS the no-identifier conditional-UI path (no token required)", async () => {
+    // The silent discoverable-credential / passkey-autofill ceremony carries no
+    // identifier and no Turnstile token by design. It MUST proceed even when
+    // Turnstile is configured — otherwise fail-closed breaks passkey autofill
+    // sign-in. The gate must be skipped (verifier never consulted), so the
+    // response is NOT `turnstile_failed`.
+    const app = buildApp(verifier);
+    const res = await app.handle(
+      new Request("http://localhost/login/passkey/begin", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({}),
+      }),
+    );
+    const json = (await res.json()) as { error?: string };
+    expect(json.error).not.toBe("turnstile_failed");
+    expect(res.status).toBe(200);
+  });
+
   it("/login/passkey/begin passes when the token verifies", async () => {
     const app = buildApp(verifier);
     const res = await app.handle(

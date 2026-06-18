@@ -9,7 +9,7 @@ import {
   type RateLimiterBackend,
 } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
-import { Effect, Layer } from "effect";
+import { Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../lib/auth-derive";
@@ -360,20 +360,28 @@ export function createAuthRoutes(
 
   /**
    * Resolves the authenticated principal for /passkey/register/* calls.
-   * The caller must present a Bearer access token whose `sub` matches the
-   * body `profileId`; we resolve `accountId` via a DB lookup. New users
-   * enroll their first passkey using the access token issued by
-   * `/register/complete`; existing users add additional passkeys using a
-   * normal session access token.
+   *
+   * Authorization is bound to the ACCESS TOKEN'S OWN `sub` — we verify the
+   * Bearer token, then resolve the owning account from the token's profile id
+   * (the same pattern `/step-up/passkey/*` uses). The enrolment always lands
+   * on the caller's own account.
+   *
+   * The client-supplied `body.profileId` is NOT a trust input and is NOT
+   * required to equal the token's `sub`: it cannot move the enrolment to
+   * another account (we never read it to pick the account), and requiring an
+   * exact echo produced a spurious 401 whenever the client's notion of the
+   * active profile drifted from the token's `sub` — e.g. after a silent token
+   * refresh re-issues the access token for the account's default profile while
+   * the UI still holds a stale `activeProfileId` (Bug B: organiser "Add
+   * passkey" returned 401 unauthorized). New users enroll their first passkey
+   * using the token issued by `/register/complete`; existing users add more
+   * with a normal session access token.
    */
   type Principal = { unauthorized: true } | { unauthorized: false; accountId: string };
-  async function resolvePasskeyEnrollPrincipal(
-    authHeader: string | undefined,
-    bodyProfileId: string,
-  ): Promise<Principal> {
+  async function resolvePasskeyEnrollPrincipal(authHeader: string | undefined): Promise<Principal> {
     const claims = await resolveAccessTokenPrincipal(auth, authHeader);
-    if (!claims || claims.profileId !== bodyProfileId) return { unauthorized: true };
-    const profile = await run(auth.findProfileById(bodyProfileId));
+    if (!claims) return { unauthorized: true };
+    const profile = await run(auth.findProfileById(claims.profileId));
     if (!profile) return { unauthorized: true };
     return { unauthorized: false, accountId: profile.accountId };
   }
@@ -566,10 +574,7 @@ export function createAuthRoutes(
             return rlErr;
           }
           try {
-            const principal = await resolvePasskeyEnrollPrincipal(
-              headers.authorization,
-              body.profileId,
-            );
+            const principal = await resolvePasskeyEnrollPrincipal(headers.authorization);
             if (principal.unauthorized) {
               set.status = 401;
               return { error: "unauthorized" };
@@ -615,10 +620,7 @@ export function createAuthRoutes(
             return rlErr;
           }
           try {
-            const principal = await resolvePasskeyEnrollPrincipal(
-              headers.authorization,
-              body.profileId,
-            );
+            const principal = await resolvePasskeyEnrollPrincipal(headers.authorization);
             if (principal.unauthorized) {
               set.status = 401;
               return { error: "unauthorized" };
@@ -670,10 +672,21 @@ export function createAuthRoutes(
             return rlErr;
           }
           // Turnstile bot gate (key-optional; no-op when the secret is unset).
-          const tsErr = await turnstileGate("passkey_login_begin", body.turnstileToken, headers);
-          if (tsErr) {
-            set.status = 400;
-            return tsErr;
+          // ONLY the interactive, identifier-bound form carries a token and is
+          // gated. The silent conditional-UI / discoverable-credential ceremony
+          // (no identifier) runs token-free BY DESIGN — the frontend renders no
+          // challenge for it — so gating it would fail-closed and break passkey
+          // autofill sign-in (the common path). It discloses nothing
+          // account-specific, still requires a valid passkey assertion to
+          // complete, and remains per-IP rate-limited above.
+          const identifierPresent =
+            typeof body.identifier === "string" && body.identifier.trim() !== "";
+          if (identifierPresent) {
+            const tsErr = await turnstileGate("passkey_login_begin", body.turnstileToken, headers);
+            if (tsErr) {
+              set.status = 400;
+              return tsErr;
+            }
           }
           try {
             // M-PK: identifier is optional. Omitting it kicks off the
