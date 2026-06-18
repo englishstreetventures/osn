@@ -57,6 +57,9 @@ export function SignIn(props: SignInProps) {
   // Turnstile token — REQUIRED only when a sitekey is provided.
   const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
   const turnstileOn = () => turnstileEnabled(props.turnstileSiteKey);
+  // Bound to the widget once it mounts; lets us force a fresh token after the
+  // current one is redeemed by `/login/passkey/begin` (tokens are single-use).
+  let resetTurnstile: (() => void) | undefined;
 
   function reportError(e: unknown, fallback: string) {
     const msg = e instanceof Error ? e.message : fallback;
@@ -90,6 +93,13 @@ export function SignIn(props: SignInProps) {
         : client.passkeyBegin(trimmed))) as {
         options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
       };
+      // The token (if any) has now been redeemed by `/begin`. Tokens are
+      // single-use, so retire it and ask the widget for a fresh one — otherwise
+      // any retry (cancelled ceremony, wrong passkey, …) replays the redeemed
+      // token, the server rejects it `timeout-or-duplicate`, and the user is
+      // trapped on the login screen. Cloudflare only auto-refreshes on the
+      // ~300s expiry, not on consumption, so we must reset explicitly.
+      if (turnstileOn()) resetTurnstile?.();
       const assertion = await startAuthentication({ optionsJSON: beginResult.options });
       const { session } = await client.passkeyComplete({ identifier: trimmed, assertion });
       await finishWithSession(session);
@@ -177,7 +187,11 @@ export function SignIn(props: SignInProps) {
             />
           </div>
           {/* Turnstile challenge — renders only when a sitekey is provided. */}
-          <TurnstileWidget siteKey={props.turnstileSiteKey} onToken={setTurnstileToken} />
+          <TurnstileWidget
+            siteKey={props.turnstileSiteKey}
+            onToken={setTurnstileToken}
+            onReady={(c) => (resetTurnstile = c.reset)}
+          />
           <Button
             type="submit"
             disabled={busy() || !identifier().trim() || (turnstileOn() && !turnstileToken())}

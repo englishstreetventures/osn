@@ -81,6 +81,17 @@ export interface TurnstileWidgetProps {
   siteKey?: string;
   /** Fires with a fresh token on success, `null` on expiry/error. */
   onToken: (token: string | null) => void;
+  /**
+   * Handed a `reset()` once the widget has rendered. Turnstile tokens are
+   * SINGLE-USE: once a token has been submitted to (and redeemed by) a backend,
+   * calling `reset()` discards it and asks Cloudflare for a fresh challenge —
+   * the new token arrives via `onToken`. Without this, a form that re-submits
+   * (e.g. a failed/retried sign-in) replays the already-redeemed token and the
+   * server fails it closed (`timeout-or-duplicate`), trapping the user in a
+   * login loop. The callback is a no-op until the widget exists, so callers can
+   * invoke it unconditionally.
+   */
+  onReady?: (controls: { reset: () => void }) => void;
   theme?: "light" | "dark" | "auto";
   class?: string;
 }
@@ -122,6 +133,23 @@ export function TurnstileWidget(props: TurnstileWidgetProps) {
             props.onToken(null);
           },
         });
+        // Hand the parent a reset() bound to THIS widget instance so it can
+        // force a fresh token after the current one is redeemed (single-use).
+        props.onReady?.({
+          reset: () => {
+            const api = getTurnstile();
+            if (!api || widgetId === undefined) return;
+            // Drop the stale token immediately so the form can't replay it in
+            // the gap before Cloudflare delivers a new one via `callback`.
+            props.onToken(null);
+            try {
+              api.reset(widgetId);
+            } catch {
+              // Widget already torn down — nothing to reset.
+            }
+          },
+        });
+        return;
       })
       .catch(() => {
         setFailed(true);

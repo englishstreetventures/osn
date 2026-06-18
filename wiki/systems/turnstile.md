@@ -16,7 +16,7 @@ packages:
   - "@cire/web"
   - "@cire/organiser"
 finding-ids: []
-last-reviewed: 2026-06-18
+last-reviewed: 2026-06-19
 ---
 
 # Turnstile bot protection
@@ -84,6 +84,38 @@ limiter keys on — see [[rate-limiting]].
 **Same widget for both backends.** One sitekey + one secret; the widget's
 domains cover `cireweddings.com` (guest) and `app.cireweddings.com` (organiser),
 and osn-api lives on `id.cireweddings.com`.
+
+> **Widget allowed-hostnames must include every form origin.** Turnstile only
+> issues a token on a hostname listed in the widget's **Domains** (Cloudflare
+> dashboard → Turnstile → widget). If `app.cireweddings.com` is missing, the
+> organiser widget fires `error-callback` (Cloudflare error `110200`), never
+> calls back with a token, and the gated form's submit stays disabled — the
+> `@osn/ui` widget surfaces this as "Couldn't load the verification challenge",
+> not a silent hang. Add **`cireweddings.com`, `app.cireweddings.com`,
+> `id.cireweddings.com`** to the widget's domain list.
+
+## Client widget: single-use tokens must be reset after each submit
+
+A Turnstile token is **single-use**: once a backend has siteverified it, the
+same value is rejected `timeout-or-duplicate` forever. Cloudflare only
+auto-refreshes a token on its **~300s expiry**, *not* when it is consumed by a
+form submit. So a frontend that re-submits a form (a retried sign-in, a "resend
+code") **must explicitly reset the widget** to mint a fresh token — otherwise it
+replays the redeemed token and the server fail-closes it.
+
+`@osn/ui`'s `TurnstileWidget` exposes this via `onReady({ reset })`: `reset()`
+drops the stale token (`onToken(null)`) and calls Cloudflare's `turnstile.reset()`
+on the live widget instance (no re-render, no new iframe), and the fresh token
+arrives on the existing `onToken` callback. `SignIn` and `Register` call it
+immediately after each token-consuming `/begin` call.
+
+**Login-loop regression (fixed):** before this wiring, once the prod sitekey +
+secret went live (**#160**), the organiser `SignIn` form replayed its redeemed
+token on every retry → `/login/passkey/begin` returned `turnstile_failed` → the
+user bounced back to the login screen. Any new client form that gates a backend
+call on a Turnstile token MUST reset the widget after the call. The silent
+conditional-UI (autofill) passkey ceremony is exempt — it carries no token and
+osn-api does not gate it (#163 Bug C).
 
 ## Activation (the rollout order matters)
 

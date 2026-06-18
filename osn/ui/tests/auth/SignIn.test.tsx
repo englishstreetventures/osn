@@ -177,6 +177,78 @@ describe("SignIn component", () => {
     });
   });
 
+  describe("Turnstile single-use token (login-loop regression)", () => {
+    // A minimal stand-in for Cloudflare's `window.turnstile`. `render` issues
+    // a fresh token synchronously; `reset` issues another and re-fires the
+    // callback — exactly Cloudflare's contract. This lets us prove the form
+    // never replays a redeemed (single-use) token, which is what trapped
+    // organisers on the login screen once the prod sitekey went live (#160).
+    function installTurnstileStub() {
+      let n = 0;
+      let cb: ((token: string) => void) | undefined;
+      const reset = vi.fn(() => {
+        n += 1;
+        cb?.(`tok-${n}`);
+      });
+      const stub = {
+        render: vi.fn((_el: HTMLElement, opts: { callback?: (t: string) => void }) => {
+          cb = opts.callback;
+          n += 1;
+          cb?.(`tok-${n}`);
+          return "widget-1";
+        }),
+        reset,
+        remove: vi.fn(),
+      };
+      (globalThis as unknown as { turnstile?: unknown }).turnstile = stub;
+      return { stub, reset };
+    }
+
+    afterEach(() => {
+      delete (globalThis as unknown as { turnstile?: unknown }).turnstile;
+    });
+
+    it("retries with a FRESH token after a failed ceremony — never replays the redeemed one", async () => {
+      const { reset } = installTurnstileStub();
+
+      login.passkeyBegin.mockResolvedValue({ options: { challenge: "ch" } });
+      // First ceremony fails (user cancels / wrong passkey); second succeeds.
+      hoisted.startAuthentication
+        .mockRejectedValueOnce(new Error("ceremony cancelled"))
+        .mockResolvedValueOnce({ id: "cred", rawId: "raw" });
+      login.passkeyComplete.mockResolvedValue({ session: sampleSession, user: sampleUser });
+      hoisted.adoptSession.mockResolvedValue(undefined);
+
+      render(() => (
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          turnstileSiteKey="0x4AAAAAADnA2piUnbgG_kVw"
+        />
+      ));
+
+      fillIdentifier("alice");
+      // Wait for the widget to deliver its first token + enable the button.
+      const button = () => screen.getByRole("button", { name: /^Continue$/ }) as HTMLButtonElement;
+      await waitFor(() => expect(button().disabled).toBe(false));
+
+      // Attempt 1 — begin consumes tok-1, then the ceremony fails.
+      fireEvent.click(button());
+      await waitFor(() => expect(login.passkeyBegin).toHaveBeenCalledTimes(1));
+      expect(login.passkeyBegin).toHaveBeenLastCalledWith("alice", "tok-1");
+      // The widget must have been reset so a retry gets a fresh token.
+      await waitFor(() => expect(reset).toHaveBeenCalled());
+
+      // Attempt 2 — must carry a DIFFERENT (fresh) token, not the redeemed tok-1.
+      await waitFor(() => expect(button().disabled).toBe(false));
+      fireEvent.click(button());
+      await waitFor(() => expect(login.passkeyBegin).toHaveBeenCalledTimes(2));
+      const secondToken = login.passkeyBegin.mock.calls[1]![1] as string;
+      expect(secondToken).not.toBe("tok-1");
+      await waitFor(() => expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession));
+    });
+  });
+
   describe("WebAuthn-unsupported fallback", () => {
     it("shows the informational screen and routes to recovery on click", async () => {
       hoisted.webauthnSupported = false;

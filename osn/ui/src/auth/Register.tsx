@@ -54,6 +54,10 @@ export function Register(props: RegisterProps) {
   // Turnstile token — REQUIRED only when a sitekey is provided.
   const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
   const turnstileOn = () => turnstileEnabled(props.turnstileSiteKey);
+  // Bound to the widget once it mounts; forces a fresh token after the current
+  // one is redeemed by `/register/begin` (tokens are single-use — Cloudflare
+  // only auto-refreshes on the ~300s expiry, not on consumption).
+  let resetTurnstile: (() => void) | undefined;
 
   const [handleStatus, setHandleStatus] = createSignal<
     "idle" | "checking" | "available" | "taken" | "invalid" | "error"
@@ -104,6 +108,10 @@ export function Register(props: RegisterProps) {
         displayName: displayName().trim() || undefined,
         turnstileToken: turnstileToken() ?? undefined,
       });
+      // Token redeemed by `/begin`; retire it + request a fresh one so a later
+      // resend (or a retry after a transient error) never replays a single-use
+      // token and gets rejected `timeout-or-duplicate`.
+      if (turnstileOn()) resetTurnstile?.();
       toast.success("Verification code sent");
       setStep("verify");
       startResendCooldown();
@@ -164,10 +172,11 @@ export function Register(props: RegisterProps) {
         email: email(),
         handle: handle(),
         displayName: displayName().trim() || undefined,
-        // Turnstile tokens are single-use; the widget auto-refreshes a fresh one
-        // before the 300s TTL, so the value here is the latest unconsumed token.
+        // Turnstile tokens are single-use. We reset the widget after every
+        // redeeming call, so the value here is a fresh, unconsumed token.
         turnstileToken: turnstileToken() ?? undefined,
       });
+      if (turnstileOn()) resetTurnstile?.();
       setOtp("");
       setOtpStatus("idle");
       startResendCooldown();
@@ -296,7 +305,11 @@ export function Register(props: RegisterProps) {
             </div>
 
             {/* Turnstile challenge — renders only when a sitekey is provided. */}
-            <TurnstileWidget siteKey={props.turnstileSiteKey} onToken={setTurnstileToken} />
+            <TurnstileWidget
+              siteKey={props.turnstileSiteKey}
+              onToken={setTurnstileToken}
+              onReady={(c) => (resetTurnstile = c.reset)}
+            />
 
             <Button type="submit" disabled={!detailsValid() || busy()}>
               {busy() ? "Sending…" : "Send verification code"}

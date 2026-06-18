@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { render, cleanup, screen } from "@solidjs/testing-library";
+import { render, cleanup, screen, waitFor } from "@solidjs/testing-library";
 import { describe, it, expect, afterEach, vi } from "vitest";
 
 import { TurnstileWidget, turnstileEnabled } from "../../src/auth/TurnstileWidget";
@@ -38,5 +38,40 @@ describe("TurnstileWidget — unconfigured renders nothing", () => {
     render(() => <TurnstileWidget siteKey="0x4AAAtest" onToken={onToken} />);
     // The accessible label is always present in the configured branch.
     expect(screen.getByText("Human verification challenge")).toBeTruthy();
+  });
+});
+
+describe("TurnstileWidget — single-use reset (onReady)", () => {
+  afterEach(() => {
+    delete (globalThis as unknown as { turnstile?: unknown }).turnstile;
+  });
+
+  it("hands the parent a reset() that drops the stale token then resets the widget", async () => {
+    let cb: ((token: string) => void) | undefined;
+    const reset = vi.fn();
+    (globalThis as unknown as { turnstile?: unknown }).turnstile = {
+      render: vi.fn((_el: HTMLElement, opts: { callback?: (t: string) => void }) => {
+        cb = opts.callback;
+        cb?.("first-token");
+        return "wid-1";
+      }),
+      reset,
+      remove: vi.fn(),
+    };
+
+    const onToken = vi.fn();
+    let controls: { reset: () => void } | undefined;
+    render(() => (
+      <TurnstileWidget siteKey="0x4AAAtest" onToken={onToken} onReady={(c) => (controls = c)} />
+    ));
+
+    await waitFor(() => expect(controls).toBeDefined());
+    await waitFor(() => expect(onToken).toHaveBeenCalledWith("first-token"));
+
+    controls!.reset();
+    // The stale token is dropped synchronously (null) so the form can't replay it,
+    expect(onToken).toHaveBeenCalledWith(null);
+    // and the underlying Cloudflare widget is reset to mint a fresh challenge.
+    expect(reset).toHaveBeenCalledWith("wid-1");
   });
 });
