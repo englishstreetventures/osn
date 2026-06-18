@@ -52,8 +52,14 @@ export const createInvitePublicRoutes = (
   images?: ImagesBindingLike,
 ) =>
   new Elysia({ prefix: "/api/invite" })
-    .get("/:slug", ({ params, set }) =>
-      runCire(
+    .get("/:slug", ({ params, set }) => {
+      // Personalised, edit-sensitive payload (hero image URL + theme + copy).
+      // It must never be served stale, or organiser edits won't surface on the
+      // guest invite's on-mount revalidation. The image *bytes* stay immutable
+      // (their URL is version-busted via updatedAt), but this JSON that hands
+      // out those URLs is no-store.
+      set.headers["cache-control"] = "no-store";
+      return runCire(
         inviteService.getForSlug(params.slug).pipe(
           Effect.provideService(DbService, db),
           Effect.catchTag("WeddingNotFound", () =>
@@ -69,8 +75,8 @@ export const createInvitePublicRoutes = (
             }),
           ),
         ),
-      ),
-    )
+      );
+    })
     .get("/:slug/image/:slot", ({ params, query, request, set }) => {
       if (!isInviteImageSlot(params.slot)) {
         set.status = 404;

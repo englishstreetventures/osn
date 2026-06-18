@@ -1,4 +1,4 @@
-import { createSignal, Show, For } from "solid-js";
+import { createResource, createSignal, Show, For } from "solid-js";
 
 import { DetailsModal } from "./DetailsModal";
 import { EventCard } from "./EventCard";
@@ -7,13 +7,26 @@ import { LoginSection } from "./LoginSection";
 import { RsvpModal } from "./RsvpModal";
 import type { ClaimResult, EventSummary, RsvpSummary } from "./types";
 
+/** Shape of the public invite endpoint we consume — only the theme matters here. */
+interface InviteCustomisationResponse {
+  theme?: InviteTheme | null;
+}
+
 interface InvitePageProps {
   apiUrl: string;
+  /**
+   * The wedding slug, used to revalidate the invite customisation at runtime so
+   * the events ("details") section reflects the organiser's latest saved theme
+   * without a site rebuild. Absent ⇒ no revalidation (the build-time `theme`
+   * prop is used as-is) — keeps no-slug callers (e.g. unit tests) deterministic.
+   */
+  slug?: string;
   siteUrl?: string;
   /**
    * The per-section theme, resolved at build time in `index.astro` (same source
-   * as the hero). Drives the events ("details") section's accent + surface +
-   * fonts. Absent / null ⇒ the section renders with the built-in tokens.
+   * as the hero). Used as the initial render value so the events section paints
+   * with the real theme in the SSR'd HTML; the on-mount revalidation below then
+   * overrides it with the latest saved theme.
    */
   theme?: InviteTheme | null;
 }
@@ -26,9 +39,33 @@ export default function InvitePage(props: InvitePageProps) {
   const siteUrl = () =>
     props.siteUrl ?? (typeof window !== "undefined" ? window.location.origin : "");
 
+  // Revalidate the invite customisation on mount so the events section reflects
+  // the organiser's latest saved theme. The static guest site bakes the build-
+  // time theme into the prop; without this re-fetch a theme change made after the
+  // last build would never reach guests until a rebuild (the bug this fixes). The
+  // build-time `theme` seeds the resource so first paint is immediate and the
+  // no-JS fallback still renders the SSR'd theme. Only fetches when a slug is
+  // present; a non-OK / failed revalidation keeps the already-painted theme.
+  const [liveTheme] = createResource<InviteTheme | null>(
+    async () => {
+      if (!props.slug) return props.theme ?? null;
+      try {
+        const res = await fetch(`${props.apiUrl}/api/invite/${props.slug}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) return props.theme ?? null;
+        const body = (await res.json()) as InviteCustomisationResponse;
+        return body.theme ?? null;
+      } catch {
+        return props.theme ?? null;
+      }
+    },
+    { initialValue: props.theme ?? null },
+  );
+
   // Validated CSS-variable map for the "details" section; an unset field falls
   // through to the built-in token via the var() fallbacks below.
-  const detailsVars = () => sectionThemeVars(props.theme ?? null, "details");
+  const detailsVars = () => sectionThemeVars(liveTheme() ?? null, "details");
 
   let loginFormRef: HTMLDivElement;
   let welcomeRef: HTMLDivElement;

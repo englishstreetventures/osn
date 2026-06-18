@@ -152,6 +152,102 @@ describe("InvitePage", () => {
     expect(section.style.getPropertyValue("--invite-accent")).toBe("");
   });
 
+  it("revalidates the details theme at runtime, overriding the stale build-time prop", async () => {
+    // The build-time prop carries an OLD accent; the live /api/invite/:slug
+    // response carries the organiser's NEW accent. With a slug present, the
+    // on-mount revalidation must win — this is the live-customisation fix: a
+    // theme change reaches guests without a static rebuild.
+    const liveInvite = {
+      hero: { title: null, subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      theme: {
+        headingFont: null,
+        bodyFont: null,
+        hero: { accentColor: null, surfaceColor: null },
+        story: { accentColor: null, surfaceColor: null },
+        details: { accentColor: "#00ff00", surfaceColor: null },
+      },
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      // The invite-customisation revalidation.
+      if (url.includes("/api/invite/")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(liveInvite), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      // The auto-claim POST (?code= deep-link).
+      return Promise.resolve(
+        new Response(JSON.stringify({ ...claim, preview: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { getByText } = render(() => (
+      <InvitePage
+        apiUrl="https://api.test"
+        slug="cire-wedding"
+        theme={{
+          headingFont: null,
+          bodyFont: null,
+          hero: { accentColor: null, surfaceColor: null },
+          story: { accentColor: null, surfaceColor: null },
+          // Stale build-time accent — must be overridden by the live fetch.
+          details: { accentColor: "#abcdef", surfaceColor: null },
+        }}
+      />
+    ));
+
+    await waitFor(() => expect(getByText("Your Events")).toBeTruthy(), { timeout: 2000 });
+    const section = getByText("Your Events").closest("section") as HTMLElement;
+    await waitFor(() => expect(section.style.getPropertyValue("--invite-accent")).toBe("#00ff00"));
+  });
+
+  it("keeps the build-time theme when the runtime revalidation fails (non-OK)", async () => {
+    // A transient API blip must NOT wipe the already-painted SSR'd theme. With a
+    // slug present, a non-OK /api/invite/:slug response keeps the build-time prop.
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/invite/")) {
+        return Promise.resolve(new Response("nope", { status: 500 }));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ ...claim, preview: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { getByText } = render(() => (
+      <InvitePage
+        apiUrl="https://api.test"
+        slug="cire-wedding"
+        theme={{
+          headingFont: null,
+          bodyFont: null,
+          hero: { accentColor: null, surfaceColor: null },
+          story: { accentColor: null, surfaceColor: null },
+          details: { accentColor: "#abcdef", surfaceColor: null },
+        }}
+      />
+    ));
+
+    await waitFor(() => expect(getByText("Your Events")).toBeTruthy(), { timeout: 2000 });
+    const section = getByText("Your Events").closest("section") as HTMLElement;
+    // The failed revalidation must leave the build-time accent untouched.
+    expect(section.style.getPropertyValue("--invite-accent")).toBe("#abcdef");
+  });
+
   it("threads existingRsvps, apiUrl, members and onSubmitted into RsvpModal", async () => {
     vi.stubGlobal(
       "fetch",

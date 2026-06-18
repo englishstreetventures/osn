@@ -119,6 +119,13 @@ describe("GET /api/invite/:slug (public)", () => {
     const res = await appRequest(app, "/api/invite/no-such-wedding");
     expect(res.status).toBe(404);
   });
+
+  it("is served no-store so organiser edits are never masked by a cached body", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `/api/invite/${SLUG}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
 });
 
 describe("PUT /invite/text (organiser)", () => {

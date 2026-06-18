@@ -72,7 +72,9 @@ export default function InviteHeader(props: InviteHeaderProps) {
   const [data] = createResource<InviteCustomisation | null>(
     async () => {
       try {
-        const res = await fetch(`${props.apiUrl}/api/invite/${props.slug}`);
+        const res = await fetch(`${props.apiUrl}/api/invite/${props.slug}`, {
+          cache: "no-store",
+        });
         // On a non-OK/failed revalidation keep the build-time data rather than
         // wiping the already-painted hero.
         if (!res.ok) return props.initial ?? null;

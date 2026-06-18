@@ -4,7 +4,7 @@ tags: [architecture, api, web, db]
 related:
   - "[[index]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-06-18
+last-reviewed: 2026-06-19
 ---
 
 # Invite Builder
@@ -125,14 +125,41 @@ is rejected (415). Allowlist: JPEG, PNG, WebP.
 
 ## Guest rendering
 
-`cire/web` is a `output: "static"` Astro site, so per-wedding values can't be
-read at build time. The old static `Hero.astro` / `OurStory.astro` are replaced
-by a client-hydrated SolidJS island `cire/web/src/components/InviteHeader.tsx`
-(`client:load`) that fetches `GET /api/invite/:slug` on mount and applies
-overrides, falling back to the original copy when a field is null. The island is
-SSR'd with defaults at build time, so the first paint is the default copy and
-customisations hydrate in (the hero background image fades in on load). The
-`/api/claim` event/guest flow (`InvitePage`) and its animations are untouched.
+`cire/web` is a `output: "static"` Astro site. `index.astro` fetches
+`GET /api/invite/:slug` **at build time** and bakes the result (hero image URL +
+copy + theme) into the SSR'd HTML, so the largest-contentful element paints
+immediately and the no-JS fallback still renders. But the static snapshot alone
+is stale: an organiser who updates the hero or theme after the last build would
+not reach guests until a rebuild. So both guest islands **revalidate at runtime**
+and let the fresh `/api/invite/:slug` response override the build-time snapshot:
+
+- `cire/web/src/components/InviteHeader.tsx` (`client:load`) — the hero + "Our
+  Story" sections. Fetches on mount via a SolidJS `createResource` seeded with
+  the build-time `initial` prop, and drives the hero **image**, copy, story, and
+  the hero/story **theme** from the live response (the hero background image
+  fades in on load).
+- `cire/web/src/components/InvitePage.tsx` (`client:visible`) — the
+  "details"/events section. Also revalidates on mount (`createResource` seeded
+  with the build-time `theme` prop, keyed on the `slug` prop threaded from
+  `index.astro`) so the events-section theme reflects the latest saved value. A
+  non-OK / failed revalidation keeps the already-painted build-time theme; with
+  no `slug` (e.g. unit tests) the build-time prop is used as-is.
+
+Net effect: **invite customisation (hero image + theme) is reflected at runtime —
+no site rebuild needed.** The build-time snapshot is only the fast-first-paint /
+no-JS placeholder; the on-mount fetch is the source of truth. The `/api/claim`
+event/guest flow (`InvitePage`'s claim/RSVP logic) and its animations are
+untouched.
+
+**Cache discipline (why edits surface):** `GET /api/invite/:slug` is sent
+`Cache-Control: no-store`, and both islands fetch it with `{ cache: "no-store" }`.
+The JSON hands out the version-busted hero/story image URLs, so if it were itself
+cached (heuristically by the browser, or at an edge) the on-mount revalidation
+would read a stale body and the new hero/theme would never appear — the exact
+"saved in settings but not on the invite" symptom. The image **bytes** at
+`/api/invite/:slug/image/:slot` stay `immutable, max-age=1y`; that's safe because
+their URL carries `?v=<updatedAt>` and every upload bumps `updatedAt` + writes a
+fresh R2 key.
 
 The **theme** drives CSS custom properties (`--invite-accent`, `--invite-surface`,
 `--invite-heading`, `--invite-body`) set on each section wrapper's inline `style`,
@@ -140,10 +167,9 @@ consumed by the section's elements via `var(--invite-*, <built-in-token>)`
 fallbacks — so an unset (or validation-rejected) field resolves to the original
 gold / surface / display token. `cire/web/src/components/invite-theme.ts`
 (`sectionThemeVars`, `fontStack`) builds the validated variable map (re-checking
-colours + resolving the font key). The hero + story sections read the theme from
-the same `InviteHeader` data; the "details"/events section in `InvitePage` takes
-the theme as a prop, resolved at build time in `index.astro` alongside the hero
-(no client fetch waterfall).
+colours + resolving the font key). The hero + story sections read the live theme
+from `InviteHeader`'s resource; the "details"/events section reads the live theme
+from `InvitePage`'s own resource (both override the build-time snapshot above).
 
 `PUBLIC_WEDDING_SLUG` (env) selects which wedding's customisation the guest site
 renders (default `cire-wedding`, the bootstrap wedding slug).
