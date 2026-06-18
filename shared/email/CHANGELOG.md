@@ -1,5 +1,17 @@
 # @shared/email
 
+## 0.2.7
+
+### Patch Changes
+
+- f2c1351: Allow osn-api to boot in non-local environments WITHOUT Cloudflare email as an explicit opt-in.
+
+  By default osn-api still fails closed at startup when `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` are absent in a non-local env. Setting the new non-secret boolean `OSN_EMAIL_OPTIONAL=true` now lets it boot with a no-op email transport (`makeNoopEmailLive` in `@shared/email`) that discards transactional mail and emits a loud, redacted startup warning instead of throwing. Cloudflare creds always win when present. Transport selection is centralised in `osn/api/src/lib/email-layer.ts` (shared by the Bun and Workers entries).
+
+- Updated dependencies [5055e1a]
+- Updated dependencies [130e6c5]
+  - @shared/observability@0.11.0
+
 ## 0.2.6
 
 ### Patch Changes

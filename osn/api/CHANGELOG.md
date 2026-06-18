@@ -1,5 +1,274 @@
 # @osn/osn
 
+## 3.7.0
+
+### Minor Changes
+
+- 44b0982: Add an ARC-gated internal endpoint `GET /graph/internal/profile-by-handle` that
+  resolves an OSN handle (e.g. `@alice`) to its profile id (plus handle +
+  display name), or 404. Requires audience `osn-api` + scope `graph:read`, mirrors
+  the existing `/profile-account` route, and applies the same tombstone rule (a
+  soft-deleted account is invisible during the grace window). Handle input is
+  normalised (strips a leading `@`, lowercases) before the exact-match lookup.
+
+  Consumed by cire to turn an organiser-typed handle into a `usr_*` id when adding
+  a wedding co-host — cire has no other way to map a handle to a profile id.
+
+- 5055e1a: OSN core auth hardening (W6):
+
+  - **O1 — issuer pinning + clock tolerance.** Access and step-up JWTs are now
+    signed with `iss = AuthConfig.issuerUrl` and verified with `issuer` pinned +
+    a 30s `clockTolerance` at every verify site (local signer + verifier half;
+    the downstream `@shared/osn-auth-client` verifier is W7). Rollout is
+    verifier-first: the tolerant verifier must deploy before the signer enforces
+    `iss`.
+  - **O2 — recovery-code per-account lockout.** `consumeRecoveryCode` now counts
+    failed attempts keyed on the RESOLVED accountId (threshold 5, 15-min
+    lockout), Redis-backed with an in-memory fallback. Lockout returns the same
+    generic error (no enumeration oracle), writes a `recovery_code_lockout`
+    security-event row, and resets on success. Unknown identifiers never lock a
+    victim.
+  - **O3 — full Redis ceremony-store epic.** Every process-local ceremony /
+    pending-state store (registration + login + step-up challenges, pending
+    registrations, step-up OTP, pending email changes, cross-device requests) now
+    has an injectable Redis-backed implementation alongside the in-memory default,
+    plus the two per-account caps (profile-switch, email-change-begin) routed
+    through the rate-limiter family. New `RedisNamespace` metric union in
+    `@shared/redis` and per-namespace store telemetry.
+  - **O4 — passkey-register cookieless fix.** `completePasskeyRegistration` now
+    invalidates ALL account sessions (with a logged anomaly + invalidation
+    metric) when no caller session is resolvable, instead of silently skipping
+    H1 invalidation.
+  - **O5 — randomised enumeration-probe sentinels.** The fixed `acc_enum_probe` /
+    `__nonexistent__` burn-in keys are now per-request random non-matching ids.
+
+  `@shared/observability` adds the `recovery_code_lockout` security-event kind.
+
+- dbed689: Rate-limit + IP-trust hardening for osn-api behind Cloudflare.
+
+  - **Client-IP trust (security fix):** the non-local Workers runtime now keys per-IP rate limiting on `cf-connecting-ip` exclusively (`trustCloudflare: true`), never the spoofable `x-forwarded-for`. This closes the bypass where an attacker forged XFF to rotate past the per-IP auth limits. Local Bun dev keeps socket-peer keying; `TRUSTED_PROXY_COUNT` is now ignored in deployed tiers. Unresolved IPs still deny (429), never bucket-share.
+  - **Native Workers rate limiting:** the 60-second-window per-IP auth limiters move off Upstash onto the Cloudflare Workers native Rate Limiting binding (global + atomic at the edge, fail-closed). The three 1-hour-window per-IP limiters (recovery generate/complete, email-change-begin), every per-user/per-account limiter, and every stateful store stay on Upstash. `createWorkersRateLimiter` + `WorkersRateLimitBinding` are now shared from `@shared/rate-limit`.
+  - **Workers observability:** `[observability]` enabled in `osn/api/wrangler.toml` (and every named env) so Workers Logs/invocations are captured in the Cloudflare dashboard.
+
+  Per-colo trade-off accepted: native rate limiting is counted per Cloudflare location, not globally. osn-api must be redeployed for the new bindings + observability to take effect.
+
+- 5aa1594: osn-api runs on Cloudflare Workers (`export default { fetch, scheduled }`).
+
+  `osn/api/src/index.ts` is now the workerd entry, mirroring cire's proven
+  template: a per-isolate `cached` app, fail-closed 503 on missing
+  bindings/vars, everything built from the request-scoped `env` binding (not
+  module-top `process.env`), and a cron `scheduled` handler that runs the
+  account-erasure fan-out-retry + hard-delete sweeps (replacing the Bun
+  `setInterval`). The Bun dev server moved into `src/local.ts` and is unchanged
+  in behavior (default `bun run dev`); a runtime-agnostic `src/build-deps.ts`
+  holds the shared composition both entries call.
+
+  Highlights:
+
+  - S-L1: the Workers Redis path env-gates the in-memory fallback — a deployed
+    Worker (`OSN_ENV` set & != "local") with missing Upstash bindings fails
+    closed at construction instead of silently downgrading rate-limiters /
+    step-up-jti to per-isolate in-memory.
+  - P-I3: the Upstash client + Effect runtime + Elysia app are built once per
+    isolate and cached, never reconstructed in the request path.
+  - S-H3: the Workers entry re-applies the `x-request-id` sanitize-and-echo the
+    omitted observability plugin used to do.
+  - Secrets (`INTERNAL_SERVICE_SECRET`, `PULSE_API_URL`/`ZAP_API_URL`) are
+    threaded through `env`/the `createApp` factory instead of module-top
+    `process.env` reads, since workerd surfaces secrets only on `env`.
+  - `createApp` gains an `aot` flag (Workers passes `false`; AOT's `new
+Function` is forbidden on workerd) and keeps `includeObservabilityPlugin:
+false` + the redacting `osnLoggerLayer` on the Workers path.
+
+  `@osn/db` / `@shared/db-utils`: `DbLive`'s bun:sqlite path is resolved lazily
+  (`makeDbLive` now accepts a path thunk) so `fileURLToPath(import.meta.url)` no
+  longer runs at module load — it threw on workerd, where `import.meta.url` is
+  undefined, even though the Workers path never builds the bun:sqlite layer.
+
+  wrangler.toml gains `main`, the real per-env D1 ids, per-env `[vars]`, and a
+  6-hourly `[triggers] crons` for the sweeper. New devloop scripts: `dev`
+  (unchanged fast Bun loop), `dev:wrangler` (workerd + local D1 + in-memory
+  Redis, no external services), `deploy`, `types`, `build`.
+
+- aed9d98: Add a Workers-compatible Upstash REST Redis backend (migration Phase 2).
+
+  `@shared/redis` now ships three interchangeable `RedisClient` backends behind
+  the same interface, split so the Workers bundle never statically imports
+  `ioredis` (which needs Node `net`/`tls` sockets and cannot run on workerd):
+
+  - **ioredis split to a subpath.** `wrapIoRedis`, `createClientFromUrl`,
+    `ConnectableRedisClient`, and the Effect `RedisLive` layer moved to a new
+    `@shared/redis/ioredis` subpath export. The top-level `@shared/redis` entry
+    now exports only the `RedisClient` interface, the in-memory client, and the
+    new Upstash client — no static `ioredis` import in its graph.
+  - **Upstash adapter.** New `@shared/redis/upstash` with `wrapUpstash(redis)`
+    and `createUpstashClient({ url, token })`. `createUpstashClient` sets
+    `automaticDeserialization: false` so `get` returns raw strings (matching
+    ioredis and the rotated-session-store's opaque family-id round-trips); `set`
+    maps `pxMs` to `{ px }`; `eval` passes the script/keys/args straight through
+    (preserving numeric returns for the rate-limit Lua and the `1`/`"1"` step-up
+    jti check); `quit` is a no-op for the stateless REST transport.
+
+  `@osn/api` gains `initRedisClientFromEnv(env)` — a synchronous, ioredis-free,
+  side-effect-free selector that returns `createUpstashClient(...)` when both
+  `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are present on the
+  Workers `env` binding, else an in-memory client. It performs no startup health
+  check, has no `REDIS_REQUIRED` fail-closed mode, and never calls
+  `process.exit` — those stay on the Bun `initRedisClient` path, which is
+  unchanged. Consumers (rate limiters, rotated-session/step-up/ceremony stores)
+  remain backend-agnostic; no call sites changed.
+
+- d81383d: Add Cloudflare Turnstile bot protection to the OSN auth surface (key-optional, fail-closed).
+
+  New `@shared/turnstile` package exposes `createTurnstileVerifier(secret?)` — a key-optional, fail-closed siteverify helper. When the `TURNSTILE_SECRET_KEY` secret is **unset** the verifier is `null` and every gate is skipped (flows behave exactly as before — safe to merge before the widget exists). When **set**, it POSTs the token to Cloudflare's managed `siteverify` endpoint via `instrumentedFetch`, passing the caller's `cf-connecting-ip` as `remoteip`, and rejects on any missing / invalid / expired / duplicate (single-use) token or unreachable endpoint. The secret is never logged or returned to the client.
+
+  - **`@osn/api`**: `/register/begin` and `/login/passkey/begin` are gated. The verifier is built once per isolate in `build-deps.ts` from `env.TURNSTILE_SECRET_KEY` and threaded through `createAuthRoutes`; a configured gate fails closed with `400 turnstile_failed`. New bounded metric `osn.auth.turnstile.rejected{endpoint}`.
+  - **`@osn/client`**: `RegistrationClient.beginRegistration` and `LoginClient.passkeyBegin` accept an optional `turnstileToken`, sent on the begin call (omitted cleanly when absent — the no-Turnstile call shape is unchanged, and the silent conditional-UI passkey ceremony carries no token).
+  - **`@osn/ui`**: new `TurnstileWidget` (Solid) renders Cloudflare's widget only when a `siteKey` prop is provided (lazy-loads `api.js`, `data-action="turnstile-spin-v1"`); `Register` + `SignIn` take an optional `turnstileSiteKey` prop and gate submit on a solved challenge. Omitted ⇒ no widget, no gate.
+
+  The sitekey is public (embedded in client HTML at build time via `PUBLIC_TURNSTILE_SITEKEY`); the secret is a `wrangler secret` on osn-api. Both halves are optional and graceful, mirroring the maps-embed key and `OSN_EMAIL_OPTIONAL` precedents.
+
+### Patch Changes
+
+- 892fe3e: Wire the `cireweddings.com` custom domain into osn-api's production config. OSN
+  identity runs under the cireweddings.com zone for now (a dedicated OSN domain is
+  deferred). In `osn/api/wrangler.toml` `[env.production]`:
+
+  - `OSN_RP_ID = "cireweddings.com"` — the WebAuthn RP ID is the registrable apex
+    shared by the organiser portal (`app.cireweddings.com`), the only prod passkey
+    surface. Prod passkeys are now UNBLOCKED (previously deferred pending a domain).
+  - `OSN_ORIGIN = "https://app.cireweddings.com"` — the organiser portal is the
+    passkey origin.
+  - `OSN_ISSUER_URL = "https://id.cireweddings.com"` (JWT `iss`).
+  - `OSN_CORS_ORIGIN = "https://app.cireweddings.com"` — only the organiser portal
+    calls osn-api; an empty list throws at boot.
+  - `OSN_EMAIL_FROM = "noreply@cireweddings.com"`.
+  - A custom-domain route `[[env.production.routes]]` (`pattern =
+"id.cireweddings.com"`, `custom_domain = true`) serving the Worker on
+    `id.cireweddings.com` — auto-provisions DNS + cert since the zone is in-account.
+
+  Config-only; no app logic changed. dev/staging keep their current config. Validated
+  with `wrangler deploy --env production --dry-run`.
+
+- 7c7fab4: Refactor osn/api into a pure `createApp` factory + a Bun dev entry, with no
+  behaviour change (Phase 1 of the Cloudflare Workers migration).
+
+  - `src/app.ts` exports `createApp(deps)` — the Elysia route composition,
+    verbatim — taking an explicit `AppDeps` struct (auth config, cookie config,
+    CORS origins, origin guard, rate limiters, stores, layers, shared
+    `appRuntime`). It never reads `process.env`.
+  - `src/local.ts` owns all env-driven Bun wiring: `buildAppDeps()` loads the JWT
+    key pair, validates the session-IP pepper, initialises Redis-backed stores +
+    rate limiters, selects the email transport, and builds the Effect layer graph
+    ONCE into a shared `ManagedRuntime`; `startBunServer()` keeps the
+    `app.listen`, ephemeral-key warning, outbound ARC key rotation, and the
+    account-erasure sweeper.
+  - `src/index.ts` stays the Bun composition entry tests import: it calls
+    `buildAppDeps()` + `createApp()`, still exports `app`, and still conditionally
+    listens off `NODE_ENV`.
+
+  Redis/ioredis, observability, and the Workers `fetch` entry are untouched —
+  they belong to later phases.
+
+- f2c1351: Allow osn-api to boot in non-local environments WITHOUT Cloudflare email as an explicit opt-in.
+
+  By default osn-api still fails closed at startup when `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` are absent in a non-local env. Setting the new non-secret boolean `OSN_EMAIL_OPTIONAL=true` now lets it boot with a no-op email transport (`makeNoopEmailLive` in `@shared/email`) that discards transactional mail and emits a loud, redacted startup warning instead of throwing. Cloudflare creds always win when present. Transport selection is centralised in `osn/api/src/lib/email-layer.ts` (shared by the Bun and Workers entries).
+
+- 4d44795: Fix: register osn's outbound ARC public key with Pulse/Zap on the Cloudflare
+  Workers path before the account-erasure deletion fan-out.
+
+  Pulse + Zap verify osn's inbound ARC tokens against a **pre-registered** public
+  key (kid → registered key; no JWKS-by-kid pull). The Bun server registers that
+  key at boot via `startOutboundKeyRotation` (`local.ts`), but the workerd
+  `scheduled` handler — which runs the deletion fan-out and mints `account:erase`
+  ARC tokens — never did. The first `/internal/account-deleted` POST would be
+  401'd by the downstream and the GDPR Art. 17 erasure would stall (P6 finding).
+
+  The `scheduled` handler now calls a new `registerOutboundKeysOnce` (reusing the
+  existing `registerWithDownstream` logic) **before** the fan-out sweeps,
+  registering once per isolate (a module latch suppresses re-POSTing on later cron
+  ticks; the downstream upsert is idempotent regardless). A registration failure
+  is logged via `Effect.logError` and swallowed so a transient downstream outage
+  never aborts the cron — the latch only flips on full success, so the next tick
+  retries. The misleading "lazily inits on first outbound use" comment in
+  `src/index.ts` is corrected. No change to the Bun path.
+
+- 8af4c92: Add a workerd-safe, logger-only observability layer to `@osn/api` so the
+  eventual Cloudflare Workers entry never imports `@effect/opentelemetry/NodeSdk`
+  (Node-only, won't run on workerd).
+
+  - New `osn/api/src/observability.ts` mirrors `cire/api`'s: exports
+    `osnLoggerLayer` (built via `makeLoggerLayer(loadConfig({ serviceName: "osn-api" }))`,
+    importing only the effect-only `@shared/observability/config` + `/logger`
+    subpaths) plus `runOsn` / `runOsnSync` helpers. It deliberately never calls
+    `initObservability` / `makeTracingLayer`, which pull the Node OTel SDK. Typed
+    `Layer.Layer<never>`, so it is interchangeable with the full layer in the app
+    runtime / route signatures.
+  - `createApp` (`app.ts`) gains an `includeObservabilityPlugin: boolean` deps
+    flag. The Elysia `observabilityPlugin` calls `process.hrtime.bigint()` on the
+    per-request hot path (start timestamp + duration), which is not available on
+    workerd without `nodejs_compat`; the flag lets the Workers path omit it while
+    keeping `healthRoutes` + the redacting logger. The Bun path passes `true` —
+    no behaviour change.
+
+- 5055e1a: Harden client-IP resolution for rate limiting (S-M34).
+
+  `getClientIp` now accepts an optional `ClientIpOptions { trustedProxyCount?, trustCloudflare?, socketIp? }` and resolves the keying IP under an explicit trust policy that **fails closed**:
+
+  - `trustCloudflare` → trust `cf-connecting-ip` only (never falls back to `x-forwarded-for`); missing/invalid → unresolved.
+  - `trustedProxyCount > 0` → take the entry N-from-the-right of `x-forwarded-for` (spoofing-resistant); missing/short/malformed → unresolved.
+  - otherwise (direct/dev) → trust the transport socket peer (`socketIp`) only; absent/invalid → unresolved.
+
+  New exports: `UNRESOLVED_IP`, `isUnresolvedIp(ip)`, `isValidIp(value)`, and the `ClientIpOptions` type. The legacy no-options call form (`getClientIp(headers)`) is preserved and marked `@deprecated` — it keeps the old left-most-XFF / `"unknown"` behaviour so consumers can migrate incrementally; the hardened behaviour is opt-in via the options argument.
+
+  `@osn/api` adopts the hardened path at its auth + profile rate-limit call sites: the composition root reads `TRUSTED_PROXY_COUNT` (validated integer, default 0 = direct/socket-peer mode), wires Bun's `server.requestIP` as `socketIp`, and emits a startup warning when a non-local deploy leaves it unset. Requests whose IP is unresolved are denied (429) rather than sharing a single bucket. Session-IP persistence uses the same resolved IP.
+
+- 5055e1a: Harden shared crypto / auth-client issuer handling (W7).
+
+  - `@shared/crypto` `verifyArcToken` gains an optional `expectedIssuer` argument
+    (X1). When set, jose enforces the signed `iss`, cryptographically binding the
+    token issuer to the `kid`→issuer DB mapping. The OSN ARC middleware now passes
+    the peeked issuer so a token whose `iss` differs from its `kid`'s registered
+    service is rejected at verification time. Pulse's in-memory ARC receiver
+    passes the registered issuer too (its explicit post-verify `iss` check is kept
+    as defence-in-depth). Backward compatible — omitting the argument leaves `iss`
+    unenforced.
+  - ARC token cache key now includes the requested `ttl` and a canonicalised
+    scope (X3), so a token requested with a shorter TTL never reuses a
+    longer-lived cached entry and formatting-only scope differences collapse onto
+    one entry. Scope is not sorted (differing scope order stays distinct, matching
+    the signed claim).
+  - The ARC public-key cache TTL is now overridable via
+    `ARC_PUBLIC_KEY_CACHE_TTL_SECONDS` (default 300), bounding the cross-process
+    key-revocation window (X4).
+  - `@shared/osn-auth-client` `extractClaims` / `osnAuth` adapters gain an optional
+    `issuer` option and apply a 30s `clockTolerance` (X2). Issuer is optional and
+    unset by default for rollout safety — when unset, `iss` is not enforced so
+    pre-issuer-stamping access tokens still verify. An issuer mismatch is terminal
+    (no JWKS refetch).
+  - `@shared/redis` in-memory client `eval` now asserts it is only ever handed the
+    rate-limit Lua script (X5), so a future, semantically-different script cannot
+    silently inherit fixed-window rate-limit behaviour.
+
+- Updated dependencies [5055e1a]
+- Updated dependencies [dd2dad3]
+- Updated dependencies [f2c1351]
+- Updated dependencies [dbed689]
+- Updated dependencies [5aa1594]
+- Updated dependencies [aed9d98]
+- Updated dependencies [130e6c5]
+- Updated dependencies [5055e1a]
+- Updated dependencies [5055e1a]
+- Updated dependencies [d81383d]
+  - @shared/redis@0.4.0
+  - @shared/observability@0.11.0
+  - @osn/db@0.17.0
+  - @shared/email@0.2.7
+  - @shared/rate-limit@0.3.0
+  - @shared/db-utils@0.3.1
+  - @shared/crypto@0.8.0
+  - @shared/turnstile@0.2.0
+
 ## 3.6.0
 
 ### Minor Changes

@@ -1,5 +1,96 @@
 # @shared/redis
 
+## 0.4.0
+
+### Minor Changes
+
+- aed9d98: Add a Workers-compatible Upstash REST Redis backend (migration Phase 2).
+
+  `@shared/redis` now ships three interchangeable `RedisClient` backends behind
+  the same interface, split so the Workers bundle never statically imports
+  `ioredis` (which needs Node `net`/`tls` sockets and cannot run on workerd):
+
+  - **ioredis split to a subpath.** `wrapIoRedis`, `createClientFromUrl`,
+    `ConnectableRedisClient`, and the Effect `RedisLive` layer moved to a new
+    `@shared/redis/ioredis` subpath export. The top-level `@shared/redis` entry
+    now exports only the `RedisClient` interface, the in-memory client, and the
+    new Upstash client — no static `ioredis` import in its graph.
+  - **Upstash adapter.** New `@shared/redis/upstash` with `wrapUpstash(redis)`
+    and `createUpstashClient({ url, token })`. `createUpstashClient` sets
+    `automaticDeserialization: false` so `get` returns raw strings (matching
+    ioredis and the rotated-session-store's opaque family-id round-trips); `set`
+    maps `pxMs` to `{ px }`; `eval` passes the script/keys/args straight through
+    (preserving numeric returns for the rate-limit Lua and the `1`/`"1"` step-up
+    jti check); `quit` is a no-op for the stateless REST transport.
+
+  `@osn/api` gains `initRedisClientFromEnv(env)` — a synchronous, ioredis-free,
+  side-effect-free selector that returns `createUpstashClient(...)` when both
+  `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are present on the
+  Workers `env` binding, else an in-memory client. It performs no startup health
+  check, has no `REDIS_REQUIRED` fail-closed mode, and never calls
+  `process.exit` — those stay on the Bun `initRedisClient` path, which is
+  unchanged. Consumers (rate limiters, rotated-session/step-up/ceremony stores)
+  remain backend-agnostic; no call sites changed.
+
+### Patch Changes
+
+- 5055e1a: OSN core auth hardening (W6):
+
+  - **O1 — issuer pinning + clock tolerance.** Access and step-up JWTs are now
+    signed with `iss = AuthConfig.issuerUrl` and verified with `issuer` pinned +
+    a 30s `clockTolerance` at every verify site (local signer + verifier half;
+    the downstream `@shared/osn-auth-client` verifier is W7). Rollout is
+    verifier-first: the tolerant verifier must deploy before the signer enforces
+    `iss`.
+  - **O2 — recovery-code per-account lockout.** `consumeRecoveryCode` now counts
+    failed attempts keyed on the RESOLVED accountId (threshold 5, 15-min
+    lockout), Redis-backed with an in-memory fallback. Lockout returns the same
+    generic error (no enumeration oracle), writes a `recovery_code_lockout`
+    security-event row, and resets on success. Unknown identifiers never lock a
+    victim.
+  - **O3 — full Redis ceremony-store epic.** Every process-local ceremony /
+    pending-state store (registration + login + step-up challenges, pending
+    registrations, step-up OTP, pending email changes, cross-device requests) now
+    has an injectable Redis-backed implementation alongside the in-memory default,
+    plus the two per-account caps (profile-switch, email-change-begin) routed
+    through the rate-limiter family. New `RedisNamespace` metric union in
+    `@shared/redis` and per-namespace store telemetry.
+  - **O4 — passkey-register cookieless fix.** `completePasskeyRegistration` now
+    invalidates ALL account sessions (with a logged anomaly + invalidation
+    metric) when no caller session is resolvable, instead of silently skipping
+    H1 invalidation.
+  - **O5 — randomised enumeration-probe sentinels.** The fixed `acc_enum_probe` /
+    `__nonexistent__` burn-in keys are now per-request random non-matching ids.
+
+  `@shared/observability` adds the `recovery_code_lockout` security-event kind.
+
+- 5055e1a: Harden shared crypto / auth-client issuer handling (W7).
+
+  - `@shared/crypto` `verifyArcToken` gains an optional `expectedIssuer` argument
+    (X1). When set, jose enforces the signed `iss`, cryptographically binding the
+    token issuer to the `kid`→issuer DB mapping. The OSN ARC middleware now passes
+    the peeked issuer so a token whose `iss` differs from its `kid`'s registered
+    service is rejected at verification time. Pulse's in-memory ARC receiver
+    passes the registered issuer too (its explicit post-verify `iss` check is kept
+    as defence-in-depth). Backward compatible — omitting the argument leaves `iss`
+    unenforced.
+  - ARC token cache key now includes the requested `ttl` and a canonicalised
+    scope (X3), so a token requested with a shorter TTL never reuses a
+    longer-lived cached entry and formatting-only scope differences collapse onto
+    one entry. Scope is not sorted (differing scope order stays distinct, matching
+    the signed claim).
+  - The ARC public-key cache TTL is now overridable via
+    `ARC_PUBLIC_KEY_CACHE_TTL_SECONDS` (default 300), bounding the cross-process
+    key-revocation window (X4).
+  - `@shared/osn-auth-client` `extractClaims` / `osnAuth` adapters gain an optional
+    `issuer` option and apply a 30s `clockTolerance` (X2). Issuer is optional and
+    unset by default for rollout safety — when unset, `iss` is not enforced so
+    pre-issuer-stamping access tokens still verify. An issuer mismatch is terminal
+    (no JWKS refetch).
+  - `@shared/redis` in-memory client `eval` now asserts it is only ever handed the
+    rate-limit Lua script (X5), so a future, semantically-different script cannot
+    silently inherit fixed-window rate-limit behaviour.
+
 ## 0.3.1
 
 ### Patch Changes
