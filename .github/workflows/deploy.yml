@@ -139,9 +139,16 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      # Build the static Astro site (output: "static" → ./dist).
+      # Build the static Astro site (output: "static" → ./dist). The PUBLIC_*
+      # vars are baked in AT BUILD TIME (static Astro), so they are set here in
+      # the build env, not at runtime. These are non-secret prod URLs.
+      #   PUBLIC_GOOGLE_MAPS_EMBED_KEY is an optional referrer-restricted Embed
+      #   key — wire it from a secret/var only if/when one exists.
       - name: Build cire/web
         run: bun run --cwd cire/web build
+        env:
+          PUBLIC_API_URL: https://api.cireweddings.com
+          PUBLIC_SITE_URL: https://cireweddings.com
 
       - name: Deploy cire/web to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire
@@ -150,12 +157,58 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+  # ── cire organiser (Astro → Cloudflare Pages) ──────────────────────────────
+  # The organiser portal is a separate static Astro build + Pages project from
+  # the guest site. Its PUBLIC_* vars (cire-api origin, OSN issuer for passkey
+  # sign-in, guest-site URL for the preview link) bake in at build time. The
+  # `cire-organiser` Pages project must exist in the account before first run
+  # (create once in the dashboard or `wrangler pages project create`).
+  deploy-cire-organiser:
+    name: Deploy cire/organiser (Pages)
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build cire/organiser
+        run: bun run --cwd cire/organiser build
+        env:
+          PUBLIC_CIRE_API_URL: https://api.cireweddings.com
+          PUBLIC_OSN_ISSUER_URL: https://id.cireweddings.com
+          PUBLIC_CIRE_WEB_URL: https://cireweddings.com
+
+      - name: Deploy cire/organiser to Cloudflare Pages
+        run: bunx wrangler pages deploy dist --project-name cire-organiser
+        working-directory: cire/organiser
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
   # ── osn/api ────────────────────────────────────────────────────────────────
-  # NOTE: osn/api is NOT deployed yet. Its wrangler.toml intentionally has no
-  # `main` / hosting target — full Workers hosting is still blocked on swapping
-  # the ioredis rate-limiters/session stores for a Workers-compatible Redis
-  # (see osn/api/wrangler.toml and wiki/TODO.md). When that lands, add a
-  # `deploy-osn-api` job here mirroring deploy-cire-api:
+  # NOTE: osn/api is NOT deployed by CI yet. Its Worker entry exists
+  # (`main = "src/index.ts"`, Phase 6) and its prod config is wired — the
+  # `[env.production]` custom-domain route serves it at id.cireweddings.com — but
+  # the CI deploy job stays gated until the ioredis rate-limiters/session stores
+  # are swapped for a Workers-compatible Redis (see osn/api/wrangler.toml and
+  # wiki/TODO.md). Until then deploy osn-api manually per the runbook §5.1. When
+  # the Redis swap lands, add a `deploy-osn-api` job here mirroring
+  # deploy-cire-api:
   #
   #   deploy-osn-api:
   #     name: Deploy osn/api

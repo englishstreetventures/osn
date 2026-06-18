@@ -52,11 +52,11 @@ marked **TBD** blocks the deploy.
 |---|---|---|
 | `OSN_JWT_PRIVATE_KEY` / `OSN_JWT_PUBLIC_KEY` (ES256 JWK, base64) | osn-api | **generate** (section 1) |
 | `OSN_SESSION_IP_PEPPER` (≥32 bytes) | osn-api | **generate** (section 1) |
-| `OSN_RP_ID` (WebAuthn RP ID — registrable domain) | osn-api WebAuthn | **TBD — needs a custom domain; workers.dev can't be the RP ID across surfaces (prod passkeys deferred)** |
-| `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **TBD — confirm prod domains** |
-| `OSN_ISSUER_URL` (public https base of osn-api) | osn-api + cire | **default `https://osn-api.<account-subdomain>.workers.dev`** — fill real subdomain at deploy |
-| `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **TBD — confirm prod domains** |
-| `OSN_EMAIL_FROM` (verified sender, e.g. `noreply@osn.app`) | osn-api | **TBD — pick + onboard sender domain** |
+| `OSN_RP_ID` (WebAuthn RP ID — registrable domain) | osn-api WebAuthn | **DONE — `cireweddings.com`** (registrable apex; the organiser portal `app.cireweddings.com` is the only prod passkey surface). Prod passkeys now UNBLOCKED. |
+| `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://app.cireweddings.com`** (organiser portal = the passkey origin) |
+| `OSN_ISSUER_URL` (public https base of osn-api) | osn-api + cire | **DONE — `https://id.cireweddings.com`** (custom-domain route in `osn/api/wrangler.toml` `[env.production]`) |
+| `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **DONE — `https://app.cireweddings.com`** (organiser portal calls osn-api) |
+| `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `noreply@cireweddings.com`** (sender-domain onboarding for `cireweddings.com` still required — §1.1) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | **provision** (~1 week lead, section 1) |
 | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | osn-api | **provision** (section 1) — region locked to **`ap-southeast-2` (Sydney)** (C-M18 resolved) |
 | `INTERNAL_SERVICE_SECRET` (S2S register-service) | osn-api | optional — only to register cire's ARC key (§6.2) |
@@ -66,12 +66,12 @@ marked **TBD** blocks the deploy.
 | `INTERNAL_SERVICE_SECRET` | osn-api | needed only to register cire's ARC key (section 6.2) |
 | cire D1 `database_id` | cire-api wrangler.toml | **DONE** — `6e835474-e0a7-4db9-8883-3247c3c891cd` |
 | cire R2 buckets | cire-api | **DONE** — `cire-sheets[-preview]`, `cire-assets[-preview]` |
-| cire `WEB_ORIGIN` allowlist (guest **and** organiser origins) | cire-api | **TBD — confirm prod domains** |
-| cire `OSN_JWKS_URL` / `OSN_ISSUER_URL` | cire-api | **TBD — point at deployed osn-api `https://osn-api.<account-subdomain>.workers.dev` (+`/.well-known/jwks.json`); placeholder `osn-api.example.com` today** |
+| cire `WEB_ORIGIN` allowlist (guest **and** organiser origins) | cire-api | **DONE — `https://cireweddings.com,https://app.cireweddings.com`** |
+| cire `OSN_JWKS_URL` / `OSN_ISSUER_URL` | cire-api | **DONE — `https://id.cireweddings.com/.well-known/jwks.json` / `https://id.cireweddings.com`** (must equal osn-api's own `OSN_ISSUER_URL`) |
 | `BOOTSTRAP_OWNER_PROFILE_ID` (real `usr_*` OSN profile id) | cire D1 seed | **TBD — organiser must register an OSN passkey first** |
 | `CIRE_API_ARC_PRIVATE_KEY` + `CIRE_API_ARC_KEY_ID` + `OSN_API_URL` | cire-api | needed only if guest account-linking is enabled (section 6.2) |
-| cire/web `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/web Pages | **TBD — confirm prod URLs** |
-| cire/organiser `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ISSUER_URL`, `PUBLIC_CIRE_WEB_URL` (build-time) | cire/organiser Pages | **TBD — confirm prod URLs** |
+| cire/web `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/web Pages | **DONE — `https://api.cireweddings.com` / `https://cireweddings.com`** (set in `deploy.yml`) |
+| cire/organiser `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ISSUER_URL`, `PUBLIC_CIRE_WEB_URL` (build-time) | cire/organiser Pages | **DONE — `https://api.cireweddings.com` / `https://id.cireweddings.com` / `https://cireweddings.com`** (set in `deploy.yml`) |
 
 ---
 
@@ -85,12 +85,15 @@ API** (`osn/api/src/index.ts:185-200`). In production both `CLOUDFLARE_ACCOUNT_I
 (`osn/api/src/index.ts:187-191`).
 
 Before tokens are useful you must onboard the **sender domain** (the domain in
-`OSN_EMAIL_FROM`, e.g. `noreply@osn.app`) — SPF/DKIM/DMARC records and Cloudflare's
-sender verification. **Budget ~1 week.** Steps:
+`OSN_EMAIL_FROM`, now `noreply@cireweddings.com`) — SPF/DKIM/DMARC records and Cloudflare's
+sender verification. **Budget ~1 week** — this is the one remaining lead-time human step
+now that the domain is purchased and in-account. Steps:
 
-1. Decide the `OSN_EMAIL_FROM` address and its domain.
-2. In the Cloudflare dashboard, start sender-domain onboarding for that domain; add the
-   DNS records it asks for.
+1. `OSN_EMAIL_FROM` is `noreply@cireweddings.com` (set in `osn/api/wrangler.toml`
+   `[env.production.vars]`). The sender domain is `cireweddings.com`.
+2. In the Cloudflare dashboard, start sender-domain onboarding for `cireweddings.com`; add
+   the DNS records it asks for (the zone is already in-account, so this is just adding the
+   SPF/DKIM/DMARC records to it).
 3. Wait for verification to go green.
 4. Mint an API token scoped to the Email Service; store as `CLOUDFLARE_EMAIL_API_TOKEN`.
 5. Note the `CLOUDFLARE_ACCOUNT_ID`.
@@ -260,13 +263,13 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 | `OSN_JWT_PRIVATE_KEY` | `wrangler secret put` | **Yes** | base64 ES256 JWK. Throws if missing in non-local. §1.2 |
 | `OSN_JWT_PUBLIC_KEY` | `wrangler secret put` | **Yes** | base64 ES256 JWK; published at `/.well-known/jwks.json`. §1.2 |
 | `OSN_SESSION_IP_PEPPER` | `wrangler secret put` | **Yes** | ≥32 bytes or throws. §1.3 |
-| `OSN_RP_ID` | `[env.<env>.vars]` | **Yes (deferred for prod passkeys)** | WebAuthn RP ID — must be a **registrable custom domain**. workers.dev cannot be the RP ID across the app surfaces, so **prod passkeys are deferred** until a custom domain is provisioned. Placeholder in `wrangler.toml`. |
-| `OSN_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep accepted WebAuthn origins; prod **https** origins. |
-| `OSN_ISSUER_URL` | `[env.<env>.vars]` | **Yes** | Public https base URL of osn-api → JWT `iss`; must match what cire verifies. Default workers.dev: `https://osn-api.<account-subdomain>.workers.dev`. |
-| `OSN_CORS_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep prod app origins. In a secure env an empty list **throws** at `assertCorsOriginsConfigured` (`lib/cors-config.ts`) — Origin/CSRF guard is mandatory. |
+| `OSN_RP_ID` | `[env.<env>.vars]` | **Yes** | WebAuthn RP ID — must be a **registrable domain**. Prod = **`cireweddings.com`** (the registrable apex shared by the organiser portal `app.cireweddings.com`, the only prod passkey surface). Prod passkeys are now UNBLOCKED. |
+| `OSN_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep accepted WebAuthn origins; prod **https** origins. Prod = **`https://app.cireweddings.com`** (the organiser portal — the passkey origin). |
+| `OSN_ISSUER_URL` | `[env.<env>.vars]` | **Yes** | Public https base URL of osn-api → JWT `iss`; must match what cire verifies. Prod = **`https://id.cireweddings.com`** (custom-domain route in `wrangler.toml` `[env.production]`). |
+| `OSN_CORS_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep prod app origins. In a secure env an empty list **throws** at `assertCorsOriginsConfigured` (`lib/cors-config.ts`) — Origin/CSRF guard is mandatory. Prod = **`https://app.cireweddings.com`** (organiser portal calls osn-api; the guest site never does). |
 | `CLOUDFLARE_ACCOUNT_ID` | `wrangler secret put` | **Yes** | Email transport; throws if missing in non-local. §1.1 |
 | `CLOUDFLARE_EMAIL_API_TOKEN` | `wrangler secret put` | **Yes** | Email transport bearer token; throws if missing. §1.1 |
-| `OSN_EMAIL_FROM` | `[env.<env>.vars]` (or secret) | **Yes (prod)** | Verified sender address, e.g. `noreply@osn.app`. Onboarded domain from §1.1. |
+| `OSN_EMAIL_FROM` | `[env.<env>.vars]` (or secret) | **Yes (prod)** | Verified sender address. Prod = **`noreply@cireweddings.com`** (set in `wrangler.toml`). Onboarded domain from §1.1. |
 | `UPSTASH_REDIS_REST_URL` | `wrangler secret put` | **Yes** | Upstash REST URL. Worker refuses to boot in non-local without it + the token (`index.ts:92-96`). §1.4 |
 | `UPSTASH_REDIS_REST_TOKEN` | `wrangler secret put` | **Yes** | Upstash REST token. §1.4 (region `ap-southeast-2` / Sydney — C-M18 resolved) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `[env.<env>.vars]` | Recommended | Grafana OTLP gateway. Metric/trace **export is deferred on workerd** — the redacting logger is active, recording call-sites are no-ops until an exporter is attached. [[observability-setup]] |
@@ -282,9 +285,9 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 | Name | How to set | Required? | Notes |
 |---|---|---|---|
 | D1 `database_id` | edit `wrangler.toml:15` | **Yes** | §2.1 — `6e835474-e0a7-4db9-8883-3247c3c891cd`. |
-| `WEB_ORIGIN` | `wrangler.toml` `[env.production.vars]:39` | **Yes** | Comma-sep allowlist; must include **both** the guest site origin **and** the organiser portal origin. Each entry must be `https://…` or the Worker fails closed at the edge (`src/index.ts:59-74`). Placeholder today: `https://cire.pages.dev`. |
-| `OSN_JWKS_URL` | `wrangler.toml` `[env.production.vars]:41` | **Yes** | Deployed osn-api JWKS URL (`<OSN_ISSUER_URL>/.well-known/jwks.json`), e.g. `https://osn-api.<account-subdomain>.workers.dev/.well-known/jwks.json`. Placeholder today: `https://osn-api.example.com/.well-known/jwks.json`. |
-| `OSN_ISSUER_URL` | `wrangler.toml` `[env.production.vars]:42` | **Yes** | Deployed osn-api origin; must equal osn-api's own `OSN_ISSUER_URL` (the workers.dev URL until a custom domain exists). Placeholder today: `https://osn-api.example.com`. |
+| `WEB_ORIGIN` | `wrangler.toml` `[env.production.vars]` | **Yes** | Comma-sep allowlist; must include **both** the guest site origin **and** the organiser portal origin. Each entry must be `https://…` or the Worker fails closed at the edge (`src/index.ts:59-74`). Prod = **`https://cireweddings.com,https://app.cireweddings.com`**. |
+| `OSN_JWKS_URL` | `wrangler.toml` `[env.production.vars]` | **Yes** | Deployed osn-api JWKS URL (`<OSN_ISSUER_URL>/.well-known/jwks.json`). Prod = **`https://id.cireweddings.com/.well-known/jwks.json`**. |
+| `OSN_ISSUER_URL` | `wrangler.toml` `[env.production.vars]` | **Yes** | Deployed osn-api origin; must equal osn-api's own `OSN_ISSUER_URL`. Prod = **`https://id.cireweddings.com`**. |
 | `OSN_AUDIENCE` | `wrangler.toml` `[env.production.vars]:43` | **Yes** | `osn-access` (the user access-token audience). |
 | `CIRE_API_ARC_PRIVATE_KEY` | `wrangler secret put CIRE_API_ARC_PRIVATE_KEY` | **Conditional** | ES256 JWK (string). Only if guest account-linking is enabled (§6.2). Absent ⇒ linking `POST` answers 503 (`src/index.ts:78-85`, `services/osn-bridge.ts:99-113`). |
 | `CIRE_API_ARC_KEY_ID` | `wrangler secret put CIRE_API_ARC_KEY_ID` | **Conditional** | `kid` matching the public key registered in osn-api `service_accounts` for serviceId `cire-api`. §6.2 |
@@ -300,16 +303,19 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 ### 3.3 cire/web + cire/organiser (Pages — build-time `PUBLIC_*`)
 
 Both are **static** Astro builds (`output: "static"`), so these are baked in **at build
-time** — set them in the build environment, not at runtime.
+time** — set them in the build environment, not at runtime. The prod values are wired in
+`.github/workflows/deploy.yml` (the `deploy-cire-web` / `deploy-cire-organiser` jobs set
+them on the build step); a localhost fallback stays in the source for local dev. If you
+build outside CI, export these before `bun run --cwd <site> build`.
 
-| Name | Site | Required? | Notes |
-|---|---|---|---|
-| `PUBLIC_API_URL` | cire/web | **Yes** | cire-api prod origin (`cire/web/src/pages/index.astro:6`, default `http://localhost:8787`). |
-| `PUBLIC_SITE_URL` | cire/web | Recommended | Guest site canonical URL (`index.astro:50`). |
-| `PUBLIC_GOOGLE_MAPS_EMBED_KEY` | cire/web | Optional | Google Maps Platform key with the **Maps Embed API** enabled. When set, the event "Where" section renders a real Maps Embed iframe (queried by the free-text venue address — no coordinates, no geocoding); when unset/blank it falls back to the CSS-drawn map card, so it is a pure enhancement (`cire/web/src/components/MapPreview.tsx`). **Human step:** create the key, **enable only the Maps Embed API**, and **restrict it by HTTP referrer** to the guest-site origin(s) — the key bakes into static HTML, and a referrer-restricted Embed-only key is safe to ship. |
-| `PUBLIC_CIRE_API_URL` | cire/organiser | **Yes** | cire-api prod origin (`cire/organiser/src/lib/osn.ts:8-9`; `PUBLIC_API_URL` honoured as legacy fallback). |
-| `PUBLIC_OSN_ISSUER_URL` | cire/organiser | **Yes** | osn-api prod origin for organiser passkey sign-in (`osn.ts:3`, default `http://localhost:4000`). |
-| `PUBLIC_CIRE_WEB_URL` | cire/organiser | Recommended | Guest site URL used in organiser links (`osn.ts:14`). |
+| Name | Site | Required? | Prod value | Notes |
+|---|---|---|---|---|
+| `PUBLIC_API_URL` | cire/web | **Yes** | `https://api.cireweddings.com` | cire-api prod origin (`cire/web/src/pages/index.astro`, dev default `http://localhost:8787`). |
+| `PUBLIC_SITE_URL` | cire/web | Recommended | `https://cireweddings.com` | Guest site canonical URL (apex). |
+| `PUBLIC_GOOGLE_MAPS_EMBED_KEY` | cire/web | Optional | _(unset)_ | Google Maps Platform key with the **Maps Embed API** enabled. When set, the event "Where" section renders a real Maps Embed iframe (queried by the free-text venue address — no coordinates, no geocoding); when unset/blank it falls back to the CSS-drawn map card, so it is a pure enhancement (`cire/web/src/components/MapPreview.tsx`). **Human step:** create the key, **enable only the Maps Embed API**, and **restrict it by HTTP referrer** to the guest-site origin(s) — the key bakes into static HTML, and a referrer-restricted Embed-only key is safe to ship. |
+| `PUBLIC_CIRE_API_URL` | cire/organiser | **Yes** | `https://api.cireweddings.com` | cire-api prod origin (`cire/organiser/src/lib/osn.ts`; `PUBLIC_API_URL` honoured as legacy fallback). |
+| `PUBLIC_OSN_ISSUER_URL` | cire/organiser | **Yes** | `https://id.cireweddings.com` | osn-api prod origin for organiser passkey sign-in (`osn.ts`, dev default `http://localhost:4000`). Must equal osn-api's `OSN_ISSUER_URL`. |
+| `PUBLIC_CIRE_WEB_URL` | cire/organiser | Recommended | `https://cireweddings.com` | Guest site URL used in organiser preview links (`osn.ts`). |
 
 ---
 
@@ -408,22 +414,26 @@ bunx wrangler deploy --dry-run --outdir ./dist   # optional: build-only sanity c
 bunx wrangler deploy --env dev               # or --env staging | --env production
 ```
 
-**Default URL (no custom domain yet):** the Worker is served at
-`https://osn-api.<account-subdomain>.workers.dev` (the `<account-subdomain>` is your
-Cloudflare account's workers.dev subdomain; the Worker name `osn-api` comes from
-`wrangler.toml`). Set each env's `OSN_ISSUER_URL` to that URL.
+**Prod URL (custom domain):** the production Worker is served at
+**`https://id.cireweddings.com`** via the custom-domain route in `osn/api/wrangler.toml`
+`[env.production]` (`routes = [{ pattern = "id.cireweddings.com", custom_domain = true }]`).
+`custom_domain = true` auto-provisions the DNS record + edge cert on first
+`wrangler deploy --env production` because the `cireweddings.com` zone is in-account —
+confirm it went green afterwards (§5.4). Prod `OSN_ISSUER_URL` is set to that URL. (dev /
+staging stay on their current `workers.dev` config; if/when they get hostnames, set their
+`OSN_ISSUER_URL` to the served URL.)
 
-> ⚠️ **Prod passkeys need a custom domain.** workers.dev cannot serve as the WebAuthn
-> RP ID across the app surfaces (the RP ID must be a registrable domain shared by the
-> frontends), so **production passkey sign-in is deferred** until a custom domain is
-> provisioned and `OSN_RP_ID` / `OSN_ORIGIN` are repointed at it. The workers.dev URL is
-> fine for `/health`, `/.well-known/jwks.json`, and the JWKS bridge to cire (§5.2) in the
-> interim.
+> ✅ **Prod passkeys are now UNBLOCKED.** The WebAuthn RP ID is the registrable apex
+> **`cireweddings.com`**, and the only prod passkey surface is the organiser portal
+> **`app.cireweddings.com`** (`OSN_ORIGIN`). Guests use claim codes — no passkeys. The RP
+> ID is the apex so it covers the `app.` subdomain origin (a credential scoped to
+> `cireweddings.com` is usable from `app.cireweddings.com`).
 
-> ℹ️ **cire must point at the deployed osn-api URL.** After osn-api is deployed, set
-> cire-api's `OSN_JWKS_URL` = `<osn-api URL>/.well-known/jwks.json` and `OSN_ISSUER_URL`
-> = the osn-api URL (§3.2), and cire/organiser's `PUBLIC_OSN_ISSUER_URL` (§3.3) — all
-> three must equal osn-api's own `OSN_ISSUER_URL` or token verification fails.
+> ℹ️ **cire must point at the deployed osn-api URL.** cire-api's `OSN_JWKS_URL` =
+> `https://id.cireweddings.com/.well-known/jwks.json` and `OSN_ISSUER_URL` =
+> `https://id.cireweddings.com` (§3.2), and cire/organiser's `PUBLIC_OSN_ISSUER_URL` (§3.3)
+> = the same origin — all three must equal osn-api's own `OSN_ISSUER_URL` or token
+> verification fails. These are already set in this PR.
 
 ### 5.2 cire-api (Worker)
 
@@ -439,21 +449,53 @@ top-level D1/R2 bindings (§3.2 nuance). Set any conditional secrets first
 
 ### 5.3 cire/web (guest Pages) + cire/organiser (Pages)
 
-Build with the `PUBLIC_*` build-time vars (§3.3) in the environment, then publish:
+CI (`deploy-cire-web` / `deploy-cire-organiser` in `deploy.yml`) builds each site with the
+prod `PUBLIC_*` vars (§3.3) baked in, then publishes. The guest site uses the `cire` Pages
+project; the organiser portal uses a separate **`cire-organiser`** Pages project (create it
+once before the first run). Manual equivalents:
 
 ```bash
-# guest site
-bun run --cwd cire/web build
-bunx wrangler pages deploy cire/web/dist
+# guest site (Pages project: cire)
+PUBLIC_API_URL=https://api.cireweddings.com \
+PUBLIC_SITE_URL=https://cireweddings.com \
+  bun run --cwd cire/web build
+bunx wrangler pages deploy cire/web/dist --project-name cire
 
-# organiser portal
-bun run --cwd cire/organiser build
-bunx wrangler pages deploy cire/organiser/dist
+# organiser portal (Pages project: cire-organiser)
+PUBLIC_CIRE_API_URL=https://api.cireweddings.com \
+PUBLIC_OSN_ISSUER_URL=https://id.cireweddings.com \
+PUBLIC_CIRE_WEB_URL=https://cireweddings.com \
+  bun run --cwd cire/organiser build
+bunx wrangler pages deploy cire/organiser/dist --project-name cire-organiser
 ```
 
 Make sure the published guest + organiser origins are exactly the ones listed in
 cire-api's `WEB_ORIGIN` allowlist (§3.2) and in osn-api's `OSN_CORS_ORIGIN` /
 `OSN_ORIGIN` (organiser passkey sign-in talks to osn-api).
+
+### 5.4 Attach custom domains (human / dashboard steps) 🌐
+
+The Worker custom domains auto-provision from `wrangler.toml`; the Pages custom domains are
+attached in the dashboard. The `cireweddings.com` zone is already in-account, so all DNS +
+certs are issued automatically once attached.
+
+1. **Worker custom domains (auto, verify only).** After `wrangler deploy --env production`:
+   - osn-api → **`id.cireweddings.com`** (route in `osn/api/wrangler.toml`).
+   - cire-api → **`api.cireweddings.com`** (route in `cire/api/wrangler.toml`).
+   Confirm both show as active custom domains for their Worker (dashboard → Workers →
+   *worker* → Settings → Domains & Routes, or `https://id.cireweddings.com/health` /
+   `https://api.cireweddings.com/` return 200). `custom_domain = true` provisions the DNS
+   record + cert; no manual DNS entry needed.
+2. **Pages custom domains (dashboard, one-time).** In each Pages project → Custom domains:
+   - `cire` (guest site) → add the apex **`cireweddings.com`**.
+   - `cire-organiser` (organiser portal) → add **`app.cireweddings.com`**.
+   Cloudflare adds the CNAME/records in the in-account zone and issues the cert. After the
+   apex is attached to Pages, confirm it does not collide with the email/DNS records from
+   §1.1 (SPF/DKIM/DMARC are TXT records, the apex Pages target is a separate record type —
+   they coexist).
+3. **Re-check the allowlists** once the domains resolve: the live guest + organiser origins
+   must exactly match cire-api `WEB_ORIGIN` and osn-api `OSN_CORS_ORIGIN` / `OSN_ORIGIN`
+   (all set in this PR). A trailing-slash or scheme mismatch fails the Origin guard.
 
 ---
 
@@ -492,8 +534,9 @@ unset, 401 on a bad bearer — `routes/graph-internal.ts:203-214`.)
 
 Run these in order; each maps to a startup requirement enumerated above.
 
-1. **Health / readiness / JWKS.** `curl https://osn-api.<account-subdomain>.workers.dev/health`,
-   `/` , and `/.well-known/jwks.json` (and the cire-api root). 200s confirm the Worker
+1. **Health / readiness / JWKS.** `curl https://id.cireweddings.com/health`,
+   `/` , and `/.well-known/jwks.json` (and the cire-api root `https://api.cireweddings.com/`).
+   200s confirm the Worker
    booted — meaning none of the startup throws fired (or, at the edge, no 503
    `Worker misconfigured`), so the JWT keys, pepper, Upstash, and email creds are all
    present. `/.well-known/jwks.json` must return an ES256 (`alg:"ES256"`, P-256) JWK.

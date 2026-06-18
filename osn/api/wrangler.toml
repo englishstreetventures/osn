@@ -87,18 +87,29 @@ migrations_dir = "../db/drizzle"
 crons = ["0 */6 * * *"]
 
 # ── production ───────────────────────────────────────────────────────────────
+# OSN identity runs under the cireweddings.com zone for now (a dedicated OSN
+# domain is deferred). The custom-domain route below serves osn-api on
+# id.cireweddings.com and auto-provisions DNS + edge cert since the zone is
+# in-account. The ONLY prod passkey surface is the organiser portal
+# (app.cireweddings.com), so the WebAuthn RP ID is the registrable apex
+# `cireweddings.com` and OSN_ORIGIN is the organiser portal origin. Guests use
+# claim codes (no passkeys). Prod passkeys are now UNBLOCKED.
 [env.production.vars]
 OSN_ENV = "production"
-# TODO(prod-domains): PLACEHOLDERS. Default deploy URL is
-# https://osn-api.<account-subdomain>.workers.dev — set OSN_ISSUER_URL to that at
-# deploy. OSN_RP_ID/OSN_ORIGIN need a real custom domain (workers.dev can't be a
-# WebAuthn RP ID across surfaces), so prod passkeys are DEFERRED per project decision
-# until a custom domain is provisioned. See wiki/runbooks/production-deploy.md §5.1.
-OSN_RP_ID = "osn.example"
+OSN_RP_ID = "cireweddings.com"
 OSN_RP_NAME = "OSN"
-OSN_ORIGIN = "https://osn.example"
-OSN_ISSUER_URL = "https://api.osn.example"
-OSN_CORS_ORIGIN = "https://osn.example"
+OSN_ORIGIN = "https://app.cireweddings.com"
+OSN_ISSUER_URL = "https://id.cireweddings.com"
+OSN_CORS_ORIGIN = "https://app.cireweddings.com"
+OSN_EMAIL_FROM = "noreply@cireweddings.com"
+
+# Custom-domain route: serves osn-api on id.cireweddings.com. `custom_domain =
+# true` auto-provisions DNS + edge cert because the cireweddings.com zone is in
+# this Cloudflare account. Named envs do NOT inherit top-level routes, so this
+# applies only to `wrangler deploy --env production`.
+[[env.production.routes]]
+pattern = "id.cireweddings.com"
+custom_domain = true
 
 [[env.production.d1_databases]]
 binding = "DB"

@@ -69,11 +69,12 @@ binding = "IMAGES"
 # writes to /api/organiser/* fail the CORS origin guard with 403.
 # TODO: replace <ORGANISER-ORIGIN-PLACEHOLDER> with the real organiser portal
 # production origin (cire/organiser Cloudflare Pages deployment URL).
-WEB_ORIGIN = "https://cire.pages.dev,https://<ORGANISER-ORIGIN-PLACEHOLDER>"
-# REQUIRED BEFORE PROD — real OSN origin (placeholder host osn-api.example.com)
-OSN_JWKS_URL = "https://osn-api.example.com/.well-known/jwks.json"
-# REQUIRED BEFORE PROD — real OSN origin (placeholder host osn-api.example.com)
-OSN_ISSUER_URL = "https://osn-api.example.com"
+WEB_ORIGIN = "https://cireweddings.com,https://app.cireweddings.com"
+# OSN identity (osn-api) prod origin — served on the cireweddings.com zone at
+# id.cireweddings.com. OSN_ISSUER_URL MUST equal osn-api's own OSN_ISSUER_URL or
+# access-token verification fails; OSN_JWKS_URL is that origin + the JWKS path.
+OSN_JWKS_URL = "https://id.cireweddings.com/.well-known/jwks.json"
+OSN_ISSUER_URL = "https://id.cireweddings.com"
 OSN_AUDIENCE = "osn-access"
 # BOOTSTRAP_OWNER_PROFILE_ID — the organiser's real OSN profile id (usr_*).
 # REQUIRED before the first deployed-D1 boot: migration 0006 seeds the bootstrap
@@ -82,6 +83,14 @@ OSN_AUDIENCE = "osn-access"
 # Set it (with OSN_ENV) as a secret, NOT a plaintext var:
 #   bunx wrangler secret put BOOTSTRAP_OWNER_PROFILE_ID
 #   bunx wrangler secret put OSN_ENV   # must be dev|staging|production
+
+# Custom-domain route: serves cire-api on api.cireweddings.com. `custom_domain =
+# true` auto-provisions DNS + edge cert because the cireweddings.com zone is in
+# this Cloudflare account. Named envs do NOT inherit top-level routes, so this
+# applies only to `wrangler deploy --env production`.
+[[env.production.routes]]
+pattern = "api.cireweddings.com"
+custom_domain = true
 
 # Wrangler named environments do NOT inherit top-level [[d1_databases]] /
 # [[r2_buckets]] / [[unsafe.bindings]] — they must be redeclared per-env.
