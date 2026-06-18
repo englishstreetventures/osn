@@ -10,3 +10,4 @@ export { SecurityEventsBanner } from "./SecurityEventsBanner";
 export { SessionsView } from "./SessionsView";
 export { SignIn } from "./SignIn";
 export { StepUpDialog } from "./StepUpDialog";
+export { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";

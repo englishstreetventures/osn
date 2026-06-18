@@ -1,6 +1,7 @@
 import { cors } from "@elysiajs/cors";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
+import type { TurnstileVerifier } from "@shared/turnstile";
 import { Effect } from "effect";
 import { Elysia } from "elysia";
 
@@ -108,6 +109,14 @@ export interface AppOptions {
    * inject a stub.
    */
   resolveOsnProfileByHandle?: OsnHandleResolver;
+  /**
+   * Cloudflare Turnstile verifier (bot protection) for the public guest
+   * surfaces (claim + rsvp). KEY-OPTIONAL: `null`/omitted ⇒ the
+   * `TURNSTILE_SECRET_KEY` secret is unset and the gates are skipped (guest
+   * flow unchanged). A verifier ⇒ claim + rsvp require a valid Turnstile token
+   * and fail-closed. Built once per isolate in `index.ts`; tests inject a stub.
+   */
+  turnstileVerifier?: TurnstileVerifier | null;
 }
 
 export function createApp(db: Db, options: AppOptions = {}) {
@@ -128,6 +137,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     osnTestKey,
     resolveOsnAccountId,
     resolveOsnProfileByHandle,
+    turnstileVerifier = null,
   } = options;
   const corsOrigins = allowedOrigins ?? [webOrigin];
 
@@ -176,8 +186,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // same allowlist CORS echoes. Mounted before the route factories so it
       // gates the whole app. Empty allowlist (dev) disables it.
       .use(originGuard(corsOrigins))
-      .use(createClaimRoutes(db, { webOrigin, limiter: claimLimiter }))
-      .use(createRsvpRoutes(db))
+      .use(createClaimRoutes(db, { webOrigin, limiter: claimLimiter, turnstileVerifier }))
+      .use(createRsvpRoutes(db, { turnstileVerifier }))
       .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))
       .use(createOrganiserWeddingCreateRoute(db, osnAuthOptions, weddingCreateLimiter))
       .use(createOrganiserPreviewRoutes(db, osnAuthOptions, previewLimiter))

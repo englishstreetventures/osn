@@ -1,4 +1,5 @@
 import { families, guests, guestEvents } from "@cire/db";
+import type { TurnstileVerifier } from "@shared/turnstile";
 import { eq, inArray } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
@@ -7,6 +8,7 @@ import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
 import { metricRsvpBatchSize } from "../metrics";
 import { sessionAuth } from "../middleware/auth";
+import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
 import { BulkRsvpBody } from "../schemas/rsvp";
 import { rsvpService } from "../services/rsvp";
@@ -17,7 +19,15 @@ import { rsvpService } from "../services/rsvp";
 // this is a cheap upfront guard against a CDN that strips/lies notwithstanding.
 const MAX_RSVP_BYTES = 256 * 1024;
 
-export const createRsvpRoutes = (db: Db) =>
+export interface RsvpRouteOptions {
+  /**
+   * Turnstile verifier (KEY-OPTIONAL). `null` ⇒ gate skipped; configured ⇒ a
+   * missing/invalid token fails closed (403) after auth, before any write.
+   */
+  turnstileVerifier?: TurnstileVerifier | null;
+}
+
+export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRouteOptions = {}) =>
   new Elysia({ prefix: "/api/rsvp" })
     // Gate every method under /api/rsvp behind a valid session cookie.
     .use(sessionAuth(db))
@@ -41,6 +51,15 @@ export const createRsvpRoutes = (db: Db) =>
         }
 
         const raw: unknown = await request.json().catch(() => null);
+
+        // Turnstile bot gate (key-optional; no-op when unconfigured). The
+        // session cookie already authenticated the household above; this is the
+        // anti-automation layer on the spam-prone RSVP write surface.
+        const tsErr = await turnstileGate(turnstileVerifier, "rsvp", raw, request.headers);
+        if (tsErr) {
+          set.status = tsErr.status;
+          return { error: tsErr.error };
+        }
 
         return runCire(
           Effect.gen(function* () {

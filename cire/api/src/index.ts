@@ -1,6 +1,7 @@
 import { BOOTSTRAP_WEDDING_ID, weddings } from "@cire/db";
 import { createWorkersRateLimiter } from "@shared/rate-limit";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
+import { createTurnstileVerifier } from "@shared/turnstile";
 import { and, eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
@@ -49,6 +50,10 @@ export interface Env {
   // limiter is the global, atomic edge limiter; absent (local `wrangler dev`
   // without the binding, or non-Workers runtimes) ⇒ the in-memory fallback.
   CLAIM_RATE_LIMITER?: WorkersRateLimitBinding;
+  // Turnstile bot-protection secret (KEY-OPTIONAL). When set, the guest claim +
+  // RSVP endpoints require a valid Turnstile token (fail-closed); unset ⇒ those
+  // gates are skipped. `wrangler secret put TURNSTILE_SECRET_KEY`.
+  TURNSTILE_SECRET_KEY?: string;
 }
 
 // P-W1: the Elysia app graph (root + cors + route factories + auth plugins) is
@@ -174,6 +179,10 @@ const handler: ExportedHandler<Env> = {
       const edgeLimiter = env.CLAIM_RATE_LIMITER
         ? createWorkersRateLimiter(env.CLAIM_RATE_LIMITER)
         : undefined;
+      // Turnstile bot protection (KEY-OPTIONAL). Unset secret ⇒ null ⇒ the
+      // claim + rsvp gates are skipped. The secret is read here and never
+      // logged or placed anywhere but Cloudflare's siteverify endpoint.
+      const turnstileVerifier = createTurnstileVerifier(env.TURNSTILE_SECRET_KEY);
       cached = {
         dbBinding: env.DB,
         app: createApp(db, {
@@ -189,6 +198,7 @@ const handler: ExportedHandler<Env> = {
           osnAudience: env.OSN_AUDIENCE,
           resolveOsnAccountId,
           resolveOsnProfileByHandle,
+          turnstileVerifier,
         }),
       };
     }

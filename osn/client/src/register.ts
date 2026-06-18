@@ -83,6 +83,12 @@ export interface RegistrationClient {
     email: string;
     handle: string;
     displayName?: string;
+    /**
+     * Cloudflare Turnstile token. Sent to `/register/begin` when the UI rendered
+     * the widget. Optional: osn-api only requires it when its
+     * `TURNSTILE_SECRET_KEY` is configured (fail-closed there); unset ⇒ ignored.
+     */
+    turnstileToken?: string;
   }): Promise<{ sent: boolean }>;
   completeRegistration(input: { email: string; code: string }): Promise<CompleteRegistrationResult>;
   /** WebAuthn options for the first-passkey enrollment. `accessToken` is the one returned by `completeRegistration`. */
@@ -115,8 +121,12 @@ export function createRegistrationClient(config: RegistrationClientConfig): Regi
     return { available: json.available };
   };
 
-  const beginRegistration = (input: { email: string; handle: string; displayName?: string }) =>
-    postJson<{ sent: boolean }>(`${base}/register/begin`, input);
+  const beginRegistration = (input: {
+    email: string;
+    handle: string;
+    displayName?: string;
+    turnstileToken?: string;
+  }) => postJson<{ sent: boolean }>(`${base}/register/begin`, input);
 
   const completeRegistration = async (input: {
     email: string;

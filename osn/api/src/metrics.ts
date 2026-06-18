@@ -64,6 +64,7 @@ export const OSN_METRICS = {
   authHandleCheck: "osn.auth.handle.check",
   authOtpSent: "osn.auth.otp.sent",
   authRateLimited: "osn.auth.rate_limited",
+  authTurnstileRejected: "osn.auth.turnstile.rejected",
   authSessionRotations: "osn.auth.session.rotations",
   authSessionReuseDetected: "osn.auth.session.reuse_detected",
   authSessionFamilyRevoked: "osn.auth.session.family_revoked",
@@ -118,6 +119,9 @@ type TokenRefreshAttrs = { result: Result };
 type HandleCheckAttrs = { result: "available" | "taken" | "invalid" };
 type OtpSentAttrs = { purpose: "registration" | "step_up" | "email_change" };
 type AuthRateLimitAttrs = { endpoint: AuthRateLimitedEndpoint };
+/** Turnstile-gated endpoints. Bounded literal union — never a raw path. */
+type AuthTurnstileEndpoint = "register_begin" | "passkey_login_begin";
+type AuthTurnstileRejectedAttrs = { endpoint: AuthTurnstileEndpoint };
 type GraphConnectionAttrs = { action: GraphConnectionAction; result: Result };
 type GraphBlockAttrs = { action: GraphBlockAction; result: Result };
 type OrgAttrs = { action: OrgAction; result: Result };
@@ -448,6 +452,16 @@ export const withProfileCrud =
 
 export const metricAuthRateLimited = (endpoint: AuthRateLimitedEndpoint): void =>
   authRateLimited.inc({ endpoint });
+
+const authTurnstileRejected = createCounter<AuthTurnstileRejectedAttrs>({
+  name: OSN_METRICS.authTurnstileRejected,
+  description: "Auth requests rejected by Turnstile siteverify (fail-closed)",
+  unit: "{rejection}",
+});
+
+/** Records a fail-closed Turnstile rejection on a configured gate. */
+export const metricAuthTurnstileRejected = (endpoint: AuthTurnstileEndpoint): void =>
+  authTurnstileRejected.inc({ endpoint });
 
 // ---------------------------------------------------------------------------
 // Session rotation (Copenhagen Book C2)

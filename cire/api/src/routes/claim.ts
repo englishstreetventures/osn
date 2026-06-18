@@ -1,4 +1,5 @@
 import type { RateLimiterBackend } from "@shared/rate-limit";
+import type { TurnstileVerifier } from "@shared/turnstile";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
@@ -6,6 +7,7 @@ import { DbService } from "../db";
 import type { Db } from "../db";
 import { buildSessionCookie } from "../lib/cookie";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
+import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
 import { ClaimBody } from "../schemas/claim";
 import { claimService } from "../services/claim";
@@ -18,13 +20,30 @@ export interface ClaimRouteOptions {
   webOrigin: string;
   /** Per-IP rate limiter (brute-force protection — S-C2). */
   limiter: RateLimiterBackend;
+  /**
+   * Turnstile verifier (KEY-OPTIONAL). `null` ⇒ gate skipped; configured ⇒
+   * a missing/invalid token fails closed (403) before the credential lookup.
+   */
+  turnstileVerifier?: TurnstileVerifier | null;
 }
 
-export const createClaimRoutes = (db: Db, { webOrigin, limiter }: ClaimRouteOptions) =>
+export const createClaimRoutes = (
+  db: Db,
+  { webOrigin, limiter, turnstileVerifier = null }: ClaimRouteOptions,
+) =>
   new Elysia({ prefix: "/api/claim" }).use(rateLimitMiddleware(limiter)).post(
     "/",
     async ({ request, set }) => {
       const raw: unknown = await request.json().catch(() => null);
+
+      // Turnstile bot gate (key-optional; no-op when unconfigured). Runs after
+      // the per-IP limiter, before the credential lookup — a bot that can't pass
+      // the challenge never reaches the claim-code oracle.
+      const tsErr = await turnstileGate(turnstileVerifier, "claim", raw, request.headers);
+      if (tsErr) {
+        set.status = tsErr.status;
+        return { error: tsErr.error };
+      }
 
       return runCire(
         Effect.gen(function* () {

@@ -10,6 +10,10 @@ const loginClient = createLoginClient({ issuerUrl: OSN_ISSUER_URL });
 const recoveryClient = createRecoveryClient({ issuerUrl: OSN_ISSUER_URL });
 const registrationClient = createRegistrationClient({ issuerUrl: OSN_ISSUER_URL });
 
+// Public Turnstile sitekey, baked in at build time. Undefined ⇒ key-optional
+// (no widget rendered; osn-api also skips siteverify). See deploy runbook.
+const TURNSTILE_SITEKEY = import.meta.env.PUBLIC_TURNSTILE_SITEKEY;
+
 type Mode = "signin" | "register";
 
 const toDashboard = () => {
@@ -32,7 +36,12 @@ export default function SignInPanel() {
         when={mode() === "register"}
         fallback={
           <div class="flex flex-col gap-4">
-            <SignIn client={loginClient} recoveryClient={recoveryClient} onSuccess={toDashboard} />
+            <SignIn
+              client={loginClient}
+              recoveryClient={recoveryClient}
+              onSuccess={toDashboard}
+              turnstileSiteKey={TURNSTILE_SITEKEY}
+            />
             <p class="text-muted-foreground text-center text-sm">
               New to OSN?{" "}
               <button
@@ -50,6 +59,7 @@ export default function SignInPanel() {
           client={registrationClient}
           onCancel={() => setMode("signin")}
           onSuccess={toDashboard}
+          turnstileSiteKey={TURNSTILE_SITEKEY}
         />
       </Show>
       <Toaster position="bottom-right" />

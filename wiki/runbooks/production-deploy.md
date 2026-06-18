@@ -275,6 +275,8 @@ bunx wrangler secret put CLOUDFLARE_ACCOUNT_ID      --env <dev|staging|productio
 bunx wrangler secret put CLOUDFLARE_EMAIL_API_TOKEN --env <dev|staging|production>
 # OPTIONAL — only for the cire→osn account-linking ARC bridge (§6.2):
 bunx wrangler secret put INTERNAL_SERVICE_SECRET    --env <dev|staging|production>
+# Turnstile bot protection (OPTIONAL — only after the widget exists, §3.4):
+bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <dev|staging|production>
 # Observability (deferred export on workerd; header is a secret):
 bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|production>
 ```
@@ -298,6 +300,7 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `[env.<env>.vars]` | Recommended | Grafana OTLP gateway. Metric/trace **export is deferred on workerd** — the redacting logger is active, recording call-sites are no-ops until an exporter is attached. [[observability-setup]] |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `wrangler secret put` | Recommended | `Authorization=Basic <base64(instance:token)>`. [[observability-setup]] |
 | `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Conditional** | Bearer secret guarding `POST /graph/internal/register-service` (`routes/graph-internal.ts`). Needed **only** to register cire-api's ARC public key (§6.2). Endpoint returns 501 when unset. |
+| `TURNSTILE_SECRET_KEY` | `wrangler secret put` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, `/register/begin` + `/login/passkey/begin` **require** a valid Turnstile token and **fail-closed** (reject on missing/invalid/duplicate; single-use enforced by Cloudflare). When unset, those gates are skipped and the flows behave as before — safe to leave unset until the widget exists. Server half of the public `PUBLIC_TURNSTILE_SITEKEY` baked into the organiser-portal build. Create the widget in §3.4. (`build-deps.ts` → `createTurnstileVerifier`). |
 | `TRUSTED_PROXY_COUNT` | `[env.<env>.vars]` | Optional | On Workers, Cloudflare sets `cf-connecting-ip`, so this is usually unneeded. Set only if a proxy sits in front and XFF must be trusted N hops. |
 | `OSN_RP_NAME` | `[env.<env>.vars]` | Optional | Display name in passkey prompts (default `OSN`). |
 | `OSN_ACCESS_TOKEN_TTL` / `OSN_REFRESH_TOKEN_TTL` | `[env.<env>.vars]` | Optional | Defaults 300s / 2592000s. |
@@ -316,6 +319,7 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 | `CIRE_API_ARC_KEY_ID` | `wrangler secret put CIRE_API_ARC_KEY_ID` | **Conditional** | `kid` matching the public key registered in osn-api `service_accounts` for serviceId `cire-api`. §6.2 |
 | `OSN_API_URL` | `wrangler secret put OSN_API_URL` (or var) | **Conditional** | osn-api base URL the ARC bridge calls. §6.2 |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | `wrangler secret put` | Recommended | Worker observability. [[observability-setup]] |
+| `TURNSTILE_SECRET_KEY` | `wrangler secret put TURNSTILE_SECRET_KEY` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, the guest **`/api/claim`** + **`/api/rsvp`** endpoints require a valid Turnstile token and **fail-closed** (403 on missing/invalid/duplicate). Unset ⇒ those gates are skipped (guest flow unchanged). Same widget/secret as osn-api — the widget's domains cover both `cireweddings.com` and `app.cireweddings.com`. Create the widget in §3.4. (`src/index.ts` → `createTurnstileVerifier`). |
 
 > ⚠️ **cire `wrangler.toml` env nuance:** the D1 + R2 bindings are at the **top level**
 > (not under `[env.production]`), while the prod URLs live under `[env.production.vars]`.
@@ -339,6 +343,44 @@ build outside CI, export these before `bun run --cwd <site> build`.
 | `PUBLIC_CIRE_API_URL` | cire/organiser | **Yes** | `https://api.cireweddings.com` | cire-api prod origin (`cire/organiser/src/lib/osn.ts`; `PUBLIC_API_URL` honoured as legacy fallback). |
 | `PUBLIC_OSN_ISSUER_URL` | cire/organiser | **Yes** | `https://id.cireweddings.com` | osn-api prod origin for organiser passkey sign-in (`osn.ts`, dev default `http://localhost:4000`). Must equal osn-api's `OSN_ISSUER_URL`. |
 | `PUBLIC_CIRE_WEB_URL` | cire/organiser | Recommended | `https://cireweddings.com` | Guest site URL used in organiser preview links (`osn.ts`). |
+| `PUBLIC_TURNSTILE_SITEKEY` | cire/web **and** cire/organiser | Optional (key-optional) | _(unset)_ | Cloudflare Turnstile **sitekey** (public — safe to embed in client HTML). When set, the guest claim + RSVP forms (cire/web) and the organiser SignIn + Register forms (cire/organiser, via `@osn/ui`) render the Turnstile challenge and gate submit on it; when unset/blank no widget renders and no token is sent (a pure enhancement). Wired (commented) in the `deploy-cire-web` / `deploy-cire-organiser` build steps as `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` — set the repo **Variable** + uncomment once the widget exists (§3.4). The matching `TURNSTILE_SECRET_KEY` secret must be set on **both** the cire-api Worker (claim/rsvp) and the osn-api Worker (register/login). |
+
+### 3.4 Create the Cloudflare Turnstile widget (one-time, gates Turnstile on) 🔑
+
+Turnstile is **key-optional** — every flow ships and works with NO widget. Do this
+step only when you want bot protection ON. The same widget (one sitekey + one secret)
+covers **both** the guest site and the organiser portal.
+
+The `wrangler` OAuth token in use (`owner@example.com`) lacks the `Account.Turnstile:Edit`
+scope, so the widget **could not be created programmatically** during this work —
+create it in the dashboard (or with a custom API token that has the scope):
+
+1. **Dashboard → Turnstile → Add widget** (account `fad09b83d3590eaeb803eca52d5bf1b7`).
+   - **Name:** `cire-weddings`
+   - **Domains:** `cireweddings.com`, `app.cireweddings.com` (apex covers the guest
+     site; `app.` covers the organiser portal — osn-api's passkey origin). Add
+     `localhost` if you want to exercise it locally.
+   - **Widget mode:** **Managed** (no pre-clearance — siteverify is the gate).
+2. Copy the **Sitekey** (public, `0x…`) and the **Secret key** (private).
+3. **Sitekey** → set as the repo **Variable** `PUBLIC_TURNSTILE_SITEKEY` and **uncomment**
+   the two `PUBLIC_TURNSTILE_SITEKEY:` lines in `.github/workflows/deploy.yml`
+   (`deploy-cire-web` + `deploy-cire-organiser` build steps). Static Astro bakes it
+   in at build time, so a **rebuild + redeploy** of both Pages projects is required to
+   activate the widget.
+4. **Secret key** → set on **both** Workers (never commit it):
+   ```bash
+   # from osn/api (gates /register/begin + /login/passkey/begin)
+   cd osn/api && echo "<secret>" | bunx wrangler secret put TURNSTILE_SECRET_KEY --env production
+   # from cire/api (gates /api/claim + /api/rsvp)
+   cd cire/api && echo "<secret>" | bunx wrangler secret put TURNSTILE_SECRET_KEY --env production
+   ```
+   Then `wrangler deploy` both Workers so the new isolate picks up the secret.
+5. **Order matters (fail-closed):** set the **secret on the Workers FIRST**, then ship
+   the **sitekey** in the Pages build. If you ship the sitekey while the secret is
+   absent the widget renders but the server skips verify (harmless); if you set the
+   secret while the sitekey is absent the server requires a token the UI never sends
+   and legitimate requests 400/403. The safe rollout is secret-first, sitekey-second
+   (or both together via a coordinated deploy).
 
 ---
 

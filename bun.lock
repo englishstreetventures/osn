@@ -23,6 +23,7 @@
         "@shared/observability": "workspace:*",
         "@shared/osn-auth-client": "workspace:*",
         "@shared/rate-limit": "workspace:*",
+        "@shared/turnstile": "workspace:*",
         "drizzle-orm": "^0.45.2",
         "effect": "^3.21.2",
         "elysia": "^1.4.28",
@@ -99,6 +100,7 @@
         "@shared/observability": "workspace:*",
         "@shared/rate-limit": "workspace:*",
         "@shared/redis": "workspace:*",
+        "@shared/turnstile": "workspace:*",
         "@simplewebauthn/server": "^13.3.0",
         "drizzle-orm": "^0.45.2",
         "effect": "^3.21.2",
@@ -397,6 +399,17 @@
       },
       "devDependencies": {
         "@effect/vitest": "^0.29.0",
+        "@shared/typescript-config": "workspace:*",
+        "vitest": "^4.1.8",
+      },
+    },
+    "shared/turnstile": {
+      "name": "@shared/turnstile",
+      "version": "0.1.0",
+      "dependencies": {
+        "@shared/observability": "workspace:*",
+      },
+      "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "vitest": "^4.1.8",
       },
@@ -1027,6 +1040,8 @@
     "@shared/rate-limit": ["@shared/rate-limit@workspace:shared/rate-limit"],
 
     "@shared/redis": ["@shared/redis@workspace:shared/redis"],
+
+    "@shared/turnstile": ["@shared/turnstile@workspace:shared/turnstile"],
 
     "@shared/typescript-config": ["@shared/typescript-config@workspace:shared/typescript-config"],
 

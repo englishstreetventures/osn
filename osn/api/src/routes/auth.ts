@@ -8,6 +8,7 @@ import {
   type ClientIpOptions,
   type RateLimiterBackend,
 } from "@shared/rate-limit";
+import type { TurnstileVerifier } from "@shared/turnstile";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
@@ -21,7 +22,11 @@ import {
 import { publicError } from "../lib/public-error";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { deriveUaLabel } from "../lib/ua-label";
-import { metricAuthJwksServed, metricAuthRateLimited } from "../metrics";
+import {
+  metricAuthJwksServed,
+  metricAuthRateLimited,
+  metricAuthTurnstileRejected,
+} from "../metrics";
 import { createAuthService, type AuthConfig } from "../services/auth";
 
 /**
@@ -202,6 +207,20 @@ export function createAuthRoutes(
    * (tests), a runtime is built once from `dbLayer` + `loggerLayer`.
    */
   runtime?: AppRuntime,
+  /**
+   * Cloudflare Turnstile verifier (bot protection). KEY-OPTIONAL:
+   *
+   *  - `null` / omitted ⇒ Turnstile is NOT configured (the `TURNSTILE_SECRET_KEY`
+   *    secret is unset). The credential-abuse gates below are skipped entirely
+   *    and the register / passkey-login flows behave exactly as before — this is
+   *    what makes the feature safe to ship before the widget is created.
+   *  - a verifier ⇒ Turnstile IS configured. `/register/begin` and
+   *    `/login/passkey/begin` REQUIRE a valid `turnstileToken` in the body and
+   *    fail CLOSED (400 `turnstile_failed`) on a missing/invalid/duplicate
+   *    token. Tokens are single-use (Cloudflare enforces); the secret never
+   *    leaves the server.
+   */
+  turnstileVerifier: TurnstileVerifier | null = null,
 ) {
   // Fail-fast: validate every limiter slot at construction time (S-L2) so a
   // partially-valid object surfaces immediately instead of on the first
@@ -312,6 +331,34 @@ export function createAuthRoutes(
   }
 
   /**
+   * Turnstile bot-protection gate (KEY-OPTIONAL, fail-closed). Returns `null`
+   * to proceed, or an error sentinel the caller turns into a 400.
+   *
+   *  - `turnstileVerifier === null` (secret unset) ⇒ ALWAYS returns `null`: the
+   *    gate is a no-op, the flow runs as it did before Turnstile existed.
+   *  - configured ⇒ the body's `turnstileToken` is siteverified with the
+   *    caller's `cf-connecting-ip` as `remoteip`. A missing/invalid/duplicate
+   *    token (or an unreachable siteverify) fails CLOSED → `{ error }`. The
+   *    secret is never logged; only the bounded outcome metric is emitted.
+   */
+  async function turnstileGate(
+    endpoint: "register_begin" | "passkey_login_begin",
+    token: string | undefined,
+    headers: Record<string, string | undefined>,
+  ): Promise<{ error: string } | null> {
+    if (!turnstileVerifier) return null;
+    // Prefer Cloudflare's attributed client IP for siteverify's risk scoring.
+    // Absent (local dev / non-CF), Cloudflare simply scores without it.
+    const remoteip = headers["cf-connecting-ip"] ?? null;
+    const result = await turnstileVerifier.verify(token, remoteip);
+    if (!result.ok) {
+      metricAuthTurnstileRejected(endpoint);
+      return { error: "turnstile_failed" };
+    }
+    return null;
+  }
+
+  /**
    * Resolves the authenticated principal for /passkey/register/* calls.
    * The caller must present a Bearer access token whose `sub` matches the
    * body `profileId`; we resolve `accountId` via a DB lookup. New users
@@ -381,6 +428,12 @@ export function createAuthRoutes(
             set.status = 429;
             return rlErr;
           }
+          // Turnstile bot gate (key-optional; no-op when the secret is unset).
+          const tsErr = await turnstileGate("register_begin", body.turnstileToken, headers);
+          if (tsErr) {
+            set.status = 400;
+            return tsErr;
+          }
           try {
             return await run(auth.beginRegistration(body.email, body.handle, body.displayName));
           } catch (e) {
@@ -394,6 +447,10 @@ export function createAuthRoutes(
             email: t.String(),
             handle: t.String(),
             displayName: t.Optional(t.String()),
+            // Turnstile widget token. Optional at the schema level so the
+            // endpoint still accepts requests when Turnstile is unconfigured;
+            // when configured, `turnstileGate` rejects a missing/invalid value.
+            turnstileToken: t.Optional(t.String()),
           }),
         },
       )
@@ -612,6 +669,12 @@ export function createAuthRoutes(
             set.status = 429;
             return rlErr;
           }
+          // Turnstile bot gate (key-optional; no-op when the secret is unset).
+          const tsErr = await turnstileGate("passkey_login_begin", body.turnstileToken, headers);
+          if (tsErr) {
+            set.status = 400;
+            return tsErr;
+          }
           try {
             // M-PK: identifier is optional. Omitting it kicks off the
             // discoverable-credential / conditional-UI flow and the
@@ -625,7 +688,12 @@ export function createAuthRoutes(
           }
         },
         {
-          body: t.Object({ identifier: t.Optional(t.String()) }),
+          body: t.Object({
+            identifier: t.Optional(t.String()),
+            // Turnstile widget token (see /register/begin). Optional in the
+            // schema; enforced by `turnstileGate` only when configured.
+            turnstileToken: t.Optional(t.String()),
+          }),
         },
       )
       .post(

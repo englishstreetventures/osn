@@ -1,6 +1,7 @@
 import { createMemo, createSignal, createUniqueId, onCleanup, Show, For } from "solid-js";
 
 import { AnimatedModal } from "./AnimatedModal";
+import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
 
 interface RsvpModalProps {
@@ -56,6 +57,8 @@ export function RsvpModal(props: RsvpModalProps) {
   const [responses, setResponses] = createSignal<Record<string, MemberState>>(initialResponses());
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
+  // Turnstile token — REQUIRED only when a sitekey is configured.
+  const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
   const titleId = createUniqueId();
 
   // Abort the in-flight submit if the modal unmounts mid-request — keeps the
@@ -111,9 +114,17 @@ export function RsvpModal(props: RsvpModalProps) {
       return;
     }
 
+    // Block submit until the challenge is solved when Turnstile is configured.
+    const token = turnstileToken();
+    if (turnstileEnabled() && !token) {
+      setError("Please complete the verification challenge below.");
+      return;
+    }
+
     setLoading(true);
 
     const body = {
+      ...(token ? { turnstileToken: token } : {}),
       rsvps: visible.map((m) => {
         const state = current[m.guestId]!;
         const attending = state.attending === "attending";
@@ -270,6 +281,9 @@ export function RsvpModal(props: RsvpModalProps) {
           </p>
         </Show>
 
+        {/* Turnstile challenge — renders only when a sitekey is configured. */}
+        <TurnstileWidget onToken={setTurnstileToken} class="flex justify-center" />
+
         <div class="border-border bg-surface sticky bottom-0 -mx-6 -mb-10 flex gap-3 border-t px-6 py-4">
           <button
             type="button"
@@ -282,7 +296,7 @@ export function RsvpModal(props: RsvpModalProps) {
           <button
             type="submit"
             class="border-gold font-body text-gold hover:bg-gold hover:text-bg disabled:hover:text-gold flex-1 cursor-pointer rounded-sm border bg-transparent px-4 py-3 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
-            disabled={loading()}
+            disabled={loading() || (turnstileEnabled() && !turnstileToken())}
           >
             {loading() ? "Saving…" : "Save"}
           </button>

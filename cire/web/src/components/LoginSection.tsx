@@ -1,5 +1,6 @@
 import { createSignal, onMount, Show, For } from "solid-js";
 
+import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 import type { ClaimResult } from "./types";
 import { isValidClaimResponse } from "./utils";
 
@@ -15,10 +16,20 @@ export function LoginSection(props: LoginSectionProps) {
   const [code, setCode] = createSignal("");
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  // Turnstile token. `null` until the widget solves; only REQUIRED when a
+  // sitekey is configured (`turnstileEnabled()`). When Turnstile is off, this
+  // stays null and submit proceeds without it.
+  const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
 
   async function submitCode(rawCode: string) {
     const publicId = rawCode.trim().toUpperCase();
     if (!publicId) return;
+    // Block submit until the challenge is solved when Turnstile is configured.
+    const token = turnstileToken();
+    if (turnstileEnabled() && !token) {
+      setError("Please complete the verification challenge below.");
+      return;
+    }
     setError(null);
     setLoading(true);
 
@@ -29,7 +40,9 @@ export function LoginSection(props: LoginSectionProps) {
         // Include cookies so the API's Set-Cookie response sticks for follow-up
         // calls (e.g. /api/rsvp). Requires CORS `credentials: true` server-side.
         credentials: "include",
-        body: JSON.stringify({ publicId }),
+        // `turnstileToken` is included only when present; the server treats a
+        // missing token as a hard fail ONLY when it has a secret configured.
+        body: JSON.stringify(token ? { publicId, turnstileToken: token } : { publicId }),
       });
 
       if (res.status === 401) {
@@ -112,10 +125,13 @@ export function LoginSection(props: LoginSectionProps) {
                 {error()}
               </p>
             </Show>
+            {/* Turnstile challenge — renders only when a sitekey is configured;
+                otherwise this is nothing and the form is unchanged. */}
+            <TurnstileWidget onToken={setTurnstileToken} class="flex justify-center" />
             <button
               type="submit"
               class="border-gold font-body text-gold hover:bg-gold hover:text-bg disabled:hover:text-gold rounded-sm border bg-transparent px-6 py-3.5 text-[0.88rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
-              disabled={loading() || !code().trim()}
+              disabled={loading() || !code().trim() || (turnstileEnabled() && !turnstileToken())}
             >
               {loading() ? "Checking\u2026" : "Open Invitation"}
             </button>

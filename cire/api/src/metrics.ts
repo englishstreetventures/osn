@@ -34,6 +34,9 @@ import type { ImageVariant, OutputFormat } from "./services/invite-image-transfo
 export const CIRE_METRICS = {
   // Guest claim (pre-auth credential exchange surface).
   claimAttempts: "cire.claim.attempts",
+  // Turnstile bot-protection rejections (fail-closed) on the gated guest
+  // surfaces (claim + rsvp). Only emitted when Turnstile is configured.
+  turnstileRejected: "cire.turnstile.rejected",
   claimLookupDuration: "cire.claim.lookup.duration",
   // Guest sessions.
   sessionCreated: "cire.session.created",
@@ -82,6 +85,9 @@ export const CIRE_METRICS = {
 /** Outcome of a guest claim attempt. `rate_limited` is gated upstream by the
  *  per-IP limiter (429 before the handler) and reserved for that call-site. */
 export type ClaimResult = "ok" | "invalid_credentials" | "rate_limited" | "error";
+
+/** Turnstile-gated guest surface. Bounded literal union — never a raw path. */
+export type TurnstileEndpoint = "claim" | "rsvp";
 
 /** Terminal RSVP status after an upsert — matches the cire `rsvps.status` enum. */
 export type RsvpStatus = "attending" | "declined" | "maybe";
@@ -339,6 +345,16 @@ const hostResolveDuration = createHistogram<HostResolveDurationAttrs>({
 // ---------------------------------------------------------------------------
 
 export const metricClaimAttempt = (result: ClaimResult): void => claimAttempts.inc({ result });
+
+const turnstileRejected = createCounter<{ endpoint: TurnstileEndpoint }>({
+  name: CIRE_METRICS.turnstileRejected,
+  description: "Guest requests rejected by Turnstile siteverify (fail-closed), by surface",
+  unit: "{rejection}",
+});
+
+/** Records a fail-closed Turnstile rejection on a configured guest gate. */
+export const metricTurnstileRejected = (endpoint: TurnstileEndpoint): void =>
+  turnstileRejected.inc({ endpoint });
 
 export const metricSessionCreated = (result: "ok" | "error"): void =>
   sessionCreated.inc({ result });

@@ -70,6 +70,10 @@ export interface Env {
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_EMAIL_API_TOKEN?: string;
   INTERNAL_SERVICE_SECRET?: string;
+  // Turnstile bot-protection secret (KEY-OPTIONAL). When set, `/register/begin`
+  // and `/login/passkey/begin` require a valid Turnstile token (fail-closed).
+  // Unset ⇒ those gates are skipped. `wrangler secret put TURNSTILE_SECRET_KEY`.
+  TURNSTILE_SECRET_KEY?: string;
 }
 
 const isNonLocal = (env: Env): boolean => !!env.OSN_ENV && env.OSN_ENV !== "local";

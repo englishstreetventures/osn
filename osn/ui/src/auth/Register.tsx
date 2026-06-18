@@ -8,6 +8,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { OtpInput, type OtpStatus } from "../components/ui/otp-input";
+import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 
 type Step = "details" | "verify" | "passkey" | "done";
 
@@ -24,6 +25,13 @@ interface RegisterProps {
    * `session()` directly can omit it.
    */
   onSuccess?: () => void;
+  /**
+   * Cloudflare Turnstile sitekey (public, build-time). When provided, the
+   * "details" step renders the Turnstile challenge and gates "Send verification
+   * code" on it (the token rides on `/register/begin`). Omitted/blank ⇒ no
+   * widget, no gate (key-optional — matches osn-api skipping siteverify).
+   */
+  turnstileSiteKey?: string;
 }
 
 export function Register(props: RegisterProps) {
@@ -43,6 +51,9 @@ export function Register(props: RegisterProps) {
   const [profileId, setProfileId] = createSignal<string | null>(null);
   const [accessToken, setAccessToken] = createSignal<string | null>(null);
   const [passkeyError, setPasskeyError] = createSignal<string | null>(null);
+  // Turnstile token — REQUIRED only when a sitekey is provided.
+  const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
+  const turnstileOn = () => turnstileEnabled(props.turnstileSiteKey);
 
   const [handleStatus, setHandleStatus] = createSignal<
     "idle" | "checking" | "available" | "taken" | "invalid" | "error"
@@ -77,7 +88,10 @@ export function Register(props: RegisterProps) {
     }, 300);
   }
 
-  const detailsValid = () => EMAIL_RE.test(email()) && handleStatus() === "available";
+  const detailsValid = () =>
+    EMAIL_RE.test(email()) &&
+    handleStatus() === "available" &&
+    (!turnstileOn() || turnstileToken() !== null);
 
   async function submitDetails(e: Event) {
     e.preventDefault();
@@ -88,6 +102,7 @@ export function Register(props: RegisterProps) {
         email: email(),
         handle: handle(),
         displayName: displayName().trim() || undefined,
+        turnstileToken: turnstileToken() ?? undefined,
       });
       toast.success("Verification code sent");
       setStep("verify");
@@ -149,6 +164,9 @@ export function Register(props: RegisterProps) {
         email: email(),
         handle: handle(),
         displayName: displayName().trim() || undefined,
+        // Turnstile tokens are single-use; the widget auto-refreshes a fresh one
+        // before the 300s TTL, so the value here is the latest unconsumed token.
+        turnstileToken: turnstileToken() ?? undefined,
       });
       setOtp("");
       setOtpStatus("idle");
@@ -276,6 +294,9 @@ export function Register(props: RegisterProps) {
                 onInput={(e) => setDisplayName(e.currentTarget.value)}
               />
             </div>
+
+            {/* Turnstile challenge — renders only when a sitekey is provided. */}
+            <TurnstileWidget siteKey={props.turnstileSiteKey} onToken={setTurnstileToken} />
 
             <Button type="submit" disabled={!detailsValid() || busy()}>
               {busy() ? "Sending…" : "Send verification code"}

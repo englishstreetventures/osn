@@ -8,6 +8,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { RecoveryLoginForm } from "./RecoveryLoginForm";
+import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 
 /**
  * Shared sign-in component. WebAuthn (passkey or security key) is the only
@@ -28,6 +29,15 @@ export interface SignInProps {
   recoveryClient: RecoveryClient;
   onSuccess?: () => void;
   onCancel?: () => void;
+  /**
+   * Cloudflare Turnstile sitekey (public, build-time). When provided, the
+   * identifier-bound passkey form renders the Turnstile challenge and gates
+   * "Continue" on it (the token rides on `/login/passkey/begin`). The silent
+   * conditional-UI (autofill) ceremony does NOT carry a token — it runs in the
+   * background before the user touches the widget, and osn-api only enforces the
+   * gate on the explicit begin call. Omitted/blank ⇒ no widget, no gate.
+   */
+  turnstileSiteKey?: string;
 }
 
 export function SignIn(props: SignInProps) {
@@ -44,6 +54,9 @@ export function SignIn(props: SignInProps) {
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [signedIn, setSignedIn] = createSignal(false);
+  // Turnstile token — REQUIRED only when a sitekey is provided.
+  const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
+  const turnstileOn = () => turnstileEnabled(props.turnstileSiteKey);
 
   function reportError(e: unknown, fallback: string) {
     const msg = e instanceof Error ? e.message : fallback;
@@ -61,11 +74,20 @@ export function SignIn(props: SignInProps) {
   async function submitPasskey(e: Event) {
     e.preventDefault();
     if (busy() || !identifier().trim()) return;
+    if (turnstileOn() && !turnstileToken()) {
+      setError("Please complete the verification challenge below.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const trimmed = identifier().trim();
-      const beginResult = (await client.passkeyBegin(trimmed)) as {
+      const token = turnstileToken() ?? undefined;
+      // Pass the token only when present so the no-Turnstile call shape is
+      // unchanged (single-arg `passkeyBegin(identifier)`).
+      const beginResult = (await (token
+        ? client.passkeyBegin(trimmed, token)
+        : client.passkeyBegin(trimmed))) as {
         options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
       };
       const assertion = await startAuthentication({ optionsJSON: beginResult.options });
@@ -154,7 +176,12 @@ export function SignIn(props: SignInProps) {
               onInput={(e) => setIdentifier(e.currentTarget.value)}
             />
           </div>
-          <Button type="submit" disabled={busy() || !identifier().trim()}>
+          {/* Turnstile challenge — renders only when a sitekey is provided. */}
+          <TurnstileWidget siteKey={props.turnstileSiteKey} onToken={setTurnstileToken} />
+          <Button
+            type="submit"
+            disabled={busy() || !identifier().trim() || (turnstileOn() && !turnstileToken())}
+          >
             {busy() ? "Verifying…" : "Continue"}
           </Button>
           <button

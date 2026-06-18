@@ -59,8 +59,17 @@ export interface LoginClient {
    * flow, or omit to kick off the discoverable-credential (conditional-UI)
    * flow — the response then carries a `challengeId` the caller must pass
    * to `passkeyComplete`.
+   *
+   * `turnstileToken` is sent to `/login/passkey/begin` when the UI rendered the
+   * Turnstile widget. Optional: osn-api only requires it when its
+   * `TURNSTILE_SECRET_KEY` is configured (fail-closed there); unset ⇒ ignored.
+   * The conditional-UI flow (no identifier) omits it — that ceremony runs
+   * silently in the background before the user interacts with the widget.
    */
-  passkeyBegin(identifier?: string): Promise<{ options: unknown; challengeId?: string }>;
+  passkeyBegin(
+    identifier?: string,
+    turnstileToken?: string,
+  ): Promise<{ options: unknown; challengeId?: string }>;
   /** Complete WebAuthn login — exchange a signed assertion for a session. */
   passkeyComplete(
     input: { identifier: string; assertion: unknown } | { challengeId: string; assertion: unknown },
@@ -76,11 +85,11 @@ export function createLoginClient(config: LoginClientConfig): LoginClient {
   });
 
   return {
-    passkeyBegin: (identifier) =>
-      postJson<{ options: unknown; challengeId?: string }>(
-        `${base}/login/passkey/begin`,
-        identifier === undefined ? {} : { identifier },
-      ),
+    passkeyBegin: (identifier, turnstileToken) =>
+      postJson<{ options: unknown; challengeId?: string }>(`${base}/login/passkey/begin`, {
+        ...(identifier === undefined ? {} : { identifier }),
+        ...(turnstileToken ? { turnstileToken } : {}),
+      }),
 
     passkeyComplete: async (input) => {
       const raw = await postJson<{ session: unknown; profile: LoginProfile }>(

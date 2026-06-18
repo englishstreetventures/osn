@@ -40,6 +40,19 @@ const GUEST_2 = "g2";
 let mf: Miniflare;
 let db: Db;
 
+// Booting workerd (which backs Miniflare's D1) is a cold-start the first time a
+// CI runner touches it: spawning the runtime + opening the loopback socket can
+// take several seconds on a fresh, network-constrained GitHub Actions box. bun's
+// DEFAULT per-hook timeout is 5_000ms, so a slow boot makes the `beforeAll`
+// (or a `beforeEach` issuing the first real D1 round-trip) blow past it — bun
+// then fails the hook AND tears the suite down, at which point the still-pending
+// workerd D1 call lands on a now-disposed ("poisoned") stub and surfaces as
+// "Unhandled error between tests", failing the whole `bun test` run. Locally the
+// runtime is warm so the hooks finish in ~400ms and never trip the limit; this
+// is the CI-only flake. Give every Miniflare-backed hook a generous budget so a
+// cold boot can never race the default timeout.
+const MF_HOOK_TIMEOUT_MS = 30_000;
+
 const run = <A, E>(eff: Effect.Effect<A, E, DbService>): Promise<A> =>
   Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
 
@@ -131,11 +144,15 @@ beforeAll(async () => {
     await d1.prepare(stmt).run();
   }
   db = createD1Db(d1);
-});
+}, MF_HOOK_TIMEOUT_MS);
 
 afterAll(async () => {
+  // `dispose()` poisons every D1 stub this instance handed out — only call it
+  // once the suite is fully done so no in-flight query can resolve against a
+  // dead stub. (All hooks/tests above `await` their D1 ops, so nothing is
+  // pending here; this stays defensive in case that ever changes.)
   await mf?.dispose();
-});
+}, MF_HOOK_TIMEOUT_MS);
 
 beforeEach(async () => {
   // FK-safe truncate, then reseed — keeps each test isolated on the shared D1.
@@ -143,7 +160,7 @@ beforeEach(async () => {
     await db.delete(table);
   }
   await seed();
-});
+}, MF_HOOK_TIMEOUT_MS);
 
 describe("cire/api over real D1 (Miniflare)", () => {
   it("claim.lookup resolves a seeded family across async D1 reads", async () => {

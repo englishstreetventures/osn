@@ -2,6 +2,7 @@ import { cors } from "@elysiajs/cors";
 import { DbLive } from "@osn/db/service";
 import { healthRoutes, observabilityPlugin } from "@shared/observability";
 import type { ClientIpOptions } from "@shared/rate-limit";
+import type { TurnstileVerifier } from "@shared/turnstile";
 import { Elysia } from "elysia";
 
 import type { CookieSessionConfig } from "./lib/cookie-session";
@@ -101,6 +102,14 @@ export interface AppDeps {
    */
   internalServiceSecret: string | undefined;
   /**
+   * Cloudflare Turnstile verifier (bot protection). KEY-OPTIONAL: `null` when
+   * the `TURNSTILE_SECRET_KEY` secret is unset ⇒ the register / passkey-login
+   * gates are skipped. A verifier ⇒ those gates enforce siteverify, fail-closed.
+   * Built once per isolate in the composition root and threaded into
+   * `createAuthRoutes`.
+   */
+  turnstileVerifier: TurnstileVerifier | null;
+  /**
    * Elysia ahead-of-time handler compilation. AOT uses `new Function(...)`,
    * which workerd forbids ("Code generation from strings disallowed"). The Bun
    * path leaves this `true` (default, faster); the Workers entry passes `false`.
@@ -138,6 +147,7 @@ export function createApp(deps: AppDeps) {
     emailChangeBeginCap,
     clientIpConfig,
     internalServiceSecret,
+    turnstileVerifier,
     aot,
   } = deps;
 
@@ -180,6 +190,7 @@ export function createApp(deps: AppDeps) {
         cookieConfig,
         clientIpConfig,
         appRuntime,
+        turnstileVerifier,
       ),
     )
     .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter, appRuntime))

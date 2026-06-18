@@ -3,6 +3,7 @@ import { generateArcKeyPair, importKeyFromJwk, thumbprintKid } from "@shared/cry
 import type { EmailService } from "@shared/email";
 import type { RedisClient } from "@shared/redis";
 import { sanitizeCause } from "@shared/redis";
+import { createTurnstileVerifier } from "@shared/turnstile";
 import { Effect, Layer, ManagedRuntime } from "effect";
 
 import type { AppDeps } from "./app";
@@ -324,6 +325,12 @@ export async function buildAppDeps(env: EnvRecord, parts: BuildParts): Promise<B
     // Gates the S2S service-registration endpoints. On workerd this is a
     // wrangler secret, surfaced via the `env` binding; on Bun it's process.env.
     internalServiceSecret: env.INTERNAL_SERVICE_SECRET,
+    // Turnstile bot protection (KEY-OPTIONAL). `TURNSTILE_SECRET_KEY` is a
+    // wrangler secret (`env` on workerd, process.env on Bun). Unset ⇒ `null` ⇒
+    // the register / passkey-login gates are skipped (flow unchanged). Set ⇒ a
+    // fail-closed verifier enforces siteverify on those endpoints. The secret is
+    // read here and never logged or placed in any other dep.
+    turnstileVerifier: createTurnstileVerifier(env.TURNSTILE_SECRET_KEY),
     // AOT and the observability plugin co-vary by runtime: both ON for Bun,
     // both OFF for workerd (AOT's `new Function` is forbidden there). The
     // `includeObservabilityPlugin` flag is the single Bun-vs-Workers

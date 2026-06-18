@@ -24,6 +24,7 @@
     "@shared/observability": "workspace:*",
     "@shared/rate-limit": "workspace:*",
     "@shared/redis": "workspace:*",
+    "@shared/turnstile": "workspace:*",
     "@simplewebauthn/server": "^13.3.0",
     "drizzle-orm": "^0.45.2",
     "effect": "^3.21.2",
