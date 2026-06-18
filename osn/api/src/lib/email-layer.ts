@@ -6,19 +6,27 @@
  *
  * Selection rules (in priority order):
  *
- *   1. Cloudflare creds present (`CLOUDFLARE_ACCOUNT_ID` +
- *      `CLOUDFLARE_EMAIL_API_TOKEN`)        → CloudflareEmailLive.
- *      Creds always win — even if the degraded opt-in is also set — so a
- *      correctly-provisioned deploy is never accidentally downgraded.
+ *   1. Resend key present (`RESEND_API_KEY`) in a non-local env
+ *                                           → ResendEmailLive (preferred real
+ *      transport; works on workerd via Resend's HTTP API, no paid Workers plan).
+ *      Wins over every lower tier — even if Cloudflare creds and/or the degraded
+ *      opt-in are also set — so a correctly-provisioned deploy is never
+ *      accidentally downgraded. With Resend configured, `OSN_EMAIL_OPTIONAL` is
+ *      no longer needed: a future Resend outage then fails closed like any other
+ *      transport misconfig (the no-op degraded path is opt-in only).
  *
- *   2. Local env (`OSN_ENV` unset or "local") → LogEmailLive recorder
+ *   2. Cloudflare creds present (`CLOUDFLARE_ACCOUNT_ID` +
+ *      `CLOUDFLARE_EMAIL_API_TOKEN`)        → CloudflareEmailLive (legacy real
+ *      transport, retained as a fallback). Creds win over the degraded opt-in.
+ *
+ *   3. Local env (`OSN_ENV` unset or "local") → LogEmailLive recorder
  *      (in-memory ring; dev/test only).
  *
- *   3. Non-local, creds absent, `OSN_EMAIL_OPTIONAL` truthy → NoopEmailLive.
+ *   4. Non-local, no real provider, `OSN_EMAIL_OPTIONAL` truthy → NoopEmailLive.
  *      EXPLICIT opt-in to boot with email gracefully degraded: transactional
  *      mail is discarded (not delivered) and a loud startup warning is emitted.
  *
- *   4. Non-local, creds absent, opt-in UNSET → THROW (the safe default).
+ *   5. Non-local, no real provider, opt-in UNSET → THROW (the safe default).
  *      A misconfigured deploy fails closed at startup rather than silently
  *      running without email.
  *
@@ -30,6 +38,7 @@ import {
   makeCloudflareEmailLive,
   makeLogEmailLive,
   makeNoopEmailLive,
+  makeResendEmailLive,
   type EmailService,
 } from "@shared/email";
 import { Effect, Layer } from "effect";
@@ -63,10 +72,21 @@ export function selectEmailLayer(
   env: EmailEnv,
   observabilityLayer: Layer.Layer<never>,
 ): Layer.Layer<EmailService> {
+  const resendApiKey = env.RESEND_API_KEY;
   const cfAccountId = env.CLOUDFLARE_ACCOUNT_ID;
   const cfEmailToken = env.CLOUDFLARE_EMAIL_API_TOKEN;
 
-  // 1. Real transport — creds win, unconditionally.
+  // 1. Preferred real transport — Resend wins over everything, unconditionally,
+  //    in any non-local env. (Locally the recorder is preferred so dev/test
+  //    never make a live API call even if a key happens to be present.)
+  if (resendApiKey && isNonLocal(env)) {
+    return makeResendEmailLive({
+      apiKey: resendApiKey,
+      fromAddress: env.OSN_EMAIL_FROM,
+    });
+  }
+
+  // 2. Legacy real transport — Cloudflare creds win over the degraded opt-in.
   if (cfAccountId && cfEmailToken) {
     return makeCloudflareEmailLive({
       accountId: cfAccountId,
@@ -75,34 +95,36 @@ export function selectEmailLayer(
     });
   }
 
-  // 2. Local — recorder, no creds required.
+  // 3. Local — recorder, no creds required.
   if (!isNonLocal(env)) {
     return makeLogEmailLive().layer;
   }
 
-  // 3. Non-local + creds absent + EXPLICIT opt-in → degraded no-op.
+  // 4. Non-local + no real provider + EXPLICIT opt-in → degraded no-op.
   if (isEmailOptionalOptIn(env[EMAIL_OPTIONAL_VAR])) {
     // Loud, redacted startup warning through the redacting logger (NOT
     // console.*). Names the mail classes that will silently NOT be delivered so
     // an operator understands the security impact.
     Effect.runSync(
       Effect.logWarning(
-        "EMAIL DEGRADED: CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_EMAIL_API_TOKEN absent and " +
+        "EMAIL DEGRADED: no real email provider configured (RESEND_API_KEY and " +
+          "CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_EMAIL_API_TOKEN all absent) and " +
           `${EMAIL_OPTIONAL_VAR} is set — booting with a NO-OP email transport. ` +
           "Transactional mail will NOT be delivered: OTP step-up codes, email-change " +
           "OTPs, and security-notice emails (passkey added/removed, recovery codes, " +
           "cross-device login) are all DISCARDED. Passkey login is primary and " +
-          "unaffected. Re-enable by setting the CLOUDFLARE_* creds and unsetting " +
+          "unaffected. Re-enable by setting RESEND_API_KEY (preferred) and unsetting " +
           `${EMAIL_OPTIONAL_VAR}.`,
       ).pipe(Effect.provide(observabilityLayer)),
     );
     return makeNoopEmailLive();
   }
 
-  // 4. Non-local + creds absent + no opt-in → fail closed (default).
+  // 5. Non-local + no real provider + no opt-in → fail closed (default).
   throw new Error(
-    "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_EMAIL_API_TOKEN must be set in non-local " +
-      `environments. To deploy WITHOUT email (degraded), set ${EMAIL_OPTIONAL_VAR}=true ` +
-      "explicitly — transactional mail will then be discarded, not delivered.",
+    "RESEND_API_KEY (preferred) or CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_EMAIL_API_TOKEN " +
+      "must be set in non-local environments. To deploy WITHOUT email (degraded), set " +
+      `${EMAIL_OPTIONAL_VAR}=true explicitly — transactional mail will then be discarded, ` +
+      "not delivered.",
   );
 }

@@ -215,7 +215,7 @@ OSN_RP_NAME = "OSN"
 OSN_ORIGIN = "https://app.cireweddings.com"
 OSN_ISSUER_URL = "https://id.cireweddings.com"
 OSN_CORS_ORIGIN = "https://app.cireweddings.com"
-OSN_EMAIL_FROM = "noreply@cireweddings.com"
+OSN_EMAIL_FROM = "hello@cireweddings.com"
 # Degraded-email opt-in. We are launching WITHOUT Cloudflare email (it needs a
 # paid Workers plan + ~1 week sender-domain onboarding, §1.1). With this set
 # truthy AND the CLOUDFLARE_* email secrets absent, osn-api boots with a NO-OP

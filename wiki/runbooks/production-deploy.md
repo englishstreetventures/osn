@@ -56,8 +56,9 @@ marked **TBD** blocks the deploy.
 | `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://app.cireweddings.com`** (organiser portal = the passkey origin) |
 | `OSN_ISSUER_URL` (public https base of osn-api) | osn-api + cire | **DONE — `https://id.cireweddings.com`** (custom-domain route in `osn/api/wrangler.toml` `[env.production]`) |
 | `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **DONE — `https://app.cireweddings.com`** (organiser portal calls osn-api) |
-| `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `noreply@cireweddings.com`** (sender-domain onboarding for `cireweddings.com` still required — §1.1) |
-| `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | **provision** (~1 week lead, section 1) |
+| `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `hello@cireweddings.com`** (Resend sender-domain verification for `cireweddings.com` still required — §1.1) |
+| `RESEND_API_KEY` (live email transport) | osn-api | **provision** (Resend domain verify + key — §1.1) |
+| `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | optional / **legacy** (Cloudflare-email fallback transport; not used now Resend is the live path — §1.1) |
 | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | osn-api | **provision** (section 1) — region locked to **`ap-southeast-2` (Sydney)** (C-M18 resolved) |
 | `INTERNAL_SERVICE_SECRET` (S2S register-service) | osn-api | optional — only to register cire's ARC key (§6.2) |
 | `TRUSTED_PROXY_COUNT` (proxy hops in front of osn-api) | osn-api rate limits | optional — CF sets `cf-connecting-ip`, usually unneeded on Workers |
@@ -76,48 +77,54 @@ marked **TBD** blocks the deploy.
 
 ## 1. Pre-flight (lead-time items — start these early)
 
-### 1.1 Cloudflare email sender-domain onboarding (~1 week lead) 🕐
+### 1.1 Resend email setup (sender-domain verification + API key) 📧
 
-osn-api emails OTPs and security notices through the **Cloudflare Email Service REST
-API** (transport selection in `osn/api/src/lib/email-layer.ts`). In a non-local env both
-`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_EMAIL_API_TOKEN` are **required by default** — the
-app fails closed at startup without them (surfaced as a `503 Worker misconfigured`) —
-**unless** the explicit degraded-email opt-in `OSN_EMAIL_OPTIONAL` is set (see the
-"Launching without Cloudflare email" box below).
+osn-api emails OTPs and security notices through **Resend's HTTP API**
+(`https://api.resend.com/emails`; transport selection in
+`osn/api/src/lib/email-layer.ts`). Resend is the **live transport** — it works on
+workerd over plain HTTP and needs no paid Workers plan (the reason the Cloudflare Email
+Service path was originally degraded). In a non-local env osn-api needs a real email
+provider by default and fails closed at startup without one (surfaced as a `503 Worker
+misconfigured`) **unless** the explicit degraded-email opt-in `OSN_EMAIL_OPTIONAL` is set
+(see the box below). With `RESEND_API_KEY` set, email works normally and the opt-in is no
+longer needed.
 
-> **Launching without Cloudflare email (degraded mode).** 🚦 Cloudflare Email Service
-> needs a **paid Workers plan**, and the sender-domain onboarding below has ~1 week lead.
-> To **deploy osn-api now without email**, set the opt-in var
-> **`OSN_EMAIL_OPTIONAL = "true"`** in `osn/api/wrangler.toml` `[env.production.vars]`
-> (already set for prod) and leave the `CLOUDFLARE_*` email secrets unset. osn-api then
-> boots with a **no-op email transport**: it logs a loud redacted startup warning and
-> **DISCARDS** every transactional email. While degraded, **OTP step-up emails,
-> email-change OTPs, and security-notice emails (passkey added/removed, recovery-code
-> generation/consumption, cross-device login) will NOT be delivered.** **Passkey login is
-> the primary login factor and is unaffected** — users can still sign in. The opt-in is
-> ignored when the `CLOUDFLARE_*` creds are present (creds always win), so it is safe to
-> leave in place during the cutover. **Re-enable email:** provision the two `CLOUDFLARE_*`
-> secrets (steps below), then **remove `OSN_EMAIL_OPTIONAL`** from `[env.production.vars]`
-> so a future creds outage fails closed again rather than silently degrading.
+> **The degraded opt-in is now transitional.** 🚦 `OSN_EMAIL_OPTIONAL = "true"` is still in
+> `osn/api/wrangler.toml` `[env.production.vars]` so the Worker keeps booting during the
+> cutover (it would otherwise fail closed in the window before `RESEND_API_KEY` is set). It
+> is **ignored once a real provider is configured** — Resend (or the legacy Cloudflare
+> creds) wins. While the opt-in is active AND no provider is set, osn-api boots with a
+> **no-op email transport** that **DISCARDS** every transactional email (loud redacted
+> startup warning); **OTP step-up, email-change OTPs, and security-notice emails (passkey
+> added/removed, recovery-code generate/consume, cross-device login) are NOT delivered**.
+> **Passkey login is primary and unaffected.** **Do NOT remove `OSN_EMAIL_OPTIONAL` in the
+> same change that adds Resend** — set the secret, confirm delivery, *then* drop the opt-in
+> (step 4) so there is never a window where the Worker fails closed before the secret lands.
 
-Before tokens are useful you must onboard the **sender domain** (the domain in
-`OSN_EMAIL_FROM`, now `noreply@cireweddings.com`) — SPF/DKIM/DMARC records and Cloudflare's
-sender verification. **Budget ~1 week** — this is the one remaining lead-time human step
-now that the domain is purchased and in-account. Steps:
+Setup steps (live path — Resend):
 
-1. `OSN_EMAIL_FROM` is `noreply@cireweddings.com` (set in `osn/api/wrangler.toml`
+1. `OSN_EMAIL_FROM` is `hello@cireweddings.com` (set in `osn/api/wrangler.toml`
    `[env.production.vars]`). The sender domain is `cireweddings.com`.
-2. In the Cloudflare dashboard, start sender-domain onboarding for `cireweddings.com`; add
-   the DNS records it asks for (the zone is already in-account, so this is just adding the
-   SPF/DKIM/DMARC records to it).
-3. Wait for verification to go green.
-4. Mint an API token scoped to the Email Service; store as `CLOUDFLARE_EMAIL_API_TOKEN`.
-5. Note the `CLOUDFLARE_ACCOUNT_ID`.
+2. **Verify the `cireweddings.com` sender domain in Resend** (Resend dashboard → Domains →
+   Add Domain). Add the **SPF / DKIM / return-path** DNS records Resend provides into the
+   Cloudflare DNS zone for `cireweddings.com` — quick, since the zone is already in-account.
+   Wait for verification to go green.
+3. Create a Resend API key (Sending access) and set it on osn-api:
+   `bunx wrangler secret put RESEND_API_KEY --env production` (repeat per env as needed).
+4. Confirm a real send arrives (watch `osn.email.send.attempts{outcome="sent"}`), **then
+   remove `OSN_EMAIL_OPTIONAL`** from `osn/api/wrangler.toml` `[env.production.vars]` so a
+   future Resend outage fails closed again rather than silently degrading. (Left in place by
+   the PR that added Resend — it is removed operationally after delivery is confirmed.)
 
-Until the domain is verified, OTP email will not arrive. In the **fail-closed default**
-(opt-in unset) there is no fallback — the Worker 503s. In **degraded mode** (opt-in set)
-the Worker boots but mail is discarded per the box above; the in-memory `LogEmailLive`
-recorder is local/test only and is never used in production.
+Until the domain is verified and the key is set, OTP email will not arrive. In the
+**fail-closed default** (opt-in unset, no provider) the Worker 503s. In **degraded mode**
+(opt-in set, no provider) the Worker boots but mail is discarded per the box above; the
+in-memory `LogEmailLive` recorder is local/test only and is never used in production.
+
+The **Cloudflare Email Service** path remains available as a legacy fallback (onboard the
+sender domain in Cloudflare Email Sending, mint an Email-Send-scoped token →
+`CLOUDFLARE_EMAIL_API_TOKEN`, note `CLOUDFLARE_ACCOUNT_ID`), but it requires a paid Workers
+plan and is **not** the live transport — prefer Resend.
 
 ### 1.2 Generate the ES256 JWT key pair
 
@@ -267,9 +274,12 @@ bunx wrangler secret put OSN_JWT_PUBLIC_KEY         --env <dev|staging|productio
 bunx wrangler secret put OSN_SESSION_IP_PEPPER      --env <dev|staging|production>
 bunx wrangler secret put UPSTASH_REDIS_REST_URL     --env <dev|staging|production>
 bunx wrangler secret put UPSTASH_REDIS_REST_TOKEN   --env <dev|staging|production>
-# Email creds — REQUIRED non-local UNLESS OSN_EMAIL_OPTIONAL is set (§1.1). We
-# are launching in degraded mode (OSN_EMAIL_OPTIONAL="true" in wrangler.toml), so
-# these are NOT provisioned yet; set them + remove the opt-in to enable email:
+# Email — REQUIRED non-local UNLESS OSN_EMAIL_OPTIONAL is set (§1.1). RESEND_API_KEY
+# is the live transport: verify cireweddings.com in Resend, set the key, confirm a
+# send arrives, THEN remove OSN_EMAIL_OPTIONAL from wrangler.toml [vars]:
+bunx wrangler secret put RESEND_API_KEY             --env <dev|staging|production>
+# Cloudflare email creds — OPTIONAL / LEGACY fallback (needs a paid Workers plan;
+# not used now Resend is live). Only set if falling back off Resend:
 bunx wrangler secret put CLOUDFLARE_ACCOUNT_ID      --env <dev|staging|production>
 bunx wrangler secret put CLOUDFLARE_EMAIL_API_TOKEN --env <dev|staging|production>
 # OPTIONAL — only for the cire→osn account-linking ARC bridge (§6.2):
@@ -290,10 +300,11 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 | `OSN_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep accepted WebAuthn origins; prod **https** origins. Prod = **`https://app.cireweddings.com`** (the organiser portal — the passkey origin). |
 | `OSN_ISSUER_URL` | `[env.<env>.vars]` | **Yes** | Public https base URL of osn-api → JWT `iss`; must match what cire verifies. Prod = **`https://id.cireweddings.com`** (custom-domain route in `wrangler.toml` `[env.production]`). |
 | `OSN_CORS_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep prod app origins. In a secure env an empty list **throws** at `assertCorsOriginsConfigured` (`lib/cors-config.ts`) — Origin/CSRF guard is mandatory. Prod = **`https://app.cireweddings.com`** (organiser portal calls osn-api; the guest site never does). |
-| `CLOUDFLARE_ACCOUNT_ID` | `wrangler secret put` | **Yes\*** | Email transport. Fail-closed at startup if missing in non-local — **unless `OSN_EMAIL_OPTIONAL` is set** (then degraded no-op). §1.1 |
-| `CLOUDFLARE_EMAIL_API_TOKEN` | `wrangler secret put` | **Yes\*** | Email transport bearer token. Same fail-closed/opt-in rule as `CLOUDFLARE_ACCOUNT_ID`. §1.1 |
-| `OSN_EMAIL_OPTIONAL` | `[env.<env>.vars]` | No (default off) | **Explicit degraded-email opt-in.** Truthy (`true`/`1`/`yes`/`on`) → boot with a **no-op email transport** (transactional mail DISCARDED, loud startup warning) when the `CLOUDFLARE_*` creds are absent in a non-local env, instead of failing closed. **Currently `"true"` in prod `[vars]`** to launch without email. Creds win — ignored if `CLOUDFLARE_*` present. While set, **OTP step-up / email-change OTP / security-notice emails are not delivered** (passkey login unaffected). Unset it once email is provisioned. §1.1 |
-| `OSN_EMAIL_FROM` | `[env.<env>.vars]` (or secret) | **Yes (prod)** | Verified sender address. Prod = **`noreply@cireweddings.com`** (set in `wrangler.toml`). Onboarded domain from §1.1. |
+| `RESEND_API_KEY` | `wrangler secret put` | **Yes\* (live transport)** | Resend API key (bearer). When set in non-local → `ResendEmailLive` (POST `https://api.resend.com/emails`); **wins over the Cloudflare creds and the opt-in**. Fail-closed at startup if no provider is set in non-local — **unless `OSN_EMAIL_OPTIONAL` is set** (then degraded no-op). With this set, the opt-in is no longer needed. §1.1 |
+| `CLOUDFLARE_ACCOUNT_ID` | `wrangler secret put` | Optional / **legacy** | Cloudflare-email fallback transport (paid Workers plan). Used only if `RESEND_API_KEY` is absent. §1.1 |
+| `CLOUDFLARE_EMAIL_API_TOKEN` | `wrangler secret put` | Optional / **legacy** | Cloudflare-email fallback bearer token. Same role as `CLOUDFLARE_ACCOUNT_ID`. §1.1 |
+| `OSN_EMAIL_OPTIONAL` | `[env.<env>.vars]` | No (default off) | **Explicit degraded-email opt-in (transitional).** Truthy (`true`/`1`/`yes`/`on`) → boot with a **no-op email transport** (transactional mail DISCARDED, loud startup warning) when **no real provider** (`RESEND_API_KEY` / `CLOUDFLARE_*`) is set in a non-local env, instead of failing closed. **Currently `"true"` in prod `[vars]`** to keep the Worker booting during the Resend cutover. A real provider wins — ignored when `RESEND_API_KEY` (or the Cloudflare creds) is present. **Remove it once Resend delivery is confirmed** (§1.1 step 4) so a future Resend outage fails closed again. §1.1 |
+| `OSN_EMAIL_FROM` | `[env.<env>.vars]` (or secret) | **Yes (prod)** | Verified sender address. Prod = **`hello@cireweddings.com`** (set in `wrangler.toml`). Resend-verified domain from §1.1. |
 | `UPSTASH_REDIS_REST_URL` | `wrangler secret put` | **Yes** | Upstash REST URL. Worker refuses to boot in non-local without it + the token (`index.ts:92-96`). §1.4 |
 | `UPSTASH_REDIS_REST_TOKEN` | `wrangler secret put` | **Yes** | Upstash REST token. §1.4 (region `ap-southeast-2` / Sydney — C-M18 resolved) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `[env.<env>.vars]` | Recommended | Grafana OTLP gateway. Metric/trace **export is deferred on workerd** — the redacting logger is active, recording call-sites are no-ops until an exporter is attached. [[observability-setup]] |

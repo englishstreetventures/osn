@@ -35,7 +35,7 @@ the compliance checklist.
 
 | Field | Purpose | Lawful basis | Retention | Recipients | System page |
 |---|---|---|---|---|---|
-| `accounts.email` | Login identifier; OTP destination for step-up + email change | Art. 6(1)(b) — contract | While account active + 30 d soft-delete tombstone | `@osn/api` only; Cloudflare Email Service for outbound mail (processor) | [[identity-model]], [[email]] |
+| `accounts.email` | Login identifier; OTP destination for step-up + email change | Art. 6(1)(b) — contract | While account active + 30 d soft-delete tombstone | `@osn/api` only; **Resend** for outbound mail (processor; Cloudflare Email Service is a legacy fallback) | [[identity-model]], [[email]] |
 | `accounts.passkeyUserId` | WebAuthn `user.id` opaque to prevent cross-profile correlation | Art. 6(1)(b) | While account active | `@osn/api` only | [[identity-model]] |
 | `accounts.maxProfiles` | Per-account profile cap | Art. 6(1)(b) | While account active | `@osn/api` only | [[identity-model]] |
 | `users.handle` | Public identifier | Art. 6(1)(b) | While profile active; tombstoned on delete (30 d) | All services + public web | [[identity-model]] |
@@ -146,7 +146,7 @@ cire-specific gate is required in the interim. Light-touch by design.
 
 | Field | Purpose | Lawful basis | Retention | Recipients |
 |---|---|---|---|---|
-| Outbound email (OTP, security notice) | Transactional auth | Art. 6(1)(b) | Cloudflare retains delivery logs per their DPA | Cloudflare Email Service (US) |
+| Outbound email (OTP, security notice) | Transactional auth | Art. 6(1)(b) | Resend retains delivery logs per their DPA | **Resend (US)** — live transport; Cloudflare Email Service (US) is a legacy fallback |
 | Geocoder query (Pulse) | Convert typed address → coordinates | Currently no consent — **outstanding compliance gap (S-M13)** | Not retained by us; Photon retains per their policy | Photon (Komoot, Germany) |
 
 ## Things we explicitly do NOT collect

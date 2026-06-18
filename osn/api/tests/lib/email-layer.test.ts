@@ -1,6 +1,6 @@
 import { EmailService } from "@shared/email";
 import { Effect, Logger } from "effect";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { selectEmailLayer, isEmailOptionalOptIn } from "../../src/lib/email-layer";
 import { osnLoggerLayer } from "../../src/observability";
@@ -9,12 +9,14 @@ import { osnLoggerLayer } from "../../src/observability";
  * T — degraded-email opt-in selection (`OSN_EMAIL_OPTIONAL`).
  *
  * The transport-selection rules:
+ *   - RESEND_API_KEY present + non-local        → ResendEmailLive (preferred;
+ *                                                 wins over CF creds + opt-in).
  *   - Cloudflare creds present                  → CloudflareEmailLive (creds win,
  *                                                 even if the opt-in is also set).
- *   - creds absent + non-local + opt-in truthy  → NoopEmailLive (boot degraded)
+ *   - no real provider + non-local + opt-in     → NoopEmailLive (boot degraded)
  *                                                 + a loud startup warning.
- *   - creds absent + non-local + opt-in UNSET   → throw (the safe default).
- *   - creds absent + local                      → LogEmailLive recorder.
+ *   - no real provider + non-local + opt-in UNSET → throw (the safe default).
+ *   - no real provider + local                  → LogEmailLive recorder.
  */
 
 describe("isEmailOptionalOptIn", () => {
@@ -82,6 +84,70 @@ describe("selectEmailLayer", () => {
     expect(joined).toMatch(/\[(WARN|ERROR|FATAL)\]/);
     // No sensitive-token shapes (there is no recipient/code at startup anyway).
     expect(joined).not.toMatch(/\b\d{6}\b/);
+  });
+
+  describe("RESEND_API_KEY (preferred transport)", () => {
+    let dispatchedUrl: string | null;
+
+    beforeEach(() => {
+      dispatchedUrl = null;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request) => {
+          dispatchedUrl = typeof input === "string" ? input : input.toString();
+          return new Response(JSON.stringify({ id: "x" }), { status: 200 });
+        }),
+      );
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const sendOnce = (layer: ReturnType<typeof selectEmailLayer>) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const email = yield* EmailService;
+          yield* email.send({
+            template: "otp-step-up",
+            to: "alice@example.com",
+            data: { code: "222222", ttlMinutes: 10 },
+          });
+        }).pipe(Effect.provide(layer)),
+      );
+
+    it("present + non-local → Resend selected even when CF creds AND opt-in are also set", async () => {
+      const layer = selectEmailLayer(
+        nonLocal({
+          RESEND_API_KEY: "re_test_key",
+          CLOUDFLARE_ACCOUNT_ID: "acct",
+          CLOUDFLARE_EMAIL_API_TOKEN: "tok",
+          OSN_EMAIL_OPTIONAL: "true",
+        }),
+        osnLoggerLayer,
+      );
+      await sendOnce(layer);
+      // Resend transport hits api.resend.com — NOT the Cloudflare email API.
+      expect(dispatchedUrl).toBe("https://api.resend.com/emails");
+    });
+
+    it("absent → precedence unchanged: CF creds still select the Cloudflare transport", async () => {
+      const layer = selectEmailLayer(
+        nonLocal({ CLOUDFLARE_ACCOUNT_ID: "acct", CLOUDFLARE_EMAIL_API_TOKEN: "tok" }),
+        osnLoggerLayer,
+      );
+      await sendOnce(layer);
+      expect(dispatchedUrl).toContain("api.cloudflare.com");
+    });
+
+    it("present but LOCAL → recorder still wins (no live API call in dev/test)", async () => {
+      const layer = selectEmailLayer(
+        { OSN_ENV: "local", RESEND_API_KEY: "re_test_key" },
+        osnLoggerLayer,
+      );
+      await sendOnce(layer);
+      expect(dispatchedUrl).toBeNull();
+    });
   });
 
   it("creds present → returns CloudflareEmailLive even if opt-in is ALSO set (creds win)", async () => {

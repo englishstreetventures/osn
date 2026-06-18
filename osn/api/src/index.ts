@@ -67,6 +67,10 @@ export interface Env {
   OSN_SESSION_IP_PEPPER?: string;
   UPSTASH_REDIS_REST_URL?: string;
   UPSTASH_REDIS_REST_TOKEN?: string;
+  // Preferred email transport (Resend HTTP API). When set in a non-local env,
+  // ResendEmailLive is selected over Cloudflare email + the degraded opt-in.
+  // `wrangler secret put RESEND_API_KEY`. See `lib/email-layer`.
+  RESEND_API_KEY?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_EMAIL_API_TOKEN?: string;
   INTERNAL_SERVICE_SECRET?: string;

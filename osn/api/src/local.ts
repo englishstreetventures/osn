@@ -42,12 +42,15 @@ export async function buildAppDeps_Bun(): Promise<
   // Email transport (@shared/email) — selection shared with the Workers entry
   // via `selectEmailLayer`:
   //
-  //   - Production/staging with CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_EMAIL_API_TOKEN
-  //     → CloudflareEmailLive (POST to Cloudflare's Email Service REST API; creds
-  //     always win). OSN_EMAIL_FROM is the verified sender.
-  //   - Non-local WITHOUT creds but with OSN_EMAIL_OPTIONAL set truthy →
+  //   - Production/staging with RESEND_API_KEY → ResendEmailLive (preferred;
+  //     POST to Resend's HTTP API, works on workerd). OSN_EMAIL_FROM is the
+  //     verified sender. Wins over Cloudflare email + the degraded opt-in.
+  //   - Else with CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_EMAIL_API_TOKEN →
+  //     CloudflareEmailLive (legacy fallback; creds win over the opt-in).
+  //   - Non-local WITHOUT a real provider but with OSN_EMAIL_OPTIONAL truthy →
   //     NoopEmailLive (degraded: mail discarded, loud startup warning).
-  //   - Non-local WITHOUT creds and WITHOUT the opt-in → throws (fail-closed).
+  //   - Non-local WITHOUT a real provider and WITHOUT the opt-in → throws
+  //     (fail-closed). With Resend configured the opt-in is no longer needed.
   //   - Local dev / tests → LogEmailLive records sends to an in-memory ring, so
   //     no OTP codes end up in logs.
   // -------------------------------------------------------------------------

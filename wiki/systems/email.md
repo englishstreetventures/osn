@@ -9,6 +9,7 @@ tags:
   - systems
   - auth
   - email
+  - resend
   - cloudflare
   - observability
 status: current
@@ -36,21 +37,25 @@ email.
 
 ```
   ┌──────────────────────┐        ┌──────────────────────┐        ┌────────────────────────┐
-  │ @osn/api services    │        │  @shared/email       │        │ Cloudflare Email       │
-  │ auth.ts call sites:  │ calls  │  EmailService (Tag)  │ Bearer │ Service REST API       │
-  │  beginRegistration   ├───────▶│  CloudflareEmailLive ├───────▶│  /email-service/send   │
-  │  beginStepUpOtp      │ Effect │  LogEmailLive (dev)  │  JSON  │                        │
-  │  beginEmailChange    │        │                      │        │  Cloudflare DKIM-signs  │
-  │  notifyRecovery      │        │  renderTemplate()    │        │  via verified domain    │
-  │  notifyPasskey*      │        │                      │        │                        │
+  │ @osn/api services    │        │  @shared/email       │        │ Resend HTTP API        │
+  │ auth.ts call sites:  │ calls  │  EmailService (Tag)  │ Bearer │  POST /emails          │
+  │  beginRegistration   ├───────▶│  ResendEmailLive     ├───────▶│                        │
+  │  beginStepUpOtp      │ Effect │  CloudflareEmailLive │  JSON  │  (or Cloudflare Email   │
+  │  beginEmailChange    │        │  LogEmailLive (dev)  │        │   Service REST API as   │
+  │  notifyRecovery      │        │                      │        │   legacy fallback)      │
+  │  notifyPasskey*      │        │  renderTemplate()    │        │  DKIM-signs via         │
+  │                      │        │                      │        │  verified sender domain │
   └──────────────────────┘        └──────────────────────┘        └────────────────────────┘
 ```
 
-Dispatch uses Cloudflare's **Email Service REST API** directly. No
-intermediate Worker, no ARC tokens — a single bearer-authed HTTPS
-call to `https://api.cloudflare.com/client/v4/accounts/{id}/email-service/send`.
-Cloudflare handles DKIM-signing via the verified-domain configuration
-in the dashboard.
+The **live transport is Resend** — a single bearer-authed HTTPS POST to
+`https://api.resend.com/emails`. Resend works on workerd over plain HTTP
+(no paid Workers plan required), which is why it is preferred over the
+Cloudflare Email Service transport. The Cloudflare transport
+(`https://api.cloudflare.com/client/v4/accounts/{id}/email-service/send`)
+is retained as a legacy fallback. Both render the **same** templates
+in-process and DKIM-sign via the verified sender domain
+(`cireweddings.com` in prod) — no intermediate Worker, no ARC tokens.
 
 ## Packages
 
@@ -90,7 +95,22 @@ a renderer file under `shared/email/src/templates/`, and a branch in
 `renderTemplate()`. The compile-time exhaustive-switch check fails
 otherwise.
 
-### Cloudflare Email API wire format
+### Resend API wire format (live transport)
+
+```
+POST https://api.resend.com/emails
+Authorization: Bearer <RESEND_API_KEY>
+Content-Type: application/json
+{
+  "from":    "hello@cireweddings.com",
+  "to":      ["user@example.com"],
+  "subject": "Verify your OSN email",
+  "html":    "...",
+  "text":    "..."
+}
+```
+
+### Cloudflare Email API wire format (legacy fallback)
 
 ```
 POST https://api.cloudflare.com/client/v4/accounts/{account_id}/email-service/send
@@ -107,10 +127,18 @@ Content-Type: application/json
 
 ## Transports
 
-`@shared/email` exposes three Layers + the `EmailService` Tag:
+`@shared/email` exposes four Layers + the `EmailService` Tag:
 
-- `makeCloudflareEmailLive(config)` — real dispatch. POSTs directly to
-  Cloudflare's Email Service REST API via `instrumentedFetch` so the
+- `makeResendEmailLive(config)` — **preferred** real dispatch. POSTs to
+  Resend's HTTP API (`https://api.resend.com/emails`) via
+  `instrumentedFetch` so the call becomes a child span. Same render path,
+  timeout, metrics, and non-2xx → tagged-failure semantics as the
+  Cloudflare transport (429 → `rate_limited`, other non-2xx →
+  `dispatch_failed`, fetch reject → `api_unreachable`). The
+  `RESEND_API_KEY` is placed only in the `Authorization` header — never in
+  a URL, span/metric attribute, or `EmailError.cause`.
+- `makeCloudflareEmailLive(config)` — legacy real dispatch. POSTs directly
+  to Cloudflare's Email Service REST API via `instrumentedFetch` so the
   call becomes a child span.
 - `makeLogEmailLive()` — dev + test. Renders the template in-process,
   records the payload into an in-memory ring buffer (exposed via
@@ -126,7 +154,9 @@ Content-Type: application/json
   <template>` containing **only** the bounded `template` literal — never
   the recipient address or OTP code. Selected only via the explicit
   `OSN_EMAIL_OPTIONAL` opt-in (below) so a non-local deploy can run
-  WITHOUT Cloudflare email instead of failing closed.
+  WITHOUT a real email provider instead of failing closed. **With Resend
+  configured this opt-in is no longer needed** — a future Resend outage
+  then fails closed like any normal misconfig.
 
 > Dev-only OTP visibility: the email transport never logs the code, but
 > `osn/api`'s auth service has a **separate** `logDevOtp` helper that emits a
@@ -140,33 +170,38 @@ Selection lives in `osn/api/src/lib/email-layer.ts` (`selectEmailLayer`,
 shared by the Bun `local.ts` and the Workers `index.ts` entries), in
 priority order:
 
-1. `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` present →
-   `CloudflareEmailLive` (**creds always win**, even if the opt-in is set).
-2. Local env (`OSN_ENV` unset/`"local"`) → `LogEmailLive` recorder.
-3. Non-local, creds absent, **`OSN_EMAIL_OPTIONAL` truthy** →
+1. `RESEND_API_KEY` present in a non-local env → `ResendEmailLive`
+   (**preferred**; wins over Cloudflare creds and the opt-in). Locally the
+   recorder is still preferred so dev/test never make a live API call.
+2. `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` present →
+   `CloudflareEmailLive` (legacy fallback; creds win over the opt-in).
+3. Local env (`OSN_ENV` unset/`"local"`) → `LogEmailLive` recorder.
+4. Non-local, no real provider, **`OSN_EMAIL_OPTIONAL` truthy** →
    `NoopEmailLive` (degraded boot; loud startup warning naming the mail
    classes that will not be delivered).
-4. Non-local, creds absent, opt-in **unset** → **throws** at startup
+5. Non-local, no real provider, opt-in **unset** → **throws** at startup
    (fail-closed default; surfaced as a `503 Worker misconfigured` at the
    Workers edge).
 
 `OSN_EMAIL_OPTIONAL` is a non-secret boolean `[vars]` entry (truthy =
 `true`/`1`/`yes`/`on`). It is the *only* way to suppress the non-local
 email requirement, so degradation is always explicit and observable —
-never silent. See [[production-deploy]] §1.1 for the deploy-time caveats
-(OTP step-up, email-change OTP, and security-notice emails are not
-delivered while degraded; passkey login is primary and unaffected).
+never silent. **Once `RESEND_API_KEY` is set the opt-in is unnecessary**
+and should be removed so email is required/fail-closed again. See
+[[production-deploy]] §1.1 for the Resend setup steps.
 
-> **Live in prod (2026-06-18):** `OSN_EMAIL_OPTIONAL=true` is set on the
-> deployed `id.cireweddings.com` osn-api Worker — no Cloudflare Email
-> Service creds are provisioned yet, so the stack runs in degraded mode.
-> Direct consequence for **cire**: organiser step-up is **passkey-only**
-> (`StepUpDialog`'s `passkeyOnly` flag, the `PasskeysView` Security panel
-> from #155) because the OTP step-up factor would mail a code that never
-> arrives. Cire **guests** are unaffected — their auth is the opaque
-> claim-code session ([[cire-auth]]), which never touches email. Re-enabling
-> email (provision the `CLOUDFLARE_*` creds, then drop the opt-in) restores
-> OTP step-up everywhere — see [[passkey-primary]], [[cire-auth]].
+> **Email is live again via Resend.** Setting `RESEND_API_KEY` on the
+> deployed `id.cireweddings.com` osn-api Worker re-enables the full
+> transactional surface: OTP step-up codes, email-change OTPs, and
+> security-notice emails (recovery codes, passkey added/removed,
+> cross-device login) are all delivered again. This **supersedes** the
+> earlier degraded-mode note. Direct consequence for **cire**: organiser
+> step-up can use the **OTP factor** again (a code mailed via Resend now
+> arrives), though **passkey step-up remains preferred** — `StepUpDialog`'s
+> `passkeyOnly` flag and the `PasskeysView` Security panel (#155) are the
+> primary UX. Cire **guests** are unaffected — their auth is the opaque
+> claim-code session ([[cire-auth]]), which never touches email. See
+> [[passkey-primary]], [[cire-auth]].
 
 ## Configuration
 
@@ -174,24 +209,36 @@ Environment variables for `@osn/api`:
 
 | Variable | Required | Description |
 |---|---|---|
-| `CLOUDFLARE_ACCOUNT_ID` | non-local | Cloudflare account ID |
-| `CLOUDFLARE_EMAIL_API_TOKEN` | non-local | API token with Email Send permission |
-| `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`) |
+| `RESEND_API_KEY` | non-local (preferred) | Resend API key (bearer). Selects `ResendEmailLive`; wins over the Cloudflare vars. `wrangler secret put RESEND_API_KEY`. |
+| `CLOUDFLARE_ACCOUNT_ID` | optional / legacy | Cloudflare account ID (fallback transport) |
+| `CLOUDFLARE_EMAIL_API_TOKEN` | optional / legacy | API token with Email Send permission (fallback transport) |
+| `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`; prod: `hello@cireweddings.com`) |
 
-Before deploying:
+Before deploying (Resend — the live path):
 
-1. Cloudflare dashboard → **Email Sending → Onboard Domain**. Choose the
-   domain that will appear in `From:`. Add the DNS records Cloudflare
-   displays (MX for bounce handling, TXT for SPF/DMARC). Wait for
+1. Resend dashboard → **Domains → Add Domain** → `cireweddings.com`. Add
+   the SPF/DKIM/return-path DNS records Resend displays into the Cloudflare
+   DNS zone (the zone is in-account, so this is quick). Wait for
    verification.
-2. Create an API token with Email Send permission for the account.
-3. Set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_EMAIL_API_TOKEN`, and
-   `OSN_EMAIL_FROM` in the deployment environment.
+2. Create a Resend API key (Sending access).
+3. `wrangler secret put RESEND_API_KEY --env production` on osn-api, and set
+   `OSN_EMAIL_FROM=hello@cireweddings.com`.
+4. Once delivery is confirmed, remove `OSN_EMAIL_OPTIONAL` so email is
+   required/fail-closed again. See [[production-deploy]] §1.1.
+
+The Cloudflare Email Service path remains available as a fallback (onboard
+the sender domain in Cloudflare Email Sending, create an Email-Send token,
+set the `CLOUDFLARE_*` vars) but is no longer the live transport.
 
 ## Security notes
 
-- **No third-party API key**: uses Cloudflare's own API token (scoped
-  to Email Send only). SPF/DKIM/DMARC auto-configured by Cloudflare.
+- **Resend API key**: a bearer secret. Placed only in the `Authorization`
+  header — never in the URL, span/metric attributes, or `EmailError.cause`.
+  The hardcoded `https://api.resend.com/emails` endpoint means no
+  request-controlled URL (no SSRF surface). SPF/DKIM/DMARC are configured on
+  the verified Resend sender domain.
+- **Cloudflare token (legacy)**: Cloudflare's own API token (scoped to
+  Email Send only). SPF/DKIM/DMARC auto-configured by Cloudflare.
 - **OTP bodies**: the rendered `text` / `html` contains the OTP digit
   string. The service layer only logs `template`, `subject`, `to` —
   never the rendered body, never `data`. The redaction deny-list
@@ -207,7 +254,8 @@ Before deploying:
 - **Spans** (set on every `send()` invocation):
   - `email.send` (top-level, attrs `{ template }`)
   - `email.render`
-  - `email.cloudflare.dispatch`
+  - `email.resend.dispatch` (live transport) / `email.cloudflare.dispatch`
+    (legacy fallback)
   - Outbound HTTP becomes a child `HTTP POST` span via
     `@shared/observability/fetch → instrumentedFetch`.
 - **Logs**: `Effect.logError("email.dispatch_failed", { template, outcome })`
@@ -228,16 +276,18 @@ attributes — bounded literal unions only.
 
 ## Rollout
 
-Feature-flagged via `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN`:
+Feature-flagged via `RESEND_API_KEY` (key-optional — absent ⇒ behaviour is
+exactly as before this transport landed):
 
-1. **Local / tests**: env unset → `LogEmailLive`. Zero behavioural
-   change from today. `bun run test` stays offline.
-2. **Staging**: onboard the sender domain in Cloudflare Email Sending,
-   create an API token, set the env vars on staging pods only.
-   Send real mail to a synthetic inbox. Watch the
-   `osn.email.send.attempts{outcome="sent"}` panel by template.
-3. **Production**: flip the env vars in prod secrets. No code change.
-   Watch the `outcome="failed"` rate for 24h.
+1. **Local / tests**: no key → `LogEmailLive`. Zero behavioural change.
+   `bun run test` stays offline (selection ignores a key when local).
+2. **Staging / production**: verify the `cireweddings.com` sender domain in
+   Resend (SPF/DKIM/return-path records into the Cloudflare DNS zone), create
+   a Resend API key, `wrangler secret put RESEND_API_KEY`. Send real mail to a
+   synthetic inbox. Watch `osn.email.send.attempts{outcome="sent"}` by
+   template, then the `outcome="failed"` rate for 24h.
+3. Once delivery is confirmed, **remove `OSN_EMAIL_OPTIONAL`** so email is
+   required/fail-closed again.
 
 ## Deferred decisions
 
