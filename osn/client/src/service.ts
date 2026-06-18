@@ -79,6 +79,20 @@ export interface OsnAuthConfig {
 export interface OsnAuthService {
   readonly getSession: () => Effect.Effect<Session | null, StorageError>;
 
+  /**
+   * Session-load entry point for app mount (e.g. the SolidJS session resource).
+   *
+   * Returns the locally-cached session when an account exists. When there is
+   * NO stored account — the cold-start case after a post-login full-page
+   * navigation — it attempts to bootstrap a session from the HttpOnly refresh
+   * cookie via a single `POST /token` (grant_type=refresh_token,
+   * credentials: "include"), reconstructing and persisting the account from
+   * the token response. If no/expired cookie is present, resolves to `null`
+   * (genuinely logged out) — never throws. Single-flighted so concurrent
+   * mounts don't double-hit `/token`.
+   */
+  readonly loadSession: () => Effect.Effect<Session | null, StorageError>;
+
   readonly refreshSession: () => Effect.Effect<Session, TokenRefreshError | StorageError>;
 
   readonly logout: () => Effect.Effect<void, StorageError>;
@@ -185,6 +199,42 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         });
 
       // -----------------------------------------------------------------------
+      // Shared /token grant.
+      //
+      // POST {issuer}/token with grant_type=refresh_token and
+      // credentials: "include". The session (refresh) token lives only in the
+      // HttpOnly cookie (Copenhagen Book C3), so this single request both
+      // drives the authenticated 401-refresh path and the cold-start bootstrap
+      // below — the only difference is whether a local account already exists.
+      // -----------------------------------------------------------------------
+      const fetchTokenGrant = () =>
+        Effect.gen(function* () {
+          const raw = yield* Effect.tryPromise({
+            try: () =>
+              fetch(`${config.issuerUrl}/token`, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                credentials: "include",
+                body: new URLSearchParams({
+                  grant_type: "refresh_token",
+                }).toString(),
+              }).then((r) => {
+                // A non-2xx (e.g. 401 invalid_grant — cookie gone/expired) is a
+                // genuine "no session", not a transport error. Surface it as a
+                // typed failure so the cold-start path can fail-safe to null.
+                if (!r.ok) throw new Error(`Token grant failed: ${r.status}`);
+                return r.json() as Promise<unknown>;
+              }),
+            catch: (cause) => new TokenRefreshError({ cause }),
+          });
+
+          return yield* Effect.try({
+            try: () => parseTokenResponse(raw),
+            catch: (cause) => new TokenRefreshError({ cause }),
+          });
+        });
+
+      // -----------------------------------------------------------------------
       // Single-flight refresh (S-H1 / P-W1).
       //
       // Multiple concurrent authFetch calls that all 401 must NOT each fire
@@ -210,23 +260,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           }
 
           // C3: session token is in the HttpOnly cookie; send credentials: include.
-          const raw = yield* Effect.tryPromise({
-            try: () =>
-              fetch(`${config.issuerUrl}/token`, {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                credentials: "include",
-                body: new URLSearchParams({
-                  grant_type: "refresh_token",
-                }).toString(),
-              }).then((r) => r.json() as Promise<unknown>),
-            catch: (cause) => new TokenRefreshError({ cause }),
-          });
-
-          const next = yield* Effect.try({
-            try: () => parseTokenResponse(raw),
-            catch: (cause) => new TokenRefreshError({ cause }),
-          });
+          const next = yield* fetchTokenGrant();
 
           const profileId = extractJwtSub(next.accessToken) ?? account.activeProfileId;
           account.profileTokens[profileId] = {
@@ -266,6 +300,83 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             return yield* Effect.fail(result.left);
           }
           return result.right;
+        });
+
+      // -----------------------------------------------------------------------
+      // Cold-start bootstrap (production login-loop fix).
+      //
+      // After a full-page navigation following a successful passkey sign-in,
+      // a fresh AuthProvider has NO stored account, yet the HttpOnly refresh
+      // cookie that /login/passkey/complete just set is alive. Treating "no
+      // local account" as logged-out makes RequireAuth bounce back to /login —
+      // the loop. Instead, replay the cookie against /token once and rebuild
+      // the account from the token response.
+      //
+      // Single-flighted on its own promise (concurrent fresh-mount loaders must
+      // not double-hit /token — replaying a rotated cookie trips C2 reuse
+      // detection). On any failure (no/expired cookie → non-2xx, or network),
+      // resolve to null: genuinely logged out, fail-safe, no throw.
+      // -----------------------------------------------------------------------
+      let inFlightBootstrap: Promise<RefreshEither> | null = null;
+
+      const doBootstrap = () =>
+        Effect.gen(function* () {
+          const next = yield* fetchTokenGrant();
+
+          // The access token's `sub` is the active profile id.
+          const profileId = extractJwtSub(next.accessToken) ?? "default";
+          const account: AccountSession = {
+            hasSession: true,
+            activeProfileId: profileId,
+            profileTokens: {
+              [profileId]: {
+                accessToken: next.accessToken,
+                expiresAt: next.expiresAt,
+              },
+            },
+            scopes: next.scopes,
+            idToken: next.idToken,
+          };
+          yield* saveAccountSession(account);
+          return next;
+        });
+
+      const bootstrapFromCookie = () =>
+        Effect.gen(function* () {
+          if (!inFlightBootstrap) {
+            const promise = Effect.runPromise(
+              Effect.either(doBootstrap()),
+            ) as Promise<RefreshEither>;
+            inFlightBootstrap = promise;
+            void promise.finally(() => {
+              if (inFlightBootstrap === promise) inFlightBootstrap = null;
+            });
+          }
+
+          // The shared promise is Either-wrapped so it never rejects; any
+          // failure (bad cookie, network, storage) arrives as a Left and maps
+          // to null — a failed bootstrap means "logged out", never a throw.
+          // A defensive orElse covers the should-never-happen rejection too.
+          const result = yield* Effect.tryPromise({
+            try: () => inFlightBootstrap!,
+            catch: (cause) => new TokenRefreshError({ cause }),
+          }).pipe(
+            Effect.map((r): Session | null => (r._tag === "Left" ? null : r.right)),
+            Effect.orElseSucceed((): Session | null => null),
+          );
+
+          return result;
+        });
+
+      // loadSession — the session-load entry point the SolidJS resource calls
+      // on mount. Returns the local session when an account exists; otherwise
+      // attempts a cold-start bootstrap from the HttpOnly cookie before
+      // concluding the user is logged out.
+      const loadSession = () =>
+        Effect.gen(function* () {
+          const account = yield* getAccountSession();
+          if (account) return toSession(account);
+          return yield* bootstrapFromCookie();
         });
 
       const logout = () =>
@@ -527,6 +638,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
 
       return {
         getSession,
+        loadSession,
         refreshSession,
         logout,
         setSession,

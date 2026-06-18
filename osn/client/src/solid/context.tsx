@@ -50,8 +50,12 @@ export function AuthProvider(props: AuthProviderProps) {
       Effect.provide(eff, layer).pipe(Effect.orDie) as Effect.Effect<A, never, never>,
     );
 
+  // On mount this calls loadSession (not getSession): when there is no stored
+  // account it bootstraps from the HttpOnly refresh cookie via /token before
+  // concluding "logged out", so a post-login full-page navigation re-establishes
+  // the session instead of bouncing RequireAuth back to /login.
   const [session, { refetch: refetchSession }] = createResource<Session | null>(() =>
-    run(Effect.flatMap(OsnAuth, (auth) => auth.getSession())),
+    run(Effect.flatMap(OsnAuth, (auth) => auth.loadSession())),
   );
 
   // P-W2: Gate profiles on session — only fetch when a session exists.
