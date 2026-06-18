@@ -17,7 +17,7 @@ import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
-// Local dev default owner from resolveBootstrapOwnerProfileId (OSN_ENV unset).
+// Fixed local dev owner of the seeded sample wedding (DEV_OWNER_PROFILE_ID).
 const BOOTSTRAP_OWNER = "usr_dev_bootstrap_owner";
 const SLUG = "cire-wedding";
 const PNG = new Uint8Array([

@@ -10,12 +10,26 @@
 -- wipes local D1 state then re-pushes + re-seeds.
 
 -- ────────────────────────────────────────────────────────────────────────────
+-- Sample wedding (local dev only)
+-- ────────────────────────────────────────────────────────────────────────────
+
+-- Migration 0006 seeded `wed_bootstrap`, but migration 0015 deletes it (prod
+-- starts clean — every real OSN user creates their own weddings). So the local
+-- dev seed now owns its sample wedding row outright instead of relying on the
+-- migration's seeded row. Owned by the fixed dev id `usr_dev_bootstrap_owner`
+-- (DEV_OWNER_PROFILE_ID in cire/api/src/db/setup.ts) so a signed-in dev account
+-- can own it; override the owner after seeding via CIRE_DEV_OWNER_PROFILE_ID
+-- (see scripts/cire-db-seed.sh). The events/families below are FK-scoped to it.
+INSERT OR IGNORE INTO weddings (id, slug, display_name, owner_osn_profile_id, code_style, created_at, updated_at)
+VALUES ('wed_bootstrap', 'cire-wedding', 'Cire Wedding', 'usr_dev_bootstrap_owner', 'secure', unixepoch(), unixepoch());
+
+-- ────────────────────────────────────────────────────────────────────────────
 -- Events (5) — Oct–Nov 2026, Sydney
 -- ────────────────────────────────────────────────────────────────────────────
 
--- All events/families are scoped to the bootstrap wedding seeded by migration
--- 0006 (`wed_bootstrap`). The wedding_id column is NOT NULL with an FK, so the
--- seed must supply it explicitly.
+-- All events/families are scoped to the sample wedding above (`wed_bootstrap`).
+-- The wedding_id column is NOT NULL with an FK, so the seed supplies it
+-- explicitly.
 INSERT OR IGNORE INTO events (
   id, wedding_id, slug, name, date, location, description,
   start_at, end_at, timezone, address,

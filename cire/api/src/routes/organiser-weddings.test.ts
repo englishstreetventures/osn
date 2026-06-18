@@ -11,8 +11,8 @@ import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
-// Owner of the seeded bootstrap wedding (see seedBootstrapWedding — the local
-// dev default from resolveBootstrapOwnerProfileId when OSN_ENV is unset).
+// Owner of the seeded sample wedding (see seedBootstrapWedding — the fixed local
+// dev id DEV_OWNER_PROFILE_ID).
 const BOOTSTRAP_OWNER = "usr_dev_bootstrap_owner";
 const OTHER_WEDDING_ID = "wed_other";
 const OTHER_OWNER = "usr_bob";

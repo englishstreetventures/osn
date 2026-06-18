@@ -5,8 +5,15 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import eventsData from "../data/events.json";
 import guestsData from "../data/guests.json";
-import { type EnvSource, resolveBootstrapOwnerProfileId } from "./bootstrap-owner";
 import type { Db } from "./index";
+
+// Stable owner for the local-dev / test sample wedding. No real OSN profile
+// exists in local dev or the test suite, so the seeded wedding is owned by this
+// fixed dev id; sign in as it (or repoint via CIRE_DEV_OWNER_PROFILE_ID in the
+// db:seed script) to see the sample wedding in the portal. Deployed tiers never
+// run this seed — a real signed-in OSN user creates their own weddings via
+// POST /api/organiser/weddings, so there is no env-driven owner resolution here.
+export const DEV_OWNER_PROFILE_ID = "usr_dev_bootstrap_owner";
 
 // LOCKSTEP CONTRACT: this DDL is a hand-maintained mirror of
 // @cire/db's schema.ts + the latest migration in cire/db/migrations/.
@@ -168,32 +175,20 @@ export function createDb(path: string = ":memory:"): Db {
   return drizzle(sqlite, { schema });
 }
 
-// Re-exported so existing `./setup` importers (tests, seed) keep one import
-// site. The actual logic lives in the workerd-safe `./bootstrap-owner` module
-// (no `bun:sqlite`), which the Worker entry point imports directly.
-export {
-  BOOTSTRAP_OWNER_SENTINEL,
-  type EnvSource,
-  isDeployedEnv,
-  REPLACE_OWNER_PLACEHOLDER,
-  resolveBootstrapOwnerProfileId,
-} from "./bootstrap-owner";
-
-// Bootstrap wedding mirroring migration 0006 — every seeded family/event is
-// scoped to it. The owner id is resolved from the environment
-// (BOOTSTRAP_OWNER_PROFILE_ID); see `resolveBootstrapOwnerProfileId`. Exported
-// so tests that build their own fixtures on a bare createDb() can satisfy the
-// wedding_id FK. This runtime seed is the local/test path; prod D1 gets the
-// inert sentinel from migration 0006 and is repointed by the owner-fixup in
-// the Worker entry point.
-export function seedBootstrapWedding(db: Db, env: EnvSource = process.env): void {
+// Sample wedding for local dev + the test suite — every seeded family/event is
+// scoped to it. Owned by the fixed dev id (DEV_OWNER_PROFILE_ID); exported so
+// tests that build their own fixtures on a bare createDb() can satisfy the
+// wedding_id FK. This is the local/test path only — deployed D1 has no seeded
+// wedding (migration 0015 removed the orphaned bootstrap row); real OSN users
+// create their own weddings via POST /api/organiser/weddings.
+export function seedBootstrapWedding(db: Db): void {
   const now = new Date();
   db.insert(schema.weddings)
     .values({
       id: schema.BOOTSTRAP_WEDDING_ID,
       slug: "cire-wedding",
       displayName: "Cire Wedding",
-      ownerOsnProfileId: resolveBootstrapOwnerProfileId(env),
+      ownerOsnProfileId: DEV_OWNER_PROFILE_ID,
       createdAt: now,
       updatedAt: now,
     })

@@ -11,12 +11,12 @@ import { createR2Stub } from "./services/r2-imports";
 const db = createDb(":memory:");
 await seedDb(db);
 
-// Dev convenience: the in-memory seed gives the bootstrap wedding the local dev
-// default owner (usr_dev_bootstrap_owner — see resolveBootstrapOwnerProfileId),
+// Dev convenience: the in-memory seed gives the sample wedding the fixed local
+// dev owner (usr_dev_bootstrap_owner — see DEV_OWNER_PROFILE_ID in db/setup),
 // so the organiser dashboard lists nothing for a real signed-in account. Re-point
 // it at your OSN profile id via env so the wedding shows up. Find yours in osn.db:
-// SELECT id FROM users WHERE handle=...  (BOOTSTRAP_OWNER_PROFILE_ID is also
-// honoured by the seed itself; this is a post-seed override for the running server.)
+// SELECT id FROM users WHERE handle=...  (this is a post-seed override for the
+// running local server; deployed tiers never run this seed.)
 const devOwner = process.env.CIRE_DEV_OWNER_PROFILE_ID;
 if (devOwner) {
   db.update(weddings)

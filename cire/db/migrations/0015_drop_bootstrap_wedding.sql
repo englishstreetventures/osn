@@ -1,0 +1,18 @@
+-- Drop the orphaned demo wedding seeded by migration 0006 (`wed_bootstrap`,
+-- owner sentinel `usr_unclaimed_bootstrap`).
+--
+-- That row was a vestige of the pre-multi-tenant model, where cire centred on a
+-- single seeded demo wedding and the organiser's real ownership was supplied at
+-- runtime via BOOTSTRAP_OWNER_PROFILE_ID. Multi-wedding + create-wedding make
+-- it pointless: every authenticated OSN user is now a first-class organiser who
+-- creates their own weddings via POST /api/organiser/weddings. Pre-launch there
+-- is no real data on this row, so a clean delete is preferred over leaving an
+-- invisible sentinel-owned row around.
+--
+-- Forward-only + idempotent: a plain DELETE of one data row (no schema change,
+-- no column drop). The row's children (families → guests → sessions/guest_events
+-- /rsvps, events, imports, wedding_hosts, wedding_invite_customisations,
+-- guest_account_links) cascade-delete via their `ON DELETE CASCADE` wedding_id
+-- FKs. If the row is already absent (e.g. a fresh D1 that never ran 0006's seed,
+-- or a re-run) the DELETE simply matches nothing.
+DELETE FROM `weddings` WHERE `id` = 'wed_bootstrap';

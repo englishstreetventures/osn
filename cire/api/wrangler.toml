@@ -88,13 +88,12 @@ WEB_ORIGIN = "https://cireweddings.com,https://app.cireweddings.com"
 OSN_JWKS_URL = "https://id.cireweddings.com/.well-known/jwks.json"
 OSN_ISSUER_URL = "https://id.cireweddings.com"
 OSN_AUDIENCE = "osn-access"
-# BOOTSTRAP_OWNER_PROFILE_ID — the organiser's real OSN profile id (usr_*).
-# REQUIRED before the first deployed-D1 boot: migration 0006 seeds the bootstrap
-# wedding with the inert sentinel owner; ensureBootstrapOwner (src/index.ts)
-# repoints it to this value on first isolate boot, or fails loud (503) if unset.
-# Set it (with OSN_ENV) as a secret, NOT a plaintext var:
-#   bunx wrangler secret put BOOTSTRAP_OWNER_PROFILE_ID
-#   bunx wrangler secret put OSN_ENV   # must be dev|staging|production
+# OSN_ENV — deployment tier (dev|staging|production). Drives the structured-log
+# level (see src/observability.ts); debug logs are local-only. Set it as a var
+# or secret per environment. No bootstrap-owner config is needed: every
+# authenticated OSN user is a first-class organiser who creates their own
+# weddings via POST /api/organiser/weddings, with per-wedding access scoped by
+# weddingOwner()/weddingMember() — there is no global boot gate or seeded owner.
 
 # Custom-domain route: serves cire-api on api.cireweddings.com. `custom_domain =
 # true` auto-provisions DNS + edge cert because the cireweddings.com zone is in

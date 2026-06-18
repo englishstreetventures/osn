@@ -21,7 +21,7 @@ const IMPORT_BASE = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/import`;
 
 beforeAll(async () => {
   auth = await makeOsnTestAuth();
-  // Local dev default owner from resolveBootstrapOwnerProfileId (OSN_ENV unset).
+  // Fixed local dev owner of the seeded sample wedding (DEV_OWNER_PROFILE_ID).
   bearer = await auth.sign("usr_dev_bootstrap_owner");
 });
 

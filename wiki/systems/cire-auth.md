@@ -85,11 +85,25 @@ Organisers who don't yet have an OSN account can create one from the same page: 
 
 ### Authorization: wedding ownership
 
-`weddings.owner_osn_profile_id` stores the owning OSN profile id as an **opaque string** — no cross-DB FK (cire's D1 and OSN's DB are separate databases; the id is a foreign-system reference, not a relation). One middleware enforces it:
+`weddings.owner_osn_profile_id` stores the owning OSN profile id as an **opaque string** — no cross-DB FK (cire's D1 and OSN's DB are separate databases; the id is a foreign-system reference, not a relation). Two per-wedding gates enforce it, split by authorisation level:
 
-- **`weddingOwner()`** — for `/api/organiser/weddings/:weddingId/*` (the dashboard reads, regenerate-code, preview-code, **and the import routes** at `/api/organiser/weddings/:weddingId/import/*`). Loads the wedding row: unknown wedding → **404** `wedding_not_found` (don't disclose existence), owner mismatch → **403** `forbidden`. Sets `c.var.weddingId`.
+- **`weddingOwner()`** — owner-only, for destructive / management routes under `/api/organiser/weddings/:weddingId/*`: `regenerate-code`, `preview-code`, the co-host write routes (`POST/DELETE /hosts`), the invite-builder writes, **and the import routes** at `/import/*`. Loads the wedding row: unknown wedding → **404** `wedding_not_found` (don't disclose existence), owner mismatch → **403** `forbidden`. Sets `c.var.weddingId`.
+- **`weddingMember()`** — owner **or** co-host, for the dashboard reads (`/guests`, `/events`) and the co-host read route (`GET /hosts`). Same 404/403 semantics; co-hosts get the read dashboard but nothing destructive. Sets `c.var.weddingId`.
 
 `POST /api/organiser/weddings` (create) and `GET /api/organiser/weddings` (list) carry no `:weddingId` and are gated by `osnAuth()` alone — the owner is the verified caller, taken from the token, never the body.
+
+> **Any authenticated OSN user is a first-class organiser.** There is no seeded
+> owner and no global boot gate: a freshly signed-in account that owns/co-hosts
+> nothing gets `GET /api/organiser/weddings` → `200 {weddings: []}` (never a
+> 404/503) and creates its first wedding via `POST /api/organiser/weddings`
+> (`201`, owned by the caller). Portal entry is gated by `osnAuth()` alone;
+> everything wedding-scoped is then scoped per-wedding by `weddingOwner()` /
+> `weddingMember()`, so one user can never see or mutate another's wedding. The
+> old `BOOTSTRAP_OWNER_PROFILE_ID` env var + `ensureBootstrapOwner` boot fixup
+> (which threw → 503 in any deployed env until a real `usr_*` owner was set, back
+> when cire centred on a single seeded demo wedding `wed_bootstrap`) are
+> **removed** — that demo wedding is deleted by migration
+> `0015_drop_bootstrap_wedding.sql`. (`feat/cire-organiser-open-access`.)
 
 > The earlier `ownedWedding()` middleware (which derived a single owned wedding and 400'd when a caller owned more than one) was **removed** when organisers gained the ability to own multiple weddings — the import routes now take an explicit `:weddingId` under `weddingOwner()`.
 

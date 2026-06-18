@@ -68,7 +68,6 @@ marked **TBD** blocks the deploy.
 | cire R2 buckets | cire-api | **DONE** — `cire-sheets[-preview]`, `cire-assets[-preview]` |
 | cire `WEB_ORIGIN` allowlist (guest **and** organiser origins) | cire-api | **DONE — `https://cireweddings.com,https://app.cireweddings.com`** |
 | cire `OSN_JWKS_URL` / `OSN_ISSUER_URL` | cire-api | **DONE — `https://id.cireweddings.com/.well-known/jwks.json` / `https://id.cireweddings.com`** (must equal osn-api's own `OSN_ISSUER_URL`) |
-| `BOOTSTRAP_OWNER_PROFILE_ID` (real `usr_*` OSN profile id) | cire D1 seed | **TBD — organiser must register an OSN passkey first** |
 | `CIRE_API_ARC_PRIVATE_KEY` + `CIRE_API_ARC_KEY_ID` + `OSN_API_URL` | cire-api | needed only if guest account-linking is enabled (section 6.2) |
 | cire/web `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/web Pages | **DONE — `https://api.cireweddings.com` / `https://cireweddings.com`** (set in `deploy.yml`) |
 | cire/organiser `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ISSUER_URL`, `PUBLIC_CIRE_WEB_URL` (build-time) | cire/organiser Pages | **DONE — `https://api.cireweddings.com` / `https://id.cireweddings.com` / `https://cireweddings.com`** (set in `deploy.yml`) |
@@ -384,12 +383,12 @@ create it in the dashboard (or with a custom API token that has the scope):
 
 ---
 
-## 4. Database migrations + bootstrap-owner substitution
+## 4. Database migrations
 
 ### 4.1 Apply cire D1 migrations (remote)
 
-Migrations live in `cire/db/migrations/` (`0001`…`0012`, incl.
-`0012_dietary_consent.sql`). The `database_id` is already wired
+Migrations live in `cire/db/migrations/` (`0001`…`0015`, incl.
+`0015_drop_bootstrap_wedding.sql`). The `database_id` is already wired
 (`6e835474-e0a7-4db9-8883-3247c3c891cd`, §2.1):
 
 ```bash
@@ -400,41 +399,19 @@ bunx wrangler d1 migrations apply cire-db --remote
 # bun run --cwd cire/db db:push:remote
 ```
 
-### 4.2 Set the bootstrap-owner profile id 🔑
+> Migration `0015_drop_bootstrap_wedding.sql` DELETEs the orphaned demo wedding
+> row `wed_bootstrap` (seeded by `0006`, owned by the inert sentinel
+> `usr_unclaimed_bootstrap`); its children cascade-delete. Pre-launch there is no
+> real data on it. This runs automatically in the CI deploy pipeline's migration
+> step (`.github/workflows/deploy.yml`) — no manual action.
 
-> Assumes the `fix/cire-bootstrap-owner` PR is merged — it replaced the old
-> hardcoded `usr_REPLACE_BEFORE_PROD` placeholder with an env-driven owner +
-> runtime fixup. (Pre-merge behaviour was a manual post-migrate `UPDATE`.)
-
-Migration `0006_multi_tenant.sql` seeds the single bespoke wedding row
-`wed_bootstrap` with an **inert sentinel owner** `usr_unclaimed_bootstrap`
-that satisfies the NOT NULL column + FK backfill but matches no real profile, so
-the ownership gate (`ownedWedding()` / `weddingOwner()`) **fails closed** — the
-real organiser sees nothing until the owner is repointed.
-
-The repoint is **automatic on boot**, driven by a single secret:
-
-1. Obtain the organiser's **real `usr_*` OSN profile id** by having them register
-   their OSN passkey on production first (§7), then read their profile id from osn.
-2. Set it on cire-api (alongside `OSN_ENV`), then redeploy / let the next isolate boot:
-
-```bash
-cd cire/api
-bunx wrangler secret put BOOTSTRAP_OWNER_PROFILE_ID --env production   # paste usr_*
-# OSN_ENV is a [vars] entry (dev|staging|production); confirm it is set non-local.
-```
-
-On first request per isolate, `ensureBootstrapOwner` (`src/index.ts`) UPDATEs the
-row off the sentinel onto `BOOTSTRAP_OWNER_PROFILE_ID` (idempotent), or **throws →
-503** if it is missing / still the placeholder / sentinel / not `usr_*`
-(fail loud, never silently mis-owned). No manual SQL `UPDATE` is required.
-
-Verify the live row carries the real id after the first request:
-
-```bash
-bunx wrangler d1 execute cire-db --remote \
-  --command "SELECT id, owner_osn_profile_id FROM weddings WHERE id = 'wed_bootstrap';"
-```
+> ✅ **No bootstrap-owner step.** cire-api needs **no** `BOOTSTRAP_OWNER_PROFILE_ID`
+> and no seeded owner. **Every authenticated OSN user is a first-class
+> organiser**: they sign in with their OSN passkey, see their own weddings (an
+> empty list for a new account — never a 503), and create new ones via
+> `POST /api/organiser/weddings`. Per-wedding access is scoped entirely by
+> `weddingOwner()` / `weddingMember()` on the `/api/organiser/weddings/:weddingId/*`
+> routes; there is no global boot gate. (Removed in `feat/cire-organiser-open-access`.)
 
 ### 4.3 Apply osn-api D1 migrations (remote)
 
@@ -624,15 +601,17 @@ Run these in order; each maps to a startup requirement enumerated above.
    delivered by design; instead confirm the boot logs show the loud
    `EMAIL DEGRADED: … booting with a NO-OP email transport` warning, and rely on passkey
    login (step 5) as the primary, unaffected factor.
-5. **Organiser passkey sign-in works.** On the prod organiser portal, the organiser
+5. **Organiser passkey sign-in works.** On the prod organiser portal, any user
    registers + signs in with an OSN passkey. This validates `OSN_RP_ID`, `OSN_ORIGIN`,
    `OSN_ISSUER_URL`, `OSN_CORS_ORIGIN` (osn-api side) and `PUBLIC_OSN_ISSUER_URL`
-   (organiser build). Capture their `usr_*` profile id for §4.2 if not done yet.
-6. **Organiser dashboard lists the wedding.** Once `BOOTSTRAP_OWNER_PROFILE_ID` is set
-   (§4.2) and a request has booted the worker, the runtime fixup repoints the owner off
-   the sentinel and the organiser sees `wed_bootstrap`'s guests/events. If it's empty,
-   the owner is still the sentinel — check the secret is set and the worker rebooted (a
-   missing/invalid value 503s rather than mis-owning).
+   (organiser build).
+6. **Organiser dashboard works for any OSN user.** A freshly signed-in account sees an
+   **empty wedding list** (`GET /api/organiser/weddings` → `200 {weddings: []}`, never a
+   404/503), and can **create their first wedding** via the portal's create form
+   (`POST /api/organiser/weddings` → `201`). No bootstrap-owner config is involved.
+   Confirm a created wedding then appears in the list and is owner-scoped (another
+   account's list stays empty). Verify with:
+   `bunx wrangler d1 execute cire-db --remote --command "SELECT count(*) FROM weddings;"`.
 7. **RSVP write succeeds.** A guest claims their family code on the guest site and submits
    an RSVP (`POST /api/rsvp`). A 2xx + a persisted row confirms cire-api ↔ D1 writes and
    the guest-session cookie path. Verify with:
@@ -662,7 +641,8 @@ Run these in order; each maps to a startup requirement enumerated above.
 | cire D1 / R2 bindings + prod vars | `cire/api/wrangler.toml:12-43` |
 | cire edge fail-closed + WEB_ORIGIN parse | `cire/api/src/index.ts:44-101` |
 | cire ARC bridge (account-linking) | `cire/api/src/services/osn-bridge.ts`, env `cire/api/src/index.ts:25-27,80-85` |
-| Bootstrap owner placeholder | `cire/db/migrations/0006_multi_tenant.sql:32-41`; mirror `cire/api/src/db/setup.ts:151-163` |
+| Drop orphaned demo wedding (`wed_bootstrap`) | `cire/db/migrations/0015_drop_bootstrap_wedding.sql` |
+| Organiser open access (any OSN user; no boot gate) | list/create `cire/api/src/routes/organiser-weddings.ts`; per-wedding authz `cire/api/src/middleware/wedding-owner.ts`, `wedding-member.ts` |
 | cire migrate scripts | `cire/db/package.json` (`db:push:remote`) |
 
 ## Related
