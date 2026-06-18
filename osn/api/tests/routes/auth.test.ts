@@ -1033,10 +1033,10 @@ describe("auth routes", () => {
   // -------------------------------------------------------------------------
   describe("rate limiting", () => {
     it("returns 429 after exceeding rate limit on /handle/:handle", async () => {
-      // The handle check limiter allows 10 req/min. Create a fresh app
+      // The handle check limiter allows 30 req/min. Create a fresh app
       // so the limiter is clean.
       const freshApp = createAuthRoutes(config, layer);
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 30; i++) {
         // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
         const res = await freshApp.handle(
           new Request(`http://localhost/handle/test${i}`, {
@@ -1046,7 +1046,7 @@ describe("auth routes", () => {
         // May be 200 or 400 depending on user existence — doesn't matter
         expect(res.status).not.toBe(429);
       }
-      // 11th request should be rate-limited
+      // the next request (over the 30/min cap) should be rate-limited
       const blocked = await freshApp.handle(
         new Request("http://localhost/handle/test99", {
           headers: { "x-forwarded-for": "1.2.3.4" },
@@ -1059,8 +1059,8 @@ describe("auth routes", () => {
 
     it("rate limits are per-IP — different IPs are independent", async () => {
       const freshApp = createAuthRoutes(config, layer);
-      // Exhaust the limit for IP A
-      for (let i = 0; i < 10; i++) {
+      // Exhaust the limit for IP A (handle-check allows 30/min)
+      for (let i = 0; i < 30; i++) {
         // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
         await freshApp.handle(
           new Request(`http://localhost/handle/x${i}`, {
@@ -1110,8 +1110,8 @@ describe("auth routes", () => {
 
     it("returns 429 on /login/passkey/begin when rate-limited", async () => {
       const freshApp = createAuthRoutes(config, layer);
-      // passkey_login_begin allows 10 req/min
-      for (let i = 0; i < 10; i++) {
+      // passkey_login_begin allows 60 req/min
+      for (let i = 0; i < 60; i++) {
         // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
         await freshApp.handle(
           new Request("http://localhost/login/passkey/begin", {
@@ -1169,7 +1169,7 @@ describe("auth routes", () => {
       const freshApp = createAuthRoutesRaw(config, layer, Layer.empty, undefined, undefined, {
         trustedProxyCount: 1,
       });
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 30; i++) {
         // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
         await freshApp.handle(
           new Request(`http://localhost/handle/s${i}`, {

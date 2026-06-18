@@ -95,9 +95,13 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
   return {
     registerBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
     registerComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-    handleCheck: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-    passkeyLoginBegin: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-    passkeyLoginComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    // Generous headroom: handle-check fires as-you-type and login-begin is
+    // auto-fired by the passkey conditional-UI / autofill ceremony per page
+    // load (cheap; the real gates are *-complete). Mirrors the native binding
+    // tiers in native-rate-limiters.ts (used in deployed envs).
+    handleCheck: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
+    passkeyLoginBegin: createRateLimiter({ maxRequests: 60, windowMs: 60_000 }),
+    passkeyLoginComplete: createRateLimiter({ maxRequests: 20, windowMs: 60_000 }),
     passkeyRegisterBegin: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     passkeyRegisterComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     profileSwitch: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),

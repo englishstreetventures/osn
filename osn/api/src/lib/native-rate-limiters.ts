@@ -58,9 +58,14 @@ type TierName = keyof OsnRateLimitBindings;
 export const NATIVE_BINDING_FOR_AUTH_LIMITER = {
   registerBegin: { tier: "RL_AUTH_IP_5_60", ns: "register_begin" },
   registerComplete: { tier: "RL_AUTH_IP_10_60", ns: "register_complete" },
-  handleCheck: { tier: "RL_AUTH_IP_10_60", ns: "handle_check" },
-  passkeyLoginBegin: { tier: "RL_AUTH_IP_10_60", ns: "passkey_login_begin" },
-  passkeyLoginComplete: { tier: "RL_AUTH_IP_10_60", ns: "passkey_login_complete" },
+  // handle-check fires as-you-type; login-begin is auto-fired by the passkey
+  // conditional-UI / autofill ceremony on every page load — both are cheap and
+  // legitimately exceed 10/min in normal use, so they get generous headroom
+  // (the real gates are register-complete / login-complete, which require a
+  // valid assertion and stay tight).
+  handleCheck: { tier: "RL_AUTH_IP_30_60", ns: "handle_check" },
+  passkeyLoginBegin: { tier: "RL_AUTH_IP_60_60", ns: "passkey_login_begin" },
+  passkeyLoginComplete: { tier: "RL_AUTH_IP_20_60", ns: "passkey_login_complete" },
   passkeyRegisterBegin: { tier: "RL_AUTH_IP_10_60", ns: "passkey_register_begin" },
   passkeyRegisterComplete: { tier: "RL_AUTH_IP_10_60", ns: "passkey_register_complete" },
   profileSwitch: { tier: "RL_AUTH_IP_10_60", ns: "profile_switch" },
