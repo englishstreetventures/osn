@@ -28,7 +28,13 @@ function buildApp() {
   const db = createDb(":memory:");
   seedDb(db);
   seedOtherWedding(db);
-  const app = createApp(db, { osnTestKey: auth.key });
+  // Generous create limiter: every create test in this file shares one app + IP,
+  // so the default 10/min limiter would bleed across cases. The dedicated
+  // rate-limit test below builds its own app with a 1-req limiter to assert 429.
+  const app = createApp(db, {
+    osnTestKey: auth.key,
+    weddingCreateLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
+  });
   return { db, app };
 }
 
@@ -148,6 +154,38 @@ describe("POST /api/organiser/weddings", () => {
     const [row] = db.select().from(weddings).where(eq(weddings.id, body.wedding.id)).all();
     expect(row!.ownerOsnProfileId).toBe("usr_newcomer");
     expect(row!.codeStyle).toBe("secure");
+  });
+
+  it("defaults to the secure code style when codeStyle is omitted", async () => {
+    const { app, db } = buildApp();
+    const res = await createWedding(app, { displayName: "Default Style" }, "usr_dflt");
+    expect(res.status).toBe(201);
+    const id = ((await res.json()) as { wedding: { id: string } }).wedding.id;
+    const [row] = db.select().from(weddings).where(eq(weddings.id, id)).all();
+    expect(row!.codeStyle).toBe("secure");
+  });
+
+  it("persists the chosen 'simple' code style", async () => {
+    const { app, db } = buildApp();
+    const res = await createWedding(
+      app,
+      { displayName: "Simple Style", codeStyle: "simple" },
+      "usr_simple",
+    );
+    expect(res.status).toBe(201);
+    const id = ((await res.json()) as { wedding: { id: string } }).wedding.id;
+    const [row] = db.select().from(weddings).where(eq(weddings.id, id)).all();
+    expect(row!.codeStyle).toBe("simple");
+  });
+
+  it("returns 400 for an invalid codeStyle", async () => {
+    const { app } = buildApp();
+    const res = await createWedding(
+      app,
+      { displayName: "Bad Style", codeStyle: "ultra" },
+      "usr_bad",
+    );
+    expect(res.status).toBe(400);
   });
 
   it("appears in the caller's wedding list after creation", async () => {
@@ -453,5 +491,189 @@ describe("POST /api/organiser/weddings/:weddingId/preview-code", () => {
     expect(rows).toHaveLength(6);
     expect(rows.find((r) => r.firstName === "Wedding")).toBeUndefined();
     expect(rows.find((r) => r.publicId.startsWith("HOST-"))).toBeUndefined();
+  });
+});
+
+describe("POST /api/organiser/weddings/:weddingId/remint (C3)", () => {
+  async function postRemint(
+    app: ReturnType<typeof buildApp>["app"],
+    weddingId: string,
+    body: unknown,
+    profileId?: string,
+  ) {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (profileId) headers.Authorization = `Bearer ${await auth.sign(profileId)}`;
+    return appRequest(app, `/api/organiser/weddings/${weddingId}/remint`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  }
+
+  function guestFamilyCodes(db: Db, weddingId: string) {
+    return db
+      .select({ id: families.id, publicId: families.publicId })
+      .from(families)
+      .where(eq(families.weddingId, weddingId))
+      .all();
+  }
+
+  it("returns 401 without a token", async () => {
+    const { app } = buildApp();
+    const res = await postRemint(app, BOOTSTRAP_WEDDING_ID, { codeStyle: "simple" });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 for a non-owner", async () => {
+    const { app } = buildApp();
+    const res = await postRemint(app, BOOTSTRAP_WEDDING_ID, { codeStyle: "simple" }, OTHER_OWNER);
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 400 for an invalid codeStyle", async () => {
+    const { app } = buildApp();
+    const res = await postRemint(app, BOOTSTRAP_WEDDING_ID, { codeStyle: "nope" }, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(400);
+  });
+
+  it("flips the style and rotates every guest family's code for the owner", async () => {
+    const { db, app } = buildApp();
+    const before = guestFamilyCodes(db, BOOTSTRAP_WEDDING_ID);
+    expect(before.length).toBeGreaterThan(0);
+
+    const res = await postRemint(
+      app,
+      BOOTSTRAP_WEDDING_ID,
+      { codeStyle: "simple" },
+      BOOTSTRAP_OWNER,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { codeStyle: string; reminted: number };
+    expect(body.codeStyle).toBe("simple");
+    expect(body.reminted).toBe(before.length);
+
+    const [w] = db
+      .select({ codeStyle: weddings.codeStyle })
+      .from(weddings)
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .all();
+    expect(w!.codeStyle).toBe("simple");
+
+    const after = guestFamilyCodes(db, BOOTSTRAP_WEDDING_ID);
+    const beforeById = new Map(before.map((f) => [f.id, f.publicId]));
+    for (const f of after) {
+      expect(f.publicId).not.toBe(beforeById.get(f.id));
+      // `simple` codes are SURNAME-WORD-HASH with an ungrouped hash → 3 segments.
+      expect(f.publicId.split("-")).toHaveLength(3);
+    }
+  });
+
+  it("clears code_shared_at and revokes sessions on remint", async () => {
+    const { db, app } = buildApp();
+    const fam = guestFamilyCodes(db, BOOTSTRAP_WEDDING_ID)[0]!;
+    const now = new Date();
+    db.update(families).set({ codeSharedAt: now }).where(eq(families.id, fam.id)).run();
+    db.insert(sessions)
+      .values({
+        id: "s_remint",
+        familyId: fam.id,
+        token: "h_remint",
+        expiresAt: new Date(now.getTime() + 60_000),
+        createdAt: now,
+      })
+      .run();
+
+    const res = await postRemint(
+      app,
+      BOOTSTRAP_WEDDING_ID,
+      { codeStyle: "secure" },
+      BOOTSTRAP_OWNER,
+    );
+    expect(res.status).toBe(200);
+
+    const [after] = db
+      .select({ codeSharedAt: families.codeSharedAt })
+      .from(families)
+      .where(eq(families.id, fam.id))
+      .all();
+    expect(after!.codeSharedAt).toBeNull();
+    expect(db.select().from(sessions).where(eq(sessions.familyId, fam.id)).all()).toHaveLength(0);
+  });
+
+  it("returns 404 for an unknown wedding", async () => {
+    const { app } = buildApp();
+    const res = await postRemint(app, "wed_nope", { codeStyle: "simple" }, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /api/organiser/weddings/:weddingId/families/:familyId/mark-shared", () => {
+  function aBootstrapFamily(db: Db): { id: string } {
+    const row = db
+      .select({ id: families.id })
+      .from(families)
+      .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+      .all()[0];
+    if (!row) throw new Error("no bootstrap family seeded");
+    return row;
+  }
+
+  async function postMark(
+    app: ReturnType<typeof buildApp>["app"],
+    weddingId: string,
+    familyId: string,
+    profileId?: string,
+  ) {
+    const headers: Record<string, string> = {};
+    if (profileId) headers.Authorization = `Bearer ${await auth.sign(profileId)}`;
+    return appRequest(
+      app,
+      `/api/organiser/weddings/${weddingId}/families/${familyId}/mark-shared`,
+      { method: "POST", headers },
+    );
+  }
+
+  it("returns 401 without a token", async () => {
+    const { db, app } = buildApp();
+    const res = await postMark(app, BOOTSTRAP_WEDDING_ID, aBootstrapFamily(db).id);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 for a non-owner", async () => {
+    const { db, app } = buildApp();
+    const res = await postMark(app, BOOTSTRAP_WEDDING_ID, aBootstrapFamily(db).id, OTHER_OWNER);
+    expect(res.status).toBe(403);
+  });
+
+  it("sets code_shared_at for the owner and surfaces it in the guest list", async () => {
+    const { db, app } = buildApp();
+    const fam = aBootstrapFamily(db);
+    const res = await postMark(app, BOOTSTRAP_WEDDING_ID, fam.id, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { familyId: string; codeSharedAt: number };
+    expect(body.familyId).toBe(fam.id);
+    expect(body.codeSharedAt).toBeGreaterThan(0);
+
+    // The shared timestamp is persisted and exposed on the guest rows.
+    const [stored] = db
+      .select({ codeSharedAt: families.codeSharedAt })
+      .from(families)
+      .where(eq(families.id, fam.id))
+      .all();
+    expect(stored!.codeSharedAt).not.toBeNull();
+
+    const list = await get(
+      app,
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests`,
+      BOOTSTRAP_OWNER,
+    );
+    const rows = (await list.json()) as { codeSharedAt: number | null }[];
+    expect(rows.some((r) => r.codeSharedAt !== null)).toBe(true);
+  });
+
+  it("returns 404 when the family does not belong to the wedding", async () => {
+    const { app } = buildApp();
+    const res = await postMark(app, BOOTSTRAP_WEDDING_ID, "fam_other", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(404);
   });
 });

@@ -1,4 +1,5 @@
 import * as schema from "@cire/db";
+import type { BatchItem } from "drizzle-orm/batch";
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 import { Context, Effect } from "effect";
@@ -41,3 +42,24 @@ export function createD1Db(d1: D1Database): Db {
  */
 export const dbQuery = <A>(run: () => A | Promise<A>): Effect.Effect<A> =>
   Effect.promise(() => Promise.resolve(run()));
+
+/**
+ * Commit a list of Drizzle write statements as one atomic D1 batch (production)
+ * or sequentially on bun:sqlite (tests/local). Feature-detects `.batch()` — the
+ * same path the importer, retention sweep, and code-rotation services use. An
+ * empty list is a no-op. The atomicity is a correctness property for callers
+ * that must apply all-or-nothing (e.g. rotating a code AND revoking its sessions
+ * in the same commit).
+ */
+export async function commitBatch(db: Db, statements: BatchItem<"sqlite">[]): Promise<void> {
+  if (statements.length === 0) return;
+  const batchable = db as {
+    batch?: (s: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]) => Promise<unknown>;
+  };
+  if (typeof batchable.batch === "function") {
+    await batchable.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+    return;
+  }
+  // eslint-disable-next-line no-await-in-loop
+  for (const stmt of statements) await stmt;
+}

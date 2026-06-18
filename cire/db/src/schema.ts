@@ -98,6 +98,13 @@ export const families = sqliteTable(
     kind: text("kind", { enum: ["guest", "host"] })
       .notNull()
       .default("guest"),
+    // When the organiser last copied this family's invite message (the
+    // per-family "Copy message" button). NULL = never shared. Drives the
+    // remint "already sent out" warning: reminting rotates the code and
+    // invalidates any already-shared link, so the bulk remint clears this back
+    // to NULL for every rotated family. Best-effort: set by `mark-shared`, not
+    // a security boundary, so a missed write only under-counts the warning.
+    codeSharedAt: integer("code_shared_at", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },

@@ -74,7 +74,11 @@ function WeddingDashboard(props: { wedding: WeddingSummary; onBack: () => void }
       <Show when={isOwner()}>
         <ImportPanel weddingId={props.wedding.id} />
       </Show>
-      <DashboardTabs weddingId={props.wedding.id} canManage={isOwner()} />
+      <DashboardTabs
+        weddingId={props.wedding.id}
+        weddingName={props.wedding.displayName}
+        canManage={isOwner()}
+      />
     </div>
   );
 }

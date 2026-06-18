@@ -70,10 +70,19 @@ export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>;
 
 export const OrganiserGuestRow = Schema.Struct({
   guestId: Schema.String,
+  // The family DB id (`families.id`) — the organiser dashboard targets the
+  // per-family `regenerate-code` / `mark-shared` endpoints by this id.
+  familyId: Schema.String,
   publicId: Schema.String,
   familyName: Schema.String,
   firstName: Schema.String,
   lastName: Schema.String,
   events: Schema.Array(Schema.String),
+  // Epoch-ms timestamp the organiser last copied this family's invite message
+  // (the per-family "Copy message" button), or `null` if never shared. Drives
+  // the dashboard's "Sent" indicator + the remint "already sent out" warning.
+  // Per-guest rows in the same family carry the same value (it's a family-level
+  // column); the UI dedupes by family.
+  codeSharedAt: Schema.NullOr(Schema.Number),
 });
 export type OrganiserGuestRow = Schema.Schema.Type<typeof OrganiserGuestRow>;

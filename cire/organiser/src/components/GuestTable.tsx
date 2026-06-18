@@ -1,24 +1,32 @@
 import { useAuth } from "@osn/client/solid";
 import { createSignal, onMount, Show, For, createMemo } from "solid-js";
+import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { buildInviteMessage, copyToClipboard } from "../lib/invite-message";
 
 interface OrganiserGuestRow {
+  familyId: string;
   publicId: string;
   familyName: string;
   firstName: string;
   lastName: string;
   events: string[];
+  codeSharedAt: number | null;
 }
 
 interface FamilyGroup {
+  familyId: string;
   publicId: string;
   familyName: string;
+  codeSharedAt: number | null;
   members: { firstName: string; lastName: string; events: string[] }[];
 }
 
 interface GuestTableProps {
   weddingId: string;
+  /** Display name of the wedding — used in the copied invite message. */
+  weddingName: string;
 }
 
 interface EventRow {
@@ -34,6 +42,10 @@ export default function GuestTable(props: GuestTableProps) {
   const [eventNameById, setEventNameById] = createSignal<Map<string, string>>(new Map());
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
+  // Optimistic "Sent" state keyed by family public_id — flips the instant a
+  // copy succeeds, so the indicator updates without a reload while the
+  // best-effort mark-shared POST settles in the background.
+  const [sharedNow, setSharedNow] = createSignal<Set<string>>(new Set());
 
   const families = createMemo(() => {
     const map = new Map<string, FamilyGroup>();
@@ -41,8 +53,10 @@ export default function GuestTable(props: GuestTableProps) {
       let family = map.get(guest.publicId);
       if (!family) {
         family = {
+          familyId: guest.familyId,
           publicId: guest.publicId,
           familyName: guest.familyName,
+          codeSharedAt: guest.codeSharedAt,
           members: [],
         };
         map.set(guest.publicId, family);
@@ -55,6 +69,9 @@ export default function GuestTable(props: GuestTableProps) {
     }
     return Array.from(map.values());
   });
+
+  const isShared = (family: FamilyGroup) =>
+    family.codeSharedAt !== null || sharedNow().has(family.publicId);
 
   onMount(async () => {
     try {
@@ -75,6 +92,30 @@ export default function GuestTable(props: GuestTableProps) {
       setLoading(false);
     }
   });
+
+  /** Best-effort: tell the API the family's code was just shared. Never blocks
+   *  or surfaces an error to the organiser — the copy already succeeded. */
+  function markShared(family: FamilyGroup) {
+    setSharedNow((prev) => new Set(prev).add(family.publicId));
+    void authFetch(
+      apiUrl(`/api/organiser/weddings/${props.weddingId}/families/${family.familyId}/mark-shared`),
+      { method: "POST" },
+    ).catch(() => {
+      // Intentionally swallowed — a missed mark only under-counts the remint
+      // warning; the optimistic UI flip stays so the organiser isn't confused.
+    });
+  }
+
+  async function copyMessage(family: FamilyGroup) {
+    const message = buildInviteMessage(props.weddingName, family.publicId);
+    const ok = await copyToClipboard(message);
+    if (ok) {
+      toast.success(`Copied ${family.familyName}'s invite message`);
+      markShared(family);
+    } else {
+      toast.error("Couldn't copy automatically. Select and copy the code manually.");
+    }
+  }
 
   return (
     <div class="flex flex-col gap-8">
@@ -117,11 +158,27 @@ export default function GuestTable(props: GuestTableProps) {
                 {(family) => (
                   <>
                     <tr>
-                      <td
-                        colspan="3"
-                        class="border-border bg-surface/50 font-display text-gold-dim border-b px-4 py-2 text-[1rem] italic"
-                      >
-                        {family.familyName}
+                      <td colspan="3" class="border-border bg-surface/50 border-b px-4 py-2">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                          <span class="font-display text-gold-dim flex items-center gap-2 text-[1rem] italic">
+                            {family.familyName}
+                            <Show when={isShared(family)}>
+                              <span
+                                class="font-body text-gold/80 border-gold/30 rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                                title="You've copied this family's invite message"
+                              >
+                                Sent
+                              </span>
+                            </Show>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void copyMessage(family)}
+                            class="font-body text-text-muted hover:text-gold hover:border-gold border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors"
+                          >
+                            Copy message
+                          </button>
+                        </div>
                       </td>
                     </tr>
                     <For each={family.members}>

@@ -1,5 +1,5 @@
 import { useAuth } from "@osn/client/solid";
-import { createSignal, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 
@@ -12,7 +12,25 @@ export interface WeddingSummary {
   role: "owner" | "host";
 }
 
+/** Claim-code style, mirroring the API's `weddings.code_style` enum. */
+export type CodeStyle = "simple" | "secure";
+
 const MAX_DISPLAY_NAME = 120;
+
+/** Friendly, non-technical labels for the two code styles. `secure` is the
+ *  recommended default; `simple` trades guess-resistance for shorter codes. */
+const CODE_STYLE_OPTIONS: { value: CodeStyle; label: string; hint: string }[] = [
+  {
+    value: "secure",
+    label: "Secure",
+    hint: "Longer codes that are harder to guess. Recommended.",
+  },
+  {
+    value: "simple",
+    label: "Simple",
+    hint: "Shorter, friendlier codes — easy to read aloud or type.",
+  },
+];
 
 /**
  * Inline form to create a new wedding. POSTs the display name to
@@ -26,6 +44,7 @@ export default function CreateWeddingForm(props: {
 }) {
   const { authFetch } = useAuth();
   const [name, setName] = createSignal("");
+  const [codeStyle, setCodeStyle] = createSignal<CodeStyle>("secure");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
@@ -42,7 +61,7 @@ export default function CreateWeddingForm(props: {
       const res = await authFetch(apiUrl("/api/organiser/weddings"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName }),
+        body: JSON.stringify({ displayName, codeStyle: codeStyle() }),
       });
       if (res.status === 401) {
         redirectToLogin();
@@ -93,6 +112,41 @@ export default function CreateWeddingForm(props: {
           class="border-border bg-bg font-body text-text focus:border-gold rounded-sm border px-3 py-2 text-[0.95rem] transition-colors outline-none placeholder:opacity-40 disabled:opacity-40"
         />
       </label>
+
+      <fieldset class="m-0 flex flex-col gap-1.5 border-0 p-0">
+        <legend class="font-body text-text-muted mb-1.5 text-[0.72rem] tracking-[0.1em] uppercase">
+          Guest code style
+        </legend>
+        <div class="flex flex-col gap-2 sm:flex-row">
+          <For each={CODE_STYLE_OPTIONS}>
+            {(option) => (
+              <label
+                class={`flex flex-1 cursor-pointer flex-col gap-1 rounded-sm border p-3 transition-colors ${
+                  codeStyle() === option.value
+                    ? "border-gold bg-gold/5"
+                    : "border-border bg-bg hover:border-gold/50"
+                } ${busy() ? "opacity-40" : ""}`}
+              >
+                <span class="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="codeStyle"
+                    value={option.value}
+                    checked={codeStyle() === option.value}
+                    disabled={busy()}
+                    onChange={() => setCodeStyle(option.value)}
+                    class="accent-gold"
+                  />
+                  <span class="font-body text-text text-[0.9rem]">{option.label}</span>
+                </span>
+                <span class="font-body text-text-muted pl-6 text-[0.78rem] leading-snug">
+                  {option.hint}
+                </span>
+              </label>
+            )}
+          </For>
+        </div>
+      </fieldset>
 
       <div class="flex flex-wrap items-center gap-3">
         <button

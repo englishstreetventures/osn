@@ -172,6 +172,21 @@ describe("claimService.getAllGuests", () => {
   );
 
   it(
+    "each row exposes its familyId and a null codeSharedAt by default",
+    withDb(
+      Effect.gen(function* () {
+        const rows = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
+        for (const row of rows) {
+          expect(typeof row.familyId).toBe("string");
+          expect(row.familyId.length).toBeGreaterThan(0);
+          // Seed never marks a family shared.
+          expect(row.codeSharedAt).toBeNull();
+        }
+      }),
+    ),
+  );
+
+  it(
     "each guest has at least one event",
     withDb(
       Effect.gen(function* () {

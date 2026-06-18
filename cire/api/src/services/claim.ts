@@ -242,10 +242,12 @@ export const claimService = {
         db
           .select({
             guestId: guests.id,
+            familyId: families.id,
             firstName: guests.firstName,
             lastName: guests.lastName,
             publicId: families.publicId,
             familyName: families.familyName,
+            codeSharedAt: families.codeSharedAt,
             eventId: guestEvents.eventId,
           })
           .from(guests)
@@ -258,17 +260,24 @@ export const claimService = {
           .all(),
       );
 
-      const byGuest = new Map<string, OrganiserGuestRow>();
+      const byGuest = new Map<
+        string,
+        { -readonly [K in keyof OrganiserGuestRow]: OrganiserGuestRow[K] }
+      >();
       for (const row of rows) {
         let entry = byGuest.get(row.guestId);
         if (!entry) {
           entry = {
             guestId: row.guestId,
+            familyId: row.familyId,
             publicId: row.publicId,
             familyName: row.familyName,
             firstName: row.firstName,
             lastName: row.lastName,
             events: [],
+            // Drizzle decodes the `timestamp`-mode column to a `Date | null`;
+            // surface epoch-ms (or null) so the JSON wire stays a plain number.
+            codeSharedAt: row.codeSharedAt === null ? null : row.codeSharedAt.getTime(),
           };
           byGuest.set(row.guestId, entry);
         }

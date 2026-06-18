@@ -69,6 +69,10 @@ export const CIRE_METRICS = {
   originGuardRejections: "cire.origin_guard.rejections",
   // Per-family claim-code regeneration (C2).
   familyCodeRegenerated: "cire.family_code.regenerated",
+  // Bulk wedding-wide claim-code re-mint onto a new style (C3).
+  weddingReminted: "cire.wedding.reminted",
+  // Family invite-code marked "shared" (organiser copied the message).
+  familyCodeShared: "cire.family_code.shared",
   // Organiser wedding creation (multi-wedding portal).
   weddingCreated: "cire.wedding.created",
   // Co-host management (add/remove a wedding host by OSN handle).
@@ -122,6 +126,12 @@ export type OriginRejectReason = "missing" | "mismatch";
 /** Outcome of a per-family claim-code regeneration (C2). */
 export type FamilyCodeRegenResult = "ok" | "error";
 
+/** Outcome of a bulk wedding-wide claim-code re-mint (C3). */
+export type WeddingRemintResult = "ok" | "error";
+
+/** Outcome of marking a family's invite code "shared". */
+export type FamilyCodeSharedResult = "ok" | "error";
+
 /** Outcome of an organiser wedding creation. */
 export type WeddingCreatedResult = "ok" | "error";
 
@@ -171,6 +181,8 @@ type AccountLinkUnlinksAttrs = { result: "ok" | "error" };
 type AccountLinkResolveDurationAttrs = { result: ResolveResult };
 type OriginGuardRejectionsAttrs = { reason: OriginRejectReason };
 type FamilyCodeRegeneratedAttrs = { result: FamilyCodeRegenResult };
+type WeddingRemintedAttrs = { result: WeddingRemintResult; style: "simple" | "secure" };
+type FamilyCodeSharedAttrs = { result: FamilyCodeSharedResult };
 type WeddingCreatedAttrs = { result: WeddingCreatedResult };
 type HostAddedAttrs = { result: HostAddResult };
 type HostRemovedAttrs = { result: HostRemoveResult };
@@ -315,6 +327,20 @@ const familyCodeRegenerated = createCounter<FamilyCodeRegeneratedAttrs>({
   unit: "{regeneration}",
 });
 
+const weddingReminted = createCounter<WeddingRemintedAttrs>({
+  name: CIRE_METRICS.weddingReminted,
+  description:
+    "Bulk wedding-wide claim-code re-mints onto a new style (C3), by outcome + target style",
+  unit: "{remint}",
+});
+
+const familyCodeShared = createCounter<FamilyCodeSharedAttrs>({
+  name: CIRE_METRICS.familyCodeShared,
+  description:
+    "Families marked 'shared' when the organiser copied their invite message, by outcome",
+  unit: "{share}",
+});
+
 const weddingCreated = createCounter<WeddingCreatedAttrs>({
   name: CIRE_METRICS.weddingCreated,
   description: "Organiser wedding creations (multi-wedding portal), by outcome",
@@ -440,6 +466,14 @@ export const metricOriginGuardRejection = (reason: OriginRejectReason): void =>
 
 export const metricFamilyCodeRegenerated = (result: FamilyCodeRegenResult): void =>
   familyCodeRegenerated.inc({ result });
+
+export const metricWeddingReminted = (
+  result: WeddingRemintResult,
+  style: "simple" | "secure",
+): void => weddingReminted.inc({ result, style });
+
+export const metricFamilyCodeShared = (result: FamilyCodeSharedResult): void =>
+  familyCodeShared.inc({ result });
 
 export const metricWeddingCreated = (result: WeddingCreatedResult): void =>
   weddingCreated.inc({ result });

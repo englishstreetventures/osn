@@ -4,6 +4,7 @@ import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import { metricWeddingCreated } from "../metrics";
+import type { CodeStyle } from "./family-code";
 
 export type WeddingSummary = {
   id: string;
@@ -106,12 +107,15 @@ export const weddingsService = {
    * Create a new wedding owned by the caller. Generates the id + a unique slug
    * (base slug from the display name, plus a short random suffix to avoid
    * collisions with another owner's wedding of the same name — slug is globally
-   * unique) and lands on the default `secure` code style. The owner is taken
-   * from the verified OSN token upstream, never from the request body.
+   * unique) and lands on the chosen `codeStyle` (default `secure`). The owner is
+   * taken from the verified OSN token upstream, never from the request body; the
+   * style is validated against the `["simple","secure"]` enum at the schema
+   * boundary before reaching here.
    */
   createForOwner(
     osnProfileId: string,
     displayName: string,
+    codeStyle: CodeStyle = "secure",
   ): Effect.Effect<WeddingSummary, WeddingCreateError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
@@ -139,7 +143,7 @@ export const weddingsService = {
                   slug,
                   displayName: trimmed,
                   ownerOsnProfileId: osnProfileId,
-                  codeStyle: "secure",
+                  codeStyle,
                   createdAt: now,
                   updatedAt: now,
                 })

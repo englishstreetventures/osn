@@ -18,6 +18,7 @@ import {
 import { createOrganiserImportRoutes } from "./routes/organiser-import";
 import {
   createOrganiserPreviewRoutes,
+  createOrganiserRemintRoutes,
   createOrganiserWeddingCreateRoute,
   createOrganiserWeddingsRoutes,
 } from "./routes/organiser-weddings";
@@ -55,6 +56,13 @@ const defaultPreviewLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_
  */
 const defaultWeddingCreateLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
 /**
+ * Default per-IP limiter for the organiser remint + mark-shared endpoints (C3).
+ * Owner-gated already, so this just caps the destructive bulk-write amplifier
+ * (remint rotates every family code + revokes sessions) and the high-frequency
+ * mark-shared writes; 30/min is generous for hand-driving the dashboard.
+ */
+const defaultRemintLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
+/**
  * Default per-IP limiter for the co-host add/remove endpoints (S-L1). Owner-gated
  * already, so this just caps the ARC-sign + S2S handle-resolve amplifier on add
  * (and the management churn / handle-probe oracle); 20/min is generous for
@@ -77,6 +85,8 @@ export interface AppOptions {
   previewLimiter?: RateLimiterBackend;
   /** Override the wedding-create rate limiter (useful for testing). */
   weddingCreateLimiter?: RateLimiterBackend;
+  /** Override the remint + mark-shared rate limiter (useful for testing). */
+  remintLimiter?: RateLimiterBackend;
   /** Override the co-host add/remove rate limiter (useful for testing). */
   hostLimiter?: RateLimiterBackend;
   /** R2 bucket binding for the organiser import flow. */
@@ -128,6 +138,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     inviteLimiter = defaultInviteLimiter,
     previewLimiter = defaultPreviewLimiter,
     weddingCreateLimiter = defaultWeddingCreateLimiter,
+    remintLimiter = defaultRemintLimiter,
     hostLimiter = defaultHostLimiter,
     r2,
     assets,
@@ -191,6 +202,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))
       .use(createOrganiserWeddingCreateRoute(db, osnAuthOptions, weddingCreateLimiter))
       .use(createOrganiserPreviewRoutes(db, osnAuthOptions, previewLimiter))
+      .use(createOrganiserRemintRoutes(db, osnAuthOptions, remintLimiter))
       // Co-host management. Reads (list hosts) admit owner OR co-host; writes
       // (add/remove) are owner-only and behind a per-IP limiter — split into
       // sibling instances so the read isn't gated by the write limiter.

@@ -10,10 +10,12 @@ import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
-import { CreateWeddingBody } from "../schemas/wedding";
+import { CreateWeddingBody, RemintBody } from "../schemas/wedding";
 import { claimService } from "../services/claim";
 import { hostCodeService } from "../services/host-code";
+import { markSharedService } from "../services/mark-shared";
 import { regenerateCodeService } from "../services/regenerate-code";
+import { remintCodesService } from "../services/remint-codes";
 import { weddingsService } from "../services/weddings";
 
 // Sentinel parse hook: stops Elysia from consuming the body so the handler can
@@ -160,7 +162,11 @@ export const createOrganiserWeddingCreateRoute = (
         return runCire(
           Effect.gen(function* () {
             const body = yield* Schema.decodeUnknown(CreateWeddingBody)(raw);
-            const wedding = yield* weddingsService.createForOwner(osnProfileId, body.displayName);
+            const wedding = yield* weddingsService.createForOwner(
+              osnProfileId,
+              body.displayName,
+              body.codeStyle,
+            );
             set.status = 201;
             return { wedding };
           }).pipe(
@@ -220,6 +226,107 @@ export const createOrganiserPreviewRoutes = (
                 Effect.sync(() => {
                   set.status = 500;
                   return { error: "Internal error" };
+                }),
+              ),
+              Effect.catchAllDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        }),
+    );
+
+/**
+ * Bulk claim-code re-mint onto a new style (C3) + per-family "mark shared"
+ * (the Copy-message button). Both are owner-only (weddingOwner) and split into
+ * their own instance behind a per-IP limiter so the destructive bulk-write +
+ * the high-frequency mark-shared writes don't sit behind (or gate) the
+ * dashboard reads. Same sibling-instance pattern as the preview + create routes.
+ */
+export const createOrganiserRemintRoutes = (
+  db: Db,
+  osnAuthOptions: OsnAuthOptions,
+  limiter: RateLimiterBackend,
+) =>
+  new Elysia({ prefix: "/api/organiser" })
+    .use(osnAuth(osnAuthOptions))
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingOwner(db))
+        .use(rateLimitMiddleware(limiter))
+        // C3: flip the wedding's code style + rotate EVERY guest family's code
+        // onto it, clearing each family's shared marker + revoking its sessions,
+        // atomically. Destructive: any already-shared code is invalidated.
+        // weddingOwner() proved ownership; the service only touches rows scoped
+        // to :weddingId.
+        .post(
+          "/remint",
+          async ({ weddingId, request, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknown(RemintBody)(raw);
+                return yield* remintCodesService.remint(weddingId, body.codeStyle);
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.map((r) => ({ codeStyle: r.codeStyle, reminted: r.reminted })),
+                Effect.catchTag("ParseError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
+                Effect.catchTag("WeddingNotFound", () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "wedding_not_found" };
+                  }),
+                ),
+                Effect.catchTag("RemintWriteError", () =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Could not re-mint codes" };
+                  }),
+                ),
+                Effect.catchAllDefect(() =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
+              ),
+            );
+          },
+          manualParse,
+        )
+        // Mark a family's invite code as "shared" — best-effort, fired by the
+        // Copy-message button. Bodiless. 404 if the family isn't in :weddingId.
+        .post("/families/:familyId/mark-shared", ({ weddingId, params, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            markSharedService.markShared(weddingId, params.familyId).pipe(
+              Effect.provideService(DbService, db),
+              Effect.map((r) => ({ familyId: r.familyId, codeSharedAt: r.codeSharedAt })),
+              Effect.catchTag("FamilyNotInWedding", () =>
+                Effect.sync(() => {
+                  set.status = 404;
+                  return { error: "family_not_found" };
+                }),
+              ),
+              Effect.catchTag("MarkSharedWriteError", () =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Could not mark shared" };
                 }),
               ),
               Effect.catchAllDefect(() =>

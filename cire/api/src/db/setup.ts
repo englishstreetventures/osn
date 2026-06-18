@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS families (
   public_id TEXT NOT NULL UNIQUE,
   family_name TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'guest',
+  code_shared_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

@@ -55,7 +55,32 @@ describe("CreateWeddingForm", () => {
     const [url, init] = authFetchMock.mock.calls[0]!;
     expect(String(url)).toBe("https://api.test/api/organiser/weddings");
     expect((init as RequestInit).method).toBe("POST");
-    expect(JSON.parse(String((init as RequestInit).body))).toEqual({ displayName: "Nadia & Sam" });
+    // Defaults to the recommended `secure` style when the organiser doesn't change it.
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({
+      displayName: "Nadia & Sam",
+      codeStyle: "secure",
+    });
+  });
+
+  it("sends the chosen 'simple' code style when the organiser picks it", async () => {
+    authFetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({ wedding: { id: "w", slug: "s", displayName: "Simple Pick" } }),
+        {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    render(() => <CreateWeddingForm onCreated={vi.fn()} />);
+
+    fill("Simple Pick");
+    fireEvent.click(screen.getByRole("radio", { name: /Simple/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Create wedding/i }));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalled());
+    const body = JSON.parse(String((authFetchMock.mock.calls[0]![1] as RequestInit).body));
+    expect(body.codeStyle).toBe("simple");
   });
 
   it("does not call the API when the name is blank", async () => {
