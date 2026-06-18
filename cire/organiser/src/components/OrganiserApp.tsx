@@ -8,6 +8,7 @@ import type { WeddingSummary } from "./CreateWeddingForm";
 import DashboardTabs from "./DashboardTabs";
 import ImportPanel from "./ImportPanel";
 import PreviewInviteButton from "./PreviewInviteButton";
+import SecurityPanel from "./SecurityPanel";
 import WeddingList from "./WeddingList";
 
 type WeddingsState =
@@ -78,12 +79,35 @@ function WeddingDashboard(props: { wedding: WeddingSummary; onBack: () => void }
   );
 }
 
+type DashboardView = "weddings" | "security";
+
+const navClass = (active: boolean) =>
+  `font-body text-[0.82rem] tracking-[0.1em] uppercase underline-offset-4 transition ${
+    active ? "text-gold" : "text-text-muted hover:text-gold hover:underline"
+  }`;
+
+function initialView(): DashboardView {
+  if (typeof window === "undefined") return "weddings";
+  return window.location.hash.replace("#", "") === "security" ? "security" : "weddings";
+}
+
 function Dashboard() {
   const { authFetch, logout } = useAuth();
   // Locally-tracked weddings so a freshly-created one shows up without a
   // refetch. Seeded from the initial load.
   const [weddings, setWeddings] = createSignal<WeddingSummary[] | null>(null);
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
+  // Top-level view: the wedding list/dashboard, or the account security
+  // (devices / passkeys) panel. Security is reachable whenever signed in,
+  // independent of any wedding selection.
+  const [view, setView] = createSignal<DashboardView>(initialView());
+
+  function selectView(next: DashboardView) {
+    setView(next);
+    if (typeof window !== "undefined") {
+      history.replaceState(null, "", next === "security" ? "#security" : "#");
+    }
+  }
 
   const [loaded] = createResource<WeddingsState>(async () => {
     try {
@@ -129,7 +153,25 @@ function Dashboard() {
 
   return (
     <div class="flex flex-col gap-8">
-      <div class="flex justify-end">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <nav class="flex items-center gap-5" aria-label="Portal sections">
+          <button
+            type="button"
+            onClick={() => selectView("weddings")}
+            aria-current={view() === "weddings" ? "page" : undefined}
+            class={navClass(view() === "weddings")}
+          >
+            Weddings
+          </button>
+          <button
+            type="button"
+            onClick={() => selectView("security")}
+            aria-current={view() === "security" ? "page" : undefined}
+            class={navClass(view() === "security")}
+          >
+            Security
+          </button>
+        </nav>
         <button
           type="button"
           onClick={() => void signOut()}
@@ -139,32 +181,38 @@ function Dashboard() {
         </button>
       </div>
 
-      <Show when={loaded()} fallback={<Loading label="Loading weddings…" />}>
-        <Show when={loadError()}>
-          {(message) => (
-            <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
-              {message()}
-            </p>
-          )}
-        </Show>
+      <Show when={view() === "security"}>
+        <SecurityPanel />
+      </Show>
 
-        <Show when={!loadError() && weddings()}>
-          {(list) => (
-            <Show
-              when={selected()}
-              fallback={
-                <WeddingList
-                  weddings={list()}
-                  onSelect={(w) => setSelectedId(w.id)}
-                  onCreated={handleCreated}
-                />
-              }
-            >
-              {(wedding) => (
-                <WeddingDashboard wedding={wedding()} onBack={() => setSelectedId(null)} />
-              )}
-            </Show>
-          )}
+      <Show when={view() === "weddings"}>
+        <Show when={loaded()} fallback={<Loading label="Loading weddings…" />}>
+          <Show when={loadError()}>
+            {(message) => (
+              <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
+                {message()}
+              </p>
+            )}
+          </Show>
+
+          <Show when={!loadError() && weddings()}>
+            {(list) => (
+              <Show
+                when={selected()}
+                fallback={
+                  <WeddingList
+                    weddings={list()}
+                    onSelect={(w) => setSelectedId(w.id)}
+                    onCreated={handleCreated}
+                  />
+                }
+              >
+                {(wedding) => (
+                  <WeddingDashboard wedding={wedding()} onBack={() => setSelectedId(null)} />
+                )}
+              </Show>
+            )}
+          </Show>
         </Show>
       </Show>
     </div>

@@ -53,6 +53,7 @@
         "@astrojs/solid-js": "^6.0.1",
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
+        "@simplewebauthn/browser": "^13.3.0",
         "@tailwindcss/vite": "^4.3.0",
         "astro": "^6.4.2",
         "solid-js": "^1.9.13",

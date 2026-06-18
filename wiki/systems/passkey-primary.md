@@ -10,7 +10,8 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/ui"
-last-reviewed: 2026-04-23
+  - "@cire/organiser"
+last-reviewed: 2026-06-18
 ---
 
 # Passkey-Primary Login
@@ -67,7 +68,45 @@ UI surface (`@osn/ui/auth`):
   gated via the same `/passkey/register/*` endpoints the registration
   flow uses). `@osn/social` mounts it behind a lazy-loaded
   `SecuritySection` so `@simplewebauthn/browser` only ships when the tab
-  is opened.
+  is opened. It also renders a collapsible **"Signing in somewhere new?"**
+  help disclosure that points users at the three real ways onto a fresh
+  device (backed-up/synced passkey, password-manager cross-device QR,
+  recovery code) — see "New-device onboarding" below.
+  - **`passkeyOnly` prop** — when set, the step-up dialog suppresses the OTP
+    ("email me a code") factor and drives the passkey ceremony directly.
+    Required wherever transactional email is degraded. The cire organiser
+    portal sets it because its osn-api runs with `OSN_EMAIL_OPTIONAL=true`
+    (Cloudflare email degraded), so an OTP step-up would dead-end on a code
+    that never arrives. Every passkey-management gate accepts a passkey
+    step-up (delete defaults to `webauthn`-only AMR; rename/register accept
+    `webauthn`), so the flow stays fully functional without email.
+
+### Surfaces that mount `<PasskeysView>`
+
+| App | Mount point | Notes |
+|---|---|---|
+| `@osn/social` | lazy `SecuritySection` (Settings → Security) | OTP factor available. |
+| `@cire/organiser` | `SecurityPanel.tsx`, reached via the top-level **Security** nav item (`#security`) in `OrganiserApp` | `passkeyOnly` forced on (degraded email). Wires the WebAuthn ceremonies with `@simplewebauthn/browser`; reads `accessToken` + `activeProfileId` from `useAuth()`. |
+
+## New-device onboarding
+
+Getting onto a brand-new device that holds no passkey yet does **not** use a
+bespoke OSN flow — it reuses what already exists, surfaced as UI copy in the
+`<PasskeysView>` help disclosure and the WebAuthn-unsupported `<SignIn>`
+screen:
+
+1. **Backed-up / synced passkey** — platform passkeys saved to iCloud
+   Keychain, Google Password Manager, or a third-party password manager are
+   already present on the user's other signed-in devices. No transfer needed.
+2. **Cross-device sign-in (CaBLE / hybrid)** — on the sign-in screen the user
+   picks the QR / nearby-device option their password manager offers and
+   approves it from their phone. The osn-api cross-device endpoints
+   (`/login/cross-device/*`, see `[[sessions]]`) exist for a future
+   first-party QR transfer, but the password-manager hybrid flow covers the
+   common case today with no extra client code.
+3. **Recovery code** — if every passkey is lost, the user signs in via the
+   "Lost your passkey?" recovery-code path, then enrols a fresh passkey from
+   the authenticated Security panel.
 
 ## Accepting security keys
 

@@ -387,6 +387,57 @@ describe("PasskeysView", () => {
     expect(addButton.disabled).toBe(true);
   });
 
+  // passkeyOnly: in the cire organiser portal email is degraded, so the
+  // step-up dialog must not offer the OTP factor (it would never arrive).
+  // The dialog should auto-run the passkey ceremony instead.
+  it("passkeyOnly: delete uses the passkey ceremony, never OTP", async () => {
+    pk.list.mockResolvedValueOnce({ passkeys: passkeyRows });
+    pk.list.mockResolvedValueOnce({ passkeys: [passkeyRows[1]!] });
+    pk.delete.mockResolvedValue({ success: true, remaining: 1 });
+    su.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
+    su.passkeyComplete.mockResolvedValue(stepUpToken);
+    const runCeremony = vi.fn().mockResolvedValue({ id: "cred_su" });
+
+    render(() => (
+      <PasskeysView
+        client={asPasskeys(pk)}
+        stepUpClient={asStepUp(su)}
+        accessToken="acc"
+        passkeyOnly
+        runPasskeyCeremony={runCeremony}
+      />
+    ));
+
+    await waitFor(() => screen.getAllByRole("button", { name: /^Delete$/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/ })[0]!);
+
+    // No OTP affordance; passkey ceremony runs automatically.
+    await waitFor(() => expect(runCeremony).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /Email me a code/i })).toBeNull();
+    await waitFor(() =>
+      expect(pk.delete).toHaveBeenCalledWith({
+        accessToken: "acc",
+        id: "pk_aaaaaaaaaaaa",
+        stepUpToken: stepUpToken.token,
+      }),
+    );
+    expect(su.otpBegin).not.toHaveBeenCalled();
+  });
+
+  it("renders new-device help with cross-device / synced-passkey / recovery guidance", async () => {
+    pk.list.mockResolvedValue({ passkeys: passkeyRows });
+    render(() => (
+      <PasskeysView client={asPasskeys(pk)} stepUpClient={asStepUp(su)} accessToken="acc" />
+    ));
+    await waitFor(() => screen.getAllByRole("button", { name: /^Rename$/ }));
+    // The disclosure copy points users at the three real ways onto a new
+    // device. Open it first (details/summary).
+    fireEvent.click(screen.getByText(/Signing in somewhere new/i));
+    expect(screen.getByText(/Cross-device sign-in/i)).toBeTruthy();
+    expect(screen.getAllByText(/recovery code/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Backed-up passkey/i)).toBeTruthy();
+  });
+
   // S-L1: while a step-up is in flight, every Rename / Delete button on the
   // page is disabled to prevent a rapid double-click swapping the pending id.
   it("locks every Rename/Delete button while a step-up is in flight (S-L1)", async () => {

@@ -1,5 +1,5 @@
 import type { StepUpClient, StepUpToken } from "@osn/client";
-import { createSignal, Show } from "solid-js";
+import { createSignal, onMount, Show } from "solid-js";
 
 import { Button } from "../components/ui/button";
 
@@ -31,15 +31,31 @@ export interface StepUpDialogProps {
    * `startAuthentication` produces).
    */
   runPasskeyCeremony?: (options: unknown) => Promise<unknown>;
+  /**
+   * Passkey-only mode: suppress the OTP ("email me a code") factor entirely
+   * and drive the passkey ceremony directly. Used where transactional email
+   * is degraded (the cire organiser portal runs with
+   * `OSN_EMAIL_OPTIONAL=true`), so offering OTP would send the user down a
+   * dead-end path that never receives a code. With this set the dialog
+   * auto-starts the passkey ceremony on mount and offers a retry on failure.
+   */
+  passkeyOnly?: boolean;
 }
 
 type Mode = "choose" | "passkey" | "otp";
 
 export function StepUpDialog(props: StepUpDialogProps) {
-  const [mode, setMode] = createSignal<Mode>("choose");
+  const [mode, setMode] = createSignal<Mode>(props.passkeyOnly ? "passkey" : "choose");
   const [code, setCode] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+
+  // Passkey-only contexts skip the factor picker — kick the ceremony off as
+  // soon as the dialog mounts so the user lands straight on the platform
+  // authenticator prompt.
+  onMount(() => {
+    if (props.passkeyOnly) void startPasskey();
+  });
 
   async function startPasskey() {
     if (!props.runPasskeyCeremony) {
@@ -103,7 +119,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
         This action needs a fresh authentication. Choose a method below.
       </p>
       <Show when={error()}>{(msg) => <p class="text-destructive text-sm">{msg()}</p>}</Show>
-      <Show when={mode() === "choose"}>
+      <Show when={!props.passkeyOnly && mode() === "choose"}>
         <div class="flex flex-col gap-2">
           <Button onClick={startPasskey} disabled={busy()}>
             Use passkey
@@ -111,6 +127,21 @@ export function StepUpDialog(props: StepUpDialogProps) {
           <Button variant="outline" onClick={startOtp} disabled={busy()}>
             Email me a code
           </Button>
+          <Button variant="ghost" onClick={props.onCancel} disabled={busy()}>
+            Cancel
+          </Button>
+        </div>
+      </Show>
+      <Show when={props.passkeyOnly}>
+        <div class="flex flex-col gap-2">
+          <Show when={busy()}>
+            <p class="text-muted-foreground text-sm" aria-live="polite">
+              Waiting for your passkey…
+            </p>
+          </Show>
+          <Show when={!busy()}>
+            <Button onClick={startPasskey}>{error() ? "Try again" : "Use passkey"}</Button>
+          </Show>
           <Button variant="ghost" onClick={props.onCancel} disabled={busy()}>
             Cancel
           </Button>

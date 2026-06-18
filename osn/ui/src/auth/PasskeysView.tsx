@@ -43,6 +43,15 @@ export interface PasskeysViewProps {
    * package doesn't pull in `@simplewebauthn/browser`.
    */
   runPasskeyRegistration?: (options: unknown) => Promise<unknown>;
+  /**
+   * Force the step-up ceremony to use the passkey factor only, suppressing
+   * the OTP ("email me a code") option. Set this in hosts where transactional
+   * email is degraded (the cire organiser portal runs the OSN API with
+   * `OSN_EMAIL_OPTIONAL=true`) so the user is never offered a code that won't
+   * be delivered. The delete/rename/add gates all accept a passkey step-up,
+   * so this stays fully functional.
+   */
+  passkeyOnly?: boolean;
 }
 
 function formatTs(ts: number | null): string {
@@ -250,6 +259,32 @@ export function PasskeysView(props: PasskeysViewProps) {
           </ul>
         )}
       </Show>
+      <details class="text-muted-foreground mt-2 text-sm">
+        <summary class="text-foreground cursor-pointer font-medium">
+          Signing in somewhere new?
+        </summary>
+        <div class="mt-2 flex flex-col gap-2">
+          <p>There are three ways onto a device that has no passkey yet:</p>
+          <ul class="list-inside list-disc">
+            <li>
+              <span class="text-foreground font-medium">Backed-up passkey</span> — if your passkey
+              is saved to iCloud Keychain, Google Password Manager, or a password manager, it's
+              already available on your other signed-in devices.
+            </li>
+            <li>
+              <span class="text-foreground font-medium">Cross-device sign-in</span> — on the sign-in
+              screen choose the QR / nearby-device option your password manager offers, then approve
+              it with your phone.
+            </li>
+            <li>
+              <span class="text-foreground font-medium">Recovery code</span> — if you've lost access
+              to every passkey, use a saved recovery code from the "Lost your passkey?" link on
+              sign-in, then add a fresh passkey here.
+            </li>
+          </ul>
+          <p>Once you're signed in there, use "Add passkey" above to enrol that device.</p>
+        </div>
+      </details>
       <Show when={pending()}>
         <StepUpDialog
           client={props.stepUpClient}
@@ -257,6 +292,7 @@ export function PasskeysView(props: PasskeysViewProps) {
           onToken={handleStepUp}
           onCancel={cancelStepUp}
           runPasskeyCeremony={props.runPasskeyCeremony}
+          passkeyOnly={props.passkeyOnly}
         />
       </Show>
     </div>

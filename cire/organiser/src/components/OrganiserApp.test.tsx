@@ -73,6 +73,11 @@ vi.mock("./ImportPanel", () => ({
 vi.mock("./PreviewInviteButton", () => ({
   default: () => <div data-testid="preview-button" />,
 }));
+// SecurityPanel pulls in @osn/client + @osn/ui + @simplewebauthn/browser;
+// stub it so this suite stays focused on the Dashboard's view glue.
+vi.mock("./SecurityPanel", () => ({
+  default: () => <div data-testid="security-panel">passkeys</div>,
+}));
 
 import OrganiserApp from "./OrganiserApp";
 
@@ -148,5 +153,23 @@ describe("OrganiserApp Dashboard", () => {
     // The new wedding is selected (its dashboard renders) and the list now
     // carries it.
     expect(screen.getByTestId("dashboard-tabs").textContent).toBe("wed_new");
+  });
+
+  it("toggles to the Security (devices / passkeys) panel from the nav", async () => {
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+
+    // Security is reachable whenever signed in, independent of any wedding.
+    fireEvent.click(screen.getByRole("button", { name: /^Security$/ }));
+    expect(screen.getByTestId("security-panel")).toBeTruthy();
+    expect(screen.queryByTestId("wedding-list")).toBeNull();
+
+    // And back to weddings.
+    fireEvent.click(screen.getByRole("button", { name: /^Weddings$/ }));
+    expect(screen.getByTestId("wedding-list")).toBeTruthy();
+    expect(screen.queryByTestId("security-panel")).toBeNull();
   });
 });
