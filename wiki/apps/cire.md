@@ -12,9 +12,10 @@ related:
   - "[[cire-auth]]"
   - "[[identity-model]]"
   - "[[passkey-primary]]"
+  - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-06-17
+last-reviewed: 2026-06-18
 ---
 
 # Cire
@@ -37,15 +38,23 @@ Note: `@cire/api` runs Elysia with `aot: false` — Elysia's ahead-of-time compi
 Two deliberately separate systems — full contract in [[cire-auth]]:
 
 - **Guests** never become OSN account holders. A family claim code (`families.public_id`, e.g. `SHARMA-IVY-QM42`) is exchanged at `POST /api/claim` for a 256-bit session token (SHA-256-hashed at rest), carried in a 30-day HttpOnly `cire_session` cookie. `sessionAuth()` gates `/api/rsvp`.
-- **Organisers** sign in with their OSN passkey (via `@osn/client` + `@osn/ui` on the portal), or create a new OSN account inline — the portal's `SignInPanel` toggles between the `<SignIn>` and `<Register>` flows, so an organiser without an account never has to leave to register (the account is still created on OSN, not cire). `cire/api` verifies the resulting ES256 access JWT (`aud: "osn-access"`) against the OSN issuer's JWKS using `osnAuth()` from `@shared/osn-auth-client`; wedding ownership is enforced by `weddingOwner()` / `ownedWedding()` middleware against `weddings.owner_osn_profile_id`.
+- **Organisers** sign in with their OSN passkey (via `@osn/client` + `@osn/ui` on the portal), or create a new OSN account inline — the portal's `SignInPanel` toggles between the `<SignIn>` and `<Register>` flows, so an organiser without an account never has to leave to register (the account is still created on OSN, not cire). **Any logged-in OSN user is a first-class organiser** (the old bootstrap-owner 503 gate is gone — #156, see below). `cire/api` verifies the resulting ES256 access JWT (`aud: "osn-access"`) against the OSN issuer's JWKS using `osnAuth()` from `@shared/osn-auth-client`; per-wedding authorization is enforced by two gates against `weddings.owner_osn_profile_id` + the `wedding_hosts` table — `weddingOwner()` (owner-only, destructive/management routes) and `weddingMember()` (owner **or** co-host, dashboard reads). Full contract in [[cire-auth]].
+- **Multiple weddings + co-hosts** — an organiser lists / selects / creates weddings (`GET`/`POST /api/organiser/weddings`, #147); every wedding-scoped route carries an explicit `:weddingId` (the import routes were rescoped from global to `/api/organiser/weddings/:weddingId/import/*`). Co-hosts are added **by OSN handle** (#148): `cire/api` resolves the handle via an ARC-gated osn-api `GET /graph/internal/profile-by-handle` call and writes a `wedding_hosts` row; co-hosts get the read dashboard via `weddingMember()` but nothing destructive.
 - **Optional guest account linking** (backend shipped; frontend deferred) — an invitee may attach their seat to an OSN/Pulse account. `POST /api/account/link` is the one dual-credential route (guest cookie + OSN token); it resolves the profile to an account id over ARC and writes `guest_account_links`. Full contract + the 401/dual-credential nuances in [[cire-auth]].
+
+## Guest + organiser features (this session)
+
+- **Per-section invite theming (#152)** — organisers theme each invite section with a bounded set of fonts + colours (migration `0014`). The allowlist is CSS-injection-safe: only known font keys and validated colour values reach the rendered styles, so a malicious value can't break out into arbitrary CSS.
+- **Google Maps Embed preview (#146)** — venue/location previews use the Maps Embed API, key-optional with a CSS-card fallback when no key is set (same graceful-degradation pattern as Turnstile and the optional email).
+- **Turnstile bot protection (#154)** — guest claim + RSVP (and the organiser-portal OSN register/login) are gated by Cloudflare Turnstile, key-optional + fail-closed; **inert until a widget is created**. See [[turnstile]].
+- **Organiser Security / Devices section (#155)** — the portal's `SecurityPanel` mounts `@osn/ui`'s `PasskeysView` to list / add / rename / remove passkeys, with passkey-only step-up (the `passkeyOnly` flag on `StepUpDialog`). OTP step-up is suppressed because the deployed osn-api runs with email degraded ([[email]]), so an OTP couldn't be delivered; new-device help points at synced/backed-up passkeys, the cross-device QR ceremony, or a recovery code. See [[passkey-primary]], [[sessions]].
 
 ## Data model
 
-- `weddings` is the root table; `families`, `events`, and `imports` carry a `wedding_id` NOT NULL FK (cascade). Multi-tenant scaffold, single wedding in practice today.
+- `weddings` is the root table; `families`, `events`, and `imports` carry a `wedding_id` NOT NULL FK (cascade). Multiple weddings per organiser are live (#147) — there is no longer a single seeded wedding.
+- `weddings.owner_osn_profile_id` stores the owning OSN profile id as an opaque `usr_*` string — **no cross-DB FK** (cire's D1 and OSN's DB are separate databases). `wedding_hosts(wedding_id, osn_profile_id, …)` (#148) records co-hosts; unique per `(wedding_id, osn_profile_id)`. Owner + co-hosts are the `weddingMember()` set.
 - `guest_account_links` records the optional per-invitee OSN link: `guest_id`/`family_id`/`wedding_id` (cascade FKs) + opaque `osn_account_id` / `osn_profile_id` (no cross-DB FK). See [[cire-auth]].
-- Ownership is interim single-owner: `weddings.owner_osn_profile_id` stores an opaque OSN profile id (`usr_*` string — **no cross-DB FK**; cire's D1 and OSN's DB are separate databases).
-- Migration `0006_multi_tenant.sql` uses a deliberate `__keep_*` snapshot/restore idiom — DROP TABLE under enforced FKs fires ON DELETE CASCADE into children on D1 (the pragma can't be disabled there), verified empirically. Its bootstrap row `wed_bootstrap` ships with an **inert sentinel owner** `usr_unclaimed_bootstrap` — no real profile, so the ownership gate fails CLOSED. The real owner is **not** baked into the migration: it comes from the `BOOTSTRAP_OWNER_PROFILE_ID` env var. `resolveBootstrapOwnerProfileId` (`cire/api/src/db/setup.ts`) feeds the local/test seed (dev default `usr_dev_bootstrap_owner` when `OSN_ENV` is local), and `ensureBootstrapOwner` (`cire/api/src/index.ts`) runs once per isolate to repoint the D1 row off the sentinel in a deployed environment. A missing / placeholder / non-`usr_*` value in any deployed tier THROWS → the worker answers 503 (fail loud). Set `BOOTSTRAP_OWNER_PROFILE_ID` (the real organiser `usr_*` id) as a wrangler secret before the first deployed-D1 boot.
+- **No bootstrap owner / no boot gate (#156).** Earlier builds seeded a demo wedding `wed_bootstrap` and gated the whole Worker on a `BOOTSTRAP_OWNER_PROFILE_ID` env var (`ensureBootstrapOwner` threw → 503 in any deployed tier until a real `usr_*` owner was set). That entire mechanism is **removed**: migration `0015_drop_bootstrap_wedding.sql` deletes the demo wedding, the env var + `ensureBootstrapOwner` + `resolveBootstrapOwnerProfileId` are gone, and a freshly signed-in account simply gets `GET /api/organiser/weddings → 200 {weddings: []}` and creates its first wedding. (Migration `0006_multi_tenant.sql` still uses the deliberate `__keep_*` snapshot/restore idiom for the multi-tenant scaffold — DROP TABLE under enforced FKs fires ON DELETE CASCADE into children on D1, verified empirically.)
 
 ## Local dev
 
@@ -63,32 +72,44 @@ bun run --cwd cire/db db:reset            # cire only: wipe local D1 → db:push
 bun run --cwd cire/db db:seed             # seed only (runs scripts/cire-db-seed.sh)
 ```
 
-`scripts/cire-db-seed.sh` seeds the local miniflare D1 and then re-points the
-bootstrap wedding (`wed_bootstrap`, which migration `0006` seeds with the inert
-sentinel owner `usr_unclaimed_bootstrap`) to `CIRE_DEV_OWNER_PROFILE_ID` so
-the wedding is owned by your signed-in dev account. Set it in `cire/db/.env`:
+`scripts/cire-db-seed.sh` seeds the local miniflare D1 with a sample wedding
+owned by `CIRE_DEV_OWNER_PROFILE_ID` so it shows under your signed-in dev
+account. Set it in `cire/db/.env`:
 
 ```bash
 CIRE_DEV_OWNER_PROFILE_ID=usr_<your-osn-profile-id>
 ```
 
-The `cire/api` dev server (`local.ts`) applies the same re-point against its
-own **in-memory** seeded DB (not the persistent D1), so `bun run dev:cire` shows
-the wedding under your account without a separate seed step. Both paths are
+The `cire/api` dev server (`local.ts`) seeds the same owner into its own
+**in-memory** DB (not the persistent D1), so `bun run dev:cire` shows a wedding
+under your account without a separate seed step. (Since #156 removed the
+bootstrap-owner re-point machinery, the dev seed simply *creates* a wedding for
+your profile rather than re-pointing a sentinel-owned demo row.) Both paths are
 dev-only — neither runs in the deployed Worker (entry `src/index.ts`).
 `cire/db` drizzle.config points `db:studio` at the local D1 sqlite (override via
 `CIRE_DATABASE_URL`; the content-hashed path changes on `db:reset`).
 
-## Deployment
+## Deployment — live on `cireweddings.com`
 
-The cire stack deploys via a **GitHub Actions workflow** (`.github/workflows/deploy.yml`,
-PR #128): gated on a build/test job, it applies the remote cire D1 migrations, then
-deploys the **cire-api Worker** and the **cire-web Pages** project. Prod wrangler config
-is wired (PR #121): the real D1 `database_id` (`6e835474-e0a7-4db9-8883-3247c3c891cd`),
-the organiser-portal origin in the prod `WEB_ORIGIN` allowlist, the OSN issuer/JWKS URLs
-flagged required-before-prod, and D1 + R2 bindings redeclared under `[env.production]`
-(named envs don't inherit top-level bindings). The full secret/var checklist, migration
-+ bootstrap-owner steps, and post-deploy smoke checks live in the
+The cire stack is **deployed in production** on `cireweddings.com` (Cloudflare
+Free tier throughout — see [[free-tier-limits]]). Domains (#149):
+
+| Host | Surface |
+|---|---|
+| `cireweddings.com` (apex) | guest site (`cire/web` Pages) |
+| `app.cireweddings.com` | organiser portal (`cire/organiser` Pages) |
+| `api.cireweddings.com` | `cire-api` Worker |
+| `id.cireweddings.com` | `osn-api` Worker (the OSN issuer the organiser portal authenticates against) |
+
+Passkey RP ID is `cireweddings.com`. Deploys run via the **GitHub Actions
+workflow** (`.github/workflows/deploy.yml`): gated on a build/test job, it
+applies the remote cire D1 migrations (incl. `0014` theming + `0015`
+drop-bootstrap) and deploys the **cire-api Worker** + the **cire-web / organiser
+Pages** projects on merge to main (repo secrets `CLOUDFLARE_API_TOKEN` /
+`_ACCOUNT_ID` set). Prod wrangler config redeclares the D1 + R2 bindings under
+`[env.production]` (named envs don't inherit top-level bindings); cire-api no
+longer needs a bootstrap owner (#156). The full secret/var checklist, the
+one-time Turnstile widget step, and post-deploy smoke checks live in the
 [[production-deploy]] runbook.
 
 ## Cire-internal docs
@@ -98,7 +119,7 @@ Cire keeps its own knowledge graph: `cire/CLAUDE.md` is the AI entry point and `
 ## Future integrations
 
 - **Pulse event feed** — surface cire weddings in Pulse's event feed. Mechanism undecided: ARC-token pull from `cire/api` vs push-on-publish into `pulse/db` (Deferred Decisions in `wiki/TODO.md`).
-- **Multi-owner weddings** — replace `owner_osn_profile_id` with a `wedding_owners(wedding_id, osn_profile_id, role owner/editor/viewer)` join table.
+- **Roles for co-hosts** — co-host *membership* shipped (#148, `wedding_hosts` + `weddingMember()`); co-hosts currently get read-only dashboard access. A future role column (`owner`/`editor`/`viewer`) would let a co-host be granted write access short of full ownership.
 - **Guest account-linking frontend** — backend shipped (see [[cire-auth]]); the guest-site "link my Pulse account" affordance is the remaining piece. Once invitees are linked, the Pulse event-feed integration above can surface their invitations.
 
 ## Compliance
@@ -121,3 +142,5 @@ recorded in the OSN compliance programme:
 - [[cire-auth]] — the two-auth-system contract (guest sessions + organiser OSN passkeys)
 - [[identity-model]] — OSN accounts/profiles that organiser auth builds on
 - [[passkey-primary]] — the passkey-only login model organisers use
+- [[turnstile]] — bot protection on guest claim / RSVP + organiser register / login
+- [[free-tier-limits]] — the Cloudflare Free-tier ceilings the deployed stack runs under

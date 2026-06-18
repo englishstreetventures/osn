@@ -5,7 +5,7 @@ related:
   - "[[identity-model]]"
   - "[[step-up]]"
   - "[[passkey-primary]]"
-last-reviewed: 2026-04-24
+last-reviewed: 2026-06-18
 ---
 
 # Session introspection + revocation
@@ -119,6 +119,8 @@ Failure modes fail **open**: `check` returns `null` on Redis error (so an outage
 ## UI
 
 - `@osn/ui/auth/SessionsView` — Settings panel. "This device" badge on current, Revoke button disabled for current, "Sign out everywhere else" with a synchronous `confirm()` (toast-style undo would leave the stolen-session window open).
+
+**Device / passkey management (#155).** The companion `@osn/ui/auth/PasskeysView` surfaces the *credential* side of device management — list / add / rename / remove passkeys, each destructive op step-up-gated. It mounts in `@osn/social`'s Settings Security section and, as of #155, in the cire organiser portal's `SecurityPanel`. Because the deployed osn-api runs with email degraded ([[email]]), cire mounts it with `StepUpDialog`'s `passkeyOnly` flag so the OTP step-up factor is suppressed (an OTP that can't be mailed would dead-end the ceremony). New-device help (a backed-up/synced passkey, the cross-device QR ceremony above, or a recovery code) is covered on [[passkey-primary]].
 
 ## Threat model
 

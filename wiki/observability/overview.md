@@ -10,12 +10,27 @@ related:
   - "[[feature-checklist]]"
   - "[[observability-setup]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-06-17
+last-reviewed: 2026-06-18
 ---
 
 # Observability Overview
 
 OSN uses **OpenTelemetry end-to-end**, shipped to **Grafana Cloud** (free tier: 10k active series, 50 GB/mo logs, 50 GB/mo traces, 14-day rolling retention). Frontend observability via **Grafana Faro** (same OTLP endpoint, no Sentry). All plumbing lives in `@shared/observability` -- no other package should import `@opentelemetry/*` directly.
+
+> **Interim on Workers (2026-06).** The OTLP exporter path is **deferred on
+> workerd** — the Cloudflare Workers runtime doesn't yet support the
+> `@effect/opentelemetry` NodeSdk export the way the Bun hosts do, so OTel
+> traces/metrics from `osn-api` and `cire-api` are **not** flowing to Grafana
+> Cloud while they run as Workers (the app-level OTel code stays in place and
+> activates once an endpoint is wired + a workerd-compatible exporter lands).
+> The interim signal is **Cloudflare Workers Logs** (native `[observability]`
+> in each `wrangler.toml`, #151 cire-api / #153 osn-api — invocation records +
+> structured logs, ~7-day retention, viewable in the CF dashboard → Workers &
+> Pages → *worker* → Observability/Logs). Workers Logs cover the deployed-Worker
+> debugging story; Grafana Cloud remains the destination for the Bun-hosted dev
+> path and the future workerd OTLP export. See [[free-tier-limits]] (Monitoring)
+> and [[observability-setup]]. `S-L8 (osn)` notes `head_sampling_rate = 1` on
+> osn-api captures every invocation — revisit for cost as volume grows.
 
 ## Package layout
 

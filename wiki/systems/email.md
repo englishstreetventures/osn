@@ -157,6 +157,17 @@ never silent. See [[production-deploy]] §1.1 for the deploy-time caveats
 (OTP step-up, email-change OTP, and security-notice emails are not
 delivered while degraded; passkey login is primary and unaffected).
 
+> **Live in prod (2026-06-18):** `OSN_EMAIL_OPTIONAL=true` is set on the
+> deployed `id.cireweddings.com` osn-api Worker — no Cloudflare Email
+> Service creds are provisioned yet, so the stack runs in degraded mode.
+> Direct consequence for **cire**: organiser step-up is **passkey-only**
+> (`StepUpDialog`'s `passkeyOnly` flag, the `PasskeysView` Security panel
+> from #155) because the OTP step-up factor would mail a code that never
+> arrives. Cire **guests** are unaffected — their auth is the opaque
+> claim-code session ([[cire-auth]]), which never touches email. Re-enabling
+> email (provision the `CLOUDFLARE_*` creds, then drop the opt-in) restores
+> OTP step-up everywhere — see [[passkey-primary]], [[cire-auth]].
+
 ## Configuration
 
 Environment variables for `@osn/api`:

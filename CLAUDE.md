@@ -6,15 +6,17 @@ AI coding assistant ref. Full spec in README.md. Progress/decisions in `wiki/TOD
 
 OSN: Modular social platform. Users own identity + social graph. Apps opt-in/out independently.
 
+**Deployed (2026-06-18):** the cire stack is **live on `cireweddings.com`** (all Cloudflare Free tier). `osn-api` is a deployed **Cloudflare Worker** on `id.cireweddings.com` (Upstash prod secrets set; `OSN_EMAIL_OPTIONAL=true` → email degraded); `cire-api` on `api.cireweddings.com`; guest + organiser sites on Pages with custom domains. CI auto-deploys cire-api + Pages on merge. Architectural decision: **osn-api stays a single Worker** (split deferred). See `[[wiki/runbooks/production-deploy]]`, `[[wiki/runbooks/free-tier-limits]]`.
+
 Phase 1 surfaces:
 
 | Surface | Package(s) | Status |
 |---|---|---|
-| Identity / auth API | `@osn/api` (port 4000) | Active |
+| Identity / auth API | `@osn/api` (port 4000; prod Worker `id.cireweddings.com`) | Active — **deployed (Worker)** |
 | Identity & graph UI | `@osn/social` (port 1422) | Active |
 | Events | `@pulse/app` + `@pulse/api` (port 3001) + `@pulse/db` | Active |
 | Messaging | `@zap/api` (port 3002) + `@zap/db` | M0 scaffolded; M1 in flight; client app not started |
-| Wedding invites | @cire/api (:8787) + @cire/web (:4321) + @cire/organiser (:4322) + @cire/db | Active |
+| Wedding invites | @cire/api (:8787, prod `api.cireweddings.com`) + @cire/web (:4321) + @cire/organiser (:4322) + @cire/db | Active — **deployed on `cireweddings.com`** |
 | Marketing | `@osn/landing` | Scaffolded |
 
 ## File Responsibilities
@@ -72,6 +74,8 @@ Phase 1 surfaces:
 | Work on Pulse venues / lineups | `[[wiki/systems/venues]]` |
 | Gate sensitive action behind step-up auth | `[[wiki/systems/step-up]]` |
 | Understand passkey-only login model | `[[wiki/systems/passkey-primary]]` |
+| Add Turnstile bot protection to a form (key-optional, fail-closed) | `[[wiki/systems/turnstile]]` |
+| Surface device / passkey management UI (PasskeysView, passkey-only step-up) | `[[wiki/systems/passkey-primary]]`, `[[wiki/systems/sessions]]` |
 | Plan/extend Yoti-style verified-identity layer (AU DVS / mDL / myID, SD-JWT VC) | `[[wiki/systems/verified-identity]]` |
 | Send transactional email (OTP, security notice) | `[[wiki/systems/email]]` |
 | Surface session list / revoke per device | `[[wiki/systems/sessions]]` |
@@ -137,7 +141,7 @@ Monorepo by domain. Five dirs, five prefixes — see `[[wiki/architecture/monore
 | `pulse/` | `@pulse/*` | Events stack (app, API, DB) |
 | `zap/` | `@zap/*` | Messaging stack (API on port 3002, DB) |
 | `cire/` | `@cire/*` | Wedding-invite stack (guest site, organiser portal, API, DB) |
-| `shared/` | `@shared/*` | Cross-cutting utils (`@shared/crypto` for ARC tokens, `@shared/email` for transactional mail, `@shared/observability`, `@shared/rate-limit`, `@shared/osn-auth-client` for downstream access-JWT verification) |
+| `shared/` | `@shared/*` | Cross-cutting utils (`@shared/crypto` for ARC tokens, `@shared/email` for transactional mail, `@shared/observability`, `@shared/rate-limit`, `@shared/turnstile` for key-optional bot protection, `@shared/osn-auth-client` for downstream access-JWT verification) |
 
 ## Tech (one-liner)
 
@@ -161,7 +165,8 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | Email Change | Step-up gated; OTP to NEW address; atomically swaps email + revokes other sessions. Cap 2 changes / 7 days. | `[[wiki/systems/identity-model]]` |
 | Email Transport | Transactional-only (OTPs + security notices). `EmailService` Effect Tag in `@shared/email`; `CloudflareEmailLive` POSTs to Cloudflare Email Service REST API (bearer-authed); `LogEmailLive` captures in-memory for dev + tests. | `[[wiki/systems/email]]` |
 | Origin Guard (M1) | Origin header validation on POST/PUT/PATCH/DELETE. ARC-protected internal routes exempt. | `osn/api/src/lib/origin-guard.ts` |
-| Rate Limiting | Per-IP on auth endpoints; per-user on graph/org writes and `/recommendations/connections`. Redis-backed when `REDIS_URL` set, in-memory fallback for local dev. Fail-closed. | `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]` |
+| Rate Limiting | Per-IP on auth endpoints; per-user on graph/org writes and `/recommendations/connections`. Behind Cloudflare, per-IP keys on `cf-connecting-ip` (`trustCloudflare`); the 60s auth-IP limiters run on **native Workers rate-limit bindings**, Upstash keeps the 1h-window IP limiters + all per-user/account limiters + stateful stores. Fail-closed. | `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]` |
+| Turnstile bot protection | Cloudflare Turnstile on osn register/login + cire claim/rsvp. Shared `@shared/turnstile` `createTurnstileVerifier`; **key-optional + fail-closed** (no secret ⇒ inert no-op; secret set ⇒ token required, rejects on missing/invalid/duplicate/unreachable). Shipped inert until a dashboard widget exists. | `[[wiki/systems/turnstile]]` |
 | Observability | OpenTelemetry → Grafana Cloud. Three rules: no `console.*`, no raw OTel constructors, no unbounded metric attributes. | `[[wiki/observability/overview]]` |
 | Testing | `it.effect` + `createTestLayer()` for service tests; `createXxxRoutes(createTestLayer())` for route tests. In-memory SQLite. | `[[wiki/conventions/testing-patterns]]` |
 | Schema Layers | Elysia TypeBox at HTTP boundary, Effect Schema in services. Never mix. | `[[wiki/architecture/schema-layers]]` |

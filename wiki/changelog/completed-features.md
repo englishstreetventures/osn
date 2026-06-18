@@ -8,12 +8,35 @@ related:
   - "[[zap]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-06-17
+  - "[[cire]]"
+  - "[[turnstile]]"
+last-reviewed: 2026-06-18
 ---
 
 # Completed Features
 
 Archived completed feature work from [[TODO]]. For open work see [[TODO]].
+
+## Production launch + cire/osn hardening batch (2026-06-18)
+
+The stack went **live on `cireweddings.com`**, all on Cloudflare Free tier, and a batch of cire + osn-api features landed alongside the cut-over. See [[cire]], [[cire-auth]], [[turnstile]], [[free-tier-limits]], [[production-deploy]].
+
+**Deployment.** `osn-api` is a Cloudflare Worker on `id.cireweddings.com` (prod secrets set: JWT pair, pepper, `INTERNAL_SERVICE_SECRET`, Upstash; `OSN_EMAIL_OPTIONAL=true` → email degraded); `osn-db-prod` migrated. `cire-api` on `api.cireweddings.com` (no bootstrap owner needed; migrations incl. `0015` applied via CI). Guest + organiser Pages live with custom domains. Repo secrets `CLOUDFLARE_API_TOKEN`/`_ACCOUNT_ID` set so `deploy.yml` auto-deploys cire-api + Pages on merge. **Architectural decision: osn-api stays a single Worker** (split + service-bindings/Access "VPC" evaluated and deferred). Passkey RP ID `cireweddings.com`.
+
+**Features merged this session (newest first):**
+
+- **#155 — cire Security / Devices section.** Organiser portal `SecurityPanel` mounts `@osn/ui`'s new `PasskeysView` (list / add / rename / remove passkeys) with **passkey-only step-up** (`passkeyOnly` on `StepUpDialog`; OTP suppressed because email is degraded) + new-device help. See [[passkey-primary]], [[sessions]].
+- **#156 — any logged-in OSN user is a first-class organiser.** Removed the `ensureBootstrapOwner` 503 gate + `BOOTSTRAP_OWNER_PROFILE_ID` requirement; migration `0015` drops the demo `wed_bootstrap`. Per-wedding authz (`weddingOwner`/`weddingMember`) unchanged. See [[cire-auth]].
+- **#157 — CI Release workflow `git commit/push --no-verify`** (the lefthook pre-push `bun audit` was aborting auto-versioning every merge; ~28 changesets had piled up).
+- **#154 — Cloudflare Turnstile** bot protection (key-optional, fail-closed) on osn register/login + cire claim/rsvp; shared `@shared/turnstile`. Inert until a dashboard widget is created. See [[turnstile]].
+- **#153 — osn-api rate-limit + IP-trust hardening behind Cloudflare.** `trustCloudflare` (`cf-connecting-ip`, was spoofable XFF → fixed the auth-429 bug); the 25 60s-window per-IP auth limiters moved onto **Workers native rate-limit bindings** (`RL_AUTH_IP_*`); Upstash kept for 1h-window IP limiters + all per-user/account limiters + stateful stores. Workers observability enabled. See [[rate-limiting]], [[redis]].
+- **#152 — cire per-section invite theming** (bounded fonts + colours; CSS-injection-safe; migration `0014`).
+- **#151 — cire-api Workers observability** + the new [[free-tier-limits]] runbook.
+- **#150 — osn-api boots without Cloudflare email** via `OSN_EMAIL_OPTIONAL` (degraded: OTP/security-notice/email-change mail not delivered; passkey login unaffected). See [[email]].
+- **#149 — wired `cireweddings.com` prod domains** (guest apex, `app.` organiser, `api.` cire-api, `id.` osn-api).
+- **#148 — cire co-hosts by OSN handle** — new `wedding_hosts` table, owner-or-host `weddingMember` gate, ARC-gated osn-api `GET /graph/internal/profile-by-handle`. See [[cire-auth]].
+- **#147 — cire multiple weddings** (list / select / create); import routes rescoped to `:weddingId`.
+- **#146 — cire Google Maps Embed** preview (key-optional, CSS-card fallback).
 
 ## Cire `cire/api` Hono → Elysia migration (2026-06-12)
 

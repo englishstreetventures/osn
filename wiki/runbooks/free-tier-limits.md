@@ -18,7 +18,7 @@ last-reviewed: 2026-06-18
 
 > Scope: we run **exclusively on provider free tiers** — Cloudflare Free zone +
 > Workers Free, Cloudflare D1, Cloudflare Pages, Upstash Redis Free, and
-> (incoming) Cloudflare Turnstile. This runbook records every ceiling, what
+> Cloudflare Turnstile. This runbook records every ceiling, what
 > breaks when we hit it, how to detect it, the immediate mitigation, and the
 > upgrade trigger + cost.
 >
@@ -35,7 +35,7 @@ last-reviewed: 2026-06-18
 | **Cloudflare D1** | `osn-db-prod` (osn-api), `cire-db` (cire-api) | — |
 | **Cloudflare Pages** | `cire/web` (guest), `cire/organiser`, `@osn/social`, `@osn/landing` | the Worker APIs |
 | **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) | osn-api (uses Upstash) |
-| **Turnstile** (incoming) | guest/auth forms once it lands | — |
+| **Turnstile** (code shipped, inert until a widget exists) | osn-api register + passkey-login, cire-api guest claim + RSVP — gated only once the secret/sitekey are set | — |
 
 > **Key accuracy note:** **cire-api does NOT use Upstash/Redis.** Its only
 > rate limiter is the native Cloudflare Workers Rate Limiting binding
@@ -207,17 +207,23 @@ needed for our volume.
 
 ---
 
-## Turnstile (Free) — for when it lands
+## Turnstile (Free) — code shipped, inert until a widget exists
 
-**Source:** Cloudflare Turnstile pricing — re-verify when integrating (`/turnstile-spin`).
+**Source:** Cloudflare Turnstile pricing — re-verify when activating (`/turnstile-spin`).
 
 Turnstile is **free with effectively unlimited `siteverify` volume** for the
 standard widget — there is no per-verification charge on the free product, so
-it is **not a capacity risk** for us. The only operational concern is keeping
-the secret key in a Worker secret and the sitekey in `[vars]`. When Turnstile
-lands, add its widget + the managed `siteverify` Worker per the
-[[production-deploy]] secret checklist. Re-verify that the free tier is still
-unlimited at integration time.
+it is **not a capacity risk** for us. The integration **already shipped** (#154,
+`@shared/turnstile` + osn-api register/passkey-login + cire-api claim/RSVP);
+full design on [[turnstile]]. It is **key-optional + fail-closed**: with no
+secret set the gate is a true no-op (no token expected, the flow runs exactly
+as before), so it's inert in production today. **Activating** it = create the
+managed widget in the CF dashboard, then set `TURNSTILE_SECRET_KEY` (Worker
+secret) on osn-api + cire-api and the public sitekey in `[vars]` / the Pages
+env, per the [[production-deploy]] secret checklist. Once the secret is present,
+a missing/invalid/duplicate/unreachable token rejects (400/403) — confirm the
+sitekey reaches the frontend before flipping the secret, or every gated form
+breaks. Re-verify that the free tier is still unlimited at activation time.
 
 ---
 
@@ -330,5 +336,3 @@ auth middleware).
 - [[database-environments]] — the four DB environments (D1 in dev/staging/prod)
 - [[observability-setup]] — Grafana Cloud + OTEL wiring
 - [[cire-auth]] — cire's two-system auth (what degrades when D1 is down)
-</content>
-</invoke>

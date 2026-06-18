@@ -7,12 +7,16 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-06-18
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## osn-api rate-limit + IP-trust hardening behind Cloudflare (2026-06-18, #153)
+
+- **S-M34 (osn wiring) + the auth-429 bug** — Behind Cloudflare, osn-api was still resolving the rate-limit keying IP from the left-most `X-Forwarded-For` hop. **Issue:** Cloudflare itself sets XFF, but an attacker upstream of CF could pollute it; in practice legitimate users were also being lumped into shared buckets, surfacing as spurious auth 429s. **Why:** a spoofable per-IP key is both a limiter bypass (attacker rotates a forged header) and a self-inflicted DoS (real users collide). **Solution:** the deployed Worker now keys on `cf-connecting-ip` **exclusively** (`trustCloudflare: true`, set per non-local tier in `osn/api/src/index.ts` `buildAll` → `build-deps.ts` `clientIpConfig`); unresolved IPs **deny (429)** rather than bucket. Separately, the 25 60s-window per-IP **auth** limiters moved off Upstash onto **native Workers rate-limit bindings** (`RL_AUTH_IP_*`) — a global, atomic edge limiter — while Upstash keeps the 1h-window IP limiters + all per-user/account limiters + the stateful auth stores. Workers observability (`[observability]`) enabled on osn-api. **Rationale:** `cf-connecting-ip` is the only client IP an upstream can't forge once traffic is fronted by Cloudflare; native bindings give cluster-global counters without a Redis round-trip on the hottest path. See [[rate-limiting]], [[redis]], [[free-tier-limits]]. **Residual (open):** `osn/api/src/routes/account-erasure.ts` (~L61) still uses the deprecated no-args `getClientIp` — tracked as **S-M5 (osn)** in the Security Backlog. New low/info notes also logged: **S-L7 (osn)** native-binding `namespace_id` collision check, **S-L8 (osn)** `head_sampling_rate = 1` cost.
 
 ## Scripts extraction — db:reset path guard (2026-06-16)
 

@@ -4,30 +4,16 @@ Progress tracking and deferred decisions. Completed items archived in `[[changel
 
 ## Up Next
 
-- [ ] **Auth Audit Remediation (2026-06)** — cross-app auth audit findings organised into parallel workstreams W1–W7. Start with W1 (Zap HS256 token model, exploitable) and W5-C1 (Cire claim-code entropy/throttle, exploitable); land W3 (shared rate-limit IP hardening) before W4/W5 limiter work. See the **Auth Audit Remediation** section below.
-- [x] Multi-account P3 — Profile CRUD: `createProfileService()` (create, delete, set default), `/profiles` routes, `maxProfiles` enforcement (S-L1), cascade-delete profile data, observability (counter + histogram + spans)
-- [x] Multi-account P4 — Client SDK: multi-session storage (`@osn/client:account_session`), `listProfiles()`, `switchProfile()`, `createProfile()`, `deleteProfile()`, `getActiveProfile()` methods on `OsnAuthService`, SolidJS `AuthContext` integration, legacy session migration, schema validation
-- [x] Multi-account P5 — Profile UI: profile switcher component in `@osn/ui`, profile creation form, onboarding for additional profiles
-- [x] Multi-account P6 — Privacy audit: verify `accountId` never leaks in API responses / tokens / logs, rate-limit per-profile (not per-account), pen-test correlation attacks between profiles
-- [ ] Provision Grafana Cloud free tier + wire `OTEL_EXPORTER_OTLP_ENDPOINT` + headers into deploy env — see [[observability-setup]]
-- [ ] Build first observability dashboards (HTTP RED, auth funnel, ARC verification, events CRUD) — see [[observability/overview]]
-- [ ] Zap route-level tests + zapBridge tests (T-R1, T-M1 from review)
-- [ ] Zap rate limiting on write endpoints (S-M1) — see [[rate-limiting]]
-- [ ] Recommendations SQL aggregation + caching (P-W6/P-W7) — next step after the in-JS fan-out cap shipped in this PR — see [[social-graph]]
-- [ ] Factor shared `authGet/Post/Patch/Delete` helpers in `@osn/client` (P-I1)
-- [x] Auth Improvements Phase 1: Server-side sessions + refresh token rotation + session invalidation (C1/C2/H1)
-- [x] Auth Improvements Phase 4: Recovery codes (M2) + short access-token TTL (5 min) with client silent-refresh on 401 — see [[recovery-codes]]
-- [x] Auth Improvements Phase 5a: Step-up (sudo) tokens (M-PK1), session introspection/revocation UI, email change flow — see [[step-up]], [[sessions]]
-- [x] Auth Improvements Phase 5b: Redis-backed rotated-session store (see [[sessions]]); PKCE cleanup (deleted `/authorize`, `authorization_code` grant, `pkceStore`, client `pkce.ts` + `startLogin`/`handleCallback`; S-M1 body fallback on `/token` removed); passkey management surface (see [[identity-model]]: list/rename/delete, discoverable-credential login, last-passkey lockout guard); **passkey-primary login** — OTP/magic-link primary login deleted, mandatory first-credential enrollment on registration, security keys accepted, WebAuthn-unsupported fallback screen, strict last-passkey guard on delete (see `[[passkey-primary]]`).
-- [ ] Post-deploy audit: with OTel stable cluster at 2.7, `OTEL_RESOURCE_ATTRIBUTES` parsing is strict — any invalid entry drops the whole var; whitespace must be percent-encoded. Grep deployment env / compose / helm values for the variable and normalise — see [[observability/overview]].
-- [ ] Deferred dep upgrades — `typescript` 6.0 ✓ adopted (range alignment + TS 6.0 migration PR; tsconfig was already 6.0-clean, fixed three call sites: `osn/social` `vite-env.d.ts`, `pulse/api` `baseUrl` removal, `pulse/api` `createClient` return annotation). Still pending under the waiting-period rule: `oxfmt` 0.55 (minor, eligible 2026-06-29) and four OTel 0.x exporter/sdk-logs packages at 0.219 (minor, eligible 2026-06-25).
-- [ ] Configure Cloudflare Email Service — onboard sender domain in dashboard, set `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` + `OSN_EMAIL_FROM` in staging, watch `osn.email.send.attempts{outcome="sent"}` for a week before flipping in prod — see [[email]]. **Until then osn-api can ship WITHOUT email** via the explicit `OSN_EMAIL_OPTIONAL=true` opt-in (degraded no-op transport — OTP/security-notice mail discarded, passkey login unaffected; set in prod `[vars]`). Re-enable = provision the `CLOUDFLARE_*` creds, then REMOVE the opt-in — see [[email]], [[production-deploy]] §1.1.
-- [x] **Migrate close friends from OSN to Pulse** — Pulse-scoped `pulse_close_friends` table, feed boost in `listEvents`, hosting-side avatar ring, OSN core teardown (services, routes, metrics, SDK, ConnectionsPage tab). See [[pulse-close-friends]]. (Move to `[[changelog/completed-features]]` on merge.)
-- [ ] **Cross-device login → opportunistic device-passkey enrollment.** When a user signs in on device B using a passkey stored on device A (the WebAuthn hybrid / CaBLE flow surfaced by the password manager / OS), and device B has no passkey of its own for this account, post-success prompt the user to enroll a device-bound passkey on B. Without this, a user with only a phone passkey who signs in to a laptop has to re-do the QR ceremony every session — and a lost phone is a hard lockout despite the laptop being authenticated. Implementation sketch: after `/login/passkey/complete`, the server returns a `device_passkey_suggested: true` flag when the assertion came in via a hybrid transport (`response.authenticatorAttachment === "cross-platform"` is the wire signal) AND the account has no passkey already enrolled for the current device's platform authenticator. Client SDK surfaces the flag; `<SignIn>` opens an "Add a passkey on this device" modal that drives `/passkey/register/{begin,complete}` with the just-issued access token. Easily dismissible, never blocking — see `[[passkey-primary]]`.
-- [ ] **C-H1 — Account-level data export endpoint** (`GET /account/export`, step-up gated, JSON bundle including ARC fan-out to Pulse + Zap). Required for GDPR Art. 15 + Art. 20 + CCPA. See `[[compliance/dsar]]`, `[[compliance/data-map]]`.
-- [x] **C-H2 — Account-level erasure endpoint** — `DELETE /account` (Flow A, full OSN account) + Pulse `DELETE /account` (Flow B, leave-Pulse). Both step-up gated, 7-day soft-delete tombstone with manual fast-track, ARC fan-out for cross-service cleanup. Hosted Pulse events get a 14-day public cancellation window (audience-commitment, independent of account grace). New `app_enrollments` tracks which apps a user is opted into; OSN delete only fans out to currently-enrolled apps. (Move to `[[changelog/completed-features]]` on merge.)
-- [ ] **C-H8 — Date-of-birth field + age gate on registration**, hard-rejecting under-13. Required for COPPA actual-knowledge defense. See `[[compliance/coppa]]`.
-- [ ] **V-M0 — Verified Identity foundations** (Yoti-style verified-attribute layer, AU first). DPIA + vendor RFP + schema (`verified_attributes`, `verification_runs`, `presentations`) + SD-JWT VC issuer on a **separate ES256 keypair** (same JWKS as `[[arc-tokens]]`, distinct `kid`, `aud: "osn-vc"`). Unlocks "verify once, present privately many times" across Pulse + Zap and gives a credible answer to AU social-media-minimum-age (10 Dec 2025). See `[[verified-identity]]`.
+Now **deployed on `cireweddings.com`** (Cloudflare Free tier — see [[production-deploy]], [[free-tier-limits]], [[changelog/completed-features]] "Production launch" 2026-06-18). Post-deploy priorities:
+
+- [ ] **Activate Cloudflare Turnstile** — create the managed widget in the dashboard, set `PUBLIC_TURNSTILE_SITEKEY` (Pages build var, **sitekey-first**) then `TURNSTILE_SECRET_KEY` (osn-api + cire-api Worker secret). Code shipped inert (#154); gates go live only once the secret is set. See [[turnstile]], [[production-deploy]] §3.4.
+- [ ] **Free Cloudflare dashboard hardening** (manual, can't be done from wrangler) — confirm the free WAF Managed Ruleset, add a custom rule blocking public `/internal/*` + `/graph/internal/*`, enable Page Shield on the guest site, confirm L7 DDoS. See [[free-tier-limits]] "Cloudflare security hardening".
+- [ ] **Re-enable email later** — provision Cloudflare Email Service (`CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` + `OSN_EMAIL_FROM`), watch `osn.email.send.attempts{outcome="sent"}`, then **remove** `OSN_EMAIL_OPTIONAL=true` from osn-api `[vars]`. Restores OTP step-up everywhere (incl. cire organiser, currently passkey-only). See [[email]], [[production-deploy]] §1.1.
+- [ ] **S-M5 (osn) — account-erasure IP keying** — `osn/api/src/routes/account-erasure.ts` (~L61) still uses the deprecated no-args `getClientIp` (spoofable XFF) on the deployed Worker; thread `clientIpConfig` so it keys on `cf-connecting-ip` like the rest. See [[rate-limiting]].
+- [ ] **Optional Google Maps key** — set the Maps Embed key so cire location previews render the real map instead of the CSS-card fallback (#146; key-optional today). See [[cire]].
+- [ ] **Provision Grafana Cloud + wire `OTEL_EXPORTER_OTLP_ENDPOINT` + headers**; build first dashboards (HTTP RED, auth funnel, ARC verification, events CRUD). NB: OTel export is **deferred on workerd** — the deployed Workers ship to Cloudflare Workers Logs in the interim. See [[observability-setup]], [[observability/overview]].
+- [ ] **C-H1 — Account-level data export endpoint** (`GET /account/export`, step-up gated, JSON bundle including ARC fan-out to Pulse + Zap). GDPR Art. 15 + Art. 20 + CCPA. See `[[compliance/dsar]]`, `[[compliance/data-map]]`.
+- [ ] **C-H8 — Date-of-birth field + age gate on registration**, hard-rejecting under-13. COPPA actual-knowledge defense. See `[[compliance/coppa]]`.
 
 ---
 
@@ -215,10 +201,16 @@ OSN's messaging app. Stack matches Pulse (Bun, Tauri+Solid, Elysia+Eden, Drizzle
 
 Wedding-invite stack merged from cire.git (2026-06). Cire-internal feature work tracks in `cire/wiki/todo/` shards; this section holds the OSN-facing integration work. See [[cire]] and [[cire-auth]].
 
-- [x] **`diffAgainstDb` wedding-scoping** — `cire/api/src/services/import.ts` `diffAgainstDb` now takes a `weddingId` and scopes every read to it: events/families filter on their `wedding_id` column; guests/guest_events join through `families` (neither carries `wedding_id`). The link-table join is load-bearing — a per-table `WHERE wedding_id = ?` can't scope `guest_events` and would read a foreign wedding's links as removals. The interim `MultiWeddingImportUnsupported` fail-closed tripwire is removed; preview/apply/revert are tenant-isolated, with regression tests in `import.test.ts` + `organiser-import.test.ts`. See [[cire-auth]] for the ownership model.
+- [x] **`diffAgainstDb` wedding-scoping** — `cire/api/src/services/import.ts` `diffAgainstDb` is `weddingId`-scoped (tenant-isolated preview/apply/revert; `guest_events` join load-bearing). See [[cire]]. (Moved to [[changelog/completed-features]].)
+- [x] **Multiple weddings (#147)** — organisers list / select / create weddings (`GET`/`POST /api/organiser/weddings`); every wedding-scoped route carries an explicit `:weddingId`; import routes rescoped to `/api/organiser/weddings/:weddingId/import/*`. See [[cire-auth]]. (Moved to [[changelog/completed-features]].)
+- [x] **Co-hosts by OSN handle (#148)** — new `wedding_hosts` table + owner-or-host `weddingMember()` gate; handle → profile id resolved via ARC-gated osn-api `GET /graph/internal/profile-by-handle`. See [[cire-auth]]. (Moved to [[changelog/completed-features]].)
+- [x] **Per-section invite theming (#152)** — bounded, CSS-injection-safe fonts + colours; migration `0014`. See [[cire]]. (Moved to [[changelog/completed-features]].)
+- [x] **Any OSN user is a first-class organiser (#156)** — `ensureBootstrapOwner` 503 gate + `BOOTSTRAP_OWNER_PROFILE_ID` removed; migration `0015` drops `wed_bootstrap`. See [[cire-auth]]. (Moved to [[changelog/completed-features]].)
+- [x] **Organiser Security / Devices section (#155)** — `PasskeysView` (list/add/rename/remove) + passkey-only step-up in the portal `SecurityPanel`. See [[passkey-primary]]. (Moved to [[changelog/completed-features]].)
 - [ ] Pulse event-feed integration — surface cire weddings in Pulse's discovery/feed. Blocked on the mechanism decision (ARC-token pull from `cire/api` vs push-on-publish into `pulse/db`) — see Deferred Decisions.
-- [ ] Multi-owner weddings — replace `weddings.owner_osn_profile_id` with a `wedding_owners(wedding_id, osn_profile_id, role owner/editor/viewer)` join table so both partners (and a planner) can administer one wedding. See [[cire-auth]].
-- [ ] Guest claim-code → optional OSN account linking — let a claimed family optionally attach to an OSN account later; must stay optional (guests are deliberately account-free — see [[cire-auth]]).
+- [ ] Co-host **roles** — membership shipped (#148, read-only co-hosts); add a role column (`owner`/`editor`/`viewer`) so a co-host (partner / planner) can be granted write access short of ownership. See [[cire-auth]].
+- [ ] Guest claim-code → optional OSN account linking (frontend) — backend shipped; the guest-site "link my Pulse account" affordance remains (guests stay deliberately account-free — see [[cire-auth]]).
+- [ ] **IB-S-L1 / colour-allowlist duplication (#152)** — the bounded theming colour allowlist is duplicated between the cire-api validator and the cire/web render path; a future drift could let an un-validated value reach rendered CSS. Factor a single shared source of truth (one `@cire/*` module both import) so the CSS-injection-safe guarantee can't drift — see [[cire]].
 
 ---
 
@@ -724,6 +716,8 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 - [ ] P-I15 — `rsvpCounts` calls `loadEvent(eventId)` redundantly (route already gates via `loadVisibleEvent`)
 - [ ] P-I1 (client) — Duplicated `authGet`/`authPost`/`authPatch`/`authDelete` helpers across `graph.ts`, `organisations.ts`, `recommendations.ts`. Factor to `@osn/client/src/lib/auth-fetch.ts` parameterised by error-class constructor — see [[component-library]]
 - [ ] P-I4 (social) — List pages (`ConnectionsPage`, `OrganisationsPage`) have no pagination UI. Server supports `limit`/`offset` but users with &gt;50 connections silently lose visibility. Add infinite-scroll via `IntersectionObserver` or paginator
+- [ ] P-I1 (ratelimit-native) — The Workers native rate-limit bindings (`RL_AUTH_IP_*`, #153) count **per colo**, not globally — an IP hitting two Cloudflare data centres gets up to N× the nominal 60s budget. Accepted trade-off for the 60s auth-IP tier (the 1h IP limiters + per-user/account limiters stay on Upstash for global counting); document so it isn't re-flagged as a bug, and revisit if a distributed auth-flood is observed across colos — see [[rate-limiting]], [[redis]]
+- [ ] P-I2 (workerd-otel) — **OTel metric/trace export is deferred on workerd** — the deployed `osn-api` + `cire-api` Workers don't ship app-level OTel to Grafana Cloud (the runtime doesn't support the `@effect/opentelemetry` NodeSdk export path yet); Cloudflare Workers Logs are the interim signal. So `osn.*` / `cire.*` metrics + spans are NOT queryable in Grafana while those services run as Workers. Re-wire once a workerd-compatible exporter lands (or a CF→OTLP bridge). Until then, dashboard work that depends on Worker-emitted metrics is blocked to the Bun-hosted dev path — see [[observability/overview]], [[free-tier-limits]]
 
 ---
 
@@ -843,7 +837,6 @@ Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenha
 | Payment handling | Deferred for Pulse ticketing | After core Pulse features |
 | Two-way calendar sync | Currently one-way (Pulse → external) | Phase 2 |
 | Community event-ended reporting | 15–20 attendees auto-finish; host notified | When attendee/messaging features land |
-| Redis provider — see [[redis]] | Upstash (serverless, free tier) vs Redis Cloud vs self-hosted | When deploying beyond localhost |
 | DB table rename `users` → `profiles` | Table represents profiles; renaming is migration-heavy for minimal benefit | Only if it causes genuine confusion |
 | S2S scaling — see [[s2s-patterns]], [[arc-tokens]], [[s2s-migration]] | `pulse/api` graphBridge now uses HTTP + ARC. Remaining: `zap/api` bridge still uses direct import | When `zap/api` needs horizontal scaling |
 | Per-app blocking — see [[social-graph]] | Blocks global across all OSN apps. Per-app scope deferred | When Messaging or third-party app needs independent block lists |
@@ -856,14 +849,21 @@ Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenha
 | Self-interaction policy | Two profiles from same account CAN interact (preventing it leaks the link) | Multi-account P6 privacy audit |
 | Build-time `cn()` evaluation — see [[component-library]] | `tailwind-merge` runs at runtime. Options: Vite plugin, drop to `clsx`-only | When bundle size is a concern |
 | Tauri passkey support on iOS | Webview lacks WebAuthn natively — auto-skips passkey step. Options: `tauri-plugin-webauthn`, custom plugin, wait for upstream | When iOS build of Pulse is ready for sign-in |
-| Email provider behind the Cloudflare Worker — see [[email]] | Resend today; SendGrid / Postmark / SES are swap-ins at the Worker level. Pick based on deliverability + transactional-email pricing | Before staging deploy |
 | Email Worker per-recipient rate-limit bound — see [[email]] | Prevents OSN from flooding an inbox under bug / abuse. Tune once we have send-rate telemetry | After first week of real traffic |
 | Dry-run flag for email — see [[email]] | `OSN_EMAIL_DRY_RUN` env knob that short-circuits before Worker dispatch; useful for staging smoke tests | When we need it |
 | KYC vendor for V-M1 / V-M2 — see [[verified-identity]] | Persona (top AU age-assurance trial scorer; combined estimation + verification) vs idvPacific (AU-domiciled DVS gateway, OCR-first) vs Equifax IDMatrix (heavyweight gateway) vs MATTR/GBG (mDL-native; mDL roadmap partner) | V-M0 vendor RFP |
 | BBS+ vs SD-JWT-per-audience for verified presentations — see [[verified-identity]] | SD-JWT-per-audience is the v1 default (mint a fresh credential per RP); BBS+ adds true unlinkable presentations at higher operational cost | If a documented cross-RP correlation threat lands |
 | Verified attributes scope: account-level vs profile-level — see [[verified-identity]], [[identity-model]] | Verification ceremony is per-account; multi-account P3-P6 lets one account hold multiple profiles. Should profile-A be able to present `age_over_18` while profile-B presents nothing, or are attributes always inherited? | Before V-M4 ships consent UX |
 | Pulse–cire integration mechanism — see [[cire]] | ARC-token pull (Pulse fetches weddings from `cire/api` at feed time) vs push-on-publish (cire writes into `pulse/db` when a wedding goes live) | When Pulse surfaces cire weddings in its feed |
-| Cire test-idiom alignment — see [[cire]] | `cire/api` uses bare `bun:test`-style co-located tests; platform convention is `it.effect` + `createTestLayer()` ([[testing-patterns]]) | Unblocked — the cire/api Hono → Elysia migration landed 2026-06-12 |
+
+### Decided this session (2026-06-18) — recorded, no longer open
+
+- **Email provider → degraded-for-now.** osn-api ships with **no** Cloudflare Email Service creds and `OSN_EMAIL_OPTIONAL=true` (no-op transport). The provider choice (Resend / SendGrid / Postmark / SES at the Worker level) is parked until email is actually re-enabled — see [[email]]. Redis provider likewise **decided: Upstash** (`ap-southeast-2`, C-M18) — see [[redis]].
+- **Production domain → `cireweddings.com`** (guest apex / `app.` / `api.` / `id.`; passkey RP ID `cireweddings.com`) — #149.
+- **Maps approach → Google Maps Embed** (key-optional, CSS-card fallback) — #146.
+- **WAF vs own rate limiter → keep the app limiter.** The Cloudflare Free WAF (1 rule, 10s window) can't replace the app's per-IP/per-user limiters; WAF is reserved for coarse edge defence. Free dashboard hardening steps documented in [[free-tier-limits]].
+- **osn-api topology → single Worker** (split + service-bindings/Access "VPC" evaluated and **deferred**); osn-api runs as one Worker on `id.cireweddings.com`.
+- **Cire test idiom** → unblocked by the Hono → Elysia migration (2026-06-12); cire follows the platform `it.effect` + `createTestLayer()` convention going forward.
 
 ---
 

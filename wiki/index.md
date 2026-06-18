@@ -32,7 +32,8 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[passkey-primary]] — passkey-only login contract (the only primary factor)
 - [[recovery-codes]] — single-use account-recovery tokens (Copenhagen Book M2)
 - [[step-up]] — short-lived sudo tokens gating sensitive endpoints (M-PK1)
-- [[sessions]] — session introspection, per-device revocation, "sign out everywhere else"
+- [[sessions]] — session introspection, per-device revocation, "sign out everywhere else", device/passkey management UI
+- [[turnstile]] — Cloudflare Turnstile bot protection (key-optional, fail-closed; shipped inert)
 - [[social-graph]] — connections, blocks
 - [[pulse-close-friends]] — Pulse-scoped close-friends list (feed boost + hosting affordance)
 - [[pulse-onboarding]] — Pulse first-run onboarding flow (account-keyed, themed illustrations)
