@@ -1,7 +1,11 @@
 import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PinterestBoard, resetPinterestConsentForTest } from "./PinterestBoard";
+import {
+  PinterestBoard,
+  resetPinterestConsentForTest,
+  setPinterestTouchForTest,
+} from "./PinterestBoard";
 
 const VALID_URL = "https://www.pinterest.com.au/example/catholic-wedding-guest-moodboard/";
 const CONSENT_KEY = "cire:pinterest-consent";
@@ -45,6 +49,12 @@ describe("PinterestBoard", () => {
   beforeEach(() => {
     localStorage.clear();
     resetPinterestConsentForTest();
+    // The rich embed + consent gate is desktop-only. happy-dom's matchMedia
+    // reports no media match, so the real capability check already resolves to
+    // the desktop path — but force it explicitly so these embed/consent tests
+    // can't drift if the default ever changes. The mobile-path describe block
+    // below forces touch instead.
+    setPinterestTouchForTest(false);
     scriptHandle = captureScripts();
   });
 
@@ -53,6 +63,7 @@ describe("PinterestBoard", () => {
     scriptHandle.restore();
     localStorage.clear();
     resetPinterestConsentForTest();
+    setPinterestTouchForTest(null);
     vi.useRealTimers();
   });
 
@@ -125,6 +136,46 @@ describe("PinterestBoard", () => {
     expect(script.referrerPolicy).toBe("no-referrer");
 
     // Fallback link stays visible alongside the embed.
+    expect(container.textContent ?? "").toContain("View moodboard on Pinterest");
+  });
+
+  it("shows an immediate 'Loading board…' affordance the instant consent is granted (no dead blank slot)", () => {
+    const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+
+    grantConsent(container);
+
+    // The embed anchor mounted AND the loading status is shown synchronously —
+    // the user gets feedback before the (multi-second) script load + transform.
+    expect(container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
+    const status = container.querySelector('[role="status"]');
+    expect(status).not.toBeNull();
+    expect(status!.textContent ?? "").toContain("Loading board");
+  });
+
+  it("clears the 'Loading board…' affordance once the embed transform is observed", async () => {
+    const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+    grantConsent(container);
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+
+    // Pinterest processes the anchor (strips data-pin-do, stamps internal).
+    const anchor = container.querySelector<HTMLAnchorElement>("a[data-pin-do]")!;
+    anchor.removeAttribute("data-pin-do");
+    anchor.setAttribute("data-pin-internal", "true");
+
+    // The MutationObserver fires on the attribute change and clears loading.
+    await waitFor(() => expect(container.querySelector('[role="status"]')).toBeNull());
+  });
+
+  it("clears the 'Loading board…' affordance when the script errors (falls back to link)", async () => {
+    const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+    grantConsent(container);
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+
+    scriptHandle.last().dispatchEvent(new Event("error"));
+
+    await waitFor(() => expect(container.querySelector('[role="status"]')).toBeNull());
+    // Anchor gone, fallback link present.
+    expect(container.querySelector("a[data-pin-do]")).toBeNull();
     expect(container.textContent ?? "").toContain("View moodboard on Pinterest");
   });
 
@@ -290,5 +341,69 @@ describe("PinterestBoard", () => {
     await waitFor(() => Promise.resolve());
     vi.advanceTimersByTime(5000);
     vi.useRealTimers();
+  });
+});
+
+// Touch / mobile path: the rich embed (and the third-party tracker it needs) is
+// desktop-only. On touch we show a prominent link-out card, load NO tracker, and
+// show NO consent gate — there is nothing to fail.
+describe("PinterestBoard (touch / mobile)", () => {
+  let scriptHandle: ReturnType<typeof captureScripts>;
+
+  beforeEach(() => {
+    localStorage.clear();
+    resetPinterestConsentForTest();
+    setPinterestTouchForTest(true); // force the touch path
+    scriptHandle = captureScripts();
+  });
+
+  afterEach(() => {
+    cleanup();
+    scriptHandle.restore();
+    localStorage.clear();
+    resetPinterestConsentForTest();
+    setPinterestTouchForTest(null);
+    vi.useRealTimers();
+  });
+
+  it("shows a prominent link-out card and NEVER injects the tracker or shows a consent gate", () => {
+    const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+
+    // The link-out card is present and opens the board in a new tab.
+    const link = container.querySelector<HTMLAnchorElement>('a[href="' + VALID_URL + '"]');
+    expect(link).not.toBeNull();
+    expect(link!.textContent).toContain("View moodboard on Pinterest");
+    expect(link!.getAttribute("target")).toBe("_blank");
+    expect(link!.getAttribute("rel")).toBe("noopener noreferrer");
+
+    // No consent gate, no embed anchor, no tracker — the privacy-sensitive
+    // tracker simply never loads on touch.
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.textContent ?? "").not.toContain("Load Pinterest");
+    expect(container.querySelector("a[data-pin-do]")).toBeNull();
+    expect(scriptHandle.all()).toHaveLength(0);
+  });
+
+  it("does NOT inject the tracker on touch even when consent was persisted from a desktop visit", () => {
+    // A shared-localStorage consent from an earlier desktop visit must not drag
+    // the unreliable tracker onto a touch device.
+    localStorage.setItem(CONSENT_KEY, "granted");
+    resetPinterestConsentForTest();
+
+    const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+
+    expect(container.querySelector("a[data-pin-do]")).toBeNull();
+    expect(container.querySelector("button")).toBeNull();
+    expect(scriptHandle.all()).toHaveLength(0);
+    // The link-out card is still the experience.
+    expect(container.textContent ?? "").toContain("View moodboard on Pinterest");
+  });
+
+  it("renders nothing for an unsafe URL on touch too", () => {
+    const { container } = render(() => (
+      <PinterestBoard url="https://evil.com/user/board" eventName="Catholic" />
+    ));
+    expect(container.textContent ?? "").not.toContain("View moodboard");
+    expect(scriptHandle.all()).toHaveLength(0);
   });
 });

@@ -8,7 +8,7 @@ related:
   - "[[soc2]]"
   - "[[data-map]]"
   - "[[cire]]"
-last-reviewed: 2026-06-18
+last-reviewed: 2026-06-19
 ---
 
 # Subprocessor Register
@@ -29,7 +29,7 @@ that touches personal data adds a row before merge. The
 | Cloudflare, Inc. | Cloudflare Email Service (transactional outbound — **legacy fallback**, superseded by Resend) | Recipient email + message body (OTPs, security notices) | US | **TODO — sign Cloudflare DPA** | EU SCCs (template in DPA) | — | Medium — has email content. Used only if `RESEND_API_KEY` is absent. |
 | Cloudflare, Inc. | Cloudflare DNS / TLS edge (planned for production) | IP, request metadata | US | Same DPA | EU SCCs | — | Low — transient. |
 | Cloudflare, Inc. | Cloudflare D1 + R2 (`cire-sheets`) — cire wedding-invite store | **Guest PII at volume**: family names, guest names, RSVP status, **special-category dietary free-text (Art. 9)**, guest claim codes; raw organiser CSV uploads in R2 | US (account region — confirm D1/R2 location) | Same Cloudflare DPA | EU SCCs | — | **High — first persistent special-category store (dietary) + a separate DB Cloudflare now hosts as data store, not just edge. Confirm D1/R2 data-residency under the DPA.** |
-| Pinterest, Inc. | `pinit_main.js` inspiration-board embed on the guest site (`@cire/web`) | IP, user-agent, and on-page behaviour of guests **who opt in** | US | **TODO — no Pinterest DPA / SCCs on file** | **TODO — EU→US transfer basis (DPF or SCCs) to confirm** | — | Medium — consent-gated (opt-in, session-scoped) as of the prior commit; a plain-link fallback is always present so the embed is never required. No data reaches Pinterest until the guest consents. Until a DPA + transfer basis are on file, keep it opt-in only. |
+| Pinterest, Inc. | `pinit_main.js` inspiration-board embed on the guest site (`@cire/web`) — **desktop only** | IP, user-agent, and on-page behaviour of **desktop** guests **who opt in** | US | **TODO — no Pinterest DPA / SCCs on file** | **TODO — EU→US transfer basis (DPF or SCCs) to confirm** | 2026-06-19 | Medium — consent-gated (opt-in, page-wide persisted) **and desktop-only** as of `feat/pinterest-moodboard-ux`: touch / coarse-pointer devices never load the tracker at all (they get a plain link-out to Pinterest, no embed, no consent gate), so the transfer surface is now desktop + opt-in only. A plain-link fallback is always present on both paths so the embed is never required. No data reaches Pinterest until a desktop guest explicitly consents. Until a DPA + transfer basis are on file, keep it opt-in only. |
 | Komoot GmbH | Photon geocoder (Pulse address autocomplete) | Every keystroke + user IP | DE (EU) | **TODO — confirm DPA exists** | Adequacy (intra-EU) | — | **High — current implementation leaks keystrokes without consent (S-M13). Block until proxied + consent banner added.** |
 | Grafana Labs | Grafana Cloud (logs / traces / metrics) | Trace attrs incl. profile_id; redacted logs; metric samples | US | **TODO — sign Grafana Labs DPA + SCCs** | EU SCCs | — | Medium — observability data with profile_id and ip_hash. |
 | Redis provider (TBD — Upstash / Redis Cloud) | Rate-limit counters; rotated-session detection; auth state (Phase 4) | Hashed session tokens; IP-derived counters | TBD | **TODO — sign on choice** | EU SCCs if US-hosted | — | High — auth state. Pick EU region by default. |
