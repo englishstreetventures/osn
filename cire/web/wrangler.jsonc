@@ -7,7 +7,7 @@
   //
   // Deploy: `wrangler deploy` from `cire/web` (config below is picked up; the
   // adapter merges its generated `main`/`assets` into it). See deploy.yml.
-  "name": "cire-web",
+  "name": "cire-invites",
   "compatibility_date": "2026-04-15",
   "compatibility_flags": ["nodejs_compat"],
   // 7-day Workers Logs retention, 100% sampling (low guest-site volume). Mirrors

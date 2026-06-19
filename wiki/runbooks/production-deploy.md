@@ -70,7 +70,7 @@ marked **TBD** blocks the deploy.
 | cire `WEB_ORIGIN` allowlist (guest **and** organiser origins) | cire-api | **DONE — `https://cireweddings.com,https://app.cireweddings.com`** |
 | cire `OSN_JWKS_URL` / `OSN_ISSUER_URL` | cire-api | **DONE — `https://id.cireweddings.com/.well-known/jwks.json` / `https://id.cireweddings.com`** (must equal osn-api's own `OSN_ISSUER_URL`) |
 | `CIRE_API_ARC_PRIVATE_KEY` + `CIRE_API_ARC_KEY_ID` + `OSN_API_URL` | cire-api | needed only if guest account-linking is enabled (section 6.2) |
-| cire/web `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/web **SSR Worker** | **DONE — `https://api.cireweddings.com` / `https://cireweddings.com`** (set in `deploy.yml`). No `PUBLIC_WEDDING_SLUG` — wedding resolved from the path. Apex now served by the `cire-web` Worker (custom-domain route), not the Pages project — see §3.3. |
+| cire/web `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/web **SSR Worker** | **DONE — `https://api.cireweddings.com` / `https://cireweddings.com`** (set in `deploy.yml`). No `PUBLIC_WEDDING_SLUG` — wedding resolved from the path. Apex now served by the `cire-invites` Worker (custom-domain route), not the Pages project — see §3.3. |
 | cire/organiser `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ISSUER_URL`, `PUBLIC_CIRE_WEB_URL` (build-time) | cire/organiser Pages | **DONE — `https://api.cireweddings.com` / `https://id.cireweddings.com` / `https://cireweddings.com`** (set in `deploy.yml`) |
 
 ---
@@ -344,7 +344,7 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 > and is deployed as a **Cloudflare Worker with Static Assets** via
 > `wrangler deploy --config dist/server/wrangler.json` (the `deploy-cire-web` job
 > in `deploy.yml`). The committed `cire/web/wrangler.jsonc` carries the worker
-> name (`cire-web`) + the **`cireweddings.com` custom-domain route**, and the
+> name (`cire-invites`) + the **`cireweddings.com` custom-domain route**, and the
 > adapter merges in `main`/the ASSETS binding. The old
 > `wrangler pages deploy dist --project-name cire` is gone — **the Cloudflare
 > Pages project `cire` no longer serves the apex.** The invite route resolves the
@@ -352,11 +352,13 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 > redirects to the primary wedding via `GET /api/primary-wedding`, so there is **no
 > `PUBLIC_WEDDING_SLUG`**. No KV/Images binding is required on this Worker (Astro
 > sessions pinned to an in-memory driver; image transforms stay in cire-api).
-> **One-time Cloudflare setup:** the apex DNS/route moves from the Pages project to
-> the `cire-web` Worker — `custom_domain: true` auto-provisions it on first
-> `wrangler deploy`, but if the apex is still attached to the old Pages project,
-> detach it there first (Pages → `cire` → Custom domains) so the Worker route can
-> bind. No KV namespace or Images binding to create.
+> **One-time Cloudflare setup (DONE 2026-06-19):** the apex moved from the Pages
+> project to the `cire-invites` Worker. `custom_domain: true` auto-provisions it on
+> `wrangler deploy`; a Pages→Worker move needs the apex detached from the old Pages
+> project first (Pages → `cire` → Custom domains) or moved on the Worker side
+> (Worker → Domains & Routes → Add → confirm move). A Worker→Worker rename (e.g.
+> `cire-invites` → `cire-invites`) reassigns the custom domain automatically on deploy.
+> No KV namespace or Images binding to create.
 
 `cire/organiser` is still a **static** Pages build (`output: "static"`); cire/web's
 `PUBLIC_*` are read both **server-side per request** and by the client islands but
