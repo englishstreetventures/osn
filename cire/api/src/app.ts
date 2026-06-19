@@ -198,7 +198,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // gates the whole app. Empty allowlist (dev) disables it.
       .use(originGuard(corsOrigins))
       .use(createClaimRoutes(db, { webOrigin, limiter: claimLimiter, turnstileVerifier }))
-      .use(createRsvpRoutes(db, { turnstileVerifier }))
+      // No Turnstile on RSVP: guests reach it only with a valid `cire_session`
+      // cookie minted by a Turnstile-gated `/api/claim`, so a second bot check
+      // here is pure friction. Claim + organiser login keep the gate.
+      .use(createRsvpRoutes(db))
       .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))
       .use(createOrganiserWeddingCreateRoute(db, osnAuthOptions, weddingCreateLimiter))
       .use(createOrganiserPreviewRoutes(db, osnAuthOptions, previewLimiter))

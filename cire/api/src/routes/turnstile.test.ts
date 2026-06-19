@@ -109,7 +109,7 @@ describe("Turnstile gate on /api/claim — CONFIGURED (fail-closed)", () => {
   });
 });
 
-describe("Turnstile gate on /api/rsvp — CONFIGURED (fail-closed)", () => {
+describe("Turnstile is NOT enforced on /api/rsvp — claimed guests are already trusted", () => {
   /** Claim first (with a passing gate) to obtain a session cookie. */
   async function claimSession(verifier: TurnstileVerifier): Promise<string> {
     const app = appWith(verifier);
@@ -126,33 +126,22 @@ describe("Turnstile gate on /api/rsvp — CONFIGURED (fail-closed)", () => {
     return cookie!.split(";")[0]!;
   }
 
-  it("rejects (403) an RSVP with a missing token even with a valid session", async () => {
+  it("accepts an RSVP with a valid session and NO token, even when Turnstile is configured", async () => {
     const verifier = stubVerifier(true);
     const sessionCookie = await claimSession(verifier);
+    const callsAfterClaim = verifier.calls.length;
     const app = appWith(verifier);
     const res = await app.fetch(
       new Request("http://localhost/api/rsvp", {
         method: "POST",
         headers: headers({ Cookie: sessionCookie }),
+        // No turnstileToken. An empty batch is a valid no-op RSVP and must reach
+        // the handler (200) — proving RSVP is not behind the Turnstile gate.
         body: JSON.stringify({ rsvps: [] }),
       }),
     );
-    expect(res.status).toBe(403);
-  });
-
-  it("passes a valid token + session through to the RSVP handler", async () => {
-    const verifier = stubVerifier(true);
-    const sessionCookie = await claimSession(verifier);
-    const app = appWith(verifier);
-    const res = await app.fetch(
-      new Request("http://localhost/api/rsvp", {
-        method: "POST",
-        headers: headers({ Cookie: sessionCookie }),
-        // Empty batch is a valid no-op RSVP — reaches the handler (200), proving
-        // the gate let it through.
-        body: JSON.stringify({ rsvps: [], turnstileToken: "good" }),
-      }),
-    );
     expect(res.status).toBe(200);
+    // The verifier was consulted only by /api/claim, never by /api/rsvp.
+    expect(verifier.calls.length).toBe(callsAfterClaim);
   });
 });

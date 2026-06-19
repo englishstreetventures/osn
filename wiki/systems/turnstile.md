@@ -22,7 +22,7 @@ last-reviewed: 2026-06-19
 # Turnstile bot protection
 
 Cloudflare Turnstile gates the project's public, abusable form submissions —
-account registration, passkey login, and the cire guest claim / RSVP flows —
+account registration, passkey login, and the cire guest **claim** flow —
 behind a privacy-preserving CAPTCHA alternative. Shipped in **#154**; the design
 is deliberately **key-optional + fail-closed** so it could merge and deploy
 **inert** (no widget, no behaviour change) ahead of creating the dashboard
@@ -35,9 +35,17 @@ widget.
 | OSN registration | `POST /register/begin` | `@osn/api` (`turnstileGate("register_begin", …)`) |
 | OSN passkey login | `POST /login/passkey/begin` | `@osn/api` |
 | cire guest claim | `POST /api/claim` | `@cire/api` (`turnstileGate(verifier, "claim", …)`) |
-| cire RSVP | `POST /api/rsvp` | `@cire/api` |
 
-Frontends: cire/web guest forms, cire/organiser SignIn + Register (via `@osn/ui`).
+**`/api/rsvp` is intentionally NOT gated.** A guest only reaches RSVP after a
+successful `/api/claim`, which mints the `cire_session` cookie behind the
+Turnstile gate above — so the unauthenticated bot surface is already covered at
+claim. A second challenge on every RSVP was pure friction (it surfaced an
+interactive widget mid-flow), so `app.ts` wires `createRsvpRoutes(db)` with **no
+verifier** and `RsvpModal` renders no widget. The `rsvp.ts` route keeps the
+key-optional gate parameter (defaults to a no-op) so it can be re-armed if abuse
+ever appears. Removed in the RSVP-friction fix (2026-06-19).
+
+Frontends: cire/web guest claim form, cire/organiser SignIn + Register (via `@osn/ui`).
 The organiser SignIn/Register run the OSN ceremonies, so the osn-api gates above
 are what enforce them server-side.
 
