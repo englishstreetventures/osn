@@ -340,46 +340,60 @@ export default function InviteHeader(props: InviteHeaderProps) {
           class="bg-surface border-border border-y px-6 py-16 md:px-8 md:py-20"
           style={{ ...storyVars(), ...STORY_SURFACE }}
         >
-          <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
+          {/*
+            Two-column on laptop/desktop when a story image exists — image LEFT,
+            text RIGHT, vertically centred with a comfortable gap. The image
+            wrapper is `hidden md:block`, so on mobile the photo is never laid
+            out and the text block falls back to the single centred column. With
+            no story image the wrapper collapses (image-less grid renders one
+            cell), so the text spans the full width at every breakpoint.
+          */}
+          <div
+            class="group/story mx-auto grid max-w-[540px] items-center gap-10 text-center md:max-w-[640px] data-[has-image=true]:md:max-w-[960px] data-[has-image=true]:md:grid-cols-2 data-[has-image=true]:md:gap-14 data-[has-image=true]:md:text-left"
+            data-has-image={storyImageUrl() ? "true" : "false"}
+          >
             <Show when={storyImageUrl()}>
               {(url) => (
                 <img
                   src={url()}
                   // Story photo renders at most 480px wide — thumb/card cover it.
                   srcset={buildSrcSet(url(), ["thumb", "card"])}
-                  sizes="(min-width: 480px) 480px, 100vw"
+                  sizes="(min-width: 768px) 480px, 100vw"
                   alt=""
-                  class="border-border mx-auto mb-8 max-h-80 w-full max-w-[480px] rounded-sm border object-cover"
+                  // Hidden below md — the photo is not even laid out on mobile.
+                  class="border-border hidden max-h-[420px] w-full rounded-sm border object-cover md:block"
                 />
               )}
             </Show>
-            <p
-              class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase"
-              style={ACCENT_TEXT}
-            >
-              {story()?.eyebrow ?? "Our Story"}
-            </p>
-            <h2
-              class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic"
-              style={HEADING_FONT}
-            >
-              {story()?.heading ?? "How It All Began"}
-            </h2>
-            <div class="mx-auto max-w-[480px]">
-              <Show
-                when={story()?.body}
-                fallback={
-                  <p class="font-body text-text-muted text-[0.95rem] leading-[1.75] font-light">
-                    Your love story goes here — how you met, the proposal, and everything in between. This section will be personalised with your own words and photos.
-                  </p>
-                }
+            <div>
+              <p
+                class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase"
+                style={ACCENT_TEXT}
               >
-                {(body) => (
-                  <p class="font-body text-text-muted text-[0.95rem] leading-[1.75] font-light whitespace-pre-line">
-                    {body()}
-                  </p>
-                )}
-              </Show>
+                {story()?.eyebrow ?? "Our Story"}
+              </p>
+              <h2
+                class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic"
+                style={HEADING_FONT}
+              >
+                {story()?.heading ?? "How It All Began"}
+              </h2>
+              <div class="mx-auto max-w-[480px] group-data-[has-image=true]/story:md:mx-0">
+                <Show
+                  when={story()?.body}
+                  fallback={
+                    <p class="font-body text-text-muted text-[0.95rem] leading-[1.75] font-light">
+                      Your love story goes here — how you met, the proposal, and everything in between. This section will be personalised with your own words and photos.
+                    </p>
+                  }
+                >
+                  {(body) => (
+                    <p class="font-body text-text-muted text-[0.95rem] leading-[1.75] font-light whitespace-pre-line">
+                      {body()}
+                    </p>
+                  )}
+                </Show>
+              </div>
             </div>
           </div>
         </section>
