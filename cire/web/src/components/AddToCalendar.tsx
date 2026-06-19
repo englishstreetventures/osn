@@ -226,11 +226,13 @@ export function AddToCalendar(props: AddToCalendarProps) {
             id={popoverId}
             role="menu"
             aria-label="Add to calendar options"
-            // z-90 sits below AnimatedModal (z-100) — modals always win — and
-            // above every event card / page-level content. The popover is
-            // portalled to <body>, so this z-index isn't trapped inside the
-            // EventCard's stacking context.
-            class="border-border bg-surface-raised fixed z-90 flex max-w-[calc(100vw-1rem)] min-w-[14rem] flex-col gap-1 rounded-sm border p-2 shadow-lg"
+            // z-110 sits ABOVE AnimatedModal (z-100). Add-to-Calendar is
+            // triggered from inside the details modal, so its popover must paint
+            // on top of that modal — at z-90 it rendered *behind* the modal
+            // backdrop, leaving the menu invisible and unclickable ("Add to
+            // Calendar doesn't work"). The popover is portalled to <body>, so
+            // this z-index isn't trapped inside the modal's stacking context.
+            class="border-border bg-surface-raised fixed z-110 flex max-w-[calc(100vw-1rem)] min-w-[14rem] flex-col gap-1 rounded-sm border p-2 shadow-lg"
             style={{ top: `${position().top}px`, left: `${position().left}px` }}
           >
             <a

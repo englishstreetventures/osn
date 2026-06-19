@@ -107,6 +107,18 @@ describe("AddToCalendar", () => {
     expect(document.body.contains(menu)).toBe(true);
   });
 
+  it("paints the popover above the details modal layer (z-110 > modal z-100)", () => {
+    // Regression: AddToCalendar is opened from inside the details modal
+    // (AnimatedModal, z-100). At z-90 the portalled menu rendered behind the
+    // modal backdrop and was invisible/unclickable ("Add to Calendar doesn't
+    // work"). It must sit above the modal.
+    const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
+    fireEvent.click(getByRole("button", { name: /add to calendar/i }));
+    const menu = screen.getByRole("menu");
+    expect(menu.className).toContain("z-110");
+    expect(menu.className).not.toContain("z-90");
+  });
+
   it("closes when Escape is pressed", () => {
     const { getByRole } = render(() => <AddToCalendar event={baseEvent} siteUrl={SITE_URL} />);
     const button = getByRole("button", { name: /add to calendar/i });

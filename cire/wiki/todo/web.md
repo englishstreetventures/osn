@@ -7,6 +7,8 @@ related:
 last-reviewed: 2026-06-20
 ---
 
+- [x] **"Add to Calendar" button fixed** (`fix/cire-add-to-calendar-zindex`) — the button is only ever opened from inside the event details modal (`AnimatedModal`, `z-100`), but its portalled popover (`AddToCalendar.tsx`, Google Calendar / `.ics` menu) was `z-90` — below the modal — so the menu painted behind the modal backdrop and was invisible/unclickable ("doesn't work"). Raised the popover to `z-110` (above the modal it launches from). Regression test asserts the menu sits above the modal layer. The `calendar.ts` URL/ICS builders were already correct.
+
 > [!note] Deep-linkable dashboard routes + refresh persistence + dismissable checklist (`feat/cire-dashboard-routing`)
 > The organiser dashboard's full navigable state now lives in the URL hash, so a
 > hard refresh restores where you were and a shared link reopens it. New
