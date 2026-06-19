@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[api]]"
   - "[[db]]"
-last-reviewed: 2026-06-19
+last-reviewed: 2026-06-20
 ---
 
 # Organiser Spreadsheet Import
@@ -41,8 +41,8 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 
 ## Cloudflare wiring
 
-- [ ] Replace `bun:sqlite` runtime in `cire/api/src/index.ts` with `drizzle(env.DB)` on D1
-- [ ] `bunx wrangler d1 migrations apply cire-db --local` in dev script
-- [ ] `bunx wrangler types` after binding changes
-- [ ] **Provision R2 bucket `cire-sheets` (and `cire-sheets-preview`) before first deploy** — `bunx wrangler r2 bucket create cire-sheets`. Binding `SHEETS` is already declared in `cire/api/wrangler.toml` as of PR-A.
+- [x] Replace `bun:sqlite` runtime in `cire/api/src/index.ts` with `drizzle(env.DB)` on D1 — done in the D1-wiring branch: `index.ts` is the Workers `fetch`/`scheduled` handler building a per-request Drizzle-D1 client from `env.DB`; `bun:sqlite` now survives only as the **local/test** backend (`local.ts` + `setup.ts`) by design (four-env model — see root `[[wiki/systems/database-environments]]`).
+- [x] ~~`bunx wrangler d1 migrations apply cire-db --local` in dev script~~ — **Obsolete**: local dev runs on in-process `bun:sqlite` (`bun run src/local.ts` + `setup.ts` DDL), not a local D1, so there's no `--local` migrate step to wire. Remote D1 migrations are applied by the deploy pipeline (`migrations_dir`).
+- [x] `bunx wrangler types` after binding changes — `types` script wired (`wrangler types`); run as part of the binding-change workflow.
+- [x] **Provision R2 bucket `cire-sheets` (and `cire-sheets-preview`) before first deploy** — done: buckets exist and the live deploy uses them; `SHEETS` binding declared in `cire/api/wrangler.toml` (incl. `[env.production]`).
 - [ ] Batch import respects 50ms CPU / 30s wall-time Worker limits — chunk inserts to ~100 rows; consider Durable Objects or Queues for guest lists ≥ ~500 families
