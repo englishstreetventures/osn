@@ -30,5 +30,9 @@
     font-weight: 400;
     line-height: 1.5;
     min-height: 100vh;
+    /* Safety net against horizontal scroll on small viewports: a single wide
+       island (e.g. a fixed-width third-party embed) should never let the whole
+       page pan sideways. Vertical scrolling is unaffected. */
+    overflow-x: hidden;
   }
 }

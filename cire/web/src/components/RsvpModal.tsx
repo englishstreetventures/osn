@@ -233,7 +233,7 @@ export function RsvpModal(props: RsvpModalProps) {
                     Dietary requirements
                     <input
                       type="text"
-                      class="border-border font-body text-text placeholder:text-text-muted focus:border-gold mt-1.5 block w-full rounded-sm border bg-transparent px-3 py-2.5 text-[0.9rem] transition-colors duration-200 focus:outline-none"
+                      class="border-border font-body text-text placeholder:text-text-muted focus:border-gold mt-1.5 block w-full rounded-sm border bg-transparent px-3 py-2.5 text-base transition-colors duration-200 focus:outline-none sm:text-[0.9rem]"
                       placeholder="e.g. Vegetarian, no nuts"
                       value={responses()[guestId]?.dietary ?? ""}
                       onInput={(e) => setDietary(guestId, e.currentTarget.value)}
@@ -284,7 +284,7 @@ export function RsvpModal(props: RsvpModalProps) {
         {/* Turnstile challenge — renders only when a sitekey is configured. */}
         <TurnstileWidget onToken={setTurnstileToken} class="flex justify-center" />
 
-        <div class="border-border bg-surface sticky bottom-0 -mx-6 -mb-10 flex gap-3 border-t px-6 py-4">
+        <div class="border-border bg-surface sticky bottom-0 -mx-6 -mb-[max(2.5rem,env(safe-area-inset-bottom))] flex gap-3 border-t px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:-mb-10 md:pb-4">
           <button
             type="button"
             class="border-border font-body text-text-muted hover:border-gold-dim hover:text-text flex-1 cursor-pointer rounded-sm border bg-transparent px-4 py-3 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:opacity-40"

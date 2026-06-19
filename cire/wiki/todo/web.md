@@ -7,6 +7,36 @@ related:
 last-reviewed: 2026-06-19
 ---
 
+> [!note] Mobile-responsive revision (`feat/invite-mobile-responsive`)
+> A pass over the **guest invite** at 320/375/390/414 + 768px to remove
+> mobile-layout rough edges (no redesign — design + theme tokens untouched):
+> - **Hero** (`InviteHeader.tsx`) — custom title/subtitle now `max-w-full break-words`
+>   so a long single-word couple name can no longer overflow horizontally at 320px;
+>   the overlay padding uses `max(1.5rem, env(safe-area-inset-*))` so copy clears the
+>   notch. `h-dvh` kept.
+> - **Modals** (`AnimatedModal.tsx`) — bottom-sheet panel uses `max-h-[85dvh]` (mobile
+>   viewport-accurate) and `pb-[max(2.5rem, env(safe-area-inset-bottom))]` so its content
+>   /buttons clear the home indicator; desktop centred dialog unchanged (`md:` overrides).
+> - **RSVP** (`RsvpModal.tsx`) — dietary input is `text-base` (16px) on mobile,
+>   `sm:text-[0.9rem]` from the small breakpoint up, killing iOS focus-zoom; the sticky
+>   action footer's negative margin + padding track the same safe-area inset so Save/Cancel
+>   stay above the home indicator and reachable.
+> - **Pinterest** (`PinterestBoard.tsx`) — the fixed-pixel-width board iframe now lives in a
+>   centred `overflow-x-auto` box (and a narrower `data-pin-board-width`), so a wide embed
+>   scrolls within its own box instead of panning the whole page; the always-visible
+>   fallback link is unchanged.
+> - **Event cards** (`EventCard.tsx`) — Respond / View Event buttons are `min-h-11`
+>   (≥44px tap target), full-width-ish (`flex-1`) on mobile, back to intrinsic width at `sm:`.
+> - **Add-to-calendar** (`AddToCalendar.tsx`) — portalled popover position is clamped into
+>   the viewport (+`max-w-[calc(100vw-1rem)]`) so it never spills off the right edge near
+>   the screen edge on a narrow device.
+> - **Global** (`global.css`) — `overflow-x: hidden` on `body` as a belt-and-braces guard
+>   against any single wide island panning the page sideways (vertical scroll unaffected).
+>
+> Organiser portal data tables (`GuestTable` / `EventTable`) were already wrapped in
+> `overflow-x-auto`, so no change was needed there. New vitest assertions lock in the
+> Pinterest overflow box and the 16px RSVP input.
+
 # cire/web
 
 Frontend feature work. Tick items as PRs land; add new entries when scope is discovered. Don't edit `wiki/todo/status.md` for area-specific items.

@@ -128,6 +128,18 @@ describe("PinterestBoard", () => {
     expect(container.textContent ?? "").toContain("View moodboard on Pinterest");
   });
 
+  it("wraps the fixed-width embed in an overflow-contained box so it can't pan the page sideways on mobile", () => {
+    const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+    grantConsent(container);
+
+    const anchor = container.querySelector<HTMLAnchorElement>('a[data-pin-do="embedBoard"]');
+    expect(anchor).not.toBeNull();
+    // The Pinterest widget renders a fixed-pixel-width iframe; on a narrow
+    // viewport that overflow must scroll within its own box, never the page.
+    const scrollBox = anchor!.closest("div.overflow-x-auto");
+    expect(scrollBox).not.toBeNull();
+  });
+
   it("persists consent across visits so a later mount does not re-prompt", () => {
     const first = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
     grantConsent(first.container);

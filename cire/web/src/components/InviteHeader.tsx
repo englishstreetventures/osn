@@ -131,11 +131,11 @@ export default function InviteHeader(props: InviteHeaderProps) {
             />
           )}
         </Show>
-        <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[radial-gradient(ellipse_at_center,oklch(0%_0_0/0.15)_0%,oklch(0%_0_0/0.45)_100%)]">
+        <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[radial-gradient(ellipse_at_center,oklch(0%_0_0/0.15)_0%,oklch(0%_0_0/0.45)_100%)] px-[max(1.5rem,env(safe-area-inset-left))] py-[max(1.5rem,env(safe-area-inset-top))]">
           <Show
             when={hero()?.title}
             fallback={
-              <div class="flex items-center gap-3 select-none">
+              <div class="flex max-w-full items-center gap-3 select-none">
                 <span
                   class="font-display text-gold text-[clamp(4rem,12vw,8rem)] leading-none font-light italic"
                   style={{ ...ACCENT_TEXT, ...HEADING_FONT }}
@@ -159,7 +159,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
           >
             {(title) => (
               <span
-                class="font-display text-gold px-6 text-center text-[clamp(3rem,10vw,7rem)] leading-none font-light italic select-none"
+                class="font-display text-gold max-w-full text-center text-[clamp(3rem,10vw,7rem)] leading-none font-light break-words italic select-none"
                 style={{ ...ACCENT_TEXT, ...HEADING_FONT }}
               >
                 {title()}
@@ -169,7 +169,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
           <Show when={hero()?.subtitle}>
             {(subtitle) => (
               <p
-                class="font-body text-gold-dim px-6 text-center text-[0.8rem] tracking-[0.25em] uppercase"
+                class="font-body text-gold-dim max-w-full text-center text-[0.8rem] tracking-[0.25em] break-words uppercase"
                 style={ACCENT_TEXT_DIM}
               >
                 {subtitle()}

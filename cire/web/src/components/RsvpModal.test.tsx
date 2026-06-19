@@ -99,6 +99,21 @@ describe("RsvpModal", () => {
     expect(within(fs).queryByPlaceholderText(/Vegetarian/)).toBeNull();
   });
 
+  it("renders the dietary input at the 16px base size on mobile to avoid iOS zoom-on-focus", () => {
+    render(() => (
+      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+    ));
+
+    const fs = fieldsetFor("Priya");
+    fireEvent.click(within(fs).getByText("Attending"));
+    const input = within(fs).getByPlaceholderText(/Vegetarian/) as HTMLInputElement;
+    // Mobile-first base must be >=16px (Tailwind `text-base`); a smaller value
+    // makes iOS Safari zoom the page when the field is focused.
+    expect(input.className).toContain("text-base");
+    // The smaller visual size only applies from the `sm:` breakpoint up.
+    expect(input.className).toContain("sm:text-[0.9rem]");
+  });
+
   it("shows error and blocks submit if any member's response is null", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);

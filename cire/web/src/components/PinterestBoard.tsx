@@ -222,17 +222,24 @@ export function PinterestBoard(props: PinterestBoardProps) {
             </div>
           }
         >
-          <div class="mt-2 flex justify-center">
-            <a
-              ref={anchorRef}
-              id={id}
-              data-pin-do="embedBoard"
-              data-pin-board-width="400"
-              data-pin-scale-height="240"
-              data-pin-scale-width="80"
-              href={props.url}
-              aria-label={`Pinterest board for ${props.eventName}`}
-            />
+          {/* The Pinterest widget renders a fixed-width iframe (data-pin-board-
+              width). On narrow viewports that pixel width can exceed the modal's
+              content box, so the embed lives in a max-width, horizontally-
+              scrollable, centred box: any overflow scrolls *within* this box
+              instead of pushing the whole page sideways. */}
+          <div class="-mx-6 mt-2 overflow-x-auto px-6">
+            <div class="flex min-w-min justify-center">
+              <a
+                ref={anchorRef}
+                id={id}
+                data-pin-do="embedBoard"
+                data-pin-board-width="320"
+                data-pin-scale-height="240"
+                data-pin-scale-width="80"
+                href={props.url}
+                aria-label={`Pinterest board for ${props.eventName}`}
+              />
+            </div>
           </div>
         </Show>
       </Show>

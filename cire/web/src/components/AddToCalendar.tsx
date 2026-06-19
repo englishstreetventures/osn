@@ -110,7 +110,14 @@ export function AddToCalendar(props: AddToCalendarProps) {
   function updatePosition() {
     if (!buttonRef) return;
     const rect = buttonRef.getBoundingClientRect();
-    setPosition({ top: rect.bottom + 8, left: rect.left });
+    // Clamp the (position:fixed) popover into the viewport so it never spills off
+    // the right edge on a narrow screen. The popover is min-w-[14rem] (224px);
+    // keeping an 8px gutter, the left is bounded by viewport width - panel width.
+    const margin = 8;
+    const panelWidth = 224;
+    const maxLeft = Math.max(margin, window.innerWidth - panelWidth - margin);
+    const left = Math.min(rect.left, maxLeft);
+    setPosition({ top: rect.bottom + 8, left });
   }
 
   function onKeyDown(e: KeyboardEvent) {
@@ -223,7 +230,7 @@ export function AddToCalendar(props: AddToCalendarProps) {
             // above every event card / page-level content. The popover is
             // portalled to <body>, so this z-index isn't trapped inside the
             // EventCard's stacking context.
-            class="border-border bg-surface-raised fixed z-90 flex min-w-[14rem] flex-col gap-1 rounded-sm border p-2 shadow-lg"
+            class="border-border bg-surface-raised fixed z-90 flex max-w-[calc(100vw-1rem)] min-w-[14rem] flex-col gap-1 rounded-sm border p-2 shadow-lg"
             style={{ top: `${position().top}px`, left: `${position().left}px` }}
           >
             <a

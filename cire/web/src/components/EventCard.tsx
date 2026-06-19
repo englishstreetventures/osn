@@ -22,7 +22,7 @@ export function EventCard(props: EventCardProps) {
       </p>
       <div class="flex flex-wrap gap-3">
         <button
-          class="border-gold font-body text-gold hover:bg-gold hover:text-bg disabled:hover:text-gold rounded-sm border bg-transparent px-5 py-2.5 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+          class="border-gold font-body text-gold hover:bg-gold hover:text-bg disabled:hover:text-gold min-h-11 flex-1 rounded-sm border bg-transparent px-5 py-3 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent sm:flex-none sm:py-2.5"
           onClick={() => props.onRespond(props.event)}
           disabled={props.preview}
           title={props.preview ? "RSVP is disabled in preview mode" : undefined}
@@ -30,7 +30,7 @@ export function EventCard(props: EventCardProps) {
           Respond
         </button>
         <button
-          class="border-border font-body text-text-muted hover:border-gold hover:text-gold rounded-sm border bg-transparent px-5 py-2.5 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200"
+          class="border-border font-body text-text-muted hover:border-gold hover:text-gold min-h-11 flex-1 rounded-sm border bg-transparent px-5 py-3 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"
           onClick={() => props.onDetails(props.event)}
         >
           View Event

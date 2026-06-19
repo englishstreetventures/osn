@@ -131,7 +131,7 @@ export function AnimatedModal(props: AnimatedModalProps) {
     >
       <div
         ref={panelRef}
-        class="border-border bg-surface relative max-h-[85vh] w-full max-w-[480px] overflow-y-auto overscroll-contain rounded-t-xl border px-6 pt-8 pb-10 opacity-0 md:mb-8 md:rounded-lg"
+        class="border-border bg-surface relative max-h-[85dvh] w-full max-w-[480px] overflow-y-auto overscroll-contain rounded-t-xl border px-6 pt-8 pb-[max(2.5rem,env(safe-area-inset-bottom))] opacity-0 md:mb-8 md:max-h-[85vh] md:rounded-lg md:pb-10"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
