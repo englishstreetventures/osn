@@ -5,8 +5,42 @@ import type { ParsedEvent, ParsedFamily, ParsedGuest, PaletteSwatch } from "../s
 
 // ── Tagged errors ────────────────────────────────────────────────────────────
 
+/**
+ * The closed set of `MalformedSpreadsheet.reason` values.
+ *
+ * SECURITY (reason lockdown): `reason` is surfaced to the organiser in the 422
+ * body, so it MUST only ever carry STATIC string literals — NEVER interpolated
+ * cell contents. Reflecting attacker-controlled spreadsheet data here would let
+ * a hostile uploaded sheet inject arbitrary text into the API response. The
+ * `row`/`column` NUMBERS are safe to surface (and are); the cell CONTENTS are
+ * not. Keeping `reason` a closed union (not `string`) makes it a compile error
+ * for a future contributor to pass an interpolated/dynamic string — the type is
+ * the enforcement mechanism, so do NOT widen it back to `string`.
+ */
+export type MalformedSpreadsheetReason =
+  // Structural / size caps (from `parseCsvBounded`).
+  | "too many rows"
+  | "cell too large"
+  | "unterminated quoted cell"
+  // Empty-sheet guards.
+  | "empty events sheet"
+  | "empty guests sheet"
+  // Required per-row event fields.
+  | "Event Name is required"
+  | "Start is required"
+  | "End is required"
+  | "Timezone is required"
+  | "Location is required"
+  // URL-cell scheme rejections.
+  | "Pinterest URL must be an http(s) URL"
+  | "Maps URL must be an http(s) URL"
+  // Required per-row guest fields.
+  | "Family Name is required"
+  | "Guest First Name is required";
+
 export class MalformedSpreadsheet extends Data.TaggedError("MalformedSpreadsheet")<{
-  readonly reason: string;
+  /** STATIC literal only — never interpolated cell contents. See {@link MalformedSpreadsheetReason}. */
+  readonly reason: MalformedSpreadsheetReason;
   readonly row?: number;
   readonly column?: number;
 }> {}
@@ -39,7 +73,17 @@ const MAX_CELL_LENGTH = 10_000;
 
 export type CsvParseResult =
   | { ok: true; rows: string[][] }
-  | { ok: false; reason: string; row?: number; column?: number };
+  // `reason` is one of the structural literals — flows straight into a
+  // `MalformedSpreadsheet`, so it shares the closed-union constraint.
+  | {
+      ok: false;
+      reason: Extract<
+        MalformedSpreadsheetReason,
+        "too many rows" | "cell too large" | "unterminated quoted cell"
+      >;
+      row?: number;
+      column?: number;
+    };
 
 /**
  * Parse a CSV blob into a 2D array of strings. Handles quoted cells, escaped

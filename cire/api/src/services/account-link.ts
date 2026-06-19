@@ -9,9 +9,19 @@ export class GuestNotInFamily extends Data.TaggedError("GuestNotInFamily")<{
   reason: "unknown_guest";
 }> {}
 
-/** The link would violate a uniqueness invariant. */
+/**
+ * The link would violate a uniqueness invariant.
+ *
+ * AL-S-L2: the conflicting index is deliberately NOT distinguished. Two
+ * distinct UNIQUE constraints can fail here — `guest_id` (this invitee already
+ * linked an account) and `(family_id, osn_account_id)` (some OSN account is
+ * already seated elsewhere in this household). Surfacing them separately let a
+ * caller probe sibling-seat membership of their own household (a membership
+ * oracle). Both collapse to a single opaque `already_linked` reason so the two
+ * cases are indistinguishable end-to-end (same tag → same 409 → same body).
+ */
 export class AccountLinkConflict extends Data.TaggedError("AccountLinkConflict")<{
-  reason: "guest_already_linked" | "account_already_in_family";
+  reason: "already_linked";
 }> {}
 
 export class AccountLinkWriteError extends Data.TaggedError("AccountLinkWriteError")<{
@@ -40,16 +50,23 @@ export interface AccountLinkByAccount {
 }
 
 /**
- * Maps a SQLite UNIQUE-constraint failure to the specific conflicting index.
+ * Detects a SQLite UNIQUE-constraint failure on either account-link index.
  * Exported so the brittle string-matching is pinned by a direct unit test,
  * independent of the SQLite driver's exact error wording (T-S2).
+ *
+ * AL-S-L2: returns a single opaque `"already_linked"` for BOTH conflicting
+ * indexes — `guest_id` (this invitee already linked) and
+ * `(family_id, osn_account_id)` (some account already seated in this household).
+ * The two are intentionally not distinguished so the caller can't probe
+ * sibling-seat membership of their own household.
  */
 export function conflictReason(message: string): AccountLinkConflict["reason"] | null {
   if (!message.includes("UNIQUE constraint failed")) return null;
-  // (family_id, osn_account_id) — same OSN account already seated in this family.
-  if (message.includes("osn_account_id")) return "account_already_in_family";
-  // guest_id — this invitee already linked an account.
-  if (message.includes("guest_id")) return "guest_already_linked";
+  // Either the `guest_id` UNIQUE or the `(family_id, osn_account_id)` UNIQUE —
+  // both collapse to the same opaque reason (membership-oracle defence).
+  if (message.includes("osn_account_id") || message.includes("guest_id")) {
+    return "already_linked";
+  }
   return null;
 }
 

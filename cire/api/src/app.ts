@@ -231,10 +231,24 @@ export function createApp(db: Db, options: AppOptions = {}) {
         // response body, which leaks internals (D1 error strings, Effect
         // causes, table names) to callers — the claim endpoint is pre-auth.
         // Log the detail, return a generic body.
+        //
+        // OBS-S-L2: log only NON-SENSITIVE identifiers — the Elysia error
+        // `code`, the error `name`, and (for `Data.TaggedError` defects) the
+        // tagged `_tag`. We deliberately do NOT log the free-form
+        // `error.message`: `redact()` scrubs by object KEY, not by substring
+        // inside a string value, so a rare unhandled message echoing guest
+        // input or a D1 internal would land verbatim in operator logs. The
+        // name/_tag are enough to triage the failure class without that risk.
+        const errorName = error instanceof Error ? error.name : typeof error;
+        const errorTag =
+          typeof error === "object" && error !== null && "_tag" in error
+            ? String((error as { _tag: unknown })._tag)
+            : undefined;
         runCireSync(
           Effect.logError("unhandled request error", {
             code,
-            message: error instanceof Error ? error.message : String(error),
+            name: errorName,
+            ...(errorTag ? { tag: errorTag } : {}),
           }),
         );
         set.status = 500;

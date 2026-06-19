@@ -97,6 +97,13 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      # Fail the deploy if cire/api/wrangler.toml still carries the placeholder
+      # (or empty) D1 database_id — deploying against a non-existent DB would
+      # silently break every D1 read/write in prod. Wired correctly today; this
+      # is a regression guard (grep-only, no creds needed).
+      - name: Guard against placeholder D1 database_id
+        run: bash scripts/check-d1-database-id.sh
+
       # Apply pending migrations to the remote prod cire-db BEFORE the new
       # Worker code starts serving. Idempotent: wrangler skips already-applied
       # migrations, so re-running the workflow is safe.

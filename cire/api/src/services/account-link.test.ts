@@ -119,9 +119,13 @@ describe("accountLinkService.link", () => {
         .pipe(Effect.flip),
     );
     expect(dup._tag).toBe("AccountLinkConflict");
-    expect((dup as { reason: string }).reason).toBe("guest_already_linked");
+    // AL-S-L2: both conflicting indexes collapse to a single opaque reason.
+    expect((dup as { reason: string }).reason).toBe("already_linked");
 
-    // Same account, different seat in the same family → (family_id, account) violation.
+    // Same account, different seat in the same family → (family_id, account)
+    // violation. AL-S-L2: this is INDISTINGUISHABLE from the guest_id conflict
+    // above — same opaque reason — so a caller can't probe sibling-seat
+    // membership of their own household.
     const seated = await run(
       db,
       accountLinkService
@@ -134,7 +138,7 @@ describe("accountLinkService.link", () => {
         .pipe(Effect.flip),
     );
     expect(seated._tag).toBe("AccountLinkConflict");
-    expect((seated as { reason: string }).reason).toBe("account_already_in_family");
+    expect((seated as { reason: string }).reason).toBe("already_linked");
   });
 
   it("surfaces a non-conflict insert failure as AccountLinkWriteError (op: insert)", async () => {
@@ -160,17 +164,20 @@ describe("accountLinkService.link", () => {
 
 // T-S2: pin the SQLite-message → reason mapping directly, independent of the
 // driver's exact wording (the integration 409s depend on it).
+//
+// AL-S-L2: BOTH UNIQUE indexes map to the same opaque `already_linked` reason —
+// the two cases must be indistinguishable (membership-oracle defence).
 describe("conflictReason", () => {
-  it("classifies the family+account UNIQUE index", () => {
+  it("classifies the family+account UNIQUE index as the opaque reason", () => {
     expect(
       conflictReason(
         "UNIQUE constraint failed: guest_account_links.family_id, guest_account_links.osn_account_id",
       ),
-    ).toBe("account_already_in_family");
+    ).toBe("already_linked");
   });
-  it("classifies the guest_id UNIQUE index", () => {
+  it("classifies the guest_id UNIQUE index as the SAME opaque reason", () => {
     expect(conflictReason("UNIQUE constraint failed: guest_account_links.guest_id")).toBe(
-      "guest_already_linked",
+      "already_linked",
     );
   });
   it("returns null for a non-UNIQUE failure (→ 500, not 409)", () => {

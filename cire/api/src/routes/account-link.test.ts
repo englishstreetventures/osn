@@ -203,7 +203,11 @@ describe("POST /api/account/link", () => {
     expect(await res.json()).toEqual({ error: "already_linked" });
   });
 
-  it("returns 409 when one OSN account claims two seats in a family", async () => {
+  // AL-S-L2: the "same account, different seat" conflict must be
+  // INDISTINGUISHABLE from the "same invitee linked twice" conflict above —
+  // identical status AND body — so the caller can't probe sibling-seat
+  // membership of their own household (a membership oracle).
+  it("returns the SAME opaque 409 when one OSN account claims two seats in a family", async () => {
     const { db, app } = buildApp(); // okResolver → same account for any profile
     const cookie = await claimCookie(app, SAMPLETON);
     const bo = guestIdByName(db, "Bo");
@@ -217,6 +221,8 @@ describe("POST /api/account/link", () => {
       guestId: cleo,
     });
     expect(res.status).toBe(409);
+    // Same opaque body as the guest-already-linked 409 — no `account_already_in_family`.
+    expect(await res.json()).toEqual({ error: "already_linked" });
   });
 
   it("returns 404 when OSN reports the profile does not exist", async () => {
