@@ -121,39 +121,65 @@ export const claimService = {
         );
       }
 
-      // The wedding slug scopes the first-party event-image paths below. A family
-      // always belongs to a wedding (FK), so the row is present; default to the
-      // family's weddingId if a slug is somehow absent (image URLs would 404, but
-      // the rest of the claim is unaffected — never fail the whole lookup on it).
-      const [wedding] = yield* dbQuery(() =>
-        db
-          .select({ slug: weddings.slug })
-          .from(weddings)
-          .where(eq(weddings.id, family.weddingId))
-          .all(),
+      // Three genuinely INDEPENDENT reads, each keyed only off the already-resolved
+      // `family` row, so they're pipelined together with `Effect.all` (P-W2): on D1
+      // their three round-trips overlap (~1 fewer serial RTT on the hot path), and
+      // on bun:sqlite (tests/local) they resolve in-process so concurrency is a
+      // harmless no-op. The events read can't join this group — it depends on the
+      // event ids derived from `guestRows` below — so it stays sequential after.
+      //  (a) the wedding slug — scopes the first-party event-image paths. A family
+      //      always belongs to a wedding (FK), so the row is present; default to the
+      //      family's weddingId if a slug is somehow absent (image URLs would 404,
+      //      but the rest of the claim is unaffected — never fail the lookup on it).
+      //  (b) guests + their event-id memberships. Kept narrow (no events join) to
+      //      avoid the cartesian explosion of duplicating every event row — incl.
+      //      its JSON palette blob — once per invited guest.
+      //  (c) this family's RSVPs.
+      const {
+        wedding: [wedding],
+        guestRows,
+        rsvpRows,
+      } = yield* Effect.all(
+        {
+          wedding: dbQuery(() =>
+            db
+              .select({ slug: weddings.slug })
+              .from(weddings)
+              .where(eq(weddings.id, family.weddingId))
+              .all(),
+          ),
+          guestRows: dbQuery(() =>
+            db
+              .select({
+                guestId: guests.id,
+                firstName: guests.firstName,
+                lastName: guests.lastName,
+                sortOrder: guests.sortOrder,
+                eventId: guestEvents.eventId,
+              })
+              .from(guests)
+              .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
+              .where(eq(guests.familyId, family.id))
+              .orderBy(asc(guests.sortOrder))
+              .all(),
+          ),
+          rsvpRows: dbQuery(() =>
+            db
+              .select({
+                guestId: rsvps.guestId,
+                eventId: rsvps.eventId,
+                status: rsvps.status,
+                dietary: rsvps.dietary,
+              })
+              .from(rsvps)
+              .innerJoin(guests, eq(rsvps.guestId, guests.id))
+              .where(eq(guests.familyId, family.id))
+              .all(),
+          ),
+        },
+        { concurrency: "unbounded" },
       );
       const slug = wedding?.slug ?? family.weddingId;
-
-      // Two queries kept narrow to avoid the cartesian explosion of joining
-      // events into the per-guest rows (every event row was previously
-      // duplicated once per invited guest, including the JSON palette blob).
-      // (a) guests + their event-id memberships, (b) the unique events.
-      // Run independently; each shape is small.
-      const guestRows = yield* dbQuery(() =>
-        db
-          .select({
-            guestId: guests.id,
-            firstName: guests.firstName,
-            lastName: guests.lastName,
-            sortOrder: guests.sortOrder,
-            eventId: guestEvents.eventId,
-          })
-          .from(guests)
-          .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
-          .where(eq(guests.familyId, family.id))
-          .orderBy(asc(guests.sortOrder))
-          .all(),
-      );
 
       const memberMap = new Map<
         string,
@@ -214,20 +240,6 @@ export const claimService = {
         });
       }
       eventList.sort((a, b) => a.sortOrder - b.sortOrder);
-
-      const rsvpRows = yield* dbQuery(() =>
-        db
-          .select({
-            guestId: rsvps.guestId,
-            eventId: rsvps.eventId,
-            status: rsvps.status,
-            dietary: rsvps.dietary,
-          })
-          .from(rsvps)
-          .innerJoin(guests, eq(rsvps.guestId, guests.id))
-          .where(eq(guests.familyId, family.id))
-          .all(),
-      );
 
       return {
         familyId: family.id,

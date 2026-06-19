@@ -23,6 +23,7 @@ import {
   AssetsR2Service,
   detectImageType,
   fetchAsset,
+  fetchAssetStream,
   MAX_IMAGE_BYTES,
 } from "../services/invite-assets";
 import type { AssetR2Error, AssetsBucket, StoredAsset } from "../services/invite-assets";
@@ -41,6 +42,17 @@ import type {
 // Sentinel parse hook: stop Elysia consuming the body so handlers parse it by
 // hand (JSON for text, raw bytes for images) — matches the import route.
 const manualParse = { parse: () => ({}) };
+
+/** Shared immutable-image response headers for both the transformed + streamed-
+ * original serve paths (the bytes are version-busted via the cache key / URL). */
+function imageResponseHeaders(contentType: string): Record<string, string> {
+  return {
+    "Content-Type": contentType,
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    Vary: "Accept",
+  };
+}
 
 /**
  * Serve a transformed image given an already-resolved R2 key + server-derived
@@ -92,11 +104,19 @@ function serveTransformedImage(args: {
       }
     }
 
-    const original = yield* fetchAsset(key);
-
-    let served: StoredAsset = original;
+    let response: Response;
     if (images) {
-      served = yield* transformAsset(images, original, variant, format, blurOverride).pipe(
+      // Transform path: the Images binding needs the original BUFFERED (it feeds
+      // the bytes through `input()`), so we keep `fetchAsset`. A transform failure
+      // falls back to serving those same already-buffered original bytes.
+      const original = yield* fetchAsset(key);
+      const served: StoredAsset = yield* transformAsset(
+        images,
+        original,
+        variant,
+        format,
+        blurOverride,
+      ).pipe(
         Effect.tap(() => Effect.sync(() => metricImageTransform("transformed", variant, format))),
         Effect.catchTag("ImageTransformError", (err) =>
           Effect.gen(function* () {
@@ -111,18 +131,19 @@ function serveTransformedImage(args: {
           }),
         ),
       );
+      response = new Response(served.bytes, { headers: imageResponseHeaders(served.contentType) });
     } else {
+      // Original-serve path (no Images binding — local/dev/tests, or an account
+      // without the Images product): STREAM R2's body straight into the Response
+      // instead of buffering the whole (≤5 MB) image in Worker memory (IB-P-I2).
+      // `response.clone()` below tees the stream, so the Cache API `put` and the
+      // returned body each get an independent copy.
+      const streamed = yield* fetchAssetStream(key);
       metricImageTransform("original", variant, format);
+      response = new Response(streamed.body, {
+        headers: imageResponseHeaders(streamed.contentType),
+      });
     }
-
-    const response = new Response(served.bytes, {
-      headers: {
-        "Content-Type": served.contentType,
-        "X-Content-Type-Options": "nosniff",
-        "Cache-Control": "public, max-age=31536000, immutable",
-        Vary: "Accept",
-      },
-    });
 
     if (cache && cacheKey) {
       const put = cache.put(cacheKey, response.clone());

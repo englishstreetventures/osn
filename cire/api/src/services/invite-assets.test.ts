@@ -8,6 +8,7 @@ import {
   deleteAsset,
   detectImageType,
   fetchAsset,
+  fetchAssetStream,
   storeAsset,
 } from "./invite-assets";
 
@@ -58,6 +59,52 @@ describe("invite-assets R2 round-trip", () => {
     const stub = createAssetsStub();
     const exit = await Effect.runPromiseExit(
       fetchAsset("assets/missing").pipe(Effect.provideService(AssetsR2Service, stub)),
+    );
+    expect(exit._tag).toBe("Failure");
+  });
+});
+
+describe("fetchAssetStream (IB-P-I2 — original-serve streaming)", () => {
+  it("streams the stored bytes (via Response body) preserving content type", async () => {
+    const stub = createAssetsStub();
+    const { contentType, bytes } = await Effect.runPromise(
+      Effect.gen(function* () {
+        const key = yield* storeAsset("wed_y", "story", buf(JPEG), "image/jpeg");
+        const streamed = yield* fetchAssetStream(key);
+        // Drain the stream the way the serve route hands it to `new Response(body)`.
+        const collected = yield* Effect.promise(() => new Response(streamed.body).arrayBuffer());
+        return { contentType: streamed.contentType, bytes: collected };
+      }).pipe(Effect.provideService(AssetsR2Service, stub)),
+    );
+    expect(contentType).toBe("image/jpeg");
+    expect(new Uint8Array(bytes)).toEqual(JPEG);
+  });
+
+  it("falls back to buffering when the object exposes no streaming body", async () => {
+    // A minimal backend that only implements `arrayBuffer()` — no `.body`.
+    const bufferOnly = {
+      put: () => Promise.resolve(),
+      get: (_key: string) => ({
+        arrayBuffer: () => Promise.resolve(buf(PNG)),
+        httpMetadata: { contentType: "image/png" },
+      }),
+      delete: () => Promise.resolve(),
+    };
+    const out = await Effect.runPromise(
+      Effect.gen(function* () {
+        const streamed = yield* fetchAssetStream("assets/whatever");
+        const collected = yield* Effect.promise(() => new Response(streamed.body).arrayBuffer());
+        return { contentType: streamed.contentType, bytes: collected };
+      }).pipe(Effect.provideService(AssetsR2Service, bufferOnly)),
+    );
+    expect(out.contentType).toBe("image/png");
+    expect(new Uint8Array(out.bytes)).toEqual(PNG);
+  });
+
+  it("fails fetchAssetStream for a missing key", async () => {
+    const stub = createAssetsStub();
+    const exit = await Effect.runPromiseExit(
+      fetchAssetStream("assets/missing").pipe(Effect.provideService(AssetsR2Service, stub)),
     );
     expect(exit._tag).toBe("Failure");
   });

@@ -19,6 +19,13 @@ export type AssetSlotLabel = InviteImageSlot | "event";
 // implements just these methods.
 export interface AssetObjectBody {
   arrayBuffer(): Promise<ArrayBuffer>;
+  // R2's `R2ObjectBody` exposes the unread object as a `ReadableStream` — the
+  // serve path that returns the ORIGINAL bytes (no Images transform) streams this
+  // straight into the `Response` rather than buffering the whole image in Worker
+  // memory (IB-P-I2). Optional so a minimal stub (or a non-R2 backend) that only
+  // implements `arrayBuffer()` still satisfies the interface — the streaming
+  // fetch falls back to buffering when it's absent.
+  readonly body?: ReadableStream<Uint8Array> | null;
   readonly httpMetadata?: { contentType?: string };
 }
 
@@ -87,6 +94,51 @@ export function fetchAsset(key: string): Effect.Effect<StoredAsset, AssetR2Error
         if (!obj) return null;
         const bytes = await obj.arrayBuffer();
         return { bytes, contentType: obj.httpMetadata?.contentType ?? "application/octet-stream" };
+      },
+      catch: (cause) => new AssetR2Error({ reason: "fetch failed", key, cause }),
+    });
+    if (result === null) {
+      return yield* Effect.fail(new AssetR2Error({ reason: "key not found", key }));
+    }
+    return result;
+  }).pipe(Effect.withSpan("cire.invite.fetchAsset"));
+}
+
+/**
+ * A served image as a STREAM rather than a buffered `ArrayBuffer`. `body` is fed
+ * straight into a `Response`, so the (≤5 MB) image is never fully materialised in
+ * Worker memory — used by the original-serve path (no Images transform). The
+ * transform path still needs the bytes buffered (it feeds them through the Images
+ * binding + sniffs nothing here), so it keeps {@link fetchAsset}.
+ */
+export interface StreamedAsset {
+  body: ReadableStream<Uint8Array>;
+  contentType: string;
+}
+
+/**
+ * Fetch an image as a STREAM for the original-serve path (IB-P-I2). Returns R2's
+ * `obj.body` `ReadableStream` directly so the bytes flow object→Response without a
+ * full-image buffer in Worker memory. When the underlying object exposes no `body`
+ * (a minimal test stub, or a non-R2 backend), it falls back to buffering via
+ * `arrayBuffer()` and wrapping the bytes in a one-shot stream — same observable
+ * result, just without the streaming win. Fails when the key is absent.
+ */
+export function fetchAssetStream(
+  key: string,
+): Effect.Effect<StreamedAsset, AssetR2Error, AssetsR2Service> {
+  return Effect.gen(function* () {
+    const bucket = yield* AssetsR2Service;
+    const result = yield* Effect.tryPromise({
+      try: async () => {
+        const obj = await Promise.resolve(bucket.get(key));
+        if (!obj) return null;
+        const contentType = obj.httpMetadata?.contentType ?? "application/octet-stream";
+        // Prefer R2's streaming body; fall back to a buffered one-shot stream when
+        // the backend/stub doesn't expose one.
+        const body = obj.body ?? new Response(await obj.arrayBuffer()).body;
+        if (!body) throw new Error("asset object exposed no readable body");
+        return { body, contentType };
       },
       catch: (cause) => new AssetR2Error({ reason: "fetch failed", key, cause }),
     });
@@ -195,6 +247,12 @@ export function createAssetsStub(): AssetsBucket & {
       if (!v) return null;
       return {
         arrayBuffer: () => Promise.resolve(v.bytes),
+        // Mirror R2's streaming `body` so the original-serve path (IB-P-I2) is
+        // exercised against the stub exactly as it is against R2 — each `get`
+        // mints a fresh one-shot stream over the stored bytes.
+        get body() {
+          return new Response(v.bytes).body;
+        },
         httpMetadata: { contentType: v.contentType },
       };
     },

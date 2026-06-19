@@ -134,9 +134,10 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
             }
 
             // Ownership + invitation already validated above — service method does
-            // not re-check.
-            for (const rsvp of body.rsvps) {
-              yield* rsvpService.submitRsvp({
+            // not re-check. Upsert the whole batch in ONE D1 round-trip (P-W1)
+            // instead of N sequential ones on the guest hot path.
+            yield* rsvpService.submitRsvps(
+              body.rsvps.map((rsvp) => ({
                 guestId: rsvp.guestId,
                 eventId: rsvp.eventId,
                 status: rsvp.status,
@@ -144,8 +145,8 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
                 // Only stamp a consent record when there is special-category
                 // data to authorise; clearing dietary clears the record too.
                 dietaryConsent: rsvp.dietary.length > 0 && rsvp.dietaryConsent,
-              });
-            }
+              })),
+            );
 
             yield* Effect.sync(() => metricRsvpBatchSize(body.rsvps.length));
 

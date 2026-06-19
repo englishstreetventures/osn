@@ -4,7 +4,7 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-06-20
 ---
 
 # Performance Backlog
@@ -25,7 +25,7 @@ Branch-scoped IDs (distinct from the numbered items below).
 - [x] **IB-P-W2** (fixed PR #112) — Custom hero image was invisible to the preload scanner. Fixed: `index.astro` emits `<link rel="preload" as="image">` for the build-resolved hero image (immutably cached).
 - [x] **IB-P-W3** (fixed PR #112) — `getForWeddingId` now does one `weddings LEFT JOIN wedding_invite_customisations` query (was slug-lookup + customisation-lookup); `upsertText` / `removeImage` re-call it after the write (now write + 1 join).
 - [x] **IB-P-I1** (fixed PR #112) — `imageKeyForSlug` now uses a single `LEFT JOIN` keyed on `weddings.slug`: a missing weddings row is the 404, a null-joined customisation is "no image yet" — one round-trip.
-- [ ] **IB-P-I2** — `fetchAsset` (`cire/api/src/services/invite-assets.ts`) materialises the full image via `obj.arrayBuffer()` (≤5 MB held in Worker memory) rather than streaming R2's `obj.body` into the `Response`. Bounded by the cap + CDN caching, hence Info. Fix on serve path only (upload buffering is needed for the magic-byte sniff).
+- [x] **IB-P-I2** — Stream the served ORIGINAL image instead of buffering. The no-transform serve path (no Images binding, or an account without the product) now uses `fetchAssetStream` to pipe R2's `obj.body` `ReadableStream` straight into the `Response`, so a ≤5 MB image is never fully materialised in Worker memory; `response.clone()` tees the stream so the Cache-API `put` and the returned body each get a copy. The Images **transform** path is deliberately unchanged — the binding needs the bytes buffered (`fetchAsset` → `input(stream-over-bytes)`), and a transform-failure fallback serves those same already-buffered bytes. `AssetObjectBody.body` is optional, so a non-R2 backend that only implements `arrayBuffer()` falls back to a buffered one-shot stream (same result, no streaming win). Existing serve-route tests (assert served bytes == original) + new `fetchAssetStream` unit tests cover it. (cire-hotpath-perf branch)
 
 ### Account linking (guest → OSN/Pulse) — review notes (Info, no action)
 
@@ -44,10 +44,10 @@ Branch-scoped IDs (distinct from the numbered items below).
 - [ ] PBKDF2 100k iterations + dummy-hash-on-miss is ~20-40ms per request on Workers. Pairs with rate limiting (above) before public launch — once that's in place, consider lowering iterations to 25-50k for a wedding-scale threat model.
 - [ ] `getAllGuests` paginate / cursor once organiser UI is built — current single-join is fine at 100 guests, problematic past a few thousand
 - [x] **P-C1** — `applyImport` commits its write set as a single atomic `db.batch([...])` on D1 (one round-trip, all-or-nothing) instead of N sequential awaited statements; bun:sqlite (no `.batch()`) keeps the sequential path. Driver-branched in `commitWriteSet` (`services/import.ts`). Also closes the non-atomic partial-apply gap (S-L1). D1-batch atomicity covered by `src/db/d1-integration.test.ts`. (D1 runtime wiring branch)
-- [ ] **P-W1** — Batch `rsvpService.submitRsvp` upserts via a single multi-row `INSERT … ON CONFLICT` / `db.batch([...])` (currently N round-trips on the guest hot path). Deferred follow-up to the D1 wiring branch
-- [ ] **P-W2** — Pipeline `claim.lookup`'s independent D1 reads (guests+links, rsvps) via `Effect.all`; today sequential, ~1 extra round-trip on the hot path. Deferred follow-up to the D1 wiring branch
+- [x] **P-W1** — Batch `rsvpService.submitRsvp` upserts (was N sequential D1 round-trips on the guest hot path). New `rsvpService.submitRsvps([...])` builds one `INSERT … ON CONFLICT DO UPDATE` per pair and commits them as a single `db.batch([...])` via `commitBatch` — atomic, one Workers↔D1 round-trip on D1; sequential in-process on bun:sqlite (no `.batch()`), mirroring `applyImport`. `submitRsvp` is now a thin single-element wrapper, so semantics (per-pair upsert + Art. 9(2)(a) dietary-consent stamping) + per-pair `metricRsvpUpserted` are identical. The `POST /api/rsvp` loop is replaced by one `submitRsvps` call. Savings: a family RSVPing to N (guest×event) pairs drops from N D1 round-trips to 1. New batch tests (multi guest×event, in-place upsert, per-pair consent, empty no-op). (cire-hotpath-perf branch)
+- [x] **P-W2** — Pipeline `claim.lookup`'s independent D1 reads via `Effect.all({...}, { concurrency: "unbounded" })`. After the required family-by-publicId read, the three reads keyed only off `family` (wedding slug, guests+event-memberships, this family's rsvps) now issue together instead of serially — ~1 fewer serial round-trip on the guest hot path (no-op concurrency on bun:sqlite, in-process). The events read stays sequential after — it depends on the event ids derived from the guest rows. Response shape is byte-identical (existing claim.lookup tests pass unchanged). (cire-hotpath-perf branch)
 - [ ] Landing page animations must not block LCP — defer Motion One until after first paint
-- [ ] Hero photo must be optimised (WebP/AVIF, responsive srcset)
+- [x] Hero photo must be optimised (WebP/AVIF, responsive srcset) — CONFIRMED already done. The image serve route negotiates a modern output format per request via `negotiateFormat` (`Accept`-driven AVIF → WebP → JPEG fallback, on the metric/span as a bounded value) and the Cloudflare Images binding emits it; the frontend renders responsively via `buildSrcSet` (the `thumb`/`card`/`hero` width variants) — `InviteHeader.tsx` (hero + event images) + `EventCard.tsx` — and the hero LCP element is preloaded with `imagesrcset`/`imagesizes` in `InviteDocument.astro`. Nothing missing.
 - [x] Add-to-calendar data should not require a round-trip if event data is already hydrated in the page (PR-G — `googleCalendarUrl` + `icsBlob` are pure client-side helpers consuming the existing claim payload)
 - [x] .ics generation can be client-side to avoid unnecessary Worker invocation (PR-G — `cire/web/src/components/calendar.ts` builds the VCALENDAR in the browser; no Worker route added)
 - [ ] Organiser `ImportPanel` re-fetches events on every tab switch — cache the events response (or lift it to the dashboard shell) so switching Guests ↔ Events doesn't refire the request. Minor; noticed during the OSN-merge E2E pass.

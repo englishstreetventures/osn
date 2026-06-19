@@ -186,6 +186,146 @@ describe("rsvpService.submitRsvp", () => {
   );
 });
 
+describe("rsvpService.submitRsvps (P-W1 — batched upserts)", () => {
+  it(
+    "upserts multiple guests × events in one batch, preserving status + dietary",
+    withDb(
+      Effect.gen(function* () {
+        const bo = yield* lookupGuest("Bo");
+        const cleo = yield* lookupGuest("Cleo");
+
+        yield* rsvpService.submitRsvps([
+          {
+            guestId: bo.id,
+            eventId: HINDU_ID,
+            status: "attending",
+            dietary: "",
+            dietaryConsent: false,
+          },
+          {
+            guestId: bo.id,
+            eventId: RECEPTION_ID,
+            status: "declined",
+            dietary: "",
+            dietaryConsent: false,
+          },
+          {
+            guestId: cleo.id,
+            eventId: HINDU_ID,
+            status: "maybe",
+            dietary: "Vegan, no shellfish",
+            dietaryConsent: true,
+          },
+        ]);
+
+        const rsvps = yield* rsvpService.getRsvpsForFamily(bo.familyId);
+        expect(rsvps).toHaveLength(3);
+
+        const byPair = new Map(rsvps.map((r) => [`${r.guestId}::${r.eventId}`, r]));
+        expect(byPair.get(`${bo.id}::${HINDU_ID}`)?.status).toBe("attending");
+        expect(byPair.get(`${bo.id}::${RECEPTION_ID}`)?.status).toBe("declined");
+        const cleoHindu = byPair.get(`${cleo.id}::${HINDU_ID}`);
+        expect(cleoHindu?.status).toBe("maybe");
+        expect(cleoHindu?.dietary).toBe("Vegan, no shellfish");
+      }),
+    ),
+  );
+
+  it(
+    "is upsert-correct within a batch — a (guest,event) pair already present is updated in place, not duplicated",
+    withDb(
+      Effect.gen(function* () {
+        const ada = yield* lookupGuest("Ada");
+
+        // Seed an attending RSVP, then re-submit the SAME pair in a batch as
+        // declined alongside a fresh pair.
+        yield* rsvpService.submitRsvps([
+          {
+            guestId: ada.id,
+            eventId: HINDU_ID,
+            status: "attending",
+            dietary: "",
+            dietaryConsent: false,
+          },
+        ]);
+        yield* rsvpService.submitRsvps([
+          {
+            guestId: ada.id,
+            eventId: HINDU_ID,
+            status: "declined",
+            dietary: "",
+            dietaryConsent: false,
+          },
+          {
+            guestId: ada.id,
+            eventId: RECEPTION_ID,
+            status: "attending",
+            dietary: "",
+            dietaryConsent: false,
+          },
+        ]);
+
+        const rsvps = yield* rsvpService.getRsvpsForFamily(ada.familyId);
+        const hindu = rsvps.filter((r) => r.eventId === HINDU_ID);
+        expect(hindu).toHaveLength(1);
+        expect(hindu[0]!.status).toBe("declined");
+        expect(rsvps).toHaveLength(2);
+      }),
+    ),
+  );
+
+  it(
+    "stamps the consent record per-pair within a batch (set for the consented pair, null for the rest)",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const ada = yield* lookupGuest("Ada");
+
+        yield* rsvpService.submitRsvps([
+          {
+            guestId: ada.id,
+            eventId: HINDU_ID,
+            status: "attending",
+            dietary: "Coeliac",
+            dietaryConsent: true,
+          },
+          {
+            guestId: ada.id,
+            eventId: RECEPTION_ID,
+            status: "attending",
+            dietary: "",
+            dietaryConsent: false,
+          },
+        ]);
+
+        const consentFor = (eventId: string) =>
+          db
+            .select({ at: rsvpsTable.dietaryConsentAt, version: rsvpsTable.dietaryConsentVersion })
+            .from(rsvpsTable)
+            .where(and(eq(rsvpsTable.guestId, ada.id), eq(rsvpsTable.eventId, eventId)))
+            .all()[0];
+
+        expect(consentFor(HINDU_ID)?.version).toBe(DIETARY_CONSENT_VERSION);
+        expect(consentFor(HINDU_ID)?.at).toBeInstanceOf(Date);
+        expect(consentFor(RECEPTION_ID)?.at).toBeNull();
+        expect(consentFor(RECEPTION_ID)?.version).toBeNull();
+      }),
+    ),
+  );
+
+  it(
+    "an empty batch is a no-op",
+    withDb(
+      Effect.gen(function* () {
+        const ada = yield* lookupGuest("Ada");
+        yield* rsvpService.submitRsvps([]);
+        const rsvps = yield* rsvpService.getRsvpsForFamily(ada.familyId);
+        expect(rsvps).toHaveLength(0);
+      }),
+    ),
+  );
+});
+
 describe("rsvpService.getRsvpsForFamily", () => {
   it(
     "returns all RSVPs across family members",
