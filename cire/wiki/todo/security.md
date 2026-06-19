@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-06-19
 ---
 
 # Security Backlog
@@ -34,6 +34,8 @@ Branch-scoped IDs (distinct from the numbered backlog below). See `[[wiki/system
 - [x] ~~Magic link tokens must be single-use and expire (≤15 min)~~ — **Obsolete**: no magic-link factor in the two-system auth model (guests use claim codes; organisers use OSN passkeys)
 - [x] `bun audit --audit-level=high` enforced on every push (lefthook pre-push)
 - [x] Upgrade Astro 5 → 6 + Vitest 3 → 4 + @astrojs/solid-js 3 → 6; clears `GHSA-737v-mqg7-c878` (defu) directly; root `overrides` pin `vite ^7.3.2` and `picomatch ^4.0.4` to clear `GHSA-v2wj-q39q-566r` + `GHSA-p9ff-h696-f583` (vite) + `GHSA-c2c7-rcm5-vvqj` (picomatch)
+- [x] Bump `astro` `^6.4.2` → `^6.4.6` in `cire/web` + `cire/organiser` (also `osn/landing`) to clear `GHSA-2pvr-wf23-7pc7` (**high** — Host-header SSRF in prerendered error-page fetch; `astro <6.4.6` did not validate request origin against `allowedDomains`) and bundled `GHSA-jrpj-wcv7-9fh9` (moderate XSS via unescaped spread-prop attribute names). Direct-dep bump, no override; 6.4.6 carries no breaking config/adapter changes. Resolved on the dep-security-bumps branch — see root `[[changelog/security-fixes]]`.
+- [x] Force `undici` `^7.28.0` via root `overrides` to clear `GHSA-vmh5-mc38-953g` (**high** — TLS cert-validation bypass via dropped `requestTls` in SOCKS5 `ProxyAgent`) + bundled `GHSA-pr7r-676h-xcf6` (moderate shared-cache info disclosure). Pulled transitively into `@cire/api` (`miniflare@4` pins `undici@7.24.8`) and `@cire/web` (`jsdom@29` → `undici@7.27.2`); the miniflare pin means the override is the only minimal fix. Test/build-tooling-only, no deployed-Worker path. Resolved on the dep-security-bumps branch — see root `[[changelog/security-fixes]]`.
 - [ ] Re-run `bun install` once devalue 5.8.1+ ages past `minimumReleaseAge` (3 days) and drop the last `--ignore=GHSA-77vg-94rm-hx3p` from `lefthook.yml`
 - [x] Bump hono to `^4.12.18` — closed cookie name validation, JSX HTML injection, serveStatic slash bypass, IPv4-mapped IPv6 in `ipRestriction()` (PR #25)
 - [ ] Bump transitive `smol-toml ^1.6.1+`, `postcss ^8.5.10+`, `esbuild >0.24.2` once their upstream dependents allow it — 3 remaining transitive `moderate` advisories. None affect production paths today (smol-toml is via wrangler, postcss via tailwind/vite, esbuild dev-server only) but worth tracking.

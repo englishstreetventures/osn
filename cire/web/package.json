@@ -11,7 +11,7 @@
   "dependencies": {
     "@astrojs/solid-js": "^6.0.1",
     "@tailwindcss/vite": "^4.3.0",
-    "astro": "^6.4.2",
+    "astro": "^6.4.6",
     "motion": "^12.40.0",
     "solid-js": "^1.9.13",
     "tailwindcss": "^4.3.0"
