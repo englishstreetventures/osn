@@ -300,6 +300,21 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   storyBody: text("story_body"),
   heroImageKey: text("hero_image_key"),
   storyImageKey: text("story_image_key"),
+  // Hero display options (organiser choice). Both default to the values that
+  // reproduce TODAY's look, so an un-customised wedding renders exactly as
+  // before. `hero_image_style` picks which served variant the hero backdrop
+  // requests: `blurred` ⇒ the soft `hero-bg` backdrop (current behaviour);
+  // `regular` ⇒ the sharp full-bleed `hero` variant. `hero_title_backdrop`
+  // controls the legibility panel behind the hero title block: `none` ⇒ just the
+  // radial scrim (current); `solid` ⇒ a translucent panel so the title reads over
+  // a busy photo. Both are a closed enum, validated in
+  // `cire/api/src/schemas/invite.ts` before they reach the guest site.
+  heroImageStyle: text("hero_image_style", { enum: ["blurred", "regular"] })
+    .notNull()
+    .default("blurred"),
+  heroTitleBackdrop: text("hero_title_backdrop", { enum: ["none", "solid"] })
+    .notNull()
+    .default("none"),
   // Per-section presentation theme. All columns are nullable ⇒ "use the built-in
   // default token". Fonts are a closed enum validated in
   // `cire/api/src/schemas/invite.ts` (never a free-text font URL — that's a perf

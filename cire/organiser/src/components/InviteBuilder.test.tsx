@@ -41,6 +41,7 @@ function json(body: unknown, status = 200) {
 const EMPTY_CUSTOMISATION = {
   hero: { title: null, subtitle: null, imageUrl: null },
   story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+  heroDisplay: { imageStyle: "blurred", titleBackdrop: "none" },
   theme: {
     headingFont: null,
     bodyFont: null,
@@ -100,7 +101,46 @@ describe("InviteBuilder theme", () => {
     expect(sent.heroAccentColor).toBe("#112233");
     // Untouched fonts collapse to null ("default" ⇒ keep the built-in token).
     expect(sent.bodyFont).toBeNull();
+    // Hero display options ride on the same PUT, defaulting to today's look.
+    expect(sent.heroImageStyle).toBe("blurred");
+    expect(sent.heroTitleBackdrop).toBe("none");
     await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+  });
+
+  it("seeds the hero display toggles from the loaded customisation", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        ...EMPTY_CUSTOMISATION,
+        heroDisplay: { imageStyle: "regular", titleBackdrop: "solid" },
+      }),
+    );
+    render(() => <InviteBuilder weddingId="wed_1" />);
+
+    await waitFor(() => screen.getByText("Save theme"));
+    // The selected option in each radio group reflects the loaded value.
+    expect(
+      (screen.getByRole("radio", { name: "Regular" }) as HTMLElement).getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      (screen.getByRole("radio", { name: "Solid" }) as HTMLElement).getAttribute("aria-checked"),
+    ).toBe("true");
+  });
+
+  it("PUTs the chosen hero display options on Save theme", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
+
+    render(() => <InviteBuilder weddingId="wed_1" />);
+    await waitFor(() => screen.getByText("Save theme"));
+
+    fireEvent.click(screen.getByRole("radio", { name: "Regular" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Solid" }));
+    fireEvent.click(screen.getByText("Save theme"));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    const sent = JSON.parse(authFetchMock.mock.calls[1][1].body as string);
+    expect(sent.heroImageStyle).toBe("regular");
+    expect(sent.heroTitleBackdrop).toBe("solid");
   });
 
   it("seeds a null font as 'default' and sends a cleared colour as null", async () => {

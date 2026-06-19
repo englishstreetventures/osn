@@ -140,6 +140,8 @@ CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
   story_body TEXT,
   hero_image_key TEXT,
   story_image_key TEXT,
+  hero_image_style TEXT NOT NULL DEFAULT 'blurred',
+  hero_title_backdrop TEXT NOT NULL DEFAULT 'none',
   theme_heading_font TEXT,
   theme_body_font TEXT,
   hero_accent_color TEXT,

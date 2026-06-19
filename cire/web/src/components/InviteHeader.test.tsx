@@ -51,11 +51,16 @@ const EMPTY_THEME = {
   details: { accentColor: null, surfaceColor: null },
 } as const;
 
+// Today's-look hero display defaults — every fixture spreads this unless a test
+// is specifically exercising a non-default option.
+const DEFAULT_HERO_DISPLAY = { imageStyle: "blurred", titleBackdrop: "none" } as const;
+
 describe("InviteHeader render", () => {
   it("requests the blurred hero-bg backdrop variant for the hero image (T-M2)", async () => {
     const initial: InviteCustomisation = {
       hero: { title: null, subtitle: null, imageUrl: "/api/invite/s/image/hero?v=123" },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
       theme: EMPTY_THEME,
     };
     // Keep the build-time data: a failed revalidation must not wipe the hero.
@@ -85,6 +90,7 @@ describe("InviteHeader render", () => {
     const initial: InviteCustomisation = {
       hero: { title: "A & B", subtitle: null, imageUrl: "/api/invite/s/image/hero?v=1" },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
       theme: EMPTY_THEME,
     };
     vi.stubGlobal(
@@ -114,6 +120,7 @@ describe("InviteHeader render", () => {
     const initial: InviteCustomisation = {
       hero: { title: "A & B", subtitle: null, imageUrl: "/api/invite/s/image/hero?v=404" },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
       theme: EMPTY_THEME,
     };
     vi.stubGlobal(
@@ -143,6 +150,7 @@ describe("InviteHeader render", () => {
     const initial: InviteCustomisation = {
       hero: { title: "A & B", subtitle: null, imageUrl: null },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
       theme: { ...EMPTY_THEME, hero: { accentColor: "#d4af37", surfaceColor: null } },
     };
     vi.stubGlobal(
@@ -166,6 +174,7 @@ describe("InviteHeader render", () => {
     const initial: InviteCustomisation = {
       hero: { title: null, subtitle: "   ", imageUrl: null },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
       theme: EMPTY_THEME,
     };
     vi.stubGlobal(
@@ -186,6 +195,7 @@ describe("InviteHeader render", () => {
     const initial: InviteCustomisation = {
       hero: { title: "A & B", subtitle: null, imageUrl: null },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
       theme: EMPTY_THEME,
     };
     vi.stubGlobal(
@@ -206,6 +216,7 @@ describe("InviteHeader render", () => {
     const initial: InviteCustomisation = {
       hero: { title: null, subtitle: null, imageUrl: "/api/invite/s/image/hero?v=1" },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
       theme: EMPTY_THEME,
     };
     vi.stubGlobal(
@@ -226,6 +237,7 @@ describe("InviteHeader render", () => {
       hero: { title: "A & B", subtitle: null, imageUrl: null },
       // Eyebrow alone does NOT keep the story alive.
       story: { eyebrow: "Our Story", heading: "  ", body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
       theme: EMPTY_THEME,
     };
     vi.stubGlobal(
@@ -247,6 +259,7 @@ describe("InviteHeader render", () => {
     const initial: InviteCustomisation = {
       hero: { title: "A & B", subtitle: null, imageUrl: null },
       story: { eyebrow: null, heading: null, body: "We met long ago.", imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
       theme: EMPTY_THEME,
     };
     vi.stubGlobal(
@@ -267,6 +280,7 @@ describe("InviteHeader render", () => {
     const initial: InviteCustomisation = {
       hero: { title: "A & B", subtitle: null, imageUrl: null },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
       theme: {
         ...EMPTY_THEME,
         hero: { accentColor: "red;background:url(https://evil.example)", surfaceColor: null },
@@ -286,5 +300,161 @@ describe("InviteHeader render", () => {
     });
     const section = container.querySelector("section") as HTMLElement;
     expect(section.style.getPropertyValue("--invite-accent")).toBe("");
+  });
+
+  // ── SSR-hydration visibility fix ──────────────────────────────────────────
+
+  it("reveals the hero when the image is ALREADY complete on hydrate (SSR race)", async () => {
+    // On an SSR page the browser can finish loading the server-rendered <img>
+    // BEFORE the island hydrates, so the `load` event never reaches onLoad. The
+    // ref check in onMount must catch this `complete && naturalWidth > 0` case
+    // and reveal the image — otherwise it stays at opacity 0 forever (the live
+    // bug). Force both getters true so the mount check sees an already-loaded img.
+    const completeSpy = vi
+      .spyOn(HTMLImageElement.prototype, "complete", "get")
+      .mockReturnValue(true);
+    const widthSpy = vi
+      .spyOn(HTMLImageElement.prototype, "naturalWidth", "get")
+      .mockReturnValue(1600);
+
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: "/api/invite/s/image/hero?v=1" },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { container } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    // No `load` event is ever dispatched here — the only way it becomes visible
+    // is the onMount complete-check.
+    await waitFor(() => {
+      const img = container.querySelector("section img") as HTMLImageElement;
+      expect(img?.style.opacity).toBe("1");
+    });
+
+    completeSpy.mockRestore();
+    widthSpy.mockRestore();
+  });
+
+  it("does NOT hide an already-shown hero when revalidation returns the same url", async () => {
+    // The on-mount no-store revalidation returns the SAME customisation. The
+    // re-arm effect must NOT reset a shown image back to pending (opacity 0):
+    // the <img src> is unchanged, so the browser would never re-fire `load` and
+    // it'd be stuck invisible. This is the second half of the live bug.
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: "/api/invite/s/image/hero?v=1" },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+    // Revalidation resolves with the identical payload (a real same-url refresh).
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(initial), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    const { container } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    let img!: HTMLImageElement;
+    await waitFor(() => {
+      img = container.querySelector("section img") as HTMLImageElement;
+      expect(img).not.toBeNull();
+    });
+    // Load it (the not-yet-loaded path).
+    img.dispatchEvent(new Event("load"));
+    await waitFor(() => expect(img.style.opacity).toBe("1"));
+
+    // Let the revalidation settle, then assert it's STILL visible (not reset to 0).
+    await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 0));
+    expect((container.querySelector("section img") as HTMLImageElement).style.opacity).toBe("1");
+  });
+
+  // ── Feature 1: blurred vs regular hero image ──────────────────────────────
+
+  it("requests the SHARP `hero` variant when imageStyle is regular (Feature 1)", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: null, subtitle: null, imageUrl: "/api/invite/s/image/hero?v=9" },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: { imageStyle: "regular", titleBackdrop: "none" },
+      theme: EMPTY_THEME,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { container } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    await waitFor(() => expect(container.querySelector("section img")).not.toBeNull());
+    const img = container.querySelector("section img") as HTMLImageElement;
+    // Regular ⇒ the un-blurred full-bleed `hero` variant (not `hero-bg`).
+    expect(img.getAttribute("src")).toBe(
+      "https://api.test/api/invite/s/image/hero?v=9&variant=hero",
+    );
+  });
+
+  // ── Feature 2: hero title backdrop ────────────────────────────────────────
+
+  it("renders a solid title panel when titleBackdrop is solid (Feature 2)", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: { imageStyle: "blurred", titleBackdrop: "solid" },
+      theme: EMPTY_THEME,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    const title = await waitFor(() => getByText("A & B"));
+    // The title's wrapper panel carries a background colour (the legibility panel);
+    // with `none` it would have no inline background.
+    const panel = title.parentElement as HTMLElement;
+    expect(panel.style.getPropertyValue("background-color")).not.toBe("");
+  });
+
+  it("renders NO title panel background by default (titleBackdrop none)", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    const title = await waitFor(() => getByText("A & B"));
+    const panel = title.parentElement as HTMLElement;
+    expect(panel.style.getPropertyValue("background-color")).toBe("");
   });
 });

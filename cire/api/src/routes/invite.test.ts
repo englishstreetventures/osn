@@ -611,6 +611,8 @@ describe("PUT /invite/theme (organiser)", () => {
     storySurfaceColor: null,
     detailsAccentColor: "rgb(212, 175, 55)",
     detailsSurfaceColor: null,
+    heroImageStyle: "blurred",
+    heroTitleBackdrop: "none",
   };
 
   it("401s without a token", async () => {
@@ -756,5 +758,100 @@ describe("PUT /invite/theme (organiser)", () => {
     const pub = await appRequest(app, `/api/invite/${SLUG}`);
     const body = (await pub.json()) as { theme: { headingFont: string | null } };
     expect(body.theme.headingFont).toBeNull();
+  });
+});
+
+describe("hero display options", () => {
+  const validTheme = {
+    headingFont: "default",
+    bodyFont: "default",
+    heroAccentColor: null,
+    heroSurfaceColor: null,
+    storyAccentColor: null,
+    storySurfaceColor: null,
+    detailsAccentColor: null,
+    detailsSurfaceColor: null,
+    heroImageStyle: "blurred",
+    heroTitleBackdrop: "none",
+  };
+
+  it("defaults to blurred / none on a never-customised wedding", async () => {
+    const { app } = buildApp();
+    const pub = await appRequest(app, `/api/invite/${SLUG}`);
+    const body = (await pub.json()) as {
+      heroDisplay: { imageStyle: string; titleBackdrop: string };
+    };
+    expect(body.heroDisplay.imageStyle).toBe("blurred");
+    expect(body.heroDisplay.titleBackdrop).toBe("none");
+  });
+
+  it("persists regular / solid and surfaces them on the public read", async () => {
+    const { app } = buildApp();
+    const put = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({
+        ...validTheme,
+        heroImageStyle: "regular",
+        heroTitleBackdrop: "solid",
+      }),
+    });
+    expect(put.status).toBe(200);
+
+    const pub = await appRequest(app, `/api/invite/${SLUG}`);
+    const body = (await pub.json()) as {
+      heroDisplay: { imageStyle: string; titleBackdrop: string };
+    };
+    expect(body.heroDisplay.imageStyle).toBe("regular");
+    expect(body.heroDisplay.titleBackdrop).toBe("solid");
+  });
+
+  it("echoes the saved hero display back on the organiser theme PUT response", async () => {
+    const { app } = buildApp();
+    const put = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({
+        ...validTheme,
+        heroImageStyle: "regular",
+        heroTitleBackdrop: "solid",
+      }),
+    });
+    const body = (await put.json()) as {
+      heroDisplay: { imageStyle: string; titleBackdrop: string };
+    };
+    expect(body.heroDisplay.imageStyle).toBe("regular");
+    expect(body.heroDisplay.titleBackdrop).toBe("solid");
+  });
+
+  it("rejects an unknown hero image style with 400 (closed enum)", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...validTheme, heroImageStyle: "sepia" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an unknown title backdrop with 400 (closed enum)", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...validTheme, heroTitleBackdrop: "frosted" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a body missing heroImageStyle with 400 (total body)", async () => {
+    const { app } = buildApp();
+    const { heroImageStyle: _omit, ...withoutStyle } = validTheme;
+    const res = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify(withoutStyle),
+    });
+    expect(res.status).toBe(400);
   });
 });

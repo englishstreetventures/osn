@@ -1,4 +1,4 @@
-import { createEffect, createResource, createSignal, Show } from "solid-js";
+import { createEffect, createResource, createSignal, onMount, Show } from "solid-js";
 
 import { isHeroEmpty, isStoryEmpty } from "./invite-emptiness";
 import { type InviteTheme, sectionThemeVars } from "./invite-theme";
@@ -53,6 +53,23 @@ const STORY_SURFACE = {
   "font-family": "var(--invite-body, var(--font-body))",
 };
 
+/**
+ * Hero display options the organiser picked, as they arrive from the public
+ * invite endpoint. Always concrete (the API coalesces a missing row to the
+ * today's-look default), but typed defensively as a closed union of strings —
+ * an unknown value (stale client / future option) falls through to the current
+ * look. Mirrors `HeroDisplay` in `cire/api/src/services/invite.ts`.
+ *
+ *  - `imageStyle`: `"blurred"` ⇒ the soft `hero-bg` backdrop (default — today's
+ *    look); `"regular"` ⇒ the sharp full-bleed `hero` variant.
+ *  - `titleBackdrop`: `"none"` ⇒ just the radial scrim (default); `"solid"` ⇒ a
+ *    translucent panel behind the title block for legibility over a busy photo.
+ */
+export interface HeroDisplay {
+  imageStyle: "blurred" | "regular";
+  titleBackdrop: "none" | "solid";
+}
+
 export interface InviteCustomisation {
   hero: { title: string | null; subtitle: string | null; imageUrl: string | null };
   story: {
@@ -61,6 +78,7 @@ export interface InviteCustomisation {
     body: string | null;
     imageUrl: string | null;
   };
+  heroDisplay: HeroDisplay;
   theme: InviteTheme;
 }
 
@@ -105,6 +123,16 @@ export default function InviteHeader(props: InviteHeaderProps) {
   const hero = () => data()?.hero;
   const story = () => data()?.story;
   const theme = () => data()?.theme ?? null;
+  // Hero display options (organiser choice), defaulting to today's look when the
+  // field is absent (older API / mid-deploy). `regular` swaps the soft `hero-bg`
+  // backdrop for the sharp full-bleed `hero` variant; `solid` adds a legibility
+  // panel behind the title block.
+  const heroImageStyle = () => data()?.heroDisplay?.imageStyle ?? "blurred";
+  const heroTitleBackdrop = () => data()?.heroDisplay?.titleBackdrop ?? "none";
+  // The served variant the hero backdrop requests, per the organiser's choice.
+  // Both variants exist + serve 200 in the API (IMAGE_VARIANTS); `hero-bg` is the
+  // server-blurred backdrop, `hero` the sharp 1600px full-bleed image.
+  const heroVariant = (): VariantName => (heroImageStyle() === "regular" ? "hero" : "hero-bg");
 
   // Per-section CSS-variable maps. Each only contains the variables the organiser
   // actually set (and that passed validation); an absent variable falls through
@@ -145,12 +173,52 @@ export default function InviteHeader(props: InviteHeaderProps) {
   type HeroState = "pending" | "loaded" | "error";
   const [heroState, setHeroState] = createSignal<HeroState>("pending");
 
-  // Re-arm the lifecycle whenever the backdrop URL changes (e.g. the on-mount
-  // revalidation swaps in a freshly uploaded image), so a new image isn't stuck
-  // at the previous load's terminal state.
+  // The full `src` the hero backdrop currently shows — variant-resolved, so a
+  // change of EITHER the base URL (a freshly uploaded image) OR the variant
+  // (organiser flips blurred↔regular) re-arms the lifecycle. Built once here so
+  // the <img src> and the re-arm effect can never disagree.
+  const heroBackdropSrc = (): string | null => {
+    const url = heroImageUrl();
+    return url ? variantSrc(url, heroVariant()) : null;
+  };
+
+  // SSR-hydration fix: on an SSR page the browser starts loading the server-
+  // rendered <img> during HTML parse, and its `load` event commonly fires BEFORE
+  // this Solid island hydrates and attaches `onLoad` — so `onLoad` would never
+  // run and the image stays at opacity 0 forever. We hold a ref and, on mount,
+  // check `complete && naturalWidth > 0`: if the browser already finished
+  // loading, mark it loaded immediately. `onLoad`/`onError` still cover the
+  // not-yet-loaded path.
+  let heroImgEl: HTMLImageElement | undefined;
+  const revealIfAlreadyLoaded = () => {
+    const el = heroImgEl;
+    if (el && el.complete && el.naturalWidth > 0) setHeroState("loaded");
+  };
+  onMount(revealIfAlreadyLoaded);
+
+  // Re-arm the lifecycle ONLY when the resolved backdrop src actually changes
+  // (a new upload or a variant flip). The on-mount no-store revalidation returns
+  // the SAME url, so without this guard it would reset a shown image back to
+  // `pending` (opacity 0) while the <img src> stays unchanged — meaning the
+  // browser never re-fires `load`, leaving it stuck invisible (the live bug). On
+  // a genuine src change we reset to `pending`; the new src fires a fresh `load`,
+  // and the ref-check below also catches an already-cached new src.
+  let prevHeroSrc: string | null | undefined;
   createEffect(() => {
-    heroImageUrl();
-    setHeroState("pending");
+    const src = heroBackdropSrc();
+    if (prevHeroSrc === undefined) {
+      // First run: adopt the SSR src without forcing pending (the onMount ref
+      // check owns the already-loaded case).
+      prevHeroSrc = src;
+      return;
+    }
+    if (src !== prevHeroSrc) {
+      prevHeroSrc = src;
+      setHeroState("pending");
+      // The new src may already be in the browser cache (so no `load` fires);
+      // re-check the ref after the DOM updates.
+      queueMicrotask(revealIfAlreadyLoaded);
+    }
   });
 
   return (
@@ -162,17 +230,21 @@ export default function InviteHeader(props: InviteHeaderProps) {
             class="absolute inset-0 bg-cover bg-center"
             style="background: linear-gradient(160deg, oklch(27.87% 0.0393 149.62) 0%, oklch(19.96% 0.0331 147.34) 40%, oklch(22.70% 0.0275 152.78) 100%);"
           />
-          {/* Custom background image as a BLURRED backdrop (the server-side `hero-bg`
-            variant), fading in over the gradient once decoded. On a failed load we
-            unmount it so the gradient base layer remains — never a blank hero. */}
-          <Show when={heroImageUrl()}>
-            {(url) => (
+          {/* Custom background image, fading in over the gradient once decoded. The
+            requested variant is the organiser's choice: `hero-bg` (server-blurred
+            soft backdrop, the default) or `hero` (sharp full-bleed). On a failed
+            load we unmount it so the gradient base layer remains — never a blank
+            hero. */}
+          <Show when={heroBackdropSrc()}>
+            {(src) => (
               <Show when={heroState() !== "error"}>
                 <img
-                  // Single blurred backdrop variant — blur abstracts detail, so one
-                  // 1600px width is enough; no responsive srcset needed. The blur
-                  // radius is a server constant keyed off this variant name.
-                  src={variantSrc(url(), "hero-bg")}
+                  ref={heroImgEl}
+                  // A single fixed-purpose variant (blurred backdrop or sharp full
+                  // image) — one 1600px width is enough, so no responsive srcset.
+                  // The blur radius (for `hero-bg`) is a server constant keyed off
+                  // the variant name, never sent from here.
+                  src={src()}
                   // Hero spans the full viewport width at every breakpoint.
                   sizes="100vw"
                   alt=""
@@ -189,51 +261,76 @@ export default function InviteHeader(props: InviteHeaderProps) {
             text). Slightly stronger at centre than the original gradient-only hero
             since a blurred photo can carry more mid-tone luminance than the dark
             default gradient — keeps WCAG contrast on the title. */}
-          <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[radial-gradient(ellipse_at_center,oklch(0%_0_0/0.3)_0%,oklch(0%_0_0/0.55)_100%)] px-[max(1.5rem,env(safe-area-inset-left))] py-[max(1.5rem,env(safe-area-inset-top))]">
-            <Show
-              when={hero()?.title}
-              fallback={
-                <div class="flex max-w-full items-center gap-3 select-none">
-                  <span
-                    class="font-display text-gold text-[clamp(4rem,12vw,8rem)] leading-none font-light italic"
-                    style={{ ...ACCENT_TEXT, ...HEADING_FONT }}
-                  >
-                    V
-                  </span>
-                  <span
-                    class="font-display text-gold-dim text-[clamp(2.5rem,7vw,5rem)] leading-none font-light italic"
-                    style={{ ...ACCENT_TEXT_DIM, ...HEADING_FONT }}
-                  >
-                    &amp;
-                  </span>
-                  <span
-                    class="font-display text-gold text-[clamp(4rem,12vw,8rem)] leading-none font-light italic"
-                    style={{ ...ACCENT_TEXT, ...HEADING_FONT }}
-                  >
-                    R
-                  </span>
-                </div>
+          <div class="absolute inset-0 flex flex-col items-center justify-center bg-[radial-gradient(ellipse_at_center,oklch(0%_0_0/0.3)_0%,oklch(0%_0_0/0.55)_100%)] px-[max(1.5rem,env(safe-area-inset-left))] py-[max(1.5rem,env(safe-area-inset-top))]">
+            {/* Title block. When the organiser picks the `solid` title backdrop we
+              wrap it in a translucent rounded panel (theme surface colour, falling
+              back to a dark scrim panel) so the title + monogram stay legible over
+              a busy/sharp photo. `none` (default) keeps just the radial scrim — the
+              original look — via a layout-only wrapper that adds no background.
+              TODO(future): auto contrast-check the title colour vs the image and
+              auto-enable the panel — see cire/wiki/todo/future.md. */}
+            <div
+              class="flex max-w-full flex-col items-center gap-4"
+              classList={{
+                "rounded-2xl px-[clamp(1.5rem,6vw,4rem)] py-[clamp(1.25rem,5vw,3rem)] backdrop-blur-sm":
+                  heroTitleBackdrop() === "solid",
+              }}
+              style={
+                heroTitleBackdrop() === "solid"
+                  ? {
+                      // Theme surface colour when set, else a translucent dark panel
+                      // that reads on any photo. The surface var is only emitted when
+                      // the organiser set a validated colour (see sectionThemeVars).
+                      "background-color": "var(--invite-surface, oklch(0% 0 0 / 0.45))",
+                    }
+                  : undefined
               }
             >
-              {(title) => (
-                <span
-                  class="font-display text-gold max-w-full text-center text-[clamp(3rem,10vw,7rem)] leading-none font-light break-words italic select-none"
-                  style={{ ...ACCENT_TEXT, ...HEADING_FONT }}
-                >
-                  {title()}
-                </span>
-              )}
-            </Show>
-            <Show when={hero()?.subtitle}>
-              {(subtitle) => (
-                <p
-                  class="font-body text-gold-dim max-w-full text-center text-[0.8rem] tracking-[0.25em] break-words uppercase"
-                  style={ACCENT_TEXT_DIM}
-                >
-                  {subtitle()}
-                </p>
-              )}
-            </Show>
+              <Show
+                when={hero()?.title}
+                fallback={
+                  <div class="flex max-w-full items-center gap-3 select-none">
+                    <span
+                      class="font-display text-gold text-[clamp(4rem,12vw,8rem)] leading-none font-light italic"
+                      style={{ ...ACCENT_TEXT, ...HEADING_FONT }}
+                    >
+                      V
+                    </span>
+                    <span
+                      class="font-display text-gold-dim text-[clamp(2.5rem,7vw,5rem)] leading-none font-light italic"
+                      style={{ ...ACCENT_TEXT_DIM, ...HEADING_FONT }}
+                    >
+                      &amp;
+                    </span>
+                    <span
+                      class="font-display text-gold text-[clamp(4rem,12vw,8rem)] leading-none font-light italic"
+                      style={{ ...ACCENT_TEXT, ...HEADING_FONT }}
+                    >
+                      R
+                    </span>
+                  </div>
+                }
+              >
+                {(title) => (
+                  <span
+                    class="font-display text-gold max-w-full text-center text-[clamp(3rem,10vw,7rem)] leading-none font-light break-words italic select-none"
+                    style={{ ...ACCENT_TEXT, ...HEADING_FONT }}
+                  >
+                    {title()}
+                  </span>
+                )}
+              </Show>
+              <Show when={hero()?.subtitle}>
+                {(subtitle) => (
+                  <p
+                    class="font-body text-gold-dim max-w-full text-center text-[0.8rem] tracking-[0.25em] break-words uppercase"
+                    style={ACCENT_TEXT_DIM}
+                  >
+                    {subtitle()}
+                  </p>
+                )}
+              </Show>
+            </div>
           </div>
         </section>
       </Show>

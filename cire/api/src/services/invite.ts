@@ -6,6 +6,8 @@ import { DbService, dbQuery } from "../db";
 import { metricInviteAssetUploaded, metricInviteSaved } from "../metrics";
 import type {
   FontChoice,
+  HeroImageStyle,
+  HeroTitleBackdrop,
   InviteImageSlot,
   InviteTextBody,
   InviteThemeBody,
@@ -40,6 +42,17 @@ export interface InviteTheme {
   details: { accentColor: string | null; surfaceColor: string | null };
 }
 
+/**
+ * Hero display options the organiser picked. Always concrete (never null) — the
+ * DB columns are NOT NULL with defaults that reproduce today's look, so an
+ * un-customised wedding reports `{ imageStyle: "blurred", titleBackdrop: "none" }`
+ * and the guest site renders exactly as before.
+ */
+export interface HeroDisplay {
+  imageStyle: HeroImageStyle;
+  titleBackdrop: HeroTitleBackdrop;
+}
+
 export interface InviteCustomisation {
   hero: { title: string | null; subtitle: string | null; imageUrl: string | null };
   story: {
@@ -48,6 +61,7 @@ export interface InviteCustomisation {
     body: string | null;
     imageUrl: string | null;
   };
+  heroDisplay: HeroDisplay;
   theme: InviteTheme;
 }
 
@@ -59,9 +73,14 @@ const EMPTY_THEME: InviteTheme = {
   details: { accentColor: null, surfaceColor: null },
 };
 
+// The defaults a wedding with no customisation row reports — identical to the
+// NOT-NULL column defaults, so a missing row and a default row render the same.
+const DEFAULT_HERO_DISPLAY: HeroDisplay = { imageStyle: "blurred", titleBackdrop: "none" };
+
 const EMPTY: InviteCustomisation = {
   hero: { title: null, subtitle: null, imageUrl: null },
   story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+  heroDisplay: DEFAULT_HERO_DISPLAY,
   theme: EMPTY_THEME,
 };
 
@@ -88,6 +107,10 @@ function toCustomisation(
     storyBody: string | null;
     heroImageKey: string | null;
     storyImageKey: string | null;
+    // NOT NULL columns, but a LEFT JOIN miss (no customisation row) yields null —
+    // coalesced to the today's-look default below.
+    heroImageStyle: string | null;
+    heroTitleBackdrop: string | null;
     themeHeadingFont: string | null;
     themeBodyFont: string | null;
     heroAccentColor: string | null;
@@ -111,6 +134,14 @@ function toCustomisation(
       heading: c.storyHeading,
       body: c.storyBody,
       imageUrl: c.storyImageKey ? imagePath(slug, "story", version) : null,
+    },
+    heroDisplay: {
+      // Persisted values already passed the closed-enum validation on write; a
+      // null (no row / pre-migration column) falls back to the today's-look
+      // default so an un-customised invite is unchanged.
+      imageStyle: (c.heroImageStyle as HeroImageStyle | null) ?? DEFAULT_HERO_DISPLAY.imageStyle,
+      titleBackdrop:
+        (c.heroTitleBackdrop as HeroTitleBackdrop | null) ?? DEFAULT_HERO_DISPLAY.titleBackdrop,
     },
     theme: {
       // Persisted theme fonts/colours already passed validation on write; the
@@ -175,6 +206,8 @@ export const inviteService = {
             storyBody: weddingInviteCustomisations.storyBody,
             heroImageKey: weddingInviteCustomisations.heroImageKey,
             storyImageKey: weddingInviteCustomisations.storyImageKey,
+            heroImageStyle: weddingInviteCustomisations.heroImageStyle,
+            heroTitleBackdrop: weddingInviteCustomisations.heroTitleBackdrop,
             themeHeadingFont: weddingInviteCustomisations.themeHeadingFont,
             themeBodyFont: weddingInviteCustomisations.themeBodyFont,
             heroAccentColor: weddingInviteCustomisations.heroAccentColor,
@@ -294,6 +327,8 @@ export const inviteService = {
         storySurfaceColor: fields.storySurfaceColor,
         detailsAccentColor: fields.detailsAccentColor,
         detailsSurfaceColor: fields.detailsSurfaceColor,
+        heroImageStyle: fields.heroImageStyle,
+        heroTitleBackdrop: fields.heroTitleBackdrop,
       };
       yield* dbQuery(() =>
         db

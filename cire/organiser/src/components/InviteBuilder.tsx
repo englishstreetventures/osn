@@ -30,6 +30,16 @@ interface InviteTheme {
   details: { accentColor: string | null; surfaceColor: string | null };
 }
 
+// Hero display options (organiser choice). Closed unions mirroring the cire/api
+// enums; the API coalesces a missing row to these today's-look defaults.
+type HeroImageStyle = "blurred" | "regular";
+type HeroTitleBackdrop = "none" | "solid";
+
+interface HeroDisplay {
+  imageStyle: HeroImageStyle;
+  titleBackdrop: HeroTitleBackdrop;
+}
+
 interface InviteCustomisation {
   hero: { title: string | null; subtitle: string | null; imageUrl: string | null };
   story: {
@@ -38,6 +48,7 @@ interface InviteCustomisation {
     body: string | null;
     imageUrl: string | null;
   };
+  heroDisplay: HeroDisplay;
   theme: InviteTheme;
 }
 
@@ -107,6 +118,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   });
   const [savingTheme, setSavingTheme] = createSignal(false);
 
+  // Hero display options. Default to today's look (blurred backdrop, no title
+  // panel); saved via the same theme PUT as the fonts + colours.
+  const [heroImageStyle, setHeroImageStyle] = createSignal<HeroImageStyle>("blurred");
+  const [heroTitleBackdrop, setHeroTitleBackdrop] = createSignal<HeroTitleBackdrop>("none");
+
   // Seed the edit buffers once, when the resource first resolves.
   function seed(d: InviteCustomisation) {
     if (seeded()) return;
@@ -127,6 +143,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       story: d.theme.story.surfaceColor,
       details: d.theme.details.surfaceColor,
     });
+    setHeroImageStyle(d.heroDisplay?.imageStyle ?? "blurred");
+    setHeroTitleBackdrop(d.heroDisplay?.titleBackdrop ?? "none");
     setSeeded(true);
   }
 
@@ -197,6 +215,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           storySurfaceColor: s.story,
           detailsAccentColor: a.details,
           detailsSurfaceColor: s.details,
+          heroImageStyle: heroImageStyle(),
+          heroTitleBackdrop: heroTitleBackdrop(),
         }),
       });
       if (!res.ok) {
@@ -303,6 +323,30 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   value={heroSubtitle()}
                   onInput={setHeroSubtitle}
                 />
+                {/* Hero display options — saved with the theme below. */}
+                <ToggleField
+                  label="Hero image"
+                  hint="Blurred is a soft backdrop; Regular shows the photo sharp."
+                  value={heroImageStyle()}
+                  options={[
+                    { value: "blurred", label: "Blurred" },
+                    { value: "regular", label: "Regular" },
+                  ]}
+                  onChange={setHeroImageStyle}
+                />
+                <ToggleField
+                  label="Title backdrop"
+                  hint="Solid adds a panel behind the title so it stays readable over a busy photo."
+                  value={heroTitleBackdrop()}
+                  options={[
+                    { value: "none", label: "None" },
+                    { value: "solid", label: "Solid" },
+                  ]}
+                  onChange={setHeroTitleBackdrop}
+                />
+                <p class="font-body text-text-muted text-[0.72rem] italic">
+                  Hero image &amp; title backdrop save with the Theme below.
+                </p>
               </fieldset>
 
               {/* ── Our Story ────────────────────────────────────────── */}
@@ -513,6 +557,55 @@ function SegmentBadge(props: { shown: boolean }) {
       />
       {props.shown ? "Shown" : "Hidden — empty"}
     </span>
+  );
+}
+
+/**
+ * A small segmented two-or-more-option toggle (radio group under the hood) for a
+ * bounded enum setting — e.g. the hero image style (Blurred/Regular) and title
+ * backdrop (None/Solid). Generic over the closed value type so the caller's
+ * setter stays type-safe. The selected option is highlighted; an optional hint
+ * explains the choice.
+ */
+function ToggleField<T extends string>(props: {
+  label: string;
+  hint?: string;
+  value: T;
+  options: readonly { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <fieldset class="flex flex-col gap-1.5">
+      <legend class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+        {props.label}
+      </legend>
+      <div
+        role="radiogroup"
+        aria-label={props.label}
+        class="border-border inline-flex w-fit overflow-hidden rounded-sm border"
+      >
+        <For each={props.options}>
+          {(opt) => (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={props.value === opt.value}
+              onClick={() => props.onChange(opt.value)}
+              class="font-body px-3 py-1.5 text-[0.82rem] tracking-[0.05em] transition"
+              classList={{
+                "bg-gold text-bg": props.value === opt.value,
+                "bg-bg text-text-muted hover:text-text": props.value !== opt.value,
+              }}
+            >
+              {opt.label}
+            </button>
+          )}
+        </For>
+      </div>
+      <Show when={props.hint}>
+        <span class="font-body text-text-muted text-[0.72rem] italic">{props.hint}</span>
+      </Show>
+    </fieldset>
   );
 }
 

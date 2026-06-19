@@ -39,6 +39,34 @@ export const InviteTextBody = Schema.Struct({
 });
 export type InviteTextBody = Schema.Schema.Type<typeof InviteTextBody>;
 
+// ── Hero display options ────────────────────────────────────────────────────────
+
+/**
+ * How the hero backdrop image is rendered (organiser choice). `blurred` (default
+ * — preserves today's look) requests the soft `hero-bg` variant; `regular`
+ * requests the sharp full-bleed `hero` variant (no server blur). Closed union: it
+ * bounds the DB column, the wire value, and the bounded variant the guest site
+ * maps it to.
+ */
+export const HERO_IMAGE_STYLES = ["blurred", "regular"] as const;
+export type HeroImageStyle = (typeof HERO_IMAGE_STYLES)[number];
+
+/**
+ * The legibility backdrop behind the hero title block. `none` (default) keeps
+ * just the radial scrim — today's look; `solid` adds a translucent panel so the
+ * title reads over a busy photo. Closed union, same rationale as above.
+ */
+export const HERO_TITLE_BACKDROPS = ["none", "solid"] as const;
+export type HeroTitleBackdrop = (typeof HERO_TITLE_BACKDROPS)[number];
+
+export function isHeroImageStyle(value: string): value is HeroImageStyle {
+  return (HERO_IMAGE_STYLES as readonly string[]).includes(value);
+}
+
+export function isHeroTitleBackdrop(value: string): value is HeroTitleBackdrop {
+  return (HERO_TITLE_BACKDROPS as readonly string[]).includes(value);
+}
+
 // ── Theme (per-section colours + fonts) ─────────────────────────────────────────
 
 /**
@@ -128,5 +156,11 @@ export const InviteThemeBody = Schema.Struct({
   storySurfaceColor: ColorField,
   detailsAccentColor: ColorField,
   detailsSurfaceColor: ColorField,
+  // Hero display options. Non-nullable closed literals — the builder always
+  // submits both, and an unknown value is a ParseError → 400 (never persisted).
+  // `blurred`/`none` reproduce today's look, so they're the safe defaults the
+  // organiser controls land on.
+  heroImageStyle: Schema.Literal(...HERO_IMAGE_STYLES),
+  heroTitleBackdrop: Schema.Literal(...HERO_TITLE_BACKDROPS),
 });
 export type InviteThemeBody = Schema.Schema.Type<typeof InviteThemeBody>;

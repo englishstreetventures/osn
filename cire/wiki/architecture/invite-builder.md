@@ -117,14 +117,19 @@ partially-themed) invite renders exactly as before.
 ## Storage
 
 `wedding_invite_customisations` (`cire/db/src/schema.ts`, migrations
-`0009_invite_customisations.sql` + `0014_invite_theme.sql`) — one row per wedding
-(`wedding_id` PK + cascade FK ⇒ 1:1). Nullable text columns + nullable
-`hero_image_key` / `story_image_key` + nullable theme columns
-(`theme_heading_font`, `theme_body_font`, and `{hero,story,details}_{accent,
-surface}_color`). Image columns store **R2 object keys**, not URLs (mirrors how
-`imports` stores its CSV keys). The theme rides the **same row + same read
+`0009_invite_customisations.sql` + `0014_invite_theme.sql` +
+`0017_hero_display_options.sql`) — one row per wedding (`wedding_id` PK + cascade
+FK ⇒ 1:1). Nullable text columns + nullable `hero_image_key` / `story_image_key` +
+nullable theme columns (`theme_heading_font`, `theme_body_font`, and
+`{hero,story,details}_{accent,surface}_color`) + the two **hero display** columns
+`hero_image_style` (`blurred | regular`, **NOT NULL DEFAULT `blurred`**) and
+`hero_title_backdrop` (`none | solid`, **NOT NULL DEFAULT `none`**). The two
+hero-display columns are NOT NULL with defaults that reproduce today's look, so a
+forward-only `ADD COLUMN` needs no backfill and an un-customised wedding renders
+unchanged. Image columns store **R2 object keys**, not URLs (mirrors how `imports`
+stores its CSV keys). The theme + hero-display ride the **same row + same read
 query** — no extra table, no extra round-trip. LOCKSTEP DDL mirror lives in
-`cire/api/src/db/setup.ts`.
+`cire/api/src/db/setup.ts` (kept in sync with the migration + schema).
 
 Images live in a dedicated **`cire-assets`** R2 bucket (binding `ASSETS`),
 separate from the text-only CSV-import `SHEETS` bucket — different lifecycle
@@ -151,10 +156,14 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
     a guest with no OSN token can render the invite.
 - **Organiser (authed)** — under `/api/organiser/weddings/:weddingId/invite`,
   behind `osnAuth()` + `weddingOwner()`:
-  - `GET /invite` → current customisation (text + image URLs + theme).
+  - `GET /invite` → current customisation (text + image URLs + theme +
+    `heroDisplay`).
   - `PUT /invite/text` → upsert the five text fields (empty ⇒ default).
-  - `PUT /invite/theme` → upsert the theme (fonts + per-section colours); a bad
-    colour or unknown font ⇒ 400 (whole body rejected, nothing persisted).
+  - `PUT /invite/theme` → upsert the theme (fonts + per-section colours) **plus the
+    two hero display options** (`heroImageStyle ∈ {blurred,regular}`,
+    `heroTitleBackdrop ∈ {none,solid}` — both required, total body). A bad colour,
+    unknown font, or unknown hero-display literal ⇒ 400 (whole body rejected,
+    nothing persisted).
   - `POST /invite/image/:slot` → upload an image.
   - `DELETE /invite/image/:slot` → reset slot to default.
   - Ownership mismatch returns **403, never 401** (a 401 makes `@osn/client`
@@ -242,20 +251,45 @@ and let the fresh `/api/invite/:slug` response override the per-request snapshot
   Story" sections. Fetches on mount via a SolidJS `createResource` seeded with
   the build-time `initial` prop, and drives the hero **image**, copy, story, and
   the hero/story **theme** from the live response.
-  - **Blurred hero backdrop**: the uploaded hero image renders as a soft,
-    full-bleed **backdrop behind the title** by requesting the server-blurred
-    `hero-bg` variant (`variantSrc(url, "hero-bg")`) — the blur radius is a server
-    constant, never sent from the client. The title (in front) stays readable via
-    the radial-gradient scrim, strengthened a touch for the blurred (potentially
-    brighter) backdrop. One width is enough since blur abstracts detail — no
-    responsive `srcset` for the backdrop.
-  - **Visible-or-gone load lifecycle**: the backdrop fades in on `load`, and on a
-    failed load (`onError` — e.g. a 404'd image) it **unmounts** so the base
-    gradient shows through. This replaced an `onLoad`-only opacity gate that had
-    no failure path, which left a permanently-invisible 0-opacity `<img>` pinned
-    over the gradient whenever a load silently failed (the "invisible hero" bug).
-    The lifecycle re-arms when the backdrop URL changes (re-upload via the on-mount
-    revalidation).
+  - **Hero backdrop image (blurred vs regular — organiser choice)**: the uploaded
+    hero image renders as a full-bleed **backdrop behind the title**. The
+    `heroDisplay.imageStyle` field (a closed `blurred | regular` union, default
+    `blurred`) picks the requested variant via `heroVariant()`:
+    - `blurred` (default — today's look) ⇒ the server-blurred `hero-bg` variant —
+      a soft backdrop; the blur radius is a server constant, never sent from the
+      client.
+    - `regular` ⇒ the sharp full-bleed `hero` variant (no blur).
+
+    Either way one 1600px width is enough (a fixed-purpose `src`, not a responsive
+    `srcset`). The title (in front) stays readable via the radial-gradient scrim.
+  - **Hero title backdrop (legibility panel — organiser choice)**: the
+    `heroDisplay.titleBackdrop` field (`none | solid`, default `none`) controls a
+    panel behind the title block. `none` keeps just the radial scrim (the original
+    look); `solid` wraps the title + monogram + subtitle in a translucent rounded
+    panel whose background is the theme **surface** colour (`--invite-surface`)
+    when set, else a dark `oklch(0% 0 0 / 0.45)` scrim panel — so the title reads
+    over any busy/sharp photo. (Future: auto contrast-check the title colour vs the
+    image and auto-enable the panel — see `[[todo/future]]`.)
+  - **Visible-or-gone load lifecycle (the "invisible hero" SSR fix)**: the backdrop
+    fades in on `load`; on a failed load (`onError` — e.g. a 404'd image) it
+    **unmounts** so the base gradient shows through (replacing an `onLoad`-only gate
+    that had no failure path). Two SSR-specific traps are handled so a served hero
+    is reliably visible:
+    1. **Missed `load` on hydration.** On an SSR page the browser starts loading
+       the server-rendered `<img>` during HTML parse, and its `load` event commonly
+       fires **before** the Solid island hydrates and attaches `onLoad` — so
+       `onLoad` would never run and the image stayed pinned at opacity 0. The island
+       holds a `ref` and, in `onMount`, checks `img.complete && img.naturalWidth > 0`
+       → marks it `loaded` immediately. `onLoad`/`onError` still cover the
+       not-yet-loaded path.
+    2. **Re-arm only on a real URL change.** The re-arm effect now resets to
+       `pending` (opacity 0) **only when the resolved backdrop `src` actually
+       changes** (a re-upload, or a `blurred`↔`regular` variant flip). The on-mount
+       no-store revalidation returns the **same** url; the old effect reset to
+       `pending` on every `data()` change, but the unchanged `<img src>` never
+       re-fired `load`, leaving a shown image stuck invisible. On a genuine change a
+       `queueMicrotask` re-runs the ref check to also catch an already-cached new
+       src.
 - `cire/web/src/components/InvitePage.tsx` (`client:visible`) — the
   "details"/events section. Also revalidates on mount (`createResource` seeded
   with the per-request `theme` prop, keyed on the `slug` prop threaded from
@@ -316,8 +350,11 @@ patterns as `ImportPanel`. A **Theme** fieldset adds two font `<select>`s (close
 `FONT_OPTIONS` mirror of the server enum) and, per section, two native
 `<input type="color">` accent/surface pickers each with a "Use default" clear
 (null ⇒ built-in token). Native colour inputs only emit `#rrggbb`, so the UI can
-never submit a colour the server allow-list would reject. Saved via a separate
-`PUT /invite/theme` ("Save theme" button) independent of the copy save.
+never submit a colour the server allow-list would reject. The **Hero** fieldset
+also carries two segmented toggles (`ToggleField`, a small `radiogroup`) — **Hero
+image** (Blurred / Regular) and **Title backdrop** (None / Solid). All of these —
+fonts, colours, **and the two hero display toggles** — are saved together via a
+single `PUT /invite/theme` ("Save theme" button) independent of the copy save.
 
 **Live theme preview.** A compact, representative mini-invite (one labelled card
 per section: Hero / Our Story / Event Details) sits beside the colour controls and
