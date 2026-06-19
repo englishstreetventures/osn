@@ -13,12 +13,21 @@
  * literal — no user-supplied data is ever interpolated.
  */
 
-/** Required event columns, in parser order. */
-export const EVENT_REQUIRED_HEADERS = ["Event Name", "Start", "End", "Timezone"] as const;
+/**
+ * Required event columns, in parser order. MUST match `REQUIRED_EVENT_COLUMNS`
+ * in `cire/api/src/services/spreadsheet.ts` — Location is required because an
+ * event needs a place (it drives the invite's "Where" + Open-in-Maps).
+ */
+export const EVENT_REQUIRED_HEADERS = [
+  "Event Name",
+  "Start",
+  "End",
+  "Timezone",
+  "Location",
+] as const;
 
 /** Optional event columns, exact labels the parser looks up. */
 export const EVENT_OPTIONAL_HEADERS = [
-  "Location",
   "Address",
   "Dress Code Description",
   "Dress Code Palette",

@@ -160,6 +160,109 @@ describe("InviteHeader render", () => {
     });
   });
 
+  it("renders NOTHING for the hero when it has no image, title or subtitle", async () => {
+    // A fully-empty hero must not paint an empty full-screen section. The story
+    // is also empty here, so the whole component renders no <section> at all.
+    const initial: InviteCustomisation = {
+      hero: { title: null, subtitle: "   ", imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      theme: EMPTY_THEME,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { container } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    // Give the resource a tick to settle on the (failed) revalidation.
+    await waitFor(() => expect(container.querySelector(".animate-pulse")).toBeNull());
+    expect(container.querySelector("section")).toBeNull();
+  });
+
+  it("shows a title-only hero (no image, no subtitle)", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      theme: EMPTY_THEME,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { container, getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    await waitFor(() => expect(getByText("A & B")).toBeTruthy());
+    // Exactly the hero section renders (the empty story stays hidden).
+    expect(container.querySelectorAll("section")).toHaveLength(1);
+  });
+
+  it("shows an image-only hero (no title, no subtitle)", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: null, subtitle: null, imageUrl: "/api/invite/s/image/hero?v=1" },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      theme: EMPTY_THEME,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { container } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    await waitFor(() => expect(container.querySelector("section img")).not.toBeNull());
+    expect(container.querySelectorAll("section")).toHaveLength(1);
+  });
+
+  it("hides the Our Story section when heading, body and image are all empty", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      // Eyebrow alone does NOT keep the story alive.
+      story: { eyebrow: "Our Story", heading: "  ", body: null, imageUrl: null },
+      theme: EMPTY_THEME,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { container, queryByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    await waitFor(() => expect(container.querySelector("section")).not.toBeNull());
+    // Only the hero renders; the default "How It All Began" story copy is absent.
+    expect(container.querySelectorAll("section")).toHaveLength(1);
+    expect(queryByText("How It All Began")).toBeNull();
+  });
+
+  it("shows the Our Story section when it has a body", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: "We met long ago.", imageUrl: null },
+      theme: EMPTY_THEME,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { container, getByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    await waitFor(() => expect(getByText("We met long ago.")).toBeTruthy());
+    // Hero + story both render.
+    expect(container.querySelectorAll("section")).toHaveLength(2);
+  });
+
   it("ignores a malicious theme colour (never reaches the DOM)", async () => {
     const initial: InviteCustomisation = {
       hero: { title: "A & B", subtitle: null, imageUrl: null },

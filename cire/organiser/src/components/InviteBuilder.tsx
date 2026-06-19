@@ -3,6 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
 import { previewSectionVars, resolveSectionTheme } from "../lib/invite-theme-preview";
 import type { PreviewTheme } from "../lib/invite-theme-preview";
 
@@ -128,6 +129,24 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     });
     setSeeded(true);
   }
+
+  // Live "what a guest will see" gates, mirroring the guest invite's emptiness
+  // predicates. Driven by the edit buffers (so the badge flips the instant the
+  // organiser types) plus the loaded image URL (image upload/remove refetches
+  // `data`). The hero/story sections are HIDDEN on the live invite when these
+  // report empty — the badges below surface that before the organiser saves.
+  const heroShown = () =>
+    !isHeroEmpty({
+      imageUrl: data()?.hero.imageUrl,
+      title: heroTitle(),
+      subtitle: heroSubtitle(),
+    });
+  const storyShown = () =>
+    !isStoryEmpty({
+      heading: storyHeading(),
+      body: storyBody(),
+      imageUrl: data()?.story.imageUrl,
+    });
 
   async function saveText(e: Event) {
     e.preventDefault();
@@ -265,6 +284,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 <legend class="font-body text-gold-dim px-2 text-[0.72rem] tracking-[0.1em] uppercase">
                   Hero
                 </legend>
+                <SegmentBadge shown={heroShown()} />
                 <ImageField
                   label="Hero background image"
                   url={d().hero.imageUrl}
@@ -290,6 +310,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 <legend class="font-body text-gold-dim px-2 text-[0.72rem] tracking-[0.1em] uppercase">
                   Our Story
                 </legend>
+                <SegmentBadge shown={storyShown()} />
                 <ImageField
                   label="Story photo"
                   url={d().story.imageUrl}
@@ -465,6 +486,33 @@ function ThemePreview(props: { theme: PreviewTheme }) {
         </For>
       </div>
     </div>
+  );
+}
+
+/**
+ * A small per-section status badge telling the organiser whether this section
+ * will render on the live guest invite. "Shown" when it has content; "Hidden —
+ * empty" when the guest site would hide it (mirrors the guest-side emptiness
+ * predicates in `../lib/invite-emptiness`). It updates live as the fields change.
+ */
+function SegmentBadge(props: { shown: boolean }) {
+  return (
+    <span
+      data-segment-badge
+      data-shown={props.shown ? "true" : "false"}
+      class="font-body inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[0.66rem] tracking-[0.1em] uppercase"
+      classList={{
+        "border-gold/40 text-gold bg-gold/5": props.shown,
+        "border-border text-text-muted bg-bg/40": !props.shown,
+      }}
+    >
+      <span
+        aria-hidden
+        class="inline-block h-1.5 w-1.5 rounded-full"
+        classList={{ "bg-gold": props.shown, "bg-text-muted/60": !props.shown }}
+      />
+      {props.shown ? "Shown" : "Hidden — empty"}
+    </span>
   );
 }
 

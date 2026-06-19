@@ -93,6 +93,28 @@ describe("DetailsModal", () => {
     expect(queryByText("Inspiration")).toBeNull();
   });
 
+  it("omits the inspiration section for a whitespace-only pinterest URL", () => {
+    const { queryByText } = renderModal({ ...baseEvent, pinterestUrl: "   " });
+    expect(queryByText("Inspiration")).toBeNull();
+  });
+
+  it("renders the inspiration section for a real pinterest URL", () => {
+    const { getByText } = renderModal({
+      ...baseEvent,
+      pinterestUrl: "https://pinterest.com/board",
+    });
+    expect(getByText("Inspiration")).toBeTruthy();
+  });
+
+  it("omits the dress code section for a whitespace-only description and empty palette", () => {
+    const { queryByText } = renderModal({
+      ...baseEvent,
+      dressCodeDescription: "   ",
+      dressCodePalette: [],
+    });
+    expect(queryByText("Dress Code")).toBeNull();
+  });
+
   it("renders only the palette when the dress code description is null", () => {
     const { getByLabelText, queryByText } = renderModal({
       ...baseEvent,

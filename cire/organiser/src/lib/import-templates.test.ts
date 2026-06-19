@@ -25,8 +25,14 @@ describe("events template", () => {
     );
   });
 
-  it("starts with the four REQUIRED parser columns", () => {
-    expect(EVENT_TEMPLATE_HEADERS.slice(0, 4)).toEqual(["Event Name", "Start", "End", "Timezone"]);
+  it("starts with the five REQUIRED parser columns (Location now mandatory)", () => {
+    expect(EVENT_TEMPLATE_HEADERS.slice(0, 5)).toEqual([
+      "Event Name",
+      "Start",
+      "End",
+      "Timezone",
+      "Location",
+    ]);
   });
 
   it("includes at least one illustrative example row with an ISO-8601 offset start", () => {

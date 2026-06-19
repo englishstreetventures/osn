@@ -31,8 +31,57 @@ Image slots: `INVITE_IMAGE_SLOTS = ["hero", "story"]`. The same union bounds the
 attributes (no free-form strings). Adding a slot is a conscious schema change.
 
 A `null` text field (or an all-whitespace value, which the service normalises to
-`null`) means **use the built-in default** — so an uncustomised wedding renders
-exactly the original hard-coded copy.
+`null`) means **use the built-in default** — so a partially-filled section still
+renders the original hard-coded copy for the fields the organiser left blank.
+
+## Conditional segments (empty ⇒ hidden)
+
+A section that has **no content at all** is not shown on the guest invite — we
+never paint an empty full-screen hero or an empty "Our Story" surface. "Absent"
+means null, empty-string, **or whitespace-only** (typing only spaces does not
+fill a field). The single source of truth for these predicates is
+`cire/web/src/components/invite-emptiness.ts` (`hasText`, `isHeroEmpty`,
+`isStoryEmpty`, `hasPinterest`, `hasDressCode`).
+
+| Segment                       | Rendered when…                                            | Where                                   |
+| ----------------------------- | --------------------------------------------------------- | --------------------------------------- |
+| **Hero** (full-screen)        | it has an image **OR** a title **OR** a subtitle          | `InviteHeader.tsx` (`showHero`)         |
+| **Our Story**                 | it has a heading **OR** a body **OR** a story image        | `InviteHeader.tsx` (`showStory`)        |
+| **Event → Inspiration**       | the event has a `pinterestUrl`                             | `DetailsModal.tsx` (`hasPinterest`)     |
+| **Event → Dress Code**        | the event has a dress-code description **OR** a palette swatch | `DetailsModal.tsx` (`hasDressCode`) |
+
+Image-only or title-only heroes are valid (the empty default "V & R" only renders
+as a fallback **inside** an otherwise-shown hero). The Our-Story eyebrow is a
+label, not content — it does not keep the section alive on its own.
+
+**Builder reflection (no surprises):** `InviteBuilder.tsx` shows a per-section
+badge — **"Shown"** vs **"Hidden — empty"** — on the Hero and Our Story fieldsets,
+driven by the **same** emptiness logic (mirrored in
+`cire/organiser/src/lib/invite-emptiness.ts`, since the two packages share no
+code). The badge updates **live** as the organiser types, so they know exactly
+what a guest will see before saving. Keep the two predicate files in lockstep.
+
+## Required event fields (Location + Start)
+
+The event/guest source of truth is the CSV import, not the builder — but the
+invite depends on every event having a **place** and a **start time**. The "Where"
+section + the Open-in-Maps affordance both derive from the location, and the
+"When" section + the calendar invite both derive from the start. So the spreadsheet
+parser (`cire/api/src/services/spreadsheet.ts`, `parseEventsCsv`) treats **Event
+Name, Start, End, Timezone, AND Location** as the required set
+(`REQUIRED_EVENT_COLUMNS`):
+
+- The **header row** must contain every required column ⇒ otherwise
+  `MissingRequiredColumn` (the import preview surfaces e.g. _"Location is
+  missing"_).
+- Each **data row** must have a non-empty (non-whitespace) value for Name, Start,
+  End, Timezone, and Location ⇒ otherwise `MalformedSpreadsheet` with a specific
+  reason + 1-indexed row/column (e.g. _"Location is required"_, _"Start is
+  required"_), shown in `ImportPanel.tsx` rather than a generic failure.
+
+The organiser-facing template mirror (`cire/organiser/src/lib/import-templates.ts`,
+`EVENT_REQUIRED_HEADERS`) lists Location under the **required** chips, kept in
+lockstep with the parser by `import-templates.test.ts`.
 
 ## Theme (per-section fonts + colours)
 

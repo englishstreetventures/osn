@@ -95,6 +95,47 @@ describe("parseEventsCsv", () => {
     expect((error as MissingRequiredColumn).column).toBe("Start");
   });
 
+  it("fails when the Location column header is missing (now required)", async () => {
+    const csv = [
+      "Event Name,Start,End,Timezone",
+      "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney",
+    ].join("\n");
+    const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
+    expect(error).toBeInstanceOf(MissingRequiredColumn);
+    expect((error as MissingRequiredColumn).column).toBe("Location");
+  });
+
+  it("rejects an event row with an empty Location cell", async () => {
+    const csv = [
+      EVENTS_HEADER,
+      "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,,,,,,",
+    ].join("\n");
+    const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
+    expect(error).toBeInstanceOf(MalformedSpreadsheet);
+    expect((error as MalformedSpreadsheet).reason).toBe("Location is required");
+    expect((error as MalformedSpreadsheet).row).toBe(2);
+  });
+
+  it("rejects an event row whose Location is whitespace-only", async () => {
+    const csv = [
+      EVENTS_HEADER,
+      "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,   ,,,,,",
+    ].join("\n");
+    const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
+    expect(error).toBeInstanceOf(MalformedSpreadsheet);
+    expect((error as MalformedSpreadsheet).reason).toBe("Location is required");
+  });
+
+  it("rejects an event row with an empty Start cell (start is required)", async () => {
+    const csv = [
+      EVENTS_HEADER,
+      "Mehndi,,2026-09-18T22:00:00+10:00,Australia/Sydney,Home,,,,,",
+    ].join("\n");
+    const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
+    expect(error).toBeInstanceOf(MalformedSpreadsheet);
+    expect((error as MalformedSpreadsheet).reason).toBe("Start is required");
+  });
+
   for (const marker of ["=", "+", "-", "@"]) {
     it(`rejects formula injection prefix '${marker}' in events sheet`, async () => {
       const csv = [
@@ -114,7 +155,7 @@ describe("parseEventsCsv", () => {
   it("ignores fully blank trailing rows", async () => {
     const csv = [
       EVENTS_HEADER,
-      "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,,,,,,",
+      "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,Home,,,,,",
       ",,,,,,,,,",
     ].join("\n");
     const events = await Effect.runPromise(parseEventsCsv(csv));
@@ -134,7 +175,7 @@ describe("parseEventsCsv", () => {
     it(`rejects ${label} Pinterest URL`, async () => {
       const csv = [
         EVENTS_HEADER,
-        `Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,,,,,${value},`,
+        `Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,Home,,,,${value},`,
       ].join("\n");
       const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
       expect(error).toBeInstanceOf(MalformedSpreadsheet);
@@ -144,7 +185,7 @@ describe("parseEventsCsv", () => {
     it(`rejects ${label} Maps URL`, async () => {
       const csv = [
         EVENTS_HEADER,
-        `Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,,,,,,${value}`,
+        `Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,Home,,,,,${value}`,
       ].join("\n");
       const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
       expect(error).toBeInstanceOf(MalformedSpreadsheet);
@@ -155,7 +196,7 @@ describe("parseEventsCsv", () => {
   it("accepts http and https URLs", async () => {
     const csv = [
       EVENTS_HEADER,
-      "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,,,,,http://pin.example/x,https://maps.example/q",
+      "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,Home,,,,http://pin.example/x,https://maps.example/q",
     ].join("\n");
     const events = await Effect.runPromise(parseEventsCsv(csv));
     expect(events[0]!.pinterestUrl).toBe("http://pin.example/x");

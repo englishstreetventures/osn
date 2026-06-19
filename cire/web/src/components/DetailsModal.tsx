@@ -4,6 +4,7 @@ import { AddToCalendar } from "./AddToCalendar";
 import { AnimatedModal } from "./AnimatedModal";
 import { isValidColor, truncateSwatchName } from "./dress-code-render";
 import { formatEventDay, formatTimeRange, timezoneLabel } from "./event-details";
+import { hasDressCode, hasPinterest } from "./invite-emptiness";
 import { MapPreview } from "./MapPreview";
 import { PinterestBoard } from "./PinterestBoard";
 import type { EventSummary } from "./types";
@@ -85,7 +86,7 @@ export function DetailsModal(props: DetailsModalProps) {
           )}
         </Show>
 
-        <Show when={props.event.dressCodeDescription || props.event.dressCodePalette}>
+        <Show when={hasDressCode(props.event.dressCodeDescription, props.event.dressCodePalette)}>
           <Section label="Dress Code">
             <Show when={props.event.dressCodeDescription}>
               {(desc) => (
@@ -120,7 +121,7 @@ export function DetailsModal(props: DetailsModalProps) {
           </Section>
         </Show>
 
-        <Show when={props.event.pinterestUrl}>
+        <Show when={hasPinterest(props.event.pinterestUrl) ? props.event.pinterestUrl : null}>
           {(url) => (
             <Section label="Inspiration">
               <PinterestBoard url={url()} eventName={props.event.name} />

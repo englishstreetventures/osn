@@ -174,3 +174,64 @@ describe("InviteBuilder theme", () => {
     await waitFor(() => expect(screen.getByText("Invalid colour or font")).toBeTruthy());
   });
 });
+
+describe("InviteBuilder shown/hidden badges", () => {
+  afterEach(() => {
+    cleanup();
+    authFetchMock.mockReset();
+    redirectSpy.mockReset();
+    toastSuccess.mockReset();
+    toastError.mockReset();
+  });
+
+  /** All segment badges, in DOM order: [hero, story]. */
+  const badges = (container: HTMLElement) =>
+    [...container.querySelectorAll("[data-segment-badge]")] as HTMLElement[];
+
+  it("marks both hero and story 'Hidden — empty' for a blank invite", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
+    const { container } = render(() => <InviteBuilder weddingId="wed_1" />);
+
+    await waitFor(() => expect(badges(container)).toHaveLength(2));
+    const [hero, story] = badges(container);
+    expect(hero.dataset.shown).toBe("false");
+    expect(story.dataset.shown).toBe("false");
+    expect(hero.textContent).toContain("Hidden — empty");
+    expect(story.textContent).toContain("Hidden — empty");
+  });
+
+  it("marks a section 'Shown' when its content is present", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        ...EMPTY_CUSTOMISATION,
+        hero: { title: "Vera & Ravi", subtitle: null, imageUrl: null },
+        story: { eyebrow: null, heading: "How It Began", body: null, imageUrl: null },
+      }),
+    );
+    const { container } = render(() => <InviteBuilder weddingId="wed_1" />);
+
+    await waitFor(() => expect(badges(container)).toHaveLength(2));
+    const [hero, story] = badges(container);
+    expect(hero.dataset.shown).toBe("true");
+    expect(story.dataset.shown).toBe("true");
+    expect(hero.textContent).toContain("Shown");
+  });
+
+  it("flips the hero badge to 'Shown' live as the organiser types a title", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
+    const { container } = render(() => <InviteBuilder weddingId="wed_1" />);
+
+    await waitFor(() => expect(badges(container)).toHaveLength(2));
+    expect(badges(container)[0].dataset.shown).toBe("false");
+
+    // Typing a couple title flips the hero badge without any save.
+    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "A & B" } });
+
+    await waitFor(() => expect(badges(container)[0].dataset.shown).toBe("true"));
+    // Whitespace-only does NOT count as content — clearing back to spaces hides it.
+    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "   " } });
+    await waitFor(() => expect(badges(container)[0].dataset.shown).toBe("false"));
+    // No network save was triggered by typing.
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+});

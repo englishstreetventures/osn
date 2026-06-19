@@ -290,7 +290,12 @@ function parseHttpUrl(raw: string): string | null | undefined {
 
 // ── Parsers ──────────────────────────────────────────────────────────────────
 
-const REQUIRED_EVENT_COLUMNS = ["Event Name", "Start", "End", "Timezone"] as const;
+// Location joins Event Name / Start / End / Timezone as a hard requirement: an
+// event with no place to be is unusable on the invite (the "Where" section + the
+// Open-in-Maps affordance both derive from it). Enforced both as a required
+// column (header must exist) and a required per-row value (cell must be non-empty)
+// below.
+const REQUIRED_EVENT_COLUMNS = ["Event Name", "Start", "End", "Timezone", "Location"] as const;
 
 export function parseEventsCsv(
   content: string,
@@ -339,6 +344,7 @@ export function parseEventsCsv(
       const startAt = (row[idxStart] ?? "").trim();
       const endAt = (row[idxEnd] ?? "").trim();
       const timezone = (row[idxTz] ?? "").trim();
+      const location = (row[idxLocation] ?? "").trim();
 
       if (name.length === 0) {
         return yield* Effect.fail(
@@ -376,6 +382,15 @@ export function parseEventsCsv(
           }),
         );
       }
+      if (location.length === 0) {
+        return yield* Effect.fail(
+          new MalformedSpreadsheet({
+            reason: "Location is required",
+            row: r + 1,
+            column: idxLocation + 1,
+          }),
+        );
+      }
 
       const pinterestUrl = idxPinterest === -1 ? null : parseHttpUrl(row[idxPinterest] ?? "");
       if (pinterestUrl === undefined) {
@@ -403,7 +418,7 @@ export function parseEventsCsv(
         startAt,
         endAt,
         timezone,
-        location: idxLocation === -1 ? "" : (row[idxLocation] ?? "").trim(),
+        location,
         address: idxAddress === -1 ? null : nullableString(row[idxAddress] ?? ""),
         dressCodeDescription: idxDressDesc === -1 ? null : nullableString(row[idxDressDesc] ?? ""),
         dressCodePalette: idxPalette === -1 ? [] : parseDressCodePalette(row[idxPalette] ?? ""),
