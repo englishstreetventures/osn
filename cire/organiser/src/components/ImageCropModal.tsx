@@ -1,22 +1,32 @@
 import Cropper from "cropperjs";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import "cropperjs/dist/cropper.css";
-import { CROP_ASPECT, type CropSlot, type ImageCrop } from "../lib/image-crop";
+import {
+  ASPECT_PRESETS,
+  type AspectPresetId,
+  type CropSlot,
+  type ImageCrop,
+  presetAspectRatio,
+  presetForCrop,
+} from "../lib/image-crop";
 
 /**
  * Drag/resize/zoom crop editor over an uploaded invite image, wrapping the
  * battle-tested vanilla Cropper.js (per the repo's "prefer existing libraries"
- * rule — we never hand-roll the crop interaction). The crop box's aspect ratio is
- * LOCKED to the slot's guest display ratio (`CROP_ASPECT`), so the stored
- * normalised rectangle renders WYSIWYG-identically on the guest site via the CSS
- * background-image fraction technique — no source-dimension capture needed.
+ * rule — we never hand-roll the crop interaction).
  *
- * Lifecycle: on mount we attach Cropper to the `<img>` ref; when it's ready we
- * seed it with the current crop (re-opening shows the saved box). Save reads
- * `getData(true)` (the crop in source pixels) + the image's natural dimensions and
- * normalises to 0..1 fractions; Reset clears back to the full-frame default
- * (`crop: null` on the wire). Both delegate the network call to the parent.
+ * The organiser picks an aspect ratio from a small set of presets (Original /
+ * 16:9 / 3:2 / 4:3 / 1:1 / 4:5 / Free); selecting one re-locks the Cropper box to
+ * that ratio. On save we capture the image's NATURAL pixel dimensions alongside
+ * the normalised `{x,y,w,h}` rectangle, so the guest site can render the crop at
+ * its true pixel aspect — UNIFORMLY scaled, never stretched (the distortion fix).
+ *
+ * Lifecycle: on mount we attach Cropper to the `<img>` ref, opening on the saved
+ * crop's preset (or the slot default); when ready we seed the saved box.
+ * Save reads `getData(true)` (the crop in source pixels) + `naturalWidth/Height`
+ * and normalises to 0..1 fractions + `natW`/`natH`; Reset clears back to the
+ * full-frame default (`crop: null`). Both delegate the network call to the parent.
  */
 export interface ImageCropModalProps {
   /** Absolute image URL to crop (already API-origin-prefixed). */
@@ -42,12 +52,18 @@ export default function ImageCropModal(props: ImageCropModalProps) {
   let cropper: Cropper | undefined;
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  // The active aspect preset. Re-opening restores the preset the saved crop was
+  // made with (best-effort, from its captured dims); a fresh crop opens on the
+  // slot's default preset ("Original").
+  const [preset, setPreset] = createSignal<AspectPresetId>(
+    presetForCrop(props.initialCrop, props.slot),
+  );
 
   onMount(() => {
     const el = imgEl;
     if (!el) return;
     cropper = new Cropper(el, {
-      aspectRatio: CROP_ASPECT[props.slot],
+      aspectRatio: presetAspectRatio(preset(), props.slot),
       viewMode: 1, // crop box stays within the image bounds
       autoCropArea: 1, // default selection covers the whole image
       dragMode: "move", // drag the image to pan; the box resizes for zoom
@@ -79,6 +95,12 @@ export default function ImageCropModal(props: ImageCropModalProps) {
     cropper = undefined;
   });
 
+  /** Switch the locked aspect ratio of the crop box (Free ⇒ NaN ⇒ unlocked). */
+  function choosePreset(id: AspectPresetId) {
+    setPreset(id);
+    cropper?.setAspectRatio(presetAspectRatio(id, props.slot));
+  }
+
   async function handleSave() {
     if (!cropper) return;
     setError(null);
@@ -89,13 +111,16 @@ export default function ImageCropModal(props: ImageCropModalProps) {
       setError("Could not read the image size — try re-uploading.");
       return;
     }
-    // `getData(true)` rounds to whole source pixels; normalise to fractions.
+    // `getData(true)` rounds to whole source pixels; normalise to fractions and
+    // capture the natural dims so the guest render honours the chosen aspect.
     const d = cropper.getData(true);
     const crop: ImageCrop = {
       x: clamp01(d.x / naturalW),
       y: clamp01(d.y / naturalH),
       w: clamp01(d.width / naturalW),
       h: clamp01(d.height / naturalH),
+      natW: naturalW,
+      natH: naturalH,
     };
     // Guard the box against the bottom/right edge so x+w / y+h never exceed 1
     // (the server rejects that). Rounding can push it a hair over.
@@ -142,8 +167,8 @@ export default function ImageCropModal(props: ImageCropModalProps) {
             Choose what guests see
           </h3>
           <p class="font-body text-text-muted text-[0.82rem]">
-            Drag to pan, drag a corner to zoom. The frame is locked to how this image appears on the
-            invite.
+            Drag to pan, drag a corner to zoom. Pick a shape below — guests see exactly this frame,
+            never stretched.
           </p>
         </header>
 
@@ -152,6 +177,34 @@ export default function ImageCropModal(props: ImageCropModalProps) {
             {error()}
           </p>
         </Show>
+
+        {/* Aspect-ratio presets — a segmented control. The active shape is filled
+            gold; the rest are quiet outlines. Selecting one re-locks the crop box. */}
+        <div class="flex flex-col gap-1.5">
+          <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+            Shape
+          </span>
+          <div role="group" aria-label="Crop aspect ratio" class="flex flex-wrap gap-1.5">
+            <For each={ASPECT_PRESETS}>
+              {(p) => (
+                <button
+                  type="button"
+                  aria-pressed={preset() === p.id}
+                  disabled={busy()}
+                  onClick={() => choosePreset(p.id)}
+                  class="font-body rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+                  classList={{
+                    "border-gold bg-gold text-bg": preset() === p.id,
+                    "border-border text-text-muted hover:border-gold hover:text-gold bg-transparent":
+                      preset() !== p.id,
+                  }}
+                >
+                  {p.label}
+                </button>
+              )}
+            </For>
+          </div>
+        </div>
 
         {/* Bounded height so the cropper canvas fits the modal; Cropper.js sizes
             the image to this box. */}

@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 
 import { Effect, Schema } from "effect";
 
-import { decodeCrop, ImageCropBody, isValidCrop } from "./invite";
+import { cropAspect, decodeCrop, ImageCropBody, isValidCrop } from "./invite";
 
 // Decode a crop body the way the route does; returns the parsed body or throws
 // the ParseError so a test can assert acceptance/rejection.
@@ -94,5 +94,58 @@ describe("decodeCrop (read path defence-in-depth)", () => {
     expect(decodeCrop("not json")).toBeNull();
     expect(decodeCrop(JSON.stringify({ x: 0.8, y: 0, w: 0.5, h: 0.5 }))).toBeNull();
     expect(decodeCrop(JSON.stringify({ nope: 1 }))).toBeNull();
+  });
+});
+
+describe("source dimensions (natW / natH) — the distortion fix, no migration", () => {
+  it("accepts a crop carrying positive-finite source dims", () => {
+    expect(isValidCrop({ x: 0.1, y: 0.2, w: 0.4, h: 0.3, natW: 4000, natH: 3000 })).toBe(true);
+  });
+
+  it("tolerates a legacy crop with NO dims (back-compat)", () => {
+    // The dims are optional — a value stored before this field existed is still
+    // valid, so legacy rows decode unchanged (no DB migration needed).
+    expect(isValidCrop({ x: 0.1, y: 0.2, w: 0.4, h: 0.3 })).toBe(true);
+  });
+
+  it("rejects a present-but-bad dimension (0 / negative / NaN / ∞ / non-number)", () => {
+    expect(isValidCrop({ x: 0, y: 0, w: 0.5, h: 0.5, natW: 0, natH: 100 })).toBe(false);
+    expect(isValidCrop({ x: 0, y: 0, w: 0.5, h: 0.5, natW: -1, natH: 100 })).toBe(false);
+    expect(isValidCrop({ x: 0, y: 0, w: 0.5, h: 0.5, natW: Number.NaN, natH: 100 })).toBe(false);
+    expect(
+      isValidCrop({ x: 0, y: 0, w: 0.5, h: 0.5, natW: Number.POSITIVE_INFINITY, natH: 100 }),
+    ).toBe(false);
+    expect(isValidCrop({ x: 0, y: 0, w: 0.5, h: 0.5, natW: "4000", natH: 3000 })).toBe(false);
+  });
+
+  it("round-trips the dims through the request body decode", () => {
+    const r = decodeBody({ crop: { x: 0.1, y: 0.2, w: 0.4, h: 0.3, natW: 4000, natH: 3000 } });
+    expect(r._tag).toBe("Right");
+    if (r._tag === "Right") {
+      expect(r.right.crop).toEqual({ x: 0.1, y: 0.2, w: 0.4, h: 0.3, natW: 4000, natH: 3000 });
+    }
+  });
+
+  it("rejects a body whose dims are present but invalid", () => {
+    expect(decodeBody({ crop: { x: 0, y: 0, w: 0.5, h: 0.5, natW: 0, natH: 100 } })._tag).toBe(
+      "Left",
+    );
+  });
+
+  it("round-trips the dims through decodeCrop on the read path", () => {
+    expect(
+      decodeCrop(JSON.stringify({ x: 0.1, y: 0.1, w: 0.5, h: 0.4, natW: 1200, natH: 800 })),
+    ).toEqual({ x: 0.1, y: 0.1, w: 0.5, h: 0.4, natW: 1200, natH: 800 });
+  });
+});
+
+describe("cropAspect (true pixel aspect of the cropped region)", () => {
+  it("computes (w·natW)/(h·natH) when dims are present", () => {
+    // 0.5×0.5 fraction of a 4000×2000 image → a 2000×1000 px region → 2:1.
+    expect(cropAspect({ x: 0, y: 0, w: 0.5, h: 0.5, natW: 4000, natH: 2000 })).toBeCloseTo(2);
+  });
+
+  it("returns null for a legacy crop without dims (caller uses the slot default)", () => {
+    expect(cropAspect({ x: 0, y: 0, w: 0.5, h: 0.5 })).toBeNull();
   });
 });

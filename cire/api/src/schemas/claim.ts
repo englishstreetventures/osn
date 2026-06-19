@@ -44,12 +44,18 @@ export const EventSummary = Schema.Struct({
   // the organiser chose for this event's image, or null for the default centre
   // `object-cover`. The guest site applies it in CSS; validated on write + decoded
   // defensively on read, so only a well-formed in-bounds rectangle reaches here.
+  // `natW`/`natH` (optional) are the source image's natural pixel dimensions —
+  // present on crops saved by the current editor, absent on legacy crops. They
+  // give the guest box the crop's true pixel aspect so the image fills it with no
+  // distortion; an absent pair falls back to the event card's default 4∶3.
   imageCrop: Schema.NullOr(
     Schema.Struct({
       x: Schema.Number,
       y: Schema.Number,
       w: Schema.Number,
       h: Schema.Number,
+      natW: Schema.optional(Schema.Number),
+      natH: Schema.optional(Schema.Number),
     }),
   ),
 });

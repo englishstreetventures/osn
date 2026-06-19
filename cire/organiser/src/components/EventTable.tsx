@@ -3,7 +3,12 @@ import { createSignal, onMount, Show, For } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
-import { cropBackgroundStyle, type ImageCrop } from "../lib/image-crop";
+import {
+  CROP_ASPECT,
+  cropAspectRatio,
+  cropBackgroundStyle,
+  type ImageCrop,
+} from "../lib/image-crop";
 import ImageCropModal from "./ImageCropModal";
 import SectionIntro from "./SectionIntro";
 
@@ -330,8 +335,13 @@ function EventImageField(props: {
             {(style) => (
               <div
                 aria-label="Event image (cropped)"
-                class="border-border h-28 w-full max-w-xs rounded-sm border"
-                style={style()}
+                // WYSIWYG with the guest event card: the box adopts the crop's true
+                // pixel aspect, the region scales uniformly inside it (no stretch).
+                class="border-border w-full max-w-xs overflow-hidden rounded-sm border"
+                style={{
+                  ...style(),
+                  "aspect-ratio": String(cropAspectRatio(props.crop, CROP_ASPECT.event)),
+                }}
               />
             )}
           </Show>

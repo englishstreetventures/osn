@@ -4,7 +4,7 @@ tags: [todo, web]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-06-19
+last-reviewed: 2026-06-20
 ---
 
 > [!note] Deep-linkable dashboard routes + refresh persistence + dismissable checklist (`feat/cire-dashboard-routing`)
@@ -44,6 +44,36 @@ last-reviewed: 2026-06-19
 >   dismiss/restore + per-wedding persistence. 130 organiser tests green.
 > ⚠️ Real-browser eyeball still wanted: Back/Forward + a hard refresh on a wedding
 > tab (happy-dom can't fully exercise the history stack).
+
+> [!note] Crop distortion fix + aspect-ratio presets (`feat/cire-crop-aspect-ratios`)
+> Fixes a crop **distortion** bug in the guest render and adds aspect-ratio
+> presets to the editor.
+> - **Root cause:** the dims-free CSS render used a TWO-value `background-size`
+>   (`Wx% Wy%`), which scales width and height INDEPENDENTLY — so whenever the
+>   crop rectangle's aspect ratio differed from the display box's, the image was
+>   non-uniformly scaled and came out **stretched/squashed**.
+> - **Fix (uniform scaling):** `components/image-crop.ts` now emits a SINGLE-value
+>   `background-size` (`W%`, height auto), which the browser scales UNIFORMLY (one
+>   factor on both axes, preserving proportions), and the display box adopts the
+>   crop's **true pixel aspect** via the new `cropAspectRatio(crop, fallback)` so
+>   the uniformly-scaled region fills it exactly — no stretch, no letterbox. The
+>   hero stays a full-bleed `cover` focal point (`heroCropBackgroundStyle`) — also
+>   uniform, also never distorted. Our Story / `EventCard` set `aspect-ratio` from
+>   `cropAspectRatio` (fallback = the slot's old fixed shape).
+> - **Dims capture, NO migration:** the pixel aspect needs the source's natural
+>   dimensions, captured in the browser at crop time and carried in the crop JSON
+>   as optional `natW`/`natH`. The crop columns are plain JSON `TEXT`, so the JSON
+>   shape was just **widened** — no schema migration. A **legacy** `{x,y,w,h}`
+>   crop (no dims) still decodes + renders, falling back to the slot default
+>   aspect (its prior fixed shape), now minus the stretch.
+> - **Aspect presets** (organiser editor, see `[[api]]`/`ImageCropModal`):
+>   Original / 16:9 / 3:2 / 4:3 / 1:1 / 4:5 / Free, with per-slot Original
+>   defaults (hero 16:9, story 3:2, event 4:3). The guest containers honour
+>   whatever shape was chosen.
+> - Tests: a SINGLE-value `background-size` (one token, anti-distortion invariant —
+>   the cropped region fills the box on both axes with one uniform scale),
+>   `cropAspectRatio` (dims present ⇒ `(w·natW)/(h·natH)`; absent/bad ⇒ fallback),
+>   EventCard box adopts the true pixel aspect vs the legacy 4∶3 fallback.
 
 > [!note] Image crop render — hero / Our Story / event card (`feat/cire-image-crop`)
 > The guest site now renders the organiser's per-image crop (a normalised

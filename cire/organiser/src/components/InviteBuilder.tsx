@@ -3,7 +3,13 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
-import { cropBackgroundStyle, type CropSlot, type ImageCrop } from "../lib/image-crop";
+import {
+  CROP_ASPECT,
+  cropAspectRatio,
+  cropBackgroundStyle,
+  type CropSlot,
+  type ImageCrop,
+} from "../lib/image-crop";
 import { isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
 import { previewSectionVars, resolveSectionTheme } from "../lib/invite-theme-preview";
 import type { PreviewTheme } from "../lib/invite-theme-preview";
@@ -852,8 +858,14 @@ function ImageField(props: {
             {(style) => (
               <div
                 aria-label={`${props.label} (cropped)`}
-                class="border-border h-32 w-full max-w-xs rounded-sm border"
-                style={style()}
+                // WYSIWYG with the guest render: the box adopts the crop's true
+                // pixel aspect, and the region scales uniformly inside it — what the
+                // organiser sees here is exactly what guests get (no stretch).
+                class="border-border w-full max-w-xs overflow-hidden rounded-sm border"
+                style={{
+                  ...style(),
+                  "aspect-ratio": String(cropAspectRatio(props.crop, CROP_ASPECT[props.slot])),
+                }}
               />
             )}
           </Show>

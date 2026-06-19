@@ -3,12 +3,20 @@ export interface DressSwatch {
   color: string;
 }
 
-/** Normalised crop rectangle in source fractions (0..1). Mirrors `ImageCrop` in cire/api. */
+/**
+ * Normalised crop rectangle in source fractions (0..1). Mirrors `ImageCrop` in
+ * cire/api. `natW`/`natH` are the source image's natural pixel dimensions
+ * (optional — present on crops saved by the current editor, absent on legacy
+ * crops); they give the display box the crop's true pixel aspect so the guest
+ * render fills it with no distortion.
+ */
 export interface ImageCrop {
   x: number;
   y: number;
   w: number;
   h: number;
+  natW?: number;
+  natH?: number;
 }
 
 export interface EventSummary {

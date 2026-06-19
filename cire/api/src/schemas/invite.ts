@@ -27,16 +27,30 @@ export function isInviteImageSlot(value: string): value is InviteImageSlot {
  * NULL column) means "no crop" → the default centre `object-cover`, so an
  * un-cropped image renders exactly as before.
  *
- * The guest site applies this in CSS (`object-fit: cover` + computed
- * `object-position`/`scale`), so the stored bytes are untouched and no
- * source-dimension capture is needed. It is JSON-encoded into a nullable TEXT
- * column (`hero_image_crop` / `story_image_crop` / `event_image_crop`).
+ * `natW`/`natH` are the source image's NATURAL pixel dimensions, captured in the
+ * browser at crop time. They are what makes the guest render distortion-proof:
+ * the crop's true pixel aspect ratio is `(w·natW)/(h·natH)`, so the guest box can
+ * adopt that aspect and the (UNIFORMLY-scaled) image fills it with no stretch and
+ * no letterboxing. They are OPTIONAL — a legacy `{x,y,w,h}` value (saved before
+ * this field existed) decodes fine and falls back to the slot's default display
+ * aspect, exactly as before. So NO DB migration is needed: the crop columns stay
+ * plain JSON TEXT (`hero_image_crop` / `story_image_crop` / `event_image_crop`);
+ * we only widened the JSON shape and kept it legacy-tolerant.
  */
 export interface ImageCrop {
   x: number;
   y: number;
   w: number;
   h: number;
+  /** Source image natural width in px (optional; absent on legacy crops). */
+  natW?: number;
+  /** Source image natural height in px (optional; absent on legacy crops). */
+  natH?: number;
+}
+
+/** A finite, strictly-positive number (used to validate the optional dims). */
+function isPositiveFinite(n: unknown): n is number {
+  return typeof n === "number" && Number.isFinite(n) && n > 0;
 }
 
 /**
@@ -45,11 +59,17 @@ export interface ImageCrop {
  * not running off the right/bottom edge. This is the security gate — the
  * rectangle is interpolated into a guest-facing inline `style`, so an
  * out-of-range value must NEVER be persisted (reject the whole save).
+ *
+ * The optional `natW`/`natH` are validated ONLY when present (positive finite
+ * numbers); their absence is fine — a legacy `{x,y,w,h}` crop is still valid.
+ * They are NOT part of the security gate (only the bounded `x,y,w,h` reach an
+ * inline style), but a non-positive/NaN dim is rejected so a downstream aspect
+ * computation can never divide by zero or go non-finite.
  */
 export function isValidCrop(value: unknown): value is ImageCrop {
   if (typeof value !== "object" || value === null) return false;
   const c = value as Record<string, unknown>;
-  const { x, y, w, h } = c;
+  const { x, y, w, h, natW, natH } = c;
   if (
     typeof x !== "number" ||
     typeof y !== "number" ||
@@ -65,7 +85,25 @@ export function isValidCrop(value: unknown): value is ImageCrop {
   // that fills the image, x+w = 1.0000001) isn't spuriously rejected.
   const EPS = 1e-6;
   if (x + w > 1 + EPS || y + h > 1 + EPS) return false;
+  // Optional source dims: tolerate absence (legacy crop), reject a present-but-bad
+  // value so the stored shape can't carry a 0/NaN/∞ dimension.
+  if (natW !== undefined && !isPositiveFinite(natW)) return false;
+  if (natH !== undefined && !isPositiveFinite(natH)) return false;
   return true;
+}
+
+/**
+ * The crop's true pixel aspect ratio (width ÷ height) when the source dimensions
+ * were captured, else `null`. With both dims known, the displayed region's pixel
+ * shape is `(w·natW) / (h·natH)`; the guest box adopts this so a uniformly-scaled
+ * image fills it exactly. `null` ⇒ the caller falls back to the slot's default
+ * display aspect (the legacy behaviour).
+ */
+export function cropAspect(crop: ImageCrop): number | null {
+  const { w, h, natW, natH } = crop;
+  if (!isPositiveFinite(natW) || !isPositiveFinite(natH)) return null;
+  const aspect = (w * natW) / (h * natH);
+  return Number.isFinite(aspect) && aspect > 0 ? aspect : null;
 }
 
 /**
@@ -73,6 +111,10 @@ export function isValidCrop(value: unknown): value is ImageCrop {
  * `object-cover`; a present value must be a valid rectangle (see
  * {@link isValidCrop}) or the whole body is rejected with a 400 — never
  * persisted. The decode passes the validated rectangle through unchanged.
+ *
+ * `natW`/`natH` are optional (the browser supplies them on a fresh crop; an old
+ * client or a legacy value omits them). They are validated by `isValidCrop` when
+ * present; `Schema.optional` keeps the round-trip total either way.
  */
 const CropField = Schema.NullOr(
   Schema.Struct({
@@ -80,6 +122,8 @@ const CropField = Schema.NullOr(
     y: Schema.Number,
     w: Schema.Number,
     h: Schema.Number,
+    natW: Schema.optional(Schema.Number),
+    natH: Schema.optional(Schema.Number),
   }).pipe(
     Schema.filter((c) => isValidCrop(c), {
       message: () => "Invalid crop rectangle (each value 0..1, w/h > 0, x+w ≤ 1, y+h ≤ 1)",

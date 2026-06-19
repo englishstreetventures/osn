@@ -1170,6 +1170,26 @@ describe("image crop (migration 0021)", () => {
       expect(orgBody.hero.imageCrop).toEqual(VALID_CROP);
     });
 
+    it("round-trips the captured source dims (natW/natH) — the distortion fix, no migration", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+
+      // The crop columns are plain JSON TEXT, so the widened shape persists without
+      // a schema change. The guest needs natW/natH to render the crop at its true
+      // pixel aspect (uniform, never stretched).
+      const cropWithDims = { x: 0.1, y: 0.2, w: 0.5, h: 0.4, natW: 4000, natH: 3000 };
+      const put = await appRequest(app, `${orgBase}/image/hero/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify({ crop: cropWithDims }),
+      });
+      expect(put.status).toBe(200);
+
+      const pub = await appRequest(app, `/api/invite/${SLUG}`);
+      const body = (await pub.json()) as { hero: { imageCrop: typeof cropWithDims | null } };
+      expect(body.hero.imageCrop).toEqual(cropWithDims);
+    });
+
     it("rejects an out-of-range crop with 400 and never persists it", async () => {
       const { app } = buildApp();
       await uploadHero(app);

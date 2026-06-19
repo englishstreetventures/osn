@@ -1,7 +1,11 @@
 import { Show } from "solid-js";
 
-import { cropBackgroundStyle } from "./image-crop";
+import { cropAspectRatio, cropBackgroundStyle } from "./image-crop";
 import { buildSrcSet, variantSrc } from "./InviteHeader";
+
+// The event card photo's default display aspect (4∶3) — used when a crop carries
+// no source dimensions (a legacy crop), so the box keeps today's fixed shape.
+const EVENT_DEFAULT_ASPECT = 4 / 3;
 import type { EventSummary } from "./types";
 import { formatDate } from "./utils";
 
@@ -116,11 +120,18 @@ export function EventCard(props: EventCardProps) {
                   <div
                     role="img"
                     aria-label={`${props.event.name} event`}
-                    // Fixed 4∶3 box (matches the organiser's locked event crop
-                    // ratio) so the stored fraction renders WYSIWYG.
-                    class="border-border aspect-[4/3] max-h-[320px] w-full rounded-sm border bg-cover"
+                    // The box adopts the crop's TRUE pixel aspect (from its captured
+                    // source dims), so the uniformly-scaled region fills it with no
+                    // distortion and no empty bars. A legacy crop (no dims) falls
+                    // back to the card's default 4∶3 shape.
+                    class="border-border max-h-[320px] w-full overflow-hidden rounded-sm border"
                     classList={{ "md:order-1": isAlt(), "md:order-2": !isAlt() }}
-                    style={style()}
+                    style={{
+                      ...style(),
+                      "aspect-ratio": String(
+                        cropAspectRatio(props.event.imageCrop, EVENT_DEFAULT_ASPECT),
+                      ),
+                    }}
                   />
                 )}
               </Show>

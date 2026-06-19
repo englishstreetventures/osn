@@ -1,6 +1,11 @@
 import { createEffect, createResource, createSignal, onMount, Show } from "solid-js";
 
-import { cropBackgroundStyle, type ImageCrop } from "./image-crop";
+import {
+  cropAspectRatio,
+  cropBackgroundStyle,
+  heroCropBackgroundStyle,
+  type ImageCrop,
+} from "./image-crop";
 import { isHeroEmpty, isStoryEmpty } from "./invite-emptiness";
 import { type InviteTheme, sectionThemeVars } from "./invite-theme";
 
@@ -24,6 +29,11 @@ type VariantName = keyof typeof VARIANT_WIDTHS;
 // so the guest never picks a different variant — one fixed-purpose variant keeps
 // the re-arm lifecycle + cache simple.
 const HERO_BG_VARIANT: VariantName = "hero-bg";
+
+// The Our Story photo's default display aspect (4∶3) — the shape the box used
+// before crops carried source dimensions. Used as the fallback when a crop has no
+// captured dims (a legacy crop), so it renders exactly as it did before.
+const STORY_DEFAULT_ASPECT = 4 / 3;
 
 /**
  * Build a `srcset` from a base image URL (which already carries the `?v=`
@@ -227,7 +237,10 @@ export default function InviteHeader(props: InviteHeaderProps) {
   const heroCropStyle = (): Record<string, string> | null => {
     const src = heroBackdropSrc();
     const crop = hero()?.imageCrop ?? null;
-    return src ? cropBackgroundStyle(src, crop) : null;
+    // The hero box is the full viewport section, not the crop's aspect, so we
+    // render the crop as a COVER focal point (uniform scale, centred on the crop
+    // region) — never a stretch, never a letterbox.
+    return src ? heroCropBackgroundStyle(src, crop) : null;
   };
 
   // SSR-hydration fix: on an SSR page the browser starts loading the server-
@@ -452,11 +465,18 @@ export default function InviteHeader(props: InviteHeaderProps) {
                     {(style) => (
                       <div
                         aria-hidden="true"
-                        // Fixed 4∶3 box (matches the organiser's locked story crop
-                        // ratio) so the stored fraction renders WYSIWYG. Hidden
-                        // below md, like the <img> path.
-                        class="border-border hidden aspect-[4/3] max-h-[420px] w-full rounded-sm border bg-cover md:block"
-                        style={style()}
+                        // The box adopts the crop's TRUE pixel aspect (from its
+                        // captured source dims) so the uniformly-scaled region fills
+                        // it with no distortion and no empty bars. A legacy crop (no
+                        // dims) falls back to the story default 3∶2. Hidden below md,
+                        // like the <img> path.
+                        class="border-border hidden max-h-[420px] w-full overflow-hidden rounded-sm border md:block"
+                        style={{
+                          ...style(),
+                          "aspect-ratio": String(
+                            cropAspectRatio(story()?.imageCrop, STORY_DEFAULT_ASPECT),
+                          ),
+                        }}
                       />
                     )}
                   </Show>

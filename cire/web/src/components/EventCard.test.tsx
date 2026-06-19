@@ -99,7 +99,7 @@ describe("EventCard", () => {
     expect(img.className).toContain("md:order-2");
   });
 
-  it("renders the cropped region as a background div (not an <img>) when a crop is set", () => {
+  it("renders the cropped region as a UNIFORMLY-scaled background div when a crop is set", () => {
     const cropped: EventSummary = { ...withImage, imageCrop: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 } };
     const { container } = render(() => (
       <EventCard
@@ -114,12 +114,39 @@ describe("EventCard", () => {
     expect(container.querySelector("img")).toBeNull();
     const region = container.querySelector('[role="img"]') as HTMLElement;
     expect(region).not.toBeNull();
-    // The centred half-frame crop maps to 200% size at 50% position. (The DOM may
-    // normalise the trailing zeros, so compare on the rounded value.)
-    expect(region.style.backgroundSize.replace(/\.0+%/g, "%")).toBe("200% 200%");
+    // The centred half-frame crop maps to a SINGLE-value 200% size (uniform — the
+    // old two-value "200% 200%" stretched non-square crops) at 50% position.
+    expect(region.style.backgroundSize.replace(/\.0+%/g, "%")).toBe("200%");
     expect(region.style.backgroundPosition.replace(/\.0+%/g, "%")).toBe("50% 50%");
     // Orientation ordering still applies to the cropped box.
     expect(region.className).toContain("md:order-2");
+  });
+
+  it("gives the cropped box the crop's true pixel aspect (no distortion, no letterbox)", () => {
+    // A 0.5×0.5 crop fraction on a 4000×2000 image is a 2:1 pixel rectangle, so the
+    // box must be 2:1 — not the default 4:3 — so the uniform render fills it exactly.
+    const cropped: EventSummary = {
+      ...withImage,
+      imageCrop: { x: 0.25, y: 0.25, w: 0.5, h: 0.5, natW: 4000, natH: 2000 },
+    };
+    const { container } = render(() => (
+      <EventCard event={cropped} apiUrl="https://api.test" onRespond={noop} onDetails={noop} />
+    ));
+    const region = container.querySelector('[role="img"]') as HTMLElement;
+    expect(region).not.toBeNull();
+    expect(Number.parseFloat(region.style.aspectRatio)).toBeCloseTo(2);
+  });
+
+  it("falls back to the default 4:3 box for a legacy crop without source dims", () => {
+    const cropped: EventSummary = {
+      ...withImage,
+      imageCrop: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 },
+    };
+    const { container } = render(() => (
+      <EventCard event={cropped} apiUrl="https://api.test" onRespond={noop} onDetails={noop} />
+    ));
+    const region = container.querySelector('[role="img"]') as HTMLElement;
+    expect(Number.parseFloat(region.style.aspectRatio)).toBeCloseTo(4 / 3);
   });
 
   it("falls back to the plain <img> when the crop is the identity (full frame)", () => {
