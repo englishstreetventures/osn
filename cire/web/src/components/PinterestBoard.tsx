@@ -54,18 +54,73 @@ export function resetPinterestConsentForTest(): void {
   setConsentGranted(readPersistedConsent());
 }
 
-// Grace period for Pinterest's script to load, run, and transform our `<a>`
-// placeholder. Tracker-blocker extensions (uBlock, Brave Shields, Privacy
-// Badger) put `assets.pinterest.com/js/pinit_main.js` on EasyPrivacy and fire
-// a `blocked:other` net::ERR. We catch that two ways: (1) `script.onerror`,
-// (2) a timeout that checks whether pinit_main actually transformed our
-// anchor — covers the case where the script loaded but a later request
-// (widgets.pinterest.com / i.pinimg.com) was blocked.
+// Hard failure cutoff for Pinterest's script to load, run, and transform our
+// `<a>` placeholder into an iframe. Tracker-blocker extensions (uBlock, Brave
+// Shields, Privacy Badger) put `assets.pinterest.com/js/pinit_main.js` on
+// EasyPrivacy and fire a `blocked:other` net::ERR. We catch failure three ways:
+// (1) `script.onerror` (fast, definitive — a blocked/404 script), (2) a
+// MutationObserver that watches for the SUCCESSFUL transform and cancels this
+// cutoff the moment Pinterest replaces/processes our anchor, (3) this cutoff
+// firing with the anchor still untransformed (covers the case where the script
+// loaded but a later request — pidgets API / i.pinimg.com — was blocked, with
+// no `error` event on our tag).
 //
-// 2.5s catches p95 script-eval + first widget render on the happy path
-// (~1–2s on mid-tier mobile) without making blocked users stare at dead air
-// for the full 4s a more conservative window would impose. PR #28 perf review.
-const EMBED_TIMEOUT_MS = 2500;
+// Why this is generous, not the old fixed 2.5s race: on mobile (slower script
+// eval + render + network) Pinterest's transform routinely finishes AFTER 2.5s,
+// so a blind 2.5s timeout FALSELY marked a board that *did* render as failed and
+// hid it — the guest was left with only the fallback link. Success is now
+// detected by observation (path 2), so the cutoff exists only to stop a *real*
+// block leaving the embed slot blank forever. We can therefore afford a much
+// longer window: it never delays a board that renders (the observer cancels it),
+// it only bounds the wait for boards that genuinely never render.
+//
+// Slow connections get the longer window; fast ones can fall back a touch sooner
+// since a working embed cancels the timer regardless. `navigator.connection` is
+// best-effort (absent on Safari/iOS) — we fall back to the conservative value.
+const EMBED_TIMEOUT_SLOW_MS = 8000;
+const EMBED_TIMEOUT_FAST_MS = 6000;
+
+// Pick a failure cutoff. We default to the slow value (so a board that would
+// render is never hidden) and only shorten it when the connection API positively
+// reports a fast, non-data-saver link. iOS Safari — the primary mobile target —
+// exposes no `navigator.connection`, so it always gets the full slow window.
+function resolveEmbedTimeoutMs(): number {
+  try {
+    const connection = (
+      navigator as Navigator & {
+        connection?: { effectiveType?: string; saveData?: boolean };
+      }
+    ).connection;
+    if (!connection) return EMBED_TIMEOUT_SLOW_MS;
+    if (connection.saveData) return EMBED_TIMEOUT_SLOW_MS;
+    const type = connection.effectiveType;
+    if (type === "slow-2g" || type === "2g" || type === "3g") return EMBED_TIMEOUT_SLOW_MS;
+    // "4g" (or anything else reported as fast) — embed should arrive quickly; a
+    // working embed still cancels the timer, so this only speeds up the *failure*
+    // fallback on fast links.
+    return EMBED_TIMEOUT_FAST_MS;
+  } catch {
+    return EMBED_TIMEOUT_SLOW_MS;
+  }
+}
+
+// Pinterest's `pinit_main.js` signals a successful board render by mutating our
+// placeholder anchor: it strips `data-pin-do` and stamps `data-pin-internal`,
+// then inserts a `<span data-pin-internal>` / `<iframe>` (often replacing the
+// anchor entirely). Any one of these is proof the embed rendered. We treat the
+// anchor losing `data-pin-do`, or an iframe/`[data-pin-internal]` node appearing
+// in the embed container, as SUCCESS.
+function isEmbedTransformed(
+  container: HTMLElement,
+  anchor: HTMLAnchorElement | undefined,
+): boolean {
+  // The anchor was processed in place (data-pin-do stripped) ...
+  if (anchor && anchor.isConnected && !anchor.hasAttribute("data-pin-do")) return true;
+  // ... or the anchor was swapped out for a Pinterest-rendered node ...
+  if (anchor && !anchor.isConnected) return true;
+  // ... or a rendered widget node now lives inside our container.
+  return container.querySelector("iframe, [data-pin-internal], span[data-pin-id]") !== null;
+}
 
 /**
  * Renders a Pinterest board using Pinterest's documented embed widget pattern
@@ -115,11 +170,25 @@ export function PinterestBoard(props: PinterestBoardProps) {
   const id = nextAnchorId();
   const [embedFailed, setEmbedFailed] = createSignal(false);
   let anchorRef: HTMLAnchorElement | undefined;
+  let containerRef: HTMLDivElement | undefined;
 
-  // Injected script + fallback timer, tracked at component scope so the single
-  // top-level onCleanup below can tear them down.
+  // Injected script + fallback timer + success observer, tracked at component
+  // scope so the single top-level onCleanup below can tear them down.
   let injectedScript: HTMLScriptElement | undefined;
   let timeoutId: number | undefined;
+  let observer: MutationObserver | undefined;
+
+  // Called the instant a successful transform is observed (or polled): cancel
+  // the pending failure cutoff and stop observing, so a board that rendered is
+  // never later hidden. Idempotent.
+  function markEmbedRendered() {
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+      timeoutId = undefined;
+    }
+    observer?.disconnect();
+    observer = undefined;
+  }
 
   // React to the shared, page-wide consent signal. This fires for all three
   // paths uniformly: (1) consent already persisted at mount, (2) this board's
@@ -135,6 +204,7 @@ export function PinterestBoard(props: PinterestBoardProps) {
 
   onCleanup(() => {
     if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    observer?.disconnect();
     injectedScript?.remove();
   });
 
@@ -152,19 +222,53 @@ export function PinterestBoard(props: PinterestBoardProps) {
     // request leaks to Pinterest.
     script.referrerPolicy = "no-referrer";
     script.src = `https://assets.pinterest.com/js/pinit_main.js?_=${id}`;
-    script.addEventListener("error", () => setEmbedFailed(true));
+    // A blocked / 404 / errored script is a definitive, fast failure.
+    script.addEventListener("error", () => {
+      markEmbedRendered(); // tear down observer + cutoff; we're going to fallback
+      setEmbedFailed(true);
+    });
     document.body.appendChild(script);
     injectedScript = script;
 
-    // Even if the script loads, a downstream block (pidgets API, image CDN) can
-    // leave the anchor untransformed. Pinit_main marks processed anchors with
-    // `data-pin-internal`; if our anchor still carries the original `data-pin-do`
-    // after the grace period, the embed failed.
-    timeoutId = window.setTimeout(() => {
-      if (anchorRef?.isConnected && anchorRef.hasAttribute("data-pin-do")) {
-        setEmbedFailed(true);
+    // SUCCESS DETECTION (replaces the old fixed-2.5s race). Pinterest's transform
+    // can finish well after a couple of seconds on mobile, so instead of blindly
+    // declaring failure on a timer, we OBSERVE the embed container for the
+    // transform and only fall back if it never arrives. If it's somehow already
+    // transformed (script cached + synchronous), short-circuit immediately.
+    if (containerRef) {
+      if (isEmbedTransformed(containerRef, anchorRef)) {
+        markEmbedRendered();
+      } else {
+        observer = new MutationObserver(() => {
+          if (containerRef && isEmbedTransformed(containerRef, anchorRef)) {
+            markEmbedRendered();
+          }
+        });
+        observer.observe(containerRef, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["data-pin-do", "data-pin-internal"],
+        });
       }
-    }, EMBED_TIMEOUT_MS);
+    }
+
+    // Failure cutoff. Generous + connection-scaled so mobile is never falsely
+    // failed (see EMBED_TIMEOUT_* docs). The observer above cancels this the
+    // moment the embed renders, so a working board never waits this out — the
+    // cutoff only bounds the blank slot for a board that genuinely never renders
+    // (e.g. a downstream pidgets/CDN block that emits no script `error` event).
+    timeoutId = window.setTimeout(() => {
+      timeoutId = undefined;
+      // Final re-check: only fall back if nothing rendered by the cutoff.
+      if (containerRef && isEmbedTransformed(containerRef, anchorRef)) {
+        markEmbedRendered();
+        return;
+      }
+      observer?.disconnect();
+      observer = undefined;
+      setEmbedFailed(true);
+    }, resolveEmbedTimeoutMs());
   }
 
   function grantConsent() {
@@ -228,7 +332,14 @@ export function PinterestBoard(props: PinterestBoardProps) {
               scrollable, centred box: any overflow scrolls *within* this box
               instead of pushing the whole page sideways. */}
           <div class="-mx-6 mt-2 overflow-x-auto px-6">
-            <div class="flex min-w-min justify-center">
+            {/* containerRef wraps the anchor: this is the subtree the success
+                MutationObserver watches. Pinterest inserts its iframe/span here
+                (as a sibling) or replaces the anchor in place — either way the
+                transform happens inside this node. `min-w-min` + `justify-center`
+                size to the rendered iframe's intrinsic width and centre it; the
+                overflow scrolls in the outer box, so the inserted iframe is never
+                zero-boxed or clipped on a narrow viewport (#173 behaviour kept). */}
+            <div ref={containerRef} class="flex min-w-min justify-center">
               <a
                 ref={anchorRef}
                 id={id}

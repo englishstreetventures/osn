@@ -217,6 +217,66 @@ describe("PinterestBoard", () => {
     expect(queryByText(/Load Pinterest board\?/)).toBeNull();
   });
 
+  // The regression that proves the fix: on mobile Pinterest's transform can land
+  // AFTER the old fixed 2.5s window. The old code blindly marked the board failed
+  // at 2.5s and hid it; the new success-observer keeps it shown as long as the
+  // transform arrives before the (much longer) cutoff.
+  it("keeps the embed when Pinterest transforms the anchor AFTER the old 2.5s window but before the new cutoff (mobile-slow)", async () => {
+    vi.useFakeTimers();
+    const { container, queryByText } = render(() => (
+      <PinterestBoard url={VALID_URL} eventName="Catholic" />
+    ));
+    grantConsent(container);
+
+    const anchor = container.querySelector<HTMLAnchorElement>("a[data-pin-do]")!;
+    expect(anchor).not.toBeNull();
+
+    // Advance PAST the old 2.5s race — under the old code the board would already
+    // be hidden here. It must still be shown (transform hasn't happened yet, but
+    // we no longer blindly fail at 2.5s).
+    await vi.advanceTimersByTimeAsync(3500);
+    expect(container.querySelector("a[data-pin-do]")).not.toBeNull();
+    expect(queryByText(/Load Pinterest board\?/)).toBeNull();
+
+    // Now Pinterest finally finishes the transform (slow mobile): it inserts a
+    // rendered widget node and processes the anchor.
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-pin-internal", "true");
+    anchor.replaceWith(iframe);
+    // Let the MutationObserver microtask fire.
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Advance well past the new cutoff: because the transform was observed, the
+    // failure timer was cancelled — the embed must NOT fall back.
+    await vi.advanceTimersByTimeAsync(10000);
+    vi.useRealTimers();
+
+    expect(queryByText(/Load Pinterest board\?/)).toBeNull();
+    // The container still holds the rendered widget node, not the fallback-only state.
+    expect(container.querySelector("iframe[data-pin-internal]")).not.toBeNull();
+  });
+
+  // No transformation by the cutoff (a downstream pidgets/CDN block that emits no
+  // script `error` event) → fall back to the link.
+  it("falls back to the link when no transformation is observed by the cutoff", async () => {
+    vi.useFakeTimers();
+    const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+    grantConsent(container);
+    expect(container.querySelector("a[data-pin-do]")).not.toBeNull();
+
+    // Nothing transforms the anchor. Advance past the longest possible cutoff.
+    await vi.advanceTimersByTimeAsync(9000);
+    vi.useRealTimers();
+
+    // The embed anchor is gone; the always-visible fallback link remains. (Once
+    // the embed is marked failed the consent affordance re-appears, mirroring the
+    // script-onerror path — the guest can retry, but the board itself is hidden.)
+    expect(container.querySelector("a[data-pin-do]")).toBeNull();
+    const link = container.querySelector<HTMLAnchorElement>('a[href="' + VALID_URL + '"]');
+    expect(link).not.toBeNull();
+    expect(link!.textContent).toContain("View moodboard on Pinterest");
+  });
+
   it("clears the fallback timer when the component unmounts", async () => {
     vi.useFakeTimers();
     const clearSpy = vi.spyOn(window, "clearTimeout");
