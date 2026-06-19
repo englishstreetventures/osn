@@ -1,7 +1,7 @@
 import { accounts, serviceAccounts, serviceAccountKeys, users } from "@osn/db/schema";
 import { Db, DbLive } from "@osn/db/service";
 import { evictPublicKeyCacheEntry, importKeyFromJwk } from "@shared/crypto";
-import { and, inArray, eq, isNull } from "drizzle-orm";
+import { and, asc, inArray, eq, isNull, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
@@ -18,6 +18,16 @@ const AUDIENCE = "osn-api";
 const SCOPE_GRAPH_READ = "graph:read";
 /** Max profile IDs per batch request — stays well under SQLite's variable limit (999). */
 const MAX_BATCH_PROFILE_IDS = 200;
+/**
+ * Minimum prefix length for handle prefix search. Below this we return an empty
+ * list (not an error) so a single typed character can't enumerate the handle
+ * namespace — the same friction social apps put on @-mention autocomplete.
+ */
+const MIN_SEARCH_PREFIX = 2;
+/** Default page size for handle prefix search when the caller omits `limit`. */
+const DEFAULT_SEARCH_LIMIT = 8;
+/** Hard ceiling on handle prefix search results — caps the enumeration surface. */
+const MAX_SEARCH_LIMIT = 10;
 /**
  * Exhaustive list of scopes this server will grant to any service. S-M101.
  *
@@ -509,6 +519,96 @@ export function createInternalGraphRoutes(
         {
           query: t.Object({
             handle: t.String({ minLength: 1, maxLength: 64 }),
+          }),
+        },
+      )
+      // -----------------------------------------------------------------------
+      // Handle prefix search (co-host autocomplete)
+      //
+      // Suggests profiles whose handle starts with `prefix`, so cire's organiser
+      // portal can autocomplete a co-host as the organiser types. Same tombstone
+      // rule as the sibling endpoints (accounts join + deletedAt IS NULL) so a
+      // mid-deletion account never surfaces in a suggestion list.
+      //
+      // Enumeration guardrails: a minimum prefix length (returns an empty list
+      // below it, never an error), an ordered + hard-capped result set
+      // (≤ MAX_SEARCH_LIMIT), and the same graph:read ARC gate as every other
+      // internal endpoint. Handles are already public identifiers (@usernames),
+      // so this exposes nothing beyond what the exact /profile-by-handle lookup
+      // does — it just lets the caller find a handle without typing it in full.
+      // The `_` LIKE wildcard is escaped so an underscore in the typed prefix
+      // matches literally (handles may contain `_`), not as a single-char match.
+      // -----------------------------------------------------------------------
+      .get(
+        "/profile-search",
+        async ({ query, headers, set }) => {
+          const caller = await requireArc(
+            headers.authorization,
+            set,
+            run,
+            AUDIENCE,
+            SCOPE_GRAPH_READ,
+          );
+          if (!caller) return { error: "Unauthorized" };
+
+          const prefix = normaliseHandle(query.prefix);
+          // Below the minimum length we return an empty list rather than an
+          // error — a typo or a single keystroke shouldn't be a 4xx, and the
+          // empty result is what keeps the enumeration surface small.
+          if (!prefix || prefix.length < MIN_SEARCH_PREFIX) {
+            return { profiles: [] };
+          }
+
+          // Clamp limit to [1, MAX_SEARCH_LIMIT]; default when absent/garbage.
+          const parsedLimit = query.limit ? parseInt(query.limit, 10) : DEFAULT_SEARCH_LIMIT;
+          const limit =
+            Number.isFinite(parsedLimit) && parsedLimit > 0
+              ? Math.min(parsedLimit, MAX_SEARCH_LIMIT)
+              : DEFAULT_SEARCH_LIMIT;
+
+          // Escape LIKE wildcards (`%`, `_`) in the user-supplied prefix so they
+          // match literally — `_` is valid in a handle. `\` is the escape char.
+          const pattern = `${prefix.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+
+          try {
+            const rows = await run(
+              Effect.gen(function* () {
+                const { db } = yield* Db;
+                return yield* Effect.tryPromise({
+                  try: () =>
+                    db
+                      .select({
+                        id: users.id,
+                        handle: users.handle,
+                        displayName: users.displayName,
+                        avatarUrl: users.avatarUrl,
+                      })
+                      .from(users)
+                      .innerJoin(accounts, eq(users.accountId, accounts.id))
+                      .where(
+                        and(
+                          // Left-anchored LIKE with an explicit ESCAPE char so the
+                          // wildcards we escaped in `pattern` match literally.
+                          sql`${users.handle} LIKE ${pattern} ESCAPE '\\'`,
+                          isNull(accounts.deletedAt),
+                        ),
+                      )
+                      .orderBy(asc(users.handle))
+                      .limit(limit),
+                  catch: (cause) => new Error("DB query failed", { cause }),
+                });
+              }),
+            );
+            return { profiles: rows };
+          } catch (e) {
+            set.status = 500;
+            return { error: safeError(e) };
+          }
+        },
+        {
+          query: t.Object({
+            prefix: t.String({ minLength: 1, maxLength: 64 }),
+            limit: t.Optional(t.String()),
           }),
         },
       )

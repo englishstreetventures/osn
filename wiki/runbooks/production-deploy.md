@@ -9,7 +9,7 @@ related:
   - "[[database-environments]]"
   - "[[redis]]"
   - "[[email]]"
-last-reviewed: 2026-06-18
+last-reviewed: 2026-06-19
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -446,6 +446,19 @@ bunx wrangler d1 migrations apply osn-db-prod     --env production  --remote
 
 The local equivalent (`bun run --cwd osn/db db:migrate:local`, miniflare) is verified to
 apply all `0000`→latest cleanly after the `0002_add_user_handle` data-copy fix.
+
+> **⚠️ DEPLOY (handle-autocomplete PR):** the `users_handle_idx` migration
+> (`osn/db/drizzle/0001_exotic_lady_vermin.sql` — a B-tree index on `users.handle`
+> backing co-host handle prefix search) is **NOT applied by CI's `deploy.yml`** —
+> osn-api migrations are a **manual** step (this §4.3). Run
+> `bun run --cwd osn/db db:migrate:prod` (or the `wrangler … apply osn-db-prod`
+> line above) **before** the new osn-api worker that serves
+> `GET /graph/internal/profile-search` goes live, then **redeploy osn-api**
+> (`cd osn/api && bunx wrangler deploy --env production`) so the new internal
+> endpoint is live and isolates cycle. cire-api + Pages auto-deploy on merge and
+> need no manual step — until the index + osn-api redeploy land, cire's
+> handle-search route simply returns empty lists (fail-soft), and the manual
+> add-by-handle path keeps working.
 
 ---
 

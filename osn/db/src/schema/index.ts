@@ -48,7 +48,16 @@ export const users = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
-  (t) => [index("users_account_idx").on(t.accountId)],
+  (t) => [
+    index("users_account_idx").on(t.accountId),
+    // B-tree index on handle for prefix search (`handle LIKE 'pre%'`). The
+    // UNIQUE constraint already creates an index that SQLite can use for a
+    // left-anchored LIKE range scan, but it relies on the column's BINARY
+    // collation; declaring the index explicitly documents the access pattern
+    // the internal `/graph/internal/profile-search` endpoint depends on and
+    // keeps it stable if the unique constraint ever changes shape.
+    index("users_handle_idx").on(t.handle),
+  ],
 );
 
 export const passkeys = sqliteTable(

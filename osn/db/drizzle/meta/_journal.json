@@ -8,6 +8,13 @@
       "when": 1781699460643,
       "tag": "0000_optimal_thunderbolt",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1781830756703,
+      "tag": "0001_exotic_lady_vermin",
+      "breakpoints": true
     }
   ]
 }

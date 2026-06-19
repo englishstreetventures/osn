@@ -11,6 +11,7 @@ import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
 import { createClaimRoutes } from "./routes/claim";
 import { createInviteOrganiserRoutes, createInvitePublicRoutes } from "./routes/invite";
+import { createOrganiserHandleSearchRoutes } from "./routes/organiser-handle-search";
 import {
   createOrganiserHostsReadRoutes,
   createOrganiserHostsWriteRoutes,
@@ -28,6 +29,7 @@ import type { ImagesBindingLike } from "./services/invite-image-transform";
 import type {
   OsnAccountResolver,
   OsnHandleResolver,
+  OsnHandleSearchResolver,
   OsnProfileDisplayResolver,
 } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
@@ -73,6 +75,13 @@ const defaultRemintLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_0
  * hand-managing a wedding's hosts.
  */
 const defaultHostLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
+/**
+ * Default per-IP limiter for the co-host handle-search autocomplete (S-L1).
+ * osnAuth-gated already, so this just caps the per-keystroke ARC-sign + S2S
+ * amplifier (the route debounces client-side, but a scripted caller wouldn't);
+ * 60/min is generous for hand-typing a handle while bounding the amplification.
+ */
+const defaultHandleSearchLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 
 export interface AppOptions {
   /** Primary origin (used for the session cookie's `secure` flag). */
@@ -93,6 +102,8 @@ export interface AppOptions {
   remintLimiter?: RateLimiterBackend;
   /** Override the co-host add/remove rate limiter (useful for testing). */
   hostLimiter?: RateLimiterBackend;
+  /** Override the co-host handle-search rate limiter (useful for testing). */
+  handleSearchLimiter?: RateLimiterBackend;
   /** R2 bucket binding for the organiser import flow. */
   r2?: R2Bucket;
   /** R2 bucket binding for invite-builder images (separate from `r2`). */
@@ -132,6 +143,14 @@ export interface AppOptions {
    */
   resolveOsnProfileDisplays?: OsnProfileDisplayResolver;
   /**
+   * Suggests OSN profiles whose handle starts with a typed prefix (server-to-
+   * server over ARC) for the add-co-host autocomplete. KEY-OPTIONAL + FAIL-SOFT:
+   * when omitted (no ARC key) or unreachable, the search route returns an empty
+   * list — autocomplete suggests nothing, the manual add path is unaffected, and
+   * it never 503/500s. Tests inject a stub.
+   */
+  resolveOsnHandleSearch?: OsnHandleSearchResolver;
+  /**
    * Cloudflare Turnstile verifier (bot protection) for the public guest
    * surfaces (claim + rsvp). KEY-OPTIONAL: `null`/omitted ⇒ the
    * `TURNSTILE_SECRET_KEY` secret is unset and the gates are skipped (guest
@@ -152,6 +171,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     weddingCreateLimiter = defaultWeddingCreateLimiter,
     remintLimiter = defaultRemintLimiter,
     hostLimiter = defaultHostLimiter,
+    handleSearchLimiter = defaultHandleSearchLimiter,
     r2,
     assets,
     images,
@@ -161,6 +181,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     resolveOsnAccountId,
     resolveOsnProfileByHandle,
     resolveOsnProfileDisplays,
+    resolveOsnHandleSearch,
     turnstileVerifier = null,
   } = options;
   const corsOrigins = allowedOrigins ?? [webOrigin];
@@ -225,6 +246,16 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createOrganiserHostsReadRoutes(db, osnAuthOptions, resolveOsnProfileDisplays))
       .use(
         createOrganiserHostsWriteRoutes(db, osnAuthOptions, hostLimiter, resolveOsnProfileByHandle),
+      )
+      // Co-host handle autocomplete. osnAuth-only (not wedding-scoped) — any
+      // signed-in organiser can search handles while typing a co-host. Sibling
+      // instance so its limiter doesn't gate the host read/write routes.
+      .use(
+        createOrganiserHandleSearchRoutes(
+          osnAuthOptions,
+          handleSearchLimiter,
+          resolveOsnHandleSearch,
+        ),
       )
       .use(createOrganiserImportRoutes(db, r2, osnAuthOptions))
       // Invite builder. Public reads (guest site) + organiser writes split into

@@ -615,6 +615,168 @@ describe("internal graph routes (ARC-protected)", () => {
   });
 
   // -------------------------------------------------------------------------
+  // GET /graph/internal/profile-search  (co-host autocomplete)
+  // -------------------------------------------------------------------------
+
+  describe("GET /graph/internal/profile-search", () => {
+    it("returns profiles whose handle starts with the prefix, ordered by handle", async () => {
+      const { token } = await setupArcService();
+      const alice = await registerProfile("alice@example.com", "alice");
+      const alina = await registerProfile("alina@example.com", "alina");
+      await registerProfile("bob@example.com", "bob");
+
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-search?prefix=al", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { profiles: { id: string; handle: string }[] };
+      // Both al* handles match, bob is excluded, ordered alphabetically by handle
+      // ("alice" < "alina").
+      expect(body.profiles.map((p) => p.handle)).toEqual(["alice", "alina"]);
+      expect(body.profiles.map((p) => p.id)).toEqual([alice, alina]);
+    });
+
+    it("strips a leading @ and folds case before matching", async () => {
+      const { token } = await setupArcService();
+      const alice = await registerProfile("alice@example.com", "alice");
+
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-search?prefix=%40AL", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { profiles: { id: string }[] };
+      expect(body.profiles.map((p) => p.id)).toContain(alice);
+    });
+
+    it("returns an empty list (not an error) for a prefix below the minimum length", async () => {
+      const { token } = await setupArcService();
+      await registerProfile("alice@example.com", "alice");
+
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-search?prefix=a", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { profiles: unknown[] };
+      expect(body.profiles).toEqual([]);
+    });
+
+    it("returns an empty list for a prefix that is only an @ sigil", async () => {
+      const { token } = await setupArcService();
+      await registerProfile("alice@example.com", "alice");
+
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-search?prefix=%40", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { profiles: unknown[] };
+      expect(body.profiles).toEqual([]);
+    });
+
+    it("does not return matches from soft-deleted accounts (tombstone rule)", async () => {
+      const { token } = await setupArcService();
+      const alice = await registerProfile("alice@example.com", "alice");
+      await registerProfile("alina@example.com", "alina");
+
+      // Soft-delete alice's account — it must drop out of search results.
+      await runWithLayer(
+        Effect.gen(function* () {
+          const { db } = yield* Db;
+          const rows = yield* Effect.tryPromise({
+            try: () =>
+              db.select({ accountId: users.accountId }).from(users).where(eq(users.id, alice)),
+            catch: (e) => e,
+          });
+          const accountId = rows[0]!.accountId;
+          yield* Effect.tryPromise({
+            try: () =>
+              db
+                .update(accounts)
+                .set({ deletedAt: Math.floor(Date.now() / 1000) })
+                .where(eq(accounts.id, accountId)),
+            catch: (e) => e,
+          });
+        }),
+      );
+
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-search?prefix=al", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { profiles: { handle: string }[] };
+      expect(body.profiles.map((p) => p.handle)).toEqual(["alina"]);
+    });
+
+    it("caps the result count at the hard maximum (10) even when limit is larger", async () => {
+      const { token } = await setupArcService();
+      // 12 handles sharing the "user" prefix — more than the hard cap.
+      for (let i = 0; i < 12; i++) {
+        const n = String(i).padStart(2, "0");
+        // eslint-disable-next-line no-await-in-loop -- sequential seeding
+        await registerProfile(`user${n}@example.com`, `user${n}`);
+      }
+
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-search?prefix=user&limit=50", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { profiles: unknown[] };
+      expect(body.profiles).toHaveLength(10);
+    });
+
+    it("honours a smaller explicit limit", async () => {
+      const { token } = await setupArcService();
+      await registerProfile("sam@example.com", "sam");
+      await registerProfile("samuel@example.com", "samuel");
+      await registerProfile("samantha@example.com", "samantha");
+
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-search?prefix=sam&limit=2", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { profiles: unknown[] };
+      expect(body.profiles).toHaveLength(2);
+    });
+
+    it("rejects a missing ARC token with 401", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-search?prefix=al"),
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it("rejects a token with the wrong scope with 401", async () => {
+      const { keyPair: kp, keyId } = await setupArcService("pulse-api", "graph:read", "osn-api");
+      const badToken = await createArcToken(kp.privateKey, {
+        iss: "pulse-api",
+        aud: "osn-api",
+        scope: "graph:write",
+        kid: keyId,
+      });
+      await registerProfile("alice@example.com", "alice");
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/profile-search?prefix=al", {
+          headers: { Authorization: `ARC ${badToken}` },
+        }),
+      );
+      expect(res.status).toBe(401);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // POST /graph/internal/register-service  (T-R1)
   // -------------------------------------------------------------------------
 

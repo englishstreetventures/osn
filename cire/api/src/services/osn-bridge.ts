@@ -294,3 +294,97 @@ export async function createProfileDisplayResolverFromEnv(env: {
     arcKeyId: env.arcKeyId,
   });
 }
+
+/** A single autocomplete suggestion surfaced to the organiser portal. */
+export interface OsnHandleSuggestion {
+  readonly profileId: string;
+  readonly handle: string;
+  readonly displayName: string | null;
+}
+
+/**
+ * Suggests OSN profiles whose handle starts with `prefix`, for the add-co-host
+ * autocomplete in the organiser portal. Returns the (already capped, ordered)
+ * list osn-api produced. FAIL-SOFT: any short/empty prefix or transport/infra
+ * failure (osn-api down / 5xx / malformed body / missing ARC key) resolves to an
+ * EMPTY list, never a throw — an unavailable autocomplete simply suggests
+ * nothing while the manual type-and-submit add path keeps working. This mirrors
+ * the profile-display resolver (fail-soft) rather than the handle/account
+ * resolvers (which throw to distinguish "not found" from "unavailable").
+ */
+export type OsnHandleSearchResolver = (prefix: string) => Promise<OsnHandleSuggestion[]>;
+
+/**
+ * Builds an {@link OsnHandleSearchResolver} backed by a real ARC-authenticated
+ * call to `GET /graph/internal/profile-search`. Same key + `graph:read` scope as
+ * the sibling resolvers, so a deployment that has the ARC key registered gets
+ * handle autocomplete too. osn-api owns prefix normalisation, the min-length
+ * floor, ordering, and the result cap — this just forwards the raw query.
+ */
+export function createArcHandleSearchResolver(config: ArcResolverConfig): OsnHandleSearchResolver {
+  const base = config.osnApiUrl.replace(/\/+$/, "");
+
+  return async (prefix) => {
+    const empty: OsnHandleSuggestion[] = [];
+    if (prefix.trim().length === 0) return empty;
+
+    try {
+      const token = await signArcToken(config.arcPrivateKey, {
+        iss: ARC_ISSUER,
+        aud: ARC_AUDIENCE,
+        scope: ARC_SCOPE,
+        kid: config.arcKeyId,
+      });
+
+      const res = await instrumentedFetch(
+        `${base}/graph/internal/profile-search?prefix=${encodeURIComponent(prefix)}`,
+        { headers: { authorization: `ARC ${token}` } },
+      );
+
+      if (!res.ok) return empty;
+
+      const data = (await res.json()) as {
+        profiles?: { id?: unknown; handle?: unknown; displayName?: unknown }[];
+      };
+      if (!Array.isArray(data.profiles)) return empty;
+
+      const out: OsnHandleSuggestion[] = [];
+      for (const p of data.profiles) {
+        if (typeof p.id !== "string" || typeof p.handle !== "string") continue;
+        out.push({
+          profileId: p.id,
+          handle: p.handle,
+          displayName: typeof p.displayName === "string" ? p.displayName : null,
+        });
+      }
+      return out;
+    } catch {
+      // FAIL-SOFT: never let an autocomplete lookup failure break the portal.
+      return empty;
+    }
+  };
+}
+
+/**
+ * Builds the handle-search resolver from raw env material — the sibling of
+ * {@link createProfileDisplayResolverFromEnv}. Returns `null` when any piece is
+ * absent so a deployment without the ARC key simply has co-host autocomplete
+ * disabled (the search route then returns an empty list), never failing to boot.
+ * A present-but-invalid key degrades the same way.
+ */
+export async function createHandleSearchResolverFromEnv(env: {
+  osnApiUrl?: string;
+  arcPrivateKeyJwk?: string;
+  arcKeyId?: string;
+}): Promise<OsnHandleSearchResolver | null> {
+  if (!env.osnApiUrl || !env.arcPrivateKeyJwk || !env.arcKeyId) {
+    return null;
+  }
+  const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk).catch(() => null);
+  if (!arcPrivateKey) return null;
+  return createArcHandleSearchResolver({
+    osnApiUrl: env.osnApiUrl,
+    arcPrivateKey,
+    arcKeyId: env.arcKeyId,
+  });
+}

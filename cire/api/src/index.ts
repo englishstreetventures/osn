@@ -9,6 +9,7 @@ import { setExecutionCtx } from "./lib/execution-ctx";
 import {
   createAccountResolverFromEnv,
   createHandleResolverFromEnv,
+  createHandleSearchResolverFromEnv,
   createProfileDisplayResolverFromEnv,
 } from "./services/osn-bridge";
 import { retentionService } from "./services/retention";
@@ -130,6 +131,16 @@ const handler: ExportedHandler<Env> = {
           arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
           arcKeyId: env.CIRE_API_ARC_KEY_ID,
         })) ?? undefined;
+      // Sibling ARC resolver for add-co-host autocomplete (handle prefix search),
+      // same key + graph:read scope. Null (⇒ handle-search route returns an empty
+      // list, autocomplete disabled) when the ARC config is absent — fail-soft,
+      // never a 503/500; the manual add path is unaffected.
+      const resolveOsnHandleSearch =
+        (await createHandleSearchResolverFromEnv({
+          osnApiUrl: env.OSN_API_URL,
+          arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+          arcKeyId: env.CIRE_API_ARC_KEY_ID,
+        })) ?? undefined;
       // C1/C4/AL-S-L1: prefer the native Workers rate-limit binding (global +
       // atomic) for every pre-auth / amplifier surface — claim (brute-force),
       // account-link (ARC-sign + S2S amplifier, membership oracle), invite
@@ -159,6 +170,7 @@ const handler: ExportedHandler<Env> = {
           resolveOsnAccountId,
           resolveOsnProfileByHandle,
           resolveOsnProfileDisplays,
+          resolveOsnHandleSearch,
           turnstileVerifier,
         }),
       };

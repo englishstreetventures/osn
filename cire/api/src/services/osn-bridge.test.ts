@@ -6,7 +6,9 @@ import {
   createAccountResolverFromEnv,
   createArcAccountResolver,
   createArcHandleResolver,
+  createArcHandleSearchResolver,
   createHandleResolverFromEnv,
+  createHandleSearchResolverFromEnv,
 } from "./osn-bridge";
 
 const realFetch = globalThis.fetch;
@@ -259,6 +261,160 @@ describe("createHandleResolverFromEnv", () => {
       });
     }).not.toThrow();
     const resolve = await createHandleResolverFromEnv({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKeyJwk: badJwk,
+      arcKeyId: "kid-env",
+    });
+    expect(resolve).toBeNull();
+  });
+});
+
+describe("createArcHandleSearchResolver", () => {
+  it("signs an ARC token and returns the suggestion list from osn-api", async () => {
+    const { privateKey } = await testKeyMaterial();
+    let seen: { url: string; auth: string | null } | undefined;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      seen = { url: String(url), auth: headers.get("authorization") };
+      return new Response(
+        JSON.stringify({
+          profiles: [
+            { id: "usr_alice", handle: "alice", displayName: "Alice" },
+            { id: "usr_alina", handle: "alina", displayName: null },
+          ],
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+
+    const resolve = createArcHandleSearchResolver({
+      osnApiUrl: "https://osn.example/",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+    const result = await resolve("al");
+
+    expect(result).toEqual([
+      { profileId: "usr_alice", handle: "alice", displayName: "Alice" },
+      { profileId: "usr_alina", handle: "alina", displayName: null },
+    ]);
+    // Trailing slash trimmed; prefix query-encoded (raw — osn normalises).
+    expect(seen?.url).toBe("https://osn.example/graph/internal/profile-search?prefix=al");
+    expect(seen?.auth?.startsWith("ARC ")).toBe(true);
+    expect(seen?.auth?.split(".")).toHaveLength(3);
+  });
+
+  it("returns an empty list for a blank prefix without calling osn-api", async () => {
+    const { privateKey } = await testKeyMaterial();
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response(JSON.stringify({ profiles: [] }), { status: 200 });
+    }) as typeof fetch;
+
+    const resolve = createArcHandleSearchResolver({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+    expect(await resolve("   ")).toEqual([]);
+    expect(called).toBe(false);
+  });
+
+  it("FAIL-SOFT: returns an empty list on a non-ok status (osn unavailable)", async () => {
+    const { privateKey } = await testKeyMaterial();
+    globalThis.fetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+
+    const resolve = createArcHandleSearchResolver({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+    expect(await resolve("al")).toEqual([]);
+  });
+
+  it("FAIL-SOFT: returns an empty list when fetch throws", async () => {
+    const { privateKey } = await testKeyMaterial();
+    globalThis.fetch = (async () => {
+      throw new Error("network down");
+    }) as typeof fetch;
+
+    const resolve = createArcHandleSearchResolver({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+    expect(await resolve("al")).toEqual([]);
+  });
+
+  it("skips malformed rows and coerces a non-string displayName to null", async () => {
+    const { privateKey } = await testKeyMaterial();
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          profiles: [
+            { id: "usr_ok", handle: "ok", displayName: 42 },
+            { id: 99, handle: "bad-id" },
+            { handle: "no-id" },
+          ],
+        }),
+        { status: 200 },
+      )) as typeof fetch;
+
+    const resolve = createArcHandleSearchResolver({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+    expect(await resolve("ok")).toEqual([{ profileId: "usr_ok", handle: "ok", displayName: null }]);
+  });
+});
+
+describe("createHandleSearchResolverFromEnv", () => {
+  it("returns null when any ARC config piece is missing", async () => {
+    const { jwk } = await testKeyMaterial();
+    expect(await createHandleSearchResolverFromEnv({})).toBeNull();
+    expect(
+      await createHandleSearchResolverFromEnv({ osnApiUrl: "https://osn.example", arcKeyId: "k" }),
+    ).toBeNull();
+    expect(
+      await createHandleSearchResolverFromEnv({ arcPrivateKeyJwk: jwk, arcKeyId: "k" }),
+    ).toBeNull();
+  });
+
+  it("builds a working resolver when all config is present", async () => {
+    const { jwk } = await testKeyMaterial();
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ profiles: [{ id: "usr_env", handle: "env" }] }), {
+        status: 200,
+      })) as typeof fetch;
+
+    const resolve = await createHandleSearchResolverFromEnv({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKeyJwk: jwk,
+      arcKeyId: "kid-env",
+    });
+    expect(resolve).not.toBeNull();
+    expect(await resolve!("env")).toEqual([
+      { profileId: "usr_env", handle: "env", displayName: null },
+    ]);
+  });
+
+  // Sibling of the other builder guards: a corrupt CIRE_API_ARC_PRIVATE_KEY must
+  // disable autocomplete (search returns empty), never crash the builder.
+  it.each([
+    ["non-JSON garbage", "{not-json"],
+    ["plain string", "garbage"],
+    ["valid JSON but not a usable JWK", '{"kty":"EC"}'],
+  ])("returns null (does NOT throw) when the ARC key is malformed: %s", async (_label, badJwk) => {
+    expect(async () => {
+      await createHandleSearchResolverFromEnv({
+        osnApiUrl: "https://osn.example",
+        arcPrivateKeyJwk: badJwk,
+        arcKeyId: "kid-env",
+      });
+    }).not.toThrow();
+    const resolve = await createHandleSearchResolverFromEnv({
       osnApiUrl: "https://osn.example",
       arcPrivateKeyJwk: badJwk,
       arcKeyId: "kid-env",

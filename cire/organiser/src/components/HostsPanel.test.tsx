@@ -38,7 +38,8 @@ function json(body: unknown, status = 200) {
 }
 
 function typeHandle(value: string) {
-  fireEvent.input(screen.getByRole("textbox"), { target: { value } });
+  // The add-host input is a combobox (role="combobox") now it has autocomplete.
+  fireEvent.input(screen.getByRole("combobox"), { target: { value } });
 }
 
 describe("HostsPanel", () => {
@@ -160,5 +161,101 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
     render(() => <HostsPanel weddingId="wed_a" canManage />);
     await waitFor(() => expect(redirectSpy).toHaveBeenCalledTimes(1));
+  });
+
+  // --- Handle autocomplete ---------------------------------------------------
+
+  /** Convenience: the search response shape returned by /handle-search. */
+  function searchJson(
+    profiles: { profileId: string; handle: string; displayName: string | null }[],
+  ) {
+    return json({ profiles });
+  }
+
+  it("debounces the search and fetches suggestions for a 2+ char prefix", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [] })); // initial load
+    authFetchMock.mockResolvedValueOnce(
+      searchJson([
+        { profileId: "usr_alice", handle: "alice", displayName: "Alice" },
+        { profileId: "usr_alina", handle: "alina", displayName: null },
+      ]),
+    );
+    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
+
+    typeHandle("al");
+    // Suggestions appear after the debounce + fetch resolves.
+    await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
+    expect(screen.getByText("@alice")).toBeTruthy();
+    expect(screen.getByText("@alina")).toBeTruthy();
+    expect(screen.getByText("Alice")).toBeTruthy(); // displayName rendered
+
+    // The second call is the debounced search hitting the handle-search endpoint.
+    const [url] = authFetchMock.mock.calls[1]!;
+    expect(String(url)).toBe("https://api.test/api/organiser/handle-search?q=al");
+    // Exactly one search fetch despite a single multi-char input (debounced).
+    expect(authFetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not search for a sub-2-char prefix", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
+    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
+
+    typeHandle("a");
+    // Give the debounce window time to fire (it shouldn't, the prefix is too short).
+    await new Promise((r) => setTimeout(r, 350));
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(authFetchMock).toHaveBeenCalledTimes(1); // only the initial load
+  });
+
+  it("fills the input when a suggestion is selected", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
+    authFetchMock.mockResolvedValueOnce(
+      searchJson([{ profileId: "usr_alice", handle: "alice", displayName: "Alice" }]),
+    );
+    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
+
+    typeHandle("al");
+    await waitFor(() => expect(screen.getByRole("option")).toBeTruthy());
+
+    fireEvent.mouseDown(screen.getByRole("option", { name: /@alice/i }));
+    // The input now holds the chosen handle and the list is gone.
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    expect((screen.getByRole("combobox") as HTMLInputElement).value).toBe("@alice");
+  });
+
+  it("fails soft (no listbox) when the search endpoint errors", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
+    authFetchMock.mockResolvedValueOnce(json({ error: "nope" }, 500));
+    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
+
+    typeHandle("al");
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("still allows manual type-and-submit without picking a suggestion", async () => {
+    // The user types and submits immediately, before the search debounce fires.
+    // The add POST is therefore call #2; a default mock absorbs the trailing
+    // debounced search so it can't reject unmatched.
+    authFetchMock.mockImplementation(() => Promise.resolve(searchJson([])));
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [] })); // load
+    authFetchMock.mockResolvedValueOnce(
+      json({ host: { osnProfileId: "usr_bob", handle: "bob", role: "host", createdAt: 2 } }, 201),
+    );
+    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
+
+    typeHandle("bob");
+    fireEvent.click(screen.getByRole("button", { name: /Add host/i }));
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+    // The add request used the hosts POST endpoint, not the search endpoint.
+    const postCall = authFetchMock.mock.calls.find(
+      (c) => (c[1] as RequestInit | undefined)?.method === "POST",
+    );
+    expect(String(postCall?.[0])).toBe("https://api.test/api/organiser/weddings/wed_a/hosts");
   });
 });
