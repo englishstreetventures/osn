@@ -87,6 +87,10 @@ export const CIRE_METRICS = {
   hostRemoved: "cire.host.removed",
   // S2S osn-api handle→profile resolve latency (the ARC call for add-host).
   hostResolveDuration: "cire.host.resolve.duration",
+  // CSP violation reports posted by guests' browsers to the public collector
+  // (`POST /api/csp-report`). Counted by the violated effective-directive only
+  // (a small fixed set) — NEVER the blocked URI (unbounded).
+  cspReport: "cire.csp.report",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -158,6 +162,35 @@ export type HostAddResult =
 /** Outcome of removing a co-host. */
 export type HostRemoveResult = "ok" | "error";
 
+/**
+ * The CSP directive a violation report names, reduced to a BOUNDED label so it
+ * is safe as a metric attribute (CSP directive names are a small fixed set; a
+ * browser-supplied value outside it — or a missing one — collapses to `other`).
+ * The full violated/effective-directive string (which can carry a source
+ * expression) is logged, never used as a metric dimension.
+ */
+export type CspDirective =
+  | "default-src"
+  | "script-src"
+  | "script-src-elem"
+  | "script-src-attr"
+  | "style-src"
+  | "style-src-elem"
+  | "style-src-attr"
+  | "img-src"
+  | "font-src"
+  | "connect-src"
+  | "frame-src"
+  | "frame-ancestors"
+  | "object-src"
+  | "media-src"
+  | "worker-src"
+  | "manifest-src"
+  | "base-uri"
+  | "form-action"
+  | "child-src"
+  | "other";
+
 type ClaimAttemptsAttrs = { result: ClaimResult };
 type ClaimLookupDurationAttrs = { result: "ok" | "error" };
 type SessionCreatedAttrs = { result: "ok" | "error" };
@@ -201,6 +234,7 @@ type WeddingCreatedAttrs = { result: WeddingCreatedResult };
 type HostAddedAttrs = { result: HostAddResult };
 type HostRemovedAttrs = { result: HostRemoveResult };
 type HostResolveDurationAttrs = { result: ResolveResult };
+type CspReportAttrs = { effectiveDirective: CspDirective };
 
 // ---------------------------------------------------------------------------
 // Instruments.
@@ -394,6 +428,13 @@ const hostResolveDuration = createHistogram<HostResolveDurationAttrs>({
   boundaries: LATENCY_BUCKETS_SECONDS,
 });
 
+const cspReport = createCounter<CspReportAttrs>({
+  name: CIRE_METRICS.cspReport,
+  description:
+    "CSP violation reports posted by guests' browsers to the public collector, by the bounded effective-directive label (the blocked URI is NEVER an attribute — it is logged, reduced to origin)",
+  unit: "{report}",
+});
+
 // ---------------------------------------------------------------------------
 // Recording helpers — the ONLY way cire code should emit metrics.
 // ---------------------------------------------------------------------------
@@ -524,6 +565,46 @@ export const metricWeddingCreated = (result: WeddingCreatedResult): void =>
 export const metricHostAdded = (result: HostAddResult): void => hostAdded.inc({ result });
 
 export const metricHostRemoved = (result: HostRemoveResult): void => hostRemoved.inc({ result });
+
+/** The bounded CSP directive labels, as a runtime Set for `bucketCspDirective`. */
+const CSP_DIRECTIVE_LABELS = new Set<CspDirective>([
+  "default-src",
+  "script-src",
+  "script-src-elem",
+  "script-src-attr",
+  "style-src",
+  "style-src-elem",
+  "style-src-attr",
+  "img-src",
+  "font-src",
+  "connect-src",
+  "frame-src",
+  "frame-ancestors",
+  "object-src",
+  "media-src",
+  "worker-src",
+  "manifest-src",
+  "base-uri",
+  "form-action",
+  "child-src",
+]);
+
+/**
+ * Map a browser-supplied (effective/violated) directive string onto the bounded
+ * {@link CspDirective} metric label. A CSP `violated-directive` can carry the
+ * source expression too (e.g. `"script-src https://evil.example"`), so we take
+ * the first token, lowercase it, and only keep it if it is a known directive —
+ * anything else collapses to `"other"`. This is what keeps the metric's
+ * cardinality fixed regardless of what a hostile/odd client posts.
+ */
+export const bucketCspDirective = (directive: string | undefined): CspDirective => {
+  const token = (directive ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  return CSP_DIRECTIVE_LABELS.has(token as CspDirective) ? (token as CspDirective) : "other";
+};
+
+/** Record one CSP violation report, counted by its bounded effective-directive. */
+export const metricCspReport = (effectiveDirective: CspDirective): void =>
+  cspReport.inc({ effectiveDirective });
 
 // ---------------------------------------------------------------------------
 // Effect combinators for timed operations (mirrors pulse `measureSeconds`).

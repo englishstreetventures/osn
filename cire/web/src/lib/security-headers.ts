@@ -50,6 +50,25 @@ const ORIGINS = {
 } as const;
 
 /**
+ * First-party CSP violation-report collector — the `POST /api/csp-report` route
+ * on cire-api. Derived from the SAME {@link ORIGINS.api} const that `connect-src`
+ * / `img-src` already reference, so the report origin can never drift from the
+ * audited cire-api origin. The guest CSP's `report-uri` (legacy, widely
+ * supported) and `report-to` (modern Reporting API) both target this URL; the
+ * `report-to` group is named by {@link REPORTING_ENDPOINT_NAME} and resolved via
+ * the `Reporting-Endpoints` response header ({@link reportingEndpointsHeader}).
+ *
+ * NB: while the policy is Report-Only it STILL sends reports — that is the whole
+ * point of pointing it at a collector. The endpoint stays production (cire-api
+ * `localhost:8787` has no public collector in dev and we don't want dev noise);
+ * a local report simply fails to POST, which is harmless.
+ */
+export const CSP_REPORT_ENDPOINT = `${ORIGINS.api}/api/csp-report` as const;
+
+/** The `report-to` group name, shared by the CSP directive + the header. */
+export const REPORTING_ENDPOINT_NAME = "csp-endpoint" as const;
+
+/**
  * The Content-Security-Policy as a structured, ordered map of
  * directive -> source list. Built into the header string by {@link buildCsp}.
  *
@@ -112,6 +131,15 @@ export const CSP_DIRECTIVES: Record<string, readonly string[]> = {
   "object-src": ["'none'"],
   "base-uri": ["'self'"],
   "form-action": ["'self'"],
+  // Reporting: where the browser sends CSP violation reports (works in
+  // Report-Only too — that is the point). `report-uri` is the legacy, broadly
+  // supported directive (a URL); `report-to` is the modern Reporting API
+  // directive (a GROUP NAME resolved by the `Reporting-Endpoints` header, set
+  // alongside this CSP — see `securityHeaders`). We ship BOTH for coverage
+  // across browser versions. Both target the first-party cire-api collector
+  // (`CSP_REPORT_ENDPOINT`) — no third-party service.
+  "report-uri": [CSP_REPORT_ENDPOINT],
+  "report-to": [REPORTING_ENDPOINT_NAME],
 } as const;
 
 /** Serialise the directive map into a single CSP header value. */
@@ -138,6 +166,16 @@ export function cspHeaderName(): "Content-Security-Policy" | "Content-Security-P
 }
 
 /**
+ * The `Reporting-Endpoints` header value that resolves the CSP `report-to`
+ * group name to the first-party collector URL — `csp-endpoint="<url>"`. Required
+ * for the modern Reporting API path to deliver anything (the legacy `report-uri`
+ * directive needs no companion header). Mirrors {@link CSP_REPORT_ENDPOINT}.
+ */
+export function reportingEndpointsHeader(): string {
+  return `${REPORTING_ENDPOINT_NAME}="${CSP_REPORT_ENDPOINT}"`;
+}
+
+/**
  * The full set of security headers attached to every SSR HTML response. The CSP
  * mirrors `public/_headers`; the other four headers re-assert the same intent
  * `public/_headers` documents, because that file does not apply to SSR Worker
@@ -150,6 +188,9 @@ export function cspHeaderName(): "Content-Security-Policy" | "Content-Security-P
 export function securityHeaders(): Record<string, string> {
   return {
     [cspHeaderName()]: buildCsp(),
+    // Resolves the CSP `report-to csp-endpoint` group to the first-party
+    // collector. Harmless when only `report-uri` is honoured by the browser.
+    "Reporting-Endpoints": reportingEndpointsHeader(),
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "X-Frame-Options": "DENY",

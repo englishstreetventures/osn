@@ -4,7 +4,9 @@ import {
   applySecurityHeaders,
   buildCsp,
   CSP_DIRECTIVES,
+  CSP_REPORT_ENDPOINT,
   cspHeaderName,
+  reportingEndpointsHeader,
   securityHeaders,
 } from "./security-headers";
 
@@ -74,6 +76,14 @@ describe("buildCsp", () => {
     expect(csp).toMatch(/style-src-attr 'unsafe-inline'/);
   });
 
+  it("wires the first-party CSP report collector via report-uri + report-to", () => {
+    // Legacy report-uri (a URL) targeting the first-party cire-api collector.
+    expect(csp).toContain(`report-uri ${CSP_REPORT_ENDPOINT}`);
+    expect(CSP_REPORT_ENDPOINT).toBe("https://api.cireweddings.com/api/csp-report");
+    // Modern Reporting API report-to (a group name resolved by Reporting-Endpoints).
+    expect(csp).toContain("report-to csp-endpoint");
+  });
+
   it("serialises directives as `name a b; name c` joined by '; '", () => {
     const built = buildCsp({
       "default-src": ["'self'"],
@@ -103,6 +113,13 @@ describe("securityHeaders", () => {
     expect(headers["X-Frame-Options"]).toBe("DENY");
     expect(headers["Permissions-Policy"]).toBe("camera=(), microphone=(), geolocation=()");
   });
+
+  it("emits Reporting-Endpoints resolving the report-to group to the collector", () => {
+    expect(headers["Reporting-Endpoints"]).toBe(
+      'csp-endpoint="https://api.cireweddings.com/api/csp-report"',
+    );
+    expect(headers["Reporting-Endpoints"]).toBe(reportingEndpointsHeader());
+  });
 });
 
 describe("applySecurityHeaders", () => {
@@ -110,6 +127,10 @@ describe("applySecurityHeaders", () => {
     const h = new Headers();
     applySecurityHeaders(h);
     expect(h.get(cspHeaderName())).toContain("frame-ancestors 'none'");
+    expect(h.get(cspHeaderName())).toContain("report-to csp-endpoint");
+    expect(h.get("Reporting-Endpoints")).toBe(
+      'csp-endpoint="https://api.cireweddings.com/api/csp-report"',
+    );
     expect(h.get("X-Content-Type-Options")).toBe("nosniff");
     expect(h.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
     expect(h.get("X-Frame-Options")).toBe("DENY");

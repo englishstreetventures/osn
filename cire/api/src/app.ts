@@ -10,6 +10,7 @@ import { originGuard } from "./lib/origin-guard";
 import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
 import { createClaimRoutes } from "./routes/claim";
+import { createCspReportRoutes } from "./routes/csp-report";
 import { createInviteOrganiserRoutes, createInvitePublicRoutes } from "./routes/invite";
 import { createOrganiserHandleSearchRoutes } from "./routes/organiser-handle-search";
 import {
@@ -83,6 +84,14 @@ const defaultHostLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000
  * 60/min is generous for hand-typing a handle while bounding the amplification.
  */
 const defaultHandleSearchLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
+/**
+ * Default per-IP limiter for the PUBLIC CSP report collector. The endpoint is
+ * unauthenticated (browsers POST here with no creds), so this is a generous
+ * bucket purely to cap a log-spam DoS — a real visitor emits a handful of
+ * reports per page load. Fail-OPEN at the route (a limiter miss just drops the
+ * report; it still 204s).
+ */
+const defaultCspReportLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 
 export interface AppOptions {
   /** Primary origin (used for the session cookie's `secure` flag). */
@@ -105,6 +114,8 @@ export interface AppOptions {
   hostLimiter?: RateLimiterBackend;
   /** Override the co-host handle-search rate limiter (useful for testing). */
   handleSearchLimiter?: RateLimiterBackend;
+  /** Override the public CSP-report collector rate limiter (useful for testing). */
+  cspReportLimiter?: RateLimiterBackend;
   /** R2 bucket binding for the organiser import flow. */
   r2?: R2Bucket;
   /** R2 bucket binding for invite-builder images (separate from `r2`). */
@@ -173,6 +184,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     remintLimiter = defaultRemintLimiter,
     hostLimiter = defaultHostLimiter,
     handleSearchLimiter = defaultHandleSearchLimiter,
+    cspReportLimiter = defaultCspReportLimiter,
     r2,
     assets,
     images,
@@ -228,6 +240,14 @@ export function createApp(db: Db, options: AppOptions = {}) {
         set.status = 500;
         return { error: "Internal error" };
       })
+      // Public CSP violation-report collector. Mounted BEFORE the origin guard:
+      // browsers POST CSP reports as an automated, creds-less request with a
+      // cross-origin (or null) `Origin` and no claim code, so the CSRF origin
+      // guard would 403 every real report. The route is unauthenticated, does no
+      // D1 write, and always 204s — there is no state to protect here. (Elysia
+      // `onBeforeHandle({ as: "global" })` applies to routes mounted after it on
+      // the chain, so ordering this `.use` first keeps the guard off this route.)
+      .use(createCspReportRoutes({ limiter: cspReportLimiter }))
       // C5 / S-L3: CSRF origin guard on every state-changing method, using the
       // same allowlist CORS echoes. Mounted before the route factories so it
       // gates the whole app. Empty allowlist (dev) disables it.

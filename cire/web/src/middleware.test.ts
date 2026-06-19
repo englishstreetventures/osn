@@ -30,6 +30,15 @@ describe("onRequest middleware", () => {
     expect(res.headers.get(cspHeaderName())).toContain(
       "script-src 'self' 'unsafe-inline' https://assets.pinterest.com https://challenges.cloudflare.com",
     );
+    // CSP reporting directives + the companion Reporting-Endpoints header so
+    // real guests' browsers POST violations to the first-party collector.
+    expect(res.headers.get(cspHeaderName())).toContain(
+      "report-uri https://api.cireweddings.com/api/csp-report",
+    );
+    expect(res.headers.get(cspHeaderName())).toContain("report-to csp-endpoint");
+    expect(res.headers.get("Reporting-Endpoints")).toBe(
+      'csp-endpoint="https://api.cireweddings.com/api/csp-report"',
+    );
     expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(res.headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
     expect(res.headers.get("X-Frame-Options")).toBe("DENY");
