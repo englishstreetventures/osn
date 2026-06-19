@@ -40,9 +40,41 @@ function json(body: unknown, status = 200) {
 // Two families; one already shared (Jones), one not (Sharma). Guest rows repeat
 // per member — the panel dedupes by familyId.
 const GUESTS = [
-  { familyId: "fam_a", publicId: "SHARMA-WIDGET-AB3K9-X7QPM", codeSharedAt: null },
-  { familyId: "fam_a", publicId: "SHARMA-WIDGET-AB3K9-X7QPM", codeSharedAt: null },
-  { familyId: "fam_b", publicId: "JONES-KITE-77Q2", codeSharedAt: 1_700_000_000_000 },
+  {
+    familyId: "fam_a",
+    publicId: "SHARMA-WIDGET-AB3K9-X7QPM",
+    codeSharedAt: null,
+    firstOpenedAt: null,
+  },
+  {
+    familyId: "fam_a",
+    publicId: "SHARMA-WIDGET-AB3K9-X7QPM",
+    codeSharedAt: null,
+    firstOpenedAt: null,
+  },
+  {
+    familyId: "fam_b",
+    publicId: "JONES-KITE-77Q2",
+    codeSharedAt: 1_700_000_000_000,
+    firstOpenedAt: null,
+  },
+];
+
+// One family that was never "Sent" (codeSharedAt null) but HAS been opened by a
+// guest — it's still out there, so it must count toward the remint warning.
+const OPENED_ONLY_GUESTS = [
+  {
+    familyId: "fam_a",
+    publicId: "SHARMA-WIDGET-AB3K9-X7QPM",
+    codeSharedAt: null,
+    firstOpenedAt: null,
+  },
+  {
+    familyId: "fam_b",
+    publicId: "JONES-KITE-77Q2",
+    codeSharedAt: null,
+    firstOpenedAt: 1_700_000_500_000,
+  },
 ];
 
 describe("RemintPanel", () => {
@@ -84,6 +116,23 @@ describe("RemintPanel", () => {
     expect(JSON.parse(String((remintCall![1] as RequestInit).body))).toEqual({
       codeStyle: "simple",
     });
+  });
+
+  it("counts an OPENED (but never-copied) family toward the already-sent warning", async () => {
+    authFetchMock.mockResolvedValueOnce(json(OPENED_ONLY_GUESTS));
+    render(() => <RemintPanel weddingId="wed_a" />);
+
+    const remintBtn = await waitFor(() => {
+      const btn = screen.getByRole("button", { name: /Re-mint all codes/i });
+      expect((btn as HTMLButtonElement).disabled).toBe(false);
+      return btn;
+    });
+    fireEvent.click(remintBtn);
+
+    // The opened family is "out there" even though it was never marked shared.
+    await waitFor(() =>
+      expect(screen.getByText(/1 family has already been sent their code/i)).toBeTruthy(),
+    );
   });
 
   it("does not POST until the organiser confirms", async () => {

@@ -91,5 +91,11 @@ export const OrganiserGuestRow = Schema.Struct({
   // Per-guest rows in the same family carry the same value (it's a family-level
   // column); the UI dedupes by family.
   codeSharedAt: Schema.NullOr(Schema.Number),
+  // Epoch-ms timestamp a guest FIRST opened this family's invite with its
+  // current code (an actual claim, host-preview excluded), or `null` if never
+  // opened. Drives the dashboard's reliable "Opened" status — distinct from the
+  // copy-only `codeSharedAt` "Sent" — and is counted alongside it by the remint
+  // "already sent out" warning. Same family-level dedupe as `codeSharedAt`.
+  firstOpenedAt: Schema.NullOr(Schema.Number),
 });
 export type OrganiserGuestRow = Schema.Schema.Type<typeof OrganiserGuestRow>;

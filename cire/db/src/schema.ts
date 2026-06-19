@@ -105,6 +105,15 @@ export const families = sqliteTable(
     // to NULL for every rotated family. Best-effort: set by `mark-shared`, not
     // a security boundary, so a missed write only under-counts the warning.
     codeSharedAt: integer("code_shared_at", { mode: "timestamp" }),
+    // When a guest FIRST opened this family's invite with its CURRENT code (the
+    // guest claim path — `cire/api` claimService.lookup). NULL = never opened.
+    // Recorded ONCE on first contact and never overwritten, so it reflects the
+    // first real claim — a reliable "Opened" signal for the organiser dashboard,
+    // unlike `codeSharedAt` (which only means the organiser copied the message).
+    // Host-preview claims (`kind === "host"`, the organiser's own preview) are
+    // excluded so opening the preview never counts. Cleared back to NULL on
+    // remint, since the rotated code has never been opened.
+    firstOpenedAt: integer("first_opened_at", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },

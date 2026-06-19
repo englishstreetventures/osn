@@ -1,14 +1,27 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, guests } from "@cire/db";
-import { sql } from "drizzle-orm";
+import { BOOTSTRAP_WEDDING_ID, families, guests } from "@cire/db";
+import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import eventsData from "../data/events.json";
+import type { Db } from "../db";
 import { DbService } from "../db";
+import { createDb, seedDb } from "../db/setup";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
 import { claimService, InvalidCredentials } from "./claim";
+
+/** Read a family's `first_opened_at` (epoch-ms or null) by public id. */
+function firstOpenedAt(db: Db, publicId: string): number | null {
+  const row = db
+    .select({ firstOpenedAt: families.firstOpenedAt })
+    .from(families)
+    .where(eq(families.publicId, publicId))
+    .all()[0];
+  if (!row) throw new Error(`no family ${publicId}`);
+  return row.firstOpenedAt === null ? null : row.firstOpenedAt.getTime();
+}
 
 const withDb = effWith(TestDbLayer);
 
@@ -187,6 +200,24 @@ describe("claimService.getAllGuests", () => {
   );
 
   it(
+    "exposes firstOpenedAt — null by default, epoch-ms once a guest has opened",
+    withDb(
+      Effect.gen(function* () {
+        // Untouched by the seed → every family is "never opened".
+        const before = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
+        for (const row of before) expect(row.firstOpenedAt).toBeNull();
+
+        // A real guest claim records the open; it then surfaces as epoch-ms.
+        yield* claimService.lookup("TESTONE-IVY-AA11");
+        const after = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
+        const opened = after.filter((r) => r.familyName === "Testfamily");
+        expect(opened.length).toBeGreaterThan(0);
+        for (const row of opened) expect(typeof row.firstOpenedAt).toBe("number");
+      }),
+    ),
+  );
+
+  it(
     "each guest has at least one event",
     withDb(
       Effect.gen(function* () {
@@ -225,4 +256,93 @@ describe("claimService.getAllGuests", () => {
       }),
     ),
   );
+});
+
+describe("claimService.lookup — first-open recording", () => {
+  it(
+    "records first_opened_at on the FIRST guest claim",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        expect(firstOpenedAt(db, "TESTONE-IVY-AA11")).toBeNull();
+
+        yield* claimService.lookup("TESTONE-IVY-AA11");
+
+        const opened = firstOpenedAt(db, "TESTONE-IVY-AA11");
+        expect(opened).not.toBeNull();
+        expect(opened).toBeGreaterThan(0);
+      }),
+    ),
+  );
+
+  it(
+    "is idempotent — a SECOND claim never overwrites the first open",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        yield* claimService.lookup("TESTONE-IVY-AA11");
+        const first = firstOpenedAt(db, "TESTONE-IVY-AA11");
+        expect(first).not.toBeNull();
+
+        // Re-claim (e.g. a guest re-opening the link / a page reload).
+        yield* claimService.lookup("TESTONE-IVY-AA11");
+        const second = firstOpenedAt(db, "TESTONE-IVY-AA11");
+        // Unchanged: reflects first contact, not the latest open.
+        expect(second).toBe(first);
+      }),
+    ),
+  );
+
+  it(
+    "does NOT record an open for a host-preview claim (kind === 'host')",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date();
+        // Plant the synthetic per-wedding host preview family.
+        db.insert(families)
+          .values({
+            id: "fam_host",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            publicId: "HOST-PREVIEWCODE0000",
+            familyName: "Wedding Host",
+            kind: "host",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+
+        const result = yield* claimService.lookup("HOST-PREVIEWCODE0000");
+        // The organiser's own preview — never counts as a guest opening.
+        expect(result.preview).toBe(true);
+        expect(firstOpenedAt(db, "HOST-PREVIEWCODE0000")).toBeNull();
+      }),
+    ),
+  );
+
+  it("best-effort: a first-open write failure does NOT fail the claim", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    // Make the recording UPDATE throw — every other query (the reads) still
+    // works, so the claim must still resolve the family's invite.
+    const realUpdate = db.update.bind(db);
+    let updateCalls = 0;
+    (db as unknown as { update: typeof db.update }).update = ((
+      table: Parameters<typeof db.update>[0],
+    ) => {
+      updateCalls += 1;
+      throw new Error("simulated D1 write failure");
+      // eslint-disable-next-line no-unreachable
+      return realUpdate(table);
+    }) as typeof db.update;
+
+    const result = await Effect.runPromise(
+      claimService.lookup("TESTONE-IVY-AA11").pipe(Effect.provideService(DbService, db)),
+    );
+
+    // The write was attempted (and threw) but the claim still succeeded.
+    expect(updateCalls).toBeGreaterThan(0);
+    expect(result.familyName).toBe("Testfamily");
+    expect(result.publicId).toBe("TESTONE-IVY-AA11");
+  });
 });

@@ -14,6 +14,7 @@ interface GuestRow {
   familyId: string;
   publicId: string;
   codeSharedAt: number | null;
+  firstOpenedAt: number | null;
 }
 
 const STYLE_OPTIONS: { value: CodeStyle; label: string; hint: string }[] = [
@@ -50,10 +51,16 @@ export default function RemintPanel(props: RemintPanelProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) return;
       const rows = (await res.json()) as GuestRow[];
-      // Dedupe to families (guest rows repeat per member).
+      // Dedupe to families (guest rows repeat per member). A family is "out
+      // there" — and thus loses its code on remint — if the organiser has copied
+      // its message (codeSharedAt) OR a guest has actually opened it
+      // (firstOpenedAt); either means someone may already hold the live link.
       const byFamily = new Map<string, boolean>();
       for (const r of rows) {
-        byFamily.set(r.familyId, byFamily.get(r.familyId) || r.codeSharedAt !== null);
+        byFamily.set(
+          r.familyId,
+          byFamily.get(r.familyId) || r.codeSharedAt !== null || r.firstOpenedAt !== null,
+        );
       }
       setFamilyCount(byFamily.size);
       setSharedCount(Array.from(byFamily.values()).filter(Boolean).length);

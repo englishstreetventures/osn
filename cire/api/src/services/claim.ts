@@ -1,9 +1,9 @@
 import { families, guests, events, guestEvents, rsvps, weddings } from "@cire/db";
-import { eq, and, asc, inArray, ne } from "drizzle-orm";
+import { eq, and, asc, inArray, ne, isNull } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
-import { measureClaimLookup, metricClaimAttempt } from "../metrics";
+import { measureClaimLookup, metricClaimAttempt, metricInviteOpened } from "../metrics";
 import type { ClaimResponse, OrganiserGuestRow, DressSwatch } from "../schemas/claim";
 import { eventImagePath, versionFromKey } from "./event-image";
 
@@ -77,6 +77,38 @@ export const claimService = {
         db.select().from(families).where(eq(families.publicId, publicId)).all(),
       );
       if (!family) return yield* Effect.fail(new InvalidCredentials());
+
+      // Record the FIRST real guest open of this invite. Best-effort and
+      // idempotent: only a guest family that has never been opened on its
+      // CURRENT code gets a timestamp, and it's never overwritten — so the value
+      // reflects first contact and we avoid a write on every page load / re-claim.
+      //  - Host-preview families (`kind === "host"`) are the organiser's own
+      //    preview, so they must NOT count as a guest opening the invite.
+      //  - A write failure is swallowed (logged, no familyId/code/PII): the guest
+      //    still gets their invite even if the dashboard signal is missed.
+      // The guarded UPDATE (`first_opened_at IS NULL`) makes the once-only write
+      // safe even under concurrent claims of the same code.
+      if (family.kind === "guest" && family.firstOpenedAt === null) {
+        const openedAt = new Date();
+        yield* Effect.tryPromise(() =>
+          Promise.resolve(
+            db
+              .update(families)
+              .set({ firstOpenedAt: openedAt, updatedAt: openedAt })
+              .where(and(eq(families.id, family.id), isNull(families.firstOpenedAt)))
+              .run(),
+          ),
+        ).pipe(
+          Effect.tap(() => Effect.sync(() => metricInviteOpened("ok"))),
+          Effect.catchAll(() =>
+            Effect.sync(() => metricInviteOpened("error")).pipe(
+              Effect.zipRight(
+                Effect.logError("invite first-open write failed", { familyId: family.id }),
+              ),
+            ),
+          ),
+        );
+      }
 
       // The wedding slug scopes the first-party event-image paths below. A family
       // always belongs to a wedding (FK), so the row is present; default to the
@@ -282,6 +314,7 @@ export const claimService = {
             publicId: families.publicId,
             familyName: families.familyName,
             codeSharedAt: families.codeSharedAt,
+            firstOpenedAt: families.firstOpenedAt,
             eventId: guestEvents.eventId,
           })
           .from(guests)
@@ -312,6 +345,9 @@ export const claimService = {
             // Drizzle decodes the `timestamp`-mode column to a `Date | null`;
             // surface epoch-ms (or null) so the JSON wire stays a plain number.
             codeSharedAt: row.codeSharedAt === null ? null : row.codeSharedAt.getTime(),
+            // Same encoding for the first real guest open (drives the dashboard's
+            // reliable "Opened" status, distinct from the copy-only "Sent").
+            firstOpenedAt: row.firstOpenedAt === null ? null : row.firstOpenedAt.getTime(),
           };
           byGuest.set(row.guestId, entry);
         }

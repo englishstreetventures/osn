@@ -73,6 +73,10 @@ export const CIRE_METRICS = {
   weddingReminted: "cire.wedding.reminted",
   // Family invite-code marked "shared" (organiser copied the message).
   familyCodeShared: "cire.family_code.shared",
+  // Guest opened the invite for the FIRST time (an actual family-code claim,
+  // host-preview excluded) — the reliable "Opened" signal, distinct from
+  // `familyCodeShared` (the false-positive-prone organiser-copied "Sent").
+  inviteOpened: "cire.invite.opened",
   // Organiser wedding creation (multi-wedding portal).
   weddingCreated: "cire.wedding.created",
   // Co-host management (add/remove a wedding host by OSN handle).
@@ -132,6 +136,9 @@ export type WeddingRemintResult = "ok" | "error";
 /** Outcome of marking a family's invite code "shared". */
 export type FamilyCodeSharedResult = "ok" | "error";
 
+/** Outcome of recording a first guest open of an invite (best-effort write). */
+export type InviteOpenedResult = "ok" | "error";
+
 /** Outcome of an organiser wedding creation. */
 export type WeddingCreatedResult = "ok" | "error";
 
@@ -183,6 +190,7 @@ type OriginGuardRejectionsAttrs = { reason: OriginRejectReason };
 type FamilyCodeRegeneratedAttrs = { result: FamilyCodeRegenResult };
 type WeddingRemintedAttrs = { result: WeddingRemintResult; style: "simple" | "secure" };
 type FamilyCodeSharedAttrs = { result: FamilyCodeSharedResult };
+type InviteOpenedAttrs = { result: InviteOpenedResult };
 type WeddingCreatedAttrs = { result: WeddingCreatedResult };
 type HostAddedAttrs = { result: HostAddResult };
 type HostRemovedAttrs = { result: HostRemoveResult };
@@ -341,6 +349,13 @@ const familyCodeShared = createCounter<FamilyCodeSharedAttrs>({
   unit: "{share}",
 });
 
+const inviteOpened = createCounter<InviteOpenedAttrs>({
+  name: CIRE_METRICS.inviteOpened,
+  description:
+    "First real guest opens of a family invite (an actual claim, host-preview excluded), by outcome — the reliable 'Opened' signal distinct from the organiser-copied 'Sent'",
+  unit: "{open}",
+});
+
 const weddingCreated = createCounter<WeddingCreatedAttrs>({
   name: CIRE_METRICS.weddingCreated,
   description: "Organiser wedding creations (multi-wedding portal), by outcome",
@@ -474,6 +489,12 @@ export const metricWeddingReminted = (
 
 export const metricFamilyCodeShared = (result: FamilyCodeSharedResult): void =>
   familyCodeShared.inc({ result });
+
+/** Record a FIRST guest open of an invite (the best-effort claim-path write).
+ *  `ok` = the timestamp was recorded; `error` = the best-effort write failed
+ *  (the claim itself still succeeded). Host-preview opens are never recorded. */
+export const metricInviteOpened = (result: InviteOpenedResult): void =>
+  inviteOpened.inc({ result });
 
 export const metricWeddingCreated = (result: WeddingCreatedResult): void =>
   weddingCreated.inc({ result });

@@ -15,7 +15,12 @@ function run<A, E>(db: Db, eff: Effect.Effect<A, E, DbService>): Promise<A> {
 
 function guestFamilies(db: Db, weddingId: string) {
   return db
-    .select({ id: families.id, publicId: families.publicId, codeSharedAt: families.codeSharedAt })
+    .select({
+      id: families.id,
+      publicId: families.publicId,
+      codeSharedAt: families.codeSharedAt,
+      firstOpenedAt: families.firstOpenedAt,
+    })
     .from(families)
     .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
     .all();
@@ -62,6 +67,21 @@ describe("remintCodesService.remint", () => {
 
     const after = guestFamilies(db, BOOTSTRAP_WEDDING_ID).find((f) => f.id === fam.id)!;
     expect(after.codeSharedAt).toBeNull();
+  });
+
+  it("clears first_opened_at for rotated families (the rotated code is unopened)", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const fam = guestFamilies(db, BOOTSTRAP_WEDDING_ID)[0]!;
+    db.update(families).set({ firstOpenedAt: new Date() }).where(eq(families.id, fam.id)).run();
+    expect(
+      guestFamilies(db, BOOTSTRAP_WEDDING_ID).find((f) => f.id === fam.id)!.firstOpenedAt,
+    ).not.toBeNull();
+
+    await run(db, remintCodesService.remint(BOOTSTRAP_WEDDING_ID, "secure"));
+
+    const after = guestFamilies(db, BOOTSTRAP_WEDDING_ID).find((f) => f.id === fam.id)!;
+    expect(after.firstOpenedAt).toBeNull();
   });
 
   it("revokes every session of the rotated families", async () => {

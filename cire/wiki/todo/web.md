@@ -7,6 +7,25 @@ related:
 last-reviewed: 2026-06-19
 ---
 
+> [!note] GuestTable "Opened" status (`feat/cire-invite-opened-status`)
+> The organiser Guests tab (`GuestTable.tsx`) now shows a reliable **"Opened"**
+> badge per household, driven by the server's `firstOpenedAt` (a real guest
+> family-code claim) — distinct from the false-positive-prone copy-only "Sent".
+> - **Precedence**: `firstOpenedAt != null` ⇒ **"Opened"** (filled gold/success
+>   accent, with a tooltip naming the open date via a small `Intl.DateTimeFormat`
+>   helper: _"A guest opened this invite (code used) on &lt;date&gt;"_); else if
+>   shared ⇒ the soft secondary **"Sent"** badge (kept, bordered/muted, tooltip
+>   clarified to _"You copied the invite message"_); else no badge.
+> - **"Opened" is server-only** — no optimistic flip. The optimistic `sharedNow`
+>   behaviour for "Sent" (flips on copy) is unchanged.
+> - `firstOpenedAt: number | null` added to the row/group types + the family
+>   mapping. `RemintPanel.tsx`'s "already sent out" warning now counts a family
+>   when `codeSharedAt != null` OR `firstOpenedAt != null` (an opened-but-never-
+>   copied household is still out there and loses its code on remint).
+> - Tests: GuestTable shows "Opened" (precedence over "Sent") when `firstOpenedAt`
+>   set, "Sent" when only shared, nothing when neither; RemintPanel counts an
+>   opened-only family toward the warning. See `[[api]]` + `[[db]]`.
+
 > [!note] Organiser dashboard UX + structure pass (`feat/cire-organiser-ux`)
 > A polish + restructure pass over `cire/organiser` (NOT the guest invite) to make
 > the dashboard intuitive and guided for a non-technical couple. The live theme/hero

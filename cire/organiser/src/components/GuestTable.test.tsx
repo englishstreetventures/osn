@@ -56,6 +56,7 @@ const GUESTS = [
     lastName: "Sharma",
     events: ["evt_1"],
     codeSharedAt: null,
+    firstOpenedAt: null,
   },
   {
     familyId: "fam_b",
@@ -65,6 +66,7 @@ const GUESTS = [
     lastName: "Jones",
     events: [],
     codeSharedAt: 1_700_000_000_000,
+    firstOpenedAt: null,
   },
 ];
 
@@ -167,6 +169,36 @@ describe("GuestTable", () => {
     await waitFor(() => expect(screen.getByText("Jones")).toBeTruthy());
     // fam_b (Jones) came back with a non-null codeSharedAt → "Sent" badge.
     expect(screen.getByText("Sent")).toBeTruthy();
+    // Neither family has been opened, so no "Opened" badge anywhere.
+    expect(screen.queryByText("Opened")).toBeNull();
+  });
+
+  it("shows no status badge for a family that is neither shared nor opened", async () => {
+    withClipboard();
+    primeLoad();
+    render(() => (
+      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+    // fam_a (Sharma): codeSharedAt null + firstOpenedAt null → nothing. The only
+    // status badge present belongs to the (separately) shared Jones family.
+    expect(screen.queryByText("Opened")).toBeNull();
+  });
+
+  it("shows an Opened badge (precedence over Sent) when a guest has opened the invite", async () => {
+    withClipboard();
+    // fam_b is BOTH shared and opened — "Opened" must win, "Sent" must not show.
+    const opened = [GUESTS[0], { ...GUESTS[1], firstOpenedAt: 1_700_000_500_000 }];
+    authFetchMock.mockResolvedValueOnce(json(opened)).mockResolvedValueOnce(json(EVENTS));
+    render(() => (
+      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+    ));
+    await waitFor(() => expect(screen.getByText("Jones")).toBeTruthy());
+
+    expect(screen.getByText("Opened")).toBeTruthy();
+    // Precedence: the opened family shows "Opened", not "Sent" — and no other
+    // family is shared in this fixture, so "Sent" is absent entirely.
+    expect(screen.queryByText("Sent")).toBeNull();
   });
 
   it("surfaces a manual-copy toast when the clipboard is unavailable", async () => {

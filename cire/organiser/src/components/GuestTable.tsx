@@ -15,6 +15,7 @@ interface OrganiserGuestRow {
   lastName: string;
   events: string[];
   codeSharedAt: number | null;
+  firstOpenedAt: number | null;
 }
 
 interface FamilyGroup {
@@ -22,8 +23,24 @@ interface FamilyGroup {
   publicId: string;
   familyName: string;
   codeSharedAt: number | null;
+  firstOpenedAt: number | null;
   members: { firstName: string; lastName: string; events: string[] }[];
 }
+
+/** Friendly date for the "Opened" tooltip (e.g. "19 Jun 2026"). */
+function formatOpenedDate(epochMs: number): string {
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(epochMs));
+}
+
+// "Opened" is a reliable, server-only signal: a guest actually claimed/opened
+// the invite with the family's current code (host-preview claims excluded). No
+// optimistic flip — unlike "Sent", it never comes from a local action, so it's
+// a pure function of the server row (kept at module scope).
+const isOpened = (family: FamilyGroup) => family.firstOpenedAt !== null;
 
 interface GuestTableProps {
   weddingId: string;
@@ -63,6 +80,7 @@ export default function GuestTable(props: GuestTableProps) {
           publicId: guest.publicId,
           familyName: guest.familyName,
           codeSharedAt: guest.codeSharedAt,
+          firstOpenedAt: guest.firstOpenedAt,
           members: [],
         };
         map.set(guest.publicId, family);
@@ -223,12 +241,30 @@ export default function GuestTable(props: GuestTableProps) {
                         <div class="flex flex-wrap items-center justify-between gap-3">
                           <span class="font-display text-gold-dim flex items-center gap-2 text-[1rem] italic">
                             {family.familyName}
-                            <Show when={isShared(family)}>
+                            {/* "Opened" (a real guest claim) takes precedence
+                                over the copy-only "Sent": when a guest has
+                                actually opened the invite, that's the stronger,
+                                more honest signal, so we show it instead. */}
+                            <Show
+                              when={isOpened(family)}
+                              fallback={
+                                <Show when={isShared(family)}>
+                                  <span
+                                    class="font-body text-gold/80 border-gold/30 rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                                    title="Sent — you copied this family's invite message"
+                                  >
+                                    Sent
+                                  </span>
+                                </Show>
+                              }
+                            >
                               <span
-                                class="font-body text-gold/80 border-gold/30 rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
-                                title="You've copied this family's invite message"
+                                class="font-body bg-gold text-bg rounded-sm px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                                title={`Opened — a guest opened this invite (code used) on ${formatOpenedDate(
+                                  family.firstOpenedAt!,
+                                )}`}
                               >
-                                Sent
+                                Opened
                               </span>
                             </Show>
                           </span>

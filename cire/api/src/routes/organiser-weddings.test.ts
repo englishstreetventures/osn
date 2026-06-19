@@ -684,6 +684,31 @@ describe("POST /api/organiser/weddings/:weddingId/families/:familyId/mark-shared
     expect(rows.some((r) => r.codeSharedAt !== null)).toBe(true);
   });
 
+  it("surfaces firstOpenedAt on the guest list — null by default, epoch-ms once opened", async () => {
+    const { db, app } = buildApp();
+    const fam = aBootstrapFamily(db);
+
+    const before = await get(
+      app,
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests`,
+      BOOTSTRAP_OWNER,
+    );
+    const beforeRows = (await before.json()) as { firstOpenedAt: number | null }[];
+    // The seed never opens any invite.
+    expect(beforeRows.every((r) => r.firstOpenedAt === null)).toBe(true);
+
+    // Simulate a real first open of this family's invite.
+    db.update(families).set({ firstOpenedAt: new Date() }).where(eq(families.id, fam.id)).run();
+
+    const after = await get(
+      app,
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests`,
+      BOOTSTRAP_OWNER,
+    );
+    const afterRows = (await after.json()) as { firstOpenedAt: number | null }[];
+    expect(afterRows.some((r) => typeof r.firstOpenedAt === "number")).toBe(true);
+  });
+
   it("returns 404 when the family does not belong to the wedding", async () => {
     const { app } = buildApp();
     const res = await postMark(app, BOOTSTRAP_WEDDING_ID, "fam_other", BOOTSTRAP_OWNER);

@@ -9,7 +9,8 @@
  * service:
  *  1. switches `weddings.code_style` to the chosen style, and
  *  2. for EVERY guest family under the wedding, mints a fresh code on the new
- *     style, clears `code_shared_at` (the old shared code is now dead), and
+ *     style, clears `code_shared_at` AND `first_opened_at` (the old shared/opened
+ *     code is now dead — the rotated one has been neither sent nor opened), and
  *     revokes all of that family's guest sessions
  * — all in **one atomic D1 batch**. The atomicity is the security property: the
  * style flip, the rotated codes, and the session revocations all land in the
@@ -105,10 +106,12 @@ export const remintCodesService = {
         while (used.has(code)) code = generateFamilyCode(fam.familyName, codeStyle);
         used.add(code);
         statements.push(
-          // Rotate the code + clear the "shared" marker in one update.
+          // Rotate the code + clear the "shared" AND "first opened" markers in
+          // one update: the rotated code is brand new, so it has never been sent
+          // out OR opened.
           db
             .update(families)
-            .set({ publicId: code, codeSharedAt: null, updatedAt: now })
+            .set({ publicId: code, codeSharedAt: null, firstOpenedAt: null, updatedAt: now })
             .where(eq(families.id, fam.id)),
           // Revoke every live session minted from the old code.
           db.delete(sessions).where(eq(sessions.familyId, fam.id)),

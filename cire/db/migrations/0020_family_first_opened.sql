@@ -1,0 +1,17 @@
+-- Per-family "invite first opened" timestamp. NULL = no guest has ever opened
+-- this family's invite with its CURRENT code; a value = the FIRST time a guest
+-- claimed/opened the invite (set by the guest claim path in
+-- `cire/api` claimService.lookup, recorded once and never overwritten).
+--
+-- Distinct from `code_shared_at` (the organiser copying the invite message — a
+-- false-positive-prone "Sent" signal): this records an ACTUAL guest claim, so
+-- the organiser dashboard can show a reliable "Opened" status. The synthetic
+-- `HOST-*` preview family (the organiser's own preview) is deliberately excluded
+-- — opening the preview must never count as a guest opening the invite.
+--
+-- Reminting rotates a family's claim code and invalidates any already-opened
+-- link, so the bulk remint clears this column back to NULL for every rotated
+-- family (the rotated code has never been opened). Nullable with no default — a
+-- pure forward-only ADD COLUMN that applies cleanly on D1/sqlite and leaves
+-- every existing family at "never opened".
+ALTER TABLE `families` ADD COLUMN `first_opened_at` integer;
