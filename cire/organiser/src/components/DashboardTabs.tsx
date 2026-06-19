@@ -1,12 +1,13 @@
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { For, Show } from "solid-js";
 
+import { type DashboardTab, DEFAULT_TAB } from "../lib/dashboard-route";
 import EventTable from "./EventTable";
 import GuestTable from "./GuestTable";
 import HostsPanel from "./HostsPanel";
 import InviteBuilder from "./InviteBuilder";
 import RemintPanel from "./RemintPanel";
 
-type Tab = "events" | "guests" | "invite" | "codes" | "hosts";
+type Tab = DashboardTab;
 
 interface DashboardTabsProps {
   weddingId: string;
@@ -19,6 +20,11 @@ interface DashboardTabsProps {
   /** Owner of this wedding? Owners can manage co-hosts + re-mint codes; co-hosts
    *  see the list read-only and don't get the destructive Codes tab. */
   canManage: boolean;
+  /** Active tab — controlled by the parent, which owns the URL hash so a deep
+   *  link / hard refresh restores the exact tab. */
+  tab: Tab;
+  /** Report a tab switch up to the parent so it can update the hash. */
+  onTab: (tab: Tab) => void;
 }
 
 /** A tab's nav entry. The glyph is a small leading mark that makes the row
@@ -50,50 +56,22 @@ const HOSTS_TAB: TabDef = {
   hint: "Share editing with a co-host",
 };
 
-function isTab(value: string): value is Tab {
-  return (
-    value === "guests" ||
-    value === "events" ||
-    value === "invite" ||
-    value === "codes" ||
-    value === "hosts"
-  );
-}
-
-function resolveHash(hash: string, canManage: boolean): Tab {
-  if (!isTab(hash)) return "events";
-  // The owner-only Codes tab isn't selectable for co-hosts even via a stale hash.
-  if (!canManage && hash === "codes") return "events";
-  return hash;
-}
-
-function initialTab(canManage: boolean): Tab {
-  if (typeof window === "undefined") return "events";
-  return resolveHash(window.location.hash.replace("#", ""), canManage);
+/**
+ * Resolve the visible tab from the controlled `tab` prop. The owner-only Codes
+ * tab isn't selectable for co-hosts even via a deep link / stale hash — it falls
+ * back to the default tab so a `#/weddings/<id>/codes` link opens to a visible
+ * panel rather than a blank one.
+ */
+function visibleTab(tab: Tab, canManage: boolean): Tab {
+  if (!canManage && tab === "codes") return DEFAULT_TAB;
+  return tab;
 }
 
 export default function DashboardTabs(props: DashboardTabsProps) {
-  const [active, setActive] = createSignal<Tab>(initialTab(props.canManage));
-
-  // React to external hash changes — the Getting-started checklist jumps tabs by
-  // setting the hash, and the browser back/forward buttons move through them too.
-  function onHashChange() {
-    setActive(resolveHash(window.location.hash.replace("#", ""), props.canManage));
-  }
-  onMount(() => window.addEventListener("hashchange", onHashChange));
-  onCleanup(() => {
-    if (typeof window !== "undefined") window.removeEventListener("hashchange", onHashChange);
-  });
+  const active = () => visibleTab(props.tab, props.canManage);
 
   const tabs = () =>
     props.canManage ? [...BASE_TABS, ...OWNER_TABS, HOSTS_TAB] : [...BASE_TABS, HOSTS_TAB];
-
-  function select(tab: Tab) {
-    setActive(tab);
-    if (typeof window !== "undefined") {
-      history.replaceState(null, "", `#${tab}`);
-    }
-  }
 
   return (
     <div class="flex flex-col gap-6">
@@ -105,7 +83,7 @@ export default function DashboardTabs(props: DashboardTabsProps) {
               role="tab"
               aria-selected={active() === tab.id}
               title={tab.hint}
-              onClick={() => select(tab.id)}
+              onClick={() => props.onTab(tab.id)}
               class={`font-body relative -mb-px flex items-center gap-2 px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition ${
                 active() === tab.id
                   ? "border-gold text-gold border-b-2"

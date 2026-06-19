@@ -1,13 +1,18 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createSignal } from "solid-js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { DashboardTab } from "../lib/dashboard-route";
 
 /**
- * DashboardTabs is the per-wedding tab bar. The leaf panels are stubbed to
+ * DashboardTabs is the per-wedding tab bar, now a CONTROLLED component: the
+ * active tab comes in as a prop (the parent, OrganiserApp, owns the URL hash)
+ * and a click reports up via `onTab`. The leaf panels are stubbed to
  * data-testids so this asserts only the tab glue: workflow-ordered tabs, the
- * owner-vs-co-host tab set, hash-routing both ways (a click writes the hash; an
- * external hashchange — e.g. the Getting-started jump — switches the panel), and
- * that a stale `#codes` hash can't expose the owner-only panel to a co-host.
+ * owner-vs-co-host tab set, the controlled active panel + change callback, and
+ * that a deep-linked owner-only `codes` tab can't expose the owner panel to a
+ * co-host (it falls back to a visible tab).
  */
 
 vi.mock("./EventTable", () => ({
@@ -28,28 +33,29 @@ vi.mock("./HostsPanel", () => ({
 
 import DashboardTabs from "./DashboardTabs";
 
-function renderTabs(canManage: boolean) {
-  return render(() => (
+/** Render with a controllable `tab` signal so a test can drive the parent's
+ *  "active tab" the way OrganiserApp would on a hash change. */
+function renderTabs(canManage: boolean, initial: DashboardTab = "events") {
+  const [tab, setTab] = createSignal<DashboardTab>(initial);
+  const onTab = vi.fn((t: DashboardTab) => setTab(t));
+  const utils = render(() => (
     <DashboardTabs
       weddingId="wed_1"
       weddingName="V & R"
       weddingSlug="v-and-r"
       canManage={canManage}
+      tab={tab()}
+      onTab={onTab}
     />
   ));
+  return { ...utils, onTab, setTab };
 }
 
 describe("DashboardTabs", () => {
-  beforeEach(() => {
-    window.location.hash = "";
-  });
-  afterEach(() => {
-    cleanup();
-    window.location.hash = "";
-  });
+  afterEach(() => cleanup());
 
-  it("defaults to the Events tab (workflow order leads with the day)", () => {
-    renderTabs(true);
+  it("renders the controlled tab's panel (events by default)", () => {
+    renderTabs(true, "events");
     expect(screen.getByTestId("events")).toBeTruthy();
     expect(screen.queryByTestId("guests")).toBeNull();
   });
@@ -66,24 +72,25 @@ describe("DashboardTabs", () => {
     expect(screen.getByRole("tab", { name: /Hosts/ })).toBeTruthy();
   });
 
-  it("switches panels and writes the hash when a tab is clicked", () => {
-    renderTabs(true);
+  it("reports a tab switch up via onTab when a tab is clicked", () => {
+    const { onTab } = renderTabs(true);
     fireEvent.click(screen.getByRole("tab", { name: /Invite/ }));
+    expect(onTab).toHaveBeenCalledWith("invite");
+    // The controlled signal followed the click, so the panel switched.
     expect(screen.getByTestId("invite")).toBeTruthy();
-    expect(window.location.hash).toBe("#invite");
   });
 
-  it("responds to an external hashchange (the Getting-started jump)", () => {
-    renderTabs(true);
-    window.location.hash = "guests";
-    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  it("follows the controlled tab prop (the parent's hash-driven change)", () => {
+    const { setTab } = renderTabs(true, "events");
+    setTab("guests");
     expect(screen.getByTestId("guests")).toBeTruthy();
     expect(screen.queryByTestId("events")).toBeNull();
   });
 
-  it("falls a co-host's stale #codes hash back to Events", () => {
-    window.location.hash = "codes";
-    renderTabs(false);
+  it("falls a co-host's deep-linked #codes tab back to a visible panel", () => {
+    // A co-host opening `#/weddings/<id>/codes` must not see the owner-only
+    // Codes panel — it resolves to the default Events tab instead.
+    renderTabs(false, "codes");
     expect(screen.getByTestId("events")).toBeTruthy();
     expect(screen.queryByTestId("codes")).toBeNull();
   });

@@ -1,8 +1,36 @@
 import { useAuth } from "@osn/client/solid";
-import { createMemo, createResource, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
+
+/** localStorage key for "this organiser dismissed the getting-started checklist
+ *  for this wedding". Per-wedding so dismissing one wedding's guide leaves the
+ *  others intact. */
+function dismissKey(weddingId: string): string {
+  return `cire:getting-started-dismissed:${weddingId}`;
+}
+
+function readDismissed(weddingId: string): boolean {
+  if (typeof localStorage === "undefined") return false;
+  try {
+    return localStorage.getItem(dismissKey(weddingId)) === "1";
+  } catch {
+    // Private-mode / disabled storage — treat as not dismissed (fail visible).
+    return false;
+  }
+}
+
+function writeDismissed(weddingId: string, dismissed: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    if (dismissed) localStorage.setItem(dismissKey(weddingId), "1");
+    else localStorage.removeItem(dismissKey(weddingId));
+  } catch {
+    // No-op if storage is unavailable; the in-memory signal still drives the UI
+    // for this session.
+  }
+}
 
 /**
  * The dashboard's "what do I do next" guide — a four-step checklist that reflects
@@ -12,8 +40,13 @@ import { isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
  *
  * Each step's `done` is derived from data the dashboard already serves; the panel
  * fetches its own snapshot once so it stays decoupled from the tab components.
- * Clicking a step jumps to the matching tab via the same hash-routing the tabs
- * use (`#events`, `#guests`, `#invite`) — no new navigation model.
+ * Clicking a step jumps to the matching tab via the parent's `onJump` (which
+ * updates the URL hash through the shared dashboard-route scheme) — no new
+ * navigation model.
+ *
+ * The checklist can be dismissed (an X, top-right); the choice is persisted per
+ * wedding in localStorage and a small "Show getting started" affordance brings
+ * it back. The data-derived done-state logic is unchanged by dismissal.
  */
 
 interface EventRow {
@@ -54,6 +87,21 @@ export default function GettingStarted(props: {
   onJump: (tab: string) => void;
 }) {
   const { authFetch } = useAuth();
+
+  // Dismissal is per-wedding and persisted in localStorage, so an organiser who
+  // doesn't want the checklist can hide it and have it stay hidden across
+  // reloads — with a small "Show getting started" affordance to bring it back.
+  // Seeded from storage so a hard refresh respects a prior dismissal.
+  const [dismissed, setDismissed] = createSignal(readDismissed(props.weddingId));
+
+  function dismiss() {
+    setDismissed(true);
+    writeDismissed(props.weddingId, true);
+  }
+  function restore() {
+    setDismissed(false);
+    writeDismissed(props.weddingId, false);
+  }
 
   const [snapshot] = createResource<Snapshot>(async () => {
     try {
@@ -145,78 +193,109 @@ export default function GettingStarted(props: {
 
   return (
     <Show when={snapshot()}>
-      <section
-        aria-label="Getting started"
-        class="border-gold/25 from-surface/50 to-surface/20 flex flex-col gap-5 rounded-sm border bg-gradient-to-br p-6"
-      >
-        <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
-          <div class="flex flex-col gap-1">
-            <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">
-              {allDone() ? "You're all set" : "Getting started"}
-            </p>
-            <h2 class="font-display text-text text-[1.4rem] font-light italic">
-              {allDone() ? "Everything's ready for your guests" : "Four steps to your invite"}
-            </h2>
-            <Show when={!allDone() && nextStep()}>
-              {(step) => (
-                <p class="font-body text-text-muted text-[0.82rem] leading-relaxed">
-                  Next: <span class="text-text">{step().todo}</span>
-                </p>
-              )}
-            </Show>
-          </div>
-          <span
-            class="font-body text-gold-dim shrink-0 text-[0.78rem] tracking-[0.12em] uppercase tabular-nums"
-            aria-hidden
+      {/* Dismissed ⇒ collapse to a quiet "Show getting started" affordance the
+          organiser can use to bring the checklist back. */}
+      <Show when={dismissed()}>
+        <div class="flex justify-end">
+          <button
+            type="button"
+            onClick={restore}
+            class="font-body text-text-muted hover:text-gold text-[0.74rem] tracking-[0.12em] uppercase underline-offset-4 transition hover:underline"
           >
-            {completed()} / {total()} done
-          </span>
+            Show getting started
+          </button>
         </div>
+      </Show>
 
-        {/* A thin progress rail — a single calm indicator of how far along the
-            couple are. Pure CSS width transition, no library. */}
-        <div
-          class="bg-bg/60 h-1 w-full overflow-hidden rounded-full"
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={total()}
-          aria-valuenow={completed()}
-          aria-label="Setup progress"
+      <Show when={!dismissed()}>
+        <section
+          aria-label="Getting started"
+          class="border-gold/25 from-surface/50 to-surface/20 relative flex flex-col gap-5 rounded-sm border bg-gradient-to-br p-6"
         >
-          <div
-            class="bg-gold h-full rounded-full transition-[width] duration-500 ease-out"
-            style={{ width: `${total() > 0 ? (completed() / total()) * 100 : 0}%` }}
-          />
-        </div>
+          {/* Dismiss (X) — top-right, so an organiser who doesn't want the guide
+            can hide it; the choice persists per wedding in localStorage. */}
+          <button
+            type="button"
+            onClick={dismiss}
+            aria-label="Dismiss getting started"
+            title="Dismiss getting started"
+            class="text-text-muted hover:text-gold hover:border-gold/50 border-border absolute top-3 right-3 flex h-7 w-7 items-center justify-center rounded-sm border border-transparent text-[0.9rem] leading-none transition-colors"
+          >
+            <span aria-hidden>✕</span>
+          </button>
 
-        <ol class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-          <For each={steps()}>
-            {(step, i) => (
-              <li>
-                <button
-                  type="button"
-                  onClick={() => props.onJump(step.tab)}
-                  data-complete={step.complete ? "true" : "false"}
-                  class="group border-border bg-bg/30 hover:border-gold/60 flex w-full items-start gap-3 rounded-sm border p-3 text-left transition-colors"
-                >
-                  <StepMarker n={i() + 1} complete={step.complete} />
-                  <span class="flex flex-col gap-0.5">
-                    <span
-                      class="font-body text-[0.9rem]"
-                      classList={{ "text-text": !step.complete, "text-text-muted": step.complete }}
-                    >
-                      {step.label}
+          <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 pr-8">
+            <div class="flex flex-col gap-1">
+              <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">
+                {allDone() ? "You're all set" : "Getting started"}
+              </p>
+              <h2 class="font-display text-text text-[1.4rem] font-light italic">
+                {allDone() ? "Everything's ready for your guests" : "Four steps to your invite"}
+              </h2>
+              <Show when={!allDone() && nextStep()}>
+                {(step) => (
+                  <p class="font-body text-text-muted text-[0.82rem] leading-relaxed">
+                    Next: <span class="text-text">{step().todo}</span>
+                  </p>
+                )}
+              </Show>
+            </div>
+            <span
+              class="font-body text-gold-dim shrink-0 text-[0.78rem] tracking-[0.12em] uppercase tabular-nums"
+              aria-hidden
+            >
+              {completed()} / {total()} done
+            </span>
+          </div>
+
+          {/* A thin progress rail — a single calm indicator of how far along the
+            couple are. Pure CSS width transition, no library. */}
+          <div
+            class="bg-bg/60 h-1 w-full overflow-hidden rounded-full"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={total()}
+            aria-valuenow={completed()}
+            aria-label="Setup progress"
+          >
+            <div
+              class="bg-gold h-full rounded-full transition-[width] duration-500 ease-out"
+              style={{ width: `${total() > 0 ? (completed() / total()) * 100 : 0}%` }}
+            />
+          </div>
+
+          <ol class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <For each={steps()}>
+              {(step, i) => (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => props.onJump(step.tab)}
+                    data-complete={step.complete ? "true" : "false"}
+                    class="group border-border bg-bg/30 hover:border-gold/60 flex w-full items-start gap-3 rounded-sm border p-3 text-left transition-colors"
+                  >
+                    <StepMarker n={i() + 1} complete={step.complete} />
+                    <span class="flex flex-col gap-0.5">
+                      <span
+                        class="font-body text-[0.9rem]"
+                        classList={{
+                          "text-text": !step.complete,
+                          "text-text-muted": step.complete,
+                        }}
+                      >
+                        {step.label}
+                      </span>
+                      <span class="font-body text-text-muted text-[0.76rem] leading-snug">
+                        {step.complete ? step.done : step.todo}
+                      </span>
                     </span>
-                    <span class="font-body text-text-muted text-[0.76rem] leading-snug">
-                      {step.complete ? step.done : step.todo}
-                    </span>
-                  </span>
-                </button>
-              </li>
-            )}
-          </For>
-        </ol>
-      </section>
+                  </button>
+                </li>
+              )}
+            </For>
+          </ol>
+        </section>
+      </Show>
     </Show>
   );
 }

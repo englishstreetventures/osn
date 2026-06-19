@@ -5,8 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 /**
  * GettingStarted fetches a one-off snapshot (events, guests, invite) and derives
  * a four-step checklist whose `done` state reflects the wedding's real data. It
- * jumps to a tab when a step is clicked. The OSN auth + api helpers are stubbed;
- * this asserts the derivation (counts → complete/incomplete) and the jump.
+ * jumps to a tab when a step is clicked, and can be dismissed (persisted per
+ * wedding in localStorage) and brought back. The OSN auth + api helpers are
+ * stubbed; this asserts the derivation (counts → complete/incomplete), the jump,
+ * and the dismiss/restore + persistence.
  */
 
 const authFetchMock = vi.fn();
@@ -46,11 +48,20 @@ const EMPTY_INVITE = {
   story: { heading: null, body: null, imageUrl: null },
 };
 
+/** The checklist's step buttons carry data-complete; the dismiss X doesn't —
+ *  filter to the steps so chrome buttons aren't counted. */
+function stepButtons() {
+  return screen.getAllByRole("button").filter((b) => b.hasAttribute("data-complete"));
+}
+
 describe("GettingStarted", () => {
   afterEach(() => {
     cleanup();
     authFetchMock.mockReset();
     redirectSpy.mockReset();
+    // Dismissal persists to localStorage per wedding — reset between tests so
+    // one test's dismiss doesn't hide the checklist in the next.
+    localStorage.clear();
   });
 
   it("shows 0/4 and all steps incomplete for a brand-new wedding", async () => {
@@ -59,8 +70,9 @@ describe("GettingStarted", () => {
 
     await waitFor(() => expect(screen.getByText("0 / 4 done")).toBeTruthy());
     // Every step button is pending (data-complete=false).
-    const buttons = screen.getAllByRole("button");
-    expect(buttons.every((b) => b.getAttribute("data-complete") === "false")).toBe(true);
+    const steps = stepButtons();
+    expect(steps).toHaveLength(4);
+    expect(steps.every((b) => b.getAttribute("data-complete") === "false")).toBe(true);
   });
 
   it("marks events + guests complete once they exist", async () => {
@@ -102,5 +114,49 @@ describe("GettingStarted", () => {
     await waitFor(() => expect(screen.getByText("0 / 4 done")).toBeTruthy());
     fireEvent.click(screen.getByText("Add your events"));
     expect(onJump).toHaveBeenCalledWith("events");
+  });
+
+  it("dismisses to a 'Show getting started' affordance and restores", async () => {
+    mockSnapshot({ events: [], guests: [], invite: EMPTY_INVITE });
+    render(() => <GettingStarted weddingId="wed_1" onJump={() => {}} />);
+
+    await waitFor(() => expect(screen.getByText("0 / 4 done")).toBeTruthy());
+
+    // Dismiss via the X — the checklist collapses to the "Show" link, and the
+    // dismissal is persisted for this wedding.
+    fireEvent.click(screen.getByRole("button", { name: /Dismiss getting started/i }));
+    expect(screen.queryByText("0 / 4 done")).toBeNull();
+    expect(screen.getByRole("button", { name: /Show getting started/i })).toBeTruthy();
+    expect(localStorage.getItem("cire:getting-started-dismissed:wed_1")).toBe("1");
+
+    // Bring it back — the checklist returns and the persisted flag is cleared.
+    fireEvent.click(screen.getByRole("button", { name: /Show getting started/i }));
+    expect(screen.getByText("0 / 4 done")).toBeTruthy();
+    expect(localStorage.getItem("cire:getting-started-dismissed:wed_1")).toBeNull();
+  });
+
+  it("stays dismissed across a reload when localStorage already has the flag", async () => {
+    // Simulate a prior dismissal persisted for this wedding.
+    localStorage.setItem("cire:getting-started-dismissed:wed_9", "1");
+    mockSnapshot({ events: [], guests: [], invite: EMPTY_INVITE });
+    render(() => <GettingStarted weddingId="wed_9" onJump={() => {}} />);
+
+    // The checklist never paints; only the restore affordance does (once the
+    // snapshot resolves).
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Show getting started/i })).toBeTruthy(),
+    );
+    expect(screen.queryByText("0 / 4 done")).toBeNull();
+  });
+
+  it("keeps dismissal per-wedding (dismissing one leaves another visible)", async () => {
+    // wed_a dismissed, wed_b not.
+    localStorage.setItem("cire:getting-started-dismissed:wed_a", "1");
+    mockSnapshot({ events: [], guests: [], invite: EMPTY_INVITE });
+    render(() => <GettingStarted weddingId="wed_b" onJump={() => {}} />);
+
+    // wed_b's checklist shows because its own key isn't set.
+    await waitFor(() => expect(screen.getByText("0 / 4 done")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Show getting started/i })).toBeNull();
   });
 });

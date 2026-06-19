@@ -7,6 +7,44 @@ related:
 last-reviewed: 2026-06-19
 ---
 
+> [!note] Deep-linkable dashboard routes + refresh persistence + dismissable checklist (`feat/cire-dashboard-routing`)
+> The organiser dashboard's full navigable state now lives in the URL hash, so a
+> hard refresh restores where you were and a shared link reopens it. New
+> dependency-free helper `cire/organiser/src/lib/dashboard-route.ts`
+> (`parseRoute`/`serializeRoute`, a `DashboardRoute` discriminated union).
+> - **Hash-route scheme:**
+>   - `#/weddings` → the wedding list
+>   - `#/weddings/<weddingId>` → that wedding, default tab (`events`, left implicit)
+>   - `#/weddings/<weddingId>/<tab>` → that wedding + a specific tab (`events`/`guests`/`invite`/`codes`/`hosts`)
+>   - `#/security` → the account-security view
+> - **Source of truth:** `OrganiserApp.tsx` owns one `route` signal, mirrored into
+>   the hash. Opening a wedding / back-to-list / switching the top-level view
+>   `pushState`s (Back/Forward walks them); tab switches `replaceState` (no history
+>   pile-up). A `hashchange` listener re-syncs on browser Back/Forward + manual
+>   edits, and a legacy/shorthand hash (`#security`, `#guests`, "") is normalised
+>   to the canonical `#/…` form on mount.
+> - **Not-authorised fallback:** once the wedding list loads, a hash naming a
+>   wedding the organiser can't load (not owner/host, or gone) drops back to the
+>   list (replace — no Back-able dead entry) rather than hanging.
+> - **`DashboardTabs.tsx` is now controlled** — it takes `tab` + `onTab` from the
+>   parent instead of self-managing the hash. Owner-only `codes` stays gated: a
+>   co-host deep-linking `#/weddings/<id>/codes` resolves to a visible tab.
+> - **`GettingStarted.tsx` dismiss** — an accessible X (label "Dismiss getting
+>   started"), persisted per wedding in `localStorage`
+>   (`cire:getting-started-dismissed:<weddingId>`) so it stays hidden across
+>   reloads, with a "Show getting started" affordance to restore it. Data-derived
+>   done-state logic unchanged.
+> - **Scope:** deeper sub-state (open modals, a selected guest row) is intentionally
+>   NOT deep-linked yet — view + wedding + tab is the requirement; deeper
+>   sub-state deep-linking is a future follow-up.
+> - Tests: new `dashboard-route.test.ts` (parse/serialize + round-trip + fallbacks),
+>   `DashboardTabs.test.tsx` rewritten for the controlled component, new
+>   `OrganiserApp` coverage (restore wedding+tab from hash on load, not-authorised
+>   fallback, hash updates on nav, `hashchange` re-sync), GettingStarted
+>   dismiss/restore + per-wedding persistence. 130 organiser tests green.
+> ⚠️ Real-browser eyeball still wanted: Back/Forward + a hard refresh on a wedding
+> tab (happy-dom can't fully exercise the history stack).
+
 > [!note] GuestTable "Opened" status (`feat/cire-invite-opened-status`)
 > The organiser Guests tab (`GuestTable.tsx`) now shows a reliable **"Opened"**
 > badge per household, driven by the server's `firstOpenedAt` (a real guest
@@ -120,6 +158,7 @@ last-reviewed: 2026-06-19
 
 Frontend feature work. Tick items as PRs land; add new entries when scope is discovered. Don't edit `wiki/todo/status.md` for area-specific items.
 
+- [x] **Deep-linkable dashboard routes + survive hard refresh, and a dismissable Getting-started checklist** (`feat/cire-dashboard-routing`) — the organiser dashboard's full navigable state (top-level view + selected wedding + active tab) is now encoded in the URL hash, so a hard refresh restores the current wedding/tab instead of dropping back to the list, and a shared link reopens to almost exactly the sender's state. Dependency-free scheme in new `cire/organiser/src/lib/dashboard-route.ts`: `#/weddings`, `#/weddings/<id>`, `#/weddings/<id>/<tab>` (`events`/`guests`/`invite`/`codes`/`hosts`), `#/security`. `OrganiserApp.tsx` owns one `route` signal as the source of truth, mirrored into the hash (push on wedding-open/back/view-switch so Back/Forward walks them; replace on tab switch); a `hashchange` listener re-syncs on Back/Forward + manual edits; a legacy/shorthand hash is normalised on mount. A hash naming a wedding the organiser can't load (not owner/host, or gone) falls back to the list rather than hanging. `DashboardTabs.tsx` became a controlled component (`tab` + `onTab` props) — owner-only `codes` stays gated, a co-host deep link to it resolves to a visible tab. `GettingStarted.tsx` gained an accessible X dismiss (label "Dismiss getting started") persisted per wedding in `localStorage` with a "Show getting started" restore affordance. Deeper sub-state (modals, selected rows) deferred as a future follow-up. See the note block above. **Wants a real-browser eyeball** on Back/Forward + a hard refresh on a wedding tab.
 - [x] **Accessible popover colour picker with obvious hex input** (`feat/cire-color-picker`) — replaced the bare native `<input type="color">` in the invite builder's theme section (Hero / Our Story / Event Details accent + background) with a proper Kobalte colour picker, after a product-owner note that hex entry was hidden ("nice, but I didn't realise at first how to input hex codes"). New `cire/organiser/src/components/ColorPicker.tsx` (extracted from the in-file `ColorPicker` sub-component) built on **Kobalte 0.13.x colour primitives** (`@kobalte/core/color-area`, `/color-slider`, `/color-field`, `/color-swatch`, `/popover`, plus `parseColor`/`Color` from `/colors`): a `ColorSwatch` **trigger button** showing the current colour + its `#RRGGBB` value (or "Default"), opening a `Popover` with a saturation/brightness `ColorArea` + a `hue` `ColorSlider` for visual picking AND a clearly-labelled **"Hex" `ColorField`** front-and-centre for typing/pasting a hex code. The area, hue slider, and hex field share one HSB `Color` signal so they stay in sync; partial/invalid hex never escapes upstream. The "Use default" reset (→ `onChange(null)`) is preserved. The **`onChange(string | null)` hex contract is unchanged** — still emits a `#rrggbb` string (or `null`) — so the live `ThemePreview` and the `cire/api` `isThemeColor` allow-list (`#[0-9a-fA-F]{3,8}` / rgb / hsl / oklch) keep working untouched. Added `@kobalte/core` as a direct `@cire/organiser` dep (already transitive via `@osn/ui`); `@internationalized/color` not needed (Kobalte bundles `parseColor`). Styled with the existing organiser theme tokens (`--color-border`/`-surface-raised`/`-text`/`-text-muted`/`-gold`, `font-body`, uppercase micro-labels); keyboard-navigable via Kobalte popover focus handling. Tests: new `ColorPicker.test.tsx` (renders labelled swatch trigger, hex field emits on a full hex, partial hex does NOT emit, "Use default" emits null, external value reflected) + the two InviteBuilder theme tests that drove the old native input updated to open the popover and type into the "Hex" field. **Wants a real-device/visual eyeball** — the `ColorArea`/`ColorSlider` gradient backgrounds + thumb positioning render in a real browser, not happy-dom.
 - [x] **Our Story — two-column desktop / mobile image-hidden layout** (`feat/cire-story-two-column`) — restyled the "Our Story" section (`InviteHeader.tsx`) from the old centred image-above-text stack into a balanced two-column editorial layout. On laptop/desktop (`md`+) the story photo is on the LEFT and the eyebrow/heading/body block on the RIGHT, vertically centred (`items-center`) with a comfortable gap and left-aligned copy; the section widens to `max-w-[960px]` to give the columns room. On mobile (below `md`) the image wrapper is `hidden md:block`, so the photo is **not even laid out** — guests see only the full-width centred text. When there is **no** story image the grid collapses to a single full-width centred column at every breakpoint, driven by a `data-has-image` attribute on the grid (`data-[has-image=true]:md:grid-cols-2` / `…:md:text-left` / `…:md:max-w-[960px]`, plus a `group-data-[has-image=true]/story:md:mx-0` on the body wrapper), so nothing ever leaves an empty half-column. The `buildSrcSet(url, ["thumb","card"])` variant usage, the `--invite-*` theme vars, and the `Show when={showStory()}` emptiness gating are all unchanged (the image `sizes` hint was nudged to `(min-width: 768px) 480px, 100vw` to match the new `md` breakpoint). **Wants a real-device check** of both breakpoints (image-present 2-col desktop vs text-only mobile, and the image-less single-column fallback).
 - [x] **Conditional invite segments — empty sections hidden** (`feat/invite-conditional-segments`) — a section with **no content at all** is no longer rendered on the guest invite (no empty full-screen hero, no empty "Our Story" surface). New shared predicates `cire/web/src/components/invite-emptiness.ts` (`hasText`, `isHeroEmpty`, `isStoryEmpty`, `hasPinterest`, `hasDressCode`) — "absent" = null / empty / **whitespace-only**. `InviteHeader.tsx` wraps the hero in `Show when={showHero()}` (renders only when it has an image OR title OR subtitle — image-only / title-only valid) and the story in `Show when={showStory()}` (heading OR body OR image; the eyebrow label alone does not keep it alive). `DetailsModal.tsx` already hid Inspiration/Dress Code; tightened both to the shared predicates so a whitespace-only `pinterestUrl` or dress-code description now counts as absent. Theme vars, the no-store SSR revalidation, and the Pinterest desktop-embed/mobile-link split are all preserved. The organiser builder mirrors the same logic with Shown/Hidden badges (see `[[invite-builder]]` + `[[api]]`). New vitest: hero hidden when fully empty / shown image-only + title-only, story hidden when all-empty / shown with a body, Inspiration + Dress Code hidden for whitespace-only values, + a unit suite for the predicate module.
