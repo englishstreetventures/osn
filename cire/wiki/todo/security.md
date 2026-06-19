@@ -12,6 +12,13 @@ last-reviewed: 2026-06-19
 
 See [[overview]] for observability rules that apply to all security-sensitive code paths. See [[review-findings]] for severity prefix conventions.
 
+### Per-event image surface (`feat/cire-event-images`) — mirrors the invite-image controls
+
+New attack surface from migration 0019's one-image-per-event feature. It deliberately reuses the **same** controls as the existing wedding-slot invite images (no new primitives), so the existing review findings (IB-S-M1 nosniff, S-M1 server-derived cache version) carry over:
+
+- **Public serve** `GET /api/invite/:slug/event/:eventId/image` — no auth (the slug is the public invite URL), but the `eventId` is scoped to the slug's wedding via a SQL join, so a **cross-wedding event id matches no row → 404** (no tenant leak / enumeration of another wedding's images). Bounded, allowlisted transform variants (`IMAGE_VARIANTS`) + Accept-negotiated format keep the per-event transform-URL cardinality capped (cost/cache-poisoning bound). The Cache API key's version is the **server-derived FNV digest of the R2 key** (events have no `updated_at`), NEVER the client `?v=` — so an attacker can't loop `?v=` to mint unbounded per-call-billed Images transforms (the S-M1 invariant, preserved). Response pins `X-Content-Type-Options: nosniff` + the sniffed content type.
+- **Organiser upload/delete** `POST`/`DELETE /api/organiser/weddings/:weddingId/events/:eventId/image` — gated by `osnAuth()` + `weddingMember()` (owner OR co-host, never 401 for a member-mismatch — 403), behind the per-IP invite write limiter. The service re-checks the event belongs to `:weddingId` before any R2 write (`EventNotFound` → 404), so an organiser of wedding A can't attach an image onto wedding B's event. Uploads are capped at **5 MB** (declared Content-Length + post-read byte length) and **magic-byte sniffed** to JPEG/PNG/WebP (a mislabelled/hostile payload is rejected 415, the declared Content-Type is never trusted). One image per event — a re-upload REPLACES (the superseded R2 object is best-effort deleted).
+
 ### Host invite preview — review findings (all fixed on the host-preview-code branch)
 
 Branch-scoped IDs (distinct from the numbered backlog below). See `[[wiki/systems/cire-auth]]` → Host preview code.

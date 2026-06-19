@@ -12,6 +12,7 @@ import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { weddingMember } from "../middleware/wedding-member";
 import { runCire } from "../observability";
 import { InviteTextBody, InviteThemeBody, isInviteImageSlot } from "../schemas/invite";
+import { eventImageService } from "../services/event-image";
 import { inviteService } from "../services/invite";
 import {
   AssetsR2Service,
@@ -19,18 +20,118 @@ import {
   fetchAsset,
   MAX_IMAGE_BYTES,
 } from "../services/invite-assets";
-import type { AssetsBucket, StoredAsset } from "../services/invite-assets";
+import type { AssetR2Error, AssetsBucket, StoredAsset } from "../services/invite-assets";
 import {
   buildTransformCacheKey,
   negotiateFormat,
   resolveVariant,
   transformAsset,
 } from "../services/invite-image-transform";
-import type { ImagesBindingLike } from "../services/invite-image-transform";
+import type {
+  ImagesBindingLike,
+  ImageVariant,
+  OutputFormat,
+} from "../services/invite-image-transform";
 
 // Sentinel parse hook: stop Elysia consuming the body so handlers parse it by
 // hand (JSON for text, raw bytes for images) — matches the import route.
 const manualParse = { parse: () => ({}) };
+
+/**
+ * Serve a transformed image given an already-resolved R2 key + server-derived
+ * content version. Shared by the wedding-slot (`hero`/`story`) and the per-event
+ * serve routes so both get the IDENTICAL Cache-API-short-circuit + Images-binding
+ * transform + raw-original fallback pipeline. `cacheSlot` is the slot segment of
+ * the Cache API key (e.g. `"hero"` or `"event:<eventId>"`) — every field that
+ * changes the transformed bytes is folded into the key, and the version is ALWAYS
+ * the server-derived one (NEVER the client `?v=`), preserving the no-arbitrary-
+ * cache-minting invariant (S-M1). `blurOverride` is only ever passed for the
+ * blurred `hero-bg` variant; event images render sharp (undefined).
+ *
+ * Returns a `Response`. Requires `DbService` provided by the caller's pipeline
+ * (it doesn't read the DB itself, but stays inside the same Effect for span
+ * threading) and `AssetsR2Service` for the R2 read. Fails with `AssetR2Error`
+ * when the key is missing from R2 (caller maps to 404).
+ */
+function serveTransformedImage(args: {
+  request: Request;
+  key: string;
+  version: string | undefined;
+  cacheSlot: string;
+  variant: ImageVariant;
+  format: OutputFormat;
+  blurOverride?: number;
+  images?: ImagesBindingLike;
+}): Effect.Effect<Response, AssetR2Error, AssetsR2Service> {
+  const { request, key, version, cacheSlot, variant, format, blurOverride, images } = args;
+  return Effect.gen(function* () {
+    // Cache API short-circuit. The Images binding bills per call with no
+    // per-unique dedupe, so a hit serves the transformed bytes WITHOUT touching
+    // the binding. `caches` is undefined in unit tests / non-Workers runtimes.
+    const cache = typeof caches !== "undefined" && caches.default ? caches.default : undefined;
+    const cacheKey = cache
+      ? buildTransformCacheKey({
+          slug: cacheSlot,
+          slot: cacheSlot,
+          variant,
+          format,
+          version,
+          blur: blurOverride,
+        })
+      : undefined;
+    if (cache && cacheKey) {
+      const hit = yield* Effect.promise(() => cache.match(cacheKey));
+      if (hit) {
+        metricImageTransform("cache_hit", variant, format);
+        return hit;
+      }
+    }
+
+    const original = yield* fetchAsset(key);
+
+    let served: StoredAsset = original;
+    if (images) {
+      served = yield* transformAsset(images, original, variant, format, blurOverride).pipe(
+        Effect.tap(() => Effect.sync(() => metricImageTransform("transformed", variant, format))),
+        Effect.catchTag("ImageTransformError", (err) =>
+          Effect.gen(function* () {
+            yield* Effect.logWarning("invite image transform failed; serving original", {
+              cacheSlot,
+              variant,
+              format,
+              reason: err.reason,
+            });
+            metricImageTransform("original", variant, format);
+            return original;
+          }),
+        ),
+      );
+    } else {
+      metricImageTransform("original", variant, format);
+    }
+
+    const response = new Response(served.bytes, {
+      headers: {
+        "Content-Type": served.contentType,
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "public, max-age=31536000, immutable",
+        Vary: "Accept",
+      },
+    });
+
+    if (cache && cacheKey) {
+      const put = cache.put(cacheKey, response.clone());
+      const waitUntil = getWaitUntil(request);
+      if (waitUntil) {
+        waitUntil(put);
+      } else {
+        yield* Effect.promise(() => put);
+      }
+    }
+
+    return response;
+  });
+}
 
 /**
  * Public invite routes (no auth), mounted under /api/invite. Kept in a sibling
@@ -126,101 +227,83 @@ export const createInvitePublicRoutes = (
           // arbitrary transforms.
           const blurOverride = slot === "hero" && variant === "hero-bg" ? heroBlur : undefined;
 
-          // Cache API short-circuit. The Images binding bills per call with no
-          // per-unique dedupe, so a fresh guest/device would otherwise re-bill
-          // the same transform on every request. We key on slug+slot+variant+
-          // format (+ the server content version) — the format is baked into the
-          // key because it's Accept-negotiated, not in the request URL — so each
-          // negotiated output is a distinct entry. A hit serves the transformed
-          // bytes WITHOUT touching the binding (R2 read + transform skipped).
-          // `caches` is undefined in unit tests / non-Workers runtimes, so guard.
-          const cache =
-            typeof caches !== "undefined" && caches.default ? caches.default : undefined;
-          const cacheKey = cache
-            ? buildTransformCacheKey({
-                slug: params.slug,
-                slot,
-                variant,
-                format,
-                version,
-                blur: blurOverride,
-              })
-            : undefined;
-          if (cache && cacheKey) {
-            const hit = yield* Effect.promise(() => cache.match(cacheKey));
-            if (hit) {
-              metricImageTransform("cache_hit", variant, format);
-              return hit;
-            }
-          }
-
-          const original = yield* fetchAsset(key);
-
-          // Transform through the Images binding when present; on any failure
-          // (or when the binding is absent) fall back to the raw R2 original —
-          // never 500 on a transform miss. The metric records which path ran.
-          let served: StoredAsset = original;
-          if (images) {
-            served = yield* transformAsset(images, original, variant, format, blurOverride).pipe(
-              Effect.tap(() =>
-                Effect.sync(() => metricImageTransform("transformed", variant, format)),
-              ),
-              Effect.catchTag("ImageTransformError", (err) =>
-                Effect.gen(function* () {
-                  yield* Effect.logWarning("invite image transform failed; serving original", {
-                    slot,
-                    variant,
-                    format,
-                    reason: err.reason,
-                  });
-                  metricImageTransform("original", variant, format);
-                  return original;
-                }),
-              ),
-            );
-          } else {
-            metricImageTransform("original", variant, format);
-          }
-
-          const response = new Response(served.bytes, {
-            headers: {
-              "Content-Type": served.contentType,
-              // Bytes are magic-byte sniffed + allowlisted to JPEG/PNG/WebP on
-              // upload, but pin the declared type so a browser can't be coaxed
-              // into interpreting the response as anything else (IB-S-M1).
-              "X-Content-Type-Options": "nosniff",
-              // URL is cache-busted by ?v=<updatedAt>, so a hit is safe to pin.
-              "Cache-Control": "public, max-age=31536000, immutable",
-              // The chosen output format depends on the request Accept header, so
-              // a shared cache must key on it — otherwise an AVIF response could
-              // be served to a JPEG-only client (or vice versa). The Cache API
-              // key bakes the format in too, but keep Vary for any intermediary
-              // (and browser) cache that keys on the raw URL.
-              Vary: "Accept",
-            },
+          // Identical Cache-API-short-circuit + Images-binding transform + raw-
+          // original fallback pipeline as the per-event serve route — see
+          // `serveTransformedImage`. The cache version is ALWAYS the server-
+          // derived one (here `updatedAt`, NEVER the client `?v=`), so an attacker
+          // can't loop arbitrary `?v=` to mint unbounded per-call-billed
+          // transforms (S-M1).
+          return yield* serveTransformedImage({
+            request,
+            key,
+            version,
+            cacheSlot: `${params.slug}:${slot}`,
+            variant,
+            format,
+            blurOverride,
+            images,
           });
-
-          // Populate the edge cache on a miss so the next identical request skips
-          // the binding. Prefer `ctx.waitUntil` (Elysia doesn't forward it, so we
-          // bridge it per-request via setExecutionCtx in the Worker fetch); fall
-          // back to awaiting the write inline when no execution context is bound
-          // (non-Workers runtimes). Cache the clone so the live `response` body
-          // stays readable.
-          if (cache && cacheKey) {
-            const put = cache.put(cacheKey, response.clone());
-            const waitUntil = getWaitUntil(request);
-            if (waitUntil) {
-              waitUntil(put);
-            } else {
-              yield* Effect.promise(() => put);
-            }
-          }
-
-          return response;
         }).pipe(
           Effect.provideService(DbService, db),
           Effect.provideService(AssetsR2Service, assets as AssetsBucket),
           Effect.catchTag("WeddingNotFound", () =>
+            Effect.sync(() => {
+              set.status = 404;
+              return { error: "Not found" };
+            }),
+          ),
+          Effect.catchTag("AssetR2Error", () =>
+            Effect.sync(() => {
+              set.status = 404;
+              return { error: "Not found" };
+            }),
+          ),
+          Effect.catchAllDefect(() =>
+            Effect.sync(() => {
+              set.status = 500;
+              return { error: "Internal error" };
+            }),
+          ),
+        ),
+      );
+    })
+    .get("/:slug/event/:eventId/image", ({ params, query, request, set }) => {
+      // Per-event image serve — the events analogue of `/:slug/image/:slot`.
+      // Bounded, allowlisted variant (?variant=) + Accept-negotiated format, both
+      // collapsing to a fixed value so the transform-URL cardinality stays capped.
+      // Event images render SHARP (no blur override). The cache version is derived
+      // SERVER-SIDE from the event's R2 key (events have no `updatedAt`), NEVER the
+      // client `?v=` — so an attacker can't loop `?v=` to mint unbounded, per-call-
+      // billed transforms (S-M1).
+      const variant = resolveVariant((query as Record<string, string | undefined>).variant);
+      const format = negotiateFormat(request.headers.get("accept"));
+      return runCire(
+        Effect.gen(function* () {
+          // Resolve slug + event id → image key (+ key-derived version) FIRST.
+          // The join scopes the event id to the wedding named by the slug, so a
+          // cross-wedding event id matches no row → EventNotFound → 404 (no tenant
+          // leak). A present event with a null key is a legitimate "no image" → 404.
+          const { key, version } = yield* eventImageService.imageKeyForEvent(
+            params.slug,
+            params.eventId,
+          );
+          if (!key) {
+            set.status = 404;
+            return { error: "Not found" };
+          }
+          return yield* serveTransformedImage({
+            request,
+            key,
+            version: version ?? undefined,
+            cacheSlot: `${params.slug}:event:${params.eventId}`,
+            variant,
+            format,
+            images,
+          });
+        }).pipe(
+          Effect.provideService(DbService, db),
+          Effect.provideService(AssetsR2Service, assets as AssetsBucket),
+          Effect.catchTag("EventNotFound", () =>
             Effect.sync(() => {
               set.status = 404;
               return { error: "Not found" };
@@ -485,6 +568,127 @@ export const createInviteOrganiserRoutes = (
               Effect.catchAllDefect(() =>
                 Effect.gen(function* () {
                   yield* Effect.logError("invite image remove failed", { weddingId });
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        })
+        // Per-event image upload (one optional image per event; re-upload
+        // REPLACES). Same controls as the wedding-slot upload above: weddingMember
+        // gate (owner OR co-host), per-IP rate limit, 5 MB cap (declared + post-
+        // read), magic-byte JPEG/PNG/WebP sniff. The service additionally checks
+        // the event belongs to :weddingId (EventNotFound → 404) so an organiser
+        // can't write an image onto another wedding's event.
+        .post(
+          "/events/:eventId/image",
+          async ({ request, params, weddingId, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const eventId = params.eventId;
+
+            // Reject oversized uploads before reading the body (a CDN may strip
+            // Content-Length, so the post-read byte check below is the real cap).
+            const declared = request.headers.get("content-length");
+            if (declared) {
+              const n = Number.parseInt(declared, 10);
+              if (Number.isFinite(n) && n > MAX_IMAGE_BYTES) {
+                set.status = 413;
+                return { error: "Image too large (max 5MB)" };
+              }
+            }
+
+            const bytes = await request.arrayBuffer().catch(() => null);
+            if (!bytes) {
+              set.status = 400;
+              return { error: "Missing image body" };
+            }
+            if (bytes.byteLength === 0) {
+              set.status = 400;
+              return { error: "Empty image body" };
+            }
+            if (bytes.byteLength > MAX_IMAGE_BYTES) {
+              set.status = 413;
+              return { error: "Image too large (max 5MB)" };
+            }
+
+            // Trust the bytes, not the declared Content-Type.
+            const contentType = detectImageType(bytes);
+            if (!contentType) {
+              set.status = 415;
+              return { error: "Unsupported image type (use JPEG, PNG, or WebP)" };
+            }
+
+            return runCire(
+              Effect.gen(function* () {
+                const slug = yield* inviteService.weddingSlug(weddingId);
+                const imageUrl = yield* eventImageService.setImage(
+                  weddingId,
+                  slug,
+                  eventId,
+                  bytes,
+                  contentType,
+                );
+                return { eventId, imageUrl };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.provideService(AssetsR2Service, assets as AssetsBucket),
+                Effect.catchTag("WeddingNotFound", () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "Not found" };
+                  }),
+                ),
+                Effect.catchTag("EventNotFound", () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "Not found" };
+                  }),
+                ),
+                Effect.catchTag("AssetR2Error", () =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError("event image store failed", { weddingId });
+                    set.status = 500;
+                    return { error: "Storage error" };
+                  }),
+                ),
+                Effect.catchAllDefect(() =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError("event image upload failed", { weddingId });
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
+              ),
+            );
+          },
+          manualParse,
+        )
+        .delete("/events/:eventId/image", ({ params, weddingId, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          const eventId = params.eventId;
+          return runCire(
+            Effect.gen(function* () {
+              yield* eventImageService.removeImage(weddingId, eventId);
+              return { eventId, imageUrl: null };
+            }).pipe(
+              Effect.provideService(DbService, db),
+              Effect.provideService(AssetsR2Service, assets as AssetsBucket),
+              Effect.catchTag("EventNotFound", () =>
+                Effect.sync(() => {
+                  set.status = 404;
+                  return { error: "Not found" };
+                }),
+              ),
+              Effect.catchAllDefect(() =>
+                Effect.gen(function* () {
+                  yield* Effect.logError("event image remove failed", { weddingId });
                   set.status = 500;
                   return { error: "Internal error" };
                 }),

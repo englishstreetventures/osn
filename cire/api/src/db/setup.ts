@@ -86,7 +86,8 @@ CREATE TABLE IF NOT EXISTS events (
   dress_code_palette TEXT,
   pinterest_url TEXT,
   maps_url TEXT,
-  sort_order INTEGER NOT NULL DEFAULT 0
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  event_image_key TEXT
 );
 CREATE INDEX IF NOT EXISTS events_wedding_idx ON events(wedding_id);
 

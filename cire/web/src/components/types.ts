@@ -20,6 +20,12 @@ export interface EventSummary {
   pinterestUrl: string | null;
   mapsUrl: string | null;
   sortOrder: number;
+  /**
+   * First-party path to this event's optional image (migration 0019), or null
+   * when none. Carries a `?v=` cache-buster; the guest site prepends its API
+   * origin before use. Null ⇒ the card renders text-only at every breakpoint.
+   */
+  imageUrl: string | null;
 }
 
 export interface FamilyMember {

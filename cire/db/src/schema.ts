@@ -168,6 +168,14 @@ export const events = sqliteTable(
     pinterestUrl: text("pinterest_url"),
     mapsUrl: text("maps_url"),
     sortOrder: integer("sort_order").notNull().default(0),
+    // Optional R2 object key for this event's ONE image (migration 0019). NULL ⇒
+    // the event renders text-only at every breakpoint (no empty image half).
+    // Stores the **key** (not a URL), exactly like
+    // `wedding_invite_customisations.hero_image_key` — bytes live in the
+    // `cire-assets` bucket and are served through the API. The key carries a
+    // fresh uuid per upload, so the served image's cache version derives from it
+    // server-side (a re-upload mints a new key ⇒ a new version, never stale).
+    eventImageKey: text("event_image_key"),
   },
   (t) => [
     index("events_sort_order_idx").on(t.sortOrder),

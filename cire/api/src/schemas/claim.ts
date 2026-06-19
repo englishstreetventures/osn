@@ -33,6 +33,13 @@ export const EventSummary = Schema.Struct({
   pinterestUrl: Schema.NullOr(Schema.String),
   mapsUrl: Schema.NullOr(Schema.String),
   sortOrder: Schema.Number,
+  // First-party public path to this event's ONE optional image (migration 0019),
+  // or null when the event has no image uploaded. The path carries a server-
+  // derived `?v=` cache-buster (from `versionFromKey(event_image_key)`); the
+  // guest site prepends its API origin. Not run through `safeHttpUrl` like the
+  // pinterest/maps links — this is a same-origin API path we mint ourselves,
+  // never a stored external URL.
+  imageUrl: Schema.NullOr(Schema.String),
 });
 export type EventSummary = Schema.Schema.Type<typeof EventSummary>;
 

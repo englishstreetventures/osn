@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
+import { events } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../app";
@@ -221,5 +223,51 @@ describe("POST /api/claim rate limiting (S-C2)", () => {
     const second = await send();
     expect(second.status).toBe(429);
     expect(second.headers.get("Retry-After")).toBe("60");
+  });
+});
+
+// migration 0019: each EventSummary carries imageUrl — the first-party path to
+// the event's optional image (or null when none). The path's ?v= is the server-
+// derived FNV digest of the R2 key, never the timestamp the wedding-slot images
+// use (events have no updated_at).
+describe("POST /api/claim event imageUrl (migration 0019)", () => {
+  it("populates imageUrl for an event with a key, null for the rest", async () => {
+    // Point one seeded event at an R2 key directly (no upload needed — the public
+    // claim payload only needs the column populated).
+    db.update(events)
+      .set({ eventImageKey: "assets/wed_bootstrap/event-1234abcd" })
+      .where(eq(events.id, eventsData.catholic.id))
+      .run();
+
+    const res = await app.fetch(
+      new Request("http://localhost/api/claim", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "cf-connecting-ip": "203.0.113.7",
+          Origin: "http://localhost:4321",
+        },
+        body: JSON.stringify({ publicId: "TESTFOR-JOY-DD44" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as {
+      events: { id: string; imageUrl: string | null }[];
+    };
+    const withImage = data.events.find((e) => e.id === eventsData.catholic.id);
+    expect(withImage?.imageUrl).toContain(
+      `/api/invite/cire-wedding/event/${eventsData.catholic.id}/image`,
+    );
+    expect(withImage?.imageUrl).toMatch(/\?v=[0-9a-f]+$/);
+
+    // An event without a key reports null (graceful no-image collapse).
+    const noImage = data.events.find((e) => e.id === eventsData.reception.id);
+    expect(noImage?.imageUrl).toBeNull();
+
+    // Cleanup so other tests on the shared db see no image.
+    db.update(events)
+      .set({ eventImageKey: null })
+      .where(eq(events.id, eventsData.catholic.id))
+      .run();
   });
 });

@@ -118,10 +118,16 @@ export default function InvitePage(props: InvitePageProps) {
               </h2>
               <div class="flex flex-col gap-5 text-left">
                 <For each={data().events}>
-                  {(event) => (
+                  {(event, index) => (
                     <div data-event-card>
                       <EventCard
                         event={event}
+                        apiUrl={props.apiUrl}
+                        // Alternating rhythm: even rows render text-left/image-
+                        // right (`norm`), odd rows flip to image-left/text-right
+                        // (`alt`). Collapses to a single text column when the
+                        // event has no image.
+                        orientation={index() % 2 === 0 ? "norm" : "alt"}
                         preview={data().preview}
                         onRespond={setRsvpEvent}
                         onDetails={setDetailsEvent}

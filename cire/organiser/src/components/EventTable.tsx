@@ -1,5 +1,6 @@
 import { useAuth } from "@osn/client/solid";
 import { createSignal, onMount, Show, For } from "solid-js";
+import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 
@@ -24,6 +25,9 @@ interface EventRow {
   dressCodePalette: DressSwatch[] | null;
   pinterestUrl: string | null;
   mapsUrl: string | null;
+  /** First-party path to this event's optional image (or null). API-origin
+   * relative — prepend `apiUrl()` before use. */
+  imageUrl: string | null;
 }
 
 interface EventTableProps {
@@ -73,6 +77,52 @@ export default function EventTable(props: EventTableProps) {
     }
   });
 
+  /** Patch one event row's imageUrl in place after an upload/remove. */
+  function patchImage(eventId: string, imageUrl: string | null) {
+    setEvents((rows) => rows.map((r) => (r.id === eventId ? { ...r, imageUrl } : r)));
+  }
+
+  const eventImageBase = (eventId: string) =>
+    `/api/organiser/weddings/${props.weddingId}/events/${eventId}/image`;
+
+  // One image per event — a re-upload REPLACES the current one (the API points
+  // the single `event_image_key` column at the new R2 object). Mirrors the
+  // InviteBuilder uploadImage/removeImage toast pattern.
+  async function uploadImage(eventId: string, file: File) {
+    setError(null);
+    try {
+      const res = await authFetch(apiUrl(eventImageBase(eventId)), { method: "POST", body: file });
+      if (res.status === 401) return redirectToLogin();
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `Upload failed (${res.status})`);
+      }
+      const { imageUrl } = (await res.json()) as { imageUrl: string };
+      patchImage(eventId, imageUrl);
+      toast.success("Event image updated");
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      toast.error(err instanceof Error ? err.message : "Upload failed.");
+    }
+  }
+
+  async function removeImage(eventId: string) {
+    setError(null);
+    try {
+      const res = await authFetch(apiUrl(eventImageBase(eventId)), { method: "DELETE" });
+      if (res.status === 401) return redirectToLogin();
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `Remove failed (${res.status})`);
+      }
+      patchImage(eventId, null);
+      toast.success("Event image removed");
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      toast.error(err instanceof Error ? err.message : "Remove failed.");
+    }
+  }
+
   return (
     <div class="flex flex-col gap-6">
       <Show when={loading()}>
@@ -90,7 +140,13 @@ export default function EventTable(props: EventTableProps) {
       </Show>
 
       <Show when={!loading() && !error()}>
-        <p class="font-body text-text-muted text-[0.82rem]">{events().length} events</p>
+        <div class="flex flex-col gap-1">
+          <p class="font-body text-text-muted text-[0.82rem]">{events().length} events</p>
+          <p class="font-body text-text-muted text-[0.72rem] italic">
+            Event details come from your spreadsheet import. You can add one image per event below —
+            uploading replaces the current one.
+          </p>
+        </div>
 
         <ul class="flex flex-col gap-4">
           <For each={events()}>
@@ -166,11 +222,67 @@ export default function EventTable(props: EventTableProps) {
                     </Show>
                   </div>
                 </Show>
+
+                <EventImageField
+                  url={event.imageUrl}
+                  onSelect={(f) => void uploadImage(event.id, f)}
+                  onRemove={() => void removeImage(event.id)}
+                />
               </li>
             )}
           </For>
         </ul>
       </Show>
+    </div>
+  );
+}
+
+/**
+ * Per-event image control — file input (JPEG/PNG/WebP), preview thumbnail, and a
+ * Remove button when an image is set. Reuses the look + behaviour of the
+ * InviteBuilder's ImageField. One image per event: re-uploading replaces it.
+ */
+function EventImageField(props: {
+  url: string | null;
+  onSelect: (file: File) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div class="border-border/60 mt-1 flex flex-col gap-2 rounded-sm border border-dashed p-3">
+      <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+        Event image
+      </span>
+      <Show when={props.url}>
+        {(url) => (
+          <img
+            src={apiUrl(url())}
+            alt=""
+            class="border-border h-28 w-full max-w-xs rounded-sm border object-cover"
+          />
+        )}
+      </Show>
+      <div class="flex flex-wrap items-center gap-3">
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          aria-label="Event image"
+          onChange={(e) => {
+            const file = e.currentTarget.files?.[0];
+            if (file) props.onSelect(file);
+            e.currentTarget.value = "";
+          }}
+          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
+        />
+        <Show when={props.url}>
+          <button
+            type="button"
+            onClick={() => props.onRemove()}
+            class="font-body text-text-muted text-[0.82rem] underline-offset-4 hover:underline"
+          >
+            Remove
+          </button>
+        </Show>
+      </div>
     </div>
   );
 }

@@ -1,0 +1,13 @@
+-- One optional image per event. The column stores an **R2 object key** (not a
+-- URL) — bytes live in the `cire-assets` bucket and are served through the API,
+-- exactly like the wedding-level `hero_image_key` / `story_image_key` slots on
+-- `wedding_invite_customisations`. Nullable: NULL ⇒ the event renders text-only
+-- (no image half) at every breakpoint. A pure forward-only ADD COLUMN — every
+-- existing row defaults to NULL, so no event gains an image until one is
+-- uploaded through the organiser portal (live events must be re-uploaded).
+--
+-- The served image's cache version is derived SERVER-SIDE from this key (it
+-- carries a fresh uuid per upload, so a re-upload mints a new key ⇒ a new
+-- version ⇒ the new image is never served stale) — there is no per-event
+-- `updated_at` column to add, and the client `?v=` is never trusted for keying.
+ALTER TABLE `events` ADD `event_image_key` text;

@@ -1,10 +1,11 @@
-import { families, guests, events, guestEvents, rsvps } from "@cire/db";
+import { families, guests, events, guestEvents, rsvps, weddings } from "@cire/db";
 import { eq, and, asc, inArray, ne } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import { measureClaimLookup, metricClaimAttempt } from "../metrics";
 import type { ClaimResponse, OrganiserGuestRow, DressSwatch } from "../schemas/claim";
+import { eventImagePath, versionFromKey } from "./event-image";
 
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
 
@@ -56,6 +57,17 @@ function decodePalette(raw: string | null): {
   return { palette: out, malformed: false };
 }
 
+/**
+ * Public path to an event's image, or null when it has none. The version is
+ * derived SERVER-SIDE from the stored R2 key (events have no `updated_at`), so a
+ * re-upload mints a fresh key ⇒ a fresh version ⇒ the new image is never served
+ * stale, while the client `?v=` is never trusted for cache keying (S-M1). The
+ * slug scopes the path to this wedding; the guest site prepends its API origin.
+ */
+function eventImageUrl(slug: string, eventId: string, key: string | null): string | null {
+  return key ? eventImagePath(slug, eventId, versionFromKey(key)) : null;
+}
+
 export const claimService = {
   lookup(publicId: string): Effect.Effect<ClaimResponse, InvalidCredentials, DbService> {
     return Effect.gen(function* () {
@@ -65,6 +77,19 @@ export const claimService = {
         db.select().from(families).where(eq(families.publicId, publicId)).all(),
       );
       if (!family) return yield* Effect.fail(new InvalidCredentials());
+
+      // The wedding slug scopes the first-party event-image paths below. A family
+      // always belongs to a wedding (FK), so the row is present; default to the
+      // family's weddingId if a slug is somehow absent (image URLs would 404, but
+      // the rest of the claim is unaffected — never fail the whole lookup on it).
+      const [wedding] = yield* dbQuery(() =>
+        db
+          .select({ slug: weddings.slug })
+          .from(weddings)
+          .where(eq(weddings.id, family.weddingId))
+          .all(),
+      );
+      const slug = wedding?.slug ?? family.weddingId;
 
       // Two queries kept narrow to avoid the cartesian explosion of joining
       // events into the per-guest rows (every event row was previously
@@ -141,6 +166,7 @@ export const claimService = {
           pinterestUrl: safeHttpUrl(e.pinterestUrl),
           mapsUrl: safeHttpUrl(e.mapsUrl),
           sortOrder: e.sortOrder ?? 0,
+          imageUrl: eventImageUrl(slug, e.id, e.eventImageKey),
         });
       }
       eventList.sort((a, b) => a.sortOrder - b.sortOrder);
@@ -195,12 +221,19 @@ export const claimService = {
       dressCodePalette: readonly DressSwatch[] | null;
       pinterestUrl: string | null;
       mapsUrl: string | null;
+      imageUrl: string | null;
     }[],
     never,
     DbService
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
+      // The wedding slug scopes the first-party event-image paths — distinct from
+      // `events.slug` (the per-event slug). Resolved once for the whole list.
+      const [wedding] = yield* dbQuery(() =>
+        db.select({ slug: weddings.slug }).from(weddings).where(eq(weddings.id, weddingId)).all(),
+      );
+      const weddingSlug = wedding?.slug ?? weddingId;
       const rows = yield* dbQuery(() =>
         db
           .select()
@@ -227,6 +260,7 @@ export const claimService = {
           dressCodePalette: palette,
           pinterestUrl: safeHttpUrl(row.pinterestUrl),
           mapsUrl: safeHttpUrl(row.mapsUrl),
+          imageUrl: eventImageUrl(weddingSlug, row.id, row.eventImageKey),
         };
       });
     }).pipe(Effect.withSpan("cire.claim.listEvents"));

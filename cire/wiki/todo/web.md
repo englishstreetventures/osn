@@ -7,6 +7,26 @@ related:
 last-reviewed: 2026-06-19
 ---
 
+> [!note] Per-event image — alternating two-column EventCard (`feat/cire-event-images`)
+> Each event can carry **one** optional image. `EventCard.tsx` gains an
+> `orientation` prop (`norm`/`alt`) + consumes the event's `imageUrl` (added to
+> `EventSummary` in `components/types.ts`), and `InvitePage.tsx` alternates the
+> orientation by event **index** (`index() % 2 === 0 ? "norm" : "alt"`).
+> Render rules:
+> - **Desktop (md+) with image** — two columns, vertically centred, comfortable
+>   gap. `norm` = text LEFT / image RIGHT; `alt` = image LEFT / text RIGHT. The
+>   swap is CSS `order` only — the **DOM order stays text-first** (accessible).
+>   Card chrome unchanged: name, date, location, description, and the TWO buttons
+>   in the same order (**Respond first, View Event second**).
+> - **Mobile (below md)** — single column: text first, image **stacked BELOW** it
+>   (the image IS shown on mobile for events, unlike the story photo which hides).
+> - **No image** — single text-only column at every breakpoint (graceful
+>   collapse, no empty half; the `<img>` isn't rendered at all).
+> The image uses the shared `buildSrcSet`/`VARIANT_WIDTHS` (thumb/card) from
+> `InviteHeader.tsx`; `EventCard` prepends the API origin (`apiUrl` prop) to the
+> relative `imageUrl` path. ⚠️ Real-device check still wanted: the md+ side-swap
+> + mobile-stacked rhythm at 320/375/390/768px. See `[[api]]` + `[[db]]`.
+
 > [!note] Pinterest embed fix (`feat/cire-pinterest-resolve`)
 > The recurring "Pinterest board doesn't load" is fixed at the **source**, not in
 > the embed: `pin.it` short links are resolved to their canonical

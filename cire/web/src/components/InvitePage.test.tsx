@@ -48,6 +48,7 @@ const claim: ClaimResult = {
       pinterestUrl: null,
       mapsUrl: null,
       sortOrder: 0,
+      imageUrl: null,
     },
   ],
   rsvps: [{ guestId: "guest-1", eventId: "event-1", status: "attending", dietary: "Vegetarian" }],

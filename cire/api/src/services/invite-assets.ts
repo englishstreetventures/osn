@@ -2,6 +2,15 @@ import { Context, Data, Effect } from "effect";
 
 import type { InviteImageSlot } from "../schemas/invite";
 
+/**
+ * The label that namespaces an R2 image key. The two wedding-level invite slots
+ * (`hero`/`story`) plus `event` (one optional image per event, keyed by event id
+ * in `events.event_image_key`). It only affects the readable key prefix — the
+ * uuid suffix is what guarantees per-upload uniqueness — so a closed union is
+ * enough; it never has to mirror an `:slot` route param like `InviteImageSlot`.
+ */
+export type AssetSlotLabel = InviteImageSlot | "event";
+
 // Binary R2 surface for invite images. The CSV-import `R2Bucket` in
 // `r2-imports.ts` is text-only (`get().text()`), so images get their own narrow
 // Tag rather than widening that interface in place: uploads need `arrayBuffer()`
@@ -35,7 +44,7 @@ export class AssetR2Error extends Data.TaggedError("AssetR2Error")<{
 }> {}
 
 /** R2 key namespace for invite images: `assets/<weddingId>/<slot>-<uuid>`. */
-function assetKey(weddingId: string, slot: InviteImageSlot): string {
+function assetKey(weddingId: string, slot: AssetSlotLabel): string {
   return `assets/${weddingId}/${slot}-${crypto.randomUUID()}`;
 }
 
@@ -51,7 +60,7 @@ export interface StoredAsset {
  */
 export function storeAsset(
   weddingId: string,
-  slot: InviteImageSlot,
+  slot: AssetSlotLabel,
   bytes: ArrayBuffer,
   contentType: string,
 ): Effect.Effect<string, AssetR2Error, AssetsR2Service> {

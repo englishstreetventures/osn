@@ -1,11 +1,18 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, weddingHosts, weddingInviteCustomisations } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  events,
+  weddings,
+  weddingHosts,
+  weddingInviteCustomisations,
+} from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../app";
+import eventsData from "../data/events.json";
 import { createDb, seedDb } from "../db/setup";
 import { createAssetsStub } from "../services/invite-assets";
 import { VARIANT_BLUR } from "../services/invite-image-transform";
@@ -297,6 +304,207 @@ describe("invite image upload + serve + remove", () => {
     const { app } = buildApp();
     const res = await appRequest(app, `/api/invite/${SLUG}/image/story`);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("event image upload + serve + remove (migration 0019)", () => {
+  // A seeded event id under the bootstrap wedding — every seeded event is scoped
+  // to BOOTSTRAP_WEDDING_ID / SLUG, so this id is owned by that wedding.
+  const EVENT_ID = eventsData.catholic.id;
+  const eventImagePath = (eventId: string) =>
+    `/api/invite/${SLUG}/event/${encodeURIComponent(eventId)}/image`;
+  const orgEventImagePath = (eventId: string) =>
+    `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events/${encodeURIComponent(eventId)}/image`;
+
+  it("uploads a PNG to an event, serves it publicly, surfaces it on /events, then removes it", async () => {
+    const { app } = buildApp();
+
+    const up = await appRequest(app, orgEventImagePath(EVENT_ID), {
+      method: "POST",
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+      body: PNG,
+    });
+    expect(up.status).toBe(200);
+    const { imageUrl } = (await up.json()) as { imageUrl: string };
+    expect(imageUrl).toContain(`/api/invite/${SLUG}/event/${EVENT_ID}/image`);
+    // The cache version is the key-derived FNV digest, not a timestamp.
+    expect(imageUrl).toMatch(/\?v=[0-9a-f]+$/);
+
+    // The organiser events list now reports the image URL.
+    const eventsRes = await appRequest(
+      app,
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events`,
+      { headers: await authHeaders(BOOTSTRAP_OWNER) },
+    );
+    expect(eventsRes.status).toBe(200);
+    const rows = (await eventsRes.json()) as { id: string; imageUrl: string | null }[];
+    const row = rows.find((e) => e.id === EVENT_ID);
+    expect(row?.imageUrl).toContain(`/api/invite/${SLUG}/event/${EVENT_ID}/image`);
+
+    // Serving endpoint returns the bytes with the sniffed content type.
+    const img = await appRequest(app, imageUrl);
+    expect(img.status).toBe(200);
+    expect(img.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await img.arrayBuffer())).toEqual(PNG);
+
+    // Remove clears the event image.
+    const del = await appRequest(app, orgEventImagePath(EVENT_ID), {
+      method: "DELETE",
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+    });
+    expect(del.status).toBe(200);
+
+    const after = await appRequest(app, `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events`, {
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+    });
+    const afterRow = ((await after.json()) as { id: string; imageUrl: string | null }[]).find(
+      (e) => e.id === EVENT_ID,
+    );
+    expect(afterRow?.imageUrl).toBeNull();
+  });
+
+  it("re-upload REPLACES (one image per event) and serves the new bytes", async () => {
+    const { app } = buildApp();
+    const PNG2 = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x09, 0x08, 0x07, 0x06,
+    ]);
+
+    await appRequest(app, orgEventImagePath(EVENT_ID), {
+      method: "POST",
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+      body: PNG,
+    });
+    const up2 = await appRequest(app, orgEventImagePath(EVENT_ID), {
+      method: "POST",
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+      body: PNG2,
+    });
+    expect(up2.status).toBe(200);
+    const { imageUrl } = (await up2.json()) as { imageUrl: string };
+    const img = await appRequest(app, imageUrl);
+    expect(new Uint8Array(await img.arrayBuffer())).toEqual(PNG2);
+  });
+
+  it("404s serving an event image that has none set", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, eventImagePath(EVENT_ID));
+    expect(res.status).toBe(404);
+  });
+
+  it("404s serving an image for an unknown event id", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, eventImagePath("no-such-event"));
+    expect(res.status).toBe(404);
+  });
+
+  it("404s serving an event from ANOTHER wedding (ownership scoping)", async () => {
+    const { app, db } = buildApp();
+    // A second wedding with its own event, with an image uploaded directly.
+    db.insert(weddings)
+      .values({
+        id: "wed_other",
+        slug: "other-wedding",
+        displayName: "Other",
+        ownerOsnProfileId: "usr_other_owner",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
+    db.insert(events)
+      .values({
+        id: "other-event",
+        weddingId: "wed_other",
+        slug: "other-event-slug",
+        name: "Other Event",
+        date: "2026-01-01",
+        location: "Elsewhere",
+        startAt: "2026-01-01T00:00:00Z",
+        endAt: "2026-01-01T01:00:00Z",
+        timezone: "UTC",
+        eventImageKey: "assets/wed_other/event-deadbeef",
+      })
+      .run();
+
+    // Requesting the other wedding's event id under THIS slug must 404 — the
+    // join scopes the event id to the slug's wedding, so it matches no row.
+    const res = await appRequest(app, eventImagePath("other-event"));
+    expect(res.status).toBe(404);
+  });
+
+  it("rejects uploading to an event from ANOTHER wedding with 404 (ownership)", async () => {
+    const { app, db } = buildApp();
+    db.insert(weddings)
+      .values({
+        id: "wed_other2",
+        slug: "other-wedding-2",
+        displayName: "Other 2",
+        ownerOsnProfileId: "usr_other_owner2",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
+    db.insert(events)
+      .values({
+        id: "other-event-2",
+        weddingId: "wed_other2",
+        slug: "other-event-2-slug",
+        name: "Other Event 2",
+        date: "2026-01-01",
+        location: "Elsewhere",
+        startAt: "2026-01-01T00:00:00Z",
+        endAt: "2026-01-01T01:00:00Z",
+        timezone: "UTC",
+      })
+      .run();
+
+    // The bootstrap owner tries to upload onto wed_other2's event via the
+    // bootstrap wedding's organiser path — the service's event∈wedding check
+    // rejects it (EventNotFound → 404), and nothing is written.
+    const res = await appRequest(app, orgEventImagePath("other-event-2"), {
+      method: "POST",
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+      body: PNG,
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("rejects a non-image event upload with 415", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, orgEventImagePath(EVENT_ID), {
+      method: "POST",
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+      body: new Uint8Array([0x3c, 0x68, 0x74, 0x6d, 0x6c]), // "<html"
+    });
+    expect(res.status).toBe(415);
+  });
+
+  it("rejects an oversize event upload with 413 (declared Content-Length)", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, orgEventImagePath(EVENT_ID), {
+      method: "POST",
+      headers: {
+        ...(await authHeaders(BOOTSTRAP_OWNER)),
+        "content-length": String(6 * 1024 * 1024),
+      },
+      body: PNG,
+    });
+    expect(res.status).toBe(413);
+  });
+
+  it("401s an event upload without a token", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, orgEventImagePath(EVENT_ID), { method: "POST", body: PNG });
+    expect(res.status).toBe(401);
+  });
+
+  it("403s an event upload for a non-member (never 401)", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, orgEventImagePath(EVENT_ID), {
+      method: "POST",
+      headers: await authHeaders("usr_someone_else"),
+      body: PNG,
+    });
+    expect(res.status).toBe(403);
   });
 });
 
