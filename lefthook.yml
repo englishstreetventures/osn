@@ -20,17 +20,6 @@ pre-push:
       # fresh malice, this one stops known malice.
       #
       # --ignore list (remove an entry once the upstream fix is in main):
-      #   GHSA-77vg-94rm-hx3p  devalue sparse-array DoS (via astro). The
-      #   patched devalue 5.8.1+ is younger than `bunfig.toml`'s
-      #   `minimumReleaseAge` (14 days), so bun currently refuses to install
-      #   it. This entry self-resolves the next time the lockfile re-resolves
-      #   after the patch ages in.
-      #   GHSA-gv7w-rqvm-qjhr  esbuild Deno-module binary-integrity RCE via
-      #   NPM_CONFIG_REGISTRY. Reachable only through build/dev tooling
-      #   (astro, drizzle-kit, vite, wrangler) — esbuild never runs in any
-      #   Worker/production runtime path, and the exploit requires a
-      #   hostile NPM_CONFIG_REGISTRY at install time (already gated by
-      #   `minimumReleaseAge`). Drop once the upstreams ship esbuild ≥0.28.1.
       #   GHSA-96hv-2xvq-fx4p  ws memory-exhaustion DoS from tiny fragments.
       #   Reachable only through test tooling — `miniflare` (@cire/api test
       #   runtime) and `happy-dom` (@cire/organiser tests); no deployed Worker
@@ -45,7 +34,5 @@ pre-push:
       #   `minimumReleaseAge`.
       run: >
         bun audit --audit-level=high
-        --ignore=GHSA-77vg-94rm-hx3p
-        --ignore=GHSA-gv7w-rqvm-qjhr
         --ignore=GHSA-96hv-2xvq-fx4p
         --ignore=GHSA-fx2h-pf6j-xcff
