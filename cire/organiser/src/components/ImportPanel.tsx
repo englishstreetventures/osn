@@ -1,4 +1,5 @@
 import { useAuth } from "@osn/client/solid";
+import type { JSX } from "solid-js";
 import { createSignal, Show, For } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
@@ -354,8 +355,11 @@ function PlanCounts(props: { plan: ImportPlan }) {
 }
 
 /**
- * A column-name chip. `required` columns read in gold; optional ones stay muted,
- * so the two kinds are visually distinct in the step cards (legend up top).
+ * A column-name chip. `required` (mandatory) columns read in gold; optional ones
+ * stay muted, so the two kinds are visually distinct in the step cards. The
+ * gold-vs-muted distinction is spelled out, labelled, in the per-sheet "Good to
+ * know!" key ({@link KeyLegend}) and mirrors the cire-api parser's required-column
+ * lists (`REQUIRED_EVENT_COLUMNS` / `REQUIRED_GUEST_COLUMNS`).
  */
 function Col(props: { children: string; required?: boolean }) {
   return (
@@ -368,6 +372,42 @@ function Col(props: { children: string; required?: boolean }) {
     >
       {props.children}
     </code>
+  );
+}
+
+/**
+ * The mandatory-vs-optional key — a small labelled legend tying the gold/muted
+ * colour of the column chips to "mandatory" vs "optional". Rendered at the top of
+ * each "Good to know!" panel so the colour coding on the chips above always has a
+ * nearby, explicit explanation.
+ */
+function KeyLegend() {
+  return (
+    <div class="flex flex-col gap-1.5">
+      <p class="font-body text-gold text-[0.66rem] tracking-[0.18em] uppercase">Key</p>
+      <div class="text-text-muted flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[0.78rem]">
+        <span class="flex items-center gap-1.5">
+          <Col required>Aa</Col> indicates mandatory fields
+        </span>
+        <span class="flex items-center gap-1.5">
+          <Col>Aa</Col> indicates optional fields
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A clearly-styled "Good to know!" aside — a gold-accented panel that collects the
+ * per-sheet format rules (the key plus the field-format guidance). Used under both
+ * the Events and Guests guidance so the two share one scannable visual language.
+ */
+function GoodToKnow(props: { children: JSX.Element }) {
+  return (
+    <div class="border-gold/25 bg-gold/[0.06] flex flex-col gap-3 rounded-sm border p-3.5">
+      <p class="font-display text-gold-dim text-[1rem] italic">Good to know!</p>
+      {props.children}
+    </div>
   );
 }
 
@@ -413,13 +453,163 @@ function MiniMatrix() {
   );
 }
 
+/** A step card: numbered badge + serif title, then the step body. */
+function StepCard(props: { n: number; title: string; children: JSX.Element }) {
+  return (
+    <li class="border-border bg-surface/30 flex flex-col gap-3 rounded-sm border p-4">
+      <div class="flex items-center gap-2.5">
+        <StepBadge n={props.n} />
+        <h3 class="font-display text-text text-[1.05rem] italic">{props.title}</h3>
+      </div>
+      {props.children}
+    </li>
+  );
+}
+
+/**
+ * The Events-sheet guidance: the required/optional column chips followed by the
+ * "Good to know!" key + format rules. Every rule mirrors the cire-api parser
+ * (`cire/api/src/services/spreadsheet.ts`): the ISO-8601-with-offset Start/End
+ * format, the IANA Timezone, the http(s) Pinterest/Maps URLs, and the
+ * `Name:#hex|Name:#hex` dress-code palette the parser splits on `|`.
+ */
+function EventsGuidance() {
+  return (
+    <div class="flex flex-col gap-3">
+      <p class="font-body text-gold text-[0.66rem] tracking-[0.18em] uppercase">Events sheet</p>
+      <p class="text-text-muted text-[0.8rem]">One row per event.</p>
+      <ul class="flex flex-wrap gap-1.5">
+        <For each={EVENT_REQUIRED_HEADERS}>
+          {(h) => (
+            <li>
+              <Col required>{h}</Col>
+            </li>
+          )}
+        </For>
+        <For each={EVENT_OPTIONAL_HEADERS}>
+          {(h) => (
+            <li>
+              <Col>{h}</Col>
+            </li>
+          )}
+        </For>
+      </ul>
+
+      <GoodToKnow>
+        <KeyLegend />
+        <dl class="flex flex-col gap-2.5 text-[0.78rem]">
+          <div class="flex flex-col gap-0.5">
+            <dt class="text-text">Timestamps</dt>
+            <dd class="text-text-muted">
+              Provide timestamps as <span class="text-text font-mono">YYYY-MM-DDTHH:MM:+GMT</span>{" "}
+              for <Col required>Start</Col> and <Col required>End</Col>. For example,{" "}
+              <span class="text-text font-mono">2026-11-14T15:00:+11:00</span> is 3 pm on 14
+              November 2026 in AEST (GMT+11).
+            </dd>
+          </div>
+          <div class="flex flex-col gap-0.5">
+            <dt class="text-text">Timezone</dt>
+            <dd class="text-text-muted">
+              Provide an{" "}
+              <a
+                href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+                target="_blank"
+                rel="noreferrer"
+                class="text-gold-dim underline-offset-2 hover:underline"
+              >
+                IANA
+              </a>{" "}
+              timezone (e.g. <span class="text-text font-mono">Australia/Sydney</span>).
+            </dd>
+          </div>
+          <div class="flex flex-col gap-0.5">
+            <dt class="text-text">URLs</dt>
+            <dd class="text-text-muted">
+              <Col>Pinterest URL</Col> and <Col>Maps URL</Col> should be full links (e.g.{" "}
+              <span class="text-text font-mono">https://www.pinterest.com/...</span>).
+            </dd>
+          </div>
+          <div class="flex flex-col gap-0.5">
+            <dt class="text-text">Dress code palette</dt>
+            <dd class="text-text-muted">
+              <Col>Dress Code Palette</Col> colours should be listed as{" "}
+              <span class="text-text font-mono">DisplayName:#RGB</span>, for example{" "}
+              <span class="text-text font-mono">Blush:#f4c2c2</span>. Separate multiple swatches
+              with <span class="text-text font-mono">|</span>.
+            </dd>
+          </div>
+        </dl>
+      </GoodToKnow>
+    </div>
+  );
+}
+
+/**
+ * The Guests-sheet guidance: the four fixed required columns, the one-column-per-
+ * event convention (with a {@link MiniMatrix} worked example), and a "Good to
+ * know!" with the guests-specific rules. Mirrors the parser: required columns are
+ * `REQUIRED_GUEST_COLUMNS`, households group by repeating the same Family Name,
+ * and an event cell is truthy on `yes`/`true`/`1`/`x` (blank ⇒ not invited).
+ */
+function GuestsGuidance() {
+  return (
+    <div class="flex flex-col gap-3">
+      <p class="font-body text-gold text-[0.66rem] tracking-[0.18em] uppercase">Guests sheet</p>
+      <p class="text-text-muted text-[0.8rem]">One row per guest.</p>
+      <ul class="flex flex-wrap gap-1.5">
+        <For each={GUEST_TEMPLATE_FIXED_HEADERS}>
+          {(h) => (
+            <li>
+              <Col required>{h}</Col>
+            </li>
+          )}
+        </For>
+      </ul>
+      <p class="text-text-muted text-[0.78rem]">
+        Then <strong class="text-text">one column per event</strong>, named exactly after an event.
+      </p>
+      <MiniMatrix />
+
+      <GoodToKnow>
+        <KeyLegend />
+        <dl class="flex flex-col gap-2.5 text-[0.78rem]">
+          <div class="flex flex-col gap-0.5">
+            <dt class="text-text">One row per guest</dt>
+            <dd class="text-text-muted">
+              Give every guest their own row — don't combine a couple onto one line.
+            </dd>
+          </div>
+          <div class="flex flex-col gap-0.5">
+            <dt class="text-text">Group a household</dt>
+            <dd class="text-text-muted">
+              Repeat the same <Col required>Family Name</Col> on each guest's row to group them into
+              one household — they claim &amp; RSVP together.
+            </dd>
+          </div>
+          <div class="flex flex-col gap-0.5">
+            <dt class="text-text">Event attendance</dt>
+            <dd class="text-text-muted">
+              Mark an invited guest's event column with <span class="text-text font-mono">yes</span>{" "}
+              (or <span class="text-text font-mono">true</span> /{" "}
+              <span class="text-text font-mono">1</span> /{" "}
+              <span class="text-text font-mono">x</span>). Leave it{" "}
+              <span class="text-text">blank</span> when they're not invited.
+            </dd>
+          </div>
+        </dl>
+      </GoodToKnow>
+    </div>
+  );
+}
+
 /**
  * "How to structure your two sheets" — a three-step visual guide that mirrors the
- * cire-api parser (`cire/api/src/services/spreadsheet.ts`): required vs optional
- * columns, the ISO-8601 + IANA date/timezone format, the one-column-per-event
- * guest convention with truthy cells, family grouping by Family ID, and the
- * events-before-guests ordering. A native <details>/<summary> (open by default)
- * keeps it keyboard- and screen-reader-accessible with no JS.
+ * cire-api parser (`cire/api/src/services/spreadsheet.ts`). The steps follow the
+ * natural flow a non-technical couple takes: ① grab the template, ② fill in the
+ * details (Events + Guests guidance, each with a mandatory/optional key and a
+ * "Good to know!" of format rules), ③ upload, preview, and apply. A native
+ * <details>/<summary> (open by default) keeps it keyboard- and screen-reader-
+ * accessible with no JS.
  */
 function CsvFormatHelp() {
   return (
@@ -432,75 +622,27 @@ function CsvFormatHelp() {
       </summary>
 
       <div class="border-border/60 flex flex-col gap-5 border-t px-4 py-5">
-        <div class="text-text-muted flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[0.78rem]">
-          <span class="flex items-center gap-1.5">
-            <Col required>required</Col> always needed
-          </span>
-          <span class="flex items-center gap-1.5">
-            <Col>optional</Col> nice to have
-          </span>
-        </div>
-
         <ol class="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <li class="border-border bg-surface/30 flex flex-col gap-3 rounded-sm border p-4">
-            <div class="flex items-center gap-2.5">
-              <StepBadge n={1} />
-              <h3 class="font-display text-text text-[1.05rem] italic">Events sheet</h3>
-            </div>
-            <p class="text-text-muted text-[0.8rem]">One row per event.</p>
-            <ul class="flex flex-wrap gap-1.5">
-              <For each={EVENT_REQUIRED_HEADERS}>
-                {(h) => (
-                  <li>
-                    <Col required>{h}</Col>
-                  </li>
-                )}
-              </For>
-              <For each={EVENT_OPTIONAL_HEADERS}>
-                {(h) => (
-                  <li>
-                    <Col>{h}</Col>
-                  </li>
-                )}
-              </For>
-            </ul>
-            <p class="text-text-muted text-[0.76rem]">
-              <Col required>Start</Col> / <Col required>End</Col> are full timestamps (
-              <span class="text-text font-mono">2026-11-14T15:00:00+11:00</span>);{" "}
-              <Col required>Timezone</Col> an IANA zone (
-              <span class="text-text font-mono">Australia/Sydney</span>).
+          <StepCard n={1} title="New here?">
+            <p class="text-text-muted text-[0.8rem]">
+              Download a starter template above — it has the correct headers and example rows, so
+              you can fill in your details and re-upload.
             </p>
-          </li>
-
-          <li class="border-border bg-surface/30 flex flex-col gap-3 rounded-sm border p-4">
-            <div class="flex items-center gap-2.5">
-              <StepBadge n={2} />
-              <h3 class="font-display text-text text-[1.05rem] italic">Guests sheet</h3>
-            </div>
-            <p class="text-text-muted text-[0.8rem]">One row per guest.</p>
-            <ul class="flex flex-wrap gap-1.5">
-              <For each={GUEST_TEMPLATE_FIXED_HEADERS}>
-                {(h) => (
-                  <li>
-                    <Col required>{h}</Col>
-                  </li>
-                )}
-              </For>
-            </ul>
             <p class="text-text-muted text-[0.76rem]">
-              Then <strong class="text-text">one column per event</strong>, named exactly after an
-              event. Mark invited guests with <span class="text-text">yes</span> /{" "}
-              <span class="text-text">true</span> / <span class="text-text">1</span> /{" "}
-              <span class="text-text">x</span> — blank means not invited.
+              In the guests template, rename the <Col>{GUEST_TEMPLATE_EXAMPLE_EVENTS[0]}</Col> /{" "}
+              <Col>{GUEST_TEMPLATE_EXAMPLE_EVENTS[1]}</Col> columns to your real event names.
             </p>
-            <MiniMatrix />
-          </li>
+          </StepCard>
 
-          <li class="border-border bg-surface/30 flex flex-col gap-3 rounded-sm border p-4">
-            <div class="flex items-center gap-2.5">
-              <StepBadge n={3} />
-              <h3 class="font-display text-text text-[1.05rem] italic">Upload &amp; preview</h3>
-            </div>
+          <StepCard n={2} title="Fill in your details">
+            <p class="text-text-muted text-[0.8rem]">
+              Two sheets: events first, then guests. The key below shows which fields are mandatory.
+            </p>
+            <EventsGuidance />
+            <GuestsGuidance />
+          </StepCard>
+
+          <StepCard n={3} title="Upload & preview">
             <p class="text-text-muted text-[0.8rem]">
               Upload <strong class="text-text">events first</strong>, then guests — each guest's
               event columns are matched to events that already exist, so the events sheet has to go
@@ -510,20 +652,8 @@ function CsvFormatHelp() {
               <span class="text-text">Preview</span> shows a diff of what will change; nothing is
               saved until you <span class="text-text">Apply</span>.
             </p>
-            <p class="text-text-muted text-[0.76rem]">
-              New here? Grab the <span class="text-gold-dim">templates</span> above — correct
-              headers and example rows. Rename the <Col>{GUEST_TEMPLATE_EXAMPLE_EVENTS[0]}</Col> /{" "}
-              <Col>{GUEST_TEMPLATE_EXAMPLE_EVENTS[1]}</Col> columns to your real event names.
-            </p>
-          </li>
+          </StepCard>
         </ol>
-
-        <p class="text-text-muted text-[0.76rem]">
-          <span class="text-text">Good to know:</span> guests sharing a <Col>Family ID</Col> become
-          one household (they claim &amp; RSVP together). <Col>Pinterest URL</Col> /{" "}
-          <Col>Maps URL</Col> need full http(s) links. <Col>Dress Code Palette</Col> looks like{" "}
-          <span class="text-text font-mono">Blush:#f4c2c2|Sage:#b2ac88</span>.
-        </p>
       </div>
     </details>
   );

@@ -93,6 +93,46 @@ describe("ImportPanel — CSV format help", () => {
     expect(summary).toBeTruthy();
     expect(summary?.textContent ?? "").toMatch(/csv format|how to|format/i);
   });
+
+  it("leads with step 1 = New here? / download the template", () => {
+    render(() => <ImportPanel weddingId="wed_a" />);
+    // The first numbered step card heads with the "New here?" download prompt
+    // (reordered from step 3 → step 1). The first <li> in the steps <ol> is the
+    // first step card, led by its numbered badge.
+    const firstStep = document.querySelector("ol > li");
+    expect(firstStep).toBeTruthy();
+    const text = (firstStep?.textContent ?? "").toLowerCase();
+    expect(text).toContain("1");
+    expect(text).toContain("new here?");
+    expect(text).toContain("download");
+  });
+
+  it("renders the mandatory-vs-optional key", () => {
+    render(() => <ImportPanel weddingId="wed_a" />);
+    const body = (document.body.textContent ?? "").toLowerCase();
+    expect(body).toContain("indicates mandatory fields");
+    expect(body).toContain("indicates optional fields");
+  });
+
+  it("links the word IANA to the tz database list, opening in a new tab", () => {
+    render(() => <ImportPanel weddingId="wed_a" />);
+    const link = [...document.querySelectorAll("a")].find(
+      (a) => (a.textContent ?? "").trim() === "IANA",
+    );
+    expect(link).toBeTruthy();
+    expect(link?.getAttribute("href")).toBe(
+      "https://en.wikipedia.org/wiki/List_of_tz_database_time_zones",
+    );
+    expect(link?.getAttribute("target")).toBe("_blank");
+    expect(link?.getAttribute("rel")).toBe("noreferrer");
+  });
+
+  it("documents the events timestamp + dress-code palette formats", () => {
+    render(() => <ImportPanel weddingId="wed_a" />);
+    const body = document.body.textContent ?? "";
+    expect(body).toContain("2026-11-14T15:00:+11:00");
+    expect(body).toContain("DisplayName:#RGB");
+  });
 });
 
 describe("ImportPanel — download templates", () => {
