@@ -115,6 +115,39 @@ Image URL paths are returned relative to the API origin (`/api/invite/<slug>/
 image/<slot>?v=…`); clients (guest island + organiser preview) prepend their API
 base.
 
+### Responsive image variants + the blurred hero backdrop
+
+`GET /api/invite/:slug/image/:slot` optionally transforms the R2 original through
+the Cloudflare Workers **Images** binding (`env.IMAGES`) into a bounded,
+allowlisted **variant** — `cire/api/src/services/invite-image-transform.ts`
+(`IMAGE_VARIANTS`, the single source of truth):
+
+| Variant   | Width  | Blur            | Used for                                   |
+| --------- | ------ | --------------- | ------------------------------------------ |
+| `thumb`   | 320px  | —               | small in-page thumbnails / `srcset`        |
+| `card`    | 800px  | — (the default) | common in-page size (story photo, cards)   |
+| `hero`    | 1600px | —               | a crisp full-res hero, where wanted        |
+| `hero-bg` | 1600px | **server-side** | the **blurred** full-bleed hero backdrop   |
+
+Named variants (not an arbitrary `?w=` / `?blur=`) are deliberate: cardinality is
+exactly four per slot, which keeps the edge cache hot and denies an attacker the
+ability to mint unbounded distinct transform URLs (a cache-poisoning / cost
+amplifier — the Images binding bills per call). An unknown/absent `?variant=`
+collapses to `card`, never a 400.
+
+**Blur is a server constant, never client input.** `VARIANT_BLUR` maps a variant
+to a fixed Gaussian blur radius (`hero-bg` → ~28 in Cloudflare-Images terms; tune
+that one constant for a softer/sharper backdrop). `blurForVariant()` returns it;
+`transformAsset` threads it into `.transform({ width, blur })`. Only `hero-bg` is
+blurred — the sharp `hero`/`card`/`thumb` variants are unaffected, so the blur is
+scoped to the backdrop and can never be swept across values by a malicious client.
+The binding input is always the organiser's own uploaded R2 object.
+
+When the Images binding is absent (local/dev/tests, or no Images product) or a
+transform fails, the route falls back to the raw R2 original — it never 500s on a
+transform miss. Edge-cached via the Worker Cache API, keyed on
+`slug+slot+variant+format(+server version)`.
+
 ### Upload validation
 
 `POST /invite/image/:slot` reads the raw body. Defences: a Content-Length
@@ -136,8 +169,21 @@ and let the fresh `/api/invite/:slug` response override the build-time snapshot:
 - `cire/web/src/components/InviteHeader.tsx` (`client:load`) — the hero + "Our
   Story" sections. Fetches on mount via a SolidJS `createResource` seeded with
   the build-time `initial` prop, and drives the hero **image**, copy, story, and
-  the hero/story **theme** from the live response (the hero background image
-  fades in on load).
+  the hero/story **theme** from the live response.
+  - **Blurred hero backdrop**: the uploaded hero image renders as a soft,
+    full-bleed **backdrop behind the title** by requesting the server-blurred
+    `hero-bg` variant (`variantSrc(url, "hero-bg")`) — the blur radius is a server
+    constant, never sent from the client. The title (in front) stays readable via
+    the radial-gradient scrim, strengthened a touch for the blurred (potentially
+    brighter) backdrop. One width is enough since blur abstracts detail — no
+    responsive `srcset` for the backdrop.
+  - **Visible-or-gone load lifecycle**: the backdrop fades in on `load`, and on a
+    failed load (`onError` — e.g. a 404'd image) it **unmounts** so the base
+    gradient shows through. This replaced an `onLoad`-only opacity gate that had
+    no failure path, which left a permanently-invisible 0-opacity `<img>` pinned
+    over the gradient whenever a load silently failed (the "invisible hero" bug).
+    The lifecycle re-arms when the backdrop URL changes (re-upload via the on-mount
+    revalidation).
 - `cire/web/src/components/InvitePage.tsx` (`client:visible`) — the
   "details"/events section. Also revalidates on mount (`createResource` seeded
   with the build-time `theme` prop, keyed on the `slug` prop threaded from
@@ -186,6 +232,22 @@ patterns as `ImportPanel`. A **Theme** fieldset adds two font `<select>`s (close
 (null ⇒ built-in token). Native colour inputs only emit `#rrggbb`, so the UI can
 never submit a colour the server allow-list would reject. Saved via a separate
 `PUT /invite/theme` ("Save theme" button) independent of the copy save.
+
+**Live theme preview.** A compact, representative mini-invite (one labelled card
+per section: Hero / Our Story / Event Details) sits beside the colour controls and
+updates **instantly** as the organiser changes a colour or font — driven by the
+same picker signals, so they SEE the effect before saving (previously the change
+only showed on the guest URL after a save). It is styled with the **same
+`--invite-*` CSS variables** the guest invite consumes
+(`--invite-accent/surface/heading/body`), via a small **local mirror** of the
+guest mapping: `cire/organiser/src/lib/invite-theme-preview.ts`
+(`previewSectionVars`, `previewFontStack`, `PREVIEW_DEFAULTS`). The mirror exists
+because `cire/web`'s `invite-theme.ts` (and the `--font-display`/`--color-gold`
+tokens) can't be imported across the package boundary cleanly, and the organiser
+must never pull Effect / web internals — it's a plain Solid component with inline
+`style`. Keep the var **names**, the font **keys**, the colour/font **defaults**,
+and the "null ⇒ default token" precedence in lockstep with the guest file so the
+preview stays faithful.
 
 ## Observability
 

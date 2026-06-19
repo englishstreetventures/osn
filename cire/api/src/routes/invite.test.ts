@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { createApp } from "../app";
 import { createDb, seedDb } from "../db/setup";
 import { createAssetsStub } from "../services/invite-assets";
+import { VARIANT_BLUR } from "../services/invite-image-transform";
 import type {
   ImagesBindingLike,
   ImageTransformHandle,
@@ -54,14 +55,18 @@ const TRANSFORMED = new Uint8Array([0xaa, 0xbb, 0xcc]);
  *  transform widths, and can be made to throw to exercise the fallback path. */
 function createImagesStub(opts?: { fail?: boolean }): ImagesBindingLike & {
   widths: (number | undefined)[];
+  blurs: (number | undefined)[];
 } {
   const widths: (number | undefined)[] = [];
+  const blurs: (number | undefined)[] = [];
   return {
     widths,
+    blurs,
     input() {
       const handle: ImageTransformHandle = {
         transform(t) {
           widths.push(t.width);
+          blurs.push(t.blur);
           return handle;
         },
         output(o: { format: OutputFormat }) {
@@ -274,8 +279,24 @@ describe("invite image transforms (Cloudflare Images)", () => {
     expect(img.headers.get("content-type")).toBe("image/avif");
     expect(img.headers.get("vary")).toBe("Accept");
     expect(new Uint8Array(await img.arrayBuffer())).toEqual(TRANSFORMED);
-    // `hero` variant ⇒ 1600px render width.
+    // `hero` variant ⇒ 1600px render width, served SHARP (no blur).
     expect(images.widths).toEqual([1600]);
+    expect(images.blurs).toEqual([undefined]);
+  });
+
+  it("blurs the hero-bg backdrop variant (server-side radius, never client input)", async () => {
+    const images = createImagesStub();
+    const app = buildApp({ images }).app;
+    await uploadHero(app);
+
+    const img = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero-bg`, {
+      headers: { accept: "image/webp,*/*" },
+    });
+    expect(img.status).toBe(200);
+    // hero-bg ⇒ hero width (1600) WITH the server-chosen blur radius applied.
+    expect(images.widths).toEqual([1600]);
+    expect(images.blurs).toEqual([VARIANT_BLUR["hero-bg"]]);
+    expect(images.blurs[0]).toBeGreaterThan(0);
   });
 
   it("negotiates WebP when AVIF is not advertised", async () => {

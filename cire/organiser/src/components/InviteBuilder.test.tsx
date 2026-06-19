@@ -135,6 +135,33 @@ describe("InviteBuilder theme", () => {
     expect(sent.headingFont).toBeNull();
   });
 
+  it("updates the live preview's CSS vars as a colour picker changes (no save needed)", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load only
+
+    const { container } = render(() => <InviteBuilder weddingId="wed_1" />);
+
+    await waitFor(() => screen.getByText("Save theme"));
+
+    // The Hero preview card is labelled; it consumes --invite-accent, driven live
+    // by the Hero accent picker. Before any change it shows the default gold.
+    const heroPreview = () =>
+      container.querySelector('[aria-label="Hero preview"]') as HTMLElement | null;
+    await waitFor(() => expect(heroPreview()).not.toBeNull());
+    expect(heroPreview()!.style.getPropertyValue("--invite-accent")).toBe(
+      "oklch(74.99% 0.0854 82.08)",
+    );
+
+    // Change the Hero accent — the preview updates instantly (no PUT fired).
+    const accents = screen.getAllByLabelText("Accent colour");
+    fireEvent.input(accents[0], { target: { value: "#112233" } });
+
+    await waitFor(() =>
+      expect(heroPreview()!.style.getPropertyValue("--invite-accent")).toBe("#112233"),
+    );
+    // Live preview must not trigger a network save.
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("surfaces a server validation error (bad colour rejected)", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json({ error: "Invalid colour or font" }, 400));

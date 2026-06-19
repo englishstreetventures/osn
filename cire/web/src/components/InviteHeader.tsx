@@ -1,4 +1,4 @@
-import { createResource, createSignal, Show } from "solid-js";
+import { createEffect, createResource, createSignal, Show } from "solid-js";
 
 import { type InviteTheme, sectionThemeVars } from "./invite-theme";
 
@@ -8,8 +8,13 @@ import { type InviteTheme, sectionThemeVars } from "./invite-theme";
  * unknown/absent `?variant=` (and any environment without the Cloudflare Images
  * binding) to the original bytes, so the plain `src` below always works as a
  * progressive fallback even when `srcset` is ignored or transforms are off.
+ *
+ * `hero-bg` is the 1600px hero width rendered with a SERVER-SIDE blur (the radius
+ * is a server constant — `VARIANT_BLUR` in `cire/api`, never sent from here): the
+ * soft full-bleed backdrop the hero title sits over. The blur abstracts detail,
+ * so one width is enough for the backdrop — no responsive `srcset` needed.
  */
-const VARIANT_WIDTHS = { thumb: 320, card: 800, hero: 1600 } as const;
+const VARIANT_WIDTHS = { thumb: 320, card: 800, hero: 1600, "hero-bg": 1600 } as const;
 type VariantName = keyof typeof VARIANT_WIDTHS;
 
 /**
@@ -21,6 +26,16 @@ type VariantName = keyof typeof VARIANT_WIDTHS;
 export function buildSrcSet(baseUrl: string, variants: readonly VariantName[]): string {
   const sep = baseUrl.includes("?") ? "&" : "?";
   return variants.map((v) => `${baseUrl}${sep}variant=${v} ${VARIANT_WIDTHS[v]}w`).join(", ");
+}
+
+/**
+ * Point a base image URL at a single bounded `variant` (no width descriptor — for
+ * a fixed-purpose `src`, like the blurred hero backdrop). The variant name is the
+ * only thing appended; the blur radius lives server-side, keyed off the variant.
+ */
+export function variantSrc(baseUrl: string, variant: VariantName): string {
+  const sep = baseUrl.includes("?") ? "&" : "?";
+  return `${baseUrl}${sep}variant=${variant}`;
 }
 
 // Styles that consume the per-section CSS variables with a built-in-token
@@ -106,7 +121,22 @@ export default function InviteHeader(props: InviteHeaderProps) {
     return url ? `${props.apiUrl}${url}` : null;
   };
 
-  const [heroLoaded, setHeroLoaded] = createSignal(false);
+  // Hero backdrop load lifecycle. The image fades in on `loaded`; on `error` (a
+  // 404'd / unreachable image) we DROP it entirely so the gradient base layer
+  // shows through, instead of leaving a permanently-invisible 0-opacity <img>
+  // pinned over the gradient (the old single-`onLoad` gate had no failure path,
+  // so any failed load left the hero blank). `pending` keeps it at 0 opacity only
+  // until the first load/error event resolves.
+  type HeroState = "pending" | "loaded" | "error";
+  const [heroState, setHeroState] = createSignal<HeroState>("pending");
+
+  // Re-arm the lifecycle whenever the backdrop URL changes (e.g. the on-mount
+  // revalidation swaps in a freshly uploaded image), so a new image isn't stuck
+  // at the previous load's terminal state.
+  createEffect(() => {
+    heroImageUrl();
+    setHeroState("pending");
+  });
 
   return (
     <>
@@ -116,22 +146,34 @@ export default function InviteHeader(props: InviteHeaderProps) {
           class="absolute inset-0 bg-cover bg-center"
           style="background: linear-gradient(160deg, oklch(27.87% 0.0393 149.62) 0%, oklch(19.96% 0.0331 147.34) 40%, oklch(22.70% 0.0275 152.78) 100%);"
         />
-        {/* Custom background image, fading in over the gradient once decoded. */}
+        {/* Custom background image as a BLURRED backdrop (the server-side `hero-bg`
+            variant), fading in over the gradient once decoded. On a failed load we
+            unmount it so the gradient base layer remains — never a blank hero. */}
         <Show when={heroImageUrl()}>
           {(url) => (
-            <img
-              src={url()}
-              srcset={buildSrcSet(url(), ["thumb", "card", "hero"])}
-              // Hero spans the full viewport width at every breakpoint.
-              sizes="100vw"
-              alt=""
-              onLoad={() => setHeroLoaded(true)}
-              class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
-              style={{ opacity: heroLoaded() ? "1" : "0" }}
-            />
+            <Show when={heroState() !== "error"}>
+              <img
+                // Single blurred backdrop variant — blur abstracts detail, so one
+                // 1600px width is enough; no responsive srcset needed. The blur
+                // radius is a server constant keyed off this variant name.
+                src={variantSrc(url(), "hero-bg")}
+                // Hero spans the full viewport width at every breakpoint.
+                sizes="100vw"
+                alt=""
+                onLoad={() => setHeroState("loaded")}
+                onError={() => setHeroState("error")}
+                class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
+                style={{ opacity: heroState() === "loaded" ? "1" : "0" }}
+              />
+            </Show>
           )}
         </Show>
-        <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[radial-gradient(ellipse_at_center,oklch(0%_0_0/0.15)_0%,oklch(0%_0_0/0.45)_100%)] px-[max(1.5rem,env(safe-area-inset-left))] py-[max(1.5rem,env(safe-area-inset-top))]">
+        {/* Scrim over the blurred backdrop so the gold title stays readable over
+            any uploaded photo (a bright blurred image would otherwise wash out the
+            text). Slightly stronger at centre than the original gradient-only hero
+            since a blurred photo can carry more mid-tone luminance than the dark
+            default gradient — keeps WCAG contrast on the title. */}
+        <div class="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-[radial-gradient(ellipse_at_center,oklch(0%_0_0/0.3)_0%,oklch(0%_0_0/0.55)_100%)] px-[max(1.5rem,env(safe-area-inset-left))] py-[max(1.5rem,env(safe-area-inset-top))]">
           <Show
             when={hero()?.title}
             fallback={

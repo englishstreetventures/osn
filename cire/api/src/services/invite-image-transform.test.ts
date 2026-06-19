@@ -4,12 +4,14 @@ import { Effect, Exit } from "effect";
 
 import type { StoredAsset } from "./invite-assets";
 import {
+  blurForVariant,
   buildTransformCacheKey,
   DEFAULT_VARIANT,
   IMAGE_VARIANTS,
   negotiateFormat,
   resolveVariant,
   transformAsset,
+  VARIANT_BLUR,
   type ImagesBindingLike,
   type ImageTransformHandle,
   type OutputFormat,
@@ -28,6 +30,29 @@ describe("resolveVariant", () => {
     expect(resolveVariant("")).toBe(DEFAULT_VARIANT);
     expect(resolveVariant("999")).toBe(DEFAULT_VARIANT);
     expect(resolveVariant("../../etc/passwd")).toBe(DEFAULT_VARIANT);
+  });
+
+  it("accepts the blurred hero-bg variant but keeps the allowlist bounded", () => {
+    // hero-bg is a known variant (so the blurred backdrop resolves), but the set
+    // stays bounded — an attacker still can't mint an arbitrary blur/width.
+    expect(resolveVariant("hero-bg")).toBe("hero-bg");
+    expect(Object.keys(IMAGE_VARIANTS).toSorted()).toEqual(["card", "hero", "hero-bg", "thumb"]);
+    // A near-miss (blur sweep attempt) collapses to the default, not a new entry.
+    expect(resolveVariant("hero-bg-50")).toBe(DEFAULT_VARIANT);
+    expect(resolveVariant("blur")).toBe(DEFAULT_VARIANT);
+  });
+});
+
+describe("blurForVariant", () => {
+  it("blurs ONLY the hero-bg backdrop, with a server-side radius", () => {
+    expect(blurForVariant("hero-bg")).toBe(VARIANT_BLUR["hero-bg"]);
+    expect(blurForVariant("hero-bg")).toBeGreaterThan(0);
+  });
+
+  it("leaves the sharp variants (thumb/card/hero) un-blurred", () => {
+    expect(blurForVariant("thumb")).toBeUndefined();
+    expect(blurForVariant("card")).toBeUndefined();
+    expect(blurForVariant("hero")).toBeUndefined();
   });
 });
 
@@ -132,16 +157,16 @@ const ORIGINAL: StoredAsset = {
 
 /** Stub binding that records the transform args and returns canned bytes. */
 function createImagesStub(opts?: { throwOn?: "input" | "output" }): ImagesBindingLike & {
-  calls: { width?: number; format?: OutputFormat }[];
+  calls: { width?: number; blur?: number; format?: OutputFormat }[];
 } {
-  const calls: { width?: number; format?: OutputFormat }[] = [];
+  const calls: { width?: number; blur?: number; format?: OutputFormat }[] = [];
   return {
     calls,
     input(_stream) {
       if (opts?.throwOn === "input") throw new Error("input boom");
       const handle: ImageTransformHandle = {
         transform(t) {
-          calls.push({ width: t.width });
+          calls.push({ width: t.width, blur: t.blur });
           return handle;
         },
         output(o) {
@@ -160,12 +185,27 @@ function createImagesStub(opts?: { throwOn?: "input" | "output" }): ImagesBindin
 }
 
 describe("transformAsset", () => {
-  it("runs the original through the binding at the variant width + format", async () => {
+  it("runs the original through the binding at the variant width + format (no blur for sharp variants)", async () => {
     const images = createImagesStub();
     const out = await Effect.runPromise(transformAsset(images, ORIGINAL, "hero", "image/avif"));
-    expect(images.calls).toEqual([{ width: IMAGE_VARIANTS.hero, format: "image/avif" }]);
+    expect(images.calls).toEqual([
+      { width: IMAGE_VARIANTS.hero, blur: undefined, format: "image/avif" },
+    ]);
+    // The sharp `hero` variant carries NO blur (it's the crisp full-res hero).
+    expect(images.calls[0]!.blur).toBeUndefined();
     expect(out.contentType).toBe("image/avif");
     expect(new Uint8Array(out.bytes)).toEqual(new Uint8Array([9, 9, 9]));
+  });
+
+  it("applies the server-side blur for the hero-bg backdrop variant (T-B1)", async () => {
+    const images = createImagesStub();
+    await Effect.runPromise(transformAsset(images, ORIGINAL, "hero-bg", "image/webp"));
+    // hero-bg renders at the hero width WITH the server-chosen blur radius.
+    expect(images.calls).toEqual([
+      { width: IMAGE_VARIANTS["hero-bg"], blur: VARIANT_BLUR["hero-bg"], format: "image/webp" },
+    ]);
+    expect(images.calls[0]!.blur).toBe(VARIANT_BLUR["hero-bg"]);
+    expect(images.calls[0]!.blur).toBeGreaterThan(0);
   });
 
   it("fails with ImageTransformError when the binding throws at input", async () => {

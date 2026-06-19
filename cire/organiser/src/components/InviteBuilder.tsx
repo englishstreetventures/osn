@@ -3,6 +3,8 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { previewSectionVars, resolveSectionTheme } from "../lib/invite-theme-preview";
+import type { PreviewTheme } from "../lib/invite-theme-preview";
 
 type ImageSlot = "hero" | "story";
 type ThemeSection = "hero" | "story" | "details";
@@ -370,6 +372,20 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   />
                 </div>
 
+                {/* Live preview — updates instantly as the controls change, so the
+                    organiser SEES each colour/font before saving (the change took
+                    effect only on the guest URL before). Driven by the same picker
+                    signals; styled with the SAME `--invite-*` CSS variables + the
+                    guest var precedence (see lib/invite-theme-preview). */}
+                <ThemePreview
+                  theme={{
+                    headingFont: fontOrDefault(headingFont()),
+                    bodyFont: fontOrDefault(bodyFont()),
+                    accent: accent(),
+                    surface: surface(),
+                  }}
+                />
+
                 <button
                   type="button"
                   onClick={(e) => void saveTheme(e)}
@@ -384,6 +400,71 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         }}
       </Show>
     </section>
+  );
+}
+
+/**
+ * Live theme preview — a compact, representative mini-invite styled with the SAME
+ * `--invite-*` CSS variables the guest invite consumes, driven by the live picker
+ * signals so each colour/font change is visible instantly. One labelled card per
+ * section (Hero / Our Story / Event Details) shows that section's accent (the
+ * heading + eyebrow) over its surface (the card background), in the chosen fonts.
+ * Defaults are substituted (resolveSectionTheme) so an un-picked colour previews
+ * as the real built-in token — an honest before/after. No guest stylesheet, no
+ * Effect/web imports: plain inline `style` with the var names.
+ */
+function ThemePreview(props: { theme: PreviewTheme }) {
+  const sections = [
+    { key: "hero" as const, label: "Hero", eyebrow: "Save the Date", heading: "V & R" },
+    { key: "story" as const, label: "Our Story", eyebrow: "Our Story", heading: "How It Began" },
+    { key: "details" as const, label: "Event Details", eyebrow: "Details", heading: "The Day" },
+  ];
+  return (
+    <div class="flex flex-col gap-2">
+      <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+        Live preview
+      </span>
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <For each={sections}>
+          {(s) => {
+            const r = () => resolveSectionTheme(props.theme, s.key);
+            return (
+              <figure
+                aria-label={`${s.label} preview`}
+                style={{
+                  ...previewSectionVars(props.theme, s.key),
+                  "background-color": "var(--invite-surface)",
+                  "font-family": "var(--invite-body)",
+                }}
+                class="border-border flex min-h-28 flex-col items-center justify-center gap-1.5 overflow-hidden rounded-sm border p-4 text-center"
+              >
+                <span
+                  style={{ color: "var(--invite-accent)", "font-family": "var(--invite-body)" }}
+                  class="text-[0.6rem] tracking-[0.18em] uppercase opacity-80"
+                >
+                  {s.eyebrow}
+                </span>
+                <span
+                  style={{ color: "var(--invite-accent)", "font-family": "var(--invite-heading)" }}
+                  class="text-[1.5rem] leading-none font-light italic"
+                >
+                  {s.heading}
+                </span>
+                {/* Body sample in the body font on the section surface, so the
+                    font + surface contrast is visible too. Mid-tone so it reads on
+                    either a light or dark picked surface. */}
+                <span style={{ color: r().accent }} class="text-[0.62rem] opacity-55">
+                  Sample body copy
+                </span>
+                <figcaption class="font-body text-text-muted mt-1 text-[0.62rem] tracking-[0.08em] uppercase">
+                  {s.label}
+                </figcaption>
+              </figure>
+            );
+          }}
+        </For>
+      </div>
+    </div>
   );
 }
 

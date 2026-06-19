@@ -17,22 +17,46 @@ import type { StoredAsset } from "./invite-assets";
 
 /**
  * Bounded, allowlisted set of named variants → fixed render widths. Named (not
- * an arbitrary `?w=`) on purpose: cardinality is exactly three per slot, which
+ * an arbitrary `?w=`) on purpose: cardinality is exactly four per slot, which
  * keeps the edge cache hot and denies an attacker the ability to mint unbounded
  * distinct transform URLs (a cache-poisoning / cost amplifier). `card` is the
  * default when no/unknown variant is requested — the common in-page size. This
- * union is the single source of truth: it bounds the `?v=` query param, the
+ * union is the single source of truth: it bounds the `?variant=` query param, the
  * `srcset` widths the frontend emits, and the bounded metric/span attribute.
+ *
+ * `hero-bg` is the sharp hero width (1600) rendered with a server-side blur (see
+ * {@link VARIANT_BLUR}) — the soft full-bleed backdrop the hero title sits over.
+ * It exists as its OWN variant (rather than a `?blur=` param) so the blur radius
+ * stays a server constant and never becomes client-controlled: an attacker can't
+ * sweep blur values to mint unbounded transforms, and the sharp `hero` variant
+ * (used wherever a crisp full-res hero is wanted) is unaffected.
  */
 export const IMAGE_VARIANTS = {
   thumb: 320,
   card: 800,
   hero: 1600,
+  "hero-bg": 1600,
 } as const;
 
 export type ImageVariant = keyof typeof IMAGE_VARIANTS;
 
 export const DEFAULT_VARIANT: ImageVariant = "card";
+
+/**
+ * Server-chosen Gaussian blur radius (in Cloudflare Images terms, roughly 0–250)
+ * applied per variant. Only `hero-bg` is blurred — a tasteful "soft backdrop"
+ * radius: enough to abstract the photo behind the title without dissolving it.
+ * Tune here (one constant, server-side only — never from request input). Variants
+ * absent from this map are served sharp. Start ~28; bump toward 35–40 for softer.
+ */
+export const VARIANT_BLUR: Partial<Record<ImageVariant, number>> = {
+  "hero-bg": 28,
+} as const;
+
+/** The blur radius for a variant, or `undefined` when it should render sharp. */
+export function blurForVariant(variant: ImageVariant): number | undefined {
+  return VARIANT_BLUR[variant];
+}
 
 /** Ordered widest→narrowest, for emitting a `srcset` on the frontend. */
 export const VARIANT_NAMES = ["thumb", "card", "hero"] as const;
@@ -128,7 +152,7 @@ export interface ImageOutput {
 }
 
 export interface ImageTransformHandle {
-  transform(t: { width?: number }): ImageTransformHandle;
+  transform(t: { width?: number; blur?: number }): ImageTransformHandle;
   output(o: { format: OutputFormat; quality?: number }): Promise<ImageOutput>;
 }
 
@@ -152,6 +176,10 @@ const OUTPUT_QUALITY = 82;
  * Fails with {@link ImageTransformError} when the binding throws — the caller
  * catches and falls back to the original. A successful transform's content-type
  * comes from the binding (it knows what it actually produced).
+ *
+ * A variant with a {@link VARIANT_BLUR} entry (today only `hero-bg`) also gets a
+ * server-side Gaussian blur — the soft hero backdrop. The blur radius is a server
+ * constant keyed by the bounded variant name, never request input.
  */
 export function transformAsset(
   images: ImagesBindingLike,
@@ -165,9 +193,10 @@ export function transformAsset(
       if (!stream) {
         throw new Error("original asset had no readable body");
       }
+      const blur = blurForVariant(variant);
       const out = await images
         .input(stream)
-        .transform({ width: IMAGE_VARIANTS[variant] })
+        .transform({ width: IMAGE_VARIANTS[variant], ...(blur ? { blur } : {}) })
         .output({ format, quality: OUTPUT_QUALITY });
       const bytes = await out.response().arrayBuffer();
       return { bytes, contentType: out.contentType() };
