@@ -1,8 +1,13 @@
 /**
- * Session cookie helpers. Host-scoped (no `Domain=`) so the cookie sticks to
- * whichever origin issues it — fine for same-origin dev and the eventual
- * apex-only production deployment. When a wildcard subdomain layout lands we'll
- * need to revisit and add `Domain=`.
+ * Session cookie helpers. **Host-scoped by design (no `Domain=`).** The cookie
+ * is set by cire-api (`api.cireweddings.com`) on `/api/claim` and sent back
+ * ONLY to cire-api on `/api/rsvp` + the account-link routes — it is same-origin
+ * to the API and HttpOnly (the guest site never reads it). Host-scoping is the
+ * correct, tighter choice: a broad `Domain=.cireweddings.com` would needlessly
+ * widen the cookie to every subdomain (`id.`, the Pages hosts, future ones)
+ * with no consumer that needs it. Audited `feat/cire-assets-reconcile` — keep
+ * host-scoped; do NOT add `Domain=` unless a subdomain genuinely needs to read
+ * this cookie (none does today). See `cire/wiki/todo/api.md`.
  */
 
 const COOKIE_NAME = "cire_session";

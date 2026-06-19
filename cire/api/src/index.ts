@@ -6,6 +6,7 @@ import { Effect, Layer } from "effect";
 import { createApp } from "./app";
 import { createD1Db, DbService } from "./db";
 import { setExecutionCtx } from "./lib/execution-ctx";
+import { assetReconcileService } from "./services/asset-reconcile";
 import {
   createAccountResolverFromEnv,
   createHandleResolverFromEnv,
@@ -186,7 +187,7 @@ const handler: ExportedHandler<Env> = {
   },
 
   // Cron-triggered daily maintenance (C-M2/C-M15 + retention). Configured by the
-  // single `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Two
+  // single `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Three
   // independent sweeps share the cron:
   //
   //  1. Expired-session sweep — guest logins leave session rows that are never
@@ -196,7 +197,12 @@ const handler: ExportedHandler<Env> = {
   //  2. Guest-data retention sweep — enforces the published privacy promise
   //     (cire/web privacy.astro): guest PII (guests/families/rsvps incl. dietary
   //     + consent, plus imports bookkeeping) is deleted 1 year after a wedding's
-  //     final event.
+  //     final event. Reaps the `cire-sheets` CSVs it orphans (env.SHEETS).
+  //  3. `cire-assets` orphan reconciliation (IB-S-L2) — best-effort deletes
+  //     invite-image objects under `assets/` referenced by NO live DB row and
+  //     older than a 7-day grace window. Heavily guarded: aborts and deletes
+  //     NOTHING if the referenced-key read fails or comes back empty against a
+  //     non-empty bucket, and caps deletions per run. See asset-reconcile.ts.
   //
   // Each is its own `waitUntil` + `catchAll`, so a failure in one never aborts
   // the other and the isolate stays alive until each delete settles.
@@ -228,6 +234,23 @@ const handler: ExportedHandler<Env> = {
         retentionService.sweepExpiredGuestData(new Date(), { sheets: env.SHEETS }).pipe(
           Effect.catchAll((err) =>
             Effect.logError("scheduled guest-data retention sweep failed", { reason: err.reason }),
+          ),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+
+    // IB-S-L2: reconcile orphaned `cire-assets` invite images (re-upload/remove
+    // best-effort-delete failures leave objects no DB row references). Pass the
+    // ASSETS binding; absent ⇒ the reconcile is a no-op. The service refuses to
+    // delete anything unless it can positively confirm the live set (abort on a
+    // failed/empty referenced-key read) and only reaps objects past a 7-day
+    // grace window — so a freshly uploaded image whose row write lags is safe.
+    ctx.waitUntil(
+      Effect.runPromise(
+        assetReconcileService.reconcileOrphans(env.ASSETS).pipe(
+          Effect.catchAll((err) =>
+            Effect.logError("scheduled cire-assets reconciliation failed", { reason: err.reason }),
           ),
           Effect.provide(dbLayer),
         ),

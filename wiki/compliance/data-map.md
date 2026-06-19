@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-06-17
+last-reviewed: 2026-06-20
 ---
 
 # Data Map
@@ -114,6 +114,7 @@ organiser-initiated wedding administration.
 | `rsvps.dietary` (FREE TEXT) | Cater for dietary needs | **Special-category — Art. 9(2)(a) explicit consent.** Free text reveals religion (halal/kosher) + health (allergies/coeliac). Consent affordance + consent-record capture at the RSVP form **IMPLEMENTED — C-H2 (cire dietary), PR #123**: unticked opt-in checkbox, API 422s any non-empty dietary without consent, server-stamped consent record. Underlying Art. 6 basis: Art. 6(1)(a) consent. | Tied to wedding lifecycle; **1-year sweep now enforced (PR #132)** — see [[retention]]. R2 follow-up still open (C-H1) | `@cire/api` + wedding owner | [[cire-auth]], [[dpia/cire-guest-data]] |
 | `rsvps.dietary_consent_at`, `rsvps.dietary_consent_version` (consent record) | Evidence the Art. 9(2)(a) explicit consent for the dietary field (who/when/which copy version) | Art. 9(2)(a) — the consent record itself; necessary for accountability (Art. 5(2)). Server-stamped (`dietary_consent_version` default `"2026-06-17"`); migration `0012_dietary_consent.sql` | Cascades with the parent `rsvps` row (1-year sweep, PR #132) | `@cire/api` + wedding owner | [[dpia/cire-guest-data]] |
 | `sessions` (SHA-256 hash of `cire_session` token) | Guest session validation after claim; gates `/api/rsvp` | Art. 6(1)(b) — contract | 30-day cookie TTL; **expired rows now swept daily (PR #127 scheduled handler + `session.ts` sweep, `cire.session.swept` metric)** | `@cire/api` only | [[cire-auth]] |
+| `guest_account_links.osn_account_id`, `osn_profile_id` (+ `guest_id`/`family_id`/`wedding_id`) | **Cross-database linkage** — binds a cire household invitee (`guests` row) to a real OSN/Pulse account so the invitation can be surfaced inside Pulse and the linked invitee can (with their household) see family members' RSVPs. `osn_account_id` is the OSN *account* principal resolved server-to-server over ARC from the access token's profile id; `osn_profile_id` records which profile performed the link (audit only). Opt-in + additive — the family claim-code session stays the primary guest credential. | Art. 6(1)(a) — **consent / opt-in** (the guest explicitly links their own account via the dual-credential `POST /api/account/link`, which requires BOTH a valid guest session AND an OSN access token). | Tied to wedding lifecycle — **`ON DELETE cascade`** from `guests`/`families`/`weddings` covers guest/family/wedding erasure (incl. the 1-year guest-data sweep, which deletes the parent `guests` row). **`osn_account_id`/`osn_profile_id` are opaque cross-DB references with NO foreign key** (cire's D1 ≠ osn's D1), so an **OSN-side account deletion does NOT fan out to cire** — the link row is orphaned (holds a stale `osn_account_id` that resolves to a deleted account). See the orphan note below + [[dsar]] (C-M1). | `@cire/api` + the wedding owner; the linked `osn_account_id` is shared with `@pulse/api` (planned invitation-surfacing) | [[cire-auth]] |
 | `imports` table rows (organiser spreadsheet import metadata + parsed guest/event data) | Bulk guest-list onboarding | Art. 6(1)(f) — wedding administration | **Retained indefinitely, including across reverts — no purge (C-H1)** | `@cire/api` + wedding owner | [[cire]] |
 | R2 `imports/<id>/{events,guests}.csv` (raw organiser uploads) | Source-of-truth for re-import / audit of an import | Art. 6(1)(f) — wedding administration | **Retained indefinitely, including across reverts — no lifecycle/TTL (C-H1)** | `@cire/api` (R2 bucket `cire-sheets`) + wedding owner | [[cire]] |
 | `wedding_invite_customisations` text (hero/story copy, couple names) | Organiser-authored invite presentation copy (invite builder) | Art. 6(1)(f) — wedding administration (organiser-controlled) | Tied to wedding lifecycle — D1 `ON DELETE cascade` from `weddings` (C-H1) | `@cire/api` + wedding owner + **public guest site** (rendered on the invite) | [[cire]] |
@@ -125,6 +126,20 @@ is the processor. The organiser is themselves an OSN data subject (their
 `owner_osn_profile_id` ties the wedding to an OSN account — see
 [[identity-model]]). DSAR reachability + the cross-DB deletion orphan are
 covered in [[dsar]] (C-M1).
+
+**Account-link orphan note (AL-C-L1).** `guest_account_links` is the only
+cire→OSN *personal-data* edge that points at an OSN principal. It cascades
+cleanly on the **cire** side (deleting the guest / family / wedding, or the
+1-year guest-data sweep, removes the link row via `ON DELETE cascade`). It does
+**not** cascade on the **OSN** side: `osn_account_id` / `osn_profile_id` are
+opaque strings with no foreign key (separate databases), so deleting the OSN
+account leaves the cire link row in place holding a now-stale account id. The
+accepted behaviour today is **orphan-tolerant** — a stale link surfaces no
+OSN-side personal data (cire stores only the opaque id, never name/email), and
+the next ARC resolve of a deleted account simply fails closed (the invitation
+just stops surfacing in Pulse). A reverse ARC fan-out from OSN account-deletion
+into cire is **deferred** (cire exposes no inbound ARC purge route today). Folds
+into [[dsar]] (C-M1).
 
 **Age-gate note (C-L1).** The guest flow is **family/household-mediated** —
 claim codes are issued to households by the organiser, and the guest site is
