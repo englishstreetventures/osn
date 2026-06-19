@@ -6,6 +6,7 @@ import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
 import { previewSectionVars, resolveSectionTheme } from "../lib/invite-theme-preview";
 import type { PreviewTheme } from "../lib/invite-theme-preview";
+import ColorPicker from "./ColorPicker";
 
 type ImageSlot = "hero" | "story";
 type ThemeSection = "hero" | "story" | "details";
@@ -747,47 +748,6 @@ function SectionColors(props: {
       <div class="flex flex-wrap gap-5">
         <ColorPicker label="Accent" value={props.accent} onChange={props.onAccent} />
         <ColorPicker label="Background" value={props.surface} onChange={props.onSurface} />
-      </div>
-    </div>
-  );
-}
-
-/**
- * A native colour input that round-trips to a nullable hex value. `null` ⇒ the
- * built-in default (the swatch shows a neutral state + a "Use default" action).
- * Native `<input type="color">` only ever emits a `#rrggbb`, so the value always
- * passes the server-side colour allow-list — the UI can't submit an invalid hue.
- */
-function ColorPicker(props: {
-  label: string;
-  value: string | null;
-  onChange: (v: string | null) => void;
-}) {
-  return (
-    <div class="flex flex-col items-start gap-1.5">
-      <span class="font-body text-text-muted text-[0.68rem] tracking-[0.08em] uppercase">
-        {props.label}
-      </span>
-      <div class="flex items-center gap-2">
-        <input
-          type="color"
-          aria-label={`${props.label} colour`}
-          value={props.value ?? "#d4af37"}
-          onInput={(e) => props.onChange(e.currentTarget.value)}
-          class="border-border h-9 w-12 cursor-pointer rounded-sm border bg-transparent p-0.5"
-        />
-        <Show
-          when={props.value}
-          fallback={<span class="font-body text-text-muted text-[0.72rem] italic">Default</span>}
-        >
-          <button
-            type="button"
-            onClick={() => props.onChange(null)}
-            class="font-body text-text-muted text-[0.72rem] underline-offset-4 hover:underline"
-          >
-            Use default
-          </button>
-        </Show>
       </div>
     </div>
   );

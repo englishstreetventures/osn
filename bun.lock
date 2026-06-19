@@ -51,6 +51,7 @@
       "name": "@cire/organiser",
       "dependencies": {
         "@astrojs/solid-js": "^6.0.1",
+        "@kobalte/core": "^0.13.11",
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
         "@simplewebauthn/browser": "^13.3.0",

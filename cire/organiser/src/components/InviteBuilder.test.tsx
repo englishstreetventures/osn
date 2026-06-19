@@ -86,9 +86,12 @@ describe("InviteBuilder theme", () => {
     await waitFor(() => screen.getByText("Save theme"));
 
     fireEvent.change(screen.getByLabelText("Heading font"), { target: { value: "cormorant" } });
-    // Three "Accent colour" inputs (one per section); the first is Hero.
+    // Three "Accent colour" swatch triggers (one per section); the first is Hero.
+    // Open its popover and type a full hex into the labelled "Hex" field.
     const accents = screen.getAllByLabelText("Accent colour");
-    fireEvent.input(accents[0], { target: { value: "#112233" } });
+    fireEvent.click(accents[0]);
+    const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
+    fireEvent.input(hex, { target: { value: "#112233" } });
 
     fireEvent.click(screen.getByText("Save theme"));
 
@@ -217,9 +220,12 @@ describe("InviteBuilder theme", () => {
       "oklch(74.99% 0.0854 82.08)",
     );
 
-    // Change the Hero accent — the preview updates instantly (no PUT fired).
+    // Change the Hero accent via the popover hex field — the preview updates
+    // instantly (no PUT fired).
     const accents = screen.getAllByLabelText("Accent colour");
-    fireEvent.input(accents[0], { target: { value: "#112233" } });
+    fireEvent.click(accents[0]);
+    const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
+    fireEvent.input(hex, { target: { value: "#112233" } });
 
     await waitFor(() =>
       expect(heroPreview()!.style.getPropertyValue("--invite-accent")).toBe("#112233"),
