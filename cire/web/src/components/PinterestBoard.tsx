@@ -414,26 +414,12 @@ export function PinterestBoard(props: PinterestBoardProps) {
         </a>
       </Show>
 
-      {/* DESKTOP PATH (hover + fine pointer): the always-visible fallback link
-          plus the consent-gated rich embed. */}
+      {/* DESKTOP PATH (hover + fine pointer): the consent-gated rich embed with
+          the always-visible fallback link rendered BELOW it. */}
       <Show when={!isTouch}>
-        {/* The outbound fallback link is ALWAYS present whenever the URL is a safe */}
-        {/* Pinterest link — even if the embed is blocked, slow, or the URL isn't an */}
-        {/* embeddable board shape — so every guest can always reach the moodboard. */}
-        <div class="mt-2 flex justify-center">
-          <a
-            href={props.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="border-gold font-body text-gold hover:bg-gold hover:text-bg inline-block rounded-sm border px-5 py-2.5 text-[0.78rem] tracking-[0.12em] uppercase transition-colors duration-200"
-          >
-            View moodboard on Pinterest ↗
-          </a>
-        </div>
-
         {/* The consent prompt + embed anchor only exist when the URL is an */}
         {/* embeddable board shape. A safe-but-not-embeddable link (pin.it short */}
-        {/* link, bare pin/profile) shows the fallback link above and nothing else. */}
+        {/* link, bare pin/profile) shows only the fallback link below and nothing else. */}
         <Show when={embeddable()}>
           <Show
             when={consentGranted() && !embedFailed()}
@@ -507,6 +493,24 @@ export function PinterestBoard(props: PinterestBoardProps) {
             </div>
           </Show>
         </Show>
+
+        {/* The outbound fallback link is ALWAYS present whenever the URL is a safe */}
+        {/* Pinterest link — even if the embed is blocked, slow, or the URL isn't an */}
+        {/* embeddable board shape — so every guest can always reach the moodboard. */}
+        {/* It renders BELOW the embed area: when the board embeds the link is a */}
+        {/* secondary "open on Pinterest" affordance under it; when the embed is */}
+        {/* absent (no consent, blocked, or non-embeddable URL) it is the primary */}
+        {/* way to reach the moodboard. */}
+        <div class="mt-2 flex justify-center">
+          <a
+            href={props.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="border-gold font-body text-gold hover:bg-gold hover:text-bg inline-block rounded-sm border px-5 py-2.5 text-[0.78rem] tracking-[0.12em] uppercase transition-colors duration-200"
+          >
+            View moodboard on Pinterest ↗
+          </a>
+        </div>
       </Show>
     </Show>
   );

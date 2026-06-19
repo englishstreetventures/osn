@@ -23,6 +23,7 @@ import type {
 } from "../schemas/import";
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
+import { resolvePinUrl } from "./pinterest-resolve";
 
 // ── Tagged errors ─────────────────────────────────────────────────────────────
 
@@ -375,6 +376,33 @@ export function applyImport(
     const db = yield* DbService;
     const now = new Date();
 
+    // Resolve every created/updated event's pinterest URL ONCE, here at apply
+    // time. `resolvePinUrl` only makes an outbound fetch for `pin.it` short
+    // links (SSRF allowlist) and falls back to the original URL on any
+    // failure/timeout/non-board result, so this never blocks the import. The
+    // canonical `pinterest.com/<user>/<board>/` it yields is what the guest
+    // board widget needs to embed (a `pin.it` short link can't be embedded).
+    // Done per-event but concurrently-bounded so one slow link can't stall the
+    // whole import. Built into a (id → resolved-url) map keyed off the event id
+    // so the write-set builder below stays a pure read.
+    const resolvedPinByEventId = new Map<string, string | null>();
+    yield* Effect.forEach(
+      [...plan.eventCreates, ...plan.eventUpdates],
+      (e) =>
+        Effect.gen(function* () {
+          const original = e.event.pinterestUrl;
+          if (!original) {
+            resolvedPinByEventId.set(e.id, original);
+            return;
+          }
+          const resolved = yield* Effect.promise(() => resolvePinUrl(original));
+          resolvedPinByEventId.set(e.id, resolved);
+        }),
+      { concurrency: 4 },
+    );
+    const pinFor = (eventId: string, fallback: string | null): string | null =>
+      resolvedPinByEventId.has(eventId) ? (resolvedPinByEventId.get(eventId) ?? null) : fallback;
+
     // Build the write set in FK-dependency order, then commit it as one atomic
     // D1 batch (prod) or a sequential bun:sqlite run (tests) — see commitWriteSet.
     const statements: BatchItem<"sqlite">[] = [];
@@ -405,7 +433,7 @@ export function applyImport(
           address: ec.event.address,
           dressCodeDescription: ec.event.dressCodeDescription,
           dressCodePalette: JSON.stringify(ec.event.dressCodePalette),
-          pinterestUrl: ec.event.pinterestUrl,
+          pinterestUrl: pinFor(ec.id, ec.event.pinterestUrl),
           mapsUrl: ec.event.mapsUrl,
           sortOrder: ec.event.sortOrder,
         }),
@@ -427,7 +455,7 @@ export function applyImport(
             address: eu.event.address,
             dressCodeDescription: eu.event.dressCodeDescription,
             dressCodePalette: JSON.stringify(eu.event.dressCodePalette),
-            pinterestUrl: eu.event.pinterestUrl,
+            pinterestUrl: pinFor(eu.id, eu.event.pinterestUrl),
             mapsUrl: eu.event.mapsUrl,
             sortOrder: eu.event.sortOrder,
           })

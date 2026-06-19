@@ -7,6 +7,15 @@ related:
 last-reviewed: 2026-06-19
 ---
 
+> [!note] Pinterest embed fix (`feat/cire-pinterest-resolve`)
+> The recurring "Pinterest board doesn't load" is fixed at the **source**, not in
+> the embed: `pin.it` short links are resolved to their canonical
+> `pinterest.com/<user>/<board>/` URL **server-side at CSV import apply time** and
+> persisted into `events.pinterest_url` (see `[[api]]`), so the guest board widget
+> finally has the full URL it needs. The desktop fallback link in
+> `PinterestBoard.tsx` was also moved **below** the embed. **Ops:** existing
+> already-imported events keep their `pin.it` URLs until re-imported.
+
 > [!note] Mobile-responsive revision (`feat/invite-mobile-responsive`)
 > A pass over the **guest invite** at 320/375/390/414 + 768px to remove
 > mobile-layout rough edges (no redesign — design + theme tokens untouched):
@@ -53,6 +62,7 @@ Frontend feature work. Tick items as PRs land; add new entries when scope is dis
 - [x] **Live invite customisation — hero + theme reflected at runtime (no rebuild)** — the static site bakes the build-time `/api/invite/:slug` snapshot, but an organiser's later hero/theme change would never reach guests until a rebuild. Fixed by letting both guest islands revalidate on mount and override the snapshot: `InviteHeader.tsx` already drove hero image + copy + hero/story theme from its `createResource`; `InvitePage.tsx` now also revalidates (`createResource` seeded with the build-time `theme` prop, keyed on a new `slug` prop threaded from `index.astro`) so the details/events theme is live too. Non-OK/failed revalidation keeps the painted snapshot; no `slug` ⇒ build-time prop as-is. Build-time snapshot remains the fast-first-paint / no-JS placeholder. See `[[invite-builder]]`.
 - [x] **Invite-builder guest rendering** — static `Hero.astro` / `OurStory.astro` replaced by a `client:load` SolidJS island `InviteHeader.tsx` that fetches `GET /api/invite/:slug` and applies the organiser's image + copy overrides on top of the original (uncustomised ⇒ renders exactly as before). `PUBLIC_WEDDING_SLUG` env selects the wedding. This subsumes the three placeholders below (hero photo / monogram / Our Story copy) — they're now organiser-editable rather than hard-coded. See `[[invite-builder]]`.
 
+- [x] **Pinterest moodboard actually embeds + fallback link moved below the embed** (`feat/cire-pinterest-resolve`) — fixes the recurring "Pinterest board embed doesn't load": the guest board widget (`pinit_main.js`) can only render a full `pinterest.com/<user>/<board>` URL, never a `pin.it` short link, but real organiser data is almost always pasted as `pin.it/...`, so `isEmbeddablePinterestBoardUrl()` correctly rejected it and only the link-out ever showed. Fixed at the **source** — see `[[api]]` for the import-time `pin.it` resolution that now persists a canonical board URL into `events.pinterest_url`. On the frontend (`PinterestBoard.tsx`), the desktop "View moodboard on Pinterest ↗" fallback link now renders **below** the embed/consent block instead of above it (it's a secondary "open on Pinterest" affordance when the board embeds, and the primary reach when the embed is absent/blocked/non-embeddable). Consent gate, success-detection MutationObserver, connection-scaled failure cutoff, and the mobile link-out card are all unchanged; the desktop link-order assertion in `PinterestBoard.test.tsx` still holds (presence-based, not order-based). **Ops:** resolution happens at import time, so already-imported LIVE events keep their original `pin.it` URLs until re-imported — see the deploy note in `[[api]]`.
 - [ ] **"Link my Pulse account" affordance (account-linking frontend)** — backend shipped (`/api/account/link`, see `[[api]]` + root `[[wiki/systems/cire-auth]]`). The guest UI must: obtain an OSN access token via `@osn/client` (a Pulse/OSN sign-in), let the invitee pick which household member they are, then `POST /api/account/link` with `{ guestId }` + the `Authorization: Bearer <token>` and the `cire_session` cookie. Handle 401 (token expired → `authFetch` refresh), 409 (already linked), 503 (linking disabled). Add a per-member linked/unlinked indicator (`GET /api/account/link`) and an unlink control (`DELETE /api/account/link/:guestId`).
 - [x] Per-event metadata in `EventSummary` shape (calendar / dress-code / address / Pinterest / Maps fields landed in PR-A)
 - [x] Rework `OrganiserView` to consume the new `OrganiserGuestRow` shape — moved to `cire/organiser/src/components/GuestTable.tsx`
