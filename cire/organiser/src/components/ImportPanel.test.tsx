@@ -80,11 +80,56 @@ describe("ImportPanel — CSV format help", () => {
     expect(body).toMatch(/events.*before the guests sheet|before the guests/);
   });
 
-  it("documents the truthy invite cell values", () => {
+  it("documents the truthy invite cell values once the Guests sheet + tips are open", () => {
     render(() => <ImportPanel weddingId="wed_a" />);
+    // The truthy-cell tokens live in the Guests sheet's "Formatting tips" aside,
+    // which is behind the (initially inactive) Guests tab + a collapsed disclosure.
+    // Reveal it the way an organiser would: switch to Guests, then open the tips.
+    fireEvent.click(screen.getByRole("tab", { name: /guests sheet/i }));
+    const tips = [...document.querySelectorAll("details > summary")].find((s) =>
+      /formatting tips/i.test(s.textContent ?? ""),
+    );
+    expect(tips).toBeTruthy();
+    fireEvent.click(tips!);
     const body = document.body.textContent ?? "";
     expect(body).toMatch(/\btrue\b/);
     expect(body).toMatch(/\byes\b/);
+  });
+
+  it("toggles step 2 between the Events and Guests sheets (one at a time)", () => {
+    render(() => <ImportPanel weddingId="wed_a" />);
+    const eventsTab = screen.getByRole("tab", { name: /events sheet/i });
+    const guestsTab = screen.getByRole("tab", { name: /guests sheet/i });
+
+    // Events is selected first; its guidance ("One row per event.") is on screen
+    // and the Guests guidance ("One row per guest.") is not yet rendered.
+    expect(eventsTab.getAttribute("aria-selected")).toBe("true");
+    expect(guestsTab.getAttribute("aria-selected")).toBe("false");
+    let body = document.body.textContent ?? "";
+    expect(body).toContain("One row per event.");
+    expect(body).not.toContain("One row per guest.");
+
+    // Switching to Guests swaps the visible guidance — only one sheet shows.
+    fireEvent.click(guestsTab);
+    expect(guestsTab.getAttribute("aria-selected")).toBe("true");
+    expect(eventsTab.getAttribute("aria-selected")).toBe("false");
+    body = document.body.textContent ?? "";
+    expect(body).toContain("One row per guest.");
+    expect(body).not.toContain("One row per event.");
+  });
+
+  it("renders the mandatory-vs-optional key exactly once (shared, not per sheet)", () => {
+    render(() => <ImportPanel weddingId="wed_a" />);
+    const keys = [...document.querySelectorAll("*")].filter(
+      (el) => el.children.length === 0 && /^Key$/.test((el.textContent ?? "").trim()),
+    );
+    expect(keys.length).toBe(1);
+    // And it survives a sheet switch — it lives above the toggle, not inside a tab.
+    fireEvent.click(screen.getByRole("tab", { name: /guests sheet/i }));
+    const stillThere = [...document.querySelectorAll("*")].filter(
+      (el) => el.children.length === 0 && /^Key$/.test((el.textContent ?? "").trim()),
+    );
+    expect(stillThere.length).toBe(1);
   });
 
   it("exposes the format help as a native disclosure (details/summary)", () => {

@@ -1,6 +1,6 @@
 import { useAuth } from "@osn/client/solid";
 import type { JSX } from "solid-js";
-import { createSignal, Show, For } from "solid-js";
+import { createSignal, createUniqueId, Show, For } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { downloadCsv } from "../lib/download";
@@ -377,37 +377,45 @@ function Col(props: { children: string; required?: boolean }) {
 
 /**
  * The mandatory-vs-optional key — a small labelled legend tying the gold/muted
- * colour of the column chips to "mandatory" vs "optional". Rendered at the top of
- * each "Good to know!" panel so the colour coding on the chips above always has a
- * nearby, explicit explanation.
+ * colour of the column chips to "mandatory" vs "optional". Rendered **once** at
+ * the top of step 2 (above the sheet toggle) so both sheets share one explanation
+ * instead of repeating it per sheet.
  */
 function KeyLegend() {
   return (
-    <div class="flex flex-col gap-1.5">
-      <p class="font-body text-gold text-[0.66rem] tracking-[0.18em] uppercase">Key</p>
-      <div class="text-text-muted flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[0.78rem]">
-        <span class="flex items-center gap-1.5">
-          <Col required>Aa</Col> indicates mandatory fields
-        </span>
-        <span class="flex items-center gap-1.5">
-          <Col>Aa</Col> indicates optional fields
-        </span>
-      </div>
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[0.78rem]">
+      <span class="font-body text-gold text-[0.66rem] tracking-[0.18em] uppercase">Key</span>
+      <span class="text-text-muted flex items-center gap-1.5">
+        <Col required>Aa</Col> indicates mandatory fields
+      </span>
+      <span class="text-text-muted flex items-center gap-1.5">
+        <Col>Aa</Col> indicates optional fields
+      </span>
     </div>
   );
 }
 
 /**
- * A clearly-styled "Good to know!" aside — a gold-accented panel that collects the
- * per-sheet format rules (the key plus the field-format guidance). Used under both
- * the Events and Guests guidance so the two share one scannable visual language.
+ * A collapsible "Formatting tips" aside — the deep, per-field guidance (timestamp
+ * shape, IANA timezone, palette syntax, attendance tokens) lives behind a native
+ * <details>/<summary> so the default sheet view stays short and scannable and the
+ * nitty-gritty is one click away. Gold-accented to match the rest of the panel,
+ * keyboard- and screen-reader-accessible with no JS.
  */
-function GoodToKnow(props: { children: JSX.Element }) {
+function FormattingTips(props: { children: JSX.Element }) {
   return (
-    <div class="border-gold/25 bg-gold/[0.06] flex flex-col gap-3 rounded-sm border p-3.5">
-      <p class="font-display text-gold-dim text-[1rem] italic">Good to know!</p>
-      {props.children}
-    </div>
+    <details class="border-gold/25 bg-gold/[0.06] group/tips rounded-sm border">
+      <summary class="font-display text-gold-dim flex cursor-pointer list-none items-center gap-2 p-3 text-[0.95rem] italic select-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
+        <span
+          class="text-gold inline-block not-italic transition-transform group-open/tips:rotate-90"
+          aria-hidden
+        >
+          ›
+        </span>
+        Formatting tips
+      </summary>
+      <div class="flex flex-col gap-3 px-3.5 pt-1 pb-3.5">{props.children}</div>
+    </details>
   );
 }
 
@@ -476,7 +484,6 @@ function StepCard(props: { n: number; title: string; children: JSX.Element }) {
 function EventsGuidance() {
   return (
     <div class="flex flex-col gap-3">
-      <p class="font-body text-gold text-[0.66rem] tracking-[0.18em] uppercase">Events sheet</p>
       <p class="text-text-muted text-[0.8rem]">One row per event.</p>
       <ul class="flex flex-wrap gap-1.5">
         <For each={EVENT_REQUIRED_HEADERS}>
@@ -495,22 +502,21 @@ function EventsGuidance() {
         </For>
       </ul>
 
-      <GoodToKnow>
-        <KeyLegend />
+      <FormattingTips>
         <dl class="flex flex-col gap-2.5 text-[0.78rem]">
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">Timestamps</dt>
             <dd class="text-text-muted">
-              Provide timestamps as <span class="text-text font-mono">YYYY-MM-DDTHH:MM:+GMT</span>{" "}
-              for <Col required>Start</Col> and <Col required>End</Col>. For example,{" "}
-              <span class="text-text font-mono">2026-11-14T15:00:+11:00</span> is 3 pm on 14
-              November 2026 in AEST (GMT+11).
+              <Col required>Start</Col> and <Col required>End</Col> as{" "}
+              <span class="text-text font-mono">YYYY-MM-DDTHH:MM:+GMT</span> — e.g.{" "}
+              <span class="text-text font-mono">2026-11-14T15:00:+11:00</span> is 3 pm on 14 Nov
+              2026 in AEST (GMT+11).
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">Timezone</dt>
             <dd class="text-text-muted">
-              Provide an{" "}
+              An{" "}
               <a
                 href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
                 target="_blank"
@@ -519,27 +525,27 @@ function EventsGuidance() {
               >
                 IANA
               </a>{" "}
-              timezone (e.g. <span class="text-text font-mono">Australia/Sydney</span>).
+              name, e.g. <span class="text-text font-mono">Australia/Sydney</span>.
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">URLs</dt>
             <dd class="text-text-muted">
-              <Col>Pinterest URL</Col> and <Col>Maps URL</Col> should be full links (e.g.{" "}
+              <Col>Pinterest URL</Col> and <Col>Maps URL</Col> as full links (e.g.{" "}
               <span class="text-text font-mono">https://www.pinterest.com/...</span>).
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">Dress code palette</dt>
             <dd class="text-text-muted">
-              <Col>Dress Code Palette</Col> colours should be listed as{" "}
-              <span class="text-text font-mono">DisplayName:#RGB</span>, for example{" "}
-              <span class="text-text font-mono">Blush:#f4c2c2</span>. Separate multiple swatches
-              with <span class="text-text font-mono">|</span>.
+              <Col>Dress Code Palette</Col> as{" "}
+              <span class="text-text font-mono">DisplayName:#RGB</span>, e.g.{" "}
+              <span class="text-text font-mono">Blush:#f4c2c2</span>. Separate swatches with{" "}
+              <span class="text-text font-mono">|</span>.
             </dd>
           </div>
         </dl>
-      </GoodToKnow>
+      </FormattingTips>
     </div>
   );
 }
@@ -554,7 +560,6 @@ function EventsGuidance() {
 function GuestsGuidance() {
   return (
     <div class="flex flex-col gap-3">
-      <p class="font-body text-gold text-[0.66rem] tracking-[0.18em] uppercase">Guests sheet</p>
       <p class="text-text-muted text-[0.8rem]">One row per guest.</p>
       <ul class="flex flex-wrap gap-1.5">
         <For each={GUEST_TEMPLATE_FIXED_HEADERS}>
@@ -570,34 +575,106 @@ function GuestsGuidance() {
       </p>
       <MiniMatrix />
 
-      <GoodToKnow>
-        <KeyLegend />
+      <FormattingTips>
         <dl class="flex flex-col gap-2.5 text-[0.78rem]">
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">One row per guest</dt>
-            <dd class="text-text-muted">
-              Give every guest their own row — don't combine a couple onto one line.
-            </dd>
+            <dd class="text-text-muted">Don't combine a couple onto one line.</dd>
           </div>
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">Group a household</dt>
             <dd class="text-text-muted">
-              Repeat the same <Col required>Family Name</Col> on each guest's row to group them into
-              one household — they claim &amp; RSVP together.
+              Repeat the same <Col required>Family Name</Col> to group guests — they claim &amp;
+              RSVP together.
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
             <dt class="text-text">Event attendance</dt>
             <dd class="text-text-muted">
-              Mark an invited guest's event column with <span class="text-text font-mono">yes</span>{" "}
-              (or <span class="text-text font-mono">true</span> /{" "}
+              Mark an invited guest's event column <span class="text-text font-mono">yes</span> (or{" "}
+              <span class="text-text font-mono">true</span> /{" "}
               <span class="text-text font-mono">1</span> /{" "}
-              <span class="text-text font-mono">x</span>). Leave it{" "}
-              <span class="text-text">blank</span> when they're not invited.
+              <span class="text-text font-mono">x</span>); leave it{" "}
+              <span class="text-text">blank</span> if not invited.
             </dd>
           </div>
         </dl>
-      </GoodToKnow>
+      </FormattingTips>
+    </div>
+  );
+}
+
+/**
+ * The Events / Guests toggle inside step 2 — an ARIA tablist so only one sheet's
+ * guidance is on screen at a time (Events first). Tabs are keyboard-navigable
+ * (←/→/Home/End move + select, matching the WAI-ARIA automatic-activation tabs
+ * pattern), `aria-selected` tracks the active sheet, and `aria-controls` /
+ * `aria-labelledby` wire each tab to its panel. The gold underline + focus-visible
+ * ring keep it on-brand and accessible.
+ */
+function SheetTabs() {
+  const sheets = ["Events", "Guests"] as const;
+  const [active, setActive] = createSignal(0);
+  const baseId = createUniqueId();
+  const tabId = (i: number) => `${baseId}-tab-${i}`;
+  const panelId = (i: number) => `${baseId}-panel-${i}`;
+
+  function onKeyDown(e: KeyboardEvent) {
+    const last = sheets.length - 1;
+    let next: number | null = null;
+    if (e.key === "ArrowRight") next = active() === last ? 0 : active() + 1;
+    else if (e.key === "ArrowLeft") next = active() === 0 ? last : active() - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = last;
+    if (next === null) return;
+    e.preventDefault();
+    setActive(next);
+    document.getElementById(tabId(next))?.focus();
+  }
+
+  return (
+    <div class="flex flex-col gap-3">
+      <div
+        role="tablist"
+        aria-label="Choose a sheet"
+        class="border-border/60 flex gap-1 border-b"
+        onKeyDown={onKeyDown}
+      >
+        <For each={sheets}>
+          {(name, i) => {
+            const selected = () => active() === i();
+            return (
+              <button
+                type="button"
+                role="tab"
+                id={tabId(i())}
+                aria-selected={selected()}
+                aria-controls={panelId(i())}
+                tabIndex={selected() ? 0 : -1}
+                onClick={() => setActive(i())}
+                class="font-body -mb-px border-b-2 px-3 py-1.5 text-[0.72rem] tracking-[0.18em] uppercase transition focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2"
+                classList={{
+                  "border-gold text-gold": selected(),
+                  "text-text-muted hover:text-text border-transparent": !selected(),
+                }}
+              >
+                {name} sheet
+              </button>
+            );
+          }}
+        </For>
+      </div>
+
+      <div role="tabpanel" id={panelId(0)} aria-labelledby={tabId(0)} hidden={active() !== 0}>
+        <Show when={active() === 0}>
+          <EventsGuidance />
+        </Show>
+      </div>
+      <div role="tabpanel" id={panelId(1)} aria-labelledby={tabId(1)} hidden={active() !== 1}>
+        <Show when={active() === 1}>
+          <GuestsGuidance />
+        </Show>
+      </div>
     </div>
   );
 }
@@ -606,10 +683,11 @@ function GuestsGuidance() {
  * "How to structure your two sheets" — a three-step visual guide that mirrors the
  * cire-api parser (`cire/api/src/services/spreadsheet.ts`). The steps follow the
  * natural flow a non-technical couple takes: ① grab the template, ② fill in the
- * details (Events + Guests guidance, each with a mandatory/optional key and a
- * "Good to know!" of format rules), ③ upload, preview, and apply. A native
- * <details>/<summary> (open by default) keeps it keyboard- and screen-reader-
- * accessible with no JS.
+ * details, ③ upload, preview, and apply. Step 2 stays light: the shared
+ * mandatory/optional key once, then an Events / Guests {@link SheetTabs} toggle so
+ * only one sheet's guidance shows at a time, with the deep field rules tucked
+ * behind a "Formatting tips" disclosure. A native <details>/<summary> (open by
+ * default) keeps the whole guide keyboard- and screen-reader-accessible.
  */
 function CsvFormatHelp() {
   return (
@@ -636,10 +714,10 @@ function CsvFormatHelp() {
 
           <StepCard n={2} title="Fill in your details">
             <p class="text-text-muted text-[0.8rem]">
-              Two sheets: events first, then guests. The key below shows which fields are mandatory.
+              Switch between your two sheets below — the key shows which fields are mandatory.
             </p>
-            <EventsGuidance />
-            <GuestsGuidance />
+            <KeyLegend />
+            <SheetTabs />
           </StepCard>
 
           <StepCard n={3} title="Upload & preview">
