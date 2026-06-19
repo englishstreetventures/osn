@@ -7,6 +7,8 @@ related:
 last-reviewed: 2026-06-20
 ---
 
+- [x] **Security headers + CSP via SSR middleware** (`feat/cire-web-csp`) — the guest site now sets a full Content-Security-Policy plus `X-Content-Type-Options` / `Referrer-Policy` / `X-Frame-Options` / `Permissions-Policy` from a new Astro `onRequest` middleware (`src/middleware.ts` → `src/lib/security-headers.ts`). This is the correct home for them on an SSR Worker: `public/_headers` only covers the static-asset layer (prerendered `/privacy` + `/terms`, `/_astro/*`), not the Worker-rendered invite routes. CSP allowlist derived from the site's real external origins (Pinterest, Google Maps embed, Google Fonts, Turnstile, first-party cire-api). See `[[security]]` for the full directive list + per-origin rationale and the real-browser smoke-test flag. `script-src` stays host-restricted but keeps `'unsafe-inline'` for Astro island hydration + the font preload `onload` handler; `style-src` keeps `'unsafe-inline'` for the invite's inline theme style attributes.
+
 - [x] **"Add to Calendar" button fixed** (`fix/cire-add-to-calendar-zindex`) — the button is only ever opened from inside the event details modal (`AnimatedModal`, `z-100`), but its portalled popover (`AddToCalendar.tsx`, Google Calendar / `.ics` menu) was `z-90` — below the modal — so the menu painted behind the modal backdrop and was invisible/unclickable ("doesn't work"). Raised the popover to `z-110` (above the modal it launches from). Regression test asserts the menu sits above the modal layer. The `calendar.ts` URL/ICS builders were already correct.
 
 > [!note] Deep-linkable dashboard routes + refresh persistence + dismissable checklist (`feat/cire-dashboard-routing`)

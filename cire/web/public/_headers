@@ -1,6 +1,23 @@
+# Security headers for the STATIC-ASSET responses of the cire-invites Worker.
+#
+# IMPORTANT: cire/web is an SSR Worker (@astrojs/cloudflare, output: "server"),
+# not a Pages site. Cloudflare Workers Static Assets DOES honour this file — but
+# ONLY for responses served by the static-asset layer (the prerendered /privacy
+# + /terms pages and the /_astro/* bundles). It does NOT apply to the dynamic,
+# Worker-rendered invite routes (/<slug> and the bare-domain / redirect): those
+# get the same headers from the Astro SSR middleware (src/middleware.ts ->
+# src/lib/security-headers.ts), which is the source of truth for the CSP.
+#
+# Keep the policy below IN SYNC with CSP_DIRECTIVES in
+# src/lib/security-headers.ts (a unit test asserts the directive set; this file
+# is the static-asset mirror of it).
+#
+# ROLLOUT: shipped as Content-Security-Policy-Report-Only (reports, blocks
+# nothing) until a real-browser smoke test confirms zero violations — then flip
+# BOTH this header name and CSP_ENFORCE in src/lib/security-headers.ts to enforce.
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
-  Content-Security-Policy: frame-ancestors 'none'
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline' https://assets.pinterest.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-attr 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://api.cireweddings.com http://localhost:8787 https://i.pinimg.com https://maps.gstatic.com https://maps.googleapis.com; connect-src 'self' https://api.cireweddings.com http://localhost:8787 https://widgets.pinterest.com; frame-src 'self' https://www.google.com https://assets.pinterest.com https://challenges.cloudflare.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'
