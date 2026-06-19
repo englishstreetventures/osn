@@ -3,6 +3,8 @@ import { createSignal, onMount, Show, For } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { cropBackgroundStyle, type ImageCrop } from "../lib/image-crop";
+import ImageCropModal from "./ImageCropModal";
 import SectionIntro from "./SectionIntro";
 
 interface DressSwatch {
@@ -29,6 +31,9 @@ interface EventRow {
   /** First-party path to this event's optional image (or null). API-origin
    * relative — prepend `apiUrl()` before use. */
   imageUrl: string | null;
+  /** Normalised crop rectangle the guest site applies (or null for the default
+   * centre crop). */
+  imageCrop: ImageCrop | null;
 }
 
 interface EventTableProps {
@@ -78,9 +83,17 @@ export default function EventTable(props: EventTableProps) {
     }
   });
 
-  /** Patch one event row's imageUrl in place after an upload/remove. */
+  /** Patch one event row's imageUrl in place after an upload/remove. An upload or
+   * remove also resets the crop server-side, so clear it locally to match. */
   function patchImage(eventId: string, imageUrl: string | null) {
-    setEvents((rows) => rows.map((r) => (r.id === eventId ? { ...r, imageUrl } : r)));
+    setEvents((rows) =>
+      rows.map((r) => (r.id === eventId ? { ...r, imageUrl, imageCrop: null } : r)),
+    );
+  }
+
+  /** Patch one event row's crop in place after a crop save/reset. */
+  function patchCrop(eventId: string, imageCrop: ImageCrop | null) {
+    setEvents((rows) => rows.map((r) => (r.id === eventId ? { ...r, imageCrop } : r)));
   }
 
   const eventImageBase = (eventId: string) =>
@@ -122,6 +135,26 @@ export default function EventTable(props: EventTableProps) {
       if (isAuthExpired(err)) return redirectToLogin();
       toast.error(err instanceof Error ? err.message : "Remove failed.");
     }
+  }
+
+  // Save (or reset, with `crop: null`) an event image's crop rectangle. Throws on
+  // failure so the modal can keep itself open and surface a retry.
+  async function saveCrop(eventId: string, crop: ImageCrop | null) {
+    const res = await authFetch(apiUrl(`${eventImageBase(eventId)}/crop`), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ crop }),
+    });
+    if (res.status === 401) {
+      redirectToLogin();
+      throw new Error("unauthorised");
+    }
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error ?? `Save failed (${res.status})`);
+    }
+    patchCrop(eventId, crop);
+    toast.success(crop ? "Crop saved" : "Crop reset");
   }
 
   const hasEvents = () => events().length > 0;
@@ -241,8 +274,10 @@ export default function EventTable(props: EventTableProps) {
 
                 <EventImageField
                   url={event.imageUrl}
+                  crop={event.imageCrop}
                   onSelect={(f) => void uploadImage(event.id, f)}
                   onRemove={() => void removeImage(event.id)}
+                  onSaveCrop={(c) => saveCrop(event.id, c)}
                 />
               </li>
             )}
@@ -260,21 +295,46 @@ export default function EventTable(props: EventTableProps) {
  */
 function EventImageField(props: {
   url: string | null;
+  crop: ImageCrop | null;
   onSelect: (file: File) => void;
   onRemove: () => void;
+  onSaveCrop: (crop: ImageCrop | null) => Promise<void>;
 }) {
+  const [cropping, setCropping] = createSignal(false);
+  const absoluteUrl = (): string | null => (props.url ? apiUrl(props.url) : null);
+  // WYSIWYG thumbnail: render the cropped region with the same fraction technique
+  // the guest event card uses; fall back to the plain object-cover image with no
+  // crop.
+  const cropStyle = () => {
+    const url = absoluteUrl();
+    return url ? cropBackgroundStyle(url, props.crop) : null;
+  };
+
   return (
     <div class="border-border/60 mt-1 flex flex-col gap-2 rounded-sm border border-dashed p-3">
       <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
         Event image
       </span>
-      <Show when={props.url}>
+      <Show when={absoluteUrl()}>
         {(url) => (
-          <img
-            src={apiUrl(url())}
-            alt=""
-            class="border-border h-28 w-full max-w-xs rounded-sm border object-cover"
-          />
+          <Show
+            when={cropStyle()}
+            fallback={
+              <img
+                src={url()}
+                alt=""
+                class="border-border h-28 w-full max-w-xs rounded-sm border object-cover"
+              />
+            }
+          >
+            {(style) => (
+              <div
+                aria-label="Event image (cropped)"
+                class="border-border h-28 w-full max-w-xs rounded-sm border"
+                style={style()}
+              />
+            )}
+          </Show>
         )}
       </Show>
       <div class="flex flex-wrap items-center gap-3">
@@ -292,6 +352,13 @@ function EventImageField(props: {
         <Show when={props.url}>
           <button
             type="button"
+            onClick={() => setCropping(true)}
+            class="font-body text-gold text-[0.82rem] underline-offset-4 hover:underline"
+          >
+            Crop
+          </button>
+          <button
+            type="button"
             onClick={() => props.onRemove()}
             class="font-body text-text-muted text-[0.82rem] underline-offset-4 hover:underline"
           >
@@ -299,6 +366,18 @@ function EventImageField(props: {
           </button>
         </Show>
       </div>
+      <Show when={cropping() && absoluteUrl()}>
+        {(url) => (
+          <ImageCropModal
+            imageUrl={url()}
+            slot="event"
+            initialCrop={props.crop}
+            onSave={props.onSaveCrop}
+            onReset={() => props.onSaveCrop(null)}
+            onClose={() => setCropping(false)}
+          />
+        )}
+      </Show>
     </div>
   );
 }

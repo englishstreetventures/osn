@@ -99,6 +99,38 @@ describe("EventCard", () => {
     expect(img.className).toContain("md:order-2");
   });
 
+  it("renders the cropped region as a background div (not an <img>) when a crop is set", () => {
+    const cropped: EventSummary = { ...withImage, imageCrop: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 } };
+    const { container } = render(() => (
+      <EventCard
+        event={cropped}
+        apiUrl="https://api.test"
+        orientation="norm"
+        onRespond={noop}
+        onDetails={noop}
+      />
+    ));
+    // No <img> for the cropped path — the region is a background div instead.
+    expect(container.querySelector("img")).toBeNull();
+    const region = container.querySelector('[role="img"]') as HTMLElement;
+    expect(region).not.toBeNull();
+    // The centred half-frame crop maps to 200% size at 50% position. (The DOM may
+    // normalise the trailing zeros, so compare on the rounded value.)
+    expect(region.style.backgroundSize.replace(/\.0+%/g, "%")).toBe("200% 200%");
+    expect(region.style.backgroundPosition.replace(/\.0+%/g, "%")).toBe("50% 50%");
+    // Orientation ordering still applies to the cropped box.
+    expect(region.className).toContain("md:order-2");
+  });
+
+  it("falls back to the plain <img> when the crop is the identity (full frame)", () => {
+    const full: EventSummary = { ...withImage, imageCrop: { x: 0, y: 0, w: 1, h: 1 } };
+    const { container } = render(() => (
+      <EventCard event={full} apiUrl="https://api.test" onRespond={noop} onDetails={noop} />
+    ));
+    expect(container.querySelector("img")).not.toBeNull();
+    expect(container.querySelector('[role="img"]')).toBeNull();
+  });
+
   it("flips to image-left / text-right for the `alt` orientation (DOM order unchanged)", () => {
     const { container } = render(() => (
       <EventCard

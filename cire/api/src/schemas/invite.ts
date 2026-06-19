@@ -17,6 +17,103 @@ export function isInviteImageSlot(value: string): value is InviteImageSlot {
   return (INVITE_IMAGE_SLOTS as readonly string[]).includes(value);
 }
 
+// ── Image crop rectangle ──────────────────────────────────────────────────────
+
+/**
+ * A normalised crop rectangle in SOURCE FRACTIONS (0..1): `x`/`y` are the
+ * top-left of the visible region, `w`/`h` its size, each as a fraction of the
+ * original image's width/height. ONE rectangle captures both pan and zoom — a
+ * crop with zoom is just a smaller `{w,h}` box panned by `{x,y}`. `null` (a
+ * NULL column) means "no crop" → the default centre `object-cover`, so an
+ * un-cropped image renders exactly as before.
+ *
+ * The guest site applies this in CSS (`object-fit: cover` + computed
+ * `object-position`/`scale`), so the stored bytes are untouched and no
+ * source-dimension capture is needed. It is JSON-encoded into a nullable TEXT
+ * column (`hero_image_crop` / `story_image_crop` / `event_image_crop`).
+ */
+export interface ImageCrop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * The valid bounds for a crop rectangle. The box must lie fully inside the
+ * source: every component in [0, 1], a strictly-positive size, and the box
+ * not running off the right/bottom edge. This is the security gate — the
+ * rectangle is interpolated into a guest-facing inline `style`, so an
+ * out-of-range value must NEVER be persisted (reject the whole save).
+ */
+export function isValidCrop(value: unknown): value is ImageCrop {
+  if (typeof value !== "object" || value === null) return false;
+  const c = value as Record<string, unknown>;
+  const { x, y, w, h } = c;
+  if (
+    typeof x !== "number" ||
+    typeof y !== "number" ||
+    typeof w !== "number" ||
+    typeof h !== "number"
+  ) {
+    return false;
+  }
+  if ([x, y, w, h].some((n) => !Number.isFinite(n))) return false;
+  if (x < 0 || y < 0 || w <= 0 || h <= 0) return false;
+  if (x > 1 || y > 1 || w > 1 || h > 1) return false;
+  // Use a tiny epsilon so floating-point rounding from the cropper (e.g. a box
+  // that fills the image, x+w = 1.0000001) isn't spuriously rejected.
+  const EPS = 1e-6;
+  if (x + w > 1 + EPS || y + h > 1 + EPS) return false;
+  return true;
+}
+
+/**
+ * A nullable crop field. `null` clears the crop back to the default centre
+ * `object-cover`; a present value must be a valid rectangle (see
+ * {@link isValidCrop}) or the whole body is rejected with a 400 — never
+ * persisted. The decode passes the validated rectangle through unchanged.
+ */
+const CropField = Schema.NullOr(
+  Schema.Struct({
+    x: Schema.Number,
+    y: Schema.Number,
+    w: Schema.Number,
+    h: Schema.Number,
+  }).pipe(
+    Schema.filter((c) => isValidCrop(c), {
+      message: () => "Invalid crop rectangle (each value 0..1, w/h > 0, x+w ≤ 1, y+h ≤ 1)",
+    }),
+  ),
+);
+
+/**
+ * Request body for saving a single image's crop rectangle (the wedding-slot
+ * `hero`/`story` and the per-event image share this shape). `crop: null` resets
+ * the image to the default centre crop. The rectangle is validated against the
+ * bounds above before it reaches the service.
+ */
+export const ImageCropBody = Schema.Struct({
+  crop: CropField,
+});
+export type ImageCropBody = Schema.Schema.Type<typeof ImageCropBody>;
+
+/**
+ * Parse a JSON-encoded crop column into a validated rectangle, dropping anything
+ * that isn't a well-formed in-bounds rectangle to `null`. Defence-in-depth: a
+ * legacy/corrupt row never leaks a bad rectangle into the guest-facing style.
+ */
+export function decodeCrop(raw: string | null): ImageCrop | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  return isValidCrop(parsed) ? parsed : null;
+}
+
 // ── Text customisation ────────────────────────────────────────────────────────
 
 // A nullable, length-bounded copy field. `null` (or an all-whitespace value the

@@ -5,6 +5,7 @@ import { Effect, Data } from "effect";
 import { DbService, dbQuery } from "../db";
 import { measureClaimLookup, metricClaimAttempt, metricInviteOpened } from "../metrics";
 import type { ClaimResponse, OrganiserGuestRow, DressSwatch } from "../schemas/claim";
+import { decodeCrop, type ImageCrop } from "../schemas/invite";
 import { eventImagePath, versionFromKey } from "./event-image";
 
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
@@ -66,6 +67,16 @@ function decodePalette(raw: string | null): {
  */
 function eventImageUrl(slug: string, eventId: string, key: string | null): string | null {
   return key ? eventImagePath(slug, eventId, versionFromKey(key)) : null;
+}
+
+/**
+ * Decode an event's stored crop rectangle, but only when it actually has an
+ * image — a rectangle left on a since-removed image is inert. `decodeCrop` drops
+ * a malformed/legacy value to null so a bad rectangle never reaches the guest
+ * site's inline style.
+ */
+function eventImageCrop(key: string | null, raw: string | null): ImageCrop | null {
+  return key ? decodeCrop(raw) : null;
 }
 
 export const claimService = {
@@ -199,6 +210,7 @@ export const claimService = {
           mapsUrl: safeHttpUrl(e.mapsUrl),
           sortOrder: e.sortOrder ?? 0,
           imageUrl: eventImageUrl(slug, e.id, e.eventImageKey),
+          imageCrop: eventImageCrop(e.eventImageKey, e.eventImageCrop),
         });
       }
       eventList.sort((a, b) => a.sortOrder - b.sortOrder);
@@ -254,6 +266,7 @@ export const claimService = {
       pinterestUrl: string | null;
       mapsUrl: string | null;
       imageUrl: string | null;
+      imageCrop: ImageCrop | null;
     }[],
     never,
     DbService
@@ -293,6 +306,7 @@ export const claimService = {
           pinterestUrl: safeHttpUrl(row.pinterestUrl),
           mapsUrl: safeHttpUrl(row.mapsUrl),
           imageUrl: eventImageUrl(weddingSlug, row.id, row.eventImageKey),
+          imageCrop: eventImageCrop(row.eventImageKey, row.eventImageCrop),
         };
       });
     }).pipe(Effect.withSpan("cire.claim.listEvents"));

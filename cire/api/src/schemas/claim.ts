@@ -40,6 +40,18 @@ export const EventSummary = Schema.Struct({
   // pinterest/maps links — this is a same-origin API path we mint ourselves,
   // never a stored external URL.
   imageUrl: Schema.NullOr(Schema.String),
+  // Normalised crop rectangle `{x,y,w,h}` (0..1 source fractions, migration 0021)
+  // the organiser chose for this event's image, or null for the default centre
+  // `object-cover`. The guest site applies it in CSS; validated on write + decoded
+  // defensively on read, so only a well-formed in-bounds rectangle reaches here.
+  imageCrop: Schema.NullOr(
+    Schema.Struct({
+      x: Schema.Number,
+      y: Schema.Number,
+      w: Schema.Number,
+      h: Schema.Number,
+    }),
+  ),
 });
 export type EventSummary = Schema.Schema.Type<typeof EventSummary>;
 

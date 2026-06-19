@@ -12,6 +12,14 @@ last-reviewed: 2026-06-19
 
 See [[overview]] for observability rules that apply to all security-sensitive code paths. See [[review-findings]] for severity prefix conventions.
 
+### Image crop rectangle (`feat/cire-image-crop`) — new validation surface, no new probe/network
+
+The per-image crop feature adds **one** validation surface: a normalised crop rectangle `{x,y,w,h}` (0..1 source fractions) the organiser submits per image. It is interpolated into a **guest-facing inline `style`** (the CSS background-image fraction render), so it MUST be bounds-checked before persistence:
+
+- **Bounds gate** (`isValidCrop` in `schemas/invite.ts`, enforced by `ImageCropBody` on every crop save) — each component finite + in [0,1], `w`/`h` strictly positive, `x+w ≤ 1` and `y+h ≤ 1` (a tiny float epsilon tolerates cropper rounding). An out-of-range / malformed rectangle is a **ParseError → 400, never persisted**. Defence-in-depth on READ too: `decodeCrop` re-validates the stored JSON and drops anything malformed/out-of-range to `null`, so a legacy/corrupt row can't leak a bad rectangle into the style.
+- **No new probe / no source-dimension capture** — the render is CSS-side (fraction technique), so we do NOT capture or store image pixel dimensions and there is NO runtime dimension probe or extra Images-binding call. The served image **bytes** are unchanged by a crop, so the S-M1 server-derived-cache-version invariant is untouched (nothing new feeds the image-bytes cache key); the crop rides in the always-fresh `no-store` invite/claim JSON.
+- **Authz unchanged** — crop saves reuse the existing `osnAuth()` + `weddingMember()` gate + per-IP invite write limiter; the event-crop save re-checks event∈wedding (`EventNotFound` → 404), so an organiser of wedding A can't crop wedding B's event.
+
 ### Per-event image surface (`feat/cire-event-images`) — mirrors the invite-image controls
 
 New attack surface from migration 0019's one-image-per-event feature. It deliberately reuses the **same** controls as the existing wedding-slot invite images (no new primitives), so the existing review findings (IB-S-M1 nosniff, S-M1 server-derived cache version) carry over:

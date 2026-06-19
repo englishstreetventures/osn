@@ -4,6 +4,7 @@ import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import { metricInviteAssetUploaded } from "../metrics";
+import type { ImageCrop } from "../schemas/invite";
 import { deleteAsset, storeAsset } from "./invite-assets";
 import type { AssetR2Error, AssetsR2Service } from "./invite-assets";
 
@@ -110,8 +111,10 @@ export const eventImageService = {
 
       yield* dbQuery(() =>
         db
+          // A fresh image invalidates the previous crop (it framed a different
+          // photo), so reset it to the full-frame default on every upload.
           .update(events)
-          .set({ eventImageKey: newKey })
+          .set({ eventImageKey: newKey, eventImageCrop: null })
           .where(and(eq(events.id, eventId), eq(events.weddingId, weddingId)))
           .run(),
       );
@@ -172,5 +175,42 @@ export const eventImageService = {
       }
       yield* Effect.logInfo("event image removed", { weddingId });
     }).pipe(Effect.withSpan("cire.event_image.removeImage"));
+  },
+
+  /**
+   * Save (or clear, with `crop: null`) the crop rectangle for an event's image.
+   * Authorises the event belongs to `weddingId` — an event from another wedding
+   * is rejected (`EventNotFound`) and never written. The rectangle has already
+   * passed the bounds validation at the route boundary (`ImageCropBody`). Events
+   * have no `updated_at`; the served bytes are unchanged under the CSS-render
+   * path and the crop rides in the no-store claim/list JSON, so no cache bump is
+   * needed here.
+   */
+  setCrop(
+    weddingId: string,
+    eventId: string,
+    crop: ImageCrop | null,
+  ): Effect.Effect<void, EventNotFound, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [existing] = yield* dbQuery(() =>
+        db
+          .select({ id: events.id })
+          .from(events)
+          .where(and(eq(events.id, eventId), eq(events.weddingId, weddingId)))
+          .all(),
+      );
+      if (!existing) return yield* Effect.fail(new EventNotFound({ eventId }));
+
+      const encoded = crop ? JSON.stringify(crop) : null;
+      yield* dbQuery(() =>
+        db
+          .update(events)
+          .set({ eventImageCrop: encoded })
+          .where(and(eq(events.id, eventId), eq(events.weddingId, weddingId)))
+          .run(),
+      );
+      yield* Effect.logInfo("event image crop saved", { weddingId });
+    }).pipe(Effect.withSpan("cire.event_image.setCrop"));
   },
 };

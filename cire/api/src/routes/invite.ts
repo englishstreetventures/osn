@@ -11,7 +11,12 @@ import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { weddingMember } from "../middleware/wedding-member";
 import { runCire } from "../observability";
-import { InviteTextBody, InviteThemeBody, isInviteImageSlot } from "../schemas/invite";
+import {
+  ImageCropBody,
+  InviteTextBody,
+  InviteThemeBody,
+  isInviteImageSlot,
+} from "../schemas/invite";
 import { eventImageService } from "../services/event-image";
 import { inviteService } from "../services/invite";
 import {
@@ -338,8 +343,12 @@ export const createInvitePublicRoutes = (
  *   GET    /weddings/:weddingId/invite             → current customisation
  *   PUT    /weddings/:weddingId/invite/text        → text overrides
  *   PUT    /weddings/:weddingId/invite/theme       → per-section fonts + colours
- *   POST   /weddings/:weddingId/invite/image/:slot → upload an image
- *   DELETE /weddings/:weddingId/invite/image/:slot → reset slot to default
+ *   POST   /weddings/:weddingId/invite/image/:slot      → upload an image
+ *   DELETE /weddings/:weddingId/invite/image/:slot      → reset slot to default
+ *   PUT    /weddings/:weddingId/invite/image/:slot/crop → save/reset a crop rect
+ *   POST   /weddings/:weddingId/events/:eventId/image       → upload event image
+ *   DELETE /weddings/:weddingId/events/:eventId/image       → remove event image
+ *   PUT    /weddings/:weddingId/events/:eventId/image/crop  → save/reset crop rect
  */
 export const createInviteOrganiserRoutes = (
   db: Db,
@@ -575,6 +584,56 @@ export const createInviteOrganiserRoutes = (
             ),
           );
         })
+        // Save (or reset, with `crop: null`) the crop rectangle for a wedding-slot
+        // image. The rectangle is validated server-side (each value 0..1, w/h > 0,
+        // x+w ≤ 1, y+h ≤ 1) — an out-of-range box is a ParseError → 400, never
+        // persisted (it is interpolated into a guest-facing inline style). The
+        // save bumps the row's `updatedAt`, so the guest invite's no-store
+        // revalidation picks up the new crop.
+        .put(
+          "/invite/image/:slot/crop",
+          async ({ request, params, weddingId, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            if (!isInviteImageSlot(params.slot)) {
+              set.status = 400;
+              return { error: "Unknown image slot" };
+            }
+            const slot = params.slot;
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknown(ImageCropBody)(raw);
+                yield* inviteService.setCrop(weddingId, slot, body.crop);
+                return yield* inviteService.getForWeddingId(weddingId);
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("ParseError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Invalid crop rectangle" };
+                  }),
+                ),
+                Effect.catchTag("WeddingNotFound", () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "Not found" };
+                  }),
+                ),
+                Effect.catchAllDefect(() =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError("invite image crop save failed", { weddingId });
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
+              ),
+            );
+          },
+          manualParse,
+        )
         // Per-event image upload (one optional image per event; re-upload
         // REPLACES). Same controls as the wedding-slot upload above: weddingMember
         // gate (owner OR co-host), per-IP rate limit, 5 MB cap (declared + post-
@@ -695,5 +754,50 @@ export const createInviteOrganiserRoutes = (
               ),
             ),
           );
-        }),
+        })
+        // Save (or reset, with `crop: null`) the crop rectangle for an event's
+        // image. Same validation as the wedding-slot crop route (out-of-range →
+        // 400, never persisted). The service additionally checks the event belongs
+        // to :weddingId (EventNotFound → 404), so an organiser can't write a crop
+        // onto another wedding's event.
+        .put(
+          "/events/:eventId/image/crop",
+          async ({ request, params, weddingId, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const eventId = params.eventId;
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknown(ImageCropBody)(raw);
+                yield* eventImageService.setCrop(weddingId, eventId, body.crop);
+                return { eventId, crop: body.crop };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("ParseError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Invalid crop rectangle" };
+                  }),
+                ),
+                Effect.catchTag("EventNotFound", () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "Not found" };
+                  }),
+                ),
+                Effect.catchAllDefect(() =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError("event image crop save failed", { weddingId });
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
+              ),
+            );
+          },
+          manualParse,
+        ),
     );

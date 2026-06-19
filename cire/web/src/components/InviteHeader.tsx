@@ -1,5 +1,6 @@
 import { createEffect, createResource, createSignal, onMount, Show } from "solid-js";
 
+import { cropBackgroundStyle, type ImageCrop } from "./image-crop";
 import { isHeroEmpty, isStoryEmpty } from "./invite-emptiness";
 import { type InviteTheme, sectionThemeVars } from "./invite-theme";
 
@@ -89,12 +90,19 @@ function clampNum(value: number | undefined, min: number, max: number, fallback:
 }
 
 export interface InviteCustomisation {
-  hero: { title: string | null; subtitle: string | null; imageUrl: string | null };
+  hero: {
+    title: string | null;
+    subtitle: string | null;
+    imageUrl: string | null;
+    // Optional so a mid-deploy payload (older API) without it falls back to no crop.
+    imageCrop?: ImageCrop | null;
+  };
   story: {
     eyebrow: string | null;
     heading: string | null;
     body: string | null;
     imageUrl: string | null;
+    imageCrop?: ImageCrop | null;
   };
   heroDisplay: HeroDisplay;
   theme: InviteTheme;
@@ -211,6 +219,17 @@ export default function InviteHeader(props: InviteHeaderProps) {
     return url ? variantSrc(url, HERO_BG_VARIANT) : null;
   };
 
+  // The organiser's crop for the hero backdrop (or null ⇒ default centre cover).
+  // When present we render the cropped region as a background layer over the same
+  // server-blurred `hero-bg` source — the crop pans/zooms the already-blurred
+  // backdrop, so blur + crop compose without any extra Cloudflare transform. The
+  // `<img>` stays mounted purely as the load/error detector for the fade.
+  const heroCropStyle = (): Record<string, string> | null => {
+    const src = heroBackdropSrc();
+    const crop = hero()?.imageCrop ?? null;
+    return src ? cropBackgroundStyle(src, crop) : null;
+  };
+
   // SSR-hydration fix: on an SSR page the browser starts loading the server-
   // rendered <img> during HTML parse, and its `load` event commonly fires BEFORE
   // this Solid island hydrates and attaches `onLoad` — so `onLoad` would never
@@ -272,7 +291,10 @@ export default function InviteHeader(props: InviteHeaderProps) {
                   // A single fixed-purpose variant (blurred backdrop or sharp full
                   // image) — one 1600px width is enough, so no responsive srcset.
                   // The blur radius (for `hero-bg`) is a server constant keyed off
-                  // the variant name, never sent from here.
+                  // the variant name, never sent from here. When the organiser has
+                  // cropped the hero we render the cropped region in the sibling
+                  // <div> below and keep this <img> purely as the load/error
+                  // detector (visually hidden), so the fade lifecycle is unchanged.
                   src={src()}
                   // Hero spans the full viewport width at every breakpoint.
                   sizes="100vw"
@@ -280,8 +302,25 @@ export default function InviteHeader(props: InviteHeaderProps) {
                   onLoad={() => setHeroState("loaded")}
                   onError={() => setHeroState("error")}
                   class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
-                  style={{ opacity: heroState() === "loaded" ? "1" : "0" }}
+                  style={{
+                    opacity: heroState() === "loaded" && !heroCropStyle() ? "1" : "0",
+                  }}
                 />
+                {/* Cropped backdrop region — the organiser's pan/zoom over the same
+                  server-blurred source. Rendered only when a crop is set; fades in
+                  with the same lifecycle as the plain <img>. */}
+                <Show when={heroCropStyle()}>
+                  {(cropStyle) => (
+                    <div
+                      aria-hidden="true"
+                      class="absolute inset-0 h-full w-full bg-cover transition-opacity duration-700"
+                      style={{
+                        ...cropStyle(),
+                        opacity: heroState() === "loaded" ? "1" : "0",
+                      }}
+                    />
+                  )}
+                </Show>
               </Show>
             )}
           </Show>
@@ -387,17 +426,42 @@ export default function InviteHeader(props: InviteHeaderProps) {
             data-has-image={storyImageUrl() ? "true" : "false"}
           >
             <Show when={storyImageUrl()}>
-              {(url) => (
-                <img
-                  src={url()}
-                  // Story photo renders at most 480px wide — thumb/card cover it.
-                  srcset={buildSrcSet(url(), ["thumb", "card"])}
-                  sizes="(min-width: 768px) 480px, 100vw"
-                  alt=""
-                  // Hidden below md — the photo is not even laid out on mobile.
-                  class="border-border hidden max-h-[420px] w-full rounded-sm border object-cover md:block"
-                />
-              )}
+              {(url) => {
+                // When the organiser cropped the story photo, render the cropped
+                // region via the shared CSS fraction technique (a `card`-variant
+                // background — backgrounds can't use srcset, so we pick the size
+                // that comfortably covers the ~480px column at retina). With no
+                // crop, keep the responsive <img srcset> + object-cover (unchanged).
+                const cropStyle = () =>
+                  cropBackgroundStyle(variantSrc(url(), "card"), story()?.imageCrop);
+                return (
+                  <Show
+                    when={cropStyle()}
+                    fallback={
+                      <img
+                        src={url()}
+                        // Story photo renders at most 480px wide — thumb/card cover it.
+                        srcset={buildSrcSet(url(), ["thumb", "card"])}
+                        sizes="(min-width: 768px) 480px, 100vw"
+                        alt=""
+                        // Hidden below md — the photo is not even laid out on mobile.
+                        class="border-border hidden max-h-[420px] w-full rounded-sm border object-cover md:block"
+                      />
+                    }
+                  >
+                    {(style) => (
+                      <div
+                        aria-hidden="true"
+                        // Fixed 4∶3 box (matches the organiser's locked story crop
+                        // ratio) so the stored fraction renders WYSIWYG. Hidden
+                        // below md, like the <img> path.
+                        class="border-border hidden aspect-[4/3] max-h-[420px] w-full rounded-sm border bg-cover md:block"
+                        style={style()}
+                      />
+                    )}
+                  </Show>
+                );
+              }}
             </Show>
             <div>
               <p

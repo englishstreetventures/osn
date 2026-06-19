@@ -5,8 +5,10 @@ import { Data, Effect } from "effect";
 import { DbService, dbQuery } from "../db";
 import { metricInviteAssetUploaded, metricInviteSaved } from "../metrics";
 import {
+  decodeCrop,
   HERO_BLUR_DEFAULT,
   type FontChoice,
+  type ImageCrop,
   type InviteImageSlot,
   type InviteTextBody,
   type InviteThemeBody,
@@ -59,12 +61,20 @@ export interface HeroDisplay {
 }
 
 export interface InviteCustomisation {
-  hero: { title: string | null; subtitle: string | null; imageUrl: string | null };
+  hero: {
+    title: string | null;
+    subtitle: string | null;
+    imageUrl: string | null;
+    // Normalised crop rectangle `{x,y,w,h}` (0..1 source fractions) the guest
+    // site applies in CSS, or null for the default centre `object-cover`.
+    imageCrop: ImageCrop | null;
+  };
   story: {
     eyebrow: string | null;
     heading: string | null;
     body: string | null;
     imageUrl: string | null;
+    imageCrop: ImageCrop | null;
   };
   heroDisplay: HeroDisplay;
   theme: InviteTheme;
@@ -87,8 +97,8 @@ const DEFAULT_HERO_DISPLAY: HeroDisplay = {
 };
 
 const EMPTY: InviteCustomisation = {
-  hero: { title: null, subtitle: null, imageUrl: null },
-  story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+  hero: { title: null, subtitle: null, imageUrl: null, imageCrop: null },
+  story: { eyebrow: null, heading: null, body: null, imageUrl: null, imageCrop: null },
   heroDisplay: DEFAULT_HERO_DISPLAY,
   theme: EMPTY_THEME,
 };
@@ -116,6 +126,8 @@ function toCustomisation(
     storyBody: string | null;
     heroImageKey: string | null;
     storyImageKey: string | null;
+    heroImageCrop: string | null;
+    storyImageCrop: string | null;
     // NOT NULL columns, but a LEFT JOIN miss (no customisation row) yields null —
     // coalesced to the today's-look default below.
     heroBlur: number | null;
@@ -138,12 +150,17 @@ function toCustomisation(
       title: c.heroTitle,
       subtitle: c.heroSubtitle,
       imageUrl: c.heroImageKey ? imagePath(slug, "hero", version) : null,
+      // Only surface a crop when there's an image to crop — a stored rectangle on
+      // a since-removed image is inert. `decodeCrop` drops a malformed/legacy
+      // value to null so a bad rectangle never reaches the guest-facing style.
+      imageCrop: c.heroImageKey ? decodeCrop(c.heroImageCrop) : null,
     },
     story: {
       eyebrow: c.storyEyebrow,
       heading: c.storyHeading,
       body: c.storyBody,
       imageUrl: c.storyImageKey ? imagePath(slug, "story", version) : null,
+      imageCrop: c.storyImageKey ? decodeCrop(c.storyImageCrop) : null,
     },
     heroDisplay: {
       // Persisted values already passed the clamp-on-write validation; a null
@@ -218,6 +235,8 @@ export const inviteService = {
             storyBody: weddingInviteCustomisations.storyBody,
             heroImageKey: weddingInviteCustomisations.heroImageKey,
             storyImageKey: weddingInviteCustomisations.storyImageKey,
+            heroImageCrop: weddingInviteCustomisations.heroImageCrop,
+            storyImageCrop: weddingInviteCustomisations.storyImageCrop,
             heroBlur: weddingInviteCustomisations.heroBlur,
             heroTitleBackdropOpacity: weddingInviteCustomisations.heroTitleBackdropOpacity,
             heroTitleBackdropBlur: weddingInviteCustomisations.heroTitleBackdropBlur,
@@ -404,14 +423,17 @@ export const inviteService = {
       const newKey = yield* storeAsset(weddingId, slot, bytes, contentType);
       const now = new Date();
       const keyColumn = slot === "hero" ? "heroImageKey" : "storyImageKey";
+      // A fresh image invalidates the previous crop (it framed a different photo),
+      // so reset the slot's crop to the full-frame default on every upload.
+      const cropColumn = slot === "hero" ? "heroImageCrop" : "storyImageCrop";
 
       yield* dbQuery(() =>
         db
           .insert(weddingInviteCustomisations)
-          .values({ weddingId, [keyColumn]: newKey, updatedAt: now })
+          .values({ weddingId, [keyColumn]: newKey, [cropColumn]: null, updatedAt: now })
           .onConflictDoUpdate({
             target: weddingInviteCustomisations.weddingId,
-            set: { [keyColumn]: newKey, updatedAt: now },
+            set: { [keyColumn]: newKey, [cropColumn]: null, updatedAt: now },
           })
           .run(),
       );
@@ -447,6 +469,7 @@ export const inviteService = {
           ? weddingInviteCustomisations.heroImageKey
           : weddingInviteCustomisations.storyImageKey;
       const keyColumn = slot === "hero" ? "heroImageKey" : "storyImageKey";
+      const cropColumn = slot === "hero" ? "heroImageCrop" : "storyImageCrop";
 
       const [existing] = yield* dbQuery(() =>
         db
@@ -458,8 +481,10 @@ export const inviteService = {
 
       yield* dbQuery(() =>
         db
+          // Clear the crop alongside the key — the slot is back to its default, so
+          // a later re-upload starts full-frame, not with a stale crop.
           .update(weddingInviteCustomisations)
-          .set({ [keyColumn]: null, updatedAt: new Date() })
+          .set({ [keyColumn]: null, [cropColumn]: null, updatedAt: new Date() })
           .where(eq(weddingInviteCustomisations.weddingId, weddingId))
           .run(),
       );
@@ -473,5 +498,37 @@ export const inviteService = {
       }
       yield* Effect.logInfo("invite image removed", { weddingId });
     }).pipe(Effect.withSpan("cire.invite.removeImage"));
+  },
+
+  /**
+   * Save (or clear, with `crop: null`) the crop rectangle for a wedding-level
+   * image slot. The rectangle has already passed the bounds validation at the
+   * route boundary (`ImageCropBody`), so by the time it reaches here it is safe
+   * to JSON-encode and persist. Bumping `updatedAt` is what makes the new crop
+   * surface on the guest invite's no-store revalidation (and freshens the image
+   * URL's `?v=` cache-buster, harmless under the CSS-render path).
+   */
+  setCrop(
+    weddingId: string,
+    slot: InviteImageSlot,
+    crop: ImageCrop | null,
+  ): Effect.Effect<void, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const keyColumn = slot === "hero" ? "heroImageCrop" : "storyImageCrop";
+      const encoded = crop ? JSON.stringify(crop) : null;
+      const now = new Date();
+      yield* dbQuery(() =>
+        db
+          .insert(weddingInviteCustomisations)
+          .values({ weddingId, [keyColumn]: encoded, updatedAt: now })
+          .onConflictDoUpdate({
+            target: weddingInviteCustomisations.weddingId,
+            set: { [keyColumn]: encoded, updatedAt: now },
+          })
+          .run(),
+      );
+      yield* Effect.logInfo("invite image crop saved", { weddingId });
+    }).pipe(Effect.withSpan("cire.invite.setCrop"));
   },
 };

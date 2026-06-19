@@ -3,6 +3,14 @@ export interface DressSwatch {
   color: string;
 }
 
+/** Normalised crop rectangle in source fractions (0..1). Mirrors `ImageCrop` in cire/api. */
+export interface ImageCrop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface EventSummary {
   id: string;
   name: string;
@@ -26,6 +34,13 @@ export interface EventSummary {
    * origin before use. Null ⇒ the card renders text-only at every breakpoint.
    */
   imageUrl: string | null;
+  /**
+   * Normalised crop rectangle `{x,y,w,h}` (0..1 source fractions, migration 0021)
+   * the organiser chose for this event's image, or null for the default centre
+   * `object-cover`. Applied in CSS by the event card. Optional so a mid-deploy
+   * payload (older API) or a test fixture without it falls back to no crop.
+   */
+  imageCrop?: ImageCrop | null;
 }
 
 export interface FamilyMember {

@@ -185,6 +185,14 @@ export const events = sqliteTable(
     // fresh uuid per upload, so the served image's cache version derives from it
     // server-side (a re-upload mints a new key ⇒ a new version, never stale).
     eventImageKey: text("event_image_key"),
+    // JSON-encoded normalised crop rectangle `{x,y,w,h}` in SOURCE FRACTIONS
+    // (0..1) the organiser chose for this event's image (migration 0021). NULL ⇒
+    // the default centre `object-cover` crop, so an un-cropped image renders
+    // exactly as before. One rectangle captures both pan and zoom (a zoom is just
+    // a smaller `{w,h}` box panned by `{x,y}`). Validated server-side on write
+    // (`cire/api/src/schemas/invite.ts`) and applied in CSS on the guest site, so
+    // the stored bytes are untouched.
+    eventImageCrop: text("event_image_crop"),
   },
   (t) => [
     index("events_sort_order_idx").on(t.sortOrder),
@@ -317,6 +325,15 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   storyBody: text("story_body"),
   heroImageKey: text("hero_image_key"),
   storyImageKey: text("story_image_key"),
+  // JSON-encoded normalised crop rectangle `{x,y,w,h}` in SOURCE FRACTIONS (0..1)
+  // the organiser chose for the hero / story image (migration 0021). NULL ⇒ the
+  // default centre `object-cover` crop, so an un-cropped image renders exactly as
+  // before. One rectangle captures both pan and zoom. Validated server-side on
+  // write (`cire/api/src/schemas/invite.ts`) and applied in CSS on the guest
+  // site (the stored bytes are untouched). Saving a crop bumps `updatedAt` so the
+  // no-store invite JSON the guest reads carries the new rectangle immediately.
+  heroImageCrop: text("hero_image_crop"),
+  storyImageCrop: text("story_image_crop"),
   // Fine-grained hero display sliders (organiser choice; migration 0018 replaced
   // the coarse 0017 enums). All three default to the values that reproduce
   // TODAY's look, so an un-customised wedding renders exactly as before, and the

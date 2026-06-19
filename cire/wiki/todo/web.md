@@ -45,6 +45,30 @@ last-reviewed: 2026-06-19
 > ⚠️ Real-browser eyeball still wanted: Back/Forward + a hard refresh on a wedding
 > tab (happy-dom can't fully exercise the history stack).
 
+> [!note] Image crop render — hero / Our Story / event card (`feat/cire-image-crop`)
+> The guest site now renders the organiser's per-image crop (a normalised
+> `{x,y,w,h}` rectangle in source fractions) instead of always centre-cropping.
+> - **Render path = CSS, not server-side region crop** (the documented fallback).
+>   A shared `components/image-crop.ts` helper (`cropBackgroundStyle` +
+>   `isRenderableCrop`) maps the rectangle to a `background-size`/`background-position`
+>   on a fixed-ratio box — WYSIWYG-identical to what Cropper.js showed the
+>   organiser, dims-free (no source-dimension capture), zero extra Cloudflare cost.
+>   The organiser editor LOCKS each slot's crop aspect ratio to the guest display
+>   box, so the fraction render is exact regardless of source pixel dimensions.
+> - **Hero** (`InviteHeader`): when a crop is set, a background `<div>` over the
+>   same server-blurred `hero-bg` source pans/zooms the already-blurred backdrop
+>   (blur + crop compose with no extra transform); the `<img>` stays mounted as
+>   the load/error detector for the fade. No crop ⇒ the existing `<img object-cover>`.
+> - **Our Story** (`InviteHeader`, 4∶3) + **EventCard** (4∶3): a cropped background
+>   div when a crop is set (a `card`-variant background — backgrounds can't use
+>   `srcset`, so we pick the size that covers the ~480px column at retina), else
+>   the existing responsive `<img srcset>` + `object-cover`. The alternating /
+>   two-column / emptiness behaviour is unchanged.
+> - A null/identity/out-of-range crop collapses gracefully to the plain `<img>`.
+> - Tests: helper fraction maths (centred half-frame ⇒ 200% size / 50% position,
+>   full-axis ⇒ 0% position, null/identity ⇒ no style), EventCard renders the
+>   cropped div vs the plain `<img>` fallback.
+
 > [!note] GuestTable "Opened" status (`feat/cire-invite-opened-status`)
 > The organiser Guests tab (`GuestTable.tsx`) now shows a reliable **"Opened"**
 > badge per household, driven by the server's `firstOpenedAt` (a real guest

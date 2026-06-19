@@ -1140,3 +1140,221 @@ describe("hero display sliders (migration 0018)", () => {
     });
   });
 });
+
+describe("image crop (migration 0021)", () => {
+  const EVENT_ID = eventsData.catholic.id;
+  const orgEventImagePath = (eventId: string) =>
+    `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events/${encodeURIComponent(eventId)}/image`;
+  const VALID_CROP = { x: 0.1, y: 0.2, w: 0.5, h: 0.4 };
+
+  describe("wedding-slot crop (hero / story)", () => {
+    it("saves a crop and surfaces it on the public read + organiser read", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+
+      const put = await appRequest(app, `${orgBase}/image/hero/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify({ crop: VALID_CROP }),
+      });
+      expect(put.status).toBe(200);
+
+      // Public guest read carries the crop.
+      const pub = await appRequest(app, `/api/invite/${SLUG}`);
+      const body = (await pub.json()) as { hero: { imageCrop: typeof VALID_CROP | null } };
+      expect(body.hero.imageCrop).toEqual(VALID_CROP);
+
+      // Organiser read (so the builder re-opens the saved crop) carries it too.
+      const org = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
+      const orgBody = (await org.json()) as { hero: { imageCrop: typeof VALID_CROP | null } };
+      expect(orgBody.hero.imageCrop).toEqual(VALID_CROP);
+    });
+
+    it("rejects an out-of-range crop with 400 and never persists it", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+
+      const bad = await appRequest(app, `${orgBase}/image/hero/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify({ crop: { x: 0.8, y: 0, w: 0.5, h: 0.5 } }), // x+w = 1.3
+      });
+      expect(bad.status).toBe(400);
+
+      const pub = await appRequest(app, `/api/invite/${SLUG}`);
+      const body = (await pub.json()) as { hero: { imageCrop: unknown } };
+      expect(body.hero.imageCrop).toBeNull();
+    });
+
+    it("crop: null resets to the default centre crop", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+      await appRequest(app, `${orgBase}/image/hero/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify({ crop: VALID_CROP }),
+      });
+      const reset = await appRequest(app, `${orgBase}/image/hero/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify({ crop: null }),
+      });
+      expect(reset.status).toBe(200);
+      const pub = await appRequest(app, `/api/invite/${SLUG}`);
+      const body = (await pub.json()) as { hero: { imageCrop: unknown } };
+      expect(body.hero.imageCrop).toBeNull();
+    });
+
+    it("a crop change surfaces immediately on the no-store invite JSON (cache-bust on the guest)", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+
+      // The invite JSON is served `no-store` (asserted elsewhere), so the guest's
+      // on-mount revalidation always re-reads it — a crop edit is reflected on the
+      // very next read with no stale cache. (Under the CSS-render path the served
+      // image BYTES never change with a crop, so there is no image-bytes cache to
+      // bust; the crop travels in this always-fresh JSON.)
+      const before = await appRequest(app, `/api/invite/${SLUG}`);
+      expect(((await before.json()) as { hero: { imageCrop: unknown } }).hero.imageCrop).toBeNull();
+
+      await appRequest(app, `${orgBase}/image/hero/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify({ crop: VALID_CROP }),
+      });
+
+      const after = await appRequest(app, `/api/invite/${SLUG}`);
+      expect(after.headers.get("cache-control")).toBe("no-store");
+      expect(((await after.json()) as { hero: { imageCrop: unknown } }).hero.imageCrop).toEqual(
+        VALID_CROP,
+      );
+    });
+
+    it("re-uploading an image clears the previous crop", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+      await appRequest(app, `${orgBase}/image/hero/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify({ crop: VALID_CROP }),
+      });
+      // A fresh upload frames a different photo → crop resets to full.
+      await uploadHero(app);
+      const pub = await appRequest(app, `/api/invite/${SLUG}`);
+      const body = (await pub.json()) as { hero: { imageCrop: unknown } };
+      expect(body.hero.imageCrop).toBeNull();
+    });
+
+    it("does not surface a crop when the slot has no image", async () => {
+      const { app } = buildApp();
+      // No image uploaded — even a stored crop would be inert; the read is null.
+      const pub = await appRequest(app, `/api/invite/${SLUG}`);
+      const body = (await pub.json()) as { hero: { imageCrop: unknown; imageUrl: unknown } };
+      expect(body.hero.imageUrl).toBeNull();
+      expect(body.hero.imageCrop).toBeNull();
+    });
+  });
+
+  describe("event crop", () => {
+    async function uploadEvent(app: ReturnType<typeof buildApp>["app"]) {
+      const up = await appRequest(app, orgEventImagePath(EVENT_ID), {
+        method: "POST",
+        headers: await authHeaders(BOOTSTRAP_OWNER),
+        body: PNG,
+      });
+      expect(up.status).toBe(200);
+    }
+
+    it("saves a crop and surfaces it on /events + on the guest claim", async () => {
+      const { app } = buildApp();
+      await uploadEvent(app);
+
+      const put = await appRequest(app, `${orgEventImagePath(EVENT_ID)}/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify({ crop: VALID_CROP }),
+      });
+      expect(put.status).toBe(200);
+
+      const eventsRes = await appRequest(
+        app,
+        `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events`,
+        { headers: await authHeaders(BOOTSTRAP_OWNER) },
+      );
+      const rows = (await eventsRes.json()) as {
+        id: string;
+        imageCrop: typeof VALID_CROP | null;
+      }[];
+      expect(rows.find((e) => e.id === EVENT_ID)?.imageCrop).toEqual(VALID_CROP);
+    });
+
+    it("rejects an out-of-range event crop with 400", async () => {
+      const { app } = buildApp();
+      await uploadEvent(app);
+      const bad = await appRequest(app, `${orgEventImagePath(EVENT_ID)}/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify({ crop: { x: 0, y: 0, w: 0, h: 0 } }),
+      });
+      expect(bad.status).toBe(400);
+    });
+
+    it("404s saving a crop for an event in ANOTHER wedding (ownership scoping)", async () => {
+      const { app, db } = buildApp();
+      db.insert(weddings)
+        .values({
+          id: "wed_other",
+          slug: "other-wedding",
+          displayName: "Other",
+          ownerOsnProfileId: "usr_other_owner",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .run();
+      db.insert(events)
+        .values({
+          id: "other-event",
+          weddingId: "wed_other",
+          slug: "other-event-slug",
+          name: "Other Event",
+          date: "2026-01-01",
+          location: "Elsewhere",
+          startAt: "2026-01-01T00:00:00Z",
+          endAt: "2026-01-01T01:00:00Z",
+          timezone: "UTC",
+          eventImageKey: "assets/wed_other/event-deadbeef",
+        })
+        .run();
+
+      // The owner of the bootstrap wedding can't crop another wedding's event.
+      const res = await appRequest(
+        app,
+        `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events/other-event/image/crop`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+          body: JSON.stringify({ crop: VALID_CROP }),
+        },
+      );
+      expect(res.status).toBe(404);
+    });
+
+    it("clears the event crop on re-upload", async () => {
+      const { app } = buildApp();
+      await uploadEvent(app);
+      await appRequest(app, `${orgEventImagePath(EVENT_ID)}/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify({ crop: VALID_CROP }),
+      });
+      await uploadEvent(app);
+      const eventsRes = await appRequest(
+        app,
+        `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events`,
+        { headers: await authHeaders(BOOTSTRAP_OWNER) },
+      );
+      const rows = (await eventsRes.json()) as { id: string; imageCrop: unknown }[];
+      expect(rows.find((e) => e.id === EVENT_ID)?.imageCrop).toBeNull();
+    });
+  });
+});

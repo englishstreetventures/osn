@@ -1,6 +1,7 @@
 import { Show } from "solid-js";
 
-import { buildSrcSet } from "./InviteHeader";
+import { cropBackgroundStyle } from "./image-crop";
+import { buildSrcSet, variantSrc } from "./InviteHeader";
 import type { EventSummary } from "./types";
 import { formatDate } from "./utils";
 
@@ -87,19 +88,44 @@ export function EventCard(props: EventCardProps) {
             stacked below the text and on md+ beside it. On `alt` rows it moves to
             the LEFT on md+ (order-1); on `norm` rows it stays right (order-2). */}
         <Show when={imageUrl()}>
-          {(url) => (
-            <img
-              src={url()}
-              // Event photo renders at most ~480px wide in a column — thumb/card
-              // cover it; the API negotiates WebP/AVIF per request via Accept.
-              srcset={buildSrcSet(url(), ["thumb", "card"])}
-              sizes="(min-width: 768px) 480px, 100vw"
-              alt={`${props.event.name} event`}
-              loading="lazy"
-              class="border-border max-h-[320px] w-full rounded-sm border object-cover"
-              classList={{ "md:order-1": isAlt(), "md:order-2": !isAlt() }}
-            />
-          )}
+          {(url) => {
+            // Cropped region (organiser pan/zoom) via the shared CSS fraction
+            // technique — a `card`-variant background (backgrounds can't use
+            // srcset; card comfortably covers the ~480px column at retina). With
+            // no crop, keep the responsive <img srcset> + object-cover (unchanged).
+            const cropStyle = () =>
+              cropBackgroundStyle(variantSrc(url(), "card"), props.event.imageCrop);
+            return (
+              <Show
+                when={cropStyle()}
+                fallback={
+                  <img
+                    src={url()}
+                    // Event photo renders at most ~480px wide in a column — thumb/card
+                    // cover it; the API negotiates WebP/AVIF per request via Accept.
+                    srcset={buildSrcSet(url(), ["thumb", "card"])}
+                    sizes="(min-width: 768px) 480px, 100vw"
+                    alt={`${props.event.name} event`}
+                    loading="lazy"
+                    class="border-border max-h-[320px] w-full rounded-sm border object-cover"
+                    classList={{ "md:order-1": isAlt(), "md:order-2": !isAlt() }}
+                  />
+                }
+              >
+                {(style) => (
+                  <div
+                    role="img"
+                    aria-label={`${props.event.name} event`}
+                    // Fixed 4∶3 box (matches the organiser's locked event crop
+                    // ratio) so the stored fraction renders WYSIWYG.
+                    class="border-border aspect-[4/3] max-h-[320px] w-full rounded-sm border bg-cover"
+                    classList={{ "md:order-1": isAlt(), "md:order-2": !isAlt() }}
+                    style={style()}
+                  />
+                )}
+              </Show>
+            );
+          }}
         </Show>
       </div>
     </article>

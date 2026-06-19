@@ -3,10 +3,12 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { cropBackgroundStyle, type CropSlot, type ImageCrop } from "../lib/image-crop";
 import { isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
 import { previewSectionVars, resolveSectionTheme } from "../lib/invite-theme-preview";
 import type { PreviewTheme } from "../lib/invite-theme-preview";
 import ColorPicker from "./ColorPicker";
+import ImageCropModal from "./ImageCropModal";
 
 type ImageSlot = "hero" | "story";
 type ThemeSection = "hero" | "story" | "details";
@@ -56,12 +58,18 @@ const PREVIEW_HERO_GRADIENT =
   "linear-gradient(160deg, oklch(27.87% 0.0393 149.62) 0%, oklch(19.96% 0.0331 147.34) 40%, oklch(22.70% 0.0275 152.78) 100%)";
 
 interface InviteCustomisation {
-  hero: { title: string | null; subtitle: string | null; imageUrl: string | null };
+  hero: {
+    title: string | null;
+    subtitle: string | null;
+    imageUrl: string | null;
+    imageCrop: ImageCrop | null;
+  };
   story: {
     eyebrow: string | null;
     heading: string | null;
     body: string | null;
     imageUrl: string | null;
+    imageCrop: ImageCrop | null;
   };
   heroDisplay: HeroDisplay;
   theme: InviteTheme;
@@ -286,6 +294,27 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     }
   }
 
+  // Save (or reset, with `crop: null`) a slot's crop rectangle. Mutates the loaded
+  // data with the returned customisation so the thumbnail re-renders the new crop.
+  // Throws on failure so the modal can keep itself open and surface a retry.
+  async function saveCrop(slot: ImageSlot, crop: ImageCrop | null) {
+    const res = await authFetch(apiUrl(`${base()}/image/${slot}/crop`), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ crop }),
+    });
+    if (res.status === 401) {
+      redirectToLogin();
+      throw new Error("unauthorised");
+    }
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error ?? `Save failed (${res.status})`);
+    }
+    mutate((await res.json()) as InviteCustomisation);
+    toast.success(crop ? "Crop saved" : "Crop reset");
+  }
+
   return (
     <section class="border-border bg-surface/30 flex flex-col gap-8 rounded-sm border p-6">
       <header class="flex flex-col gap-1">
@@ -325,9 +354,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 <SegmentBadge shown={heroShown()} />
                 <ImageField
                   label="Hero background image"
+                  slot="hero"
                   url={d().hero.imageUrl}
+                  crop={d().hero.imageCrop}
                   onSelect={(f) => void uploadImage("hero", f)}
                   onRemove={() => void removeImage("hero")}
+                  onSaveCrop={(c) => saveCrop("hero", c)}
                 />
                 <TextField
                   label="Couple title"
@@ -388,9 +420,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 <SegmentBadge shown={storyShown()} />
                 <ImageField
                   label="Story photo"
+                  slot="story"
                   url={d().story.imageUrl}
+                  crop={d().story.imageCrop}
                   onSelect={(f) => void uploadImage("story", f)}
                   onRemove={() => void removeImage("story")}
+                  onSaveCrop={(c) => saveCrop("story", c)}
                 />
                 <TextField
                   label="Eyebrow"
@@ -777,22 +812,51 @@ function TextField(props: {
 
 function ImageField(props: {
   label: string;
+  slot: CropSlot;
   url: string | null;
+  crop: ImageCrop | null;
   onSelect: (file: File) => void;
   onRemove: () => void;
+  onSaveCrop: (crop: ImageCrop | null) => Promise<void>;
 }) {
+  const [cropping, setCropping] = createSignal(false);
+  // Absolute, cache-busted image URL for the thumbnail + the cropper. The crop
+  // editor works against the ORIGINAL (full) image so the organiser can re-frame
+  // freely, so it always loads the unmodified `src`.
+  const absoluteUrl = (): string | null => (props.url ? apiUrl(props.url) : null);
+  // WYSIWYG thumbnail: when a crop is saved, render the cropped region with the
+  // same background-image fraction technique the guest site uses, so the preview
+  // matches the invite. With no crop, fall back to the plain object-cover image.
+  const cropStyle = () => {
+    const url = absoluteUrl();
+    return url ? cropBackgroundStyle(url, props.crop) : null;
+  };
+
   return (
     <div class="flex flex-col gap-2">
       <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
         {props.label}
       </span>
-      <Show when={props.url}>
+      <Show when={absoluteUrl()}>
         {(url) => (
-          <img
-            src={apiUrl(url())}
-            alt=""
-            class="border-border h-32 w-full max-w-xs rounded-sm border object-cover"
-          />
+          <Show
+            when={cropStyle()}
+            fallback={
+              <img
+                src={url()}
+                alt=""
+                class="border-border h-32 w-full max-w-xs rounded-sm border object-cover"
+              />
+            }
+          >
+            {(style) => (
+              <div
+                aria-label={`${props.label} (cropped)`}
+                class="border-border h-32 w-full max-w-xs rounded-sm border"
+                style={style()}
+              />
+            )}
+          </Show>
         )}
       </Show>
       <div class="flex flex-wrap items-center gap-3">
@@ -809,6 +873,13 @@ function ImageField(props: {
         <Show when={props.url}>
           <button
             type="button"
+            onClick={() => setCropping(true)}
+            class="font-body text-gold text-[0.82rem] underline-offset-4 hover:underline"
+          >
+            Crop
+          </button>
+          <button
+            type="button"
             onClick={() => props.onRemove()}
             class="font-body text-text-muted text-[0.82rem] underline-offset-4 hover:underline"
           >
@@ -816,6 +887,18 @@ function ImageField(props: {
           </button>
         </Show>
       </div>
+      <Show when={cropping() && absoluteUrl()}>
+        {(url) => (
+          <ImageCropModal
+            imageUrl={url()}
+            slot={props.slot}
+            initialCrop={props.crop}
+            onSave={props.onSaveCrop}
+            onReset={() => props.onSaveCrop(null)}
+            onClose={() => setCropping(false)}
+          />
+        )}
+      </Show>
     </div>
   );
 }
