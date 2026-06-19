@@ -1,5 +1,7 @@
 import { onCleanup, onMount, type JSX } from "solid-js";
 
+import { Z_CLASS } from "../lib/z-index";
+
 interface AnimatedModalProps {
   onClose: () => void;
   /**
@@ -126,7 +128,10 @@ export function AnimatedModal(props: AnimatedModalProps) {
   return (
     <div
       ref={backdropRef}
-      class="fixed inset-0 z-100 flex items-end justify-center bg-black/70 opacity-0 md:items-center"
+      // Stacking order is centralised in `lib/z-index` — `Z_CLASS.MODAL` (z-100)
+      // is the backdrop/panel layer. A modal-launched popover (AddToCalendar)
+      // must paint above this; that invariant lives in `lib/z-index` + its test.
+      class={`fixed inset-0 ${Z_CLASS.MODAL} flex items-end justify-center bg-black/70 opacity-0 md:items-center`}
       onClick={() => handleClose()}
     >
       <div

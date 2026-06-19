@@ -1,6 +1,7 @@
 import { createMemo, createSignal, createUniqueId, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
+import { Z_CLASS } from "../lib/z-index";
 import { googleCalendarUrl, icsObjectUrl } from "./calendar";
 import type { EventSummary } from "./types";
 
@@ -226,13 +227,15 @@ export function AddToCalendar(props: AddToCalendarProps) {
             id={popoverId}
             role="menu"
             aria-label="Add to calendar options"
-            // z-110 sits ABOVE AnimatedModal (z-100). Add-to-Calendar is
-            // triggered from inside the details modal, so its popover must paint
-            // on top of that modal — at z-90 it rendered *behind* the modal
-            // backdrop, leaving the menu invisible and unclickable ("Add to
-            // Calendar doesn't work"). The popover is portalled to <body>, so
-            // this z-index isn't trapped inside the modal's stacking context.
-            class="border-border bg-surface-raised fixed z-110 flex max-w-[calc(100vw-1rem)] min-w-[14rem] flex-col gap-1 rounded-sm border p-2 shadow-lg"
+            // `Z_CLASS.MODAL_POPOVER` (z-110) sits ABOVE `Z_CLASS.MODAL`
+            // (z-100). Add-to-Calendar is triggered from inside the details
+            // modal, so its popover must paint on top of that modal — at z-90 it
+            // rendered *behind* the modal backdrop, leaving the menu invisible
+            // and unclickable ("Add to Calendar doesn't work"). The popover is
+            // portalled to <body>, so this z-index isn't trapped inside the
+            // modal's stacking context. The ordering invariant
+            // (MODAL_POPOVER > MODAL) is centralised + asserted in `lib/z-index`.
+            class={`border-border bg-surface-raised fixed ${Z_CLASS.MODAL_POPOVER} flex max-w-[calc(100vw-1rem)] min-w-[14rem] flex-col gap-1 rounded-sm border p-2 shadow-lg`}
             style={{ top: `${position().top}px`, left: `${position().left}px` }}
           >
             <a
