@@ -128,6 +128,27 @@ export const weddingsService = {
   },
 
   /**
+   * The slug of a single wedding by id, or `null` when no such wedding exists.
+   * Used by the RSVP export route to build a friendly download filename — the
+   * caller has already passed the `weddingMember()` authz gate, so this is a
+   * plain scoped read, not an authorisation check.
+   */
+  slugOf(weddingId: string): Effect.Effect<string | null, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({ slug: weddings.slug })
+          .from(weddings)
+          .where(eq(weddings.id, weddingId))
+          .limit(1)
+          .all(),
+      );
+      return row?.slug ?? null;
+    }).pipe(Effect.withSpan("cire.wedding.slugOf"));
+  },
+
+  /**
    * Create a new wedding owned by the caller. Generates the id + a unique slug
    * (base slug from the display name, plus a short random suffix to avoid
    * collisions with another owner's wedding of the same name — slug is globally

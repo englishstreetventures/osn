@@ -3,6 +3,7 @@ import { createSignal, onMount, Show, For, createMemo } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { downloadBlob } from "../lib/download";
 import { buildInviteMessage, copyToClipboard } from "../lib/invite-message";
 
 interface OrganiserGuestRow {
@@ -49,6 +50,7 @@ export default function GuestTable(props: GuestTableProps) {
   // copy succeeds, so the indicator updates without a reload while the
   // best-effort mark-shared POST settles in the background.
   const [sharedNow, setSharedNow] = createSignal<Set<string>>(new Set());
+  const [exporting, setExporting] = createSignal(false);
 
   const families = createMemo(() => {
     const map = new Map<string, FamilyGroup>();
@@ -109,6 +111,30 @@ export default function GuestTable(props: GuestTableProps) {
     });
   }
 
+  /**
+   * Download the wedding's RSVP CSV. The CSV is built (and formula-sanitised)
+   * server-side at `GET …/rsvps.csv`; the response Blob is handed to the shared
+   * download helper. authFetch attaches the OSN access token — the endpoint is
+   * gated by `weddingMember()` so the owner OR a co-host can export.
+   */
+  async function exportRsvps() {
+    if (exporting()) return;
+    setExporting(true);
+    try {
+      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/rsvps.csv`));
+      if (res.status === 401) return redirectToLogin();
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      const blob = await res.blob();
+      downloadBlob(`cire-rsvps-${props.weddingSlug}.csv`, blob);
+      toast.success("RSVP export downloaded");
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      toast.error("Could not export RSVPs. Try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function copyMessage(family: FamilyGroup) {
     const message = buildInviteMessage(props.weddingName, family.publicId, props.weddingSlug);
     const ok = await copyToClipboard(message);
@@ -137,9 +163,19 @@ export default function GuestTable(props: GuestTableProps) {
       </Show>
 
       <Show when={!loading() && !error()}>
-        <p class="font-body text-text-muted text-[0.82rem]">
-          {guests().length} guests across {families().length} families
-        </p>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <p class="font-body text-text-muted text-[0.82rem]">
+            {guests().length} guests across {families().length} families
+          </p>
+          <button
+            type="button"
+            onClick={() => void exportRsvps()}
+            disabled={exporting()}
+            class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+          >
+            {exporting() ? "Exporting…" : "Download RSVPs (CSV)"}
+          </button>
+        </div>
 
         <div class="overflow-x-auto">
           <table class="font-body w-full border-collapse text-[0.88rem]">

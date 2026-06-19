@@ -32,6 +32,12 @@ vi.mock("../lib/api", () => ({
 
 vi.mock("../lib/osn", () => ({ CIRE_WEB_URL: "https://guests.test" }));
 
+const downloadBlobMock = vi.fn();
+vi.mock("../lib/download", () => ({
+  downloadBlob: (name: string, blob: Blob) => downloadBlobMock(name, blob),
+  downloadCsv: vi.fn(),
+}));
+
 import GuestTable from "./GuestTable";
 
 function json(body: unknown, status = 200) {
@@ -77,6 +83,7 @@ describe("GuestTable", () => {
     toastSuccess.mockReset();
     toastError.mockReset();
     writeText.mockReset();
+    downloadBlobMock.mockReset();
   });
 
   function withClipboard() {
@@ -121,6 +128,34 @@ describe("GuestTable", () => {
       ).toBe(true),
     );
     expect(toastSuccess).toHaveBeenCalled();
+  });
+
+  it("downloads the RSVP CSV when the export button is clicked", async () => {
+    primeLoad();
+    const csv = "Family Code,Family Name\r\nSHARMA-WIDGET-AB3K9-X7QPM,Sharma";
+    authFetchMock.mockResolvedValueOnce(
+      new Response(csv, { status: 200, headers: { "Content-Type": "text/csv" } }),
+    );
+
+    render(() => (
+      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /Download RSVPs/i }));
+
+    // Hits the server-built CSV endpoint…
+    await waitFor(() =>
+      expect(
+        authFetchMock.mock.calls.some(
+          (c) => String(c[0]) === "https://api.test/api/organiser/weddings/wed_a/rsvps.csv",
+        ),
+      ).toBe(true),
+    );
+    // …and triggers a blob download with the slug-based filename.
+    await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
+    expect(downloadBlobMock.mock.calls[0]![0]).toBe("cire-rsvps-nadia-sam-abc123.csv");
+    expect(downloadBlobMock.mock.calls[0]![1]).toBeInstanceOf(Blob);
   });
 
   it("shows a Sent indicator for an already-shared family", async () => {

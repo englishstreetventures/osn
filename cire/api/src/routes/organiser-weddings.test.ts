@@ -1,6 +1,16 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, families, guests, sessions, weddings } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  events,
+  families,
+  guestEvents,
+  guests,
+  rsvps,
+  sessions,
+  weddingHosts,
+  weddings,
+} from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 
@@ -678,5 +688,90 @@ describe("POST /api/organiser/weddings/:weddingId/families/:familyId/mark-shared
     const { app } = buildApp();
     const res = await postMark(app, BOOTSTRAP_WEDDING_ID, "fam_other", BOOTSTRAP_OWNER);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /api/organiser/weddings/:weddingId/rsvps.csv", () => {
+  const COHOST = "usr_cohost";
+  const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/rsvps.csv`;
+
+  /** Make `usr_cohost` a co-host of the bootstrap wedding. */
+  function seedCohost(db: Db) {
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_export",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: COHOST,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "host",
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  /** Plant one attending RSVP (with dietary) for some guest so the CSV has content. */
+  function seedOneRsvp(db: Db) {
+    const guest = db.select({ id: guests.id }).from(guests).all()[0]!;
+    const link = db
+      .select({ eventId: guestEvents.eventId })
+      .from(guestEvents)
+      .where(eq(guestEvents.guestId, guest.id))
+      .all()[0]!;
+    db.insert(rsvps)
+      .values({
+        id: "rsvp_export",
+        guestId: guest.id,
+        eventId: link.eventId,
+        status: "attending",
+        dietary: "Gluten free",
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  it("returns 401 without a token", async () => {
+    const { app } = buildApp();
+    const res = await get(app, path);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 for a non-member (neither owner nor co-host)", async () => {
+    const { app } = buildApp();
+    const res = await get(app, path, OTHER_OWNER);
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 404 for an unknown wedding", async () => {
+    const { app } = buildApp();
+    const res = await get(app, "/api/organiser/weddings/wed_nope/rsvps.csv", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(404);
+  });
+
+  it("serves a CSV download for the owner with the right headers", async () => {
+    const { db, app } = buildApp();
+    seedOneRsvp(db);
+    const res = await get(app, path, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/csv");
+    const disposition = res.headers.get("content-disposition") ?? "";
+    expect(disposition).toContain("attachment");
+    // Filename embeds the wedding slug.
+    expect(disposition).toContain("cire-rsvps-cire-wedding.csv");
+    expect(res.headers.get("cache-control")).toContain("no-store");
+
+    const body = await res.text();
+    const header = body.split("\r\n")[0]!;
+    expect(header).toContain("Family Code");
+    expect(header).toContain("Dietary Requirements");
+    expect(body).toContain("Attending");
+    expect(body).toContain("Gluten free");
+  });
+
+  it("serves the CSV for a co-host too (weddingMember gate)", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db);
+    const res = await get(app, path, COHOST);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/csv");
   });
 });

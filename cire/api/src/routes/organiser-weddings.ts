@@ -16,6 +16,7 @@ import { hostCodeService } from "../services/host-code";
 import { markSharedService } from "../services/mark-shared";
 import { regenerateCodeService } from "../services/regenerate-code";
 import { remintCodesService } from "../services/remint-codes";
+import { rsvpExportService, toCsv } from "../services/rsvp-export";
 import { weddingsService } from "../services/weddings";
 
 // Sentinel parse hook: stops Elysia from consuming the body so the handler can
@@ -83,6 +84,43 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
           }
           return runCire(
             claimService.listEvents(weddingId).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchAllDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        })
+        // RSVP CSV export — one row per guest (incl. guests who haven't RSVP'd),
+        // one column per event, dietary requirements. Sorted by family code.
+        // Returns a server-built CSV with Content-Disposition: attachment so the
+        // browser downloads it directly. Same weddingMember() gate as the reads
+        // above (owner OR co-host). The filename embeds the wedding slug.
+        .get("/rsvps.csv", ({ weddingId, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            Effect.gen(function* () {
+              const data = yield* rsvpExportService.build(weddingId);
+              const slug = yield* weddingsService.slugOf(weddingId);
+              const csv = toCsv(data);
+              const filename = `cire-rsvps-${slug ?? weddingId}.csv`;
+              return new Response(csv, {
+                headers: {
+                  "Content-Type": "text/csv; charset=utf-8",
+                  "Content-Disposition": `attachment; filename="${filename}"`,
+                  // Guest PII (names, dietary) — never let an intermediary cache it.
+                  "Cache-Control": "no-store",
+                  // Belt-and-braces against content sniffing.
+                  "X-Content-Type-Options": "nosniff",
+                },
+              });
+            }).pipe(
               Effect.provideService(DbService, db),
               Effect.catchAllDefect(() =>
                 Effect.sync(() => {

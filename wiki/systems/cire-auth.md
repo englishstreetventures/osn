@@ -95,6 +95,7 @@ Organisers who don't yet have an OSN account can create one from the same page: 
 | Action | Owner | Co-host | Gate |
 |---|---|---|---|
 | View guests / events dashboard | ✅ | ✅ | `weddingMember()` |
+| Export RSVPs (`GET /weddings/:id/rsvps.csv`) | ✅ | ✅ | `weddingMember()` |
 | Spreadsheet import — preview / apply / revert / list | ✅ | ✅ | `weddingMember()` |
 | View + customise the invite (text / theme / images) | ✅ | ✅ | `weddingMember()` |
 | View the co-host list (`GET /hosts`) | ✅ | ✅ | `weddingMember()` |

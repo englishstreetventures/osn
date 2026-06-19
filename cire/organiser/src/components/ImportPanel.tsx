@@ -2,6 +2,7 @@ import { useAuth } from "@osn/client/solid";
 import { createSignal, Show, For } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { downloadCsv } from "../lib/download";
 import {
   EVENT_REQUIRED_HEADERS,
   EVENT_OPTIONAL_HEADERS,
@@ -53,24 +54,6 @@ function readFile(file: File): Promise<string> {
     reader.addEventListener("error", () => reject(reader.error ?? new Error("read failed")));
     reader.readAsText(file);
   });
-}
-
-/**
- * Trigger a client-side download of `content` as `filename`. The CSV is built
- * from code-authored static templates (see `../lib/import-templates`), so there
- * is no server round-trip and no formula-injection surface. The object URL is
- * revoked after the click so it can't leak.
- */
-function downloadCsv(filename: string, content: string) {
-  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }
 
 /**
