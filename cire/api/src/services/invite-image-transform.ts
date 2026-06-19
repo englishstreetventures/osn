@@ -43,17 +43,19 @@ export type ImageVariant = keyof typeof IMAGE_VARIANTS;
 export const DEFAULT_VARIANT: ImageVariant = "card";
 
 /**
- * Server-chosen Gaussian blur radius (in Cloudflare Images terms, roughly 0–250)
- * applied per variant. Only `hero-bg` is blurred — a tasteful "soft backdrop"
- * radius: enough to abstract the photo behind the title without dissolving it.
- * Tune here (one constant, server-side only — never from request input). Variants
- * absent from this map are served sharp. Start ~28; bump toward 35–40 for softer.
+ * DEFAULT server-chosen Gaussian blur radius (in Cloudflare Images terms) applied
+ * per variant. Only `hero-bg` is blurred — a tasteful "soft backdrop" radius. As
+ * of migration 0018 the hero backdrop blur is PER-WEDDING (`hero_blur`, 0–40):
+ * this map is now only the fallback the serve route uses when no per-wedding
+ * override is resolved. The radius is still server-derived (read off the row or
+ * this constant), NEVER request input — an attacker still can't sweep blur values
+ * to mint unbounded transforms. Variants absent from this map are served sharp.
  */
 export const VARIANT_BLUR: Partial<Record<ImageVariant, number>> = {
   "hero-bg": 28,
 } as const;
 
-/** The blur radius for a variant, or `undefined` when it should render sharp. */
+/** The default blur radius for a variant, or `undefined` when it renders sharp. */
 export function blurForVariant(variant: ImageVariant): number | undefined {
   return VARIANT_BLUR[variant];
 }
@@ -109,6 +111,12 @@ export function negotiateFormat(accept: string | null | undefined): OutputFormat
  *    `updatedAt` (NOT the client `?v=`, which is ignored for keying — S-M1), so a
  *    re-upload bumps `updatedAt` → a new key → the new image isn't served stale,
  *    while an attacker can't loop arbitrary `?v=` values to mint fresh transforms.
+ *  - `blur` — the server-derived hero backdrop blur radius (per-wedding
+ *    `hero_blur`, migration 0018), present only for the `hero-bg` variant. Saving
+ *    a new blur already bumps `updatedAt` (so `v` busts the cache on its own),
+ *    but we ALSO fold `blur` into the key defensively so the cached bytes can
+ *    never disagree with the requested radius. It stays bounded: exactly one
+ *    server-derived value per wedding, not a client-swept param.
  *
  * The format slug strips the `image/` prefix to keep the key tidy. We use a
  * synthetic host so the key never collides with a real inbound request URL and
@@ -120,6 +128,7 @@ export function buildTransformCacheKey(args: {
   variant: ImageVariant;
   format: OutputFormat;
   version?: string | null;
+  blur?: number | null;
 }): Request {
   const formatSlug = args.format.replace("image/", "");
   const params = new URLSearchParams({
@@ -127,6 +136,7 @@ export function buildTransformCacheKey(args: {
     format: formatSlug,
   });
   if (args.version) params.set("v", args.version);
+  if (args.blur !== undefined && args.blur !== null) params.set("blur", String(args.blur));
   const url = `https://cire-image-cache.internal/${encodeURIComponent(args.slug)}/${encodeURIComponent(
     args.slot,
   )}?${params.toString()}`;
@@ -178,14 +188,18 @@ const OUTPUT_QUALITY = 82;
  * comes from the binding (it knows what it actually produced).
  *
  * A variant with a {@link VARIANT_BLUR} entry (today only `hero-bg`) also gets a
- * server-side Gaussian blur — the soft hero backdrop. The blur radius is a server
- * constant keyed by the bounded variant name, never request input.
+ * server-side Gaussian blur — the soft hero backdrop. The radius is server-
+ * derived, never request input: the optional `blurOverride` (the per-wedding
+ * `hero_blur`, migration 0018) takes precedence over the {@link VARIANT_BLUR}
+ * default when given. A `0` override is honoured (sharp backdrop) — only
+ * `undefined` falls back to the variant default. Sharp variants stay un-blurred.
  */
 export function transformAsset(
   images: ImagesBindingLike,
   original: StoredAsset,
   variant: ImageVariant,
   format: OutputFormat,
+  blurOverride?: number,
 ): Effect.Effect<StoredAsset, ImageTransformError> {
   return Effect.tryPromise({
     try: async () => {
@@ -193,7 +207,16 @@ export function transformAsset(
       if (!stream) {
         throw new Error("original asset had no readable body");
       }
-      const blur = blurForVariant(variant);
+      // Only the blurred backdrop variant takes a blur at all. Within it, the
+      // per-wedding override wins (including an explicit 0 ⇒ sharp); absent an
+      // override we fall back to the server-constant default.
+      const variantDefault = blurForVariant(variant);
+      const blur =
+        variantDefault === undefined
+          ? undefined
+          : blurOverride !== undefined
+            ? blurOverride
+            : variantDefault;
       const out = await images
         .input(stream)
         .transform({ width: IMAGE_VARIANTS[variant], ...(blur ? { blur } : {}) })

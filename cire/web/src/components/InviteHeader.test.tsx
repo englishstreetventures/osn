@@ -53,7 +53,7 @@ const EMPTY_THEME = {
 
 // Today's-look hero display defaults — every fixture spreads this unless a test
 // is specifically exercising a non-default option.
-const DEFAULT_HERO_DISPLAY = { imageStyle: "blurred", titleBackdrop: "none" } as const;
+const DEFAULT_HERO_DISPLAY = { blur: 28, titleBackdrop: { opacity: 0, blur: 0 } } as const;
 
 describe("InviteHeader render", () => {
   it("requests the blurred hero-bg backdrop variant for the hero image (T-M2)", async () => {
@@ -386,13 +386,16 @@ describe("InviteHeader render", () => {
     expect((container.querySelector("section img") as HTMLImageElement).style.opacity).toBe("1");
   });
 
-  // ── Feature 1: blurred vs regular hero image ──────────────────────────────
+  // ── Feature 1: hero backdrop always requests hero-bg (server applies blur) ──
 
-  it("requests the SHARP `hero` variant when imageStyle is regular (Feature 1)", async () => {
+  it("always requests the hero-bg variant — the blur is applied server-side (0018)", async () => {
+    // The per-wedding blur (incl. 0 ⇒ sharp) lives on the row and is applied by
+    // the server to the hero-bg transform, so the guest always asks for hero-bg
+    // regardless of the blur value — no client variant switch.
     const initial: InviteCustomisation = {
       hero: { title: null, subtitle: null, imageUrl: "/api/invite/s/image/hero?v=9" },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
-      heroDisplay: { imageStyle: "regular", titleBackdrop: "none" },
+      heroDisplay: { blur: 0, titleBackdrop: { opacity: 0, blur: 0 } },
       theme: EMPTY_THEME,
     };
     vi.stubGlobal(
@@ -406,19 +409,18 @@ describe("InviteHeader render", () => {
 
     await waitFor(() => expect(container.querySelector("section img")).not.toBeNull());
     const img = container.querySelector("section img") as HTMLImageElement;
-    // Regular ⇒ the un-blurred full-bleed `hero` variant (not `hero-bg`).
     expect(img.getAttribute("src")).toBe(
-      "https://api.test/api/invite/s/image/hero?v=9&variant=hero",
+      "https://api.test/api/invite/s/image/hero?v=9&variant=hero-bg",
     );
   });
 
-  // ── Feature 2: hero title backdrop ────────────────────────────────────────
+  // ── Feature 2: hero title backdrop sliders (opacity + blur) ────────────────
 
-  it("renders a solid title panel when titleBackdrop is solid (Feature 2)", async () => {
+  it("renders the title legibility panel when opacity > 0, with a frosted blur (Feature 2)", async () => {
     const initial: InviteCustomisation = {
       hero: { title: "A & B", subtitle: null, imageUrl: null },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
-      heroDisplay: { imageStyle: "blurred", titleBackdrop: "solid" },
+      heroDisplay: { blur: 28, titleBackdrop: { opacity: 60, blur: 8 } },
       theme: EMPTY_THEME,
     };
     vi.stubGlobal(
@@ -431,13 +433,17 @@ describe("InviteHeader render", () => {
     ));
 
     const title = await waitFor(() => getByText("A & B"));
-    // The title's wrapper panel carries a background colour (the legibility panel);
-    // with `none` it would have no inline background.
+    // The wrapper panel carries a background (opacity-driven) AND a backdrop-filter
+    // blur. With opacity 0 it has neither.
     const panel = title.parentElement as HTMLElement;
-    expect(panel.style.getPropertyValue("background-color")).not.toBe("");
+    expect(panel.style.getPropertyValue("background-color")).toContain("60%");
+    expect(panel.style.getPropertyValue("backdrop-filter")).toBe("blur(8px)");
+    // NB: the component also emits the Safari-prefixed `-webkit-backdrop-filter`
+    // twin, but happy-dom drops the vendor-prefixed property from the inline
+    // style attribute, so it can't be asserted here — verified by the source.
   });
 
-  it("renders NO title panel background by default (titleBackdrop none)", async () => {
+  it("renders NO title panel by default (titleBackdrop opacity 0)", async () => {
     const initial: InviteCustomisation = {
       hero: { title: "A & B", subtitle: null, imageUrl: null },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
@@ -456,5 +462,6 @@ describe("InviteHeader render", () => {
     const title = await waitFor(() => getByText("A & B"));
     const panel = title.parentElement as HTMLElement;
     expect(panel.style.getPropertyValue("background-color")).toBe("");
+    expect(panel.style.getPropertyValue("backdrop-filter")).toBe("");
   });
 });

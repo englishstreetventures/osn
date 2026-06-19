@@ -300,21 +300,23 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   storyBody: text("story_body"),
   heroImageKey: text("hero_image_key"),
   storyImageKey: text("story_image_key"),
-  // Hero display options (organiser choice). Both default to the values that
-  // reproduce TODAY's look, so an un-customised wedding renders exactly as
-  // before. `hero_image_style` picks which served variant the hero backdrop
-  // requests: `blurred` ⇒ the soft `hero-bg` backdrop (current behaviour);
-  // `regular` ⇒ the sharp full-bleed `hero` variant. `hero_title_backdrop`
-  // controls the legibility panel behind the hero title block: `none` ⇒ just the
-  // radial scrim (current); `solid` ⇒ a translucent panel so the title reads over
-  // a busy photo. Both are a closed enum, validated in
-  // `cire/api/src/schemas/invite.ts` before they reach the guest site.
-  heroImageStyle: text("hero_image_style", { enum: ["blurred", "regular"] })
-    .notNull()
-    .default("blurred"),
-  heroTitleBackdrop: text("hero_title_backdrop", { enum: ["none", "solid"] })
-    .notNull()
-    .default("none"),
+  // Fine-grained hero display sliders (organiser choice; migration 0018 replaced
+  // the coarse 0017 enums). All three default to the values that reproduce
+  // TODAY's look, so an un-customised wedding renders exactly as before, and the
+  // server clamps each to its range in `cire/api/src/schemas/invite.ts` before it
+  // is persisted.
+  //   `hero_blur` (0–40) — the server-side Gaussian blur radius applied to the
+  //     hero backdrop. 28 (default) = the soft `hero-bg` look; 0 = the sharp
+  //     full-bleed photo. This is the per-wedding override of the former fixed
+  //     `VARIANT_BLUR["hero-bg"]` constant, so changing it must bust the served
+  //     image cache (the save bumps `updatedAt`, which keys the transform cache).
+  //   `hero_title_backdrop_opacity` (0–100) — opacity (÷100) of the dark
+  //     legibility panel behind the hero title text. 0 (default) = no panel.
+  //   `hero_title_backdrop_blur` (0–20) — frosted-glass `backdrop-filter` blur in
+  //     px behind the title. 0 (default) = no frost.
+  heroBlur: integer("hero_blur").notNull().default(28),
+  heroTitleBackdropOpacity: integer("hero_title_backdrop_opacity").notNull().default(0),
+  heroTitleBackdropBlur: integer("hero_title_backdrop_blur").notNull().default(0),
   // Per-section presentation theme. All columns are nullable ⇒ "use the built-in
   // default token". Fonts are a closed enum validated in
   // `cire/api/src/schemas/invite.ts` (never a free-text font URL — that's a perf

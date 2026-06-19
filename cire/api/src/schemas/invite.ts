@@ -39,33 +39,55 @@ export const InviteTextBody = Schema.Struct({
 });
 export type InviteTextBody = Schema.Schema.Type<typeof InviteTextBody>;
 
-// ── Hero display options ────────────────────────────────────────────────────────
+// ── Hero display sliders ────────────────────────────────────────────────────────
 
 /**
- * How the hero backdrop image is rendered (organiser choice). `blurred` (default
- * — preserves today's look) requests the soft `hero-bg` variant; `regular`
- * requests the sharp full-bleed `hero` variant (no server blur). Closed union: it
- * bounds the DB column, the wire value, and the bounded variant the guest site
- * maps it to.
+ * Fine-grained hero display sliders (organiser choice; migration 0018 replaced
+ * the coarse 0017 `blurred|regular` / `none|solid` enums). Each is a bounded
+ * integer with a default that reproduces TODAY's look:
+ *
+ *  - `heroBlur` (0–40, default 28) — the server-side Gaussian blur radius on the
+ *    hero backdrop image. 28 = the current soft `hero-bg` look; 0 = the sharp
+ *    full-bleed photo. This is now PER-WEDDING (it overrides the former fixed
+ *    `VARIANT_BLUR["hero-bg"]` constant), so the serve route reads it off the row
+ *    and saving it bumps `updatedAt` to bust the transform cache.
+ *  - `titleBackdropOpacity` (0–100, default 0) — opacity (÷100) of the dark
+ *    legibility panel behind the hero title text. 0 = no panel.
+ *  - `titleBackdropBlur` (0–20, default 0) — frosted-glass `backdrop-filter` blur
+ *    in px behind the title. 0 = no frost.
+ *
+ * Bounds are enforced server-side: an out-of-range value is CLAMPED into the
+ * range (not rejected) so a slightly-stale client can't 400 the whole theme
+ * save, while a non-integer / non-number is a ParseError → 400.
  */
-export const HERO_IMAGE_STYLES = ["blurred", "regular"] as const;
-export type HeroImageStyle = (typeof HERO_IMAGE_STYLES)[number];
+export const HERO_BLUR_MIN = 0;
+export const HERO_BLUR_MAX = 40;
+export const HERO_BLUR_DEFAULT = 28;
+export const TITLE_BACKDROP_OPACITY_MIN = 0;
+export const TITLE_BACKDROP_OPACITY_MAX = 100;
+export const TITLE_BACKDROP_BLUR_MIN = 0;
+export const TITLE_BACKDROP_BLUR_MAX = 20;
+
+/** Clamp an integer into [min, max] (server-side range enforcement). */
+export function clampInt(value: number, min: number, max: number): number {
+  const n = Math.round(value);
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
+}
 
 /**
- * The legibility backdrop behind the hero title block. `none` (default) keeps
- * just the radial scrim — today's look; `solid` adds a translucent panel so the
- * title reads over a busy photo. Closed union, same rationale as above.
+ * A bounded integer slider field. Accepts any integer (a finite whole number;
+ * a non-number / non-integer / NaN is a ParseError → 400) and CLAMPS it into
+ * [min, max] via the decode transform, so the persisted value is always in range
+ * regardless of what the client sends.
  */
-export const HERO_TITLE_BACKDROPS = ["none", "solid"] as const;
-export type HeroTitleBackdrop = (typeof HERO_TITLE_BACKDROPS)[number];
-
-export function isHeroImageStyle(value: string): value is HeroImageStyle {
-  return (HERO_IMAGE_STYLES as readonly string[]).includes(value);
-}
-
-export function isHeroTitleBackdrop(value: string): value is HeroTitleBackdrop {
-  return (HERO_TITLE_BACKDROPS as readonly string[]).includes(value);
-}
+const sliderField = (min: number, max: number) =>
+  Schema.transform(Schema.Int, Schema.Int, {
+    strict: true,
+    decode: (n) => clampInt(n, min, max),
+    encode: (n) => n,
+  });
 
 // ── Theme (per-section colours + fonts) ─────────────────────────────────────────
 
@@ -156,11 +178,12 @@ export const InviteThemeBody = Schema.Struct({
   storySurfaceColor: ColorField,
   detailsAccentColor: ColorField,
   detailsSurfaceColor: ColorField,
-  // Hero display options. Non-nullable closed literals — the builder always
-  // submits both, and an unknown value is a ParseError → 400 (never persisted).
-  // `blurred`/`none` reproduce today's look, so they're the safe defaults the
-  // organiser controls land on.
-  heroImageStyle: Schema.Literal(...HERO_IMAGE_STYLES),
-  heroTitleBackdrop: Schema.Literal(...HERO_TITLE_BACKDROPS),
+  // Hero display sliders. Non-nullable bounded ints — the builder always submits
+  // all three, each is clamped into range on decode (out-of-range is silently
+  // clamped, not rejected), and a non-integer is a ParseError → 400. The
+  // defaults (28 / 0 / 0) reproduce today's look.
+  heroBlur: sliderField(HERO_BLUR_MIN, HERO_BLUR_MAX),
+  titleBackdropOpacity: sliderField(TITLE_BACKDROP_OPACITY_MIN, TITLE_BACKDROP_OPACITY_MAX),
+  titleBackdropBlur: sliderField(TITLE_BACKDROP_BLUR_MIN, TITLE_BACKDROP_BLUR_MAX),
 });
 export type InviteThemeBody = Schema.Schema.Type<typeof InviteThemeBody>;

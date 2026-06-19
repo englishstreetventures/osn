@@ -30,15 +30,29 @@ interface InviteTheme {
   details: { accentColor: string | null; surfaceColor: string | null };
 }
 
-// Hero display options (organiser choice). Closed unions mirroring the cire/api
-// enums; the API coalesces a missing row to these today's-look defaults.
-type HeroImageStyle = "blurred" | "regular";
-type HeroTitleBackdrop = "none" | "solid";
-
+// Hero display sliders (organiser choice; migration 0018 replaced the coarse
+// enums). The API coalesces a missing row to these today's-look defaults:
+//   blur 28 (soft backdrop) / title backdrop opacity 0, blur 0 (no panel).
 interface HeroDisplay {
-  imageStyle: HeroImageStyle;
-  titleBackdrop: HeroTitleBackdrop;
+  blur: number;
+  titleBackdrop: { opacity: number; blur: number };
 }
+
+// Slider ranges — mirror the clamp bounds in cire/api schemas/invite.ts.
+const HERO_BLUR_MIN = 0;
+const HERO_BLUR_MAX = 40;
+const HERO_BLUR_DEFAULT = 28;
+const BACKDROP_OPACITY_MIN = 0;
+const BACKDROP_OPACITY_MAX = 100;
+const BACKDROP_BLUR_MIN = 0;
+const BACKDROP_BLUR_MAX = 20;
+
+// The cire palette gold + dark surface, for the WYSIWYG hero preview (mirrors the
+// guest InviteHeader title styling + gradient fallback). Kept local — the
+// organiser must never import cire/web internals.
+const PREVIEW_GOLD = "oklch(74.99% 0.0854 82.08)";
+const PREVIEW_HERO_GRADIENT =
+  "linear-gradient(160deg, oklch(27.87% 0.0393 149.62) 0%, oklch(19.96% 0.0331 147.34) 40%, oklch(22.70% 0.0275 152.78) 100%)";
 
 interface InviteCustomisation {
   hero: { title: string | null; subtitle: string | null; imageUrl: string | null };
@@ -118,10 +132,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   });
   const [savingTheme, setSavingTheme] = createSignal(false);
 
-  // Hero display options. Default to today's look (blurred backdrop, no title
+  // Hero display sliders. Default to today's look (blur 28 backdrop, no title
   // panel); saved via the same theme PUT as the fonts + colours.
-  const [heroImageStyle, setHeroImageStyle] = createSignal<HeroImageStyle>("blurred");
-  const [heroTitleBackdrop, setHeroTitleBackdrop] = createSignal<HeroTitleBackdrop>("none");
+  const [heroBlur, setHeroBlur] = createSignal(HERO_BLUR_DEFAULT);
+  const [titleBackdropOpacity, setTitleBackdropOpacity] = createSignal(0);
+  const [titleBackdropBlur, setTitleBackdropBlur] = createSignal(0);
 
   // Seed the edit buffers once, when the resource first resolves.
   function seed(d: InviteCustomisation) {
@@ -143,8 +158,9 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       story: d.theme.story.surfaceColor,
       details: d.theme.details.surfaceColor,
     });
-    setHeroImageStyle(d.heroDisplay?.imageStyle ?? "blurred");
-    setHeroTitleBackdrop(d.heroDisplay?.titleBackdrop ?? "none");
+    setHeroBlur(d.heroDisplay?.blur ?? HERO_BLUR_DEFAULT);
+    setTitleBackdropOpacity(d.heroDisplay?.titleBackdrop?.opacity ?? 0);
+    setTitleBackdropBlur(d.heroDisplay?.titleBackdrop?.blur ?? 0);
     setSeeded(true);
   }
 
@@ -215,8 +231,9 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           storySurfaceColor: s.story,
           detailsAccentColor: a.details,
           detailsSurfaceColor: s.details,
-          heroImageStyle: heroImageStyle(),
-          heroTitleBackdrop: heroTitleBackdrop(),
+          heroBlur: heroBlur(),
+          titleBackdropOpacity: titleBackdropOpacity(),
+          titleBackdropBlur: titleBackdropBlur(),
         }),
       });
       if (!res.ok) {
@@ -323,29 +340,42 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   value={heroSubtitle()}
                   onInput={setHeroSubtitle}
                 />
-                {/* Hero display options — saved with the theme below. */}
-                <ToggleField
-                  label="Hero image"
-                  hint="Blurred is a soft backdrop; Regular shows the photo sharp."
-                  value={heroImageStyle()}
-                  options={[
-                    { value: "blurred", label: "Blurred" },
-                    { value: "regular", label: "Regular" },
-                  ]}
-                  onChange={setHeroImageStyle}
+                {/* Hero display sliders — saved with the theme below. The live
+                    preview beneath composites them so the organiser sees the
+                    result as they drag, without ever hitting Cloudflare Images. */}
+                <SliderField
+                  label="Hero image blur"
+                  hint="0 is a sharp photo; higher is a softer, dreamier backdrop."
+                  min={HERO_BLUR_MIN}
+                  max={HERO_BLUR_MAX}
+                  value={heroBlur()}
+                  onInput={setHeroBlur}
                 />
-                <ToggleField
-                  label="Title backdrop"
-                  hint="Solid adds a panel behind the title so it stays readable over a busy photo."
-                  value={heroTitleBackdrop()}
-                  options={[
-                    { value: "none", label: "None" },
-                    { value: "solid", label: "Solid" },
-                  ]}
-                  onChange={setHeroTitleBackdrop}
+                <SliderField
+                  label="Title backdrop opacity"
+                  hint="A dark panel behind the title so it reads over a busy photo. 0 is no panel."
+                  min={BACKDROP_OPACITY_MIN}
+                  max={BACKDROP_OPACITY_MAX}
+                  value={titleBackdropOpacity()}
+                  onInput={setTitleBackdropOpacity}
+                />
+                <SliderField
+                  label="Title backdrop blur"
+                  hint="Frosts the photo behind the title panel (px)."
+                  min={BACKDROP_BLUR_MIN}
+                  max={BACKDROP_BLUR_MAX}
+                  value={titleBackdropBlur()}
+                  onInput={setTitleBackdropBlur}
+                />
+                <HeroPreview
+                  imageUrl={d().hero.imageUrl}
+                  title={heroTitle()}
+                  heroBlur={heroBlur()}
+                  backdropOpacity={titleBackdropOpacity()}
+                  backdropBlur={titleBackdropBlur()}
                 />
                 <p class="font-body text-text-muted text-[0.72rem] italic">
-                  Hero image &amp; title backdrop save with the Theme below.
+                  Hero display sliders save with the Theme below.
                 </p>
               </fieldset>
 
@@ -561,51 +591,126 @@ function SegmentBadge(props: { shown: boolean }) {
 }
 
 /**
- * A small segmented two-or-more-option toggle (radio group under the hood) for a
- * bounded enum setting — e.g. the hero image style (Blurred/Regular) and title
- * backdrop (None/Solid). Generic over the closed value type so the caller's
- * setter stays type-safe. The selected option is highlighted; an optional hint
- * explains the choice.
+ * A labelled range slider for a bounded integer hero-display setting (blur,
+ * backdrop opacity/blur). Shows the live value readout next to the label and an
+ * optional hint. Styled to match the rest of the builder (uppercase micro-label,
+ * gold accent on the track via `accent-gold`). The native `<input type="range">`
+ * is value-clamped to [min,max] by the browser, and the server re-clamps on save.
  */
-function ToggleField<T extends string>(props: {
+function SliderField(props: {
   label: string;
   hint?: string;
-  value: T;
-  options: readonly { value: T; label: string }[];
-  onChange: (v: T) => void;
+  min: number;
+  max: number;
+  value: number;
+  onInput: (v: number) => void;
 }) {
   return (
-    <fieldset class="flex flex-col gap-1.5">
-      <legend class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
-        {props.label}
-      </legend>
-      <div
-        role="radiogroup"
+    <label class="flex flex-col gap-1.5">
+      <span class="flex items-baseline justify-between gap-2">
+        <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+          {props.label}
+        </span>
+        <span class="font-body text-gold text-[0.72rem] tabular-nums">{props.value}</span>
+      </span>
+      <input
+        type="range"
         aria-label={props.label}
-        class="border-border inline-flex w-fit overflow-hidden rounded-sm border"
-      >
-        <For each={props.options}>
-          {(opt) => (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={props.value === opt.value}
-              onClick={() => props.onChange(opt.value)}
-              class="font-body px-3 py-1.5 text-[0.82rem] tracking-[0.05em] transition"
-              classList={{
-                "bg-gold text-bg": props.value === opt.value,
-                "bg-bg text-text-muted hover:text-text": props.value !== opt.value,
-              }}
-            >
-              {opt.label}
-            </button>
-          )}
-        </For>
-      </div>
+        min={props.min}
+        max={props.max}
+        step={1}
+        value={props.value}
+        onInput={(e) => props.onInput(Number(e.currentTarget.value))}
+        class="accent-gold h-1.5 w-full cursor-pointer"
+      />
       <Show when={props.hint}>
         <span class="font-body text-text-muted text-[0.72rem] italic">{props.hint}</span>
       </Show>
-    </fieldset>
+    </label>
+  );
+}
+
+/**
+ * WYSIWYG hero preview — composites the three hero-display sliders LIVE as they
+ * drag, with ZERO Cloudflare Images calls. The uploaded hero image is the
+ * background with a client-side CSS `filter: blur()` (free + instant); on top
+ * sits the title legibility panel (background opacity + `backdrop-filter: blur()`
+ * from the two backdrop sliders); and on top of THAT the hero title text, styled
+ * to evoke the real hero (serif display, gold). With no image uploaded it falls
+ * back to the same dark gradient the real hero uses, so the preview is never
+ * empty.
+ *
+ * The image requests a PLAIN variant (`card`, not the server-blurred `hero-bg`)
+ * so the client-side CSS blur isn't doubled on an already-blurred server image.
+ */
+function HeroPreview(props: {
+  imageUrl: string | null;
+  title: string;
+  heroBlur: number;
+  backdropOpacity: number;
+  backdropBlur: number;
+}) {
+  // A non-blurred source so the CSS blur is the only blur in the preview. The
+  // imageUrl already carries the ?v= cache-buster; append the bounded variant.
+  const previewSrc = (): string | null => {
+    const url = props.imageUrl;
+    if (!url) return null;
+    const sep = url.includes("?") ? "&" : "?";
+    return apiUrl(`${url}${sep}variant=card`);
+  };
+  const titleText = () => (props.title.trim().length > 0 ? props.title : DEFAULTS.heroTitle);
+  return (
+    <div class="flex flex-col gap-2">
+      <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+        Live preview
+      </span>
+      <div
+        aria-label="Hero display preview"
+        class="border-border relative flex h-44 items-center justify-center overflow-hidden rounded-sm border"
+        style={{ background: PREVIEW_HERO_GRADIENT }}
+      >
+        {/* Background photo with a live CSS blur (free — no CF transform). */}
+        <Show when={previewSrc()}>
+          {(src) => (
+            <img
+              src={src()}
+              alt=""
+              class="absolute inset-0 h-full w-full object-cover"
+              style={{ filter: `blur(${props.heroBlur}px)`, transform: "scale(1.1)" }}
+            />
+          )}
+        </Show>
+        {/* Radial scrim, mirroring the guest hero, so the gold title always reads. */}
+        <div
+          class="absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(ellipse at center, oklch(0% 0 0 / 0.3) 0%, oklch(0% 0 0 / 0.55) 100%)",
+          }}
+        />
+        {/* Title legibility panel — opacity + frosted blur from the two sliders.
+            Painted only when opacity > 0 (mirrors the guest behaviour). */}
+        <div
+          class="relative flex items-center justify-center rounded-xl px-6 py-4"
+          style={
+            props.backdropOpacity > 0
+              ? {
+                  "background-color": `color-mix(in oklab, oklch(0% 0 0) ${props.backdropOpacity}%, transparent)`,
+                  "backdrop-filter": `blur(${props.backdropBlur}px)`,
+                  "-webkit-backdrop-filter": `blur(${props.backdropBlur}px)`,
+                }
+              : undefined
+          }
+        >
+          <span
+            class="font-display max-w-full text-center text-[clamp(1.5rem,7vw,2.75rem)] leading-none font-light break-words italic"
+            style={{ color: PREVIEW_GOLD }}
+          >
+            {titleText()}
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }
 

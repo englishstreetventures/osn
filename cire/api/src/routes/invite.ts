@@ -105,15 +105,26 @@ export const createInvitePublicRoutes = (
           // By design this DB read now runs on EVERY request — it's cheap and is
           // the source of the authoritative version; the expensive work (R2 read
           // + Images binding call) is still skipped on a cache hit below.
-          const { key, updatedAt } = yield* inviteService.imageKeyForSlug(params.slug, slot);
+          const { key, updatedAt, heroBlur } = yield* inviteService.imageKeyForSlug(
+            params.slug,
+            slot,
+          );
           if (!key) {
             set.status = 404;
             return { error: "Not found" };
           }
           // Server-derived version: the row's `updatedAt` epoch ms. A re-upload
-          // bumps `updatedAt`, which mints a new cache key (fresh entry) so the
-          // new image is never served stale from the old entry.
+          // (or a hero-blur change — both bump `updatedAt`) mints a new cache key
+          // (fresh entry) so the new image is never served stale from the old.
           const version = updatedAt ? String(updatedAt.getTime()) : undefined;
+
+          // Per-wedding hero backdrop blur (migration 0018). It applies ONLY to
+          // the blurred `hero-bg` variant of the `hero` slot; every other
+          // slot/variant renders sharp and passes no override. Server-derived
+          // (read off the row in imageKeyForSlug, NEVER a client query param), so
+          // it can be folded into the cache key without letting an attacker mint
+          // arbitrary transforms.
+          const blurOverride = slot === "hero" && variant === "hero-bg" ? heroBlur : undefined;
 
           // Cache API short-circuit. The Images binding bills per call with no
           // per-unique dedupe, so a fresh guest/device would otherwise re-bill
@@ -126,7 +137,14 @@ export const createInvitePublicRoutes = (
           const cache =
             typeof caches !== "undefined" && caches.default ? caches.default : undefined;
           const cacheKey = cache
-            ? buildTransformCacheKey({ slug: params.slug, slot, variant, format, version })
+            ? buildTransformCacheKey({
+                slug: params.slug,
+                slot,
+                variant,
+                format,
+                version,
+                blur: blurOverride,
+              })
             : undefined;
           if (cache && cacheKey) {
             const hit = yield* Effect.promise(() => cache.match(cacheKey));
@@ -143,7 +161,7 @@ export const createInvitePublicRoutes = (
           // never 500 on a transform miss. The metric records which path ran.
           let served: StoredAsset = original;
           if (images) {
-            served = yield* transformAsset(images, original, variant, format).pipe(
+            served = yield* transformAsset(images, original, variant, format, blurOverride).pipe(
               Effect.tap(() =>
                 Effect.sync(() => metricImageTransform("transformed", variant, format)),
               ),

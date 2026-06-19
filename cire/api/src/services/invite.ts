@@ -4,13 +4,12 @@ import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import { metricInviteAssetUploaded, metricInviteSaved } from "../metrics";
-import type {
-  FontChoice,
-  HeroImageStyle,
-  HeroTitleBackdrop,
-  InviteImageSlot,
-  InviteTextBody,
-  InviteThemeBody,
+import {
+  HERO_BLUR_DEFAULT,
+  type FontChoice,
+  type InviteImageSlot,
+  type InviteTextBody,
+  type InviteThemeBody,
 } from "../schemas/invite";
 import { deleteAsset, storeAsset } from "./invite-assets";
 import type { AssetR2Error, AssetsR2Service } from "./invite-assets";
@@ -43,14 +42,20 @@ export interface InviteTheme {
 }
 
 /**
- * Hero display options the organiser picked. Always concrete (never null) — the
- * DB columns are NOT NULL with defaults that reproduce today's look, so an
- * un-customised wedding reports `{ imageStyle: "blurred", titleBackdrop: "none" }`
- * and the guest site renders exactly as before.
+ * Hero display sliders the organiser picked (migration 0018 replaced the coarse
+ * enums). Always concrete (never null) — the DB columns are NOT NULL with
+ * defaults that reproduce today's look, so an un-customised wedding reports
+ * `{ blur: 28, titleBackdrop: { opacity: 0, blur: 0 } }` and the guest site
+ * renders exactly as before.
+ *
+ *  - `blur` (0–40) — the hero backdrop's server-side Gaussian blur radius.
+ *  - `titleBackdrop.opacity` (0–100) — opacity (÷100) of the legibility panel
+ *    behind the hero title.
+ *  - `titleBackdrop.blur` (0–20) — frosted-glass blur in px behind the title.
  */
 export interface HeroDisplay {
-  imageStyle: HeroImageStyle;
-  titleBackdrop: HeroTitleBackdrop;
+  blur: number;
+  titleBackdrop: { opacity: number; blur: number };
 }
 
 export interface InviteCustomisation {
@@ -74,8 +79,12 @@ const EMPTY_THEME: InviteTheme = {
 };
 
 // The defaults a wedding with no customisation row reports — identical to the
-// NOT-NULL column defaults, so a missing row and a default row render the same.
-const DEFAULT_HERO_DISPLAY: HeroDisplay = { imageStyle: "blurred", titleBackdrop: "none" };
+// NOT-NULL column defaults (0018), so a missing row and a default row render the
+// same. `blur: 28` reproduces the former fixed `VARIANT_BLUR["hero-bg"]` look.
+const DEFAULT_HERO_DISPLAY: HeroDisplay = {
+  blur: HERO_BLUR_DEFAULT,
+  titleBackdrop: { opacity: 0, blur: 0 },
+};
 
 const EMPTY: InviteCustomisation = {
   hero: { title: null, subtitle: null, imageUrl: null },
@@ -109,8 +118,9 @@ function toCustomisation(
     storyImageKey: string | null;
     // NOT NULL columns, but a LEFT JOIN miss (no customisation row) yields null —
     // coalesced to the today's-look default below.
-    heroImageStyle: string | null;
-    heroTitleBackdrop: string | null;
+    heroBlur: number | null;
+    heroTitleBackdropOpacity: number | null;
+    heroTitleBackdropBlur: number | null;
     themeHeadingFont: string | null;
     themeBodyFont: string | null;
     heroAccentColor: string | null;
@@ -136,12 +146,14 @@ function toCustomisation(
       imageUrl: c.storyImageKey ? imagePath(slug, "story", version) : null,
     },
     heroDisplay: {
-      // Persisted values already passed the closed-enum validation on write; a
-      // null (no row / pre-migration column) falls back to the today's-look
-      // default so an un-customised invite is unchanged.
-      imageStyle: (c.heroImageStyle as HeroImageStyle | null) ?? DEFAULT_HERO_DISPLAY.imageStyle,
-      titleBackdrop:
-        (c.heroTitleBackdrop as HeroTitleBackdrop | null) ?? DEFAULT_HERO_DISPLAY.titleBackdrop,
+      // Persisted values already passed the clamp-on-write validation; a null
+      // (no row / LEFT JOIN miss) falls back to the today's-look default so an
+      // un-customised invite is unchanged.
+      blur: c.heroBlur ?? DEFAULT_HERO_DISPLAY.blur,
+      titleBackdrop: {
+        opacity: c.heroTitleBackdropOpacity ?? DEFAULT_HERO_DISPLAY.titleBackdrop.opacity,
+        blur: c.heroTitleBackdropBlur ?? DEFAULT_HERO_DISPLAY.titleBackdrop.blur,
+      },
     },
     theme: {
       // Persisted theme fonts/colours already passed validation on write; the
@@ -206,8 +218,9 @@ export const inviteService = {
             storyBody: weddingInviteCustomisations.storyBody,
             heroImageKey: weddingInviteCustomisations.heroImageKey,
             storyImageKey: weddingInviteCustomisations.storyImageKey,
-            heroImageStyle: weddingInviteCustomisations.heroImageStyle,
-            heroTitleBackdrop: weddingInviteCustomisations.heroTitleBackdrop,
+            heroBlur: weddingInviteCustomisations.heroBlur,
+            heroTitleBackdropOpacity: weddingInviteCustomisations.heroTitleBackdropOpacity,
+            heroTitleBackdropBlur: weddingInviteCustomisations.heroTitleBackdropBlur,
             themeHeadingFont: weddingInviteCustomisations.themeHeadingFont,
             themeBodyFont: weddingInviteCustomisations.themeBodyFont,
             heroAccentColor: weddingInviteCustomisations.heroAccentColor,
@@ -245,17 +258,28 @@ export const inviteService = {
 
   /**
    * Resolve the R2 key backing a slug's image slot (for serving) PLUS the row's
-   * `updatedAt` — the authoritative content version. The serve route derives its
-   * edge-cache key from this server-side `updatedAt` (not the client `?v=`), so
-   * an attacker can't loop distinct `?v=` values to force unbounded, per-call-
-   * billed transforms (S-M1). `updatedAt` is null when the wedding exists but has
-   * no customisation row yet (LEFT JOIN miss) — the slot key is then null too, so
-   * the route 404s before it ever builds a cache key.
+   * `updatedAt` — the authoritative content version — and the per-wedding
+   * `heroBlur`. The serve route derives its edge-cache key from this server-side
+   * `updatedAt` (not the client `?v=`), so an attacker can't loop distinct `?v=`
+   * values to force unbounded, per-call-billed transforms (S-M1). `updatedAt` is
+   * null when the wedding exists but has no customisation row yet (LEFT JOIN
+   * miss) — the slot key is then null too, so the route 404s before it ever
+   * builds a cache key.
+   *
+   * `heroBlur` is the per-wedding override of the hero backdrop's server-side
+   * blur (migration 0018). It is resolved here alongside the key so the serve
+   * route can apply it to the `hero-bg` transform WITHOUT a client query param
+   * (preserving the no-arbitrary-cache-minting invariant) and fold it into the
+   * cache key. A LEFT JOIN miss coalesces to the today's-look default.
    */
   imageKeyForSlug(
     slug: string,
     slot: InviteImageSlot,
-  ): Effect.Effect<{ key: string | null; updatedAt: Date | null }, WeddingNotFound, DbService> {
+  ): Effect.Effect<
+    { key: string | null; updatedAt: Date | null; heroBlur: number },
+    WeddingNotFound,
+    DbService
+  > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       // Single LEFT JOIN keyed on the slug: a missing weddings row is a 404; a
@@ -267,6 +291,7 @@ export const inviteService = {
             weddingId: weddings.id,
             heroImageKey: weddingInviteCustomisations.heroImageKey,
             storyImageKey: weddingInviteCustomisations.storyImageKey,
+            heroBlur: weddingInviteCustomisations.heroBlur,
             updatedAt: weddingInviteCustomisations.updatedAt,
           })
           .from(weddings)
@@ -279,7 +304,7 @@ export const inviteService = {
       );
       if (!row) return yield* Effect.fail(new WeddingNotFound({ slug }));
       const key = slot === "hero" ? row.heroImageKey : row.storyImageKey;
-      return { key, updatedAt: row.updatedAt };
+      return { key, updatedAt: row.updatedAt, heroBlur: row.heroBlur ?? HERO_BLUR_DEFAULT };
     }).pipe(Effect.withSpan("cire.invite.imageKeyForSlug"));
   },
 
@@ -327,8 +352,13 @@ export const inviteService = {
         storySurfaceColor: fields.storySurfaceColor,
         detailsAccentColor: fields.detailsAccentColor,
         detailsSurfaceColor: fields.detailsSurfaceColor,
-        heroImageStyle: fields.heroImageStyle,
-        heroTitleBackdrop: fields.heroTitleBackdrop,
+        // Hero display sliders (already clamped into range by the schema decode).
+        // Persisting these bumps `updatedAt` below — critical because the hero
+        // image cache version derives from `updatedAt`, so changing `heroBlur`
+        // must bust the served `hero-bg` transform cache.
+        heroBlur: fields.heroBlur,
+        heroTitleBackdropOpacity: fields.titleBackdropOpacity,
+        heroTitleBackdropBlur: fields.titleBackdropBlur,
       };
       yield* dbQuery(() =>
         db

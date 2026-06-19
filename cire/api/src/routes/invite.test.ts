@@ -611,8 +611,9 @@ describe("PUT /invite/theme (organiser)", () => {
     storySurfaceColor: null,
     detailsAccentColor: "rgb(212, 175, 55)",
     detailsSurfaceColor: null,
-    heroImageStyle: "blurred",
-    heroTitleBackdrop: "none",
+    heroBlur: 28,
+    titleBackdropOpacity: 0,
+    titleBackdropBlur: 0,
   };
 
   it("401s without a token", async () => {
@@ -761,7 +762,7 @@ describe("PUT /invite/theme (organiser)", () => {
   });
 });
 
-describe("hero display options", () => {
+describe("hero display sliders (migration 0018)", () => {
   const validTheme = {
     headingFont: "default",
     bodyFont: "default",
@@ -771,39 +772,43 @@ describe("hero display options", () => {
     storySurfaceColor: null,
     detailsAccentColor: null,
     detailsSurfaceColor: null,
-    heroImageStyle: "blurred",
-    heroTitleBackdrop: "none",
+    heroBlur: 28,
+    titleBackdropOpacity: 0,
+    titleBackdropBlur: 0,
   };
 
-  it("defaults to blurred / none on a never-customised wedding", async () => {
+  it("defaults to blur 28 / backdrop 0,0 on a never-customised wedding", async () => {
     const { app } = buildApp();
     const pub = await appRequest(app, `/api/invite/${SLUG}`);
     const body = (await pub.json()) as {
-      heroDisplay: { imageStyle: string; titleBackdrop: string };
+      heroDisplay: { blur: number; titleBackdrop: { opacity: number; blur: number } };
     };
-    expect(body.heroDisplay.imageStyle).toBe("blurred");
-    expect(body.heroDisplay.titleBackdrop).toBe("none");
+    expect(body.heroDisplay.blur).toBe(28);
+    expect(body.heroDisplay.titleBackdrop.opacity).toBe(0);
+    expect(body.heroDisplay.titleBackdrop.blur).toBe(0);
   });
 
-  it("persists regular / solid and surfaces them on the public read", async () => {
+  it("persists the three slider values and surfaces them on the public read", async () => {
     const { app } = buildApp();
     const put = await appRequest(app, `${orgBase}/theme`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
       body: JSON.stringify({
         ...validTheme,
-        heroImageStyle: "regular",
-        heroTitleBackdrop: "solid",
+        heroBlur: 12,
+        titleBackdropOpacity: 60,
+        titleBackdropBlur: 8,
       }),
     });
     expect(put.status).toBe(200);
 
     const pub = await appRequest(app, `/api/invite/${SLUG}`);
     const body = (await pub.json()) as {
-      heroDisplay: { imageStyle: string; titleBackdrop: string };
+      heroDisplay: { blur: number; titleBackdrop: { opacity: number; blur: number } };
     };
-    expect(body.heroDisplay.imageStyle).toBe("regular");
-    expect(body.heroDisplay.titleBackdrop).toBe("solid");
+    expect(body.heroDisplay.blur).toBe(12);
+    expect(body.heroDisplay.titleBackdrop.opacity).toBe(60);
+    expect(body.heroDisplay.titleBackdrop.blur).toBe(8);
   });
 
   it("echoes the saved hero display back on the organiser theme PUT response", async () => {
@@ -813,45 +818,117 @@ describe("hero display options", () => {
       headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
       body: JSON.stringify({
         ...validTheme,
-        heroImageStyle: "regular",
-        heroTitleBackdrop: "solid",
+        heroBlur: 0,
+        titleBackdropOpacity: 100,
+        titleBackdropBlur: 20,
       }),
     });
     const body = (await put.json()) as {
-      heroDisplay: { imageStyle: string; titleBackdrop: string };
+      heroDisplay: { blur: number; titleBackdrop: { opacity: number; blur: number } };
     };
-    expect(body.heroDisplay.imageStyle).toBe("regular");
-    expect(body.heroDisplay.titleBackdrop).toBe("solid");
+    expect(body.heroDisplay.blur).toBe(0);
+    expect(body.heroDisplay.titleBackdrop.opacity).toBe(100);
+    expect(body.heroDisplay.titleBackdrop.blur).toBe(20);
   });
 
-  it("rejects an unknown hero image style with 400 (closed enum)", async () => {
+  it("clamps an out-of-range slider into its bounds (no 400, no abuse)", async () => {
+    const { app } = buildApp();
+    const put = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      // Over the max on every slider — each is clamped, not rejected.
+      body: JSON.stringify({
+        ...validTheme,
+        heroBlur: 999,
+        titleBackdropOpacity: 250,
+        titleBackdropBlur: -5,
+      }),
+    });
+    expect(put.status).toBe(200);
+
+    const pub = await appRequest(app, `/api/invite/${SLUG}`);
+    const body = (await pub.json()) as {
+      heroDisplay: { blur: number; titleBackdrop: { opacity: number; blur: number } };
+    };
+    expect(body.heroDisplay.blur).toBe(40); // clamped to HERO_BLUR_MAX
+    expect(body.heroDisplay.titleBackdrop.opacity).toBe(100); // clamped to 100
+    expect(body.heroDisplay.titleBackdrop.blur).toBe(0); // clamped up to 0
+  });
+
+  it("rejects a non-integer slider with 400 (ParseError)", async () => {
     const { app } = buildApp();
     const res = await appRequest(app, `${orgBase}/theme`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
-      body: JSON.stringify({ ...validTheme, heroImageStyle: "sepia" }),
+      body: JSON.stringify({ ...validTheme, heroBlur: "lots" }),
     });
     expect(res.status).toBe(400);
   });
 
-  it("rejects an unknown title backdrop with 400 (closed enum)", async () => {
+  it("rejects a body missing heroBlur with 400 (total body)", async () => {
     const { app } = buildApp();
+    const { heroBlur: _omit, ...withoutBlur } = validTheme;
     const res = await appRequest(app, `${orgBase}/theme`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
-      body: JSON.stringify({ ...validTheme, heroTitleBackdrop: "frosted" }),
+      body: JSON.stringify(withoutBlur),
     });
     expect(res.status).toBe(400);
   });
 
-  it("rejects a body missing heroImageStyle with 400 (total body)", async () => {
-    const { app } = buildApp();
-    const { heroImageStyle: _omit, ...withoutStyle } = validTheme;
-    const res = await appRequest(app, `${orgBase}/theme`, {
+  it("serving the hero-bg backdrop applies the STORED per-wedding blur, not the default (T-0018)", async () => {
+    const images = createImagesStub();
+    const { app } = buildApp({ images });
+    await uploadHero(app);
+
+    // Set a non-default per-wedding blur.
+    const put = await appRequest(app, `${orgBase}/theme`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
-      body: JSON.stringify(withoutStyle),
+      body: JSON.stringify({ ...validTheme, heroBlur: 7 }),
     });
-    expect(res.status).toBe(400);
+    expect(put.status).toBe(200);
+
+    const img = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero-bg`, {
+      headers: { accept: "image/webp,*/*" },
+    });
+    expect(img.status).toBe(200);
+    // hero-bg ⇒ 1600px width WITH the stored blur (7), not VARIANT_BLUR default.
+    expect(images.widths).toEqual([1600]);
+    expect(images.blurs).toEqual([7]);
+  });
+
+  it("a blur change busts the served hero-bg cache (re-runs the binding, new entry)", async () => {
+    const cache = createCacheStub();
+    await withCaches(cache.caches, async () => {
+      const images = createImagesStub();
+      const { app } = buildApp({ images });
+      await uploadHero(app);
+      const accept = { accept: "image/webp,*/*" };
+
+      // Prime the cache at the default blur.
+      const first = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero-bg`, {
+        headers: accept,
+      });
+      expect(first.status).toBe(200);
+      expect(images.blurs).toEqual([VARIANT_BLUR["hero-bg"]]);
+      expect(cache.store.size).toBe(1);
+
+      // Change the blur (bumps updatedAt AND adds blur to the key) → MISS.
+      const put = await appRequest(app, `${orgBase}/theme`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify({ ...validTheme, heroBlur: 5 }),
+      });
+      expect(put.status).toBe(200);
+
+      const second = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero-bg`, {
+        headers: accept,
+      });
+      expect(second.status).toBe(200);
+      // Binding re-ran with the new blur; a distinct cache entry was minted.
+      expect(images.blurs).toEqual([VARIANT_BLUR["hero-bg"], 5]);
+      expect(cache.store.size).toBe(2);
+    });
   });
 });

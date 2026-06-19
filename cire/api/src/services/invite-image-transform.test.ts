@@ -124,6 +124,26 @@ describe("buildTransformCacheKey", () => {
     expect(new URL(v2.url).searchParams.get("v")).toBe("1718999999999");
   });
 
+  it("folds the per-wedding blur into the key so two blurs are cached apart (0018)", () => {
+    const base = { slug: "s", slot: "hero", variant: "hero-bg", format: "image/webp" } as const;
+    const b28 = buildTransformCacheKey({ ...base, blur: 28 });
+    const b5 = buildTransformCacheKey({ ...base, blur: 5 });
+    expect(b28.url).not.toBe(b5.url);
+    expect(new URL(b28.url).searchParams.get("blur")).toBe("28");
+    expect(new URL(b5.url).searchParams.get("blur")).toBe("5");
+    // An explicit 0 (sharp) is still keyed (distinct from "no blur folded in").
+    const b0 = buildTransformCacheKey({ ...base, blur: 0 });
+    expect(new URL(b0.url).searchParams.get("blur")).toBe("0");
+    // Absent blur ⇒ no blur param (sharp variants don't carry one).
+    const none = buildTransformCacheKey({
+      slug: "s",
+      slot: "hero",
+      variant: "card",
+      format: "image/webp",
+    });
+    expect(new URL(none.url).searchParams.get("blur")).toBeNull();
+  });
+
   it("differs by variant and includes the ?v= content version when present", () => {
     const card = buildTransformCacheKey({
       slug: "s",
@@ -206,6 +226,27 @@ describe("transformAsset", () => {
     ]);
     expect(images.calls[0]!.blur).toBe(VARIANT_BLUR["hero-bg"]);
     expect(images.calls[0]!.blur).toBeGreaterThan(0);
+  });
+
+  it("honours the per-wedding blur override on the hero-bg variant, incl. an explicit 0 (0018)", async () => {
+    const override = createImagesStub();
+    await Effect.runPromise(transformAsset(override, ORIGINAL, "hero-bg", "image/webp", 7));
+    // The override (7) wins over the VARIANT_BLUR default.
+    expect(override.calls[0]!.blur).toBe(7);
+
+    // An explicit 0 ⇒ a SHARP backdrop (no blur passed to the binding), even on
+    // the hero-bg variant — distinct from `undefined` which uses the default.
+    const sharp = createImagesStub();
+    await Effect.runPromise(transformAsset(sharp, ORIGINAL, "hero-bg", "image/webp", 0));
+    expect(sharp.calls[0]!.blur).toBeUndefined();
+  });
+
+  it("ignores a blur override on a sharp variant (stays un-blurred)", async () => {
+    // The override only applies where the variant is blurrable (hero-bg); a sharp
+    // variant never gets a blur even if an override is (wrongly) passed.
+    const images = createImagesStub();
+    await Effect.runPromise(transformAsset(images, ORIGINAL, "hero", "image/webp", 30));
+    expect(images.calls[0]!.blur).toBeUndefined();
   });
 
   it("fails with ImageTransformError when the binding throws at input", async () => {

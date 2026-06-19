@@ -41,7 +41,7 @@ function json(body: unknown, status = 200) {
 const EMPTY_CUSTOMISATION = {
   hero: { title: null, subtitle: null, imageUrl: null },
   story: { eyebrow: null, heading: null, body: null, imageUrl: null },
-  heroDisplay: { imageStyle: "blurred", titleBackdrop: "none" },
+  heroDisplay: { blur: 28, titleBackdrop: { opacity: 0, blur: 0 } },
   theme: {
     headingFont: null,
     bodyFont: null,
@@ -101,46 +101,72 @@ describe("InviteBuilder theme", () => {
     expect(sent.heroAccentColor).toBe("#112233");
     // Untouched fonts collapse to null ("default" ⇒ keep the built-in token).
     expect(sent.bodyFont).toBeNull();
-    // Hero display options ride on the same PUT, defaulting to today's look.
-    expect(sent.heroImageStyle).toBe("blurred");
-    expect(sent.heroTitleBackdrop).toBe("none");
+    // Hero display sliders ride on the same PUT, defaulting to today's look.
+    expect(sent.heroBlur).toBe(28);
+    expect(sent.titleBackdropOpacity).toBe(0);
+    expect(sent.titleBackdropBlur).toBe(0);
     await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
   });
 
-  it("seeds the hero display toggles from the loaded customisation", async () => {
+  it("seeds the hero display sliders from the loaded customisation", async () => {
     authFetchMock.mockResolvedValueOnce(
       json({
         ...EMPTY_CUSTOMISATION,
-        heroDisplay: { imageStyle: "regular", titleBackdrop: "solid" },
+        heroDisplay: { blur: 12, titleBackdrop: { opacity: 60, blur: 8 } },
       }),
     );
     render(() => <InviteBuilder weddingId="wed_1" />);
 
     await waitFor(() => screen.getByText("Save theme"));
-    // The selected option in each radio group reflects the loaded value.
-    expect(
-      (screen.getByRole("radio", { name: "Regular" }) as HTMLElement).getAttribute("aria-checked"),
-    ).toBe("true");
-    expect(
-      (screen.getByRole("radio", { name: "Solid" }) as HTMLElement).getAttribute("aria-checked"),
-    ).toBe("true");
+    expect((screen.getByLabelText("Hero image blur") as HTMLInputElement).value).toBe("12");
+    expect((screen.getByLabelText("Title backdrop opacity") as HTMLInputElement).value).toBe("60");
+    expect((screen.getByLabelText("Title backdrop blur") as HTMLInputElement).value).toBe("8");
   });
 
-  it("PUTs the chosen hero display options on Save theme", async () => {
+  it("PUTs the chosen hero display slider values on Save theme", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
     render(() => <InviteBuilder weddingId="wed_1" />);
     await waitFor(() => screen.getByText("Save theme"));
 
-    fireEvent.click(screen.getByRole("radio", { name: "Regular" }));
-    fireEvent.click(screen.getByRole("radio", { name: "Solid" }));
+    fireEvent.input(screen.getByLabelText("Hero image blur"), { target: { value: "5" } });
+    fireEvent.input(screen.getByLabelText("Title backdrop opacity"), { target: { value: "80" } });
+    fireEvent.input(screen.getByLabelText("Title backdrop blur"), { target: { value: "10" } });
     fireEvent.click(screen.getByText("Save theme"));
 
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     const sent = JSON.parse(authFetchMock.mock.calls[1][1].body as string);
-    expect(sent.heroImageStyle).toBe("regular");
-    expect(sent.heroTitleBackdrop).toBe("solid");
+    expect(sent.heroBlur).toBe(5);
+    expect(sent.titleBackdropOpacity).toBe(80);
+    expect(sent.titleBackdropBlur).toBe(10);
+  });
+
+  it("composites the WYSIWYG hero preview live as the sliders drag (no save)", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        ...EMPTY_CUSTOMISATION,
+        hero: { title: "Vera & Ravi", subtitle: null, imageUrl: "/api/invite/s/image/hero?v=1" },
+      }),
+    );
+
+    const { container } = render(() => <InviteBuilder weddingId="wed_1" />);
+    await waitFor(() => screen.getByText("Save theme"));
+
+    const preview = () =>
+      container.querySelector('[aria-label="Hero display preview"]') as HTMLElement;
+    // The preview shows the title text and a NON-blurred (card) variant image so
+    // the client-side CSS blur isn't doubled on a server-blurred source.
+    const img = preview().querySelector("img") as HTMLImageElement;
+    expect(img.getAttribute("src")).toBe(
+      "https://api.test/api/invite/s/image/hero?v=1&variant=card",
+    );
+    expect(img.style.filter).toBe("blur(28px)"); // default blur
+
+    // Drag the blur slider — the preview image filter updates instantly, no PUT.
+    fireEvent.input(screen.getByLabelText("Hero image blur"), { target: { value: "3" } });
+    await waitFor(() => expect(img.style.filter).toBe("blur(3px)"));
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("seeds a null font as 'default' and sends a cleared colour as null", async () => {

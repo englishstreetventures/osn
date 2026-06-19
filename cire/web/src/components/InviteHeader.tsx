@@ -18,6 +18,12 @@ import { type InviteTheme, sectionThemeVars } from "./invite-theme";
 const VARIANT_WIDTHS = { thumb: 320, card: 800, hero: 1600, "hero-bg": 1600 } as const;
 type VariantName = keyof typeof VARIANT_WIDTHS;
 
+// The hero backdrop always requests the `hero-bg` variant: the blur radius is now
+// a per-wedding server value (migration 0018; 0 ⇒ the server renders it sharp),
+// so the guest never picks a different variant — one fixed-purpose variant keeps
+// the re-arm lifecycle + cache simple.
+const HERO_BG_VARIANT: VariantName = "hero-bg";
+
 /**
  * Build a `srcset` from a base image URL (which already carries the `?v=`
  * content-version cache-buster) by appending the bounded `&variant=` for each
@@ -54,20 +60,32 @@ const STORY_SURFACE = {
 };
 
 /**
- * Hero display options the organiser picked, as they arrive from the public
- * invite endpoint. Always concrete (the API coalesces a missing row to the
- * today's-look default), but typed defensively as a closed union of strings —
- * an unknown value (stale client / future option) falls through to the current
- * look. Mirrors `HeroDisplay` in `cire/api/src/services/invite.ts`.
+ * Hero display sliders the organiser picked, as they arrive from the public
+ * invite endpoint (migration 0018 replaced the coarse `blurred|regular` /
+ * `none|solid` enums). Always concrete (the API coalesces a missing row to the
+ * today's-look default). Mirrors `HeroDisplay` in `cire/api/src/services/invite.ts`.
  *
- *  - `imageStyle`: `"blurred"` ⇒ the soft `hero-bg` backdrop (default — today's
- *    look); `"regular"` ⇒ the sharp full-bleed `hero` variant.
- *  - `titleBackdrop`: `"none"` ⇒ just the radial scrim (default); `"solid"` ⇒ a
- *    translucent panel behind the title block for legibility over a busy photo.
+ *  - `blur` (0–40): the hero backdrop's Gaussian blur — applied SERVER-SIDE on
+ *    the `hero-bg` variant (the value lives on the row; the guest just requests
+ *    `hero-bg` and gets back the right radius). 28 = today's soft look; 0 = sharp.
+ *  - `titleBackdrop.opacity` (0–100): opacity (÷100) of the legibility panel
+ *    behind the hero title block. 0 (default) ⇒ no panel (just the radial scrim).
+ *  - `titleBackdrop.blur` (0–20): frosted-glass `backdrop-filter` blur in px
+ *    behind the title. 0 (default) ⇒ no frost.
  */
 export interface HeroDisplay {
-  imageStyle: "blurred" | "regular";
-  titleBackdrop: "none" | "solid";
+  blur: number;
+  titleBackdrop: { opacity: number; blur: number };
+}
+
+// The today's-look defaults — used when the field is absent (older API /
+// mid-deploy). Mirrors DEFAULT_HERO_DISPLAY in cire/api.
+const DEFAULT_HERO_DISPLAY: HeroDisplay = { blur: 28, titleBackdrop: { opacity: 0, blur: 0 } };
+
+/** Clamp a (possibly stale/garbage) number into [min, max]; fall back if NaN. */
+function clampNum(value: number | undefined, min: number, max: number, fallback: number): number {
+  if (typeof value !== "number" || Number.isNaN(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
 }
 
 export interface InviteCustomisation {
@@ -123,16 +141,27 @@ export default function InviteHeader(props: InviteHeaderProps) {
   const hero = () => data()?.hero;
   const story = () => data()?.story;
   const theme = () => data()?.theme ?? null;
-  // Hero display options (organiser choice), defaulting to today's look when the
-  // field is absent (older API / mid-deploy). `regular` swaps the soft `hero-bg`
-  // backdrop for the sharp full-bleed `hero` variant; `solid` adds a legibility
-  // panel behind the title block.
-  const heroImageStyle = () => data()?.heroDisplay?.imageStyle ?? "blurred";
-  const heroTitleBackdrop = () => data()?.heroDisplay?.titleBackdrop ?? "none";
-  // The served variant the hero backdrop requests, per the organiser's choice.
-  // Both variants exist + serve 200 in the API (IMAGE_VARIANTS); `hero-bg` is the
-  // server-blurred backdrop, `hero` the sharp 1600px full-bleed image.
-  const heroVariant = (): VariantName => (heroImageStyle() === "regular" ? "hero" : "hero-bg");
+  // Hero display sliders (organiser choice), defaulting to today's look when the
+  // field is absent (older API / mid-deploy). `blur` drives the SERVER-SIDE hero
+  // backdrop blur (applied to the `hero-bg` variant); the title backdrop
+  // opacity + blur drive the legibility panel behind the title text. Clamped
+  // defensively against a stale/garbage payload.
+  const titleBackdropOpacity = () =>
+    clampNum(
+      data()?.heroDisplay?.titleBackdrop?.opacity,
+      0,
+      100,
+      DEFAULT_HERO_DISPLAY.titleBackdrop.opacity,
+    );
+  const titleBackdropBlur = () =>
+    clampNum(
+      data()?.heroDisplay?.titleBackdrop?.blur,
+      0,
+      20,
+      DEFAULT_HERO_DISPLAY.titleBackdrop.blur,
+    );
+  // Whether to paint the title legibility panel at all (opacity 0 ⇒ none).
+  const showTitleBackdrop = () => titleBackdropOpacity() > 0;
 
   // Per-section CSS-variable maps. Each only contains the variables the organiser
   // actually set (and that passed validation); an absent variable falls through
@@ -179,7 +208,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
   // the <img src> and the re-arm effect can never disagree.
   const heroBackdropSrc = (): string | null => {
     const url = heroImageUrl();
-    return url ? variantSrc(url, heroVariant()) : null;
+    return url ? variantSrc(url, HERO_BG_VARIANT) : null;
   };
 
   // SSR-hydration fix: on an SSR page the browser starts loading the server-
@@ -262,26 +291,31 @@ export default function InviteHeader(props: InviteHeaderProps) {
             since a blurred photo can carry more mid-tone luminance than the dark
             default gradient — keeps WCAG contrast on the title. */}
           <div class="absolute inset-0 flex flex-col items-center justify-center bg-[radial-gradient(ellipse_at_center,oklch(0%_0_0/0.3)_0%,oklch(0%_0_0/0.55)_100%)] px-[max(1.5rem,env(safe-area-inset-left))] py-[max(1.5rem,env(safe-area-inset-top))]">
-            {/* Title block. When the organiser picks the `solid` title backdrop we
-              wrap it in a translucent rounded panel (theme surface colour, falling
-              back to a dark scrim panel) so the title + monogram stay legible over
-              a busy/sharp photo. `none` (default) keeps just the radial scrim — the
-              original look — via a layout-only wrapper that adds no background.
-              TODO(future): auto contrast-check the title colour vs the image and
-              auto-enable the panel — see cire/wiki/todo/future.md. */}
+            {/* Title block. A title legibility panel sits behind the title +
+              monogram, driven by the two backdrop sliders: its opacity (0–100 ⇒
+              0–1) controls how solid the dark scrim panel is, and its blur (0–20px)
+              a frosted-glass `backdrop-filter`. Opacity 0 (default) ⇒ NO panel —
+              just the radial scrim (the original look) via a layout-only wrapper.
+              The panel colour is the theme surface (emitted only when the organiser
+              set a validated colour) else a dark scrim, applied at the chosen
+              opacity. TODO(future): auto contrast-check the title colour vs the
+              image and auto-tune the panel — see cire/wiki/todo/future.md. */}
             <div
               class="flex max-w-full flex-col items-center gap-4"
               classList={{
-                "rounded-2xl px-[clamp(1.5rem,6vw,4rem)] py-[clamp(1.25rem,5vw,3rem)] backdrop-blur-sm":
-                  heroTitleBackdrop() === "solid",
+                "rounded-2xl px-[clamp(1.5rem,6vw,4rem)] py-[clamp(1.25rem,5vw,3rem)]":
+                  showTitleBackdrop(),
               }}
               style={
-                heroTitleBackdrop() === "solid"
+                showTitleBackdrop()
                   ? {
-                      // Theme surface colour when set, else a translucent dark panel
-                      // that reads on any photo. The surface var is only emitted when
-                      // the organiser set a validated colour (see sectionThemeVars).
-                      "background-color": "var(--invite-surface, oklch(0% 0 0 / 0.45))",
+                      // Theme surface colour when set, else a dark scrim, applied at
+                      // the slider opacity (÷100). `color-mix` blends the surface
+                      // with transparent so any validated theme colour honours the
+                      // opacity too. Both `backdrop-filter` spellings for Safari.
+                      "background-color": `color-mix(in oklab, var(--invite-surface, oklch(0% 0 0)) ${titleBackdropOpacity()}%, transparent)`,
+                      "backdrop-filter": `blur(${titleBackdropBlur()}px)`,
+                      "-webkit-backdrop-filter": `blur(${titleBackdropBlur()}px)`,
                     }
                   : undefined
               }
