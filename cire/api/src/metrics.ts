@@ -45,6 +45,9 @@ export const CIRE_METRICS = {
   // Scheduled guest-data retention sweep (cron) — deletes guest PII 1 year
   // after a wedding's final event.
   guestDataSwept: "cire.guest_data.swept",
+  // R2 objects reclaimed by a sweep/delete flow that orphaned them (today: the
+  // retention sweep deleting expired weddings' uploaded sheets + invite images).
+  r2ObjectsSwept: "cire.r2.objects.swept",
   // Organiser host-code (invite preview) provisioning.
   hostCodeEnsured: "cire.host_code.ensured",
   // RSVP.
@@ -160,6 +163,9 @@ type ClaimLookupDurationAttrs = { result: "ok" | "error" };
 type SessionCreatedAttrs = { result: "ok" | "error" };
 type SessionSweptAttrs = { result: "ok" | "error" };
 type GuestDataSweptAttrs = { result: "ok" | "error" };
+/** Which cire R2 bucket the swept objects came from — bounded label, never a key. */
+export type R2BucketAttr = "sheets" | "assets";
+type R2ObjectsSweptAttrs = { bucket: R2BucketAttr; result: "ok" | "error" };
 type HostCodeEnsuredAttrs = { result: "ok" | "error" };
 type RsvpUpsertedAttrs = { status: RsvpStatus; result: "ok" | "error" };
 type ImportSimpleAttrs = { result: "ok" | "error" };
@@ -232,6 +238,13 @@ const guestDataSwept = createCounter<GuestDataSweptAttrs>({
   description:
     "Guest rows deleted by the scheduled retention sweep (1 year after a wedding's final event) — increment is the row count, so the sum tracks reclaimed guest records",
   unit: "{guest}",
+});
+
+const r2ObjectsSwept = createCounter<R2ObjectsSweptAttrs>({
+  name: CIRE_METRICS.r2ObjectsSwept,
+  description:
+    "R2 objects reclaimed when a sweep/delete flow removed the D1 rows referencing them (retention sweep: uploaded guest sheets in cire-sheets + invite images in cire-assets) — increment is the object count, so the sum tracks reclaimed objects per bucket",
+  unit: "{object}",
 });
 
 const hostCodeEnsured = createCounter<HostCodeEnsuredAttrs>({
@@ -411,6 +424,15 @@ export const metricSessionSwept = (result: "ok" | "error", count = 1): void =>
  *  failed sweep records a single `error` increment. */
 export const metricGuestDataSwept = (result: "ok" | "error", count = 1): void =>
   guestDataSwept.add(count, { result });
+
+/** Record an R2-object reap: `count` is the number of objects in this request,
+ *  so the counter sum tracks reclaimed objects per bucket. `ok` increments the
+ *  successfully-deleted count; `error` the failed (orphaned) count. */
+export const metricR2ObjectsSwept = (
+  bucket: R2BucketAttr,
+  result: "ok" | "error",
+  count = 1,
+): void => r2ObjectsSwept.add(count, { bucket, result });
 
 export const metricHostCodeEnsured = (result: "ok" | "error"): void =>
   hostCodeEnsured.inc({ result });

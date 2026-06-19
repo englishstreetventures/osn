@@ -216,9 +216,16 @@ const handler: ExportedHandler<Env> = {
       ),
     );
 
+    // Pass the SHEETS binding so the retention sweep also reclaims the
+    // personal-data objects it orphans (IB-S-L2 / C-H1): the uploaded guest/event
+    // spreadsheets in `cire-sheets` referenced by the `imports` rows it deletes.
+    // D1's ON DELETE cascade never reaches R2, so without this the CSVs (which
+    // carry guest PII) would outlive the deleted DB rows forever. The `cire-assets`
+    // invite images are NOT reaped here — those rows survive (the invite stays
+    // live); see retentionService.sweepExpiredGuestData.
     ctx.waitUntil(
       Effect.runPromise(
-        retentionService.sweepExpiredGuestData().pipe(
+        retentionService.sweepExpiredGuestData(new Date(), { sheets: env.SHEETS }).pipe(
           Effect.catchAll((err) =>
             Effect.logError("scheduled guest-data retention sweep failed", { reason: err.reason }),
           ),

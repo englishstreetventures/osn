@@ -5,6 +5,32 @@ import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import { metricGuestDataSwept } from "../metrics";
+import type { DeletableBucket } from "./r2-cleanup";
+import { reapR2Objects } from "./r2-cleanup";
+
+/**
+ * R2 bindings the retention sweep reaps into. Optional — a deployment missing
+ * the binding (local dev / misconfig) still purges the D1 rows; the orphaned
+ * objects are logged + counted as errors by {@link reapR2Objects}.
+ *
+ *  - `sheets` — the `cire-sheets` bucket (binding `SHEETS`): the uploaded
+ *    guest/event spreadsheets referenced by `imports.events_r2_key` /
+ *    `guests_r2_key`. The sweep deletes the `imports` rows, so these objects
+ *    ARE orphaned by it and must be reaped here (IB-S-L2 / C-H1).
+ *
+ * NOTE — the `cire-assets` invite images (`wedding_invite_customisations`
+ * hero/story keys + `events.event_image_key`) are deliberately NOT reaped here:
+ * the retention sweep KEEPS the wedding + events shell + the published invite,
+ * so those rows survive and keep pointing at their objects (the invite stays
+ * live). Deleting them would 404 the live invite and dangle the DB keys. The
+ * `cire-assets` orphan path (failed best-effort cleanup on re-upload/remove, and
+ * a future wedding-DELETE fan-out) is a separate IB-S-L2 follow-up — there is no
+ * wedding-delete flow today to hook. {@link reapR2Objects} stays bucket-agnostic
+ * so that flow, when it lands, can reuse it for BOTH buckets.
+ */
+export interface RetentionBuckets {
+  sheets?: DeletableBucket;
+}
 
 export class RetentionWriteError extends Data.TaggedError("RetentionWriteError")<{
   op: "sweep";
@@ -58,21 +84,28 @@ export const retentionService = {
    * drops it) — we cannot prove its window has lapsed, so the safe default is to
    * keep it; this is also the in-progress-setup case.
    *
-   * R2 note: the `imports` rows reference R2 objects (`eventsR2Key`/`guestsR2Key`,
-   * the uploaded sheets which contain guest PII). This sweep deletes the DB rows
-   * but does NOT delete the R2 objects — the sweep is a pure-Drizzle Effect with
-   * no R2 binding in scope. See the TODO below; the objects must be reaped by a
-   * separate R2-aware pass (or an R2 lifecycle rule keyed on the `imports/` prefix).
+   * R2 reaping (IB-S-L2 / C-H1): the deleted `imports` rows reference
+   * personal-data R2 objects that D1's `ON DELETE cascade` can NEVER reach — the
+   * uploaded guest/event sheets (`imports.events_r2_key`/`guests_r2_key` in the
+   * `cire-sheets` bucket, which carry guest PII). **Ordering is collect-then-
+   * delete-then-reap**: we read every sheet key for the expired weddings BEFORE
+   * the D1 deletes (once the `imports` rows are gone the keys are unrecoverable),
+   * delete the D1 rows, then best-effort delete the R2 objects. A failed object
+   * delete is logged + counted but never aborts the sweep (better to orphan a
+   * few objects than to leave a cohort's PII in D1) — see {@link reapR2Objects}.
+   * Reaping happens AFTER the rows are gone so a reap failure can't leave a live
+   * row pointing at a deleted object.
    *
-   * Run from the Worker's `scheduled` cron handler. Returns the number of guest
-   * rows deleted (the metric/log subject).
+   * The `cire-assets` invite images are intentionally NOT touched — those rows
+   * survive (the invite stays live); see {@link RetentionBuckets}.
+   *
+   * Run from the Worker's `scheduled` cron handler, which passes the `SHEETS`
+   * binding via `buckets`. Returns the number of guest rows deleted (the
+   * metric/log subject).
    */
-  // TODO(retention-r2): delete the R2 objects behind expired weddings' `imports`
-  // rows (`eventsR2Key`/`guestsR2Key` in the SHEETS bucket). Needs an R2 binding
-  // threaded into this service; until then the uploaded sheets outlive the DB
-  // rows. Tracked in cire/wiki/todo/api.md.
   sweepExpiredGuestData(
     now: Date = new Date(),
+    buckets: RetentionBuckets = {},
   ): Effect.Effect<number, RetentionWriteError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
@@ -94,6 +127,22 @@ export const retentionService = {
         yield* Effect.logInfo("guest-data retention sweep complete", { weddings: 0, deleted: 0 });
         return 0;
       }
+
+      // ── COLLECT R2 SHEET KEYS FIRST ────────────────────────────────────────
+      // Read every uploaded-sheet R2 key the about-to-be-deleted `imports` rows
+      // reference BEFORE deleting them — once the rows are gone the keys are
+      // unrecoverable (D1 cascade never reaches R2). These live in the
+      // `cire-sheets` bucket and carry guest PII, so they MUST be reaped. (The
+      // `cire-assets` invite images are deliberately untouched — see the sweep
+      // docstring + RetentionBuckets.)
+      const importRows = yield* dbQuery(() =>
+        db
+          .select({ eventsKey: imports.eventsR2Key, guestsKey: imports.guestsR2Key })
+          .from(imports)
+          .where(inArray(imports.weddingId, weddingIds))
+          .all(),
+      );
+      const sheetKeys = importRows.flatMap((r) => [r.eventsKey, r.guestsKey]);
 
       // Family ids in scope — `guests` is keyed by `family_id`, not `wedding_id`,
       // so we delete guests via their families. `rsvps` is keyed by `guest_id`;
@@ -131,8 +180,9 @@ export const retentionService = {
             stmts.push(db.delete(guests).where(inArray(guests.familyId, familyIds)));
             stmts.push(db.delete(families).where(inArray(families.id, familyIds)));
           }
-          // imports bookkeeping (the uploaded-sheet PII references). R2 objects
-          // are NOT reaped here — see the service-level TODO.
+          // imports bookkeeping (the uploaded-sheet PII references). The R2
+          // objects behind these (+ the invite-image columns) are reaped AFTER
+          // this batch commits — their keys were collected above, pre-delete.
           stmts.push(db.delete(imports).where(inArray(imports.weddingId, weddingIds)));
 
           const batchable = db as {
@@ -165,6 +215,14 @@ export const retentionService = {
         weddings: weddingIds.length,
         deleted: guestsDeleted,
       });
+
+      // ── REAP R2 OBJECTS (best-effort, post-delete) ─────────────────────────
+      // The `imports` rows are gone; now delete the uploaded-sheet objects they
+      // pointed at. Best-effort (logs + counts failures, never throws) so an R2
+      // hiccup can't fail the sweep or leave guest PII stuck in D1. Keys were
+      // collected before the deletes above.
+      yield* reapR2Objects(buckets.sheets, "sheets", sheetKeys);
+
       return guestsDeleted;
     }).pipe(
       Effect.tapError(() => Effect.sync(() => metricGuestDataSwept("error"))),
