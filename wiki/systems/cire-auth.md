@@ -9,7 +9,7 @@ related:
   - "[[data-map]]"
   - "[[access-control]]"
   - "[[arc-tokens]]"
-last-reviewed: 2026-06-18
+last-reviewed: 2026-06-19
 ---
 
 # Cire two-system auth
@@ -88,7 +88,7 @@ Organisers who don't yet have an OSN account can create one from the same page: 
 `weddings.owner_osn_profile_id` stores the owning OSN profile id as an **opaque string** — no cross-DB FK (cire's D1 and OSN's DB are separate databases; the id is a foreign-system reference, not a relation). Two per-wedding gates enforce it, split by authorisation level:
 
 - **`weddingOwner()`** — owner-only, for destructive / management routes under `/api/organiser/weddings/:weddingId/*`: `regenerate-code`, `preview-code`, the co-host write routes (`POST/DELETE /hosts`), the invite-builder writes, **and the import routes** at `/import/*`. Loads the wedding row: unknown wedding → **404** `wedding_not_found` (don't disclose existence), owner mismatch → **403** `forbidden`. Sets `c.var.weddingId`.
-- **`weddingMember()`** — owner **or** co-host, for the dashboard reads (`/guests`, `/events`) and the co-host read route (`GET /hosts`). Same 404/403 semantics; co-hosts get the read dashboard but nothing destructive. Sets `c.var.weddingId`. Co-hosts live in the `wedding_hosts(wedding_id, osn_profile_id, …)` table (unique per pair); they're added **by OSN handle** — `POST /hosts` resolves the handle to a profile id via an ARC-gated osn-api `GET /graph/internal/profile-by-handle` call (`graph:read` scope) before inserting the row (#148).
+- **`weddingMember()`** — owner **or** co-host, for the dashboard reads (`/guests`, `/events`) and the co-host read route (`GET /hosts`). Same 404/403 semantics; co-hosts get the read dashboard but nothing destructive. Sets `c.var.weddingId`. Co-hosts live in the `wedding_hosts(wedding_id, osn_profile_id, …)` table (unique per pair) — it stores **only the profile id**, never the handle. They're added **by OSN handle** — `POST /hosts` resolves the handle to a profile id via an ARC-gated osn-api `GET /graph/internal/profile-by-handle` call (`graph:read` scope) before inserting the row (#148). `GET /hosts` resolves the stored profile ids back to **handles live** for display: it batches the row's `osn_profile_id`s into one ARC-gated `POST /graph/internal/profile-displays` (`graph:read`) call and merges `{handle, displayName}` into the response. The handle is the on-screen value; the **profile id is a last-resort fallback only** (the handle is never denormalised into `wedding_hosts`). The display resolver is **key-optional + fail-soft**: when the ARC key is absent/malformed or osn-api is unreachable, it returns an empty map and the list degrades to showing profile ids — never a 503/500 (host listing must not break on a display-lookup failure).
 
 `POST /api/organiser/weddings` (create) and `GET /api/organiser/weddings` (list) carry no `:weddingId` and are gated by `osnAuth()` alone — the owner is the verified caller, taken from the token, never the body.
 

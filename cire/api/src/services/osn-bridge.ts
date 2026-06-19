@@ -197,3 +197,100 @@ export async function createHandleResolverFromEnv(env: {
     arcKeyId: env.arcKeyId,
   });
 }
+
+/** Display metadata for a single OSN profile, surfaced to the organiser portal. */
+export interface OsnProfileDisplay {
+  readonly handle: string;
+  readonly displayName: string | null;
+}
+
+/**
+ * Batch-resolves a set of OSN profile ids (`usr_*`) to their display metadata
+ * (handle + display name). Returns a `Map<profileId, display>` keyed by the id
+ * osn-api echoed back; ids osn-api doesn't recognise are simply absent from the
+ * map. FAIL-SOFT: any transport/infra failure (osn-api down / 5xx / malformed
+ * body) resolves to an EMPTY map, never a throw — the host list then degrades
+ * to showing the raw profile id rather than 500ing. This is the deliberate
+ * difference from the handle/account resolvers (which throw so the add-host
+ * flow can distinguish "not found" from "osn unavailable"): listing hosts must
+ * never fail just because the display lookup is unavailable.
+ */
+export type OsnProfileDisplayResolver = (
+  profileIds: readonly string[],
+) => Promise<Map<string, OsnProfileDisplay>>;
+
+/**
+ * Builds an {@link OsnProfileDisplayResolver} backed by a real ARC-authenticated
+ * call to `POST /graph/internal/profile-displays`. Same key + `graph:read` scope
+ * as the handle/account resolvers, so a deployment that has the ARC key
+ * registered automatically gets host-handle display too.
+ */
+export function createArcProfileDisplayResolver(
+  config: ArcResolverConfig,
+): OsnProfileDisplayResolver {
+  const base = config.osnApiUrl.replace(/\/+$/, "");
+
+  return async (profileIds) => {
+    const empty = new Map<string, OsnProfileDisplay>();
+    if (profileIds.length === 0) return empty;
+
+    try {
+      const token = await signArcToken(config.arcPrivateKey, {
+        iss: ARC_ISSUER,
+        aud: ARC_AUDIENCE,
+        scope: ARC_SCOPE,
+        kid: config.arcKeyId,
+      });
+
+      const res = await instrumentedFetch(`${base}/graph/internal/profile-displays`, {
+        method: "POST",
+        headers: { authorization: `ARC ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ profileIds: [...profileIds] }),
+      });
+
+      if (!res.ok) return empty;
+
+      const data = (await res.json()) as {
+        profiles?: { id?: unknown; handle?: unknown; displayName?: unknown }[];
+      };
+      if (!Array.isArray(data.profiles)) return empty;
+
+      const map = new Map<string, OsnProfileDisplay>();
+      for (const p of data.profiles) {
+        if (typeof p.id !== "string" || typeof p.handle !== "string") continue;
+        map.set(p.id, {
+          handle: p.handle,
+          displayName: typeof p.displayName === "string" ? p.displayName : null,
+        });
+      }
+      return map;
+    } catch {
+      // FAIL-SOFT: never let a display lookup failure break the host list.
+      return empty;
+    }
+  };
+}
+
+/**
+ * Builds the profile-display resolver from raw env material — the sibling of
+ * {@link createHandleResolverFromEnv}. Returns `null` when any piece is absent
+ * so a deployment without the ARC key simply shows profile ids in the host list
+ * (the fallback), never failing to boot. A present-but-invalid key degrades the
+ * same way (disabled, ids shown) instead of throwing.
+ */
+export async function createProfileDisplayResolverFromEnv(env: {
+  osnApiUrl?: string;
+  arcPrivateKeyJwk?: string;
+  arcKeyId?: string;
+}): Promise<OsnProfileDisplayResolver | null> {
+  if (!env.osnApiUrl || !env.arcPrivateKeyJwk || !env.arcKeyId) {
+    return null;
+  }
+  const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk).catch(() => null);
+  if (!arcPrivateKey) return null;
+  return createArcProfileDisplayResolver({
+    osnApiUrl: env.osnApiUrl,
+    arcPrivateKey,
+    arcKeyId: env.arcKeyId,
+  });
+}

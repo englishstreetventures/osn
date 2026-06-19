@@ -25,7 +25,11 @@ import {
 import { createRsvpRoutes } from "./routes/rsvp";
 import type { AssetsBucket } from "./services/invite-assets";
 import type { ImagesBindingLike } from "./services/invite-image-transform";
-import type { OsnAccountResolver, OsnHandleResolver } from "./services/osn-bridge";
+import type {
+  OsnAccountResolver,
+  OsnHandleResolver,
+  OsnProfileDisplayResolver,
+} from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
 
 /** Default per-IP rate limiter for the claim endpoint: 5 attempts per minute. */
@@ -120,6 +124,14 @@ export interface AppOptions {
    */
   resolveOsnProfileByHandle?: OsnHandleResolver;
   /**
+   * Batch-resolves OSN profile ids to display metadata (handle + display name,
+   * server-to-server over ARC) so the host-list GET shows handles instead of
+   * raw profile ids. KEY-OPTIONAL + FAIL-SOFT: when omitted (no ARC key) or
+   * unreachable, the list degrades to showing profile ids — never a 503/500.
+   * Tests inject a stub.
+   */
+  resolveOsnProfileDisplays?: OsnProfileDisplayResolver;
+  /**
    * Cloudflare Turnstile verifier (bot protection) for the public guest
    * surfaces (claim + rsvp). KEY-OPTIONAL: `null`/omitted ⇒ the
    * `TURNSTILE_SECRET_KEY` secret is unset and the gates are skipped (guest
@@ -148,6 +160,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     osnTestKey,
     resolveOsnAccountId,
     resolveOsnProfileByHandle,
+    resolveOsnProfileDisplays,
     turnstileVerifier = null,
   } = options;
   const corsOrigins = allowedOrigins ?? [webOrigin];
@@ -209,7 +222,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // Co-host management. Reads (list hosts) admit owner OR co-host; writes
       // (add/remove) are owner-only and behind a per-IP limiter — split into
       // sibling instances so the read isn't gated by the write limiter.
-      .use(createOrganiserHostsReadRoutes(db, osnAuthOptions))
+      .use(createOrganiserHostsReadRoutes(db, osnAuthOptions, resolveOsnProfileDisplays))
       .use(
         createOrganiserHostsWriteRoutes(db, osnAuthOptions, hostLimiter, resolveOsnProfileByHandle),
       )

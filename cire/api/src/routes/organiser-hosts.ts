@@ -13,7 +13,7 @@ import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
 import { AddHostBody } from "../schemas/host";
 import { hostsService } from "../services/hosts";
-import type { OsnHandleResolver } from "../services/osn-bridge";
+import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../services/osn-bridge";
 
 const PREFIX = "/api/organiser";
 
@@ -28,7 +28,11 @@ class OsnHandleLookupError extends Data.TaggedError("OsnHandleLookupError")<{
  * (the add/remove instances below are owner-gated). Split from the mutating
  * routes so the read isn't behind the per-IP add limiter.
  */
-export const createOrganiserHostsReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
+export const createOrganiserHostsReadRoutes = (
+  db: Db,
+  osnAuthOptions: OsnAuthOptions,
+  resolveOsnProfileDisplays?: OsnProfileDisplayResolver,
+) =>
   new Elysia({ prefix: PREFIX })
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
@@ -40,13 +44,35 @@ export const createOrganiserHostsReadRoutes = (db: Db, osnAuthOptions: OsnAuthOp
         return runCire(
           hostsService.list(weddingId).pipe(
             Effect.provideService(DbService, db),
-            Effect.map((hosts) => ({
-              hosts: hosts.map((h) => ({
-                osnProfileId: h.osnProfileId,
-                role: h.role,
-                createdAt: h.createdAt.getTime(),
-              })),
-            })),
+            // Resolve profileId → handle/displayName live over the batch graph
+            // endpoint. FAIL-SOFT: the resolver swallows transport failures and
+            // returns an empty map, so a missing/unreachable ARC bridge simply
+            // leaves the profile id as the on-screen fallback (no 500). The
+            // `Effect.tryPromise` catch is a belt-and-braces guard for the same.
+            Effect.flatMap((hosts) =>
+              Effect.gen(function* () {
+                const displays = resolveOsnProfileDisplays
+                  ? yield* Effect.tryPromise({
+                      try: () => resolveOsnProfileDisplays(hosts.map((h) => h.osnProfileId)),
+                      catch: () => null,
+                    }).pipe(Effect.orElseSucceed(() => null))
+                  : null;
+                return {
+                  hosts: hosts.map((h) => {
+                    const display = displays?.get(h.osnProfileId);
+                    return {
+                      osnProfileId: h.osnProfileId,
+                      // Handle is the display value; profileId stays as the
+                      // last-resort fallback when the lookup couldn't resolve it.
+                      ...(display ? { handle: display.handle } : {}),
+                      ...(display?.displayName ? { displayName: display.displayName } : {}),
+                      role: h.role,
+                      createdAt: h.createdAt.getTime(),
+                    };
+                  }),
+                };
+              }),
+            ),
             Effect.catchAllDefect(() =>
               Effect.sync(() => {
                 set.status = 500;

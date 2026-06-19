@@ -6,7 +6,11 @@ import { Effect, Layer } from "effect";
 import { createApp } from "./app";
 import { createD1Db, DbService } from "./db";
 import { setExecutionCtx } from "./lib/execution-ctx";
-import { createAccountResolverFromEnv, createHandleResolverFromEnv } from "./services/osn-bridge";
+import {
+  createAccountResolverFromEnv,
+  createHandleResolverFromEnv,
+  createProfileDisplayResolverFromEnv,
+} from "./services/osn-bridge";
 import { retentionService } from "./services/retention";
 import { sessionService } from "./services/session";
 
@@ -117,6 +121,15 @@ const handler: ExportedHandler<Env> = {
           arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
           arcKeyId: env.CIRE_API_ARC_KEY_ID,
         })) ?? undefined;
+      // Sibling ARC resolver for host-list display (profileId → handle), same
+      // key + graph:read scope. Null (⇒ host list shows profile ids as the
+      // fallback) when the ARC config is absent — fail-soft, never a 503.
+      const resolveOsnProfileDisplays =
+        (await createProfileDisplayResolverFromEnv({
+          osnApiUrl: env.OSN_API_URL,
+          arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+          arcKeyId: env.CIRE_API_ARC_KEY_ID,
+        })) ?? undefined;
       // C1/C4/AL-S-L1: prefer the native Workers rate-limit binding (global +
       // atomic) for every pre-auth / amplifier surface — claim (brute-force),
       // account-link (ARC-sign + S2S amplifier, membership oracle), invite
@@ -145,6 +158,7 @@ const handler: ExportedHandler<Env> = {
           osnAudience: env.OSN_AUDIENCE,
           resolveOsnAccountId,
           resolveOsnProfileByHandle,
+          resolveOsnProfileDisplays,
           turnstileVerifier,
         }),
       };

@@ -8,7 +8,7 @@ import { createApp } from "../app";
 import type { AppOptions } from "../app";
 import type { Db } from "../db";
 import { createDb } from "../db/setup";
-import type { OsnHandleResolver } from "../services/osn-bridge";
+import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../services/osn-bridge";
 import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -36,6 +36,28 @@ const stubResolver: OsnHandleResolver = async (handle) => {
 
 /** Resolver that always throws — stands in for osn-api returning a 5xx. */
 const throwingResolver: OsnHandleResolver = async () => {
+  throw new Error("osn-api 500");
+};
+
+/** Display-resolver stub: maps known profile ids to handle + display name. */
+const PROFILE_TO_DISPLAY: Record<string, { handle: string; displayName: string | null }> = {
+  [COHOST]: { handle: "bob", displayName: "Bob Jones" },
+  usr_carol: { handle: "carol", displayName: null },
+};
+const stubDisplayResolver: OsnProfileDisplayResolver = async (profileIds) => {
+  const map = new Map<string, { handle: string; displayName: string | null }>();
+  for (const id of profileIds) {
+    const display = PROFILE_TO_DISPLAY[id];
+    if (display) map.set(id, display);
+  }
+  return map;
+};
+
+/** Display resolver that fails soft to an empty map (osn-api down / no ARC key). */
+const emptyDisplayResolver: OsnProfileDisplayResolver = async () => new Map();
+
+/** Display resolver that throws — stands in for osn-api returning a 5xx. */
+const throwingDisplayResolver: OsnProfileDisplayResolver = async () => {
   throw new Error("osn-api 500");
 };
 
@@ -218,6 +240,73 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     seedCohost(db);
     const res = await req(app, "GET", hostsPath, STRANGER);
     expect(res.status).toBe(403);
+  });
+
+  it("carries the resolved handle (+ displayName) when the batch resolver provides it", async () => {
+    const { db, app } = buildApp({ resolveOsnProfileDisplays: stubDisplayResolver });
+    seedCohost(db);
+    const res = await req(app, "GET", hostsPath, OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      hosts: { osnProfileId: string; handle?: string; displayName?: string }[];
+    };
+    expect(body.hosts).toHaveLength(1);
+    expect(body.hosts[0]!.osnProfileId).toBe(COHOST);
+    expect(body.hosts[0]!.handle).toBe("bob");
+    expect(body.hosts[0]!.displayName).toBe("Bob Jones");
+  });
+
+  it("falls back to profileId (no handle key) when the resolver returns an empty map", async () => {
+    const { db, app } = buildApp({ resolveOsnProfileDisplays: emptyDisplayResolver });
+    seedCohost(db);
+    const res = await req(app, "GET", hostsPath, OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hosts: { osnProfileId: string; handle?: string }[] };
+    expect(body.hosts).toHaveLength(1);
+    expect(body.hosts[0]!.osnProfileId).toBe(COHOST);
+    expect(body.hosts[0]!.handle).toBeUndefined();
+  });
+
+  it("still 200s with profileId when NO display resolver is wired (ARC key absent)", async () => {
+    const { db, app } = buildApp({ resolveOsnProfileDisplays: undefined });
+    seedCohost(db);
+    const res = await req(app, "GET", hostsPath, OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hosts: { osnProfileId: string; handle?: string }[] };
+    expect(body.hosts.map((h) => h.osnProfileId)).toEqual([COHOST]);
+    expect(body.hosts[0]!.handle).toBeUndefined();
+  });
+
+  it("still 200s (profileId fallback) when the display resolver throws", async () => {
+    const { db, app } = buildApp({ resolveOsnProfileDisplays: throwingDisplayResolver });
+    seedCohost(db);
+    const res = await req(app, "GET", hostsPath, OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hosts: { osnProfileId: string; handle?: string }[] };
+    expect(body.hosts.map((h) => h.osnProfileId)).toEqual([COHOST]);
+    expect(body.hosts[0]!.handle).toBeUndefined();
+  });
+
+  it("omits handle for an unresolved host but keeps it for a resolved one (partial map)", async () => {
+    const { db, app } = buildApp({ resolveOsnProfileDisplays: stubDisplayResolver });
+    seedCohost(db); // bob → resolvable
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_ghost",
+        weddingId: WEDDING_ID,
+        osnProfileId: "usr_ghost", // not in PROFILE_TO_DISPLAY
+        addedByOsnProfileId: OWNER,
+        createdAt: new Date(Date.now() + 1000),
+      })
+      .run();
+    const res = await req(app, "GET", hostsPath, OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      hosts: { osnProfileId: string; handle?: string }[];
+    };
+    const byId = new Map(body.hosts.map((h) => [h.osnProfileId, h.handle]));
+    expect(byId.get(COHOST)).toBe("bob");
+    expect(byId.get("usr_ghost")).toBeUndefined();
   });
 });
 
