@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[api]]"
   - "[[db]]"
-last-reviewed: 2026-06-12
+last-reviewed: 2026-06-19
 ---
 
 # Organiser Spreadsheet Import
@@ -29,6 +29,7 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 - [x] Organiser auth model — resolved in the OSN merge: OSN passkey sign-in + `osnAuth()` JWT verification, no separate `organisers` table or magic link (see [[deferred]] resolved row and `[[wiki/systems/cire-auth]]` in the root OSN wiki)
 - [x] Auth middleware that rejects guest sessions on organiser endpoints — `/api/organiser/*` accepts only OSN access JWTs (`osnAuth()` + ownership gates); the guest cookie is never consulted there
 - [x] Organiser dashboard (`cire/organiser`) — tabbed Guests / Events view + inline import panel (2 file inputs → preview diff → apply; authenticated via OSN sign-in since the merge). History/revert UI deferred.
+- [x] **CSV format explainer redesign** (`ImportPanel.tsx` `CsvFormatHelp`) — replaced the dense prose disclosure with an approachable 3-step visual guide (① Events sheet ② Guests sheet ③ Upload & preview), `open` by default, a required/optional chip legend, and a `MiniMatrix` illustrating the one-`yes`-column-per-event convention. Still a native `<details>`/`<summary>` (keyboard + SR accessible, no JS); header constants come from `lib/import-templates`.
 - [x] `GET /api/organiser/events` — full event details (used by EventTable + GuestTable for human-readable event tags)
 - [x] Multi-origin CORS allowlist on the API so the organiser portal (`:4322`) can call the API alongside the guest web app (`:4321`)
 - [ ] Extend `OrganiserView` to display family-grouped guests with shareable publicId + password (show password only at family creation, hash thereafter — surface a "regenerate password" action)
