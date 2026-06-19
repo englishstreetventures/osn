@@ -140,15 +140,17 @@ export async function resolvePinUrl(
     fetchImpl = fetch,
   } = options;
 
-  let host: string;
+  let input: URL;
   try {
-    host = new URL(url).hostname;
+    input = new URL(url);
   } catch {
     return url; // unparseable — leave it for the rest of the pipeline.
   }
 
-  // SSRF allowlist: only ever fetch a first-party Pinterest short link.
-  if (!isPinItHost(host)) return url;
+  // SSRF allowlist: only ever fetch a first-party Pinterest short link over
+  // https. Anything else (incl. an already-canonical pinterest board URL, or a
+  // plain-http pin.it) passes through without a network call.
+  if (input.protocol !== "https:" || !isPinItHost(input.hostname)) return url;
 
   try {
     let current = url;
@@ -175,17 +177,27 @@ export async function resolvePinUrl(
       if (status >= 300 && status < 400) {
         const location = response.headers.get("location");
         if (!location) break;
-        let next: string;
+        let next: URL;
         try {
-          next = new URL(location, current).toString();
+          next = new URL(location, current);
         } catch {
           break;
         }
-        current = next;
-        // A short link should resolve OFF the pin.it host quickly; once we've
-        // landed on a pinterest board host, canonicalise and we're done.
-        const canonical = canonicalizePinterestBoardUrl(current);
+        // A short link should resolve OFF the pin.it host quickly; the moment it
+        // lands on a real pinterest board host, canonicalise and we're done.
+        const canonical = canonicalizePinterestBoardUrl(next.toString());
         if (canonical) return canonical;
+        // SSRF guard — re-validate EVERY hop before issuing the next fetch. We
+        // only keep following while the chain stays on the first-party pin.it
+        // allowlist over https. The instant a redirect points anywhere else and
+        // it isn't a board (handled above), we STOP and fall back to the
+        // original url — we never fetch an off-allowlist host. Without this a
+        // pin.it link could 30x-redirect the Worker to an internal/attacker
+        // host (cloud metadata, private IPs, …).
+        if (next.protocol !== "https:" || !isPinItHost(next.hostname)) {
+          return url;
+        }
+        current = next.toString();
         continue;
       }
 

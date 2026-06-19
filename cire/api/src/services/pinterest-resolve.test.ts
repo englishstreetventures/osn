@@ -130,15 +130,47 @@ describe("resolvePinUrl", () => {
     expect(await resolvePinUrl("https://pin.it/xyz", { fetchImpl })).toBe("https://pin.it/xyz");
   });
 
-  it("keeps the original pin.it URL when the final host is not pinterest", async () => {
-    const fetchImpl = (() =>
-      Promise.resolve(
-        new Response(null, {
-          status: 302,
-          headers: { location: "https://evil.com/anything" },
-        }),
-      )) as unknown as typeof fetch;
+  it("keeps the original pin.it URL when a redirect leaves the allowlist, WITHOUT fetching it (SSRF)", async () => {
+    const fetched: string[] = [];
+    const fetchImpl = ((input: string) => {
+      fetched.push(input);
+      if (input === "https://pin.it/xyz") {
+        return Promise.resolve(
+          new Response(null, { status: 302, headers: { location: "https://evil.com/anything" } }),
+        );
+      }
+      throw new Error(`SSRF: must not fetch off-allowlist host ${input}`);
+    }) as unknown as typeof fetch;
     expect(await resolvePinUrl("https://pin.it/xyz", { fetchImpl })).toBe("https://pin.it/xyz");
+    // Only the first-party pin.it short link is ever fetched; evil.com is not.
+    expect(fetched).toEqual(["https://pin.it/xyz"]);
+  });
+
+  it("never fetches a private/metadata host a pin.it link tries to redirect to (SSRF)", async () => {
+    for (const target of [
+      "http://169.254.169.254/latest/meta-data/",
+      "https://10.0.0.1/internal",
+      "http://localhost:8787/admin",
+    ]) {
+      const fetched: string[] = [];
+      const fetchImpl = ((input: string) => {
+        fetched.push(input);
+        if (input === "https://pin.it/ssrf") {
+          return Promise.resolve(
+            new Response(null, { status: 301, headers: { location: target } }),
+          );
+        }
+        throw new Error(`SSRF: must not fetch ${input}`);
+      }) as unknown as typeof fetch;
+      expect(await resolvePinUrl("https://pin.it/ssrf", { fetchImpl })).toBe("https://pin.it/ssrf");
+      expect(fetched).toEqual(["https://pin.it/ssrf"]);
+    }
+  });
+
+  it("does not fetch a plain-http pin.it input (https-only allowlist)", async () => {
+    const fetchImpl = (() =>
+      Promise.reject(new Error("should not fetch http")) as unknown) as typeof fetch;
+    expect(await resolvePinUrl("http://pin.it/abc", { fetchImpl })).toBe("http://pin.it/abc");
   });
 
   it("falls back to the original URL on a fetch error", async () => {
