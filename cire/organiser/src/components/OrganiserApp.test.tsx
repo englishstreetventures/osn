@@ -125,12 +125,12 @@ describe("OrganiserApp Dashboard", () => {
 
     fireEvent.click(screen.getByText("select-first"));
     expect(screen.getByTestId("dashboard-tabs").textContent).toBe("wed_a");
-    // Owner ⇒ management enabled + the owner-only import panel rendered.
+    // Owner ⇒ management enabled + the import panel rendered.
     expect(screen.getByTestId("dashboard-tabs").getAttribute("data-can-manage")).toBe("true");
     expect(screen.getByTestId("import-panel").textContent).toBe("wed_a");
   });
 
-  it("hides owner-only surfaces and disables management when only co-hosting", async () => {
+  it("disables owner-only management but still surfaces import when only co-hosting", async () => {
     authFetchMock.mockResolvedValue(
       listResponse([{ id: "wed_c", slug: "c", displayName: "Co-hosted", role: "host" }]),
     );
@@ -139,9 +139,11 @@ describe("OrganiserApp Dashboard", () => {
 
     fireEvent.click(screen.getByText("select-first"));
     expect(screen.getByTestId("dashboard-tabs").textContent).toBe("wed_c");
-    // Co-host ⇒ management disabled (threaded into the Hosts tab) + no import panel.
+    // Co-host ⇒ owner-only management disabled (threaded into the Hosts/Codes
+    // tabs), but the spreadsheet import is available — co-hosts are trusted
+    // co-organisers (gated server-side by weddingMember).
     expect(screen.getByTestId("dashboard-tabs").getAttribute("data-can-manage")).toBe("false");
-    expect(screen.queryByTestId("import-panel")).toBeNull();
+    expect(screen.getByTestId("import-panel").textContent).toBe("wed_c");
   });
 
   it("auto-opens a freshly created wedding's dashboard", async () => {

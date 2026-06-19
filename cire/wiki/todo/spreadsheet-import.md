@@ -26,6 +26,7 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 
 ## Organiser portal (cire/organiser + cire/api)
 
+- [x] **Co-hosts can use the import** — the `/import/{preview,apply,revert,list}` routes moved from `weddingOwner()` to `weddingMember()`, so a wedding's co-hosts get **full** import access (preview AND apply — they're trusted co-organisers, and the spreadsheet is the primary way guests + events get populated), not view-only. UI: `OrganiserApp.tsx` no longer gates `<ImportPanel>` on `isOwner`. Owner-only stays narrow: re-mint / regenerate codes, host add/remove, wedding deletion. `weddingMember()` fails closed if the ARC/host lookup is down. See `[[wiki/systems/cire-auth]]` (root, capability matrix) + `[[api]]`.
 - [x] Organiser auth model — resolved in the OSN merge: OSN passkey sign-in + `osnAuth()` JWT verification, no separate `organisers` table or magic link (see [[deferred]] resolved row and `[[wiki/systems/cire-auth]]` in the root OSN wiki)
 - [x] Auth middleware that rejects guest sessions on organiser endpoints — `/api/organiser/*` accepts only OSN access JWTs (`osnAuth()` + ownership gates); the guest cookie is never consulted there
 - [x] Organiser dashboard (`cire/organiser`) — tabbed Guests / Events view + inline import panel (2 file inputs → preview diff → apply; authenticated via OSN sign-in since the merge). History/revert UI deferred.

@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, families, guests, imports, weddings } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  events,
+  families,
+  guests,
+  imports,
+  weddingHosts,
+  weddings,
+} from "@cire/db";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../app";
@@ -11,8 +19,9 @@ import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
 // OSN JWT minted for the seeded bootstrap-wedding owner. Required by the
-// osnAuth gate on /api/organiser/*; weddingOwner() then proves the caller owns
-// the :weddingId in the path and scopes every import operation to it.
+// osnAuth gate on /api/organiser/*; weddingMember() then proves the caller is
+// the owner OR a co-host of the :weddingId in the path and scopes every import
+// operation to it.
 let auth: OsnTestAuth;
 let bearer: string;
 
@@ -209,6 +218,81 @@ describe("POST /api/organiser/weddings/:weddingId/import/apply", () => {
   });
 });
 
+describe("co-host import access (weddingMember)", () => {
+  const COHOST = "usr_cohost_bob";
+
+  // Seed COHOST as a co-host of the bootstrap wedding so weddingMember() admits
+  // them. Mirrors the production add path (wedding_hosts row, role "host").
+  function seedCohost(db: ReturnType<typeof buildApp>["db"]) {
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_import_bob",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: COHOST,
+        addedByOsnProfileId: "usr_dev_bootstrap_owner",
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  async function cohostReq(app: ReturnType<typeof buildApp>["app"], path: string, body: object) {
+    return appRequest(app, path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${await auth.sign(COHOST)}`,
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("lets a co-host preview an import", async () => {
+    const { app, db } = buildApp();
+    seedCohost(db);
+    const res = await cohostReq(app, `${IMPORT_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("lets a co-host apply a previewed import (full import access, not view-only)", async () => {
+    const { app, db } = buildApp();
+    seedCohost(db);
+
+    const previewRes = await cohostReq(app, `${IMPORT_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const { importId } = (await previewRes.json()) as { importId: string };
+
+    const apply = await cohostReq(app, `${IMPORT_BASE}/apply`, { importId });
+    expect(apply.status).toBe(200);
+    expect(db.select().from(events).all()).toHaveLength(2);
+    expect(db.select().from(guests).all()).toHaveLength(2);
+  });
+
+  it("lets a co-host read the import list", async () => {
+    const { app, db } = buildApp();
+    seedCohost(db);
+    const res = await appRequest(app, `${IMPORT_BASE}/list`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${await auth.sign(COHOST)}` },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("still 403s a stranger (neither owner nor co-host) on preview", async () => {
+    const { app } = buildApp();
+    const res = await cohostReq(app, `${IMPORT_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    // COHOST not seeded → not a member → forbidden.
+    expect(res.status).toBe(403);
+  });
+});
+
 describe("POST /api/organiser/weddings/:weddingId/import/revert", () => {
   it("reverts the latest applied import", async () => {
     const { app, db } = buildApp();
@@ -345,7 +429,7 @@ describe("GET /api/organiser/weddings/:weddingId/import/list", () => {
 describe("wedding scoping: import is tenant-isolated", () => {
   // A SECOND wedding owned by someone else, pre-populated with its own event,
   // family and guest. The import calls here all target the bootstrap wedding's
-  // path (`IMPORT_BASE`), gated by weddingOwner() — the second tenant's rows
+  // path (`IMPORT_BASE`), gated by weddingMember() — the second tenant's rows
   // must be invisible to the diff and untouched by apply.
   const OTHER_EVENT = "evt_second_party";
   const OTHER_FAMILY = "fam_second";

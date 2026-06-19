@@ -7,7 +7,7 @@ import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
-import { weddingOwner } from "../middleware/wedding-owner";
+import { weddingMember } from "../middleware/wedding-member";
 import { runCire } from "../observability";
 import { ApplyBody, PreviewBody, RevertBody } from "../schemas/import";
 import type { ImportPlan, ParsedFamily } from "../schemas/import";
@@ -34,10 +34,15 @@ const manualParse = { parse: () => ({}) };
 /**
  * Organiser import routes, mounted under
  * /api/organiser/weddings/:weddingId/import. osnAuth() gates every request and
- * weddingOwner() proves the caller owns the :weddingId in the path (404 for
- * unknown weddings, 403 for non-owners), deriving `weddingId`. Every import
- * operation is scoped to that wedding — an organiser who owns several weddings
- * picks the target explicitly in the URL.
+ * weddingMember() proves the caller is the OWNER **or** a CO-HOST of the
+ * :weddingId in the path (404 for unknown weddings, 403 for non-members),
+ * deriving `weddingId`. Co-hosts are trusted co-organisers, so they get full
+ * import access (preview / apply / revert / list) — the spreadsheet is the
+ * primary way a wedding's guests + events are populated, and locking it to the
+ * owner defeated co-hosting. The owner-only surface stays narrow: deleting the
+ * wedding and managing the co-host list (see organiser-hosts / weddings routes).
+ * Every import operation is scoped to that wedding — a member who organises
+ * several weddings picks the target explicitly in the URL.
  *
  * `r2` mirrors the previous app-level optional binding: a deployment without
  * the SHEETS bucket fails at first use, not at startup.
@@ -51,11 +56,11 @@ export const createOrganiserImportRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId/import", (group) =>
       group
-        .use(weddingOwner(db))
+        .use(weddingMember(db))
         .post(
           "/preview",
           async ({ request, weddingId, set }) => {
-            // weddingOwner() always derives this; the guard keeps a future remount
+            // weddingMember() always derives this; the guard keeps a future remount
             // without the plugin from compiling into an unscoped insert.
             if (!weddingId) {
               set.status = 500;
@@ -109,7 +114,7 @@ export const createOrganiserImportRoutes = (
                     .insert(imports)
                     .values({
                       id: importId,
-                      // Scoped to the :weddingId in the path (weddingOwner plugin).
+                      // Scoped to the :weddingId in the path (weddingMember plugin).
                       weddingId,
                       uploadedAt: Date.now(),
                       format: "csv",

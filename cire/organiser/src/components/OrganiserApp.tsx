@@ -42,9 +42,11 @@ function RequireAuth(props: ParentProps) {
 }
 
 /** The chosen wedding's dashboard — the existing tabbed guests/events/invite
- *  view, now scoped to whichever wedding the organiser opened. Owner-only
- *  surfaces (spreadsheet import, the host-management actions) are gated on
- *  `isOwner`; a co-host gets the read/edit dashboard without them. */
+ *  view, now scoped to whichever wedding the organiser opened. Co-hosts are
+ *  trusted co-organisers: they get the full read/edit dashboard, including the
+ *  spreadsheet import (the API gates it with weddingMember). Only the
+ *  owner-only management actions (managing co-hosts, re-minting codes) stay
+ *  gated on `isOwner` — passed down via `canManage`. */
 function WeddingDashboard(props: { wedding: WeddingSummary; onBack: () => void }) {
   const isOwner = () => props.wedding.role === "owner";
   return (
@@ -71,9 +73,9 @@ function WeddingDashboard(props: { wedding: WeddingSummary; onBack: () => void }
           <PreviewInviteButton weddingId={props.wedding.id} />
         </div>
       </div>
-      <Show when={isOwner()}>
-        <ImportPanel weddingId={props.wedding.id} />
-      </Show>
+      {/* Import is available to every member (owner or co-host) — the API
+          authorises it with weddingMember(). */}
+      <ImportPanel weddingId={props.wedding.id} />
       <DashboardTabs
         weddingId={props.wedding.id}
         weddingName={props.wedding.displayName}

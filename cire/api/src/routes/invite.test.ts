@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, weddingInviteCustomisations } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, weddingHosts, weddingInviteCustomisations } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
@@ -190,6 +190,52 @@ describe("PUT /invite/text (organiser)", () => {
       body: JSON.stringify({ ...payload, heroTitle: "x".repeat(200) }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("co-host invite access (weddingMember)", () => {
+  const COHOST = "usr_cohost_carol";
+
+  function seedCohost(db: ReturnType<typeof buildApp>["db"]) {
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_invite_carol",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: COHOST,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  it("lets a co-host read the invite customisation", async () => {
+    const { app, db } = buildApp();
+    seedCohost(db);
+    const res = await appRequest(app, orgBase, { headers: await authHeaders(COHOST) });
+    expect(res.status).toBe(200);
+  });
+
+  it("lets a co-host customise the invite text (not view-only)", async () => {
+    const { app, db } = buildApp();
+    seedCohost(db);
+    const res = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(COHOST)) },
+      body: JSON.stringify({
+        heroTitle: "Co-host edit",
+        heroSubtitle: null,
+        storyEyebrow: null,
+        storyHeading: null,
+        storyBody: null,
+      }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("still 403s a stranger on the invite read", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, orgBase, { headers: await authHeaders("usr_stranger") });
+    expect(res.status).toBe(403);
   });
 });
 

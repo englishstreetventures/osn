@@ -9,7 +9,7 @@ import { metricImageTransform } from "../metrics";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
-import { weddingOwner } from "../middleware/wedding-owner";
+import { weddingMember } from "../middleware/wedding-member";
 import { runCire } from "../observability";
 import { InviteTextBody, InviteThemeBody, isInviteImageSlot } from "../schemas/invite";
 import { inviteService } from "../services/invite";
@@ -226,9 +226,13 @@ export const createInvitePublicRoutes = (
 
 /**
  * Organiser invite-builder routes, a sibling instance under /api/organiser.
- * osnAuth() gates every request; weddingOwner() additionally gates the
- * per-wedding subtree (404 unknown wedding, 403 non-owner — never 401, which
- * would make @osn/client discard a valid session).
+ * osnAuth() gates every request; weddingMember() additionally gates the
+ * per-wedding subtree (404 unknown wedding, 403 for callers who are neither
+ * owner nor co-host — never 401, which would make @osn/client discard a valid
+ * session). Co-hosts are trusted co-organisers, so they can both view and
+ * customise the invite (text, theme, images) just like the owner; the
+ * owner-only surface is limited to deleting the wedding and managing the
+ * co-host list.
  *
  *   GET    /weddings/:weddingId/invite             → current customisation
  *   PUT    /weddings/:weddingId/invite/text        → text overrides
@@ -249,7 +253,7 @@ export const createInviteOrganiserRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingOwner(db))
+        .use(weddingMember(db))
         .get("/invite", ({ weddingId, set }) => {
           if (!weddingId) {
             set.status = 500;
