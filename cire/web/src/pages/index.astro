@@ -1,71 +1,32 @@
 ---
-import '../styles/global.css'
-import InviteHeader, { type InviteCustomisation } from '../components/InviteHeader'
-import InvitePage from '../components/InvitePage'
-import SiteFooter from '../components/SiteFooter.astro'
+// Bare-domain (`/`) route. Resolves the deployment's primary wedding WITHOUT a
+// build-time slug variable and redirects to its clean path (`/<slug>`), so the
+// main link (`https://cireweddings.com/`) stays clean while the SSR'd invite
+// lives at the per-wedding path. The `?code=<host code>` deep-link is preserved
+// across the redirect so a bare-domain preview link still auto-claims.
+//
+//  - exactly one wedding → 302 → `/<slug>`
+//  - several weddings    → 302 → `/<slug>` of the most-recently-created (the API
+//                          decides; documented limitation)
+//  - no wedding          → neutral "no invitation configured" state (never a crash)
+//  - API unreachable     → same neutral state (transient — no redirect loop)
+import { fetchPrimaryWedding } from '../lib/invite'
+import NotFoundDocument from '../components/NotFoundDocument.astro'
 
-const apiUrl = import.meta.env.PUBLIC_API_URL ?? 'http://localhost:8787'
-const weddingSlug = import.meta.env.PUBLIC_WEDDING_SLUG ?? 'cire-wedding'
+const primary = await fetchPrimaryWedding()
 
-// Resolve the invite customisation at build time so the hero renders with the
-// real image + copy in the SSR'd HTML, avoiding a client fetch waterfall on the
-// largest-contentful element (IB-P-W1). If the API isn't reachable at build
-// (e.g. an offline build), fall back to null and let the island client-fetch.
-let initialInvite: InviteCustomisation | null = null
-try {
-  const res = await fetch(`${apiUrl}/api/invite/${weddingSlug}`)
-  if (res.ok) initialInvite = (await res.json()) as InviteCustomisation
-} catch {
-  initialInvite = null
+if (primary.kind === 'ok') {
+  // Carry any `?code=` (and other query) through to the per-wedding path so a
+  // bare-domain preview deep-link still auto-claims after the redirect.
+  const target = `/${encodeURIComponent(primary.slug)}${Astro.url.search}`
+  return Astro.redirect(target, 302)
 }
-// Preload the hero (the LCP element). It now renders responsively via srcset,
-// so preload the same candidate set + sizes — the browser preloads exactly the
-// variant it will pick, instead of the un-transformed original. Mirrors the
-// bounded variant allowlist in cire/api (thumb/card/hero → 320/800/1600w).
-const heroBase = initialInvite?.hero.imageUrl ? `${apiUrl}${initialInvite.hero.imageUrl}` : null
-const heroSep = heroBase?.includes('?') ? '&' : '?'
-const preloadHeroSrcset = heroBase
-  ? `${heroBase}${heroSep}variant=thumb 320w, ${heroBase}${heroSep}variant=card 800w, ${heroBase}${heroSep}variant=hero 1600w`
-  : null
 ---
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    {/* S-L1: keep the ?code= preview credential out of cross-origin Referer headers. */}
-    <meta name="referrer" content="strict-origin-when-cross-origin" />
-    <title>You're Invited</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="preload"
-      as="style"
-      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap"
-      onload="this.onload=null;this.rel='stylesheet'"
-    />
-    <noscript>
-      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
-    </noscript>
-    {heroBase && (
-      <link
-        rel="preload"
-        as="image"
-        href={heroBase}
-        imagesrcset={preloadHeroSrcset}
-        imagesizes="100vw"
-      />
-    )}
-  </head>
-  <body>
-    <InviteHeader client:load apiUrl={apiUrl} slug={weddingSlug} initial={initialInvite} />
-    <InvitePage
-      client:visible
-      apiUrl={apiUrl}
-      slug={weddingSlug}
-      siteUrl={import.meta.env.PUBLIC_SITE_URL}
-      theme={initialInvite?.theme ?? null}
-    />
-    <SiteFooter />
-  </body>
-</html>
+<NotFoundDocument
+  heading={primary.kind === 'none' ? 'No invitation configured' : 'Invitation unavailable'}
+  body={
+    primary.kind === 'none'
+      ? 'There is no invitation set up at this address yet. If you have an invite link, please open that link directly.'
+      : "We couldn't load the invitation right now. Please try again in a moment, or open your invite link directly."
+  }
+/>

@@ -27,6 +27,9 @@ interface GuestTableProps {
   weddingId: string;
   /** Display name of the wedding — used in the copied invite message. */
   weddingName: string;
+  /** URL slug of the wedding — the copied invite message links to this wedding's
+   *  path on the SSR'd, path-routed guest site (`CIRE_WEB_URL/<slug>`). */
+  weddingSlug: string;
 }
 
 interface EventRow {
@@ -107,7 +110,7 @@ export default function GuestTable(props: GuestTableProps) {
   }
 
   async function copyMessage(family: FamilyGroup) {
-    const message = buildInviteMessage(props.weddingName, family.publicId);
+    const message = buildInviteMessage(props.weddingName, family.publicId, props.weddingSlug);
     const ok = await copyToClipboard(message);
     if (ok) {
       toast.success(`Copied ${family.familyName}'s invite message`);

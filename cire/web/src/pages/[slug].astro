@@ -1,0 +1,38 @@
+---
+// Server-rendered, per-request invite route. The wedding to render is resolved
+// FROM THE PATH (`/<slug>`) — no build-time `PUBLIC_WEDDING_SLUG`, so any wedding
+// renders from its own link. Astro prefers the static `/privacy` + `/terms`
+// routes over this dynamic one, so legal pages are unaffected.
+//
+// The `?code=<host code>` auto-claim deep-link rides on `/<slug>?code=...`:
+// LoginSection reads `code` client-side, so it survives untouched here.
+import { fetchInvite, API_URL } from '../lib/invite'
+import InviteDocument from '../components/InviteDocument.astro'
+import NotFoundDocument from '../components/NotFoundDocument.astro'
+
+const { slug } = Astro.params
+
+// A missing slug can't happen for `[slug]` (Astro wouldn't match), but guard so
+// the fetch never runs with `undefined`.
+const result = slug ? await fetchInvite(slug) : ({ kind: 'not-found' } as const)
+
+// Unknown slug → a real 404 with a tasteful not-found page. An API error (e.g.
+// cire-api briefly unreachable) is NOT a 404 — we still render the invite shell
+// with built-in defaults so a transient blip doesn't 404 a valid wedding; the
+// islands revalidate on mount.
+if (result.kind === 'not-found') {
+  Astro.response.status = 404
+}
+
+const siteUrl = import.meta.env.PUBLIC_SITE_URL
+---
+{result.kind === 'not-found' ? (
+  <NotFoundDocument />
+) : (
+  <InviteDocument
+    apiUrl={API_URL}
+    slug={slug!}
+    initialInvite={result.kind === 'ok' ? result.invite : null}
+    siteUrl={siteUrl}
+  />
+)}

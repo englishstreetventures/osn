@@ -447,12 +447,15 @@ describe("POST /api/organiser/weddings/:weddingId/preview-code", () => {
     expect(res.status).toBe(401);
   });
 
-  it("mints a HOST-* preview code for the owner", async () => {
+  it("mints a HOST-* preview code + returns the wedding slug for the path-routed link", async () => {
     const { app } = buildApp();
     const res = await post(app, path, BOOTSTRAP_OWNER);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { publicId: string };
+    const body = (await res.json()) as { publicId: string; slug: string };
     expect(body.publicId).toMatch(/^HOST-[A-F0-9]{32}$/);
+    // The organiser preview opens `${CIRE_WEB_URL}/<slug>?code=<publicId>`, so
+    // the endpoint must hand back the seeded wedding's slug.
+    expect(body.slug).toBe("cire-wedding");
   });
 
   it("is idempotent — the same owner gets the same code", async () => {

@@ -1,5 +1,5 @@
 import { weddingHosts, weddings } from "@cire/db";
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
@@ -101,6 +101,30 @@ export const weddingsService = {
       }
       return summaries;
     }).pipe(Effect.withSpan("cire.wedding.listForMember"));
+  },
+
+  /**
+   * The deployment's PRIMARY (default) wedding slug — drives the guest site's
+   * bare-domain (`/`) route so it can redirect to `/<slug>` with no build-time
+   * slug variable. Returns the sole wedding when exactly one exists; when several
+   * exist it returns the MOST-RECENTLY-CREATED (documented limitation — the bare
+   * domain can only point at one wedding, and the per-wedding path serves the
+   * rest). `null` when no wedding is configured, so the `/` route can show a
+   * neutral state instead of crashing. Public read — no owner scope.
+   */
+  primaryWeddingSlug(): Effect.Effect<string | null, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({ slug: weddings.slug })
+          .from(weddings)
+          .orderBy(desc(weddings.createdAt))
+          .limit(1)
+          .all(),
+      );
+      return row?.slug ?? null;
+    }).pipe(Effect.withSpan("cire.wedding.primaryWeddingSlug"));
   },
 
   /**

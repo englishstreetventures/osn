@@ -1,6 +1,6 @@
 ---
 title: Production Deploy Runbook (osn + cire)
-description: End-to-end runbook for the first production deploy of osn-api and the cire stack (api worker + guest/organiser Pages). Enumerates every required secret/var by source line.
+description: End-to-end runbook for the first production deploy of osn-api and the cire stack (api worker + guest SSR Worker + organiser Pages). Enumerates every required secret/var by source line.
 tags: [runbook, deploy, production, osn, cire, secrets, cloudflare]
 severity: high
 related:
@@ -17,8 +17,8 @@ last-reviewed: 2026-06-19
 > Scope: the first production cut-over of **osn-api** (identity/auth, **now a
 > Cloudflare Worker** — `export default { fetch, scheduled }` in
 > `osn/api/src/index.ts`, migration Phase 6) and the **cire** wedding-invite
-> stack (**cire-api** Worker + **cire/web** guest Pages site + **cire/organiser**
-> Pages portal).
+> stack (**cire-api** Worker + **cire/web** guest **SSR Worker** + **cire/organiser**
+> Pages portal). _(cire/web was a static Pages site; it is now an SSR Worker — see §3.3.)_
 >
 > **osn-api is a Worker now (was a long-running Bun process).** All its secrets
 > are set with `wrangler secret put … --env <env>` and surfaced **only on the
@@ -70,7 +70,7 @@ marked **TBD** blocks the deploy.
 | cire `WEB_ORIGIN` allowlist (guest **and** organiser origins) | cire-api | **DONE — `https://cireweddings.com,https://app.cireweddings.com`** |
 | cire `OSN_JWKS_URL` / `OSN_ISSUER_URL` | cire-api | **DONE — `https://id.cireweddings.com/.well-known/jwks.json` / `https://id.cireweddings.com`** (must equal osn-api's own `OSN_ISSUER_URL`) |
 | `CIRE_API_ARC_PRIVATE_KEY` + `CIRE_API_ARC_KEY_ID` + `OSN_API_URL` | cire-api | needed only if guest account-linking is enabled (section 6.2) |
-| cire/web `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/web Pages | **DONE — `https://api.cireweddings.com` / `https://cireweddings.com`** (set in `deploy.yml`) |
+| cire/web `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/web **SSR Worker** | **DONE — `https://api.cireweddings.com` / `https://cireweddings.com`** (set in `deploy.yml`). No `PUBLIC_WEDDING_SLUG` — wedding resolved from the path. Apex now served by the `cire-web` Worker (custom-domain route), not the Pages project — see §3.3. |
 | cire/organiser `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ISSUER_URL`, `PUBLIC_CIRE_WEB_URL` (build-time) | cire/organiser Pages | **DONE — `https://api.cireweddings.com` / `https://id.cireweddings.com` / `https://cireweddings.com`** (set in `deploy.yml`) |
 
 ---
@@ -337,17 +337,37 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 > `wrangler deploy` uses the top-level bindings and the default vars unless you pass
 > `--env production`.
 
-### 3.3 cire/web + cire/organiser (Pages — build-time `PUBLIC_*`)
+### 3.3 cire/web (Worker SSR) + cire/organiser (Pages — build-time `PUBLIC_*`)
 
-Both are **static** Astro builds (`output: "static"`), so these are baked in **at build
-time** — set them in the build environment, not at runtime. The prod values are wired in
+> [!important] cire/web is now an **SSR Cloudflare Worker**, not Pages
+> `cire/web` switched to `output: "server"` (the `@astrojs/cloudflare` adapter)
+> and is deployed as a **Cloudflare Worker with Static Assets** via
+> `wrangler deploy --config dist/server/wrangler.json` (the `deploy-cire-web` job
+> in `deploy.yml`). The committed `cire/web/wrangler.jsonc` carries the worker
+> name (`cire-web`) + the **`cireweddings.com` custom-domain route**, and the
+> adapter merges in `main`/the ASSETS binding. The old
+> `wrangler pages deploy dist --project-name cire` is gone — **the Cloudflare
+> Pages project `cire` no longer serves the apex.** The invite route resolves the
+> wedding **from the path** (`/<slug>`) at request time and the bare domain (`/`)
+> redirects to the primary wedding via `GET /api/primary-wedding`, so there is **no
+> `PUBLIC_WEDDING_SLUG`**. No KV/Images binding is required on this Worker (Astro
+> sessions pinned to an in-memory driver; image transforms stay in cire-api).
+> **One-time Cloudflare setup:** the apex DNS/route moves from the Pages project to
+> the `cire-web` Worker — `custom_domain: true` auto-provisions it on first
+> `wrangler deploy`, but if the apex is still attached to the old Pages project,
+> detach it there first (Pages → `cire` → Custom domains) so the Worker route can
+> bind. No KV namespace or Images binding to create.
+
+`cire/organiser` is still a **static** Pages build (`output: "static"`); cire/web's
+`PUBLIC_*` are read both **server-side per request** and by the client islands but
+still bake in **at build time**. The prod values are wired in
 `.github/workflows/deploy.yml` (the `deploy-cire-web` / `deploy-cire-organiser` jobs set
 them on the build step); a localhost fallback stays in the source for local dev. If you
 build outside CI, export these before `bun run --cwd <site> build`.
 
 | Name | Site | Required? | Prod value | Notes |
 |---|---|---|---|---|
-| `PUBLIC_API_URL` | cire/web | **Yes** | `https://api.cireweddings.com` | cire-api prod origin (`cire/web/src/pages/index.astro`, dev default `http://localhost:8787`). |
+| `PUBLIC_API_URL` | cire/web | **Yes** | `https://api.cireweddings.com` | cire-api prod origin, read server-side (`[slug].astro` / `index.astro` via `src/lib/invite.ts`) **and** by the islands (dev default `http://localhost:8787`). |
 | `PUBLIC_SITE_URL` | cire/web | Recommended | `https://cireweddings.com` | Guest site canonical URL (apex). |
 | `PUBLIC_GOOGLE_MAPS_EMBED_KEY` | cire/web | Optional | _(unset)_ | Google Maps Platform key with the **Maps Embed API** enabled. When set, the event "Where" section renders a real Maps Embed iframe (queried by the free-text venue address — no coordinates, no geocoding); when unset/blank it falls back to the CSS-drawn map card, so it is a pure enhancement (`cire/web/src/components/MapPreview.tsx`). **Human step:** create the key, **enable only the Maps Embed API**, and **restrict it by HTTP referrer** to the guest-site origin(s) — the key bakes into static HTML, and a referrer-restricted Embed-only key is safe to ship. |
 | `PUBLIC_CIRE_API_URL` | cire/organiser | **Yes** | `https://api.cireweddings.com` | cire-api prod origin (`cire/organiser/src/lib/osn.ts`; `PUBLIC_API_URL` honoured as legacy fallback). |

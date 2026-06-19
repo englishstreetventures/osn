@@ -1,0 +1,50 @@
+---
+import '../styles/global.css'
+import SiteFooter from './SiteFooter.astro'
+
+interface Props {
+  /** Heading line — defaults to the unknown-invite message. */
+  heading?: string
+  /** Supporting copy under the heading. */
+  body?: string
+}
+
+const {
+  heading = 'Invitation not found',
+  body = "We couldn't find an invitation at this link. Please check the link from your invite and try again.",
+} = Astro.props
+---
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>{heading}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
+    </noscript>
+  </head>
+  <body>
+    <main class="flex min-h-dvh flex-col items-center justify-center gap-5 px-6 text-center">
+      <p class="font-display text-gold text-[clamp(3rem,9vw,5.5rem)] leading-none font-light italic">
+        Cire
+      </p>
+      <h1 class="font-display text-text text-[clamp(1.6rem,4vw,2.4rem)] leading-[1.2] font-light italic">
+        {heading}
+      </h1>
+      <p class="font-body text-text-muted max-w-[28rem] text-[0.95rem] leading-[1.7] font-light">
+        {body}
+      </p>
+    </main>
+    <SiteFooter />
+  </body>
+</html>

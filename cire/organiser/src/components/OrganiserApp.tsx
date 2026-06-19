@@ -79,6 +79,7 @@ function WeddingDashboard(props: { wedding: WeddingSummary; onBack: () => void }
       <DashboardTabs
         weddingId={props.wedding.id}
         weddingName={props.wedding.displayName}
+        weddingSlug={props.wedding.slug}
         canManage={isOwner()}
       />
     </div>

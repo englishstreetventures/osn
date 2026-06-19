@@ -97,10 +97,13 @@ describe("PreviewInviteButton", () => {
     expect(win.opener).toBeNull();
 
     resolveFetch(
-      new Response(JSON.stringify({ publicId: "HOST-ABCDEF0123456789ABCDEF01" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+      new Response(
+        JSON.stringify({ publicId: "HOST-ABCDEF0123456789ABCDEF01", slug: "samantha-alex-a1b2c3" }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     );
 
     await waitFor(() => expect(win.location.href).toContain("?code=HOST-ABCDEF0123456789ABCDEF01"));
@@ -108,10 +111,13 @@ describe("PreviewInviteButton", () => {
 
   it("points the opened tab at the guest invite with ?code= on success", async () => {
     authFetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ publicId: "HOST-ABCDEF0123456789ABCDEF01" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+      new Response(
+        JSON.stringify({ publicId: "HOST-ABCDEF0123456789ABCDEF01", slug: "samantha-alex-a1b2c3" }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     );
     const win = makeFakeWindow();
     const openSpy = makeOpenSpy(win);
@@ -126,7 +132,10 @@ describe("PreviewInviteButton", () => {
     expect((init as RequestInit).method).toBe("POST");
 
     // Navigates the already-open tab to the guest site (no second window.open).
-    expect(win.location.href).toContain("?code=HOST-ABCDEF0123456789ABCDEF01");
+    // Path-routed: the wedding slug rides in the PATH, the host code in ?code=.
+    expect(win.location.href).toBe(
+      "http://localhost:4321/samantha-alex-a1b2c3?code=HOST-ABCDEF0123456789ABCDEF01",
+    );
     // Severs the opener reference for the navigated tab.
     expect(win.opener).toBeNull();
     expect(win.close).not.toHaveBeenCalled();
@@ -134,10 +143,13 @@ describe("PreviewInviteButton", () => {
 
   it("falls back to same-tab navigation when the popup is blocked", async () => {
     authFetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ publicId: "HOST-ABCDEF0123456789ABCDEF01" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+      new Response(
+        JSON.stringify({ publicId: "HOST-ABCDEF0123456789ABCDEF01", slug: "samantha-alex-a1b2c3" }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     );
     // Popup blocked / unavailable -> window.open returns null.
     const openSpy = makeOpenSpy(null);
@@ -148,7 +160,9 @@ describe("PreviewInviteButton", () => {
     clickPreview();
 
     await waitFor(() => expect(assignSpy).toHaveBeenCalledTimes(1));
-    expect(assignSpy.mock.calls[0]![0]).toContain("?code=HOST-ABCDEF0123456789ABCDEF01");
+    expect(assignSpy.mock.calls[0]![0]).toBe(
+      "http://localhost:4321/samantha-alex-a1b2c3?code=HOST-ABCDEF0123456789ABCDEF01",
+    );
     // No crash, no error toast on the success path.
     expect(toastErrorSpy).not.toHaveBeenCalled();
   });

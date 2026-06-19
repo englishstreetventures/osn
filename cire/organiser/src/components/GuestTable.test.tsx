@@ -93,7 +93,9 @@ describe("GuestTable", () => {
     // The best-effort mark-shared POST.
     authFetchMock.mockResolvedValueOnce(json({ familyId: "fam_a", codeSharedAt: 1 }));
 
-    render(() => <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" />);
+    render(() => (
+      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+    ));
     await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
 
     const copyButtons = screen.getAllByRole("button", { name: /Copy message/i });
@@ -102,7 +104,9 @@ describe("GuestTable", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     const copied = writeText.mock.calls[0]![0];
     expect(copied).toContain("Nadia & Sam");
-    expect(copied).toContain("https://guests.test");
+    // Path-routed: the link carries the wedding slug in the PATH, not the bare
+    // origin — so the message opens THIS wedding on the SSR'd guest site.
+    expect(copied).toContain("https://guests.test/nadia-sam-abc123");
     expect(copied).toContain("SHARMA-WIDGET-AB3K9-X7QPM");
 
     // Fires the mark-shared POST for that family.
@@ -122,7 +126,9 @@ describe("GuestTable", () => {
   it("shows a Sent indicator for an already-shared family", async () => {
     withClipboard();
     primeLoad();
-    render(() => <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" />);
+    render(() => (
+      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+    ));
     await waitFor(() => expect(screen.getByText("Jones")).toBeTruthy());
     // fam_b (Jones) came back with a non-null codeSharedAt → "Sent" badge.
     expect(screen.getByText("Sent")).toBeTruthy();
@@ -133,7 +139,9 @@ describe("GuestTable", () => {
     Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
     (document as unknown as { execCommand: () => boolean }).execCommand = () => false;
     primeLoad();
-    render(() => <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" />);
+    render(() => (
+      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+    ));
     await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
 
     fireEvent.click(screen.getAllByRole("button", { name: /Copy message/i })[0]!);

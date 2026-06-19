@@ -117,7 +117,7 @@ jobs:
   # ── cire web (Astro → Cloudflare Pages) ────────────────────────────────────
   # Independent of the API job; runs in parallel once `build` passes.
   deploy-cire-web:
-    name: Deploy cire/web (Pages)
+    name: Deploy cire/web (Worker SSR)
     needs: build
     runs-on: ubuntu-latest
     environment: production
@@ -139,16 +139,21 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      # Build the static Astro site (output: "static" → ./dist). The PUBLIC_*
-      # vars are baked in AT BUILD TIME (static Astro), so they are set here in
-      # the build env, not at runtime. These are non-secret prod URLs.
+      # The guest site is now Astro SSR on Cloudflare (output: "server", the
+      # @astrojs/cloudflare adapter). It resolves which wedding to render FROM THE
+      # PATH per request — there is NO PUBLIC_WEDDING_SLUG any more. The adapter
+      # emits a Cloudflare Worker with Static Assets: `dist/server/entry.mjs` (the
+      # SSR Worker), `dist/client/` (prerendered legal pages + JS/CSS), and a
+      # generated `dist/server/wrangler.json` that EXTENDS the committed
+      # cire/web/wrangler.jsonc (worker name + cireweddings.com custom-domain
+      # route). PUBLIC_API_URL / PUBLIC_SITE_URL are read both server-side (per
+      # request) and by the client islands; they still bake in at build time.
       #   PUBLIC_GOOGLE_MAPS_EMBED_KEY is an optional referrer-restricted Embed
       #   key — wire it from a secret/var only if/when one exists.
       #   PUBLIC_TURNSTILE_SITEKEY is the optional Cloudflare Turnstile sitekey
-      #   (public, bot protection). Uncomment once the widget exists; the build
-      #   omits it cleanly when absent (no widget, no gate — key-optional). The
-      #   matching TURNSTILE_SECRET_KEY is a `wrangler secret` on the cire-api
-      #   Worker (see wiki/runbooks/production-deploy.md).
+      #   (public, bot protection). The build omits it cleanly when absent (no
+      #   widget, no gate — key-optional). The matching TURNSTILE_SECRET_KEY is a
+      #   `wrangler secret` on the cire-api Worker (see production-deploy.md).
       - name: Build cire/web
         run: bun run --cwd cire/web build
         env:
@@ -159,8 +164,13 @@ jobs:
           # Present ⇒ real Embed iframe; absent ⇒ CSS-card fallback (key-optional).
           PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
 
-      - name: Deploy cire/web to Cloudflare Pages
-        run: bunx wrangler pages deploy dist --project-name cire
+      # Deploy the SSR Worker. The adapter's generated config carries `main`, the
+      # ASSETS binding (→ dist/client), the worker name, and the cireweddings.com
+      # custom-domain route. NOTE: this replaces the previous Pages deploy
+      # (`wrangler pages deploy dist`); the Cloudflare Pages project `cire` is no
+      # longer used for the guest site — the apex now resolves to this Worker.
+      - name: Deploy cire/web (Worker)
+        run: bunx wrangler deploy --config dist/server/wrangler.json
         working-directory: cire/web
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

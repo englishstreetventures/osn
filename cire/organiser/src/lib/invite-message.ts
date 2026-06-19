@@ -7,13 +7,20 @@ import { CIRE_WEB_URL } from "./osn";
  *   You're invited to {weddingName}! View your invitation and RSVP at
  *   {guestSiteUrl} — your family code is {CODE}.
  *
- * The URL is the public guest site (`CIRE_WEB_URL` / `PUBLIC_CIRE_WEB_URL`) the
- * organiser build already knows — guests claim by entering their code there, so
- * the bare origin is the right link (no `?code=` needed; the code is in the
- * message for the guest to type).
+ * The URL is this wedding's path on the public guest site
+ * (`CIRE_WEB_URL/<slug>` / `PUBLIC_CIRE_WEB_URL/<slug>`). The guest site is SSR +
+ * path-routed, so the link must carry the wedding slug in the PATH — sending the
+ * bare origin would render whatever the bare domain resolves to (the primary
+ * wedding), not necessarily this one. Guests claim by entering their code on that
+ * page (no `?code=` needed; the code is in the message for the guest to type).
  */
-export function buildInviteMessage(weddingName: string, familyCode: string): string {
-  return `You're invited to ${weddingName}! View your invitation and RSVP at ${CIRE_WEB_URL} — your family code is ${familyCode}.`;
+export function buildInviteMessage(
+  weddingName: string,
+  familyCode: string,
+  weddingSlug: string,
+): string {
+  const guestUrl = `${CIRE_WEB_URL}/${encodeURIComponent(weddingSlug)}`;
+  return `You're invited to ${weddingName}! View your invitation and RSVP at ${guestUrl} — your family code is ${familyCode}.`;
 }
 
 /**

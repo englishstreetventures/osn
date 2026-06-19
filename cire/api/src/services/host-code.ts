@@ -1,4 +1,4 @@
-import { events, families, guests, guestEvents } from "@cire/db";
+import { events, families, guests, guestEvents, weddings } from "@cire/db";
 import { and, eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
@@ -60,20 +60,35 @@ function mintHostPublicId(): string {
 export const hostCodeService = {
   /**
    * Idempotently provision the host preview code for a wedding and return its
-   * claim code. Find-or-creates the single host family + its one synthetic
-   * guest, then (re-)links that guest to **every** event in the wedding so the
-   * preview always reflects the current event list — including events added by
-   * a later spreadsheet import (which deliberately skips host families).
+   * claim code PLUS the wedding's slug. The organiser dashboard opens the guest
+   * invite at `${CIRE_WEB_URL}/<slug>?code=<publicId>` — the slug lives in the
+   * PATH (the guest site is SSR + path-routed), so the preview opens the CORRECT
+   * wedding regardless of which one the organiser is managing. Find-or-creates
+   * the single host family + its one synthetic guest, then (re-)links that guest
+   * to **every** event in the wedding so the preview always reflects the current
+   * event list — including events added by a later spreadsheet import (which
+   * deliberately skips host families).
    *
    * weddingId is caller-supplied and already ownership-checked by
    * `weddingOwner()` upstream; this method does not re-authorise.
    */
   ensureForWedding(
     weddingId: string,
-  ): Effect.Effect<{ publicId: string }, HostCodeError, DbService> {
+  ): Effect.Effect<{ publicId: string; slug: string }, HostCodeError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const now = new Date();
+
+      // The wedding's slug for the path-routed preview link. weddingOwner()
+      // already proved the wedding exists, so a missing row here is a real
+      // invariant break — surface it as a HostCodeError, not a silent default.
+      const [wedding] = yield* dbQuery(() =>
+        db.select({ slug: weddings.slug }).from(weddings).where(eq(weddings.id, weddingId)).all(),
+      );
+      if (!wedding) {
+        return yield* new HostCodeError({ reason: "wedding not found" });
+      }
+      const slug = wedding.slug;
 
       const write = (op: string, run: () => unknown | Promise<unknown>) =>
         Effect.tryPromise({
@@ -169,7 +184,7 @@ export const hostCodeService = {
         yield* write("link events", () => commitBatch(db, statements));
       }
 
-      return { publicId };
+      return { publicId, slug };
     }).pipe(
       Effect.tap(() => Effect.sync(() => metricHostCodeEnsured("ok"))),
       Effect.tapError(() => Effect.sync(() => metricHostCodeEnsured("error"))),

@@ -1,4 +1,7 @@
 ---
+// Static page — prerendered at build time even though the site is `output:
+// "server"`. Only the invite + bare-domain routes need per-request SSR.
+export const prerender = true
 import LegalLayout from '../layouts/LegalLayout.astro'
 ---
 <LegalLayout title="Terms of Use">

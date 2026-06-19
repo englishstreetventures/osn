@@ -49,8 +49,12 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
         toast.error("Could not open a preview. Please try again.");
         return;
       }
-      const body = (await res.json()) as { publicId: string };
-      const guestUrl = `${CIRE_WEB_URL}/?code=${encodeURIComponent(body.publicId)}`;
+      const body = (await res.json()) as { publicId: string; slug: string };
+      // Path-routed guest site: the wedding lives at `/<slug>`, so the preview
+      // opens the CORRECT wedding (not whatever the bare domain resolves to). The
+      // `?code=<host preview code>` rides on the path and auto-claims so the host
+      // lands straight on the events view.
+      const guestUrl = `${CIRE_WEB_URL}/${encodeURIComponent(body.slug)}?code=${encodeURIComponent(body.publicId)}`;
       if (win) {
         win.location.href = guestUrl;
       } else {

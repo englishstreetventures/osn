@@ -23,6 +23,7 @@ import {
   createOrganiserWeddingCreateRoute,
   createOrganiserWeddingsRoutes,
 } from "./routes/organiser-weddings";
+import { createPrimaryWeddingRoutes } from "./routes/primary-wedding";
 import { createRsvpRoutes } from "./routes/rsvp";
 import type { AssetsBucket } from "./services/invite-assets";
 import type { ImagesBindingLike } from "./services/invite-image-transform";
@@ -231,6 +232,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // same allowlist CORS echoes. Mounted before the route factories so it
       // gates the whole app. Empty allowlist (dev) disables it.
       .use(originGuard(corsOrigins))
+      // Public bare-domain resolver for the guest site (`/` → /<slug>). No auth
+      // — the slug is the public invite URL. Mounted first so it's plainly a
+      // public read alongside the guest claim + invite routes.
+      .use(createPrimaryWeddingRoutes(db))
       .use(createClaimRoutes(db, { webOrigin, limiter: claimLimiter, turnstileVerifier }))
       // No Turnstile on RSVP: guests reach it only with a valid `cire_session`
       // cookie minted by a Turnstile-gated `/api/claim`, so a second bot check

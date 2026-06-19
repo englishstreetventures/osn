@@ -156,15 +156,38 @@ sniffing** (`detectImageType`) — the stored content type comes from the bytes,
 not the declared `Content-Type`, so a mislabelled / hostile payload (HTML, SVG)
 is rejected (415). Allowlist: JPEG, PNG, WebP.
 
-## Guest rendering
+## Guest rendering (SSR, path-routed)
 
-`cire/web` is a `output: "static"` Astro site. `index.astro` fetches
-`GET /api/invite/:slug` **at build time** and bakes the result (hero image URL +
-copy + theme) into the SSR'd HTML, so the largest-contentful element paints
-immediately and the no-JS fallback still renders. But the static snapshot alone
-is stale: an organiser who updates the hero or theme after the last build would
-not reach guests until a rebuild. So both guest islands **revalidate at runtime**
-and let the fresh `/api/invite/:slug` response override the build-time snapshot:
+`cire/web` is an `output: "server"` Astro site (the `@astrojs/cloudflare`
+adapter), deployed as a **Cloudflare Worker with Static Assets** — _not_ Pages.
+**Which wedding renders is resolved FROM THE PATH per request**, so there is no
+build-time `PUBLIC_WEDDING_SLUG` and any wedding renders from its own link:
+
+- **`/<slug>`** (`cire/web/src/pages/[slug].astro`) — the per-wedding invite. The
+  route reads `slug` from the path, fetches `GET ${PUBLIC_API_URL}/api/invite/<slug>`
+  **server-side per request** (`cache: "no-store"`), and renders the existing
+  hero/`InviteHeader`/`InvitePage` via the shared `InviteDocument.astro`. An
+  unknown slug (API 404) returns a real **404** with a tasteful `NotFoundDocument`;
+  a transient API error renders the invite shell with built-in defaults (no false
+  404). The `?code=<host code>` auto-claim deep-link rides on `/<slug>?code=...`
+  (LoginSection reads it client-side, unchanged).
+- **`/`** (`cire/web/src/pages/index.astro`) — the bare domain. Resolves the
+  deployment's primary wedding via `GET /api/primary-wedding` and **302-redirects
+  to `/<slug>`** (carrying any `?code=`). No wedding configured (404) or a
+  transient API error → a neutral "no invitation configured / unavailable" state,
+  never a crash. The main link (`https://cireweddings.com/`) thus stays clean.
+- **`/privacy`, `/terms`** — opt back into static prerendering
+  (`export const prerender = true`); only the invite + bare-domain routes are
+  per-request SSR.
+
+`GET /api/primary-wedding` (public, `cire/api/src/routes/primary-wedding.ts`)
+returns `{ slug }` for the sole wedding, or the **most-recently-created** when
+several exist (documented limitation — the bare domain can only point at one;
+the rest are reachable at their own `/<slug>`), and **404** when none exist.
+
+The server fetch still paints the hero with the real image/copy in the SSR'd
+HTML (fast LCP, no-JS fallback). Both guest islands then **revalidate at runtime**
+and let the fresh `/api/invite/:slug` response override the per-request snapshot:
 
 - `cire/web/src/components/InviteHeader.tsx` (`client:load`) — the hero + "Our
   Story" sections. Fetches on mount via a SolidJS `createResource` seeded with
@@ -186,16 +209,30 @@ and let the fresh `/api/invite/:slug` response override the build-time snapshot:
     revalidation).
 - `cire/web/src/components/InvitePage.tsx` (`client:visible`) — the
   "details"/events section. Also revalidates on mount (`createResource` seeded
-  with the build-time `theme` prop, keyed on the `slug` prop threaded from
-  `index.astro`) so the events-section theme reflects the latest saved value. A
-  non-OK / failed revalidation keeps the already-painted build-time theme; with
-  no `slug` (e.g. unit tests) the build-time prop is used as-is.
+  with the per-request `theme` prop, keyed on the `slug` prop threaded from
+  `InviteDocument.astro`) so the events-section theme reflects the latest saved
+  value. A non-OK / failed revalidation keeps the already-painted snapshot theme;
+  with no `slug` (e.g. unit tests) the prop is used as-is.
 
-Net effect: **invite customisation (hero image + theme) is reflected at runtime —
-no site rebuild needed.** The build-time snapshot is only the fast-first-paint /
-no-JS placeholder; the on-mount fetch is the source of truth. The `/api/claim`
-event/guest flow (`InvitePage`'s claim/RSVP logic) and its animations are
-untouched.
+Net effect: **invite customisation (hero image + theme) is reflected per request +
+revalidated on mount — no site rebuild needed, and no baked-in wedding slug.** The
+per-request SSR snapshot is the fast-first-paint / no-JS placeholder; the on-mount
+fetch is the source of truth. The `/api/claim` event/guest flow (`InvitePage`'s
+claim/RSVP logic) and its animations are untouched.
+
+### Organiser links (path-routed)
+
+Both organiser-side links that point at the guest site now carry the wedding slug
+in the **path** (so they open the correct wedding, not whatever the bare domain
+resolves to):
+
+- **Preview invite** (`cire/organiser/.../PreviewInviteButton.tsx`): opens
+  `${CIRE_WEB_URL}/<slug>?code=<host preview code>`. The slug comes back from the
+  `POST /api/organiser/weddings/:weddingId/preview-code` response, which now
+  returns `{ publicId, slug }`.
+- **Copy invite message** (`cire/organiser/.../invite-message.ts`, used by
+  `GuestTable`): links to `${CIRE_WEB_URL}/<slug>`. The slug is threaded
+  `OrganiserApp → DashboardTabs → GuestTable → buildInviteMessage`.
 
 **Cache discipline (why edits surface):** `GET /api/invite/:slug` is sent
 `Cache-Control: no-store`, and both islands fetch it with `{ cache: "no-store" }`.

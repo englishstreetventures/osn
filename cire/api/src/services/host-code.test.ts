@@ -20,8 +20,10 @@ describe("hostCodeService.ensureForWedding", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const { publicId } = yield* hostCodeService.ensureForWedding(BOOTSTRAP_WEDDING_ID);
+        const { publicId, slug } = yield* hostCodeService.ensureForWedding(BOOTSTRAP_WEDDING_ID);
         expect(publicId).toMatch(/^HOST-[A-F0-9]{32}$/);
+        // Returns the wedding slug for the path-routed preview link.
+        expect(slug).toBe("cire-wedding");
 
         const allEvents = yield* claimService.listEvents(BOOTSTRAP_WEDDING_ID);
         const claimed = yield* claimService.lookup(publicId);

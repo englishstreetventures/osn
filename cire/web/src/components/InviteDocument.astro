@@ -1,0 +1,72 @@
+---
+import '../styles/global.css'
+import InviteHeader, { type InviteCustomisation } from './InviteHeader'
+import InvitePage from './InvitePage'
+import SiteFooter from './SiteFooter.astro'
+
+interface Props {
+  /** cire-api origin the islands fetch from at runtime. */
+  apiUrl: string
+  /** The wedding slug resolved from the request path; threaded to the islands. */
+  slug: string
+  /** Invite customisation fetched server-side for this slug (per request), so the
+   *  hero paints with the real image + copy in the SSR'd HTML — no client fetch
+   *  waterfall on the LCP element. The islands still revalidate on mount. */
+  initialInvite: InviteCustomisation | null
+  /** Canonical guest-site origin for share metadata (PUBLIC_SITE_URL). */
+  siteUrl?: string
+}
+
+const { apiUrl, slug, initialInvite, siteUrl } = Astro.props
+
+// Preload the hero (the LCP element). It renders responsively via srcset, so
+// preload the same candidate set + sizes — the browser preloads exactly the
+// variant it will pick. Mirrors the bounded variant allowlist in cire/api
+// (thumb/card/hero → 320/800/1600w).
+const heroBase = initialInvite?.hero.imageUrl ? `${apiUrl}${initialInvite.hero.imageUrl}` : null
+const heroSep = heroBase?.includes('?') ? '&' : '?'
+const preloadHeroSrcset = heroBase
+  ? `${heroBase}${heroSep}variant=thumb 320w, ${heroBase}${heroSep}variant=card 800w, ${heroBase}${heroSep}variant=hero 1600w`
+  : null
+---
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    {/* S-L1: keep the ?code= preview credential out of cross-origin Referer headers. */}
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>You're Invited</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
+    </noscript>
+    {heroBase && (
+      <link
+        rel="preload"
+        as="image"
+        href={heroBase}
+        imagesrcset={preloadHeroSrcset}
+        imagesizes="100vw"
+      />
+    )}
+  </head>
+  <body>
+    <InviteHeader client:load apiUrl={apiUrl} slug={slug} initial={initialInvite} />
+    <InvitePage
+      client:visible
+      apiUrl={apiUrl}
+      slug={slug}
+      siteUrl={siteUrl}
+      theme={initialInvite?.theme ?? null}
+    />
+    <SiteFooter />
+  </body>
+</html>

@@ -13,6 +13,9 @@ interface DashboardTabsProps {
   /** Display name of the wedding — passed to the guest list for the copyable
    *  invite message. */
   weddingName: string;
+  /** URL slug of the wedding — passed to the guest list so the copyable invite
+   *  message links to this wedding's path (`CIRE_WEB_URL/<slug>`). */
+  weddingSlug: string;
   /** Owner of this wedding? Owners can manage co-hosts + re-mint codes; co-hosts
    *  see the list read-only and don't get the destructive Codes tab. */
   canManage: boolean;
@@ -84,7 +87,11 @@ export default function DashboardTabs(props: DashboardTabsProps) {
       </nav>
 
       <Show when={active() === "guests"}>
-        <GuestTable weddingId={props.weddingId} weddingName={props.weddingName} />
+        <GuestTable
+          weddingId={props.weddingId}
+          weddingName={props.weddingName}
+          weddingSlug={props.weddingSlug}
+        />
       </Show>
       <Show when={active() === "events"}>
         <EventTable weddingId={props.weddingId} />
