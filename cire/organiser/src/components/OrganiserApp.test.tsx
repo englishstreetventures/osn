@@ -70,6 +70,13 @@ vi.mock("./ImportPanel", () => ({
     <div data-testid="import-panel">{props.weddingId}</div>
   ),
 }));
+// GettingStarted fetches its own events/guests/invite snapshot — stub it so this
+// suite stays on the Dashboard's view glue rather than the checklist's fetches.
+vi.mock("./GettingStarted", () => ({
+  default: (props: { weddingId: string }) => (
+    <div data-testid="getting-started">{props.weddingId}</div>
+  ),
+}));
 vi.mock("./PreviewInviteButton", () => ({
   default: () => <div data-testid="preview-button" />,
 }));

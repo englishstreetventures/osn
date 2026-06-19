@@ -4,6 +4,7 @@ import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import type { CodeStyle } from "./CreateWeddingForm";
+import SectionIntro from "./SectionIntro";
 
 interface RemintPanelProps {
   weddingId: string;
@@ -96,16 +97,11 @@ export default function RemintPanel(props: RemintPanelProps) {
 
   return (
     <div class="border-border bg-surface/30 flex flex-col gap-5 rounded-sm border p-6">
-      <div class="flex flex-col gap-1">
-        <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">Guest codes</p>
-        <h2 class="font-display text-text text-[1.4rem] font-light italic">
-          Change the code style
-        </h2>
-        <p class="font-body text-text-muted mt-1 text-[0.85rem] leading-relaxed">
-          Re-mints every family&apos;s code in the chosen style. This replaces all current codes —
-          any code you&apos;ve already shared will stop working.
-        </p>
-      </div>
+      <SectionIntro
+        eyebrow="Guest codes"
+        title="Change the code style"
+        description="Each household has a private code they enter to open your invite and RSVP. If you'd rather they were shorter and friendlier — or longer and harder to guess — switch the style here. Re-minting replaces every code, so any code you've already shared will stop working."
+      />
 
       <fieldset class="m-0 flex flex-col gap-1.5 border-0 p-0">
         <legend class="font-body text-text-muted mb-1.5 text-[0.72rem] tracking-[0.1em] uppercase">

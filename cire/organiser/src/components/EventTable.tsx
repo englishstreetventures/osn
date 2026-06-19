@@ -3,6 +3,7 @@ import { createSignal, onMount, Show, For } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import SectionIntro from "./SectionIntro";
 
 interface DressSwatch {
   name: string;
@@ -123,8 +124,16 @@ export default function EventTable(props: EventTableProps) {
     }
   }
 
+  const hasEvents = () => events().length > 0;
+
   return (
     <div class="flex flex-col gap-6">
+      <SectionIntro
+        eyebrow="Events"
+        title="The day, hour by hour"
+        description="Every event your guests can be invited to — the details come from your spreadsheet import. Add one photo per event here to bring each card to life."
+      />
+
       <Show when={loading()}>
         <div class="flex flex-col gap-3">
           <For each={[1, 2, 3, 4]}>
@@ -139,14 +148,21 @@ export default function EventTable(props: EventTableProps) {
         </p>
       </Show>
 
-      <Show when={!loading() && !error()}>
-        <div class="flex flex-col gap-1">
-          <p class="font-body text-text-muted text-[0.82rem]">{events().length} events</p>
-          <p class="font-body text-text-muted text-[0.72rem] italic">
-            Event details come from your spreadsheet import. You can add one image per event below —
-            uploading replaces the current one.
+      <Show when={!loading() && !error() && !hasEvents()}>
+        <div class="border-border bg-surface/30 flex flex-col items-start gap-2 rounded-sm border border-dashed p-8 text-center">
+          <p class="font-display text-gold-dim w-full text-[1.2rem] italic">No events yet</p>
+          <p class="font-body text-text-muted w-full text-[0.85rem] leading-relaxed">
+            Import your events sheet from the Spreadsheet Import above. Add the events first —
+            guests are matched to events that already exist.
           </p>
         </div>
+      </Show>
+
+      <Show when={!loading() && !error() && hasEvents()}>
+        <p class="font-body text-text-muted text-[0.82rem]">
+          {events().length} {events().length === 1 ? "event" : "events"} · uploading a photo
+          replaces the current one
+        </p>
 
         <ul class="flex flex-col gap-4">
           <For each={events()}>

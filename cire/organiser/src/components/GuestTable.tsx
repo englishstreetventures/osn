@@ -5,6 +5,7 @@ import { toast } from "solid-toast";
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { downloadBlob } from "../lib/download";
 import { buildInviteMessage, copyToClipboard } from "../lib/invite-message";
+import SectionIntro from "./SectionIntro";
 
 interface OrganiserGuestRow {
   familyId: string;
@@ -146,8 +147,28 @@ export default function GuestTable(props: GuestTableProps) {
     }
   }
 
+  const hasGuests = () => families().length > 0;
+
   return (
     <div class="flex flex-col gap-8">
+      <SectionIntro
+        eyebrow="Guest list"
+        title="Households, invites & RSVPs"
+        description="Everyone you're inviting, grouped into households. Copy a household's invite message to send their link and code, and download replies any time."
+        actions={
+          <Show when={!loading() && !error() && hasGuests()}>
+            <button
+              type="button"
+              onClick={() => void exportRsvps()}
+              disabled={exporting()}
+              class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+            >
+              {exporting() ? "Exporting…" : "Download RSVPs (CSV)"}
+            </button>
+          </Show>
+        }
+      />
+
       <Show when={loading()}>
         <div class="flex flex-col gap-3">
           <For each={[1, 2, 3, 4, 5]}>
@@ -162,20 +183,21 @@ export default function GuestTable(props: GuestTableProps) {
         </p>
       </Show>
 
-      <Show when={!loading() && !error()}>
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <p class="font-body text-text-muted text-[0.82rem]">
-            {guests().length} guests across {families().length} families
+      <Show when={!loading() && !error() && !hasGuests()}>
+        <div class="border-border bg-surface/30 flex flex-col items-start gap-2 rounded-sm border border-dashed p-8 text-center">
+          <p class="font-display text-gold-dim w-full text-[1.2rem] italic">No guests yet</p>
+          <p class="font-body text-text-muted w-full text-[0.85rem] leading-relaxed">
+            Import your guests sheet from the Spreadsheet Import above to build the list. Each
+            household gets its own code and invite message to share.
           </p>
-          <button
-            type="button"
-            onClick={() => void exportRsvps()}
-            disabled={exporting()}
-            class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-          >
-            {exporting() ? "Exporting…" : "Download RSVPs (CSV)"}
-          </button>
         </div>
+      </Show>
+
+      <Show when={!loading() && !error() && hasGuests()}>
+        <p class="font-body text-text-muted text-[0.82rem]">
+          {guests().length} {guests().length === 1 ? "guest" : "guests"} across {families().length}{" "}
+          {families().length === 1 ? "household" : "households"}
+        </p>
 
         <div class="overflow-x-auto">
           <table class="font-body w-full border-collapse text-[0.88rem]">

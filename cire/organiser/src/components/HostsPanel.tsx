@@ -3,6 +3,7 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import SectionIntro from "./SectionIntro";
 
 interface HostRow {
   osnProfileId: string;
@@ -243,17 +244,15 @@ export default function HostsPanel(props: HostsPanelProps) {
 
   return (
     <div class="flex flex-col gap-8">
-      <div class="flex flex-col gap-1">
-        <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">Co-hosts</p>
-        <h2 class="font-display text-text text-[1.4rem] font-light italic">
-          Share this wedding's dashboard
-        </h2>
-        <p class="font-body text-text-muted text-[0.82rem]">
-          {props.canManage
-            ? "Add another organiser by their OSN handle. Co-hosts can view and edit this wedding, but only you can manage who hosts it."
-            : "These organisers can view and edit this wedding."}
-        </p>
-      </div>
+      <SectionIntro
+        eyebrow="Co-hosts"
+        title="Share this wedding's dashboard"
+        description={
+          props.canManage
+            ? "Invite a partner or planner to help. Add them by their OSN handle — co-hosts can view and edit everything here, but only you, the owner, can manage who hosts it."
+            : "These organisers can view and edit this wedding. The owner manages who's on this list."
+        }
+      />
 
       <Show when={props.canManage}>
         <form class="flex flex-col gap-3" onSubmit={add}>

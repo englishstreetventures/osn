@@ -7,6 +7,37 @@ related:
 last-reviewed: 2026-06-19
 ---
 
+> [!note] Organiser dashboard UX + structure pass (`feat/cire-organiser-ux`)
+> A polish + restructure pass over `cire/organiser` (NOT the guest invite) to make
+> the dashboard intuitive and guided for a non-technical couple. The live theme/hero
+> previews, status badges, per-event image upload, RSVP CSV, host autocomplete,
+> codes, and security panel are all preserved.
+> - **`GettingStarted.tsx`** (new) — a four-step checklist (Events → Guests →
+>   Invite → Share codes) whose done-state is derived from the wedding's REAL data:
+>   it fetches a one-off snapshot of `/events`, `/guests`, `/invite`, dedupes guest
+>   rows to households, reuses `lib/invite-emptiness` to tell whether the invite is
+>   customised, and counts codes-sent. Shows a progress rail + the single next
+>   action; collapses to an "all set" summary when complete; each step jumps to its
+>   tab. Fails soft (hidden) if the snapshot fetch errors.
+> - **`SectionIntro.tsx`** (new shared) — eyebrow + serif heading + description +
+>   optional actions slot. Adopted by Guests / Events / Codes / Hosts so every tab
+>   panel leads with the same header shape the Invite/Import sections already used.
+> - **`DashboardTabs.tsx`** — reordered to workflow order (Events first, was Guests),
+>   each tab gets a leading glyph + a `title` tooltip, and the panel now reacts to
+>   external `hashchange` so the checklist's jumps + browser back/forward work.
+>   Default tab is now `events`.
+> - **`OrganiserApp.tsx`** — wedding context header promoted: name is the page
+>   `<h1>` with a slug eyebrow + Owner/Co-host badge. Import panel + tabs reflowed
+>   under the checklist; `#wedding-tabs` anchor for smooth-scroll jumps.
+> - **`ImportPanel.tsx`** — wrapped in a `<details open>` so it leads a new wedding
+>   but can be collapsed once the list is populated (3-step CSV guide unchanged).
+> - Guests + Events gained guided empty states; Codes copy now explains what a guest
+>   code is; Hosts copy explains owner vs co-host.
+> - Tests: +`SectionIntro.test.tsx`, +`GettingStarted.test.tsx`, +`DashboardTabs.test.tsx`
+>   (the tab bar had none before). 96 organiser tests green.
+> ⚠️ Real-device check still wanted: the checklist + header rhythm at 320/375/390/768px,
+> and the tab-bar wrapping at the narrowest widths.
+
 > [!note] Per-event image — alternating two-column EventCard (`feat/cire-event-images`)
 > Each event can carry **one** optional image. `EventCard.tsx` gains an
 > `orientation` prop (`norm`/`alt`) + consumes the event's `imageUrl` (added to

@@ -6,6 +6,7 @@ import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { OSN_ISSUER_URL } from "../lib/osn";
 import type { WeddingSummary } from "./CreateWeddingForm";
 import DashboardTabs from "./DashboardTabs";
+import GettingStarted from "./GettingStarted";
 import ImportPanel from "./ImportPanel";
 import PreviewInviteButton from "./PreviewInviteButton";
 import SecurityPanel from "./SecurityPanel";
@@ -41,17 +42,31 @@ function RequireAuth(props: ParentProps) {
   );
 }
 
-/** The chosen wedding's dashboard — the existing tabbed guests/events/invite
- *  view, now scoped to whichever wedding the organiser opened. Co-hosts are
- *  trusted co-organisers: they get the full read/edit dashboard, including the
- *  spreadsheet import (the API gates it with weddingMember). Only the
- *  owner-only management actions (managing co-hosts, re-minting codes) stay
- *  gated on `isOwner` — passed down via `canManage`. */
+/** Move the tabs to `tab` — the tabs listen for `hashchange`, so updating the
+ *  hash (and dispatching the event for same-value jumps) switches the panel and
+ *  scrolls it into view. Used by the Getting-started checklist's step buttons. */
+function jumpToTab(tab: string) {
+  if (typeof window === "undefined") return;
+  window.location.hash = tab;
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+  document.getElementById("wedding-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+/** The chosen wedding's dashboard — the context header, the Getting-started
+ *  checklist, the spreadsheet import, and the tabbed events/guests/invite view,
+ *  scoped to whichever wedding the organiser opened. Co-hosts are trusted
+ *  co-organisers: they get the full read/edit dashboard, including the
+ *  spreadsheet import (the API gates it with weddingMember). Only the owner-only
+ *  management actions (managing co-hosts, re-minting codes) stay gated on
+ *  `isOwner` — passed down via `canManage`. */
 function WeddingDashboard(props: { wedding: WeddingSummary; onBack: () => void }) {
   const isOwner = () => props.wedding.role === "owner";
+
   return (
-    <div class="flex flex-col gap-12">
-      <div class="flex flex-col gap-4">
+    <div class="flex flex-col gap-10">
+      {/* ── Wedding context header — "which wedding am I editing" + the two
+          things every organiser wants up top: preview it, share it. ───────── */}
+      <header class="flex flex-col gap-4">
         <button
           type="button"
           onClick={() => props.onBack()}
@@ -59,29 +74,49 @@ function WeddingDashboard(props: { wedding: WeddingSummary; onBack: () => void }
         >
           ← All weddings
         </button>
-        <div class="flex flex-wrap items-center justify-between gap-4">
-          <div class="flex items-center gap-3">
-            <p class="font-display text-gold-dim text-[1.2rem] italic">
-              {props.wedding.displayName}
-            </p>
-            <Show when={!isOwner()}>
-              <span class="border-gold/40 text-gold font-body rounded-sm border px-2 py-0.5 text-[0.62rem] tracking-[0.16em] uppercase">
-                Co-host
+        <div class="flex flex-wrap items-end justify-between gap-4">
+          <div class="flex flex-col gap-1">
+            <span class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">
+              {props.wedding.slug}
+            </span>
+            <div class="flex flex-wrap items-center gap-3">
+              <h1 class="font-display text-text text-[1.8rem] leading-none font-light italic">
+                {props.wedding.displayName}
+              </h1>
+              <span
+                class="border-gold/40 text-gold font-body rounded-sm border px-2 py-0.5 text-[0.62rem] tracking-[0.16em] uppercase"
+                title={
+                  isOwner()
+                    ? "You created this wedding and manage who hosts it"
+                    : "You can view and edit this wedding"
+                }
+              >
+                {isOwner() ? "Owner" : "Co-host"}
               </span>
-            </Show>
+            </div>
           </div>
           <PreviewInviteButton weddingId={props.wedding.id} />
         </div>
-      </div>
+      </header>
+
+      {/* The progress checklist — the dashboard's "what next". Reflects real
+          state and links straight to the relevant tab. */}
+      <GettingStarted weddingId={props.wedding.id} onJump={jumpToTab} />
+
       {/* Import is available to every member (owner or co-host) — the API
-          authorises it with weddingMember(). */}
+          authorises it with weddingMember(). Tucked in a collapsible so it's
+          front-and-centre for a new wedding (open it from a checklist nudge) but
+          doesn't crowd the dashboard once the list is populated. */}
       <ImportPanel weddingId={props.wedding.id} />
-      <DashboardTabs
-        weddingId={props.wedding.id}
-        weddingName={props.wedding.displayName}
-        weddingSlug={props.wedding.slug}
-        canManage={isOwner()}
-      />
+
+      <div id="wedding-tabs" class="scroll-mt-6">
+        <DashboardTabs
+          weddingId={props.wedding.id}
+          weddingName={props.wedding.displayName}
+          weddingSlug={props.wedding.slug}
+          canManage={isOwner()}
+        />
+      </div>
     </div>
   );
 }

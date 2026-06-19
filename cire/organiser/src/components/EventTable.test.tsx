@@ -71,7 +71,7 @@ describe("EventTable per-event image", () => {
 
     await waitFor(() => screen.getByText("Reception"));
     expect(screen.getByLabelText("Event image")).toBeTruthy();
-    expect(screen.getByText(/uploading replaces the current one/i)).toBeTruthy();
+    expect(screen.getByText(/replaces the current one/i)).toBeTruthy();
   });
 
   it("POSTs the chosen file to the per-event image endpoint and shows the preview", async () => {

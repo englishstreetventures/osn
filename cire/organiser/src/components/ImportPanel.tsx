@@ -141,137 +141,149 @@ export default function ImportPanel(props: { weddingId: string }) {
   }
 
   return (
-    <section class="border-border bg-surface/30 flex flex-col gap-6 rounded-sm border p-6">
-      <header class="flex flex-col gap-1">
-        <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">
-          Spreadsheet Import
-        </p>
-        <h2 class="font-display text-text text-[1.4rem] font-light italic">
+    <details open class="border-border bg-surface/30 group/import rounded-sm border open:pb-6">
+      <summary class="flex cursor-pointer flex-col gap-1 p-6 select-none [&::-webkit-details-marker]:hidden">
+        <span class="flex items-center justify-between gap-3">
+          <span class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">
+            Spreadsheet Import
+          </span>
+          <span
+            class="font-body text-text-muted group-open/import:text-gold flex items-center gap-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition"
+            aria-hidden
+          >
+            <span class="group-open/import:hidden">Open</span>
+            <span class="hidden group-open/import:inline">Close</span>
+            <span class="inline-block transition-transform group-open/import:rotate-90">›</span>
+          </span>
+        </span>
+        <span class="font-display text-text text-[1.4rem] font-light italic">
           Upload events &amp; guests CSV
-        </h2>
-        <p class="font-body text-text-muted text-[0.82rem]">
+        </span>
+        <span class="font-body text-text-muted text-[0.82rem]">
           Import your two sheets as CSV — events first, then guests. Start from a template below, or
           read the format guide if you're building your own.
-        </p>
-      </header>
+        </span>
+      </summary>
 
-      <div class="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={() => downloadCsv("cire-events-template.csv", buildEventsTemplateCsv())}
-          class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition"
-        >
-          Download events template
-        </button>
-        <button
-          type="button"
-          onClick={() => downloadCsv("cire-guests-template.csv", buildGuestsTemplateCsv())}
-          class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition"
-        >
-          Download guests template
-        </button>
-      </div>
-
-      <CsvFormatHelp />
-
-      <form class="flex flex-col gap-4" onSubmit={handlePreview}>
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <label class="flex flex-col gap-1.5">
-            <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
-              events.csv
-            </span>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={(e) => setEventsFile(e.currentTarget.files?.[0] ?? null)}
-              class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
-            />
-            <Show when={eventsFile()}>
-              <span class="text-text-muted font-mono text-[0.72rem]">{eventsFile()?.name}</span>
-            </Show>
-          </label>
-
-          <label class="flex flex-col gap-1.5">
-            <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
-              guests.csv
-            </span>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={(e) => setGuestsFile(e.currentTarget.files?.[0] ?? null)}
-              class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
-            />
-            <Show when={guestsFile()}>
-              <span class="text-text-muted font-mono text-[0.72rem]">{guestsFile()?.name}</span>
-            </Show>
-          </label>
-        </div>
-
+      <div class="flex flex-col gap-6 px-6">
         <div class="flex flex-wrap items-center gap-3">
           <button
-            type="submit"
-            disabled={busy()}
-            class="border-gold bg-gold/10 font-body text-gold hover:bg-gold/20 rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+            type="button"
+            onClick={() => downloadCsv("cire-events-template.csv", buildEventsTemplateCsv())}
+            class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition"
           >
-            {busy() ? "Working…" : "Preview"}
+            Download events template
           </button>
-          <Show when={preview() || applied() || error()}>
-            <button
-              type="button"
-              onClick={reset}
-              disabled={busy()}
-              class="font-body text-text-muted text-[0.82rem] underline-offset-4 hover:underline disabled:opacity-40"
-            >
-              Reset
-            </button>
-          </Show>
+          <button
+            type="button"
+            onClick={() => downloadCsv("cire-guests-template.csv", buildGuestsTemplateCsv())}
+            class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition"
+          >
+            Download guests template
+          </button>
         </div>
-      </form>
 
-      <Show when={error()}>
-        <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
-          {error()}
-        </p>
-      </Show>
+        <CsvFormatHelp />
 
-      <Show when={preview()}>
-        {(p) => (
-          <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
-            <h3 class="font-display text-gold-dim text-[1.1rem] italic">Diff preview</h3>
-            <PlanCounts plan={p().plan} />
-            <Show when={p().plan.warnings.length > 0}>
-              <ul class="text-text-muted flex flex-col gap-1 text-[0.82rem]">
-                <For each={p().plan.warnings}>
-                  {(w) => <li class="before:mr-2 before:content-['•']">{w}</li>}
-                </For>
-              </ul>
-            </Show>
+        <form class="flex flex-col gap-4" onSubmit={handlePreview}>
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <label class="flex flex-col gap-1.5">
+              <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+                events.csv
+              </span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => setEventsFile(e.currentTarget.files?.[0] ?? null)}
+                class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
+              />
+              <Show when={eventsFile()}>
+                <span class="text-text-muted font-mono text-[0.72rem]">{eventsFile()?.name}</span>
+              </Show>
+            </label>
+
+            <label class="flex flex-col gap-1.5">
+              <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+                guests.csv
+              </span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => setGuestsFile(e.currentTarget.files?.[0] ?? null)}
+                class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
+              />
+              <Show when={guestsFile()}>
+                <span class="text-text-muted font-mono text-[0.72rem]">{guestsFile()?.name}</span>
+              </Show>
+            </label>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-3">
             <button
-              type="button"
-              onClick={handleApply}
+              type="submit"
               disabled={busy()}
-              class="border-gold bg-gold font-body text-bg hover:bg-gold-dim self-start rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+              class="border-gold bg-gold/10 font-body text-gold hover:bg-gold/20 rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
             >
-              {busy() ? "Applying…" : "Apply import"}
+              {busy() ? "Working…" : "Preview"}
             </button>
+            <Show when={preview() || applied() || error()}>
+              <button
+                type="button"
+                onClick={reset}
+                disabled={busy()}
+                class="font-body text-text-muted text-[0.82rem] underline-offset-4 hover:underline disabled:opacity-40"
+              >
+                Reset
+              </button>
+            </Show>
           </div>
-        )}
-      </Show>
+        </form>
 
-      <Show when={applied()}>
-        {(s) => (
-          <div class="border-gold/30 bg-gold/5 text-text flex flex-col gap-2 rounded-sm border p-4 text-[0.88rem]">
-            <p class="font-display text-gold-dim text-[1.1rem] italic">Applied</p>
-            <p class="text-text-muted font-mono text-[0.72rem]">{s().importId}</p>
-            <p>
-              events: +{s().eventsCreated} / ~{s().eventsUpdated} / -{s().eventsRemoved} · families:
-              +{s().familiesCreated} / -{s().familiesRemoved} · guests: +{s().guestsCreated} / ~
-              {s().guestsUpdated} / -{s().guestsRemoved}
-            </p>
-          </div>
-        )}
-      </Show>
-    </section>
+        <Show when={error()}>
+          <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
+            {error()}
+          </p>
+        </Show>
+
+        <Show when={preview()}>
+          {(p) => (
+            <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
+              <h3 class="font-display text-gold-dim text-[1.1rem] italic">Diff preview</h3>
+              <PlanCounts plan={p().plan} />
+              <Show when={p().plan.warnings.length > 0}>
+                <ul class="text-text-muted flex flex-col gap-1 text-[0.82rem]">
+                  <For each={p().plan.warnings}>
+                    {(w) => <li class="before:mr-2 before:content-['•']">{w}</li>}
+                  </For>
+                </ul>
+              </Show>
+              <button
+                type="button"
+                onClick={handleApply}
+                disabled={busy()}
+                class="border-gold bg-gold font-body text-bg hover:bg-gold-dim self-start rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+              >
+                {busy() ? "Applying…" : "Apply import"}
+              </button>
+            </div>
+          )}
+        </Show>
+
+        <Show when={applied()}>
+          {(s) => (
+            <div class="border-gold/30 bg-gold/5 text-text flex flex-col gap-2 rounded-sm border p-4 text-[0.88rem]">
+              <p class="font-display text-gold-dim text-[1.1rem] italic">Applied</p>
+              <p class="text-text-muted font-mono text-[0.72rem]">{s().importId}</p>
+              <p>
+                events: +{s().eventsCreated} / ~{s().eventsUpdated} / -{s().eventsRemoved} ·
+                families: +{s().familiesCreated} / -{s().familiesRemoved} · guests: +
+                {s().guestsCreated} / ~{s().guestsUpdated} / -{s().guestsRemoved}
+              </p>
+            </div>
+          )}
+        </Show>
+      </div>
+    </details>
   );
 }
 
