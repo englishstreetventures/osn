@@ -5,15 +5,19 @@
  *  - SURNAME — the uppercased family surname. **Readability only, NON-SECURITY.**
  *    Collisions on surname are expected and fine; entropy lives entirely in
  *    WORD + HASH. An empty/symbol-only surname degrades to `FAMILY`.
- *  - WORD    — one word chosen uniformly at random from the EFF short wordlist
- *    (1296 words → ~10.34 bits). Disambiguates same-surname families with a
- *    human-pronounceable token rather than a second hash block.
+ *  - WORD    — one word chosen uniformly at random from the curated pleasant
+ *    word bank (369 family-friendly words → ~8.53 bits). Disambiguates
+ *    same-surname families with a human-pronounceable token rather than a second
+ *    hash block. (Previously the EFF short wordlist; swapped because that list
+ *    contains words that read poorly on a wedding invite, e.g. "bruise".)
  *  - HASH    — Crockford base32 (alphabet excludes I/L/O/U to avoid
  *    transcription ambiguity), grouped for readability. Length is tier-driven:
  *      · `secure` (default) — 10 chars → ~50 bits, grouped 5-5
- *        (total code ≈ 10.34 + 50 ≈ 60 bits)
+ *        (total code ≈ 8.53 + 50 ≈ 58.5 bits)
  *      · `simple`           — 6 chars  → ~30 bits, ungrouped
- *        (total code ≈ 10.34 + 30 ≈ 40 bits)
+ *        (total code ≈ 8.53 + 30 ≈ 38.5 bits)
+ *    The WORD swap trims ~1.8 bits off the WORD segment; HASH still carries the
+ *    bulk of the entropy, so the total stays well above any guessing threshold.
  *
  * Entry is case-insensitive: the claim path upper-cases input before lookup, and
  * Crockford base32 has no lowercase ambiguity. The generator only ever emits
@@ -24,7 +28,7 @@
  * modulo bias.
  */
 
-import { WORDLIST } from "../data/eff-short-wordlist";
+import { WORDLIST } from "../data/pleasant-wordlist";
 
 /** Crockford base32 alphabet — excludes I, L, O, U (ambiguous / accidental words). */
 const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -43,13 +47,13 @@ const HASH_LEN: Record<CodeStyle, number> = {
 /**
  * Draw a uniformly-random integer in `[0, max)` from the CSPRNG without modulo
  * bias. Rejects the unrepresentable tail of the byte range so every value is
- * equiprobable. `max` is small here (≤1296 / ≤32) so rejection is rare.
+ * equiprobable. `max` is small here (≤ a few hundred / ≤32) so rejection is rare.
  */
 function uniformInt(max: number): number {
   if (max <= 0 || max > 0x1_00_00) {
     throw new RangeError(`uniformInt: max out of range (${max})`);
   }
-  // Two bytes cover both our ranges (wordlist 1296, alphabet 32).
+  // Two bytes cover both our ranges (wordlist hundreds, alphabet 32).
   const limit = Math.floor(0x1_00_00 / max) * max;
   const buf = new Uint16Array(1);
   for (;;) {
@@ -59,16 +63,35 @@ function uniformInt(max: number): number {
   }
 }
 
-/** Uppercase + collapse non-alphanumerics; cap length. `""` → `"FAMILY"`. */
+/**
+ * Filler tokens stripped from a family name before deriving the SURNAME segment,
+ * so "The Nguyen Family" → `NGUYEN` rather than the naive `THENGUYENFAMILY`.
+ * Case-insensitive; matched per whitespace/punctuation-split token. `&` is split
+ * out as punctuation, so "Smith & Jones" drops the `&` and joins → `SMITHJONES`.
+ */
+const FILLER = new Set(["THE", "A", "AN", "AND", "FAMILY", "FAMILIES", "HOUSEHOLD", "OF"]);
+
+/**
+ * Derive the readability-only SURNAME segment from a family name.
+ *
+ * Splits on whitespace/punctuation, drops common filler tokens (THE, FAMILY,
+ * AND, …), joins the survivors, uppercases, strips any residual non-alphanumerics
+ * and caps at 16 chars. `""` (empty or all-filler/symbols) → `"FAMILY"`.
+ *
+ * Examples: "The Nguyen Family" → `NGUYEN`, "Smith & Jones" → `SMITHJONES`,
+ * "The Patels" → `PATELS`, "Smith" → `SMITH`.
+ */
 export function normaliseSurname(familyName: string): string {
-  const base = familyName
+  const kept = familyName
     .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "")
-    .slice(0, 16);
+    // Split on anything that isn't a letter or digit (whitespace, &, hyphen, …).
+    .split(/[^A-Z0-9]+/)
+    .filter((token) => token.length > 0 && !FILLER.has(token));
+  const base = kept.join("").slice(0, 16);
   return base || "FAMILY";
 }
 
-/** One uniformly-random EFF-short word, upper-cased. */
+/** One uniformly-random pleasant word, upper-cased. */
 function randomWord(): string {
   return WORDLIST[uniformInt(WORDLIST.length)]!.toUpperCase();
 }

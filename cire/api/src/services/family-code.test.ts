@@ -1,20 +1,43 @@
 import { describe, it, expect } from "bun:test";
 
-import { WORDLIST } from "../data/eff-short-wordlist";
+import { MIN_WORDS, WORDLIST } from "../data/pleasant-wordlist";
 import { generateFamilyCode, normaliseSurname } from "./family-code";
 
 // Crockford base32 alphabet (no I/L/O/U).
 const CROCKFORD = /^[0-9ABCDEFGHJKMNPQRSTVWXYZ]+$/;
 const WORDSET = new Set(WORDLIST.map((w) => w.toUpperCase()));
 
-describe("eff short wordlist", () => {
-  it("has exactly 1296 unique words (the entropy floor)", () => {
-    expect(WORDLIST).toHaveLength(1296);
-    expect(new Set(WORDLIST).size).toBe(1296);
+describe("pleasant wordlist", () => {
+  it("has at least the entropy floor of unique words", () => {
+    expect(WORDLIST.length).toBeGreaterThanOrEqual(MIN_WORDS);
+    expect(new Set(WORDLIST).size).toBe(WORDLIST.length);
   });
 
-  it("is all lowercase ascii words", () => {
-    expect(WORDLIST.every((w) => /^[a-z][a-z-]*[a-z]$|^[a-z]$/.test(w))).toBe(true);
+  it("is all lowercase 3–10 char ascii words", () => {
+    expect(WORDLIST.every((w) => /^[a-z]{3,10}$/.test(w))).toBe(true);
+  });
+
+  it("contains none of the obviously-bad words (wholesome sanity guard)", () => {
+    // Small deny-list of the kind of words the EFF list let through and the owner
+    // objected to. None of these should ever appear in a wedding-invite code.
+    const DENY = [
+      "bruise",
+      "wound",
+      "blood",
+      "death",
+      "corpse",
+      "vomit",
+      "rotten",
+      "ugly",
+      "stupid",
+      "demon",
+      "curse",
+      "venom",
+      "tumor",
+      "rash",
+    ];
+    const set = new Set(WORDLIST);
+    for (const bad of DENY) expect(set.has(bad)).toBe(false);
   });
 });
 
@@ -22,12 +45,29 @@ describe("normaliseSurname", () => {
   it("uppercases and strips non-alphanumerics", () => {
     expect(normaliseSurname("O'Brien-Smith")).toBe("OBRIENSMITH");
   });
+  it("strips filler tokens: The Nguyen Family → NGUYEN", () => {
+    expect(normaliseSurname("The Nguyen Family")).toBe("NGUYEN");
+  });
+  it("joins remaining tokens, dropping & : Smith & Jones → SMITHJONES", () => {
+    expect(normaliseSurname("Smith & Jones")).toBe("SMITHJONES");
+  });
+  it("keeps a plain surname unchanged: Smith → SMITH", () => {
+    expect(normaliseSurname("Smith")).toBe("SMITH");
+  });
+  it("keeps the bare surname when 'The' / 'Family' wrap it: The Patels → PATELS", () => {
+    expect(normaliseSurname("The Patels")).toBe("PATELS");
+  });
   it("degrades an empty/symbol-only surname to FAMILY", () => {
     expect(normaliseSurname("   ")).toBe("FAMILY");
     expect(normaliseSurname("!!!")).toBe("FAMILY");
   });
-  it("caps the surname length", () => {
+  it("degrades an all-filler name to FAMILY", () => {
+    expect(normaliseSurname("The Family")).toBe("FAMILY");
+    expect(normaliseSurname("The Household")).toBe("FAMILY");
+  });
+  it("caps the surname length at 16", () => {
     expect(normaliseSurname("ABCDEFGHIJKLMNOPQRSTUVWXYZ").length).toBeLessThanOrEqual(16);
+    expect(normaliseSurname("ABCDEFGHIJKLMNOPQRSTUVWXYZ")).toBe("ABCDEFGHIJKLMNOP");
   });
 });
 

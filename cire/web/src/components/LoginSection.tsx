@@ -107,6 +107,10 @@ export function LoginSection(props: LoginSectionProps) {
             Enter the code from your invitation to see your events.
           </p>
           <form class="mx-auto flex max-w-[360px] flex-col gap-3" onSubmit={handleSubmit}>
+            {/* maxLength 48 comfortably fits the worst-case code: SURNAME(16) +
+                "-" + longest word(10) + "-" + secure hash "XXXXX-XXXXX"(11) = 39
+                chars, so a long code like THENGUYENFAMILY-BANISTER-DM65HQ (31) is
+                never truncated. The server still validates the code. */}
             <input
               type="text"
               class="border-border font-body text-text placeholder:text-text-muted focus:border-gold w-full rounded-sm border bg-transparent px-4 py-3.5 text-center text-base tracking-[0.1em] uppercase transition-colors duration-200 placeholder:tracking-[0.04em] placeholder:normal-case focus:outline-none disabled:opacity-50"
@@ -117,7 +121,7 @@ export function LoginSection(props: LoginSectionProps) {
               autocorrect="off"
               spellcheck={false}
               disabled={loading()}
-              maxLength={30}
+              maxLength={48}
               pattern="[A-Za-z0-9-]+"
             />
             <Show when={error()}>
