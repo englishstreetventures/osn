@@ -4,6 +4,13 @@ import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import {
+  type EventRow,
+  eventsAccessor,
+  hasCachedEvents,
+  patchCachedEvent,
+  setCachedEvents,
+} from "../lib/events-store";
+import {
   CROP_ASPECT,
   cropAspectRatio,
   cropBackgroundStyle,
@@ -11,35 +18,6 @@ import {
 } from "../lib/image-crop";
 import ImageCropModal from "./ImageCropModal";
 import SectionIntro from "./SectionIntro";
-
-interface DressSwatch {
-  name: string;
-  color: string;
-}
-
-interface EventRow {
-  id: string;
-  name: string;
-  slug: string;
-  sortOrder: number;
-  date: string;
-  startAt: string;
-  endAt: string;
-  timezone: string;
-  location: string;
-  address: string | null;
-  description: string;
-  dressCodeDescription: string | null;
-  dressCodePalette: DressSwatch[] | null;
-  pinterestUrl: string | null;
-  mapsUrl: string | null;
-  /** First-party path to this event's optional image (or null). API-origin
-   * relative — prepend `apiUrl()` before use. */
-  imageUrl: string | null;
-  /** Normalised crop rectangle the guest site applies (or null for the default
-   * centre crop). */
-  imageCrop: ImageCrop | null;
-}
 
 interface EventTableProps {
   weddingId: string;
@@ -70,16 +48,29 @@ function formatRange(startAt: string, endAt: string, timezone: string): string {
 
 export default function EventTable(props: EventTableProps) {
   const { authFetch } = useAuth();
-  const [events, setEvents] = createSignal<EventRow[]>([]);
-  const [loading, setLoading] = createSignal(true);
+  // Events live in a module-scoped, weddingId-keyed cache (`../lib/events-store`)
+  // so this fetch fires once per wedding and is reused when the dashboard tabs
+  // unmount/remount us on a Guests ↔ Events switch. A wedding change keys to a
+  // fresh entry; an import apply invalidates the entry (see ImportPanel) so the
+  // next mount refetches.
+  const events = () => eventsAccessor(props.weddingId)() ?? [];
+  // Show the skeleton only while we have nothing to render yet — a cache hit
+  // means we already have rows, so a remount paints them immediately.
+  const [loading, setLoading] = createSignal(!hasCachedEvents(props.weddingId));
   const [error, setError] = createSignal<string | null>(null);
 
   onMount(async () => {
+    // Cache hit: a previous mount already loaded this wedding's events. Reuse
+    // them — no second request on a tab flip back to Events.
+    if (hasCachedEvents(props.weddingId)) {
+      setLoading(false);
+      return;
+    }
     try {
       const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error("Failed to load");
-      setEvents((await res.json()) as EventRow[]);
+      setCachedEvents(props.weddingId, (await res.json()) as EventRow[]);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setError("Could not load events. Is the API running?");
@@ -89,16 +80,15 @@ export default function EventTable(props: EventTableProps) {
   });
 
   /** Patch one event row's imageUrl in place after an upload/remove. An upload or
-   * remove also resets the crop server-side, so clear it locally to match. */
+   * remove also resets the crop server-side, so clear it locally to match.
+   * Writes through the cache so the edit survives a tab switch. */
   function patchImage(eventId: string, imageUrl: string | null) {
-    setEvents((rows) =>
-      rows.map((r) => (r.id === eventId ? { ...r, imageUrl, imageCrop: null } : r)),
-    );
+    patchCachedEvent(props.weddingId, eventId, { imageUrl, imageCrop: null });
   }
 
   /** Patch one event row's crop in place after a crop save/reset. */
   function patchCrop(eventId: string, imageCrop: ImageCrop | null) {
-    setEvents((rows) => rows.map((r) => (r.id === eventId ? { ...r, imageCrop } : r)));
+    patchCachedEvent(props.weddingId, eventId, { imageCrop });
   }
 
   const eventImageBase = (eventId: string) =>

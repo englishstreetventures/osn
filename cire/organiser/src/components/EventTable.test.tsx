@@ -28,6 +28,7 @@ vi.mock("../lib/api", () => ({
   redirectToLogin: () => redirectSpy(),
 }));
 
+import { __resetEventsCache, invalidateEvents } from "../lib/events-store";
 import EventTable from "./EventTable";
 
 function json(body: unknown, status = 200) {
@@ -59,6 +60,7 @@ const EVENT = {
 describe("EventTable per-event image", () => {
   afterEach(() => {
     cleanup();
+    __resetEventsCache();
     authFetchMock.mockReset();
     redirectSpy.mockReset();
     toastSuccess.mockReset();
@@ -123,5 +125,88 @@ describe("EventTable per-event image", () => {
 
     await waitFor(() => expect(container.querySelector("img")).toBeNull());
     expect(toastSuccess).toHaveBeenCalled();
+  });
+});
+
+/**
+ * Events are cached per wedding (`../lib/events-store`) so the dashboard tabs
+ * unmounting/remounting EventTable on a Guests ↔ Events switch don't re-issue
+ * the `GET …/events` request. These assert the cache contract: dedupe across
+ * remounts of the same wedding, refetch on a wedding change, and refetch after
+ * an import apply invalidates the entry. The GET is `authFetch` call #0 in each
+ * mount, so counting `authFetch` calls counts the fetch.
+ */
+describe("EventTable events caching", () => {
+  afterEach(() => {
+    cleanup();
+    __resetEventsCache();
+    authFetchMock.mockReset();
+    redirectSpy.mockReset();
+    toastSuccess.mockReset();
+    toastError.mockReset();
+  });
+
+  it("does NOT re-fetch events when the tab switches back (remount, same wedding)", async () => {
+    // Only ONE events response is queued — a second fetch would reject (no mock
+    // value left) and the test would fail, proving the remount was served from
+    // cache.
+    authFetchMock.mockResolvedValueOnce(json([EVENT]));
+
+    // First mount (Events tab) — fetches.
+    const first = render(() => <EventTable weddingId="wed_1" />);
+    await waitFor(() => screen.getByText("Reception"));
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+
+    // Switch away to another tab: <Show> unmounts EventTable.
+    first.unmount();
+
+    // Switch back to Events: EventTable remounts. It must reuse the cache, not
+    // refetch — call count stays at 1.
+    render(() => <EventTable weddingId="wed_1" />);
+    await waitFor(() => screen.getByText("Reception"));
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    // Rows render immediately from cache (no skeleton-then-data round trip).
+    expect(screen.getByText("Reception")).toBeTruthy();
+  });
+
+  it("DOES fetch again when the selected wedding changes", async () => {
+    authFetchMock.mockResolvedValueOnce(json([EVENT])); // wed_1
+    authFetchMock.mockResolvedValueOnce(
+      json([{ ...EVENT, id: "evt_2", name: "Ceremony", slug: "ceremony" }]),
+    ); // wed_2
+
+    const first = render(() => <EventTable weddingId="wed_1" />);
+    await waitFor(() => screen.getByText("Reception"));
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    // A different wedding is a different cache key → a fresh fetch.
+    render(() => <EventTable weddingId="wed_2" />);
+    await waitFor(() => screen.getByText("Ceremony"));
+    expect(authFetchMock).toHaveBeenCalledTimes(2);
+    expect(authFetchMock.mock.calls[1][0]).toBe(
+      "https://api.test/api/organiser/weddings/wed_2/events",
+    );
+  });
+
+  it("DOES re-fetch after an import apply invalidates the wedding's events", async () => {
+    authFetchMock.mockResolvedValueOnce(json([EVENT])); // initial load
+    authFetchMock.mockResolvedValueOnce(
+      json([EVENT, { ...EVENT, id: "evt_2", name: "Ceremony", slug: "ceremony" }]),
+    ); // post-import load (a new event was added)
+
+    const first = render(() => <EventTable weddingId="wed_1" />);
+    await waitFor(() => screen.getByText("Reception"));
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    // Simulate the ImportPanel apply flow's cache invalidation.
+    invalidateEvents("wed_1");
+
+    // Next mount must refetch (cache was dropped) and show the newly imported
+    // event.
+    render(() => <EventTable weddingId="wed_1" />);
+    await waitFor(() => screen.getByText("Ceremony"));
+    expect(authFetchMock).toHaveBeenCalledTimes(2);
   });
 });
