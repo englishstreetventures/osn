@@ -171,6 +171,7 @@ export function diffAgainstDb(
           familyId: guests.familyId,
           firstName: guests.firstName,
           lastName: guests.lastName,
+          nickname: guests.nickname,
           sortOrder: guests.sortOrder,
         })
         .from(guests)
@@ -217,11 +218,17 @@ export function diffAgainstDb(
         const existing = existingGuestMap.get(norm);
         if (existing) {
           guestIdByKey.set(keyOf(familyId, parsedGuest.firstName), existing.id);
-          // last-name change is an update; first-name match means same row
-          if (existing.lastName !== parsedGuest.lastName || existing.sortOrder !== sortOrder) {
+          // last-name / nickname / sort-order change is an update; first-name
+          // match means same row.
+          if (
+            existing.lastName !== parsedGuest.lastName ||
+            existing.nickname !== parsedGuest.nickname ||
+            existing.sortOrder !== sortOrder
+          ) {
             guestUpdates.push({
               id: existing.id,
               lastName: parsedGuest.lastName,
+              nickname: parsedGuest.nickname,
               sortOrder,
             });
           }
@@ -232,6 +239,7 @@ export function diffAgainstDb(
             familyId,
             firstName: parsedGuest.firstName,
             lastName: parsedGuest.lastName,
+            nickname: parsedGuest.nickname,
             sortOrder,
           });
           guestIdByKey.set(keyOf(familyId, parsedGuest.firstName), id);
@@ -544,6 +552,7 @@ export function applyImport(
           familyId: gc.familyId,
           firstName: gc.firstName,
           lastName: gc.lastName,
+          nickname: gc.nickname,
           sortOrder: gc.sortOrder,
           createdAt: now,
           updatedAt: now,
@@ -558,6 +567,7 @@ export function applyImport(
           .update(guests)
           .set({
             lastName: gu.lastName,
+            nickname: gu.nickname,
             sortOrder: gu.sortOrder,
             updatedAt: now,
           })

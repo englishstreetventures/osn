@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS guests (
   family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL DEFAULT '',
+  nickname TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   external_id TEXT,
   created_at INTEGER NOT NULL,

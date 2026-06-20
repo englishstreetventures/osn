@@ -55,6 +55,8 @@ export interface FamilyMember {
   guestId: string;
   firstName: string;
   lastName: string;
+  /** Optional informal name for the single-guest greeting; null ⇒ use firstName. */
+  nickname: string | null;
   eventIds: string[];
 }
 

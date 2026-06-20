@@ -253,6 +253,23 @@ describe("parseGuestsCsv", () => {
       ["Mehndi", "Wedding Ceremony"].toSorted(),
     );
     expect(families[1]!.guests[0]!.eventNames).toEqual(["Wedding Ceremony"]);
+    // No Nickname column ⇒ every guest's nickname is null.
+    expect(families[0]!.guests[0]!.nickname).toBeNull();
+    expect(families[1]!.guests[0]!.nickname).toBeNull();
+  });
+
+  it("reads the optional Guest Nickname column (blank ⇒ null)", async () => {
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Mehndi,Wedding Ceremony",
+      "1,Okafor,Chidi,Okafor,Chi,yes,yes",
+      "2,Testfamily,Ada,Testfamily,,yes,yes",
+    ].join("\n");
+    const families = await Effect.runPromise(parseGuestsCsv(csv, events));
+    expect(families[0]!.guests[0]!.nickname).toBe("Chi");
+    // A blank nickname cell is treated as absent (null), not an empty string.
+    expect(families[1]!.guests[0]!.nickname).toBeNull();
+    // The nickname column is not mistaken for an event column.
+    expect(families[0]!.guests[0]!.eventNames).not.toContain("Guest Nickname");
   });
 
   it("matches event columns case+whitespace-insensitively", async () => {

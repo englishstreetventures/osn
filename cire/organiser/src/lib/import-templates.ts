@@ -50,6 +50,13 @@ export const GUEST_TEMPLATE_FIXED_HEADERS = [
 ] as const;
 
 /**
+ * Optional guest columns. `Guest Nickname` personalises the greeting for a
+ * one-guest code ("Dear {nickname}" instead of their first name); it's ignored
+ * for multi-guest households. Safe to omit entirely.
+ */
+export const GUEST_OPTIONAL_HEADERS = ["Guest Nickname"] as const;
+
+/**
  * Placeholder event columns in the guests template. The organiser MUST rename
  * these to match their real event names (the parser matches each guest event
  * column against an already-imported event, case/space-insensitively).
@@ -112,12 +119,13 @@ export function buildEventsTemplateCsv(): string {
  */
 export function buildGuestsTemplateCsv(): string {
   const rows: string[][] = [
-    [...GUEST_TEMPLATE_FIXED_HEADERS, ...GUEST_TEMPLATE_EXAMPLE_EVENTS],
-    // Two guests, same Family ID → one household.
-    ["fam-001", "Nguyen", "An", "Nguyen", "x", "x"],
-    ["fam-001", "Nguyen", "Binh", "Nguyen", "x", ""],
-    // A second household, invited to the reception only.
-    ["fam-002", "Okafor", "Chidi", "Okafor", "", "yes"],
+    [...GUEST_TEMPLATE_FIXED_HEADERS, ...GUEST_OPTIONAL_HEADERS, ...GUEST_TEMPLATE_EXAMPLE_EVENTS],
+    // Two guests, same Family ID → one household (nickname is ignored for a
+    // multi-guest code, shown here only to illustrate the column).
+    ["fam-001", "Nguyen", "An", "Nguyen", "", "x", "x"],
+    ["fam-001", "Nguyen", "Binh", "Nguyen", "", "x", ""],
+    // A second household with a single guest → greeted "Dear Chi" via the nickname.
+    ["fam-002", "Okafor", "Chidi", "Okafor", "Chi", "", "yes"],
   ];
   return toCsv(rows);
 }

@@ -24,6 +24,7 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 - [x] Plan preserves `publicId` for matched families (case+whitespace-insensitive on `family_name`); only mints new IDs for brand-new families (PR-C)
 - [x] Per-guest event invitations from boolean columns drive `guestEvents` rows (PR-C)
 - [ ] When the source sheet adds a stable `Guest ID` column, populate `guests.externalId` from it (already in schema as of PR-A)
+- [x] **Optional "Guest Nickname" column** (`feat/cire-individual-greeting`) — `parseGuestsCsv` reads an optional `Guest Nickname` column into `ParsedGuest.nickname` (absent column or blank/whitespace cell ⇒ null; added to `fixedCols` so it's never mistaken for an event column). Flows through `diffAgainstDb` (nickname change ⇒ guest update) and `applyImport` into `guests.nickname` (migration 0022), and is surfaced in the `/api/claim` members for the personalised single-guest greeting (see `[[web]]` + `[[db]]`). Organiser template + CSV explainer updated (`import-templates.ts` `GUEST_OPTIONAL_HEADERS`, `ImportPanel` Guests guidance); `import-templates.test.ts` + `ImportPanel.test.tsx` header assertions kept in lockstep.
 
 ## Organiser portal (cire/organiser + cire/api)
 

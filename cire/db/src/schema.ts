@@ -137,6 +137,10 @@ export const guests = sqliteTable(
       .references(() => families.id, { onDelete: "cascade" }),
     firstName: text("first_name").notNull(),
     lastName: text("last_name").notNull().default(""),
+    // Optional informal name for the personalised single-guest greeting
+    // ("Dear {nickname}"). NULL ⇒ fall back to `firstName`. Only used to greet a
+    // one-guest code as an individual; family greetings stay surname-based.
+    nickname: text("nickname"),
     sortOrder: integer("sort_order").notNull().default(0),
     // Forward-looking: spreadsheet "Guest ID" column. Currently nullable —
     // matching is `(family, firstName)` until the source sheet adds a stable

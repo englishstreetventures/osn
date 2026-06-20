@@ -21,6 +21,18 @@ export function LoginSection(props: LoginSectionProps) {
   // stays null and submit proceeds without it.
   const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
 
+  // A claim code can cover one guest or a whole household. A single-guest code
+  // greets the person individually ("Dear {name}"); a multi-guest code greets
+  // the household ("The {familyName} Family"). For an individual, an optional
+  // nickname overrides their first name.
+  const members = () => props.result?.members ?? [];
+  const isIndividual = () => members().length === 1;
+  const individualName = () => {
+    const m = members()[0];
+    if (!m) return "";
+    return m.nickname?.trim() ? m.nickname.trim() : m.firstName;
+  };
+
   async function submitCode(rawCode: string) {
     const publicId = rawCode.trim().toUpperCase();
     if (!publicId) return;
@@ -152,23 +164,41 @@ export function LoginSection(props: LoginSectionProps) {
               Preview mode — every event is shown. RSVP is disabled.
             </p>
           </Show>
-          <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">Welcome</p>
-          <h2 class="font-display text-gold mb-3 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic">
-            The {props.result?.familyName} Family
-          </h2>
-          <p class="text-text-muted mb-2 text-[0.92rem] leading-[1.6] font-light">
-            We are delighted to invite you to celebrate with us.
-          </p>
-          <p class="text-text mb-8 text-[0.88rem] leading-[1.6] font-light">
-            <For each={props.result?.members}>
-              {(member, i) => (
-                <>
-                  {i() > 0 && ", "}
-                  {member.firstName}
-                </>
-              )}
-            </For>
-          </p>
+          <Show
+            when={isIndividual()}
+            fallback={
+              <>
+                <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+                  Welcome
+                </p>
+                <h2 class="font-display text-gold mb-3 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic">
+                  The {props.result?.familyName} Family
+                </h2>
+                <p class="text-text-muted mb-2 text-[0.92rem] leading-[1.6] font-light">
+                  We are delighted to invite you to celebrate with us.
+                </p>
+                <p class="text-text mb-8 text-[0.88rem] leading-[1.6] font-light">
+                  <For each={props.result?.members}>
+                    {(member, i) => (
+                      <>
+                        {i() > 0 && ", "}
+                        {member.firstName}
+                      </>
+                    )}
+                  </For>
+                </p>
+              </>
+            }
+          >
+            {/* Single-guest code → greet the individual by name (nickname wins). */}
+            <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">Dear</p>
+            <h2 class="font-display text-gold mb-3 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic">
+              {individualName()}
+            </h2>
+            <p class="text-text-muted mb-8 text-[0.92rem] leading-[1.6] font-light">
+              We are delighted to invite you to celebrate with us.
+            </p>
+          </Show>
         </div>
       </div>
     </section>

@@ -516,7 +516,15 @@ export function parseGuestsCsv(
     const idxFamilyName = indexOf("Family Name");
     const idxFirst = indexOf("Guest First Name");
     const idxLast = indexOf("Guest Last Name");
-    const fixedCols = new Set([indexOf("Family ID"), idxFamilyName, idxFirst, idxLast]);
+    // Optional: an informal name for the single-guest greeting. Absent ⇒ -1.
+    const idxNickname = indexOf("Guest Nickname");
+    const fixedCols = new Set([
+      indexOf("Family ID"),
+      idxFamilyName,
+      idxFirst,
+      idxLast,
+      idxNickname,
+    ]);
 
     // Map event-column index → canonical event name. Strict match — any
     // unmatched event column surfaces as `UnmatchedEventColumn`.
@@ -572,7 +580,8 @@ export function parseGuestsCsv(
         if (isTruthy(cell)) eventNames.push(eventName);
       }
 
-      const guest: ParsedGuest = { firstName, lastName, eventNames };
+      const nickname = idxNickname === -1 ? null : nullableString(row[idxNickname] ?? "");
+      const guest: ParsedGuest = { firstName, lastName, nickname, eventNames };
       const norm = normaliseName(familyName);
       let family = familyByNorm.get(norm);
       if (!family) {

@@ -8,6 +8,7 @@ import { invalidateEvents } from "../lib/events-store";
 import {
   EVENT_REQUIRED_HEADERS,
   EVENT_OPTIONAL_HEADERS,
+  GUEST_OPTIONAL_HEADERS,
   GUEST_TEMPLATE_FIXED_HEADERS,
   GUEST_TEMPLATE_EXAMPLE_EVENTS,
   buildEventsTemplateCsv,
@@ -579,6 +580,16 @@ function GuestsGuidance() {
       <p class="text-text-muted text-[0.78rem]">
         Then <strong class="text-text">one column per event</strong>, named exactly after an event.
       </p>
+      <p class="text-text-muted text-[0.78rem]">Optional:</p>
+      <ul class="flex flex-wrap gap-1.5">
+        <For each={GUEST_OPTIONAL_HEADERS}>
+          {(h) => (
+            <li>
+              <Col>{h}</Col>
+            </li>
+          )}
+        </For>
+      </ul>
       <MiniMatrix />
 
       <FormattingTips>
@@ -602,6 +613,15 @@ function GuestsGuidance() {
               <span class="text-text font-mono">1</span> /{" "}
               <span class="text-text font-mono">x</span>); leave it{" "}
               <span class="text-text">blank</span> if not invited.
+            </dd>
+          </div>
+          <div class="flex flex-col gap-0.5">
+            <dt class="text-text">Guest Nickname (optional)</dt>
+            <dd class="text-text-muted">
+              When a code has just <strong class="text-text">one</strong> guest, their invite greets
+              them by name (&ldquo;Dear Chi&rdquo;). Set a <Col>Guest Nickname</Col> to greet them
+              by that instead of their first name. Ignored for multi-guest households (they're
+              greeted as a family).
             </dd>
           </div>
         </dl>

@@ -154,6 +154,7 @@ export const claimService = {
                 guestId: guests.id,
                 firstName: guests.firstName,
                 lastName: guests.lastName,
+                nickname: guests.nickname,
                 sortOrder: guests.sortOrder,
                 eventId: guestEvents.eventId,
               })
@@ -183,7 +184,13 @@ export const claimService = {
 
       const memberMap = new Map<
         string,
-        { guestId: string; firstName: string; lastName: string; eventIds: string[] }
+        {
+          guestId: string;
+          firstName: string;
+          lastName: string;
+          nickname: string | null;
+          eventIds: string[];
+        }
       >();
       const eventIds = new Set<string>();
       for (const row of guestRows) {
@@ -193,6 +200,7 @@ export const claimService = {
             guestId: row.guestId,
             firstName: row.firstName,
             lastName: row.lastName,
+            nickname: row.nickname,
             eventIds: [],
           };
           memberMap.set(row.guestId, member);

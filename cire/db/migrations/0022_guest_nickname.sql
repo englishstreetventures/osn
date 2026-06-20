@@ -1,0 +1,11 @@
+-- Optional informal name for the personalised single-guest greeting. When a
+-- claim code covers exactly ONE guest, the invite greets them as an individual
+-- ("Dear {nickname}") rather than "The {familyName} Family"; `nickname` lets a
+-- host override the displayed name (e.g. "Sam" instead of "Samantha"). NULL ⇒
+-- fall back to `first_name`. Family codes (>1 guest) ignore it and stay
+-- surname-based. Sourced from the optional "Guest Nickname" column in the
+-- organiser Guests CSV.
+--
+-- Pure forward-only ADD COLUMN — every existing row defaults to NULL, so all
+-- current guests keep greeting exactly as before until a host sets a nickname.
+ALTER TABLE `guests` ADD `nickname` text;

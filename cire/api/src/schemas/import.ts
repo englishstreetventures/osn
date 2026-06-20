@@ -26,6 +26,8 @@ export type ParsedEvent = Schema.Schema.Type<typeof ParsedEvent>;
 export const ParsedGuest = Schema.Struct({
   firstName: Schema.String,
   lastName: Schema.String,
+  /** Optional informal name for the single-guest greeting; null ⇒ use firstName. */
+  nickname: Schema.NullOr(Schema.String),
   /** Names of events the guest is invited to. */
   eventNames: Schema.Array(Schema.String),
 });
@@ -75,6 +77,7 @@ export const GuestCreate = Schema.Struct({
   familyId: Schema.String,
   firstName: Schema.String,
   lastName: Schema.String,
+  nickname: Schema.NullOr(Schema.String),
   sortOrder: Schema.Number,
 });
 export type GuestCreate = Schema.Schema.Type<typeof GuestCreate>;
@@ -82,6 +85,7 @@ export type GuestCreate = Schema.Schema.Type<typeof GuestCreate>;
 export const GuestUpdate = Schema.Struct({
   id: Schema.String,
   lastName: Schema.String,
+  nickname: Schema.NullOr(Schema.String),
   sortOrder: Schema.Number,
 });
 export type GuestUpdate = Schema.Schema.Type<typeof GuestUpdate>;
