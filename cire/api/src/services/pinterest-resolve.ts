@@ -36,10 +36,34 @@ const PINTEREST_BOARD_HOSTS = new Set<string>([
   "pinterest.ie",
 ]);
 
-// The two short-link hosts we are willing to make an outbound fetch to. This is
-// the SSRF allowlist — we NEVER fetch an arbitrary user-supplied URL, only a
-// first-party Pinterest short link.
+// The two short-link hosts we are willing to make the FIRST outbound fetch to.
+// This is the SSRF entry gate — we NEVER start resolving an arbitrary
+// user-supplied URL, only a first-party Pinterest short link.
 const PIN_IT_HOSTS = new Set<string>(["pin.it", "www.pin.it"]);
+
+// Hosts we will FOLLOW a redirect *through* while chasing a short link to its
+// board. Broader than PIN_IT_HOSTS because `pin.it` no longer redirects
+// straight to the board — it bounces through Pinterest's first-party URL
+// shortener: `pin.it/<id>` → 308 `api.pinterest.com/url_shortener/<id>/redirect/`
+// → 302 `www.pinterest.<tld>/<user>/<board>/`. Without `api.pinterest.com` here
+// the chain was abandoned at the middle hop and every short link fell back
+// unresolved. The board hosts are included too, so a locale hop (e.g.
+// `www.pinterest.com` → `www.pinterest.com.au`) that doesn't immediately
+// canonicalise is still followed. Every entry is first-party Pinterest
+// infrastructure; any host OFF this allowlist stops the chain and we fall back
+// to the original url, so a redirect can never bounce the Worker to an
+// internal / attacker host (SSRF).
+const REDIRECT_FOLLOW_HOSTS = new Set<string>([
+  ...PIN_IT_HOSTS,
+  "api.pinterest.com",
+  ...PINTEREST_BOARD_HOSTS,
+  ...[...PINTEREST_BOARD_HOSTS].map((h) => `www.${h}`),
+]);
+
+/** Is `host` one we'll follow a redirect through (first-party Pinterest only)? */
+export function isFollowableRedirectHost(host: string): boolean {
+  return REDIRECT_FOLLOW_HOSTS.has(host.toLowerCase());
+}
 
 // A board path is `/<user>/<board>` with an optional single section sub-segment
 // (`/<user>/<board>/<section>`). Segments use the URL-safe characters real
@@ -188,13 +212,14 @@ export async function resolvePinUrl(
         const canonical = canonicalizePinterestBoardUrl(next.toString());
         if (canonical) return canonical;
         // SSRF guard — re-validate EVERY hop before issuing the next fetch. We
-        // only keep following while the chain stays on the first-party pin.it
-        // allowlist over https. The instant a redirect points anywhere else and
-        // it isn't a board (handled above), we STOP and fall back to the
-        // original url — we never fetch an off-allowlist host. Without this a
-        // pin.it link could 30x-redirect the Worker to an internal/attacker
-        // host (cloud metadata, private IPs, …).
-        if (next.protocol !== "https:" || !isPinItHost(next.hostname)) {
+        // only keep following while the chain stays on the first-party Pinterest
+        // redirect allowlist over https (pin.it → api.pinterest.com →
+        // pinterest.<tld>). The instant a redirect points anywhere else and it
+        // isn't a board (handled above), we STOP and fall back to the original
+        // url — we never fetch an off-allowlist host. Without this a pin.it link
+        // could 30x-redirect the Worker to an internal/attacker host (cloud
+        // metadata, private IPs, …).
+        if (next.protocol !== "https:" || !isFollowableRedirectHost(next.hostname)) {
           return url;
         }
         current = next.toString();

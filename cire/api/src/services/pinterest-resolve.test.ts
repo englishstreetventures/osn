@@ -119,6 +119,45 @@ describe("resolvePinUrl", () => {
     );
   });
 
+  it("follows the real pin.it → api.pinterest.com url_shortener → board chain", async () => {
+    // Reproduces the live redirect shape that broke resolution: pin.it now
+    // 308s through Pinterest's first-party url_shortener (api.pinterest.com)
+    // before landing on the regional board host. The middle hop must be
+    // followed, not abandoned.
+    const fetched: string[] = [];
+    const fetchImpl = ((input: string) => {
+      fetched.push(input);
+      if (input === "https://pin.it/EXAMPLE99") {
+        return Promise.resolve(
+          new Response(null, {
+            status: 308,
+            headers: { location: "https://api.pinterest.com/url_shortener/EXAMPLE99/redirect/" },
+          }),
+        );
+      }
+      if (input === "https://api.pinterest.com/url_shortener/EXAMPLE99/redirect/") {
+        return Promise.resolve(
+          new Response(null, {
+            status: 302,
+            headers: {
+              location:
+                "https://www.pinterest.com.au/example/catholic-wedding-guest-moodboard/?invite_code=abc&sender=123",
+            },
+          }),
+        );
+      }
+      throw new Error(`unexpected fetch: ${input}`);
+    }) as unknown as typeof fetch;
+    expect(await resolvePinUrl("https://pin.it/EXAMPLE99", { fetchImpl })).toBe(
+      "https://www.pinterest.com.au/example/catholic-wedding-guest-moodboard/",
+    );
+    // Both first-party hops were followed; tracking query params are stripped.
+    expect(fetched).toEqual([
+      "https://pin.it/EXAMPLE99",
+      "https://api.pinterest.com/url_shortener/EXAMPLE99/redirect/",
+    ]);
+  });
+
   it("keeps the original pin.it URL when the final location is a single pin", async () => {
     const fetchImpl = (() =>
       Promise.resolve(
