@@ -1,0 +1,12 @@
+-- Optional host override for the FIRST line of the message an organiser copies
+-- to send a family their invite. The copied message is always the same 3-line
+-- shape — this line, then the guest-site URL, then the family code — so an
+-- override only swaps the prose, never the link or code. NULL ⇒ the built-in
+-- default prose; the API trims, collapses empty/whitespace to NULL, and bounds
+-- the length on write. Copied to a clipboard as plain text (never rendered as
+-- HTML), so no escaping is needed.
+--
+-- Pure forward-only ADD COLUMN — every existing row defaults to NULL, so all
+-- current weddings keep producing the default invite message until a host sets
+-- one (additive, NULL ⇒ default, self-backfilling).
+ALTER TABLE wedding_invite_customisations ADD invite_message text;

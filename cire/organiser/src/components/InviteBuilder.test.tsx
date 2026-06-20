@@ -245,6 +245,30 @@ describe("InviteBuilder theme", () => {
 
     await waitFor(() => expect(screen.getByText("Invalid colour or font")).toBeTruthy());
   });
+
+  it("seeds the invite message field and sends it on Save copy", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({ ...EMPTY_CUSTOMISATION, inviteMessage: "See you in Goa!" }),
+    ); // initial load
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // text save
+
+    render(() => <InviteBuilder weddingId="wed_1" />);
+
+    const field = (await waitFor(() =>
+      screen.getByLabelText("Invite message (optional)"),
+    )) as HTMLTextAreaElement;
+    expect(field.value).toBe("See you in Goa!");
+
+    fireEvent.input(field, { target: { value: "Come celebrate with us!" } });
+    fireEvent.click(screen.getByText("Save copy"));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    const [url, init] = authFetchMock.mock.calls[1];
+    expect(url).toBe("https://api.test/api/organiser/weddings/wed_1/invite/text");
+    expect(init.method).toBe("PUT");
+    const sent = JSON.parse(init.body as string);
+    expect(sent.inviteMessage).toBe("Come celebrate with us!");
+  });
 });
 
 describe("InviteBuilder shown/hidden badges", () => {

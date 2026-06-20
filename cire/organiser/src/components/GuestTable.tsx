@@ -62,6 +62,10 @@ export default function GuestTable(props: GuestTableProps) {
   const { authFetch } = useAuth();
   const [guests, setGuests] = createSignal<OrganiserGuestRow[]>([]);
   const [eventNameById, setEventNameById] = createSignal<Map<string, string>>(new Map());
+  // Optional host override for the first line of the copied invite message. Read
+  // from the same invite-customisation endpoint the Invite builder writes; `null`
+  // ⇒ buildInviteMessage falls back to its default prose.
+  const [inviteMessage, setInviteMessage] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   // Optimistic "Sent" state keyed by family public_id — flips the instant a
@@ -99,16 +103,24 @@ export default function GuestTable(props: GuestTableProps) {
 
   onMount(async () => {
     try {
-      const [guestsRes, eventsRes] = await Promise.all([
+      const [guestsRes, eventsRes, inviteRes] = await Promise.all([
         authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/guests`)),
         authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`)),
+        authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/invite`)),
       ]);
-      if (guestsRes.status === 401 || eventsRes.status === 401) return redirectToLogin();
+      if (guestsRes.status === 401 || eventsRes.status === 401 || inviteRes.status === 401)
+        return redirectToLogin();
       if (!guestsRes.ok || !eventsRes.ok) throw new Error("Failed to load");
       const guestData = (await guestsRes.json()) as OrganiserGuestRow[];
       const eventData = (await eventsRes.json()) as EventRow[];
       setGuests(guestData);
       setEventNameById(new Map(eventData.map((e) => [e.id, e.name])));
+      // The custom invite message is non-essential to the table — if it fails to
+      // load, fall back to the default prose rather than breaking the guest list.
+      if (inviteRes.ok) {
+        const invite = (await inviteRes.json()) as { inviteMessage: string | null };
+        setInviteMessage(invite.inviteMessage);
+      }
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setError("Could not load guest list. Is the API running?");
@@ -155,7 +167,12 @@ export default function GuestTable(props: GuestTableProps) {
   }
 
   async function copyMessage(family: FamilyGroup) {
-    const message = buildInviteMessage(props.weddingName, family.publicId, props.weddingSlug);
+    const message = buildInviteMessage(
+      props.weddingName,
+      family.publicId,
+      props.weddingSlug,
+      inviteMessage(),
+    );
     const ok = await copyToClipboard(message);
     if (ok) {
       toast.success(`Copied ${family.familyName}'s invite message`);

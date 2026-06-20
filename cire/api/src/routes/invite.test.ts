@@ -104,6 +104,7 @@ const emptyText = JSON.stringify({
   storyEyebrow: null,
   storyHeading: null,
   storyBody: null,
+  inviteMessage: null,
 });
 
 async function authHeaders(profileId: string): Promise<Record<string, string>> {
@@ -147,6 +148,7 @@ describe("PUT /invite/text (organiser)", () => {
     storyEyebrow: null,
     storyHeading: "Where it started",
     storyBody: "  ", // whitespace ⇒ cleared to default
+    inviteMessage: null,
   };
 
   it("401s without a token", async () => {
@@ -198,6 +200,46 @@ describe("PUT /invite/text (organiser)", () => {
     });
     expect(res.status).toBe(400);
   });
+
+  it("persists the host's invite message and returns it on the organiser GET", async () => {
+    const { app } = buildApp();
+    const put = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...payload, inviteMessage: "  Come celebrate with us in Goa!  " }),
+    });
+    expect(put.status).toBe(200);
+    // The PUT echoes the saved customisation, trimmed.
+    const putBody = (await put.json()) as { inviteMessage: string | null };
+    expect(putBody.inviteMessage).toBe("Come celebrate with us in Goa!");
+
+    // And the organiser GET reflects it (the guest public read never exposes it).
+    const got = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
+    const gotBody = (await got.json()) as { inviteMessage: string | null };
+    expect(gotBody.inviteMessage).toBe("Come celebrate with us in Goa!");
+  });
+
+  it("normalises a whitespace-only invite message to null", async () => {
+    const { app } = buildApp();
+    const put = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...payload, inviteMessage: "   \n  " }),
+    });
+    expect(put.status).toBe(200);
+    const body = (await put.json()) as { inviteMessage: string | null };
+    expect(body.inviteMessage).toBeNull();
+  });
+
+  it("rejects an over-long invite message with 400 (cap 600)", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...payload, inviteMessage: "x".repeat(601) }),
+    });
+    expect(res.status).toBe(400);
+  });
 });
 
 describe("co-host invite access (weddingMember)", () => {
@@ -234,6 +276,7 @@ describe("co-host invite access (weddingMember)", () => {
         storyEyebrow: null,
         storyHeading: null,
         storyBody: null,
+        inviteMessage: null,
       }),
     });
     expect(res.status).toBe(200);

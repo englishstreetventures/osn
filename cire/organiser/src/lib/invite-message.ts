@@ -1,26 +1,38 @@
 import { CIRE_WEB_URL } from "./osn";
 
 /**
- * Build the ready-to-send invite message an organiser copies for a family. One
- * line, no PII beyond the family's own code + the public guest-site URL:
+ * Build the ready-to-send invite message an organiser copies for a family. A
+ * fixed THREE-LINE shape — cleaner pasted into WhatsApp/SMS than the old single
+ * line — carrying no PII beyond the family's own code + the public guest-site URL:
  *
- *   You're invited to {weddingName}! View your invitation and RSVP at
- *   {guestSiteUrl} — your family code is {CODE}.
+ *   {message}
+ *   {guestSiteUrl}
+ *   {familyCode}
  *
- * The URL is this wedding's path on the public guest site
+ * Line 1 is the host's `customMessage` if they set one, else the built-in default
+ * prose. Line 2 is this wedding's path on the public guest site
  * (`CIRE_WEB_URL/<slug>` / `PUBLIC_CIRE_WEB_URL/<slug>`). The guest site is SSR +
  * path-routed, so the link must carry the wedding slug in the PATH — sending the
  * bare origin would render whatever the bare domain resolves to (the primary
- * wedding), not necessarily this one. Guests claim by entering their code on that
- * page (no `?code=` needed; the code is in the message for the guest to type).
+ * wedding), not necessarily this one. Line 3 is the family's claim code; guests
+ * claim by entering it on that page (no `?code=` needed — the code is in the
+ * message for the guest to type).
+ *
+ * `customMessage` is the optional per-wedding override (trimmed; an empty/
+ * whitespace-only value falls back to the default prose), so the URL + code are
+ * always appended automatically regardless of what the host wrote.
  */
 export function buildInviteMessage(
   weddingName: string,
   familyCode: string,
   weddingSlug: string,
+  customMessage?: string | null,
 ): string {
   const guestUrl = `${CIRE_WEB_URL}/${encodeURIComponent(weddingSlug)}`;
-  return `You're invited to ${weddingName}! View your invitation and RSVP at ${guestUrl} — your family code is ${familyCode}.`;
+  const message =
+    customMessage?.trim() ||
+    `You're invited to ${weddingName}! View your invitation and RSVP below.`;
+  return `${message}\n${guestUrl}\n${familyCode}`;
 }
 
 /**

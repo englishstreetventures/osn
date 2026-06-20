@@ -72,9 +72,14 @@ const GUESTS = [
 
 const EVENTS = [{ id: "evt_1", name: "Ceremony", slug: "ceremony", sortOrder: 0 }];
 
-/** Resolve the onMount guests+events loads, in call order. */
-function primeLoad() {
-  authFetchMock.mockResolvedValueOnce(json(GUESTS)).mockResolvedValueOnce(json(EVENTS));
+/** Resolve the onMount guests + events + invite-customisation loads, in call
+ *  order. The invite read supplies the optional custom message (here null, so
+ *  the copied message uses the default prose). */
+function primeLoad(inviteMessage: string | null = null) {
+  authFetchMock
+    .mockResolvedValueOnce(json(GUESTS))
+    .mockResolvedValueOnce(json(EVENTS))
+    .mockResolvedValueOnce(json({ inviteMessage }));
 }
 
 describe("GuestTable", () => {
@@ -130,6 +135,27 @@ describe("GuestTable", () => {
       ).toBe(true),
     );
     expect(toastSuccess).toHaveBeenCalled();
+  });
+
+  it("uses the host's custom message as the first line when one is set", async () => {
+    withClipboard();
+    primeLoad("Come celebrate with us in Goa!");
+    authFetchMock.mockResolvedValueOnce(json({ familyId: "fam_a", codeSharedAt: 1 }));
+
+    render(() => (
+      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Copy message/i })[0]!);
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const copied = writeText.mock.calls[0]![0];
+    // The custom message replaces line 1; the URL + code are still appended on
+    // their own lines beneath it (3-line shape).
+    expect(copied).toBe(
+      "Come celebrate with us in Goa!\nhttps://guests.test/nadia-sam-abc123\nSHARMA-WIDGET-AB3K9-X7QPM",
+    );
   });
 
   it("downloads the RSVP CSV when the export button is clicked", async () => {
@@ -189,7 +215,10 @@ describe("GuestTable", () => {
     withClipboard();
     // fam_b is BOTH shared and opened — "Opened" must win, "Sent" must not show.
     const opened = [GUESTS[0], { ...GUESTS[1], firstOpenedAt: 1_700_000_500_000 }];
-    authFetchMock.mockResolvedValueOnce(json(opened)).mockResolvedValueOnce(json(EVENTS));
+    authFetchMock
+      .mockResolvedValueOnce(json(opened))
+      .mockResolvedValueOnce(json(EVENTS))
+      .mockResolvedValueOnce(json({ inviteMessage: null }));
     render(() => (
       <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
     ));

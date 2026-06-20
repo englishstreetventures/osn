@@ -79,6 +79,9 @@ interface InviteCustomisation {
   };
   heroDisplay: HeroDisplay;
   theme: InviteTheme;
+  // Optional host override for the first line of the copyable invite message
+  // (the line above the auto-appended guest-site URL + family code).
+  inviteMessage: string | null;
 }
 
 interface InviteBuilderProps {
@@ -127,6 +130,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   const [storyEyebrow, setStoryEyebrow] = createSignal("");
   const [storyHeading, setStoryHeading] = createSignal("");
   const [storyBody, setStoryBody] = createSignal("");
+  const [inviteMessage, setInviteMessage] = createSignal("");
   const [seeded, setSeeded] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
@@ -161,6 +165,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     setStoryEyebrow(d.story.eyebrow ?? "");
     setStoryHeading(d.story.heading ?? "");
     setStoryBody(d.story.body ?? "");
+    setInviteMessage(d.inviteMessage ?? "");
     setHeadingFont(d.theme.headingFont ?? "default");
     setBodyFont(d.theme.bodyFont ?? "default");
     setAccent({
@@ -211,6 +216,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           storyEyebrow: storyEyebrow() || null,
           storyHeading: storyHeading() || null,
           storyBody: storyBody() || null,
+          inviteMessage: inviteMessage() || null,
         }),
       });
       if (!res.ok) {
@@ -456,6 +462,35 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     onInput={(e) => setStoryBody(e.currentTarget.value)}
                     class="border-border bg-bg font-body text-text focus:border-gold rounded-sm border px-3 py-2 text-[0.88rem] outline-none"
                   />
+                </label>
+              </fieldset>
+
+              {/* ── Invite message ───────────────────────────────────── */}
+              <fieldset class="border-border flex flex-col gap-4 rounded-sm border p-4">
+                <legend class="font-body text-gold-dim px-2 text-[0.72rem] tracking-[0.1em] uppercase">
+                  Invite message
+                </legend>
+                <p class="font-body text-text-muted text-[0.82rem]">
+                  The first line of the message you copy from the Guests tab to send a household.
+                  Leave it blank to use the default. The guest-site link and the household's code
+                  are added automatically on the two lines below it.
+                </p>
+                <label class="flex flex-col gap-1.5">
+                  <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+                    Invite message (optional)
+                  </span>
+                  <textarea
+                    rows={4}
+                    aria-label="Invite message (optional)"
+                    placeholder="You're invited to our wedding! View your invitation and RSVP below."
+                    value={inviteMessage()}
+                    onInput={(e) => setInviteMessage(e.currentTarget.value)}
+                    class="border-border bg-bg font-body text-text focus:border-gold rounded-sm border px-3 py-2 text-[0.88rem] outline-none"
+                  />
+                  <span class="font-body text-text-muted text-[0.72rem] italic">
+                    The wedding link and family code are appended automatically — don't include them
+                    here.
+                  </span>
                 </label>
               </fieldset>
 

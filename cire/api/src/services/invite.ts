@@ -78,6 +78,10 @@ export interface InviteCustomisation {
   };
   heroDisplay: HeroDisplay;
   theme: InviteTheme;
+  // Optional host override for the first line of the copyable invite message
+  // (migration 0023). `null` ⇒ the organiser falls back to the built-in default
+  // prose. Surfaced on the organiser GET only (the guest site never reads it).
+  inviteMessage: string | null;
 }
 
 const EMPTY_THEME: InviteTheme = {
@@ -101,6 +105,7 @@ const EMPTY: InviteCustomisation = {
   story: { eyebrow: null, heading: null, body: null, imageUrl: null, imageCrop: null },
   heroDisplay: DEFAULT_HERO_DISPLAY,
   theme: EMPTY_THEME,
+  inviteMessage: null,
 };
 
 /** Public path the invite image is served from. Clients prepend the API origin. */
@@ -141,6 +146,7 @@ function toCustomisation(
     storySurfaceColor: string | null;
     detailsAccentColor: string | null;
     detailsSurfaceColor: string | null;
+    inviteMessage: string | null;
     updatedAt: Date | null;
   },
 ): InviteCustomisation {
@@ -181,6 +187,7 @@ function toCustomisation(
       story: { accentColor: c.storyAccentColor, surfaceColor: c.storySurfaceColor },
       details: { accentColor: c.detailsAccentColor, surfaceColor: c.detailsSurfaceColor },
     },
+    inviteMessage: c.inviteMessage,
   };
 }
 
@@ -248,6 +255,7 @@ export const inviteService = {
             storySurfaceColor: weddingInviteCustomisations.storySurfaceColor,
             detailsAccentColor: weddingInviteCustomisations.detailsAccentColor,
             detailsSurfaceColor: weddingInviteCustomisations.detailsSurfaceColor,
+            inviteMessage: weddingInviteCustomisations.inviteMessage,
             updatedAt: weddingInviteCustomisations.updatedAt,
           })
           .from(weddings)
@@ -337,6 +345,7 @@ export const inviteService = {
         storyEyebrow: normaliseCopy(fields.storyEyebrow),
         storyHeading: normaliseCopy(fields.storyHeading),
         storyBody: normaliseCopy(fields.storyBody),
+        inviteMessage: normaliseCopy(fields.inviteMessage),
       };
       yield* dbQuery(() =>
         db

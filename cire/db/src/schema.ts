@@ -371,6 +371,14 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   storySurfaceColor: text("story_surface_color"),
   detailsAccentColor: text("details_accent_color"),
   detailsSurfaceColor: text("details_surface_color"),
+  // Optional host override for the FIRST line of the message an organiser copies
+  // to send a family their invite (migration 0023). NULL ⇒ the built-in default
+  // prose. The copied message is always the same 3-line shape — this line, then
+  // the guest-site URL, then the family code — so an override only swaps the
+  // prose, never the link or code. It is COPIED TO A CLIPBOARD as plain text
+  // (never rendered as HTML), so no escaping is needed; the API only trims it,
+  // collapses empty/whitespace to NULL, and bounds its length on write.
+  inviteMessage: text("invite_message"),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
