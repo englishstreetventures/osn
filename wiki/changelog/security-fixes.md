@@ -7,12 +7,16 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-06-19
+last-reviewed: 2026-06-21
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## Dependency security sweep — `bun audit` 8→0 + audit-gate retighten (2026-06-21, #214)
+
+- **S-L1 (deps-audit)** — **Cleared every `bun audit` advisory and removed the last pre-push `--ignore` flags.** **Issue:** `bun audit` reported 8 advisories (2 high, 5 moderate, 1 low), and the pre-push gate in `lefthook.yml` carried two standing `--ignore` entries (`GHSA-96hv-2xvq-fx4p` ws DoS, `GHSA-fx2h-pf6j-xcff` vite `server.fs.deny` bypass) accepting them as dev/test-only. **Why:** even though only one advisory reached a deployed Worker, standing ignores erode the gate — a new advisory in the same package would be silently accepted. **Solution (#214):** fixed all at source rather than ignoring. The single runtime-reaching one — `@opentelemetry/core` <2.8.0 (`GHSA-8988-4f7v-96qf`, unbounded alloc in W3C Baggage propagation, imported by `@shared/observability` in every deployed API Worker) — fixed by bumping the OTel SDKs to 2.8.0 / exporters 0.219 **plus** a root override `"@opentelemetry/core": "^2.8.0"` (forces the patched core through `@effect/opentelemetry`, which otherwise pins 2.6.1). The dev/build/test-only ones fixed via root `overrides`: `ws ^8.21.0` (high), `vite ^7.3.5` (high — 7.3.5 patches `server.fs.deny`, which also cleared the `launch-editor` moderate), `yaml ^2.9.0`, `js-yaml ^4.2.0`, `@babel/core ^7.29.7` (low). **Rationale:** an override on the transitive package is the right tool when a direct parent pins a vulnerable version; patching beats ignoring. With every advisory gone, the two `--ignore` flags were dropped — the gate is back to a clean `bun audit --audit-level=high` with **zero** ignores. **Result:** `bun audit` → *No vulnerabilities found*; full `check` (19/19) + `test` (22/22) green. **Deferred (documented, not security-blocking):** `cropperjs` 1→2 (later shipped, #215) and `vite` 7→8 (blocked by Astro 6 pinning vite 7 — see [[TODO]] Deferred Decisions for the re-eval trigger). `oxlint` 1.70 bump (#216) was split out separately. `bun.lock` is shared, so dependency PRs can conflict on reinstall.
 
 ## Transitive-dependency high advisories — Astro SSRF + undici TLS bypass (2026-06-19, #dep-security-bumps)
 

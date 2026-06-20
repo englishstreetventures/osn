@@ -19,20 +19,10 @@ pre-push:
       # advisory. Pairs with `bunfig.toml`'s `minimumReleaseAge` — one stops
       # fresh malice, this one stops known malice.
       #
-      # --ignore list (remove an entry once the upstream fix is in main):
-      #   GHSA-96hv-2xvq-fx4p  ws memory-exhaustion DoS from tiny fragments.
-      #   Reachable only through test tooling — `miniflare` (@cire/api test
-      #   runtime) and `happy-dom` (@cire/organiser tests); no deployed Worker
-      #   or production runtime path opens a ws server. Drop once miniflare +
-      #   happy-dom pull ws ≥8.21.0.
-      #   GHSA-fx2h-pf6j-xcff  vite `server.fs.deny` bypass on Windows
-      #   alternate paths. Repo-wide dev/build-tooling only — the vulnerable
-      #   vite range is pulled by `@cire/organiser` AND the OSN frontends
-      #   (`@osn/social`, `@osn/ui`, `@pulse/app`) via astro/vitest. Dev-server
-      #   only and Windows-specific — never runs in CI, any Worker, or a
-      #   production path for any consumer. Drop once vite ≥7.3.5 ages past
-      #   `minimumReleaseAge`.
-      run: >
-        bun audit --audit-level=high
-        --ignore=GHSA-96hv-2xvq-fx4p
-        --ignore=GHSA-fx2h-pf6j-xcff
+      # No --ignore entries: the prior ws/vite dev-tooling advisories
+      # (GHSA-96hv-2xvq-fx4p, GHSA-fx2h-pf6j-xcff) were cleared by the #214
+      # dependency sweep (root overrides ws ≥8.21.0, vite ≥7.3.5). Re-add an
+      # entry here ONLY to temporarily accept a NEW high/critical advisory
+      # that's confirmed unreachable in any deployed Worker / production path,
+      # and note its drop-trigger inline — then prune it once upstream ships.
+      run: bun audit --audit-level=high
