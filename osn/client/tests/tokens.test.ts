@@ -65,11 +65,15 @@ describe("parseTokenResponse", () => {
 
   describe("invalid input", () => {
     it("throws on missing access_token", () => {
-      expect(() => parseTokenResponse({ expires_in: 3600, token_type: "Bearer" })).toThrow();
+      expect(() => parseTokenResponse({ expires_in: 3600, token_type: "Bearer" })).toThrow(
+        /\["access_token"\][\s\S]*is missing/,
+      );
     });
 
     it("throws on missing expires_in", () => {
-      expect(() => parseTokenResponse({ access_token: "at_abc", token_type: "Bearer" })).toThrow();
+      expect(() => parseTokenResponse({ access_token: "at_abc", token_type: "Bearer" })).toThrow(
+        /\["expires_in"\][\s\S]*is missing/,
+      );
     });
 
     it("throws on wrong type for expires_in", () => {
@@ -79,15 +83,15 @@ describe("parseTokenResponse", () => {
           expires_in: "not_a_number",
           token_type: "Bearer",
         }),
-      ).toThrow();
+      ).toThrow(/Expected number, actual "not_a_number"/);
     });
 
     it("throws on null input", () => {
-      expect(() => parseTokenResponse(null)).toThrow();
+      expect(() => parseTokenResponse(null)).toThrow(/actual null/);
     });
 
     it("throws on empty object", () => {
-      expect(() => parseTokenResponse({})).toThrow();
+      expect(() => parseTokenResponse({})).toThrow(/\["access_token"\][\s\S]*is missing/);
     });
   });
 });

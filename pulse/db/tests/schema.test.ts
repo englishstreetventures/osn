@@ -258,7 +258,7 @@ describe("event_rsvps schema", () => {
         profileId: "usr_alice",
         createdAt: now,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/UNIQUE constraint failed/);
   });
 
   it("allows same user on different events", async () => {
@@ -435,7 +435,7 @@ describe("pulse_close_friends schema", () => {
         friendId: "usr_bob",
         createdAt: now,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/UNIQUE constraint failed/);
   });
 
   it("allows the same friend across two different profiles (one-way edges)", async () => {

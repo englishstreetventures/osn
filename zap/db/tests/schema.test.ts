@@ -197,7 +197,7 @@ describe("chat_members schema", () => {
         profileId: "usr_alice",
         joinedAt: now,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/UNIQUE constraint failed/);
   });
 
   it("allows same user in different chats", async () => {

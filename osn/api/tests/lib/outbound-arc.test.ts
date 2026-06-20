@@ -94,7 +94,9 @@ describe("registerOutboundKeysOnce (Workers scheduled path) — T-R2", () => {
     // non-2xx, which propagates out of `registerOutboundKeysOnce`.
     fetchSpy.mockResolvedValueOnce(new Response("nope", { status: 500 }));
 
-    await expect(registerOutboundKeysOnce(baseOpts)).rejects.toThrow();
+    await expect(registerOutboundKeysOnce(baseOpts)).rejects.toThrow(
+      /failed to register outbound ARC key with .*: HTTP 500/,
+    );
 
     // Latch stayed false → a later tick re-attempts and can succeed.
     fetchSpy.mockResolvedValue(OK());

@@ -112,7 +112,7 @@ describe("accounts schema", () => {
         createdAt: now,
         updatedAt: now,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/UNIQUE constraint failed/);
   });
 });
 
@@ -183,7 +183,7 @@ describe("users schema", () => {
         createdAt: now,
         updatedAt: now,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/UNIQUE constraint failed/);
   });
 
   it("displayName and avatarUrl round-trip correctly", async () => {
@@ -346,7 +346,7 @@ describe("passkeys schema", () => {
         counter: 0,
         createdAt: now,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/UNIQUE constraint failed/);
   });
 });
 
@@ -383,7 +383,7 @@ describe("service_accounts schema", () => {
     await db.insert(schema.serviceAccounts).values({ serviceId: "svc-a", ...base });
     await expect(
       db.insert(schema.serviceAccounts).values({ serviceId: "svc-a", ...base }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/UNIQUE constraint failed/);
   });
 
   it("timestamps round-trip as Date", async () => {
@@ -479,6 +479,6 @@ describe("service_account_keys schema", () => {
     await db.insert(schema.serviceAccountKeys).values({ keyId: "dup-key", ...base });
     await expect(
       db.insert(schema.serviceAccountKeys).values({ keyId: "dup-key", ...base }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/UNIQUE constraint failed/);
   });
 });
