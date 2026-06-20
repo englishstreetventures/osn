@@ -1,11 +1,20 @@
+import { AuthProvider } from "@osn/client/solid";
 import { createResource, createSignal, Show, For } from "solid-js";
+import { Toaster } from "solid-toast";
 
+import { OSN_ISSUER_URL } from "../lib/osn";
 import { DetailsModal } from "./DetailsModal";
 import { EventCard } from "./EventCard";
 import { type InviteTheme, sectionThemeVars } from "./invite-theme";
 import { LoginSection } from "./LoginSection";
+import { PulseAccountLink } from "./PulseAccountLink";
 import { RsvpModal } from "./RsvpModal";
 import type { ClaimResult, EventSummary, RsvpSummary } from "./types";
+
+// Public Turnstile sitekey, baked in at build time. Undefined ⇒ key-optional
+// (no widget rendered; osn-api also skips siteverify). Shared with the claim
+// flow's TurnstileWidget; reused here for the OSN sign-in ceremony.
+const TURNSTILE_SITEKEY = import.meta.env.PUBLIC_TURNSTILE_SITEKEY;
 
 /** Shape of the public invite endpoint we consume — only the theme matters here. */
 interface InviteCustomisationResponse {
@@ -137,6 +146,25 @@ export default function InvitePage(props: InvitePageProps) {
                 </For>
               </div>
             </div>
+
+            {/* Optional, additive "Link my Pulse account" affordance. Shown only
+                post-claim (it lives inside this claimed-state Show), and never in
+                preview mode (a host previewing isn't a guest seat to link). Wrapped
+                in its own AuthProvider so it can obtain an OSN access token via
+                @osn/client without the rest of the guest site depending on OSN
+                auth. The component self-hides when linking is disabled (503) or
+                unavailable, so it can never break the core invite. */}
+            <Show when={!data().preview}>
+              <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }}>
+                <PulseAccountLink
+                  apiUrl={props.apiUrl}
+                  members={data().members}
+                  issuerUrl={OSN_ISSUER_URL}
+                  turnstileSiteKey={TURNSTILE_SITEKEY}
+                />
+                <Toaster position="bottom-right" />
+              </AuthProvider>
+            </Show>
           </section>
         )}
       </Show>

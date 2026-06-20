@@ -21,6 +21,20 @@ vi.mock("./RsvpModal", () => ({
   },
 }));
 
+// The PulseAccountLink island pulls in @osn/client + @osn/ui (real auth +
+// passkey deps). Stub it to a marker so InvitePage's tests assert only the
+// mount wiring (post-claim, non-preview) without exercising the OSN stack — the
+// component's own behaviour is covered in PulseAccountLink.test.tsx.
+vi.mock("./PulseAccountLink", () => ({
+  PulseAccountLink: () => <div data-testid="pulse-account-link-stub" />,
+}));
+
+vi.mock("@osn/client/solid", () => ({
+  AuthProvider: (props: { children: unknown }) => props.children,
+}));
+
+vi.mock("solid-toast", () => ({ Toaster: () => null }));
+
 const claim: ClaimResult = {
   publicId: "SHARMA-JOY-RK97",
   familyName: "Sharma",
@@ -247,6 +261,52 @@ describe("InvitePage", () => {
     const section = getByText("Your Events").closest("section") as HTMLElement;
     // The failed revalidation must leave the build-time accent untouched.
     expect(section.style.getPropertyValue("--invite-accent")).toBe("#abcdef");
+  });
+
+  it("mounts the Pulse account-link affordance post-claim (non-preview only)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(claim), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    const { getByText, getByPlaceholderText, queryByTestId } = render(() => (
+      <InvitePage apiUrl="https://api.test" />
+    ));
+
+    // Absent before claim.
+    expect(queryByTestId("pulse-account-link-stub")).toBeNull();
+
+    fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
+    fireEvent.click(getByText("Open Invitation"));
+
+    // Present once claimed (this claim is not a preview).
+    await waitFor(() => expect(queryByTestId("pulse-account-link-stub")).toBeTruthy(), {
+      timeout: 2000,
+    });
+  });
+
+  it("hides the Pulse account-link affordance in preview mode", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ...claim, preview: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { getByText, queryByTestId } = render(() => <InvitePage apiUrl="https://api.test" />);
+
+    await waitFor(() => expect(getByText(/Preview mode/i)).toBeTruthy(), { timeout: 2000 });
+    // A host preview is not a guest seat — the affordance must not mount.
+    expect(queryByTestId("pulse-account-link-stub")).toBeNull();
   });
 
   it("threads existingRsvps, apiUrl, members and onSubmitted into RsvpModal", async () => {

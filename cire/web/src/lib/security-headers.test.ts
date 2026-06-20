@@ -53,6 +53,12 @@ describe("buildCsp", () => {
     expect(csp).toMatch(/connect-src[^;]*https:\/\/api\.cireweddings\.com/);
   });
 
+  it("allowlists the OSN issuer origin for the Pulse account-link sign-in", () => {
+    // The "Link my Pulse account" flow fetches the OSN issuer (token grant +
+    // profile + account-link), so connect-src must include it.
+    expect(csp).toMatch(/connect-src[^;]*https:\/\/id\.cireweddings\.com/);
+  });
+
   it("keeps script-src host-restricted (no wildcard, no bare scheme source)", () => {
     const scriptSrc = csp.split(";").find((d) => d.trim().startsWith("script-src")) ?? "";
     const sources = scriptSrc.trim().split(/\s+/).slice(1); // drop the directive name
