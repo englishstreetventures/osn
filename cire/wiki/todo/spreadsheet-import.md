@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[api]]"
   - "[[db]]"
-last-reviewed: 2026-06-20
+last-reviewed: 2026-06-21
 ---
 
 # Organiser Spreadsheet Import
@@ -45,4 +45,4 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 - [x] ~~`bunx wrangler d1 migrations apply cire-db --local` in dev script~~ — **Obsolete**: local dev runs on in-process `bun:sqlite` (`bun run src/local.ts` + `setup.ts` DDL), not a local D1, so there's no `--local` migrate step to wire. Remote D1 migrations are applied by the deploy pipeline (`migrations_dir`).
 - [x] `bunx wrangler types` after binding changes — `types` script wired (`wrangler types`); run as part of the binding-change workflow.
 - [x] **Provision R2 bucket `cire-sheets` (and `cire-sheets-preview`) before first deploy** — done: buckets exist and the live deploy uses them; `SHEETS` binding declared in `cire/api/wrangler.toml` (incl. `[env.production]`).
-- [ ] Batch import respects 50ms CPU / 30s wall-time Worker limits — chunk inserts to ~100 rows; consider Durable Objects or Queues for guest lists ≥ ~500 families
+- [~] Batch import respects 50ms CPU / 30s wall-time Worker limits. **Done:** `applyImport` now chunks its write set into ≤50-statement `db.batch` calls (`MAX_STATEMENTS_PER_BATCH` in `services/import.ts`) so no single batch can exceed D1's per-invocation query cap (50 Free / 1000 Paid); chunks are dependency-ordered and awaited serially. Covered by `src/db/d1-integration.test.ts` (chunk-count + cross-boundary ordering against real Miniflare D1). See `[[perf]]`. **Still open:** the whole import still runs in ONE Worker invocation, so for very large guest lists (≥~500 families) the 30s wall / 50ms CPU ceiling — not the per-batch cap — becomes the limit; a Queue-driven or Durable-Objects worker that streams chunks across invocations is the next step (deferred until sheets actually approach that scale).

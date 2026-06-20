@@ -343,12 +343,33 @@ export function diffAgainstDb(
 // ── Apply ─────────────────────────────────────────────────────────────────────
 
 /**
+ * Maximum Drizzle statements committed in a single `db.batch([...])`.
+ *
+ * D1 bounds a Worker invocation to 50 queries on the Free tier (1000 on Paid),
+ * and every statement in a `batch()` counts as one query against that cap — so
+ * an unchunked batch of a few-hundred-row guest list would blow straight past
+ * 50 and fail on the tier cire runs on. 50 is the documented Free-tier ceiling;
+ * we sit one notch below the SAFE limit by capping each *batch* at 50 so no
+ * single batch can exceed the per-invocation cap, while still amortising the
+ * Workers↔D1 round-trip over many statements. (The separate per-query limit —
+ * ≤100 bound parameters — is unaffected: chunking groups whole statements, never
+ * splits one, and our widest insert binds well under 100 params.)
+ *
+ * See https://developers.cloudflare.com/d1/platform/limits/.
+ */
+const MAX_STATEMENTS_PER_BATCH = 50;
+
+/**
  * Commit the import write set, which is built in FK-dependency order.
- *  - D1 (production): a single atomic `db.batch([...])` — one Workers↔D1
- *    round-trip, all-or-nothing. D1 has no interactive transaction, but a
- *    batch IS a transaction, so this also closes the partial-apply gap.
+ *  - D1 (production): atomic `db.batch([...])` calls — one Workers↔D1 round-trip
+ *    per chunk, all-or-nothing *within* a chunk. D1 has no interactive
+ *    transaction, but a single batch IS a transaction.
  *  - bun:sqlite (tests/local): awaited sequentially in the same order
  *    (bun:sqlite exposes no `.batch()`; awaiting a Drizzle builder executes it).
+ *
+ * Chunking (D1 path): the statement list is split into sequential chunks of
+ * ≤`MAX_STATEMENTS_PER_BATCH`, awaited IN ORDER (never in parallel) — see the
+ * dependency-ordering + atomicity invariants documented on the chunk loop below.
  *
  * `batch` exists only on the D1 driver, so feature-detection picks the path.
  */
@@ -358,7 +379,32 @@ async function commitWriteSet(db: Db, statements: BatchItem<"sqlite">[]): Promis
     batch?: (s: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]) => Promise<unknown>;
   };
   if (typeof batchable.batch === "function") {
-    await batchable.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+    // INVARIANT (dependency ordering): `statements` is built in strict
+    // FK-dependency order by applyImport (removes → event creates →
+    // family creates → guest creates → link creates, etc.). Splitting that
+    // single ordered list into in-order, sequentially-awaited chunks PRESERVES
+    // that order: every parent insert still precedes its child insert, even
+    // across a chunk boundary, because a later chunk is only dispatched after
+    // the earlier chunk has fully committed. A chunk boundary can never make a
+    // child run before its parent.
+    //
+    // ATOMICITY TRADEOFF: D1 `batch()` is atomic per call but NOT across calls,
+    // and D1 has no multi-batch transaction primitive. So a failure mid-import
+    // (after chunk k commits, before chunk k+1) can leave a PARTIAL apply. This
+    // is the accepted design: `services/revert.ts` re-diffs the prior import's
+    // CSVs against current DB state and re-applies, which reconciles a partial
+    // apply just as it reconciles a fully-applied one. We deliberately do NOT
+    // add cross-batch transaction machinery (it doesn't exist on D1); chunking
+    // + revert is the tradeoff. Chunks stay small + the whole import is well
+    // under the 30s wall-clock, so the partial-apply window is narrow.
+    for (let i = 0; i < statements.length; i += MAX_STATEMENTS_PER_BATCH) {
+      const chunk = statements.slice(i, i + MAX_STATEMENTS_PER_BATCH) as [
+        BatchItem<"sqlite">,
+        ...BatchItem<"sqlite">[],
+      ];
+      // eslint-disable-next-line no-await-in-loop -- chunks are dependency-ordered; they MUST run serially
+      await batchable.batch(chunk);
+    }
     return;
   }
   // Sequential FK order is required and bun:sqlite has no batch; these run
@@ -403,8 +449,11 @@ export function applyImport(
     const pinFor = (eventId: string, fallback: string | null): string | null =>
       resolvedPinByEventId.has(eventId) ? (resolvedPinByEventId.get(eventId) ?? null) : fallback;
 
-    // Build the write set in FK-dependency order, then commit it as one atomic
-    // D1 batch (prod) or a sequential bun:sqlite run (tests) — see commitWriteSet.
+    // Build the write set in FK-dependency order, then commit it as one or more
+    // ≤MAX_STATEMENTS_PER_BATCH atomic D1 batches (prod) or a sequential
+    // bun:sqlite run (tests) — see commitWriteSet. The build order below IS the
+    // dependency order the chunker relies on (removes → event/family/guest
+    // creates → updates → link removes → link creates).
     const statements: BatchItem<"sqlite">[] = [];
 
     // 1. event removes (cascade rsvps + guest_events on those events)

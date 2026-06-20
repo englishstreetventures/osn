@@ -474,6 +474,110 @@ describe("diff: wedding scoping (multi-tenant isolation)", () => {
   });
 });
 
+describe("applyImport: chunks a large diff into ≤50-statement batches", () => {
+  it("splits a 120-statement write set into ceil(120/50)=3 ordered batches", async () => {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+
+    // Seed one event so the new guests have something to link to — exercises a
+    // parent (guest insert) → child (guest_events insert) dependency the chunker
+    // must keep ordered even when a chunk boundary falls between them.
+    const eventId = crypto.randomUUID();
+    db.insert(events)
+      .values({
+        id: eventId,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        slug: "evt-chunk",
+        name: "Chunk Event",
+        date: "2026-10-31",
+        location: "Loc",
+        description: "",
+        startAt: "",
+        endAt: "",
+        timezone: "",
+        address: null,
+        dressCodeDescription: null,
+        dressCodePalette: null,
+        pinterestUrl: null,
+        mapsUrl: null,
+        sortOrder: 0,
+      })
+      .run();
+
+    // bun:sqlite has no native `.batch()`, so the importer's chunking branch is
+    // never reached on it. Install a counting `.batch` shim that executes its
+    // statements sequentially (faithful to D1's in-order batch semantics) so we
+    // can assert (a) the write set is split into ≤50-statement chunks and
+    // (b) every row still lands. Running on bun:sqlite keeps this fast + free of
+    // the Miniflare cold-start flake the real-D1 suite has.
+    const chunkSizes: number[] = [];
+    (db as unknown as { batch: (stmts: unknown[]) => Promise<unknown> }).batch = async (
+      stmts: unknown[],
+    ) => {
+      chunkSizes.push(stmts.length);
+      const out: unknown[] = [];
+      for (const s of stmts) out.push(await (s as Promise<unknown>));
+      return out;
+    };
+
+    // 40 families × (family + guest + link) = 120 statements.
+    const N = 40;
+    const familyCreates = Array.from({ length: N }, (_, i) => ({
+      id: `bigfam_${i}`,
+      publicId: `BIGFAM-${String(i).padStart(4, "0")}`,
+      familyName: `Big Family ${i}`,
+    }));
+    const guestCreates = familyCreates.map((f, i) => ({
+      id: `bigguest_${i}`,
+      familyId: f.id,
+      firstName: `First${i}`,
+      lastName: `Last${i}`,
+      sortOrder: 0,
+    }));
+    const eventLinkCreates = guestCreates.map((g) => ({ guestId: g.id, eventId }));
+
+    const plan = {
+      eventCreates: [],
+      eventUpdates: [],
+      eventRemoves: [],
+      familyCreates,
+      familyRemoves: [],
+      guestCreates,
+      guestUpdates: [],
+      guestRemoves: [],
+      eventLinkCreates,
+      eventLinkRemoves: [],
+      warnings: [],
+    };
+
+    const totalStatements = familyCreates.length + guestCreates.length + eventLinkCreates.length;
+    expect(totalStatements).toBe(120);
+
+    const layer = Layer.succeed(DbService, db);
+    const summary = await Effect.runPromise(
+      applyImport("imp_big", plan, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+    expect(summary).toMatchObject({ familiesCreated: N, guestsCreated: N });
+
+    // ceil(120 / 50) = 3 chunks of 50, 50, 20 — no chunk exceeds the cap.
+    expect(chunkSizes).toEqual([50, 50, 20]);
+    expect(Math.max(...chunkSizes)).toBeLessThanOrEqual(50);
+
+    // Every row landed — ordering held across chunk boundaries (each guest's
+    // guest_events link still committed after the guest insert, even split).
+    expect(db.select().from(families).all()).toHaveLength(N);
+    expect(db.select().from(guests).all()).toHaveLength(N);
+    expect(db.select().from(guestEvents).all()).toHaveLength(N);
+    expect(
+      db
+        .select()
+        .from(guests)
+        .where(eq(guests.id, `bigguest_${N - 1}`))
+        .all(),
+    ).toHaveLength(1);
+  });
+});
+
 describe("applyImport: empty-DB insert end-to-end", () => {
   it("populates events, families, guests, and links", async () => {
     const { ev, fam } = await parsedFromCsv();
