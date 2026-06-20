@@ -19,48 +19,18 @@ const nextAnchorId = () => `pin-board-${++nextId}`;
 // away.
 const CONSENT_KEY = "cire:pinterest-consent";
 
-// Touch/coarse-pointer detection. The rich consent-gated embed (and the
-// third-party tracker it needs) is DESKTOP-ONLY: on touch devices Pinterest's
-// `pinit_main.js` widget is slow and unreliable (the whole reason this gate
-// "repeatedly failed on mobile"), and the only thing the gate exists to protect
-// is that tracker. So on touch we don't load the tracker, don't show the gate,
-// and don't show the embed at all — we surface a single, prominent, instantly-
-// working "View moodboard on Pinterest" card instead. No tracker ⇒ no consent
-// needed ⇒ no gate ⇒ nothing to fail.
-//
-// We detect by CAPABILITY, not UA sniffing: `(hover: none) and (pointer:
-// coarse)` is the standard "primary input is a finger" query (phones/tablets),
-// backed up by a narrow-viewport check so a small touch device with an unusual
-// pointer profile still gets the reliable link-out. A desktop with a touchscreen
-// (hover + fine pointer present) keeps the rich embed. Evaluated once on the
-// client; in SSR / a test env without `matchMedia` we default to the safe
-// desktop path only when we can positively confirm hover+fine, else treat as the
-// embed path — but the helper below is conservative and self-contained so the
-// Pinterest component owns its own capability check (no shared util).
-const TOUCH_VIEWPORT_MAX_PX = 820;
-
-function detectIsTouchPrimary(): boolean {
-  try {
-    if (typeof window === "undefined") return false;
-    const mm = window.matchMedia;
-    if (typeof mm === "function") {
-      // The canonical "no hover, coarse pointer" query: a finger is the primary
-      // input. This is the strongest signal and the one we trust first.
-      if (mm("(hover: none) and (pointer: coarse)").matches) return true;
-      // Belt-and-braces: a coarse primary pointer on a narrow viewport, even if
-      // the device also reports some hover capability (e.g. a 2-in-1 in tablet
-      // mode), is still a touch experience for the unreliable Pinterest widget.
-      if (mm("(pointer: coarse)").matches && window.innerWidth <= TOUCH_VIEWPORT_MAX_PX) {
-        return true;
-      }
-    }
-    return false;
-  } catch {
-    // matchMedia unavailable / threw — default to the (desktop) embed path; it
-    // still degrades gracefully to the always-visible link if the embed fails.
-    return false;
-  }
-}
+// NOTE (mobile embed re-enabled): the consent-gated rich embed now renders on
+// ALL devices, touch included. It was previously desktop-only because the
+// Pinterest widget "repeatedly failed on mobile" — but the dominant cause of
+// those failures was unembeddable `pin.it` short links being stored verbatim
+// (boards are now resolved to canonical `/user/board` URLs at import time, and
+// the live data was backfilled), not a touch-specific defect. The success-
+// detection MutationObserver + connection-scaled failure cutoff already make
+// the embed self-healing on slow mobile networks, and the always-visible
+// fallback link below the embed is the safety net if a board still doesn't
+// render. So there is no longer a separate touch path: every device gets the
+// consent gate → embed → fallback link. (If mobile proves unreliable again,
+// reverting this commit restores the desktop-only capability split.)
 
 // Shared, module-level reactive consent state. A SINGLE signal backs every
 // PinterestBoard on the page, so accepting on one board immediately flips all
@@ -95,26 +65,6 @@ function grantConsentGlobally(): void {
  */
 export function resetPinterestConsentForTest(): void {
   setConsentGranted(readPersistedConsent());
-}
-
-// Test-only override for the touch/desktop capability decision. happy-dom's
-// `matchMedia` always reports `matches: false`, so without this every test would
-// take the desktop embed path and the mobile link-out path would be untestable.
-// `null` (the default) means "use the real `detectIsTouchPrimary()` capability
-// check"; a boolean forces that path.
-let touchOverrideForTest: boolean | null = null;
-
-/**
- * Test-only: force the touch (`true`) or desktop (`false`) path, or restore real
- * capability detection (`null`). Lets a test exercise the mobile link-out path
- * and the desktop embed path deterministically under happy-dom.
- */
-export function setPinterestTouchForTest(value: boolean | null): void {
-  touchOverrideForTest = value;
-}
-
-function resolveIsTouchPrimary(): boolean {
-  return touchOverrideForTest ?? detectIsTouchPrimary();
 }
 
 // Hard failure cutoff for Pinterest's script to load, run, and transform our
@@ -186,20 +136,24 @@ function isEmbedTransformed(
 }
 
 /**
- * Renders a Pinterest moodboard, splitting by input capability:
+ * Renders a Pinterest moodboard — the consent-gated rich embed on EVERY device
+ * (touch included), with an always-visible outbound fallback link below it:
  *
- * - TOUCH / MOBILE (`(hover: none) and (pointer: coarse)`, or a coarse pointer on
- *   a narrow viewport): a single, prominent, instantly-working "View moodboard on
- *   Pinterest" card that opens the board in a new tab. The rich embed widget is
- *   slow + unreliable on touch (it "repeatedly failed on mobile"), and the ONLY
- *   reason the consent gate exists is the third-party tracker that embed needs —
- *   so on touch we load NO tracker, show NO consent gate, and render NO embed.
- *   No tracker ⇒ no consent needed ⇒ no gate ⇒ nothing to fail. This is now the
- *   primary mobile experience, so the card is large, not a tiny text link.
+ * - The consent-gated rich embed: after the guest opts in, Pinterest's board
+ *   widget renders inline, with an immediate "Loading board…" affordance on
+ *   consent so the click never appears to do nothing.
+ * - The always-visible outbound fallback link: rendered below the embed, it's a
+ *   secondary "open on Pinterest" affordance when the board embeds and the
+ *   primary way to reach the moodboard when the embed is absent (no consent,
+ *   blocked, or a non-embeddable URL).
  *
- * - DESKTOP (hover + fine pointer): the consent-gated rich embed below, with an
- *   always-visible outbound fallback link, plus an immediate "Loading board…"
- *   affordance on consent so the click never appears to do nothing.
+ * Mobile note: the embed used to be desktop-only (a touch input-capability
+ * split rendered a link-out card and never loaded the widget) because it
+ * "repeatedly failed on mobile". That was dominated by unembeddable `pin.it`
+ * short links being stored verbatim, since fixed (import-time resolution +
+ * backfill). The success-detection MutationObserver + connection-scaled cutoff
+ * make the embed self-healing on slow mobile, and the fallback link is the
+ * safety net, so the split was removed — every device gets the same path.
  *
  * The embed uses Pinterest's documented embed widget pattern
  * (https://developers.pinterest.com/docs/web-features/widgets/#board-widget),
@@ -207,7 +161,7 @@ function isEmbedTransformed(
  * to a plain outbound link whenever the embed isn't shown (no consent, invalid
  * URL, or a tracker blocker stopping the embed from rendering).
  *
- * Consent gate (S-H3 / C-H3), desktop-only: `assets.pinterest.com/js/pinit_main.js` is a
+ * Consent gate (S-H3 / C-H3): `assets.pinterest.com/js/pinit_main.js` is a
  * third-party tracker that ships guest IP / UA / behaviour to Pinterest (an
  * undeclared subprocessor) with no SRI hash available. Loading it on mount
  * would be a non-consensual transfer under ePrivacy. So we do NOT inject it on
@@ -252,9 +206,6 @@ export function PinterestBoard(props: PinterestBoardProps) {
   // slot. Cleared by the success observer / cutoff / onerror via the shared
   // markEmbedRendered + setEmbedFailed paths below.
   const [embedLoading, setEmbedLoading] = createSignal(false);
-  // Touch vs desktop is fixed for this mount: a guest doesn't switch input modes
-  // mid-board. Computed once so the JSX (and the consent-gate decision) is stable.
-  const isTouch = resolveIsTouchPrimary();
   let anchorRef: HTMLAnchorElement | undefined;
   let containerRef: HTMLDivElement | undefined;
 
@@ -282,14 +233,10 @@ export function PinterestBoard(props: PinterestBoardProps) {
   // paths uniformly: (1) consent already persisted at mount, (2) this board's
   // own "Load Pinterest board" click, (3) another board on the page granting
   // consent (the shared signal flips, this effect re-runs and reveals us too).
-  // Guarded so the tracker injects exactly once per mount.
-  //
-  // `!isTouch` is the hard guard that keeps the third-party tracker DESKTOP-ONLY:
-  // a touch guest never injects `pinit_main.js` even if consent was persisted
-  // from an earlier desktop visit (shared localStorage), because the embed is
-  // unreliable on touch and the link-out below is the better experience there.
+  // Guarded so the tracker injects exactly once per mount. Runs on every device
+  // now — the embed is no longer desktop-gated (see the module note above).
   createEffect(() => {
-    if (!isTouch && consentGranted() && !injectedScript) {
+    if (consentGranted() && !injectedScript) {
       setEmbedFailed(false);
       injectEmbedScript();
     }
@@ -390,33 +337,10 @@ export function PinterestBoard(props: PinterestBoardProps) {
 
   return (
     <Show when={isSafePinterestLinkUrl(props.url)}>
-      {/* TOUCH / MOBILE PATH. The rich embed (and the third-party tracker it
-          needs) is desktop-only — it's slow + unreliable on touch and that's the
-          ONLY thing the consent gate protects. So on touch we show a single,
-          prominent, instantly-working card that opens the board in a new tab. No
-          tracker is loaded, so no consent is needed and there is no gate to fail.
-          This is the PRIMARY mobile experience, hence the larger, full-width card
-          rather than a small text link. */}
-      <Show when={isTouch}>
-        <a
-          href={props.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label={`View the moodboard for ${props.eventName} on Pinterest (opens in a new tab)`}
-          class="border-gold bg-gold/5 hover:bg-gold hover:text-bg font-body text-gold active:bg-gold active:text-bg mt-2 flex flex-col items-center gap-1 rounded-sm border px-5 py-4 text-center transition-colors duration-200"
-        >
-          <span class="text-[0.85rem] tracking-[0.14em] uppercase">
-            View moodboard on Pinterest ↗
-          </span>
-          <span class="text-fg/60 font-body text-[0.7rem] tracking-normal normal-case">
-            Opens the inspiration board on Pinterest in a new tab
-          </span>
-        </a>
-      </Show>
-
-      {/* DESKTOP PATH (hover + fine pointer): the consent-gated rich embed with
-          the always-visible fallback link rendered BELOW it. */}
-      <Show when={!isTouch}>
+      {/* The consent-gated rich embed with the always-visible fallback link
+          rendered BELOW it. Shown on EVERY device now — the prior desktop-only
+          touch split is gone (see the module note at the top of this file). */}
+      <>
         {/* The consent prompt + embed anchor only exist when the URL is an */}
         {/* embeddable board shape. A safe-but-not-embeddable link (pin.it short */}
         {/* link, bare pin/profile) shows only the fallback link below and nothing else. */}
@@ -511,7 +435,7 @@ export function PinterestBoard(props: PinterestBoardProps) {
             View moodboard on Pinterest ↗
           </a>
         </div>
-      </Show>
+      </>
     </Show>
   );
 }

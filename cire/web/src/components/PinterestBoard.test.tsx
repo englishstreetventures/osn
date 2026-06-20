@@ -1,11 +1,7 @@
 import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  PinterestBoard,
-  resetPinterestConsentForTest,
-  setPinterestTouchForTest,
-} from "./PinterestBoard";
+import { PinterestBoard, resetPinterestConsentForTest } from "./PinterestBoard";
 
 const VALID_URL = "https://www.pinterest.com.au/example/catholic-wedding-guest-moodboard/";
 const CONSENT_KEY = "cire:pinterest-consent";
@@ -49,12 +45,6 @@ describe("PinterestBoard", () => {
   beforeEach(() => {
     localStorage.clear();
     resetPinterestConsentForTest();
-    // The rich embed + consent gate is desktop-only. happy-dom's matchMedia
-    // reports no media match, so the real capability check already resolves to
-    // the desktop path — but force it explicitly so these embed/consent tests
-    // can't drift if the default ever changes. The mobile-path describe block
-    // below forces touch instead.
-    setPinterestTouchForTest(false);
     scriptHandle = captureScripts();
   });
 
@@ -63,7 +53,6 @@ describe("PinterestBoard", () => {
     scriptHandle.restore();
     localStorage.clear();
     resetPinterestConsentForTest();
-    setPinterestTouchForTest(null);
     vi.useRealTimers();
   });
 
@@ -344,59 +333,73 @@ describe("PinterestBoard", () => {
   });
 });
 
-// Touch / mobile path: the rich embed (and the third-party tracker it needs) is
-// desktop-only. On touch we show a prominent link-out card, load NO tracker, and
-// show NO consent gate — there is nothing to fail.
-describe("PinterestBoard (touch / mobile)", () => {
+// Mobile / touch: the embed is no longer desktop-gated. A coarse-pointer /
+// no-hover device now gets the SAME consent-gated embed path as desktop
+// (previously it got a no-embed link-out card and never loaded the widget).
+// matchMedia is mocked to report a touch device on every query, so if anyone
+// reintroduces a `matchMedia` capability gate that hides the embed, these fail.
+describe("PinterestBoard (mobile / touch — embed enabled)", () => {
   let scriptHandle: ReturnType<typeof captureScripts>;
+  let originalMatchMedia: typeof window.matchMedia;
 
   beforeEach(() => {
     localStorage.clear();
     resetPinterestConsentForTest();
-    setPinterestTouchForTest(true); // force the touch path
+    originalMatchMedia = window.matchMedia;
+    // Report a touch / coarse-pointer / no-hover device for EVERY media query.
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
     scriptHandle = captureScripts();
   });
 
   afterEach(() => {
     cleanup();
     scriptHandle.restore();
+    window.matchMedia = originalMatchMedia;
     localStorage.clear();
     resetPinterestConsentForTest();
-    setPinterestTouchForTest(null);
     vi.useRealTimers();
   });
 
-  it("shows a prominent link-out card and NEVER injects the tracker or shows a consent gate", () => {
+  it("shows the consent-gated embed (not a no-embed link card) on a touch device", () => {
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
 
-    // The link-out card is present and opens the board in a new tab.
-    const link = container.querySelector<HTMLAnchorElement>('a[href="' + VALID_URL + '"]');
-    expect(link).not.toBeNull();
-    expect(link!.textContent).toContain("View moodboard on Pinterest");
-    expect(link!.getAttribute("target")).toBe("_blank");
-    expect(link!.getAttribute("rel")).toBe("noopener noreferrer");
-
-    // No consent gate, no embed anchor, no tracker — the privacy-sensitive
-    // tracker simply never loads on touch.
-    expect(container.querySelector("button")).toBeNull();
-    expect(container.textContent ?? "").not.toContain("Load Pinterest");
-    expect(container.querySelector("a[data-pin-do]")).toBeNull();
+    // The consent gate IS shown on touch now — the old touch path showed none.
+    expect(container.querySelector("button")).not.toBeNull();
+    expect(container.textContent ?? "").toContain("Load Pinterest");
+    // Tracker still isn't loaded until the guest opts in (ePrivacy).
     expect(scriptHandle.all()).toHaveLength(0);
+    // The always-visible fallback link is still present below the embed.
+    expect(container.querySelector('a[href="' + VALID_URL + '"]')).not.toBeNull();
   });
 
-  it("does NOT inject the tracker on touch even when consent was persisted from a desktop visit", () => {
-    // A shared-localStorage consent from an earlier desktop visit must not drag
-    // the unreliable tracker onto a touch device.
+  it("injects the tracker + mounts the embed anchor on consent (touch)", () => {
+    const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
+    grantConsent(container);
+
+    // After consent the embed anchor mounts and the tracker injects — on touch.
+    expect(container.querySelector("a[data-pin-do]")).not.toBeNull();
+    expect(scriptHandle.all()).toHaveLength(1);
+    expect(scriptHandle.last()!.src).toContain("assets.pinterest.com/js/pinit_main.js");
+  });
+
+  it("auto-loads the embed on touch when consent was already persisted", () => {
     localStorage.setItem(CONSENT_KEY, "granted");
     resetPinterestConsentForTest();
 
     const { container } = render(() => <PinterestBoard url={VALID_URL} eventName="Catholic" />);
 
-    expect(container.querySelector("a[data-pin-do]")).toBeNull();
-    expect(container.querySelector("button")).toBeNull();
-    expect(scriptHandle.all()).toHaveLength(0);
-    // The link-out card is still the experience.
-    expect(container.textContent ?? "").toContain("View moodboard on Pinterest");
+    // Persisted consent now drives the embed on touch too (previously suppressed).
+    expect(container.querySelector("a[data-pin-do]")).not.toBeNull();
+    expect(scriptHandle.all()).toHaveLength(1);
   });
 
   it("renders nothing for an unsafe URL on touch too", () => {
