@@ -1,7 +1,7 @@
 import Cropper from "cropperjs";
+import type { CropperImage, CropperSelection } from "cropperjs";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
-import "cropperjs/dist/cropper.css";
 import {
   ASPECT_PRESETS,
   type AspectPresetId,
@@ -16,17 +16,31 @@ import {
  * battle-tested vanilla Cropper.js (per the repo's "prefer existing libraries"
  * rule — we never hand-roll the crop interaction).
  *
- * The organiser picks an aspect ratio from a small set of presets (Original /
- * 16:9 / 3:2 / 4:3 / 1:1 / 4:5 / Free); selecting one re-locks the Cropper box to
- * that ratio. On save we capture the image's NATURAL pixel dimensions alongside
- * the normalised `{x,y,w,h}` rectangle, so the guest site can render the crop at
- * its true pixel aspect — UNIFORMLY scaled, never stretched (the distortion fix).
+ * Cropper.js v2 is a ground-up rewrite: instead of v1's single `new Cropper(img)`
+ * imperative class it ships native Web Components (`<cropper-canvas>`,
+ * `<cropper-image>`, `<cropper-selection>`, `<cropper-handle>`…). The default
+ * `Cropper` wrapper class still takes the `<img>` element, but it now hides that
+ * `<img>` and injects a `<cropper-canvas>` template beside it; we read the live
+ * elements back via `getCropperImage()` / `getCropperSelection()`. There is no
+ * separate `cropper.css` in v2 — every component styles itself inside its own
+ * Shadow DOM — so the old `import "cropperjs/dist/cropper.css"` is gone.
  *
- * Lifecycle: on mount we attach Cropper to the `<img>` ref, opening on the saved
- * crop's preset (or the slot default); when ready we seed the saved box.
- * Save reads `getData(true)` (the crop in source pixels) + `naturalWidth/Height`
- * and normalises to 0..1 fractions + `natW`/`natH`; Reset clears back to the
- * full-frame default (`crop: null`). Both delegate the network call to the parent.
+ * The organiser picks an aspect ratio from a small set of presets (Original /
+ * 16:9 / 3:2 / 4:3 / 1:1 / 4:5 / Free); selecting one re-locks the crop selection
+ * to that ratio. On save we capture the image's NATURAL pixel dimensions
+ * alongside the normalised `{x,y,w,h}` rectangle, so the guest site can render the
+ * crop at its true pixel aspect — UNIFORMLY scaled, never stretched (the
+ * distortion fix).
+ *
+ * Lifecycle: on mount we attach Cropper to the `<img>` ref; once the image is
+ * ready we seed the saved crop's box (and its preset). Save derives the crop
+ * rectangle from the live geometry — the displayed `<cropper-image>` bounding box
+ * vs the `<cropper-selection>` bounding box give the same 0..1 source fractions
+ * v1's `getData(true)` produced (selection-over-image fractions are
+ * resolution-independent), and `naturalWidth/Height` give `natW`/`natH`. Reset
+ * clears back to the full-frame default (`crop: null`). Both delegate the network
+ * call to the parent. On cleanup we `destroy()` the cropper (removes the canvas,
+ * restores the `<img>`).
  */
 export interface ImageCropModalProps {
   /** Absolute image URL to crop (already API-origin-prefixed). */
@@ -41,7 +55,7 @@ export interface ImageCropModalProps {
   onClose: () => void;
 }
 
-/** Clamp a fraction into [0,1] — Cropper can report a hair outside on edge drags. */
+/** Clamp a fraction into [0,1] — geometry can report a hair outside on edge drags. */
 function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0;
   return Math.min(1, Math.max(0, n));
@@ -59,36 +73,93 @@ export default function ImageCropModal(props: ImageCropModalProps) {
     presetForCrop(props.initialCrop, props.slot),
   );
 
+  /** The live `<cropper-selection>`, or undefined before the cropper is built. */
+  function selection(): CropperSelection | undefined {
+    return cropper?.getCropperSelection() ?? undefined;
+  }
+
+  /** The live `<cropper-image>`, or undefined before the cropper is built. */
+  function cropperImage(): CropperImage | undefined {
+    return cropper?.getCropperImage() ?? undefined;
+  }
+
+  /**
+   * Lock the selection to the given aspect ratio. v2's `<cropper-selection>` takes
+   * `aspectRatio` as a property (NaN ⇒ unlocked / free). Re-rendering re-fits the
+   * current box to the new ratio.
+   */
+  function applyAspectRatio(ratio: number) {
+    const sel = selection();
+    if (!sel) return;
+    sel.aspectRatio = ratio;
+    // Re-snap the existing box to the new ratio, keeping its top-left corner.
+    if (Number.isFinite(ratio) && sel.width > 0) {
+      sel.$change(sel.x, sel.y, sel.width, sel.width / ratio, ratio);
+    }
+    sel.$render();
+  }
+
   onMount(() => {
     const el = imgEl;
     if (!el) return;
     cropper = new Cropper(el, {
-      aspectRatio: presetAspectRatio(preset(), props.slot),
-      viewMode: 1, // crop box stays within the image bounds
-      autoCropArea: 1, // default selection covers the whole image
-      dragMode: "move", // drag the image to pan; the box resizes for zoom
-      background: false,
-      responsive: true,
-      checkOrientation: false,
-      ready() {
-        const c = props.initialCrop;
-        if (!c || !cropper) return;
-        // Seed the saved box. Cropper works in source-image coordinates, so map
-        // the stored fractions back to pixels against the natural dimensions.
-        const data = cropper.getImageData();
-        const naturalW = data.naturalWidth || 0;
-        const naturalH = data.naturalHeight || 0;
-        if (naturalW > 0 && naturalH > 0) {
-          cropper.setData({
-            x: c.x * naturalW,
-            y: c.y * naturalH,
-            width: c.w * naturalW,
-            height: c.h * naturalH,
-          });
-        }
-      },
+      // A custom template mirroring the v1 editor: the image pans/zooms inside the
+      // canvas, a shaded overlay dims the un-selected area, and the selection box
+      // is movable + resizable with corner/edge handles. `initial-coverage="1"`
+      // opens the box over the whole image (v1's `autoCropArea: 1`).
+      template: `<cropper-canvas background style="width:100%;height:100%">
+        <cropper-image rotatable scalable translatable></cropper-image>
+        <cropper-shade hidden></cropper-shade>
+        <cropper-handle action="select" plain></cropper-handle>
+        <cropper-selection initial-coverage="1" movable resizable outlined>
+          <cropper-grid role="grid" covered></cropper-grid>
+          <cropper-crosshair centered></cropper-crosshair>
+          <cropper-handle action="move" theme-color="rgba(255,255,255,0.35)"></cropper-handle>
+          <cropper-handle action="n-resize"></cropper-handle>
+          <cropper-handle action="e-resize"></cropper-handle>
+          <cropper-handle action="s-resize"></cropper-handle>
+          <cropper-handle action="w-resize"></cropper-handle>
+          <cropper-handle action="ne-resize"></cropper-handle>
+          <cropper-handle action="nw-resize"></cropper-handle>
+          <cropper-handle action="se-resize"></cropper-handle>
+          <cropper-handle action="sw-resize"></cropper-handle>
+        </cropper-selection>
+      </cropper-canvas>`,
     });
+
+    const sel = selection();
+    const img = cropperImage();
+    if (sel) {
+      sel.aspectRatio = presetAspectRatio(preset(), props.slot);
+    }
+    // Seed the saved box once the image has loaded (we need its real geometry to
+    // map the stored fractions onto the displayed image).
+    img?.$ready(() => seedInitialCrop());
   });
+
+  /**
+   * Map the saved `{x,y,w,h}` source fractions onto the live selection. v2's
+   * selection geometry is in `<cropper-canvas>` pixel space, so we project the
+   * fractions through the displayed `<cropper-image>` bounding box (which already
+   * reflects the image's scale + position inside the canvas).
+   */
+  function seedInitialCrop() {
+    const c = props.initialCrop;
+    const sel = selection();
+    const img = cropperImage();
+    const canvas = cropper?.getCropperCanvas();
+    if (!c || !sel || !img || !canvas) return;
+    const imgRect = img.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    if (imgRect.width <= 0 || imgRect.height <= 0) return;
+    // Canvas-local coordinates of the saved crop region.
+    const x = imgRect.left - canvasRect.left + c.x * imgRect.width;
+    const y = imgRect.top - canvasRect.top + c.y * imgRect.height;
+    const width = c.w * imgRect.width;
+    const height = c.h * imgRect.height;
+    sel.$change(x, y, width, height, sel.aspectRatio || Number.NaN, true);
+    sel.$render();
+  }
 
   onCleanup(() => {
     cropper?.destroy();
@@ -98,27 +169,35 @@ export default function ImageCropModal(props: ImageCropModalProps) {
   /** Switch the locked aspect ratio of the crop box (Free ⇒ NaN ⇒ unlocked). */
   function choosePreset(id: AspectPresetId) {
     setPreset(id);
-    cropper?.setAspectRatio(presetAspectRatio(id, props.slot));
+    applyAspectRatio(presetAspectRatio(id, props.slot));
   }
 
   async function handleSave() {
-    if (!cropper) return;
+    const sel = selection();
+    const img = cropperImage();
+    const canvas = cropper?.getCropperCanvas();
+    if (!sel || !img || !canvas) return;
     setError(null);
-    const img = cropper.getImageData();
-    const naturalW = img.naturalWidth || 0;
-    const naturalH = img.naturalHeight || 0;
+    const naturalW = img.$image.naturalWidth || 0;
+    const naturalH = img.$image.naturalHeight || 0;
     if (naturalW <= 0 || naturalH <= 0) {
       setError("Could not read the image size — try re-uploading.");
       return;
     }
-    // `getData(true)` rounds to whole source pixels; normalise to fractions and
-    // capture the natural dims so the guest render honours the chosen aspect.
-    const d = cropper.getData(true);
+    // Derive 0..1 source fractions from the live geometry: the selection box over
+    // the displayed image box. These fractions are resolution-independent, so they
+    // equal the same fractions v1's `getData(true)` produced in source pixels.
+    const imgRect = img.getBoundingClientRect();
+    const selRect = sel.getBoundingClientRect();
+    if (imgRect.width <= 0 || imgRect.height <= 0) {
+      setError("Could not read the image size — try re-uploading.");
+      return;
+    }
     const crop: ImageCrop = {
-      x: clamp01(d.x / naturalW),
-      y: clamp01(d.y / naturalH),
-      w: clamp01(d.width / naturalW),
-      h: clamp01(d.height / naturalH),
+      x: clamp01((selRect.left - imgRect.left) / imgRect.width),
+      y: clamp01((selRect.top - imgRect.top) / imgRect.height),
+      w: clamp01(selRect.width / imgRect.width),
+      h: clamp01(selRect.height / imgRect.height),
       natW: naturalW,
       natH: naturalH,
     };
@@ -206,9 +285,9 @@ export default function ImageCropModal(props: ImageCropModalProps) {
           </div>
         </div>
 
-        {/* Bounded height so the cropper canvas fits the modal; Cropper.js sizes
-            the image to this box. */}
-        <div class="bg-surface max-h-[55vh] overflow-hidden rounded-sm">
+        {/* Bounded height so the cropper canvas fits the modal; Cropper.js v2 hides
+            this `<img>` and injects a `<cropper-canvas>` sibling that fills the box. */}
+        <div class="bg-surface h-[55vh] overflow-hidden rounded-sm">
           <img
             ref={imgEl}
             src={props.imageUrl}
