@@ -38,7 +38,7 @@ Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last N
 - [x] `GET /api/organiser/events` — full event details (used by EventTable + GuestTable for human-readable event tags)
 - [x] Multi-origin CORS allowlist on the API so the organiser portal (`:4322`) can call the API alongside the guest web app (`:4321`)
 - [ ] Extend `OrganiserView` to display family-grouped guests with shareable publicId + password (show password only at family creation, hash thereafter — surface a "regenerate password" action)
-- [ ] Organiser portal: history / revert UI (deferred from initial cut)
+- [x] **Organiser portal: history / revert UI** (`feat/cire-import-history-ui`) — `ImportHistory.tsx` (co-located, rendered by `ImportPanel`) is a native `<details>` that lazy-loads `GET .../import/list` on open, renders each entry as date + human summary ("+12 guests, −2 guests, 3 events updated") + status (Applied / Reverted / Preview only). Applied entries get a confirm-gated **Revert** that POSTs `.../import/revert` with the import id, then mirrors Apply's post-mutation refresh (`invalidateEvents` + list re-fetch + `window.location.reload()`); revert is offered only on applied rows, 401 → `redirectToLogin`, API errors surface inline. Co-host-accessible (same `weddingMember()`-gated routes; no owner gate). The `list` + `revert` backend already existed (PR-C) — UI only. Component tests cover render, revert→endpoint+refresh, disabled-on-reverted, and error surfacing. **Visual layout still wants a browser eyeball.**
 
 ## Cloudflare wiring
 

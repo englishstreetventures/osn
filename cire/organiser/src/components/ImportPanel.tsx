@@ -14,6 +14,7 @@ import {
   buildEventsTemplateCsv,
   buildGuestsTemplateCsv,
 } from "../lib/import-templates";
+import ImportHistory from "./ImportHistory";
 
 interface ImportPlan {
   eventCreates: unknown[];
@@ -290,6 +291,8 @@ export default function ImportPanel(props: { weddingId: string }) {
             </div>
           )}
         </Show>
+
+        <ImportHistory weddingId={props.weddingId} />
       </div>
     </details>
   );
