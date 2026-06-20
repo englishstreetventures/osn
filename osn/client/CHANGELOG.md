@@ -1,5 +1,11 @@
 # @osn/client
 
+## 2.3.3
+
+### Patch Changes
+
+- f4b9c6b: Upgrade oxlint to 1.70; satisfy tightened vitest rules — add toThrow messages and fix standalone-expect in test suites
+
 ## 2.3.2
 
 ### Patch Changes

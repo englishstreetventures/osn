@@ -1,5 +1,11 @@
 # @zap/db
 
+## 0.4.2
+
+### Patch Changes
+
+- f4b9c6b: Upgrade oxlint to 1.70; satisfy tightened vitest rules — add toThrow messages and fix standalone-expect in test suites
+
 ## 0.4.1
 
 ### Patch Changes

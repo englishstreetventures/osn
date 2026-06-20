@@ -1,5 +1,14 @@
 # @osn/osn
 
+## 3.8.6
+
+### Patch Changes
+
+- f4b9c6b: Upgrade oxlint to 1.70; satisfy tightened vitest rules — add toThrow messages and fix standalone-expect in test suites
+- Updated dependencies [f4b9c6b]
+  - @osn/db@0.17.2
+  - @shared/crypto@0.8.3
+
 ## 3.8.5
 
 ### Patch Changes

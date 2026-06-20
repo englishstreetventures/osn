@@ -1,5 +1,11 @@
 # @osn/db
 
+## 0.17.2
+
+### Patch Changes
+
+- f4b9c6b: Upgrade oxlint to 1.70; satisfy tightened vitest rules — add toThrow messages and fix standalone-expect in test suites
+
 ## 0.17.1
 
 ### Patch Changes
