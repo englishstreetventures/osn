@@ -2,11 +2,312 @@
 title: "Completed Features"
 tags: [changelog]
 related: [[TODO]], [[index]]
-last-reviewed: 2026-05-05
+last-reviewed: 2026-06-21
 ---
 
 # Completed Features
 
-Archive of completed feature work, moved here from [[TODO]] as PRs merge.
+Archive of completed feature work, moved here from [[TODO]] (and the per-area `wiki/todo/` shards) as PRs merge.
 
-_No entries yet._
+## Migrated from web.md (archived 2026-06-21)
+
+The `cire/web` frontend completed-work history, relocated verbatim from `wiki/todo/web.md` to keep that shard a lean, scannable open-work list. The 3 most recent done items (mobile bottom-sheet corners, Maps embed chrome, SSR security-headers/CSP) were left inline in `web.md` for recent context.
+
+### "Add to Calendar" button fixed (`fix/cire-add-to-calendar-zindex`)
+
+- [x] **"Add to Calendar" button fixed** (`fix/cire-add-to-calendar-zindex`) — the button is only ever opened from inside the event details modal (`AnimatedModal`, `z-100`), but its portalled popover (`AddToCalendar.tsx`, Google Calendar / `.ics` menu) was `z-90` — below the modal — so the menu painted behind the modal backdrop and was invisible/unclickable ("doesn't work"). Raised the popover to `z-110` (above the modal it launches from). Regression test asserts the menu sits above the modal layer. The `calendar.ts` URL/ICS builders were already correct.
+
+### Deep-linkable dashboard routes + refresh persistence + dismissable checklist (`feat/cire-dashboard-routing`)
+
+- [x] **Deep-linkable dashboard routes + survive hard refresh, and a dismissable Getting-started checklist** (`feat/cire-dashboard-routing`) — the organiser dashboard's full navigable state (top-level view + selected wedding + active tab) is now encoded in the URL hash, so a hard refresh restores the current wedding/tab instead of dropping back to the list, and a shared link reopens to almost exactly the sender's state. Dependency-free scheme in new `cire/organiser/src/lib/dashboard-route.ts`: `#/weddings`, `#/weddings/<id>`, `#/weddings/<id>/<tab>` (`events`/`guests`/`invite`/`codes`/`hosts`), `#/security`. `OrganiserApp.tsx` owns one `route` signal as the source of truth, mirrored into the hash (push on wedding-open/back/view-switch so Back/Forward walks them; replace on tab switch); a `hashchange` listener re-syncs on Back/Forward + manual edits; a legacy/shorthand hash is normalised on mount. A hash naming a wedding the organiser can't load (not owner/host, or gone) falls back to the list rather than hanging. `DashboardTabs.tsx` became a controlled component (`tab` + `onTab` props) — owner-only `codes` stays gated, a co-host deep link to it resolves to a visible tab. `GettingStarted.tsx` gained an accessible X dismiss (label "Dismiss getting started") persisted per wedding in `localStorage` with a "Show getting started" restore affordance. Deeper sub-state (modals, selected rows) deferred as a future follow-up. See the note block below. **Wants a real-browser eyeball** on Back/Forward + a hard refresh on a wedding tab.
+
+> [!note] Deep-linkable dashboard routes + refresh persistence + dismissable checklist (`feat/cire-dashboard-routing`)
+> The organiser dashboard's full navigable state now lives in the URL hash, so a
+> hard refresh restores where you were and a shared link reopens it. New
+> dependency-free helper `cire/organiser/src/lib/dashboard-route.ts`
+> (`parseRoute`/`serializeRoute`, a `DashboardRoute` discriminated union).
+> - **Hash-route scheme:**
+>   - `#/weddings` → the wedding list
+>   - `#/weddings/<weddingId>` → that wedding, default tab (`events`, left implicit)
+>   - `#/weddings/<weddingId>/<tab>` → that wedding + a specific tab (`events`/`guests`/`invite`/`codes`/`hosts`)
+>   - `#/security` → the account-security view
+> - **Source of truth:** `OrganiserApp.tsx` owns one `route` signal, mirrored into
+>   the hash. Opening a wedding / back-to-list / switching the top-level view
+>   `pushState`s (Back/Forward walks them); tab switches `replaceState` (no history
+>   pile-up). A `hashchange` listener re-syncs on browser Back/Forward + manual
+>   edits, and a legacy/shorthand hash (`#security`, `#guests`, "") is normalised
+>   to the canonical `#/…` form on mount.
+> - **Not-authorised fallback:** once the wedding list loads, a hash naming a
+>   wedding the organiser can't load (not owner/host, or gone) drops back to the
+>   list (replace — no Back-able dead entry) rather than hanging.
+> - **`DashboardTabs.tsx` is now controlled** — it takes `tab` + `onTab` from the
+>   parent instead of self-managing the hash. Owner-only `codes` stays gated: a
+>   co-host deep-linking `#/weddings/<id>/codes` resolves to a visible tab.
+> - **`GettingStarted.tsx` dismiss** — an accessible X (label "Dismiss getting
+>   started"), persisted per wedding in `localStorage`
+>   (`cire:getting-started-dismissed:<weddingId>`) so it stays hidden across
+>   reloads, with a "Show getting started" affordance to restore it. Data-derived
+>   done-state logic unchanged.
+> - **Scope:** deeper sub-state (open modals, a selected guest row) is intentionally
+>   NOT deep-linked yet — view + wedding + tab is the requirement; deeper
+>   sub-state deep-linking is a future follow-up.
+> - Tests: new `dashboard-route.test.ts` (parse/serialize + round-trip + fallbacks),
+>   `DashboardTabs.test.tsx` rewritten for the controlled component, new
+>   `OrganiserApp` coverage (restore wedding+tab from hash on load, not-authorised
+>   fallback, hash updates on nav, `hashchange` re-sync), GettingStarted
+>   dismiss/restore + per-wedding persistence. 130 organiser tests green.
+> ⚠️ Real-browser eyeball still wanted: Back/Forward + a hard refresh on a wedding
+> tab (happy-dom can't fully exercise the history stack).
+
+### Accessible popover colour picker with obvious hex input (`feat/cire-color-picker`)
+
+- [x] **Accessible popover colour picker with obvious hex input** (`feat/cire-color-picker`) — replaced the bare native `<input type="color">` in the invite builder's theme section (Hero / Our Story / Event Details accent + background) with a proper Kobalte colour picker, after a product-owner note that hex entry was hidden ("nice, but I didn't realise at first how to input hex codes"). New `cire/organiser/src/components/ColorPicker.tsx` (extracted from the in-file `ColorPicker` sub-component) built on **Kobalte 0.13.x colour primitives** (`@kobalte/core/color-area`, `/color-slider`, `/color-field`, `/color-swatch`, `/popover`, plus `parseColor`/`Color` from `/colors`): a `ColorSwatch` **trigger button** showing the current colour + its `#RRGGBB` value (or "Default"), opening a `Popover` with a saturation/brightness `ColorArea` + a `hue` `ColorSlider` for visual picking AND a clearly-labelled **"Hex" `ColorField`** front-and-centre for typing/pasting a hex code. The area, hue slider, and hex field share one HSB `Color` signal so they stay in sync; partial/invalid hex never escapes upstream. The "Use default" reset (→ `onChange(null)`) is preserved. The **`onChange(string | null)` hex contract is unchanged** — still emits a `#rrggbb` string (or `null`) — so the live `ThemePreview` and the `cire/api` `isThemeColor` allow-list (`#[0-9a-fA-F]{3,8}` / rgb / hsl / oklch) keep working untouched. Added `@kobalte/core` as a direct `@cire/organiser` dep (already transitive via `@osn/ui`); `@internationalized/color` not needed (Kobalte bundles `parseColor`). Styled with the existing organiser theme tokens (`--color-border`/`-surface-raised`/`-text`/`-text-muted`/`-gold`, `font-body`, uppercase micro-labels); keyboard-navigable via Kobalte popover focus handling. Tests: new `ColorPicker.test.tsx` (renders labelled swatch trigger, hex field emits on a full hex, partial hex does NOT emit, "Use default" emits null, external value reflected) + the two InviteBuilder theme tests that drove the old native input updated to open the popover and type into the "Hex" field. **Wants a real-device/visual eyeball** — the `ColorArea`/`ColorSlider` gradient backgrounds + thumb positioning render in a real browser, not happy-dom.
+
+### Our Story — two-column desktop / mobile image-hidden layout (`feat/cire-story-two-column`)
+
+- [x] **Our Story — two-column desktop / mobile image-hidden layout** (`feat/cire-story-two-column`) — restyled the "Our Story" section (`InviteHeader.tsx`) from the old centred image-above-text stack into a balanced two-column editorial layout. On laptop/desktop (`md`+) the story photo is on the LEFT and the eyebrow/heading/body block on the RIGHT, vertically centred (`items-center`) with a comfortable gap and left-aligned copy; the section widens to `max-w-[960px]` to give the columns room. On mobile (below `md`) the image wrapper is `hidden md:block`, so the photo is **not even laid out** — guests see only the full-width centred text. When there is **no** story image the grid collapses to a single full-width centred column at every breakpoint, driven by a `data-has-image` attribute on the grid (`data-[has-image=true]:md:grid-cols-2` / `…:md:text-left` / `…:md:max-w-[960px]`, plus a `group-data-[has-image=true]/story:md:mx-0` on the body wrapper), so nothing ever leaves an empty half-column. The `buildSrcSet(url, ["thumb","card"])` variant usage, the `--invite-*` theme vars, and the `Show when={showStory()}` emptiness gating are all unchanged (the image `sizes` hint was nudged to `(min-width: 768px) 480px, 100vw` to match the new `md` breakpoint). **Wants a real-device check** of both breakpoints (image-present 2-col desktop vs text-only mobile, and the image-less single-column fallback).
+
+### Conditional invite segments — empty sections hidden (`feat/invite-conditional-segments`)
+
+- [x] **Conditional invite segments — empty sections hidden** (`feat/invite-conditional-segments`) — a section with **no content at all** is no longer rendered on the guest invite (no empty full-screen hero, no empty "Our Story" surface). New shared predicates `cire/web/src/components/invite-emptiness.ts` (`hasText`, `isHeroEmpty`, `isStoryEmpty`, `hasPinterest`, `hasDressCode`) — "absent" = null / empty / **whitespace-only**. `InviteHeader.tsx` wraps the hero in `Show when={showHero()}` (renders only when it has an image OR title OR subtitle — image-only / title-only valid) and the story in `Show when={showStory()}` (heading OR body OR image; the eyebrow label alone does not keep it alive). `DetailsModal.tsx` already hid Inspiration/Dress Code; tightened both to the shared predicates so a whitespace-only `pinterestUrl` or dress-code description now counts as absent. Theme vars, the no-store SSR revalidation, and the Pinterest desktop-embed/mobile-link split are all preserved. The organiser builder mirrors the same logic with Shown/Hidden badges (see `[[invite-builder]]` + `[[api]]`). New vitest: hero hidden when fully empty / shown image-only + title-only, story hidden when all-empty / shown with a body, Inspiration + Dress Code hidden for whitespace-only values, + a unit suite for the predicate module.
+
+### Guest site → SSR + path-based wedding resolution (`feat/guest-ssr-path-routing`)
+
+- [x] **Guest site → SSR + path-based wedding resolution** (`feat/guest-ssr-path-routing`) — `cire/web` switched from `output: "static"` to `output: "server"` (the `@astrojs/cloudflare` adapter), deployed as a **Cloudflare Worker with Static Assets** (no longer Pages). The wedding to render is resolved **from the path per request** — there is **no more `PUBLIC_WEDDING_SLUG`**. New `[slug].astro` server-renders `/<slug>` (server-side `GET /api/invite/<slug>` fetch, real 404 + `NotFoundDocument` on unknown slug, transient API error renders defaults); `index.astro` resolves the primary wedding via the new public `GET /api/primary-wedding` and 302-redirects `/` → `/<slug>` (neutral state when none). `?code=<host code>` deep-link preserved on `/<slug>?code=...` and across the `/` redirect; legal pages opt back into `prerender = true`. Shared `InviteDocument.astro` holds the hero/`InviteHeader`/`InvitePage` render (islands + runtime revalidation unchanged). Organiser links now path-routed: `PreviewInviteButton` opens `${CIRE_WEB_URL}/<slug>?code=…` (slug from the `preview-code` response, now `{ publicId, slug }`); the copy-message (`invite-message.ts`) links `${CIRE_WEB_URL}/<slug>` (slug threaded `OrganiserApp → DashboardTabs → GuestTable`). Deploy switched to `wrangler deploy --config dist/server/wrangler.json` (committed `cire/web/wrangler.jsonc` carries the worker name + `cireweddings.com` custom-domain route). See `[[invite-builder]]` (Guest rendering) + `[[wiki/runbooks/production-deploy]]`.
+
+### Hero display sliders + WYSIWYG live preview (`feat/cire-hero-display-sliders`)
+
+- [x] **Hero display SLIDERS + WYSIWYG live preview** (`feat/cire-hero-display-sliders`) — supersedes the coarse blurred-vs-regular + none/solid toggles below with three fine-grained sliders. **Guest (`InviteHeader.tsx`)**: the `heroDisplay` shape is now `{ blur, titleBackdrop: { opacity, blur } }` (clamped defensively). The hero backdrop **always** requests the `hero-bg` variant — the per-wedding blur (incl. 0 ⇒ sharp) is applied **server-side** now, so there's no client variant switch (the re-arm lifecycle simplifies). The title legibility panel behind the title text is driven by the two backdrop sliders: background opacity via `color-mix(in oklab, …surface… N%, transparent)` + `backdrop-filter: blur(Npx)` (+ the `-webkit-` twin); opacity 0 ⇒ no panel (just the radial scrim). **Organiser (`InviteBuilder.tsx`)**: a reusable `SliderField` (label + range input + live value readout) for the three sliders, replacing the `ToggleField` radio groups; the three values ride the existing theme PUT. New **WYSIWYG `HeroPreview`** composites live as the sliders drag with **zero Cloudflare Images calls** — the uploaded hero image as a background with client-side CSS `filter: blur()` (requesting a plain `card` variant so the CSS blur isn't doubled on a server-blurred source), the title backdrop panel (opacity + `backdrop-filter`) over it, and the hero title text (the live `heroTitle()` or the `V & R` default) styled to evoke the real hero (serif display, gold); falls back to the real hero's dark gradient when no image is uploaded. The existing `ThemePreview` is untouched. New vitest both sides: guest always requests `hero-bg`, panel paints at opacity > 0 with the frosted blur, no panel at 0; organiser seeds + PUTs the three slider values, and the WYSIWYG preview updates live (no save). **Needs real-device verification** — `backdrop-filter` + the composited preview want an eyeball on a real browser/phone; happy-dom drops the `-webkit-backdrop-filter` twin. See `[[invite-builder]]` + `[[api]]` + `[[db]]`.
+
+### Hero "invisible image" SSR fix + blurred-vs-regular image + title backdrop (`feat/hero-display-options`)
+
+- [x] **Hero "invisible image" SSR fix + blurred-vs-regular image + title backdrop** (`feat/hero-display-options`) — fixes a **live** bug where the hero backdrop `<img>` was server-rendered at `opacity:0` and **never became visible**, and adds two organiser-configurable hero options. Two SSR-specific causes in `InviteHeader.tsx`: (1) the browser's `load` event fired during HTML parse, **before** the Solid island hydrated and attached `onLoad`, so `onLoad → loaded` never ran — fixed with a `ref` + an `onMount` `img.complete && img.naturalWidth > 0` check that reveals an already-loaded image; (2) the re-arm effect reset `heroState` to `pending` (opacity 0) on **every** `data()` change incl. the same-url on-mount revalidation, but the unchanged `<img src>` never re-fired `load` → stuck invisible — fixed by re-arming **only when the resolved backdrop `src` actually changes**, with a `queueMicrotask` ref re-check for an already-cached new src. `onError` still drops to the gradient. The two new options come off `heroDisplay`: **image style** (`blurred` ⇒ `hero-bg`, default; `regular` ⇒ sharp `hero` via `heroVariant()`) and **title backdrop** (`none` ⇒ scrim only, default; `solid` ⇒ a translucent panel using `--invite-surface` / a dark scrim panel behind the title block for legibility over a busy photo). New vitest: already-`complete`-on-mount ⇒ shown; same-url revalidation does NOT hide a shown image; `regular` ⇒ `variant=hero`; `solid` ⇒ title panel. **Needs real-device verification** — happy-dom/CI can't reproduce the true SSR hydration race. See `[[invite-builder]]`.
+
+### Hero blurred backdrop + visible-or-gone load lifecycle (`feat/hero-blur-theme-preview`)
+
+- [x] **Hero blurred backdrop + visible-or-gone load lifecycle** (`feat/hero-blur-theme-preview`) — the uploaded hero image now renders as a soft, full-bleed **blurred backdrop behind the hero title** by requesting a new server-blurred `hero-bg` image variant (blur radius is a server constant in `cire/api`'s `VARIANT_BLUR`, never client input; only `hero-bg` is blurred — `hero`/`card`/`thumb` stay sharp). `InviteHeader.tsx`'s backdrop `<img>` uses a `variantSrc(url, "hero-bg")` `src`, and the radial-gradient scrim was strengthened a touch so the gold title stays readable over a brighter blurred photo. Also fixed the **"invisible hero" bug**: the old `onLoad`-only opacity gate had no failure path, so a failed image load left a permanently-invisible 0-opacity `<img>` over the gradient — replaced with a `pending`/`loaded`/`error` lifecycle that fades in on load and **unmounts on `onError`** (gradient base shows through), re-arming when the backdrop URL changes. **Mobile/desktop hero blur + visibility wants a real-device check by the user.** See `[[invite-builder]]`.
+
+### Live theme preview in the organiser builder (`feat/hero-blur-theme-preview`)
+
+- [x] **Live theme preview in the organiser builder** (`feat/hero-blur-theme-preview`) — the theme colour/font pickers previously showed nothing in the portal (the effect only appeared on the guest URL after saving). Added a compact, labelled mini-invite preview (one card per section) beside the controls, styled with the **same `--invite-*` CSS variables** the guest invite consumes and driven **live** by the picker signals, so each change is visible instantly. Faithful via a small local mirror of the guest mapping (`cire/organiser/src/lib/invite-theme-preview.ts`) — no cross-package import, no Effect/web internals. See `[[invite-builder]]`.
+
+### Invite theme guest rendering
+
+- [x] **Invite theme guest rendering** — `cire/web/src/components/invite-theme.ts` (`sectionThemeVars`, `fontStack`) maps the per-section theme to validated CSS custom properties (`--invite-accent/-surface/-heading/-body`) on the hero/story (`InviteHeader.tsx`) + details/events (`InvitePage.tsx`) section wrappers, consumed via `var(--invite-*, <built-in-token>)` fallbacks (unset/invalid ⇒ original token). Fonts resolve to already-loaded (Cormorant/Lato) or system stacks — **no new web-font/CDN dependency**. Colours re-validated against the same allow-list as the API (`isValidColor`) before hitting any `style` — defence in depth. Theme seeded at build time in `index.astro`, then revalidated at runtime (see live-customisation entry below). See `[[invite-builder]]`.
+
+### Live invite customisation — hero + theme reflected at runtime (no rebuild)
+
+- [x] **Live invite customisation — hero + theme reflected at runtime (no rebuild)** — the static site bakes the build-time `/api/invite/:slug` snapshot, but an organiser's later hero/theme change would never reach guests until a rebuild. Fixed by letting both guest islands revalidate on mount and override the snapshot: `InviteHeader.tsx` already drove hero image + copy + hero/story theme from its `createResource`; `InvitePage.tsx` now also revalidates (`createResource` seeded with the build-time `theme` prop, keyed on a new `slug` prop threaded from `index.astro`) so the details/events theme is live too. Non-OK/failed revalidation keeps the painted snapshot; no `slug` ⇒ build-time prop as-is. Build-time snapshot remains the fast-first-paint / no-JS placeholder. See `[[invite-builder]]`.
+
+### Invite-builder guest rendering
+
+- [x] **Invite-builder guest rendering** — static `Hero.astro` / `OurStory.astro` replaced by a `client:load` SolidJS island `InviteHeader.tsx` that fetches `GET /api/invite/:slug` and applies the organiser's image + copy overrides on top of the original (uncustomised ⇒ renders exactly as before). `PUBLIC_WEDDING_SLUG` env selects the wedding. This subsumes the three placeholders below (hero photo / monogram / Our Story copy) — they're now organiser-editable rather than hard-coded. See `[[invite-builder]]`.
+
+### Crop distortion fix + aspect-ratio presets (`feat/cire-crop-aspect-ratios`)
+
+> [!note] Crop distortion fix + aspect-ratio presets (`feat/cire-crop-aspect-ratios`)
+> Fixes a crop **distortion** bug in the guest render and adds aspect-ratio
+> presets to the editor.
+> - **Root cause:** the dims-free CSS render used a TWO-value `background-size`
+>   (`Wx% Wy%`), which scales width and height INDEPENDENTLY — so whenever the
+>   crop rectangle's aspect ratio differed from the display box's, the image was
+>   non-uniformly scaled and came out **stretched/squashed**.
+> - **Fix (uniform scaling):** `components/image-crop.ts` now emits a SINGLE-value
+>   `background-size` (`W%`, height auto), which the browser scales UNIFORMLY (one
+>   factor on both axes, preserving proportions), and the display box adopts the
+>   crop's **true pixel aspect** via the new `cropAspectRatio(crop, fallback)` so
+>   the uniformly-scaled region fills it exactly — no stretch, no letterbox. The
+>   hero stays a full-bleed `cover` focal point (`heroCropBackgroundStyle`) — also
+>   uniform, also never distorted. Our Story / `EventCard` set `aspect-ratio` from
+>   `cropAspectRatio` (fallback = the slot's old fixed shape).
+> - **Dims capture, NO migration:** the pixel aspect needs the source's natural
+>   dimensions, captured in the browser at crop time and carried in the crop JSON
+>   as optional `natW`/`natH`. The crop columns are plain JSON `TEXT`, so the JSON
+>   shape was just **widened** — no schema migration. A **legacy** `{x,y,w,h}`
+>   crop (no dims) still decodes + renders, falling back to the slot default
+>   aspect (its prior fixed shape), now minus the stretch.
+> - **Aspect presets** (organiser editor, see `[[api]]`/`ImageCropModal`):
+>   Original / 16:9 / 3:2 / 4:3 / 1:1 / 4:5 / Free, with per-slot Original
+>   defaults (hero 16:9, story 3:2, event 4:3). The guest containers honour
+>   whatever shape was chosen.
+> - Tests: a SINGLE-value `background-size` (one token, anti-distortion invariant —
+>   the cropped region fills the box on both axes with one uniform scale),
+>   `cropAspectRatio` (dims present ⇒ `(w·natW)/(h·natH)`; absent/bad ⇒ fallback),
+>   EventCard box adopts the true pixel aspect vs the legacy 4∶3 fallback.
+
+### Image crop render — hero / Our Story / event card (`feat/cire-image-crop`)
+
+> [!note] Image crop render — hero / Our Story / event card (`feat/cire-image-crop`)
+> The guest site now renders the organiser's per-image crop (a normalised
+> `{x,y,w,h}` rectangle in source fractions) instead of always centre-cropping.
+> - **Render path = CSS, not server-side region crop** (the documented fallback).
+>   A shared `components/image-crop.ts` helper (`cropBackgroundStyle` +
+>   `isRenderableCrop`) maps the rectangle to a `background-size`/`background-position`
+>   on a fixed-ratio box — WYSIWYG-identical to what Cropper.js showed the
+>   organiser, dims-free (no source-dimension capture), zero extra Cloudflare cost.
+>   The organiser editor LOCKS each slot's crop aspect ratio to the guest display
+>   box, so the fraction render is exact regardless of source pixel dimensions.
+> - **Hero** (`InviteHeader`): when a crop is set, a background `<div>` over the
+>   same server-blurred `hero-bg` source pans/zooms the already-blurred backdrop
+>   (blur + crop compose with no extra transform); the `<img>` stays mounted as
+>   the load/error detector for the fade. No crop ⇒ the existing `<img object-cover>`.
+> - **Our Story** (`InviteHeader`, 4∶3) + **EventCard** (4∶3): a cropped background
+>   div when a crop is set (a `card`-variant background — backgrounds can't use
+>   `srcset`, so we pick the size that covers the ~480px column at retina), else
+>   the existing responsive `<img srcset>` + `object-cover`. The alternating /
+>   two-column / emptiness behaviour is unchanged.
+> - A null/identity/out-of-range crop collapses gracefully to the plain `<img>`.
+> - Tests: helper fraction maths (centred half-frame ⇒ 200% size / 50% position,
+>   full-axis ⇒ 0% position, null/identity ⇒ no style), EventCard renders the
+>   cropped div vs the plain `<img>` fallback.
+
+### GuestTable "Opened" status (`feat/cire-invite-opened-status`)
+
+> [!note] GuestTable "Opened" status (`feat/cire-invite-opened-status`)
+> The organiser Guests tab (`GuestTable.tsx`) now shows a reliable **"Opened"**
+> badge per household, driven by the server's `firstOpenedAt` (a real guest
+> family-code claim) — distinct from the false-positive-prone copy-only "Sent".
+> - **Precedence**: `firstOpenedAt != null` ⇒ **"Opened"** (filled gold/success
+>   accent, with a tooltip naming the open date via a small `Intl.DateTimeFormat`
+>   helper: _"A guest opened this invite (code used) on &lt;date&gt;"_); else if
+>   shared ⇒ the soft secondary **"Sent"** badge (kept, bordered/muted, tooltip
+>   clarified to _"You copied the invite message"_); else no badge.
+> - **"Opened" is server-only** — no optimistic flip. The optimistic `sharedNow`
+>   behaviour for "Sent" (flips on copy) is unchanged.
+> - `firstOpenedAt: number | null` added to the row/group types + the family
+>   mapping. `RemintPanel.tsx`'s "already sent out" warning now counts a family
+>   when `codeSharedAt != null` OR `firstOpenedAt != null` (an opened-but-never-
+>   copied household is still out there and loses its code on remint).
+> - Tests: GuestTable shows "Opened" (precedence over "Sent") when `firstOpenedAt`
+>   set, "Sent" when only shared, nothing when neither; RemintPanel counts an
+>   opened-only family toward the warning. See `[[api]]` + `[[db]]`.
+
+### Organiser dashboard UX + structure pass (`feat/cire-organiser-ux`)
+
+> [!note] Organiser dashboard UX + structure pass (`feat/cire-organiser-ux`)
+> A polish + restructure pass over `cire/organiser` (NOT the guest invite) to make
+> the dashboard intuitive and guided for a non-technical couple. The live theme/hero
+> previews, status badges, per-event image upload, RSVP CSV, host autocomplete,
+> codes, and security panel are all preserved.
+> - **`GettingStarted.tsx`** (new) — a four-step checklist (Events → Guests →
+>   Invite → Share codes) whose done-state is derived from the wedding's REAL data:
+>   it fetches a one-off snapshot of `/events`, `/guests`, `/invite`, dedupes guest
+>   rows to households, reuses `lib/invite-emptiness` to tell whether the invite is
+>   customised, and counts codes-sent. Shows a progress rail + the single next
+>   action; collapses to an "all set" summary when complete; each step jumps to its
+>   tab. Fails soft (hidden) if the snapshot fetch errors.
+> - **`SectionIntro.tsx`** (new shared) — eyebrow + serif heading + description +
+>   optional actions slot. Adopted by Guests / Events / Codes / Hosts so every tab
+>   panel leads with the same header shape the Invite/Import sections already used.
+> - **`DashboardTabs.tsx`** — reordered to workflow order (Events first, was Guests),
+>   each tab gets a leading glyph + a `title` tooltip, and the panel now reacts to
+>   external `hashchange` so the checklist's jumps + browser back/forward work.
+>   Default tab is now `events`.
+> - **`OrganiserApp.tsx`** — wedding context header promoted: name is the page
+>   `<h1>` with a slug eyebrow + Owner/Co-host badge. Import panel + tabs reflowed
+>   under the checklist; `#wedding-tabs` anchor for smooth-scroll jumps.
+> - **`ImportPanel.tsx`** — wrapped in a `<details open>` so it leads a new wedding
+>   but can be collapsed once the list is populated (3-step CSV guide unchanged).
+> - Guests + Events gained guided empty states; Codes copy now explains what a guest
+>   code is; Hosts copy explains owner vs co-host.
+> - Tests: +`SectionIntro.test.tsx`, +`GettingStarted.test.tsx`, +`DashboardTabs.test.tsx`
+>   (the tab bar had none before). 96 organiser tests green.
+> ⚠️ Real-device check still wanted: the checklist + header rhythm at 320/375/390/768px,
+> and the tab-bar wrapping at the narrowest widths.
+
+### Per-event image — alternating two-column EventCard (`feat/cire-event-images`)
+
+> [!note] Per-event image — alternating two-column EventCard (`feat/cire-event-images`)
+> Each event can carry **one** optional image. `EventCard.tsx` gains an
+> `orientation` prop (`norm`/`alt`) + consumes the event's `imageUrl` (added to
+> `EventSummary` in `components/types.ts`), and `InvitePage.tsx` alternates the
+> orientation by event **index** (`index() % 2 === 0 ? "norm" : "alt"`).
+> Render rules:
+> - **Desktop (md+) with image** — two columns, vertically centred, comfortable
+>   gap. `norm` = text LEFT / image RIGHT; `alt` = image LEFT / text RIGHT. The
+>   swap is CSS `order` only — the **DOM order stays text-first** (accessible).
+>   Card chrome unchanged: name, date, location, description, and the TWO buttons
+>   in the same order (**Respond first, View Event second**).
+> - **Mobile (below md)** — single column: text first, image **stacked BELOW** it
+>   (the image IS shown on mobile for events, unlike the story photo which hides).
+> - **No image** — single text-only column at every breakpoint (graceful
+>   collapse, no empty half; the `<img>` isn't rendered at all).
+> The image uses the shared `buildSrcSet`/`VARIANT_WIDTHS` (thumb/card) from
+> `InviteHeader.tsx`; `EventCard` prepends the API origin (`apiUrl` prop) to the
+> relative `imageUrl` path. ⚠️ Real-device check still wanted: the md+ side-swap
+> + mobile-stacked rhythm at 320/375/390/768px. See `[[api]]` + `[[db]]`.
+
+### Pinterest embed fix (`feat/cire-pinterest-resolve`)
+
+> [!note] Pinterest embed fix (`feat/cire-pinterest-resolve`)
+> The recurring "Pinterest board doesn't load" is fixed at the **source**, not in
+> the embed: `pin.it` short links are resolved to their canonical
+> `pinterest.com/<user>/<board>/` URL **server-side at CSV import apply time** and
+> persisted into `events.pinterest_url` (see `[[api]]`), so the guest board widget
+> finally has the full URL it needs. The desktop fallback link in
+> `PinterestBoard.tsx` was also moved **below** the embed. **Ops:** existing
+> already-imported events keep their `pin.it` URLs until re-imported.
+
+- [x] **Pinterest moodboard actually embeds + fallback link moved below the embed** (`feat/cire-pinterest-resolve`) — fixes the recurring "Pinterest board embed doesn't load": the guest board widget (`pinit_main.js`) can only render a full `pinterest.com/<user>/<board>` URL, never a `pin.it` short link, but real organiser data is almost always pasted as `pin.it/...`, so `isEmbeddablePinterestBoardUrl()` correctly rejected it and only the link-out ever showed. Fixed at the **source** — see `[[api]]` for the import-time `pin.it` resolution that now persists a canonical board URL into `events.pinterest_url`. On the frontend (`PinterestBoard.tsx`), the desktop "View moodboard on Pinterest ↗" fallback link now renders **below** the embed/consent block instead of above it (it's a secondary "open on Pinterest" affordance when the board embeds, and the primary reach when the embed is absent/blocked/non-embeddable). Consent gate, success-detection MutationObserver, connection-scaled failure cutoff, and the mobile link-out card are all unchanged; the desktop link-order assertion in `PinterestBoard.test.tsx` still holds (presence-based, not order-based). **Ops:** resolution happens at import time, so already-imported LIVE events keep their original `pin.it` URLs until re-imported — see the deploy note in `[[api]]`.
+
+### Pinterest embed re-enabled on mobile (`feat/cire-pinterest-mobile-embed`)
+
+- [x] **Pinterest embed re-enabled on mobile** (`feat/cire-pinterest-mobile-embed`) — the desktop-only capability split in `PinterestBoard.tsx` (a `matchMedia` touch check that rendered a no-embed link-out card and never loaded the widget on phones/tablets) is **removed**: every device now gets the same consent gate → embed → always-visible fallback link. The split existed because the widget "repeatedly failed on mobile", but the dominant cause was unembeddable `pin.it` short links stored verbatim — fixed by import-time resolution (incl. the `api.pinterest.com` redirect-hop fix) + a one-time prod backfill of the 4 live events to canonical `www.pinterest.com.au/<user>/<board>/` URLs. The success-detection MutationObserver + connection-scaled cutoff make the embed self-healing on slow mobile and the fallback link is the safety net, so the split was no longer earning its keep. Removed the now-dead touch detection + `setPinterestTouchForTest` helper; `PinterestBoard.test.tsx` swaps the old touch-link-out suite for a `matchMedia`-mocked-touch regression suite proving the embed renders on a coarse-pointer device. **Wants a real-phone eyeball** to confirm the widget renders reliably in the wild; if not, reverting this commit restores the desktop-only split. See `[[api]]` (pin.it resolution) + [[eprivacy]] (consent gate unchanged — still opt-in on every device).
+
+### Mobile-responsive revision (`feat/invite-mobile-responsive`)
+
+> [!note] Mobile-responsive revision (`feat/invite-mobile-responsive`)
+> A pass over the **guest invite** at 320/375/390/414 + 768px to remove
+> mobile-layout rough edges (no redesign — design + theme tokens untouched):
+> - **Hero** (`InviteHeader.tsx`) — custom title/subtitle now `max-w-full break-words`
+>   so a long single-word couple name can no longer overflow horizontally at 320px;
+>   the overlay padding uses `max(1.5rem, env(safe-area-inset-*))` so copy clears the
+>   notch. `h-dvh` kept.
+> - **Modals** (`AnimatedModal.tsx`) — bottom-sheet panel uses `max-h-[85dvh]` (mobile
+>   viewport-accurate) and `pb-[max(2.5rem, env(safe-area-inset-bottom))]` so its content
+>   /buttons clear the home indicator; desktop centred dialog unchanged (`md:` overrides).
+> - **RSVP** (`RsvpModal.tsx`) — dietary input is `text-base` (16px) on mobile,
+>   `sm:text-[0.9rem]` from the small breakpoint up, killing iOS focus-zoom; the sticky
+>   action footer's negative margin + padding track the same safe-area inset so Save/Cancel
+>   stay above the home indicator and reachable.
+> - **Pinterest** (`PinterestBoard.tsx`) — the fixed-pixel-width board iframe now lives in a
+>   centred `overflow-x-auto` box (and a narrower `data-pin-board-width`), so a wide embed
+>   scrolls within its own box instead of panning the whole page; the always-visible
+>   fallback link is unchanged.
+> - **Event cards** (`EventCard.tsx`) — Respond / View Event buttons are `min-h-11`
+>   (≥44px tap target), full-width-ish (`flex-1`) on mobile, back to intrinsic width at `sm:`.
+> - **Add-to-calendar** (`AddToCalendar.tsx`) — portalled popover position is clamped into
+>   the viewport (+`max-w-[calc(100vw-1rem)]`) so it never spills off the right edge near
+>   the screen edge on a narrow device.
+> - **Global** (`global.css`) — `overflow-x: hidden` on `body` as a belt-and-braces guard
+>   against any single wide island panning the page sideways (vertical scroll unaffected).
+>
+> Organiser portal data tables (`GuestTable` / `EventTable`) were already wrapped in
+> `overflow-x-auto`, so no change was needed there. New vitest assertions lock in the
+> Pinterest overflow box and the 16px RSVP input.
+
+### Smaller landed items
+
+- [x] Per-event metadata in `EventSummary` shape (calendar / dress-code / address / Pinterest / Maps fields landed in PR-A)
+- [x] Rework `OrganiserView` to consume the new `OrganiserGuestRow` shape — moved to `cire/organiser/src/components/GuestTable.tsx`
+- [x] ~~Replace hero photo placeholder with actual photo~~ — now organiser-editable via the invite builder (`hero` image slot). See `[[invite-builder]]`.
+- [x] ~~Customise monogram with couple's initials~~ — now organiser-editable via the invite builder (`heroTitle`). See `[[invite-builder]]`.
+- [x] ~~Write Our Story content~~ — now organiser-editable via the invite builder (`storyEyebrow` / `storyHeading` / `storyBody`). See `[[invite-builder]]`.
+- [x] Populate dress code colour palette swatches from `event.dressCodePalette` (PR-E)
+- [x] Embed actual Pinterest board URLs via `event.pinterestUrl` (PR-D); reworked in PR #28 — switched from `<iframe>` to Pinterest's documented script-widget pattern (`<a data-pin-do="embedBoard">` + `pinit_main.js`, daily-guard bypassed via cache-busted query so SPA re-mounts re-scan), with a 2.5s timeout fallback to a "View moodboard on Pinterest" link when tracker blockers fire `blocked:other` on `assets.pinterest.com`. `toEmbedUrl` removed; `isValidPinterestUrl` retained as the URL gate.
+- [x] **Pinterest moodboard split desktop-vs-mobile — tracker is now desktop-only, mobile is a reliable link-out** (`feat/pinterest-moodboard-ux`) — fixes the repeatedly-failing mobile UX (Android: the consent disclaimer + "Load Pinterest content" button took a few seconds to appear and then the button had "no feedback or effect"). Root cause of the perceived dead click: the consent click *did* fire (`grantConsent → grantConsentGlobally → setConsentGranted(true) → createEffect → injectEmbedScript` all run), but the embed anchor it revealed sat **blank for the full 6–8s connection-scaled cutoff** while `pinit_main.js` loaded/transformed (slow + often blocked on mobile), so from the guest's view the click produced nothing visible. Fix (`PinterestBoard.tsx`): (1) **capability split** — on a coarse-pointer / no-hover device (`matchMedia("(hover: none) and (pointer: coarse)")`, plus a coarse-pointer-on-narrow-viewport fallback; a capability check, not UA sniffing) we render a single, prominent, instantly-working "View moodboard on Pinterest ↗" card that opens the board in a new tab and **never load the tracker, never show the consent gate, never mount the embed** — no tracker ⇒ no consent needed ⇒ no gate ⇒ nothing to fail (a desktop-persisted consent in shared localStorage is explicitly ignored on touch). (2) **immediate desktop click feedback** — granting consent now shows a "Loading board…" spinner (`role="status"`) the instant the click lands, cleared by the success observer / script-onerror / cutoff, so the user never stares at a dead blank slot. The desktop embed, the always-visible fallback link, the page-wide persisted consent, the #178 success-observer + connection-scaled cutoff, and the #173 overflow box are all preserved. New vitest cases: touch path shows the card + injects no tracker + shows no gate (even with persisted consent), desktop loading-state appears on click and clears on transform / onerror. The "few seconds to pop up" delay is the `client:visible` hydration of `InvitePage` (the board lives in the lazy-mounted details modal) — out of scope here (parallel SSR/routing work owns `index.astro` / `InvitePage`); the mobile link-out is now the first thing the guest sees once the modal mounts, with nothing to wait on. **Needs real mobile-device verification** — happy-dom/CI can't exercise the live widget or true touch media queries. See `[[deferred]]` + [[eprivacy]] / [[subprocessors]] (root compliance).
+- [x] **Pinterest consent gate now one-time, page-wide, persisted** (PR #126) — the third-party `pinit_main.js` embed stays consent-gated, but the opt-in is no longer session-scoped: consent persists in **localStorage** (survives the visit, never re-prompts on return) behind a single shared signal, so accepting on one board immediately reveals every other Pinterest board on the page. The consent prompt links the `/privacy` notice; the "View moodboard on Pinterest" fallback link is always available without consent. See `[[deferred]]` (resolved) + [[eprivacy]] (root compliance).
+- [x] **Mobile Pinterest embed no longer falsely hidden — success-detection via MutationObserver** (`feat/pinterest-mobile-embed`) — fixes the embed rendering on desktop but **not on mobile** (the guest was left with only the fallback link). Root cause was a timing race, not a mobile-impossibility: a single fixed `EMBED_TIMEOUT_MS = 2500` blindly checked whether the `<a data-pin-do>` was still untransformed at 2.5s and, if so, marked the embed failed and hid it. On mobile (slower script-eval + render + network) Pinterest's `pinit_main.js` transform routinely finishes **after** 2.5s, so a board that *would* render was falsely failed. Fix (`PinterestBoard.tsx`): success is now **observed**, not raced — a `MutationObserver` on the embed container watches for the transform (anchor loses `data-pin-do` / is swapped out, or an `iframe` / `[data-pin-internal]` node appears) and cancels the pending failure timer the instant it lands, so a slow-but-successful board is never hidden. The failure cutoff is kept (so a *real* block still falls back) but made generous + connection-scaled: `8s` default / `6s` on a connection the `navigator.connection` API positively reports as fast non-data-saver (iOS Safari has no `navigator.connection` so it always gets the full 8s). The fast `script.onerror` path is unchanged (a blocked/404 script still falls back immediately). Consent gate, always-visible fallback link, page-wide shared consent, `referrerpolicy=no-referrer`, the cache-busted script URL, and the #173 overflow-scroll box are all preserved (layout classes unchanged — the observed container is the existing flex wrapper). New vitest cases: transform landing *after* the old 2.5s window but before the new cutoff (the regression that proves the fix), script-onerror fast fallback, and no-transform-by-cutoff fallback. **Needs real mobile-device verification** — happy-dom/CI can't exercise the live Pinterest widget.
+- [x] **Graceful mood-board fallback — link always shows, even when the embed can't** (`feat/pinterest-board-fallback`) — fixes a prod bug where an event's `pinterest_url` rendered nothing on the Details view. Two causes: (1) the embed script (`assets.pinterest.com/js/pinit_main.js`) is commonly blocked/slow, and (2) the **entire** render — including the fallback link — was gated behind one over-strict validator, so a borderline-but-legitimate board URL (trailing slash already handled, but e.g. a `pin.it` short link, a board with a `/section` sub-path, or a profile-level link) rendered nothing at all. Fix splits the single `isValidPinterestUrl` gate (`cire/web/src/components/pinterest.ts`) into two: `isSafePinterestLinkUrl` (https + Pinterest-host allowlist incl. `pin.it`, loose on path) gates the **always-visible** "View moodboard on Pinterest" outbound link, and `isEmbeddablePinterestBoardUrl` (strict `/user/board[/section]` shape, no query/fragment, supported hosts only) gates the embed script + `<a data-pin-do>` anchor. Degradation is now: embed when it works → if blocked/slow/timeout/onerror OR un-embeddable URL → visible link. Consent prompt only shows for embeddable URLs. URL-shape unit tests cover valid boards, `pin.it` short links, trailing slash, section sub-paths, and non-Pinterest/`javascript:`/host-injection rejections.
+- [x] Wire RSVP modal to API using surfaced `guestId` per member (PR-F)
+- [x] **Dietary-consent checkbox in `RsvpModal`** (C-H2 (cire dietary), PR #123) — once a guest enters dietary free-text (special-category Art. 9(2)(a)), the modal shows an explicit, **unticked-by-default** consent checkbox and gates submit on it, linking the `/privacy` notice. The server 422s a non-empty dietary without consent and stamps the consent record. See `[[api]]` + `[[dpia/cire-guest-data]]` (root compliance).
+- [x] "Open in Maps" button on event cards driven by `event.mapsUrl` — shipped in `MapPreview.tsx` (the shared footer "Open in Maps" affordance, in both the Maps-Embed iframe path and the CSS-card fallback; `resolveMapsUrl` validates the organiser URL, else derives from the address). See the Maps Embed item below.
+- [x] **Real Google Maps Embed preview in the event-details "Where" section** (key-optional) — `MapPreview.tsx` renders a Google Maps Embed API `place` iframe (free, unlimited, queried by the free-text venue `address` — no lat/lng, no geocoding, no schema change) when `PUBLIC_GOOGLE_MAPS_EMBED_KEY` is configured at build time; when the key is unset/blank, or the event has no address to query, it falls back to the existing CSS-drawn map card, so it is a pure enhancement and ships safely before any key exists. Address-only interpolation, always `encodeURIComponent`-escaped; iframe has a meaningful `title`, `loading="lazy"`, `referrerpolicy="no-referrer-when-downgrade"`, and a fixed height matching the card (no layout shift). The "Open in Maps" affordance keeps working in both modes (in the iframe path it moves to the footer, since the iframe captures pointer events). New env var documented in `cire/web/.env.example` + production-deploy runbook §3.3; human step is to create a referrer-restricted Maps-Embed-only key. `resolveMapsEmbedUrl` helper in `event-details.ts`.
+- [x] Add-to-calendar links (Google Calendar, Apple Calendar, .ics) sourced from `event.startAt` / `endAt` / `timezone` (PR-G)
+- [x] ~~Passkey registration + login UI~~ — **Obsolete**: guests use claim codes (no accounts); organiser sign-in reuses OSN's `<SignIn>` from `@osn/ui` on the portal (OSN merge)
+- [x] ~~Magic link email fallback UI~~ — **Obsolete**: no magic-link factor in the two-system auth model
+- [x] **z-index token map for `cire/web`** (`feat/cire-zindex-tokens`) — stacking order centralised in `src/lib/z-index.ts`: a `Z_LAYER` scale (`BASE` 0 / `EVENT_CARD` 10 / `MODAL` 100 / `MODAL_POPOVER` 110) plus matching `Z_CLASS` Tailwind literals (`z-0`/`z-10`/`z-100`/`z-110`). `AnimatedModal` (backdrop, was `z-100`) now uses `Z_CLASS.MODAL`; `AddToCalendar`'s portalled popover (was `z-110`) uses `Z_CLASS.MODAL_POPOVER`. The #203 invariant — a popover launched from inside a modal must sit ABOVE that modal (`MODAL_POPOVER > MODAL`) — is documented in the module and asserted in `z-index.test.ts`, so a future overlay can't silently regress the ordering. Exact visual values unchanged (modal=100, popover=110); pure centralisation refactor.
+- [x] `LoginSection` claim code input `pattern` attribute fixed (`[A-Za-z0-9\\-]+` → `[A-Za-z0-9-]+`) — escaped `\-` inside a character class is rejected as `Invalid character in character class` under Chrome's `/v` regex flag, which broke client-side validation in recent Chrome. PR #28.
+- [x] `LoginSection` claim input cap raised `maxLength={30}` → `48` (`feat/cire-family-code-polish`) — the 30-char cap truncated longer secure codes (e.g. `THENGUYENFAMILY-BANISTER-DM65HQ`, 31 chars), so they could never be typed or pasted in full. The worst-case code is SURNAME(16) + `-` + longest word(10) + `-` + grouped secure hash `XXXXX-XXXXX`(11) = 39 chars; 48 leaves headroom and the server still validates. Trim + upper-case normalisation unchanged. Pairs with the cleaner-surname + wholesome-word-bank generator change in `[[api]]`.
+</content>
+</invoke>
