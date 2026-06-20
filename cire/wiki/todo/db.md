@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-06-19
+last-reviewed: 2026-06-21
 ---
 
 # cire/db
@@ -35,5 +35,5 @@ Schema and migration work. See [[monorepo-structure]] for how this package fits 
 - [x] Add `dietary_requirements` column to rsvps (added as `dietary` text NOT NULL DEFAULT '' in migration `0002_add_rsvp_dietary.sql`; per-event dietary lives on `rsvps` row)
 - [ ] Retire deprecated `events.date` / `events.location` columns (kept in 0003 for backwards compatibility — D1 is forward-only so this needs a separate copy-and-drop migration)
 - [ ] Seed script for local development that exercises real `generatePublicId` / `generatePassword` (currently uses fixed JSON fixtures so tests stay deterministic)
-- [x] `db:push` / `db:seed` / `db:reset` / `db:generate` / `db:studio` scripts in `cire/db/package.json`; `seed/dev-seed.sql` mirrors `cire/api/src/data/*` for local D1 — see `cire/db/README.md`
-- [ ] DRY the dev seed — move `cire/api/src/data/{events,guests}.json` into `cire/db/seed/data/` (or a TS module) and have `cire/api/src/db/setup.ts` import from there, so `seed/dev-seed.sql` regenerates from a single source rather than being hand-mirrored
+- [x] `db:push` / `db:seed` / `db:reset` / `db:generate` / `db:studio` scripts in `cire/db/package.json`; `seed/dev-seed.sql` is now **generated** from the canonical `cire/db/seed/data/` modules (see the DRY item below) — see `cire/db/README.md`
+- [x] **DRY the dev seed** (`chore/cire-dry-dev-seed-v2`) — replaced the hand-mirrored pair (`cire/api/src/data/{events,guests}.json` + a separately hand-written `dev-seed.sql`) with a single canonical TS source under `cire/db/seed/data/` (`events.ts`, `guests.ts`, `wedding.ts`, re-exported as `@cire/db/seed`). `cire/api/src/db/setup.ts#seedDb` and the five route/service tests now import from `@cire/db/seed`; `cire/db/seed/generate.ts` (`bun run --cwd cire/db seed:generate`) **derives** `dev-seed.sql` from the same data, and `cire/db/seed/seed.test.ts` regenerates-in-memory and fails CI on drift. Seed VALUES are byte-identical to before (all 633 cire/api tests stay green); the old JSON fixtures are deleted. See `cire/db/README.md`.

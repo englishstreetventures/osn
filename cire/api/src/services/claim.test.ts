@@ -1,10 +1,10 @@
 import { describe, it, expect } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, families, guests } from "@cire/db";
+import { events as eventsData } from "@cire/db/seed";
 import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
-import eventsData from "../data/events.json";
 import type { Db } from "../db";
 import { DbService } from "../db";
 import { createDb, seedDb } from "../db/setup";

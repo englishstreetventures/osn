@@ -1,10 +1,10 @@
 import { describe, it, expect } from "bun:test";
 
 import { guests, rsvps as rsvpsTable } from "@cire/db";
+import { events as eventsData } from "@cire/db/seed";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
-import eventsData from "../data/events.json";
 import { DbService } from "../db";
 import { TestDbLayer } from "../db/test-layer";
 import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";

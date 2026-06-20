@@ -1,19 +1,19 @@
 import { Database } from "bun:sqlite";
 
 import * as schema from "@cire/db";
+import { DEV_OWNER_PROFILE_ID, events as eventsData, guests as guestsData } from "@cire/db/seed";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import eventsData from "../data/events.json";
-import guestsData from "../data/guests.json";
 import type { Db } from "./index";
 
-// Stable owner for the local-dev / test sample wedding. No real OSN profile
-// exists in local dev or the test suite, so the seeded wedding is owned by this
-// fixed dev id; sign in as it (or repoint via CIRE_DEV_OWNER_PROFILE_ID in the
-// db:seed script) to see the sample wedding in the portal. Deployed tiers never
-// run this seed — a real signed-in OSN user creates their own weddings via
-// POST /api/organiser/weddings, so there is no env-driven owner resolution here.
-export const DEV_OWNER_PROFILE_ID = "usr_dev_bootstrap_owner";
+// Re-exported for the seed path + tests. The single source of truth lives in
+// cire/db/seed/data/wedding.ts (DEV_OWNER_PROFILE_ID) — see seedBootstrapWedding
+// below. No real OSN profile exists in local dev or the test suite, so the
+// seeded wedding is owned by this fixed dev id; sign in as it (or repoint via
+// CIRE_DEV_OWNER_PROFILE_ID in the db:seed script) to see the sample wedding in
+// the portal. Deployed tiers never run this seed — a real signed-in OSN user
+// creates their own weddings via POST /api/organiser/weddings.
+export { DEV_OWNER_PROFILE_ID };
 
 // LOCKSTEP CONTRACT: this DDL is a hand-maintained mirror of
 // @cire/db's schema.ts + the latest migration in cire/db/migrations/.

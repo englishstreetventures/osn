@@ -14,7 +14,15 @@ packages/db/
 │   ├── 0003_events_metadata_and_imports.sql
 │   ├── 0004_perf_indices.sql
 │   └── meta/_journal.json
-└── seed/dev-seed.sql     # Local-D1 dev seed (events + families + guests)
+└── seed/
+    ├── data/             # Canonical seed data (single source of truth)
+    │   ├── events.ts     # keyed-by-slug sample events
+    │   ├── guests.ts     # sample families + guests (stable UUIDs)
+    │   ├── wedding.ts    # bootstrap wedding row + DEV_OWNER_PROFILE_ID
+    │   └── index.ts      # re-export — `@cire/db/seed`
+    ├── generate.ts       # derives dev-seed.sql from ./data (bun run seed:generate)
+    ├── seed.test.ts      # fails CI if dev-seed.sql drifts from ./data
+    └── dev-seed.sql      # GENERATED local-D1 dev seed (events + families + guests)
 ```
 
 ## Scripts
@@ -31,6 +39,8 @@ directly inside `packages/db`. Wrangler reads `apps/api/wrangler.toml` via the
 | `db:seed`        | Apply `seed/dev-seed.sql` to the local D1 (idempotent — uses `INSERT OR IGNORE`)       |
 | `db:reset`       | Wipe local D1 state, re-run migrations + seed. Destructive — local only.               |
 | `db:studio`      | Launch Drizzle Studio for browsing the schema / writing one-off queries                |
+| `seed:generate`  | Regenerate `seed/dev-seed.sql` from the canonical `seed/data/` modules                 |
+| `test`           | Run the seed sync test (`bun test`) — fails if `dev-seed.sql` is out of sync           |
 
 ### Typical flows
 
@@ -58,19 +68,24 @@ bun run db:reset
 
 ## Seed contents
 
-`seed/dev-seed.sql` mirrors the test fixtures in `apps/api/src/data/{events,guests}.json` (the test layer in `apps/api/src/db/setup.ts#seedDb` reads those JSON files, the dev seed re-states the same data as SQL). Keeping them in sync is currently manual — see `wiki/todo/db.md` for the DRY follow-up.
+The canonical seed data lives in **`seed/data/`** (`events.ts`, `guests.ts`, `wedding.ts`) — a single source of truth consumed two ways:
+
+- `cire/api/src/db/setup.ts#seedDb` imports it (via `@cire/db/seed`) for the in-memory test seed.
+- `seed/generate.ts` **derives** `seed/dev-seed.sql` from it (the local-D1 seed). The SQL is a generated file — never hand-edit it. Run `bun run --cwd cire/db seed:generate` after changing anything under `seed/data/`. `seed.test.ts` fails CI if the committed SQL drifts.
+
+This replaced the old hand-mirrored pair (`apps/api/src/data/{events,guests}.json` + a separate hand-written `dev-seed.sql`), which could silently drift.
 
 Seeded shape:
 
-- **4 events** (Mehndi / Sangeet / Wedding / Reception, Sept 18-20 2026, Sydney)
+- **5 events** (Catholic / Kitchen Tea / Mehendi / Hindu / Reception, Oct–Nov 2026, Sydney)
 - **4 families** with stable UUIDs:
-  - `SHARMA-IVY-QM42` — Priya
-  - `WILSON-OAK-7R2P` — James, Emma, Sophie
-  - `MEENA-DEW-K9X3` — Auntie Meena
-  - `PATEL-JOY-RK97` — Dev
-- **6 guests** + **12 invitation links** (per-event-per-guest)
+  - `TESTONE-IVY-AA11` — Ada (Testfamily)
+  - `TESTTWO-OAK-BB22` — Bo, Cleo, Dot (Sampleton)
+  - `TESTTRE-DEW-CC33` — Nori (Exampleton)
+  - `TESTFOR-JOY-DD44` — Eli (Placeholder)
+- **6 guests** + **15 invitation links** (per-event-per-guest)
 
-Use `PATEL-JOY-RK97` as the dev claim code (matches the LoginSection placeholder).
+Use `TESTFOR-JOY-DD44` as the dev claim code (Eli is invited to every event).
 
 ## Conventions
 

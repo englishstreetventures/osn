@@ -11,7 +11,7 @@ import type { OsnAccountResolver } from "../services/osn-bridge";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
-// Seeded families (see data/guests.json):
+// Seeded families (see @cire/db/seed — cire/db/seed/data/guests.ts):
 //   TESTONE-IVY-AA11 Testfamily → Ada
 //   TESTTWO-OAK-BB22 Sampleton  → Bo, Cleo, Dot
 const TESTFAMILY = "TESTONE-IVY-AA11";

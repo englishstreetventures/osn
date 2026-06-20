@@ -1,0 +1,144 @@
+// Canonical dev/test seed events — the SINGLE source of truth for the sample
+// wedding's events. Consumed two ways, both derived from THIS module (no more
+// hand-mirroring):
+//   - cire/api/src/db/setup.ts#seedDb reads it for the in-memory test seed.
+//   - cire/db/seed/generate.ts derives seed/dev-seed.sql from it (the local-D1
+//     seed); cire/db/seed/seed.test.ts fails CI if the committed SQL drifts.
+// Keep the VALUES byte-identical to what the SQL emits — existing tests assert
+// against these exact ids/fields.
+
+export type DressCodeSwatch = { readonly name: string; readonly color: string };
+
+export type SeedEvent = {
+  readonly id: string;
+  readonly slug: string;
+  readonly name: string;
+  readonly date: string;
+  readonly startAt: string;
+  readonly endAt: string;
+  readonly timezone: string;
+  readonly location: string;
+  readonly address: string;
+  readonly description: string;
+  readonly dressCodeDescription: string;
+  readonly dressCodePalette: readonly DressCodeSwatch[];
+  readonly pinterestUrl: string;
+  readonly mapsUrl: string;
+  readonly sortOrder: number;
+};
+
+// Keyed by slug so tests can reach a specific event (`events.catholic.id`,
+// `events["kitchen-tea"].id`). Insertion order is the seed order.
+export const events = {
+  catholic: {
+    id: "9f7a2c14-1b3d-4e5f-8a01-000000000001",
+    slug: "catholic",
+    name: "Catholic Ceremony",
+    date: "2026-10-31",
+    startAt: "2026-10-31T10:00:00+11:00",
+    endAt: "2026-10-31T13:00:00+11:00",
+    timezone: "Australia/Sydney",
+    location: "Example Parish Hall",
+    address: "123 Example St, Sampletown NSW 2000",
+    description: "Service commences at 10:00am. Free parking onsite.",
+    dressCodeDescription: "Semiformal. Pink and green colour theme.",
+    dressCodePalette: [
+      { name: "Blush", color: "oklch(86.50% 0.0480 12.50)" },
+      { name: "Rose", color: "oklch(64.20% 0.1450 12.00)" },
+      { name: "Sage", color: "oklch(72.88% 0.0585 128.92)" },
+      { name: "Emerald", color: "oklch(46.05% 0.1156 153.58)" },
+    ],
+    pinterestUrl: "https://www.pinterest.com/example/catholic-moodboard/",
+    mapsUrl: "https://maps.google.com/?q=123+Example+St+Sampletown+NSW+2000",
+    sortOrder: 0,
+  },
+  "kitchen-tea": {
+    id: "9f7a2c14-1b3d-4e5f-8a01-000000000005",
+    slug: "kitchen-tea",
+    name: "Kitchen Tea",
+    date: "2026-11-20",
+    startAt: "2026-11-20T16:00:00+11:00",
+    endAt: "2026-11-20T18:00:00+11:00",
+    timezone: "Australia/Sydney",
+    location: "124 Sample Avenue, Exampleville",
+    address: "124 Sample Avenue, Exampleville NSW 2001",
+    description: "From 4pm to 6pm.",
+    dressCodeDescription: "Smart casual / high tea. Pastel and cream colour theme.",
+    dressCodePalette: [
+      { name: "Blush", color: "oklch(86.50% 0.0480 12.50)" },
+      { name: "Sage", color: "oklch(72.88% 0.0585 128.92)" },
+      { name: "Cream", color: "oklch(94.80% 0.0250 90.00)" },
+      { name: "Dusty Rose", color: "oklch(78.63% 0.0634 48.93)" },
+    ],
+    pinterestUrl: "https://www.pinterest.com/example/kitchen-tea-moodboard/",
+    mapsUrl: "https://maps.google.com/?q=124+Sample+Avenue+Exampleville+NSW+2001",
+    sortOrder: 1,
+  },
+  mehendi: {
+    id: "9f7a2c14-1b3d-4e5f-8a01-000000000002",
+    slug: "mehendi",
+    name: "Mehendi",
+    date: "2026-11-22",
+    startAt: "2026-11-22T18:00:00+11:00",
+    endAt: "2026-11-22T23:00:00+11:00",
+    timezone: "Australia/Sydney",
+    location: "124 Sample Avenue, Exampleville",
+    address: "124 Sample Avenue, Exampleville NSW 2001",
+    description: "From 6pm.",
+    dressCodeDescription: "Semicasual/Indian. Yellow and orange colour theme.",
+    dressCodePalette: [
+      { name: "Marigold", color: "oklch(76.36% 0.1533 75.16)" },
+      { name: "Saffron", color: "oklch(72.50% 0.1700 60.00)" },
+      { name: "Amber", color: "oklch(80.00% 0.1450 85.00)" },
+      { name: "Burnt Orange", color: "oklch(58.50% 0.1620 42.00)" },
+    ],
+    pinterestUrl: "https://www.pinterest.com/example/mehendi-moodboard/",
+    mapsUrl: "https://maps.google.com/?q=124+Sample+Avenue+Exampleville+NSW+2001",
+    sortOrder: 2,
+  },
+  hindu: {
+    id: "9f7a2c14-1b3d-4e5f-8a01-000000000003",
+    slug: "hindu",
+    name: "Hindu Ceremony",
+    date: "2026-11-25",
+    startAt: "2026-11-25T09:00:00+11:00",
+    endAt: "2026-11-25T12:00:00+11:00",
+    timezone: "Australia/Sydney",
+    location: "Example Temple",
+    address: "125 Placeholder Highway, Mocktown NSW 2002",
+    description:
+      "Service commences at 9am. Free parking onsite and adjacent streets (some streets may be time limited).",
+    dressCodeDescription: "Formal/Indian Traditional. Earth tones colour theme.",
+    dressCodePalette: [
+      { name: "Terracotta", color: "oklch(58.20% 0.1240 38.50)" },
+      { name: "Ochre", color: "oklch(70.50% 0.1180 75.00)" },
+      { name: "Olive", color: "oklch(55.00% 0.0720 110.00)" },
+      { name: "Sand", color: "oklch(82.00% 0.0480 80.00)" },
+    ],
+    pinterestUrl: "https://www.pinterest.com/example/hindu-moodboard/",
+    mapsUrl: "https://maps.google.com/?q=125+Placeholder+Highway+Mocktown+NSW+2002",
+    sortOrder: 3,
+  },
+  reception: {
+    id: "9f7a2c14-1b3d-4e5f-8a01-000000000004",
+    slug: "reception",
+    name: "Reception",
+    date: "2026-11-28",
+    startAt: "2026-11-28T18:00:00+11:00",
+    endAt: "2026-11-28T23:00:00+11:00",
+    timezone: "Australia/Sydney",
+    location: "Sample Reception House",
+    address: "126 Example Road, Testburg NSW 2003",
+    description: "From 6pm. Free parking onsite.",
+    dressCodeDescription: "Formal. Dark blue and dark purple colour theme.",
+    dressCodePalette: [
+      { name: "Midnight", color: "oklch(28.50% 0.0612 268.82)" },
+      { name: "Sapphire", color: "oklch(40.00% 0.1450 252.00)" },
+      { name: "Indigo", color: "oklch(35.00% 0.1320 290.00)" },
+      { name: "Plum", color: "oklch(38.22% 0.1235 340.14)" },
+    ],
+    pinterestUrl: "https://www.pinterest.com/example/reception-moodboard/",
+    mapsUrl: "https://maps.google.com/?q=126+Example+Road+Testburg+NSW+2003",
+    sortOrder: 4,
+  },
+} as const satisfies Record<string, SeedEvent>;

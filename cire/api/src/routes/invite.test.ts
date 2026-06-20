@@ -7,12 +7,12 @@ import {
   weddingHosts,
   weddingInviteCustomisations,
 } from "@cire/db";
+import { events as eventsData } from "@cire/db/seed";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../app";
-import eventsData from "../data/events.json";
 import { createDb, seedDb } from "../db/setup";
 import { createAssetsStub } from "../services/invite-assets";
 import { VARIANT_BLUR } from "../services/invite-image-transform";

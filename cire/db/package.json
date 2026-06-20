@@ -3,9 +3,12 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/schema.ts"
+    ".": "./src/schema.ts",
+    "./seed": "./seed/data/index.ts"
   },
   "scripts": {
+    "test": "bun test",
+    "seed:generate": "bun run seed/generate.ts",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "db:push": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply cire-db --local",

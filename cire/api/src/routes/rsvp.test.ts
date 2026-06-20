@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, guests, rsvps } from "@cire/db";
+import { events as eventsData } from "@cire/db/seed";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../app";
-import eventsData from "../data/events.json";
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";

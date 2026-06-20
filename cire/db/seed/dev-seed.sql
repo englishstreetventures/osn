@@ -1,8 +1,10 @@
 -- Local D1 dev seed for `bun run db:seed`.
 --
--- Mirrors apps/api/src/data/{events,guests}.json which the test layer uses
--- via apps/api/src/db/setup.ts#seedDb. Keeping these in sync is currently
--- manual — see wiki/todo/db.md follow-up.
+-- GENERATED FILE — do not edit by hand. Regenerate with:
+--   bun run --cwd cire/db seed:generate
+-- The single source of truth is cire/db/seed/data/ (events.ts, guests.ts,
+-- wedding.ts), which cire/api/src/db/setup.ts#seedDb also reads, so the test
+-- fixtures and this SQL can no longer drift. seed.test.ts fails CI on drift.
 --
 -- Idempotent — every INSERT uses `OR IGNORE` so re-running on top of an
 -- existing seed is a no-op (PK / unique-index conflicts are skipped). To
@@ -17,9 +19,10 @@
 -- starts clean — every real OSN user creates their own weddings). So the local
 -- dev seed now owns its sample wedding row outright instead of relying on the
 -- migration's seeded row. Owned by the fixed dev id `usr_dev_bootstrap_owner`
--- (DEV_OWNER_PROFILE_ID in cire/api/src/db/setup.ts) so a signed-in dev account
--- can own it; override the owner after seeding via CIRE_DEV_OWNER_PROFILE_ID
--- (see scripts/cire-db-seed.sh). The events/families below are FK-scoped to it.
+-- (DEV_OWNER_PROFILE_ID in cire/db/seed/data/wedding.ts) so a signed-in dev
+-- account can own it; override the owner after seeding via
+-- CIRE_DEV_OWNER_PROFILE_ID (see scripts/cire-db-seed.sh). The events/families
+-- below are FK-scoped to it.
 INSERT OR IGNORE INTO weddings (id, slug, display_name, owner_osn_profile_id, code_style, created_at, updated_at)
 VALUES ('wed_bootstrap', 'cire-wedding', 'Cire Wedding', 'usr_dev_bootstrap_owner', 'secure', unixepoch(), unixepoch());
 
@@ -102,9 +105,9 @@ INSERT OR IGNORE INTO events (
 -- ────────────────────────────────────────────────────────────────────────────
 
 INSERT OR IGNORE INTO families (id, wedding_id, public_id, family_name, created_at, updated_at) VALUES
-  ('a0000000-0000-4000-8000-000000000001', 'wed_bootstrap', 'TESTONE-IVY-AA11', 'Testfamily',  unixepoch() * 1000, unixepoch() * 1000),
-  ('a0000000-0000-4000-8000-000000000002', 'wed_bootstrap', 'TESTTWO-OAK-BB22', 'Sampleton',   unixepoch() * 1000, unixepoch() * 1000),
-  ('a0000000-0000-4000-8000-000000000003', 'wed_bootstrap', 'TESTTRE-DEW-CC33', 'Exampleton',  unixepoch() * 1000, unixepoch() * 1000),
+  ('a0000000-0000-4000-8000-000000000001', 'wed_bootstrap', 'TESTONE-IVY-AA11', 'Testfamily', unixepoch() * 1000, unixepoch() * 1000),
+  ('a0000000-0000-4000-8000-000000000002', 'wed_bootstrap', 'TESTTWO-OAK-BB22', 'Sampleton', unixepoch() * 1000, unixepoch() * 1000),
+  ('a0000000-0000-4000-8000-000000000003', 'wed_bootstrap', 'TESTTRE-DEW-CC33', 'Exampleton', unixepoch() * 1000, unixepoch() * 1000),
   ('a0000000-0000-4000-8000-000000000004', 'wed_bootstrap', 'TESTFOR-JOY-DD44', 'Placeholder', unixepoch() * 1000, unixepoch() * 1000);
 
 -- ────────────────────────────────────────────────────────────────────────────
@@ -113,15 +116,15 @@ INSERT OR IGNORE INTO families (id, wedding_id, public_id, family_name, created_
 
 INSERT OR IGNORE INTO guests (id, family_id, first_name, last_name, sort_order, created_at, updated_at) VALUES
   -- Testfamily
-  ('b0000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000001', 'Ada',  'Testfamily', 0, unixepoch() * 1000, unixepoch() * 1000),
+  ('b0000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000001', 'Ada', 'Testfamily', 0, unixepoch() * 1000, unixepoch() * 1000),
   -- Sampleton
-  ('b0000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000002', 'Bo',   'Sampleton', 0, unixepoch() * 1000, unixepoch() * 1000),
+  ('b0000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000002', 'Bo', 'Sampleton', 0, unixepoch() * 1000, unixepoch() * 1000),
   ('b0000000-0000-4000-8000-000000000003', 'a0000000-0000-4000-8000-000000000002', 'Cleo', 'Sampleton', 1, unixepoch() * 1000, unixepoch() * 1000),
-  ('b0000000-0000-4000-8000-000000000004', 'a0000000-0000-4000-8000-000000000002', 'Dot',  'Sampleton', 2, unixepoch() * 1000, unixepoch() * 1000),
+  ('b0000000-0000-4000-8000-000000000004', 'a0000000-0000-4000-8000-000000000002', 'Dot', 'Sampleton', 2, unixepoch() * 1000, unixepoch() * 1000),
   -- Exampleton
-  ('b0000000-0000-4000-8000-000000000005', 'a0000000-0000-4000-8000-000000000003', 'Nori', 'Exampleton',  0, unixepoch() * 1000, unixepoch() * 1000),
+  ('b0000000-0000-4000-8000-000000000005', 'a0000000-0000-4000-8000-000000000003', 'Nori', 'Exampleton', 0, unixepoch() * 1000, unixepoch() * 1000),
   -- Placeholder
-  ('b0000000-0000-4000-8000-000000000006', 'a0000000-0000-4000-8000-000000000004', 'Eli',  'Placeholder',  0, unixepoch() * 1000, unixepoch() * 1000);
+  ('b0000000-0000-4000-8000-000000000006', 'a0000000-0000-4000-8000-000000000004', 'Eli', 'Placeholder', 0, unixepoch() * 1000, unixepoch() * 1000);
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- Event invitations
@@ -132,17 +135,18 @@ INSERT OR IGNORE INTO guest_events (guest_id, event_id) VALUES
   ('b0000000-0000-4000-8000-000000000001', '9f7a2c14-1b3d-4e5f-8a01-000000000001'),
   ('b0000000-0000-4000-8000-000000000001', '9f7a2c14-1b3d-4e5f-8a01-000000000003'),
   ('b0000000-0000-4000-8000-000000000001', '9f7a2c14-1b3d-4e5f-8a01-000000000004'),
-  -- Bo + Cleo: hindu + reception
+  -- Bo: hindu + reception
   ('b0000000-0000-4000-8000-000000000002', '9f7a2c14-1b3d-4e5f-8a01-000000000003'),
   ('b0000000-0000-4000-8000-000000000002', '9f7a2c14-1b3d-4e5f-8a01-000000000004'),
+  -- Cleo: hindu + reception
   ('b0000000-0000-4000-8000-000000000003', '9f7a2c14-1b3d-4e5f-8a01-000000000003'),
   ('b0000000-0000-4000-8000-000000000003', '9f7a2c14-1b3d-4e5f-8a01-000000000004'),
-  -- Dot: hindu only
+  -- Dot: hindu
   ('b0000000-0000-4000-8000-000000000004', '9f7a2c14-1b3d-4e5f-8a01-000000000003'),
   -- Nori: catholic + hindu
   ('b0000000-0000-4000-8000-000000000005', '9f7a2c14-1b3d-4e5f-8a01-000000000001'),
   ('b0000000-0000-4000-8000-000000000005', '9f7a2c14-1b3d-4e5f-8a01-000000000003'),
-  -- Eli: all five (default demo code — exercises every event)
+  -- Eli: catholic + mehendi + hindu + reception + kitchen-tea
   ('b0000000-0000-4000-8000-000000000006', '9f7a2c14-1b3d-4e5f-8a01-000000000001'),
   ('b0000000-0000-4000-8000-000000000006', '9f7a2c14-1b3d-4e5f-8a01-000000000002'),
   ('b0000000-0000-4000-8000-000000000006', '9f7a2c14-1b3d-4e5f-8a01-000000000003'),

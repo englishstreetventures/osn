@@ -1,4 +1,4 @@
 {
   "extends": "@shared/typescript-config/node.json",
-  "include": ["src/**/*", "drizzle.config.ts"]
+  "include": ["src/**/*", "seed/**/*", "drizzle.config.ts"]
 }

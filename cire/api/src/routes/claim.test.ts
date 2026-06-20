@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
 import { events } from "@cire/db";
+import { events as eventsData } from "@cire/db/seed";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../app";
-import eventsData from "../data/events.json";
 import { createDb, seedDb } from "../db/setup";
 import { eff } from "../test-helpers";
 
