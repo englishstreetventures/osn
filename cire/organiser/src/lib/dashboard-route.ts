@@ -9,7 +9,7 @@
  *   #/weddings/<weddingId>/<tab>       → that wedding + a specific tab
  *   #/security                         → the account-security view
  *
- * `<tab>` is one of events | guests | invite | codes | hosts. The list view and
+ * `<tab>` is one of events | guests | rsvps | invite | codes | hosts. The list view and
  * the security view carry no further state here; deeper sub-state (open modals,
  * a selected guest row) is intentionally NOT deep-linked yet — see the wiki.
  *
@@ -17,7 +17,7 @@
  * hash degrades gracefully rather than erroring.
  */
 
-export const DASHBOARD_TABS = ["events", "guests", "invite", "codes", "hosts"] as const;
+export const DASHBOARD_TABS = ["events", "guests", "rsvps", "invite", "codes", "hosts"] as const;
 
 export type DashboardTab = (typeof DASHBOARD_TABS)[number];
 

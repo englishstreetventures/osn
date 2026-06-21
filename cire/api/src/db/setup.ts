@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS families (
   kind TEXT NOT NULL DEFAULT 'guest',
   code_shared_at INTEGER,
   first_opened_at INTEGER,
+  deactivated_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

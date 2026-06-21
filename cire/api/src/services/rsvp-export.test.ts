@@ -355,3 +355,106 @@ describe("rsvp-export CSV serialisation", () => {
     ),
   );
 });
+
+describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
+  it(
+    "lists every wedding event, even ones with no responses (empty + zeroed)",
+    withDb(
+      Effect.gen(function* () {
+        const view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
+        // The seed has the full event set; with no RSVPs every event has an empty
+        // guest list + zero counts but still appears.
+        expect(view.events.length).toBeGreaterThan(0);
+        for (const e of view.events) {
+          expect(e.guests).toHaveLength(0);
+          expect(e.attending).toBe(0);
+          expect(e.responded).toBe(0);
+        }
+      }),
+    ),
+  );
+
+  it(
+    "groups responded guests under their event with correct counts + dietary",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const ada = guestByName(db, "Ada");
+        const bo = guestByName(db, "Bo");
+        const catholic = eventBySlug(db, "catholic");
+        rsvp(db, ada.id, catholic.id, "attending", "Gluten free");
+        rsvp(db, bo.id, catholic.id, "declined");
+
+        const view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
+        const event = view.events.find((e) => e.id === catholic.id)!;
+        expect(event.attending).toBe(1);
+        expect(event.declined).toBe(1);
+        expect(event.maybe).toBe(0);
+        expect(event.responded).toBe(2);
+        expect(event.guests).toHaveLength(2);
+
+        const adaRow = event.guests.find((g) => g.guestId === ada.id)!;
+        expect(adaRow.status).toBe("attending");
+        expect(adaRow.dietary).toBe("Gluten free");
+        const boRow = event.guests.find((g) => g.guestId === bo.id)!;
+        expect(boRow.status).toBe("declined");
+      }),
+    ),
+  );
+
+  it(
+    "computes noResponse = invited − responded (never negative)",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const ada = guestByName(db, "Ada");
+        const catholic = eventBySlug(db, "catholic");
+        rsvp(db, ada.id, catholic.id, "attending");
+        const view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
+        const event = view.events.find((e) => e.id === catholic.id)!;
+        expect(event.invited).toBeGreaterThanOrEqual(event.responded);
+        expect(event.noResponse).toBe(event.invited - event.responded);
+        expect(event.noResponse).toBeGreaterThanOrEqual(0);
+      }),
+    ),
+  );
+
+  it(
+    "excludes a host-preview family's RSVPs from the view",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date();
+        const catholic = eventBySlug(db, "catholic");
+        db.insert(families)
+          .values({
+            id: "fam_host_view",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            publicId: "HOST-VIEWAAAAAAAAAAAAAAAAAAAAAAAA",
+            familyName: "Wedding Host",
+            kind: "host",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        db.insert(guests)
+          .values({
+            id: "gst_host_view",
+            familyId: "fam_host_view",
+            firstName: "Hosty",
+            lastName: "Preview",
+            sortOrder: 0,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        rsvp(db, "gst_host_view", catholic.id, "attending");
+
+        const view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
+        const event = view.events.find((e) => e.id === catholic.id)!;
+        expect(event.guests.find((g) => g.guestId === "gst_host_view")).toBeUndefined();
+        expect(event.attending).toBe(0);
+      }),
+    ),
+  );
+});

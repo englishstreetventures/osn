@@ -21,6 +21,9 @@ vi.mock("./EventTable", () => ({
 vi.mock("./GuestTable", () => ({
   default: (p: { weddingId: string }) => <div data-testid="guests">{p.weddingId}</div>,
 }));
+vi.mock("./RsvpView", () => ({
+  default: (p: { weddingId: string }) => <div data-testid="rsvps">{p.weddingId}</div>,
+}));
 vi.mock("./InviteBuilder", () => ({
   default: (p: { weddingId: string }) => <div data-testid="invite">{p.weddingId}</div>,
 }));
@@ -85,6 +88,13 @@ describe("DashboardTabs", () => {
     setTab("guests");
     expect(screen.getByTestId("guests")).toBeTruthy();
     expect(screen.queryByTestId("events")).toBeNull();
+  });
+
+  it("renders the read-only RSVPs panel (available to owner + co-host)", () => {
+    const { setTab } = renderTabs(false, "events");
+    expect(screen.getByRole("tab", { name: /RSVPs/ })).toBeTruthy();
+    setTab("rsvps");
+    expect(screen.getByTestId("rsvps")).toBeTruthy();
   });
 
   it("falls a co-host's deep-linked #codes tab back to a visible panel", () => {

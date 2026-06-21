@@ -37,7 +37,7 @@ describe("dashboard-route", () => {
     });
 
     it("parses every known tab", () => {
-      for (const tab of ["events", "guests", "invite", "codes", "hosts"] as const) {
+      for (const tab of ["events", "guests", "rsvps", "invite", "codes", "hosts"] as const) {
         expect(parseRoute(`#/weddings/wed_1/${tab}`).tab).toBe(tab);
       }
     });
@@ -145,8 +145,8 @@ describe("dashboard-route", () => {
   });
 
   describe("isDashboardTab", () => {
-    it("accepts the five tabs and rejects everything else", () => {
-      for (const tab of ["events", "guests", "invite", "codes", "hosts"]) {
+    it("accepts the known tabs and rejects everything else", () => {
+      for (const tab of ["events", "guests", "rsvps", "invite", "codes", "hosts"]) {
         expect(isDashboardTab(tab)).toBe(true);
       }
       expect(isDashboardTab("weddings")).toBe(false);

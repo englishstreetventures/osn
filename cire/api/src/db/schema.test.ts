@@ -37,6 +37,7 @@ CREATE TABLE families (
   kind TEXT NOT NULL DEFAULT 'guest',
   code_shared_at INTEGER,
   first_opened_at INTEGER,
+  deactivated_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -152,6 +153,18 @@ describe("families schema", () => {
     insertFamily(db, "fam-1", "GUESTONE-IVY-AA11", "Guesty");
     insertFamily(db, "fam-2", "GUESTTWO-IVY-BB22", "Guesty");
     expect(db.select().from(families).all()).toHaveLength(2);
+  });
+
+  it("defaults deactivated_at to null (active) and round-trips a set value", () => {
+    const db = makeDb();
+    insertFamily(db, "fam-1", "DEACTDEF-IVY-AA11", "Active");
+    const [active] = db.select().from(families).all();
+    expect(active?.deactivatedAt).toBeNull();
+
+    const when = new Date(1_700_000_000_000);
+    db.update(families).set({ deactivatedAt: when }).where(eq(families.id, "fam-1")).run();
+    const [deactivated] = db.select().from(families).all();
+    expect(deactivated?.deactivatedAt?.getTime()).toBe(when.getTime());
   });
 });
 

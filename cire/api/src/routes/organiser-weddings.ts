@@ -12,6 +12,7 @@ import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
 import { CreateWeddingBody, RemintBody } from "../schemas/wedding";
 import { claimService } from "../services/claim";
+import { familyDeactivateService } from "../services/family-deactivate";
 import { hostCodeService } from "../services/host-code";
 import { markSharedService } from "../services/mark-shared";
 import { regenerateCodeService } from "../services/regenerate-code";
@@ -122,6 +123,104 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
               });
             }).pipe(
               Effect.provideService(DbService, db),
+              Effect.catchAllDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        })
+        // Read-only in-dashboard RSVP view — the same wedding-scoped, host-
+        // excluded RSVP data as the CSV export, shaped BY EVENT (each event with
+        // its responded guests + a status tally) for the dashboard's RSVPs tab.
+        // Same weddingMember() gate as the reads above (owner OR co-host). PII
+        // (names, dietary) — never let an intermediary cache it.
+        .get("/rsvps", ({ weddingId, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            rsvpExportService.buildView(weddingId).pipe(
+              Effect.provideService(DbService, db),
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  set.headers["cache-control"] = "no-store";
+                }),
+              ),
+              Effect.catchAllDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        })
+        // Cut off a withdrawn invite: deactivate a family so its claim code stops
+        // working (the guest claim path rejects it like an unknown code), WITHOUT
+        // deleting the family/guests/RSVPs. Reversible via `.../reactivate`.
+        // weddingMember() gate (owner OR co-host) — same level as the guest reads
+        // + import a co-host already drives; this is reversible household
+        // housekeeping, not a destructive rotation. The service re-checks family ∈
+        // wedding AND kind='guest', so a host-preview family can't be deactivated
+        // and a member of wedding A can't touch wedding B's family.
+        .post("/families/:familyId/deactivate", ({ weddingId, params, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            familyDeactivateService.setDeactivated(weddingId, params.familyId, true).pipe(
+              Effect.provideService(DbService, db),
+              Effect.map((r) => ({ familyId: r.familyId, deactivatedAt: r.deactivatedAt })),
+              Effect.catchTags({
+                FamilyNotInWedding: () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "family_not_found" };
+                  }),
+                DeactivateWriteError: () =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Could not deactivate family" };
+                  }),
+              }),
+              Effect.catchAllDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        })
+        // Restore a deactivated family: clear the marker so its code claims again
+        // (the data was never deleted). Same weddingMember() gate + cross-tenant /
+        // kind guard as deactivate.
+        .post("/families/:familyId/reactivate", ({ weddingId, params, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            familyDeactivateService.setDeactivated(weddingId, params.familyId, false).pipe(
+              Effect.provideService(DbService, db),
+              Effect.map((r) => ({ familyId: r.familyId, deactivatedAt: r.deactivatedAt })),
+              Effect.catchTags({
+                FamilyNotInWedding: () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "family_not_found" };
+                  }),
+                DeactivateWriteError: () =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Could not reactivate family" };
+                  }),
+              }),
               Effect.catchAllDefect(() =>
                 Effect.sync(() => {
                   set.status = 500;

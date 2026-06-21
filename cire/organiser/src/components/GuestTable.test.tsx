@@ -57,6 +57,7 @@ const GUESTS = [
     events: ["evt_1"],
     codeSharedAt: null,
     firstOpenedAt: null,
+    deactivatedAt: null,
   },
   {
     familyId: "fam_b",
@@ -67,6 +68,7 @@ const GUESTS = [
     events: [],
     codeSharedAt: 1_700_000_000_000,
     firstOpenedAt: null,
+    deactivatedAt: null,
   },
 ];
 
@@ -243,5 +245,88 @@ describe("GuestTable", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Copy message/i })[0]!);
     await waitFor(() => expect(toastError).toHaveBeenCalled());
     expect(toastSuccess).not.toHaveBeenCalled();
+  });
+
+  it("deactivates a family after confirm and mutes the row", async () => {
+    primeLoad();
+    // The deactivate POST.
+    authFetchMock.mockResolvedValueOnce(
+      json({ familyId: "fam_a", deactivatedAt: 1_700_000_900_000 }),
+    );
+    render(() => (
+      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+
+    // Sharma (fam_a) is active → a Deactivate button is present.
+    const deactivateBtn = screen.getAllByRole("button", { name: /^Deactivate$/i })[0]!;
+    fireEvent.click(deactivateBtn);
+    // Confirm step.
+    const confirmBtn = await screen.findByRole("button", { name: /^Confirm$/i });
+    fireEvent.click(confirmBtn);
+
+    // Hits the deactivate endpoint…
+    await waitFor(() =>
+      expect(
+        authFetchMock.mock.calls.some(
+          (c) =>
+            String(c[0]) ===
+              "https://api.test/api/organiser/weddings/wed_a/families/fam_a/deactivate" &&
+            (c[1] as RequestInit | undefined)?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    // …and surfaces the "Deactivated — code disabled" label optimistically.
+    await waitFor(() => expect(screen.getByText(/Deactivated — code disabled/i)).toBeTruthy());
+    expect(toastSuccess).toHaveBeenCalled();
+  });
+
+  it("reactivates an already-deactivated family directly (no confirm)", async () => {
+    const deactivated = [{ ...GUESTS[0], deactivatedAt: 1_700_000_900_000 }, GUESTS[1]];
+    authFetchMock
+      .mockResolvedValueOnce(json(deactivated))
+      .mockResolvedValueOnce(json(EVENTS))
+      .mockResolvedValueOnce(json({ inviteMessage: null }))
+      // The reactivate POST.
+      .mockResolvedValueOnce(json({ familyId: "fam_a", deactivatedAt: null }));
+
+    render(() => (
+      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+    // fam_a starts deactivated → the label is shown + a Reactivate button exists.
+    expect(screen.getByText(/Deactivated — code disabled/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Reactivate$/i }));
+
+    await waitFor(() =>
+      expect(
+        authFetchMock.mock.calls.some(
+          (c) =>
+            String(c[0]) ===
+              "https://api.test/api/organiser/weddings/wed_a/families/fam_a/reactivate" &&
+            (c[1] as RequestInit | undefined)?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    // The label clears once reactivated.
+    await waitFor(() => expect(screen.queryByText(/Deactivated — code disabled/i)).toBeNull());
+    expect(toastSuccess).toHaveBeenCalled();
+  });
+
+  it("surfaces an inline error when deactivation fails", async () => {
+    primeLoad();
+    authFetchMock.mockResolvedValueOnce(json({ error: "boom" }, 500));
+    render(() => (
+      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Deactivate$/i })[0]!);
+    fireEvent.click(await screen.findByRole("button", { name: /^Confirm$/i }));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    // The row is NOT muted (no optimistic flip on failure).
+    expect(screen.queryByText(/Deactivated — code disabled/i)).toBeNull();
   });
 });

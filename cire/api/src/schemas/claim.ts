@@ -115,5 +115,11 @@ export const OrganiserGuestRow = Schema.Struct({
   // copy-only `codeSharedAt` "Sent" — and is counted alongside it by the remint
   // "already sent out" warning. Same family-level dedupe as `codeSharedAt`.
   firstOpenedAt: Schema.NullOr(Schema.Number),
+  // Epoch-ms timestamp the organiser DEACTIVATED this family (cut off a
+  // withdrawn invite's claim code), or `null` when the family is active. A
+  // non-null value means the family's code no longer claims — the dashboard
+  // mutes the row + offers a Reactivate toggle. Family-level, so per-guest rows
+  // in the same family carry the same value; the UI dedupes by family.
+  deactivatedAt: Schema.NullOr(Schema.Number),
 });
 export type OrganiserGuestRow = Schema.Schema.Type<typeof OrganiserGuestRow>;

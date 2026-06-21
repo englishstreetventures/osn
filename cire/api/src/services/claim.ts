@@ -89,6 +89,16 @@ export const claimService = {
       );
       if (!family) return yield* Effect.fail(new InvalidCredentials());
 
+      // A deactivated family (organiser cut off a withdrawn invite) is rejected
+      // with the SAME generic invalid-credentials failure the unknown-code path
+      // above returns — deliberately indistinguishable so the response never
+      // reveals that the code exists-but-is-deactivated (enumeration / oracle
+      // defence). Host-preview families (`kind === "host"`) are never
+      // deactivated by the organiser route, so this only ever fires for a real
+      // withdrawn guest invite. Reactivating clears `deactivatedAt` → the code
+      // claims normally again.
+      if (family.deactivatedAt !== null) return yield* Effect.fail(new InvalidCredentials());
+
       // Record the FIRST real guest open of this invite. Best-effort and
       // idempotent: only a guest family that has never been opened on its
       // CURRENT code gets a timestamp, and it's never overwritten — so the value
@@ -349,6 +359,7 @@ export const claimService = {
             familyName: families.familyName,
             codeSharedAt: families.codeSharedAt,
             firstOpenedAt: families.firstOpenedAt,
+            deactivatedAt: families.deactivatedAt,
             eventId: guestEvents.eventId,
           })
           .from(guests)
@@ -382,6 +393,10 @@ export const claimService = {
             // Same encoding for the first real guest open (drives the dashboard's
             // reliable "Opened" status, distinct from the copy-only "Sent").
             firstOpenedAt: row.firstOpenedAt === null ? null : row.firstOpenedAt.getTime(),
+            // Same encoding for the deactivation marker — non-null ⇒ the family's
+            // code is disabled (a withdrawn invite); drives the muted row + the
+            // Reactivate toggle in the organiser guest table.
+            deactivatedAt: row.deactivatedAt === null ? null : row.deactivatedAt.getTime(),
           };
           byGuest.set(row.guestId, entry);
         }

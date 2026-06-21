@@ -6,6 +6,7 @@ import GuestTable from "./GuestTable";
 import HostsPanel from "./HostsPanel";
 import InviteBuilder from "./InviteBuilder";
 import RemintPanel from "./RemintPanel";
+import RsvpView from "./RsvpView";
 
 type Tab = DashboardTab;
 
@@ -40,7 +41,8 @@ interface TabDef {
 
 const BASE_TABS: TabDef[] = [
   { id: "events", label: "Events", glyph: "◇", hint: "Your ceremony, reception, and more" },
-  { id: "guests", label: "Guests", glyph: "✎", hint: "Households, invites, and RSVPs" },
+  { id: "guests", label: "Guests", glyph: "✎", hint: "Households, invites, and codes" },
+  { id: "rsvps", label: "RSVPs", glyph: "✓", hint: "Who's coming, per event, with dietary notes" },
   { id: "invite", label: "Invite", glyph: "✦", hint: "Photos, story, colours, and fonts" },
 ];
 
@@ -108,6 +110,9 @@ export default function DashboardTabs(props: DashboardTabsProps) {
           weddingName={props.weddingName}
           weddingSlug={props.weddingSlug}
         />
+      </Show>
+      <Show when={active() === "rsvps"}>
+        <RsvpView weddingId={props.weddingId} />
       </Show>
       <Show when={active() === "invite"}>
         <InviteBuilder weddingId={props.weddingId} />

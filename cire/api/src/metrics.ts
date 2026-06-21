@@ -76,6 +76,9 @@ export const CIRE_METRICS = {
   weddingReminted: "cire.wedding.reminted",
   // Family invite-code marked "shared" (organiser copied the message).
   familyCodeShared: "cire.family_code.shared",
+  // Family deactivated / reactivated (organiser cut off / restored a withdrawn
+  // invite's claim code).
+  familyDeactivated: "cire.family.deactivated",
   // Guest opened the invite for the FIRST time (an actual family-code claim,
   // host-preview excluded) — the reliable "Opened" signal, distinct from
   // `familyCodeShared` (the false-positive-prone organiser-copied "Sent").
@@ -142,6 +145,11 @@ export type WeddingRemintResult = "ok" | "error";
 
 /** Outcome of marking a family's invite code "shared". */
 export type FamilyCodeSharedResult = "ok" | "error";
+
+/** Outcome of toggling a family's deactivation. `action` records which way the
+ *  toggle went so the metric distinguishes cut-offs from restores. */
+export type FamilyDeactivatedResult = "ok" | "error";
+export type FamilyDeactivateAction = "deactivate" | "reactivate";
 
 /** Outcome of recording a first guest open of an invite (best-effort write). */
 export type InviteOpenedResult = "ok" | "error";
@@ -229,6 +237,7 @@ type OriginGuardRejectionsAttrs = { reason: OriginRejectReason };
 type FamilyCodeRegeneratedAttrs = { result: FamilyCodeRegenResult };
 type WeddingRemintedAttrs = { result: WeddingRemintResult; style: "simple" | "secure" };
 type FamilyCodeSharedAttrs = { result: FamilyCodeSharedResult };
+type FamilyDeactivatedAttrs = { action: FamilyDeactivateAction; result: FamilyDeactivatedResult };
 type InviteOpenedAttrs = { result: InviteOpenedResult };
 type WeddingCreatedAttrs = { result: WeddingCreatedResult };
 type HostAddedAttrs = { result: HostAddResult };
@@ -396,6 +405,13 @@ const familyCodeShared = createCounter<FamilyCodeSharedAttrs>({
   unit: "{share}",
 });
 
+const familyDeactivated = createCounter<FamilyDeactivatedAttrs>({
+  name: CIRE_METRICS.familyDeactivated,
+  description:
+    "Family deactivate / reactivate toggles (organiser cutting off or restoring a withdrawn invite's claim code), by action + outcome",
+  unit: "{toggle}",
+});
+
 const inviteOpened = createCounter<InviteOpenedAttrs>({
   name: CIRE_METRICS.inviteOpened,
   description:
@@ -552,6 +568,12 @@ export const metricWeddingReminted = (
 
 export const metricFamilyCodeShared = (result: FamilyCodeSharedResult): void =>
   familyCodeShared.inc({ result });
+
+/** Record a family deactivate / reactivate toggle, by which way it went + outcome. */
+export const metricFamilyDeactivated = (
+  action: FamilyDeactivateAction,
+  result: FamilyDeactivatedResult,
+): void => familyDeactivated.inc({ action, result });
 
 /** Record a FIRST guest open of an invite (the best-effort claim-path write).
  *  `ok` = the timestamp was recorded; `error` = the best-effort write failed

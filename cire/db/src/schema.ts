@@ -114,6 +114,16 @@ export const families = sqliteTable(
     // excluded so opening the preview never counts. Cleared back to NULL on
     // remint, since the rotated code has never been opened.
     firstOpenedAt: integer("first_opened_at", { mode: "timestamp" }),
+    // When the organiser DEACTIVATED this family's claim code (migration 0024).
+    // NULL = active (the default, so existing rows self-backfill as active). A
+    // non-null timestamp cuts the family off: the guest claim path
+    // (`cire/api` claimService.lookup) rejects a deactivated family's code with
+    // the SAME generic invalid-credentials failure an unknown code gets, so a
+    // withdrawn invite stops working without revealing the code ever existed.
+    // Reversible — reactivating sets it back to NULL. The family/guests/RSVPs
+    // are untouched, so the data survives and a re-activated code works again.
+    // Host-preview families (`kind === "host"`) are never deactivated by this.
+    deactivatedAt: integer("deactivated_at", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },

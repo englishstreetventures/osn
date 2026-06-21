@@ -1,0 +1,13 @@
+-- Per-family deactivation marker so a host can cut off a withdrawn invite's
+-- claim code WITHOUT deleting the family, its guests, or its RSVPs. NULL =
+-- active (the default); a non-null timestamp marks when the organiser
+-- deactivated the family. The guest claim path rejects a deactivated family's
+-- code with the SAME generic invalid-credentials failure an unknown code gets,
+-- so the withdrawn code stops working without revealing it ever existed.
+-- Reversible: reactivating sets the column back to NULL and the code works
+-- again. Host-preview families are never deactivated by this.
+--
+-- Pure forward-only ADD COLUMN — every existing row defaults to NULL, so all
+-- current families stay active until an organiser deactivates one (additive,
+-- NULL ⇒ active, self-backfilling).
+ALTER TABLE families ADD deactivated_at integer;

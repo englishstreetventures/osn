@@ -16,6 +16,7 @@ interface OrganiserGuestRow {
   events: string[];
   codeSharedAt: number | null;
   firstOpenedAt: number | null;
+  deactivatedAt: number | null;
 }
 
 interface FamilyGroup {
@@ -24,6 +25,7 @@ interface FamilyGroup {
   familyName: string;
   codeSharedAt: number | null;
   firstOpenedAt: number | null;
+  deactivatedAt: number | null;
   members: { firstName: string; lastName: string; events: string[] }[];
 }
 
@@ -41,6 +43,10 @@ function formatOpenedDate(epochMs: number): string {
 // optimistic flip — unlike "Sent", it never comes from a local action, so it's
 // a pure function of the server row (kept at module scope).
 const isOpened = (family: FamilyGroup) => family.firstOpenedAt !== null;
+
+// A family whose code the organiser cut off (withdrawn invite). Pure function of
+// the server row plus the local optimistic override (see `deactivatedNow` /
+// `reactivatedNow` below), so the row mutes + relabels immediately on toggle.
 
 interface GuestTableProps {
   weddingId: string;
@@ -73,6 +79,15 @@ export default function GuestTable(props: GuestTableProps) {
   // best-effort mark-shared POST settles in the background.
   const [sharedNow, setSharedNow] = createSignal<Set<string>>(new Set());
   const [exporting, setExporting] = createSignal(false);
+  // Optimistic deactivation overrides keyed by family id, applied over the
+  // server's `deactivatedAt` so a confirmed toggle mutes/relabels the row at once
+  // while the POST settles. A family id can appear in at most one set; clearing
+  // the other on each toggle keeps them mutually exclusive.
+  const [deactivatedNow, setDeactivatedNow] = createSignal<Set<string>>(new Set());
+  const [reactivatedNow, setReactivatedNow] = createSignal<Set<string>>(new Set());
+  // Per-family in-flight + confirm state for the deactivate/reactivate toggle.
+  const [togglingId, setTogglingId] = createSignal<string | null>(null);
+  const [confirmingId, setConfirmingId] = createSignal<string | null>(null);
 
   const families = createMemo(() => {
     const map = new Map<string, FamilyGroup>();
@@ -85,6 +100,7 @@ export default function GuestTable(props: GuestTableProps) {
           familyName: guest.familyName,
           codeSharedAt: guest.codeSharedAt,
           firstOpenedAt: guest.firstOpenedAt,
+          deactivatedAt: guest.deactivatedAt,
           members: [],
         };
         map.set(guest.publicId, family);
@@ -100,6 +116,14 @@ export default function GuestTable(props: GuestTableProps) {
 
   const isShared = (family: FamilyGroup) =>
     family.codeSharedAt !== null || sharedNow().has(family.publicId);
+
+  /** Resolve a family's deactivation, blending the server row with the local
+   *  optimistic override so a just-toggled row reflects the new state at once. */
+  const isDeactivated = (family: FamilyGroup) => {
+    if (reactivatedNow().has(family.familyId)) return false;
+    if (deactivatedNow().has(family.familyId)) return true;
+    return family.deactivatedAt !== null;
+  };
 
   onMount(async () => {
     try {
@@ -140,6 +164,62 @@ export default function GuestTable(props: GuestTableProps) {
       // Intentionally swallowed — a missed mark only under-counts the remint
       // warning; the optimistic UI flip stays so the organiser isn't confused.
     });
+  }
+
+  /**
+   * Deactivate (cut off a withdrawn invite) or reactivate a family. Confirm-gated
+   * for the destructive deactivate direction; reactivate fires directly. Flips the
+   * optimistic override on success, surfaces an inline error + toast on failure,
+   * and redirects on 401 — matching the mark-shared / copy patterns. The family's
+   * guests/RSVPs are never deleted, so reactivating restores the code's data.
+   */
+  async function toggleDeactivated(family: FamilyGroup, deactivate: boolean) {
+    if (togglingId() === family.familyId) return;
+    setTogglingId(family.familyId);
+    setError(null);
+    const action = deactivate ? "deactivate" : "reactivate";
+    try {
+      const res = await authFetch(
+        apiUrl(`/api/organiser/weddings/${props.weddingId}/families/${family.familyId}/${action}`),
+        { method: "POST" },
+      );
+      if (res.status === 401) return redirectToLogin();
+      if (!res.ok) {
+        setError(
+          deactivate
+            ? `Could not deactivate ${family.familyName}. Please try again.`
+            : `Could not reactivate ${family.familyName}. Please try again.`,
+        );
+        toast.error(
+          deactivate ? "Could not deactivate household" : "Could not reactivate household",
+        );
+        return;
+      }
+      // Flip the optimistic override (mutually exclusive sets).
+      if (deactivate) {
+        setDeactivatedNow((prev) => new Set(prev).add(family.familyId));
+        setReactivatedNow((prev) => {
+          const next = new Set(prev);
+          next.delete(family.familyId);
+          return next;
+        });
+        toast.success(`Deactivated ${family.familyName} — code disabled`);
+      } else {
+        setReactivatedNow((prev) => new Set(prev).add(family.familyId));
+        setDeactivatedNow((prev) => {
+          const next = new Set(prev);
+          next.delete(family.familyId);
+          return next;
+        });
+        toast.success(`Reactivated ${family.familyName} — code enabled`);
+      }
+      setConfirmingId(null);
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      setError("Could not update the household. Is the API running?");
+    } finally {
+      setTogglingId(null);
+    }
   }
 
   /**
@@ -254,44 +334,112 @@ export default function GuestTable(props: GuestTableProps) {
                 {(family) => (
                   <>
                     <tr>
-                      <td colspan="3" class="border-border bg-surface/50 border-b px-4 py-2">
+                      <td
+                        colspan="3"
+                        class={`border-border bg-surface/50 border-b px-4 py-2 ${
+                          isDeactivated(family) ? "opacity-50" : ""
+                        }`}
+                      >
                         <div class="flex flex-wrap items-center justify-between gap-3">
                           <span class="font-display text-gold-dim flex items-center gap-2 text-[1rem] italic">
                             {family.familyName}
-                            {/* "Opened" (a real guest claim) takes precedence
-                                over the copy-only "Sent": when a guest has
-                                actually opened the invite, that's the stronger,
-                                more honest signal, so we show it instead. */}
+                            <Show when={isDeactivated(family)}>
+                              <span
+                                class="font-body border-error/40 text-error rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                                title="Deactivated — this household's code no longer opens the invite. Reactivate to restore it."
+                              >
+                                Deactivated — code disabled
+                              </span>
+                            </Show>
+                            {/* Status badges are suppressed while deactivated —
+                                the "Deactivated" label is the only relevant state
+                                then. "Opened" (a real guest claim) otherwise takes
+                                precedence over the copy-only "Sent". */}
+                            <Show when={!isDeactivated(family)}>
+                              <Show
+                                when={isOpened(family)}
+                                fallback={
+                                  <Show when={isShared(family)}>
+                                    <span
+                                      class="font-body text-gold/80 border-gold/30 rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                                      title="Sent — you copied this family's invite message"
+                                    >
+                                      Sent
+                                    </span>
+                                  </Show>
+                                }
+                              >
+                                <span
+                                  class="font-body bg-gold text-bg rounded-sm px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                                  title={`Opened — a guest opened this invite (code used) on ${formatOpenedDate(
+                                    family.firstOpenedAt!,
+                                  )}`}
+                                >
+                                  Opened
+                                </span>
+                              </Show>
+                            </Show>
+                          </span>
+                          <div class="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void copyMessage(family)}
+                              class="font-body text-text-muted hover:text-gold hover:border-gold border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors"
+                            >
+                              Copy message
+                            </button>
+                            {/* Deactivate is confirm-gated (cuts off a live code);
+                                Reactivate is a direct restore. */}
                             <Show
-                              when={isOpened(family)}
+                              when={isDeactivated(family)}
                               fallback={
-                                <Show when={isShared(family)}>
-                                  <span
-                                    class="font-body text-gold/80 border-gold/30 rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
-                                    title="Sent — you copied this family's invite message"
-                                  >
-                                    Sent
+                                <Show
+                                  when={confirmingId() === family.familyId}
+                                  fallback={
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmingId(family.familyId)}
+                                      disabled={togglingId() === family.familyId}
+                                      class="font-body text-text-muted hover:text-error hover:border-error/60 border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
+                                      title="Disable this household's code (e.g. a withdrawn invite). Reversible — their guests and RSVPs are kept."
+                                    >
+                                      Deactivate
+                                    </button>
+                                  }
+                                >
+                                  <span class="font-body text-text-muted text-[0.7rem] tracking-[0.05em]">
+                                    Disable this code?
                                   </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => void toggleDeactivated(family, true)}
+                                    disabled={togglingId() === family.familyId}
+                                    class="border-error bg-error font-body text-bg rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition hover:opacity-90 disabled:opacity-40"
+                                  >
+                                    {togglingId() === family.familyId ? "Deactivating…" : "Confirm"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmingId(null)}
+                                    disabled={togglingId() === family.familyId}
+                                    class="font-body text-text-muted text-[0.7rem] underline-offset-4 hover:underline disabled:opacity-40"
+                                  >
+                                    Cancel
+                                  </button>
                                 </Show>
                               }
                             >
-                              <span
-                                class="font-body bg-gold text-bg rounded-sm px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
-                                title={`Opened — a guest opened this invite (code used) on ${formatOpenedDate(
-                                  family.firstOpenedAt!,
-                                )}`}
+                              <button
+                                type="button"
+                                onClick={() => void toggleDeactivated(family, false)}
+                                disabled={togglingId() === family.familyId}
+                                class="font-body text-gold hover:border-gold border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
+                                title="Re-enable this household's code — their guests and RSVPs were kept."
                               >
-                                Opened
-                              </span>
+                                {togglingId() === family.familyId ? "Reactivating…" : "Reactivate"}
+                              </button>
                             </Show>
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => void copyMessage(family)}
-                            class="font-body text-text-muted hover:text-gold hover:border-gold border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors"
-                          >
-                            Copy message
-                          </button>
+                          </div>
                         </div>
                       </td>
                     </tr>

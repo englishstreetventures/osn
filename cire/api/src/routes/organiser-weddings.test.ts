@@ -716,6 +716,121 @@ describe("POST /api/organiser/weddings/:weddingId/families/:familyId/mark-shared
   });
 });
 
+describe("POST /api/organiser/weddings/:weddingId/families/:familyId/deactivate + reactivate", () => {
+  const COHOST = "usr_cohost_deact";
+
+  function aBootstrapFamily(db: Db): { id: string; publicId: string } {
+    const row = db
+      .select({ id: families.id, publicId: families.publicId })
+      .from(families)
+      .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+      .all()[0];
+    if (!row) throw new Error("no bootstrap family seeded");
+    return row;
+  }
+
+  function seedCohost(db: Db) {
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_deact",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: COHOST,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "host",
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  async function toggle(
+    app: ReturnType<typeof buildApp>["app"],
+    weddingId: string,
+    familyId: string,
+    action: "deactivate" | "reactivate",
+    profileId?: string,
+  ) {
+    const headers: Record<string, string> = {};
+    if (profileId) headers.Authorization = `Bearer ${await auth.sign(profileId)}`;
+    return appRequest(app, `/api/organiser/weddings/${weddingId}/families/${familyId}/${action}`, {
+      method: "POST",
+      headers,
+    });
+  }
+
+  it("returns 401 without a token", async () => {
+    const { db, app } = buildApp();
+    const res = await toggle(app, BOOTSTRAP_WEDDING_ID, aBootstrapFamily(db).id, "deactivate");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 for a non-member", async () => {
+    const { db, app } = buildApp();
+    const res = await toggle(
+      app,
+      BOOTSTRAP_WEDDING_ID,
+      aBootstrapFamily(db).id,
+      "deactivate",
+      OTHER_OWNER,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("deactivates a family for the owner and surfaces deactivatedAt on the guest list", async () => {
+    const { db, app } = buildApp();
+    const fam = aBootstrapFamily(db);
+    const res = await toggle(app, BOOTSTRAP_WEDDING_ID, fam.id, "deactivate", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { familyId: string; deactivatedAt: number | null };
+    expect(body.familyId).toBe(fam.id);
+    expect(body.deactivatedAt).toBeGreaterThan(0);
+
+    const [stored] = db
+      .select({ deactivatedAt: families.deactivatedAt })
+      .from(families)
+      .where(eq(families.id, fam.id))
+      .all();
+    expect(stored!.deactivatedAt).not.toBeNull();
+
+    const list = await get(
+      app,
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests`,
+      BOOTSTRAP_OWNER,
+    );
+    const rows = (await list.json()) as { familyId: string; deactivatedAt: number | null }[];
+    expect(rows.some((r) => r.familyId === fam.id && r.deactivatedAt !== null)).toBe(true);
+  });
+
+  it("reactivates a deactivated family (clears the marker)", async () => {
+    const { db, app } = buildApp();
+    const fam = aBootstrapFamily(db);
+    await toggle(app, BOOTSTRAP_WEDDING_ID, fam.id, "deactivate", BOOTSTRAP_OWNER);
+    const res = await toggle(app, BOOTSTRAP_WEDDING_ID, fam.id, "reactivate", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deactivatedAt: number | null };
+    expect(body.deactivatedAt).toBeNull();
+    const [stored] = db
+      .select({ deactivatedAt: families.deactivatedAt })
+      .from(families)
+      .where(eq(families.id, fam.id))
+      .all();
+    expect(stored!.deactivatedAt).toBeNull();
+  });
+
+  it("allows a co-host to deactivate too (weddingMember gate)", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db);
+    const fam = aBootstrapFamily(db);
+    const res = await toggle(app, BOOTSTRAP_WEDDING_ID, fam.id, "deactivate", COHOST);
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 404 when the family does not belong to the wedding", async () => {
+    const { app } = buildApp();
+    const res = await toggle(app, BOOTSTRAP_WEDDING_ID, "fam_other", "deactivate", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("GET /api/organiser/weddings/:weddingId/rsvps.csv", () => {
   const COHOST = "usr_cohost";
   const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/rsvps.csv`;
@@ -798,5 +913,91 @@ describe("GET /api/organiser/weddings/:weddingId/rsvps.csv", () => {
     const res = await get(app, path, COHOST);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/csv");
+  });
+});
+
+describe("GET /api/organiser/weddings/:weddingId/rsvps (read-only JSON view)", () => {
+  const COHOST = "usr_cohost_view";
+  const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/rsvps`;
+
+  function seedCohost(db: Db) {
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_view",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: COHOST,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "host",
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  /** Plant one attending RSVP (with dietary) for some invited guest. */
+  function seedOneRsvp(db: Db) {
+    const guest = db.select({ id: guests.id }).from(guests).all()[0]!;
+    const link = db
+      .select({ eventId: guestEvents.eventId })
+      .from(guestEvents)
+      .where(eq(guestEvents.guestId, guest.id))
+      .all()[0]!;
+    db.insert(rsvps)
+      .values({
+        id: "rsvp_view",
+        guestId: guest.id,
+        eventId: link.eventId,
+        status: "attending",
+        dietary: "Nut allergy",
+        createdAt: new Date(),
+      })
+      .run();
+    return { guestId: guest.id, eventId: link.eventId };
+  }
+
+  it("returns 401 without a token", async () => {
+    const { app } = buildApp();
+    const res = await get(app, path);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 for a non-member", async () => {
+    const { app } = buildApp();
+    const res = await get(app, path, OTHER_OWNER);
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 404 for an unknown wedding", async () => {
+    const { app } = buildApp();
+    const res = await get(app, "/api/organiser/weddings/wed_nope/rsvps", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns the grouped RSVP view for the owner, no-store", async () => {
+    const { db, app } = buildApp();
+    const planted = seedOneRsvp(db);
+    const res = await get(app, path, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toContain("no-store");
+    const body = (await res.json()) as {
+      events: {
+        id: string;
+        attending: number;
+        responded: number;
+        guests: { guestId: string; status: string; dietary: string }[];
+      }[];
+    };
+    const event = body.events.find((e) => e.id === planted.eventId)!;
+    expect(event.attending).toBe(1);
+    expect(event.responded).toBe(1);
+    const row = event.guests.find((g) => g.guestId === planted.guestId)!;
+    expect(row.status).toBe("attending");
+    expect(row.dietary).toBe("Nut allergy");
+  });
+
+  it("serves the view for a co-host too (weddingMember gate)", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db);
+    const res = await get(app, path, COHOST);
+    expect(res.status).toBe(200);
   });
 });

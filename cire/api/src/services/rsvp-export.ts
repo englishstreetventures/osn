@@ -60,7 +60,178 @@ function mapStatus(status: "attending" | "declined" | "maybe"): EventCell {
   return "maybe";
 }
 
+// ---------------------------------------------------------------------------
+// In-dashboard read-only RSVP VIEW (JSON, grouped by event)
+// ---------------------------------------------------------------------------
+
+/** A guest's response to one event, for the in-dashboard view. `status` is the
+ *  raw `rsvps.status` enum (the UI maps it to a label); `dietary` is that
+ *  response's dietary note (may be blank). */
+export interface RsvpViewGuest {
+  guestId: string;
+  firstName: string;
+  lastName: string;
+  familyName: string;
+  familyCode: string;
+  status: "attending" | "declined" | "maybe";
+  dietary: string;
+}
+
+/** One event with its responded guests + a status tally. `invited` is how many
+ *  guests are on this event's list; `responded` = attending + declined + maybe.
+ *  `noResponse` = invited − responded (never negative). */
+export interface RsvpViewEvent {
+  id: string;
+  name: string;
+  invited: number;
+  attending: number;
+  declined: number;
+  maybe: number;
+  responded: number;
+  noResponse: number;
+  guests: RsvpViewGuest[];
+}
+
+export interface RsvpView {
+  events: RsvpViewEvent[];
+}
+
 export const rsvpExportService = {
+  /**
+   * Build the read-only in-dashboard RSVP view for one wedding: every event with
+   * the guests who responded (status + dietary) and a per-event tally. Reuses the
+   * same wedding-scoped, host-excluded data the CSV export reads, just shaped
+   * BY EVENT instead of one-row-per-guest. weddingId is required (cross-tenant
+   * leak otherwise, mirrors `build`). Events are ordered by start time; guests
+   * within an event are ordered by family code then guest sort order.
+   */
+  buildView(weddingId: string): Effect.Effect<RsvpView, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+
+      const eventRows = yield* dbQuery(() =>
+        db
+          .select({
+            id: events.id,
+            name: events.name,
+            startAt: events.startAt,
+            sortOrder: events.sortOrder,
+          })
+          .from(events)
+          .where(eq(events.weddingId, weddingId))
+          .all(),
+      );
+
+      const orderedEvents = eventRows.toSorted((a, b) => {
+        const ta = Date.parse(a.startAt);
+        const tb = Date.parse(b.startAt);
+        const aValid = !Number.isNaN(ta);
+        const bValid = !Number.isNaN(tb);
+        if (aValid && bValid && ta !== tb) return ta - tb;
+        if (aValid !== bValid) return aValid ? -1 : 1;
+        if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+
+      // Invite counts per event (one guest_events row per invited guest), host
+      // families excluded.
+      const inviteRows = yield* dbQuery(() =>
+        db
+          .select({
+            eventId: guestEvents.eventId,
+            guestId: guests.id,
+          })
+          .from(guestEvents)
+          .innerJoin(guests, eq(guestEvents.guestId, guests.id))
+          .innerJoin(families, eq(guests.familyId, families.id))
+          .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+          .all(),
+      );
+      const invitedByEvent = new Map<string, number>();
+      for (const row of inviteRows) {
+        invitedByEvent.set(row.eventId, (invitedByEvent.get(row.eventId) ?? 0) + 1);
+      }
+
+      // RSVP rows joined to guest + family for the per-event guest lists.
+      const rsvpRows = yield* dbQuery(() =>
+        db
+          .select({
+            eventId: rsvps.eventId,
+            guestId: rsvps.guestId,
+            status: rsvps.status,
+            dietary: rsvps.dietary,
+            firstName: guests.firstName,
+            lastName: guests.lastName,
+            sortOrder: guests.sortOrder,
+            familyName: families.familyName,
+            familyCode: families.publicId,
+          })
+          .from(rsvps)
+          .innerJoin(guests, eq(rsvps.guestId, guests.id))
+          .innerJoin(families, eq(guests.familyId, families.id))
+          .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+          .all(),
+      );
+
+      interface Acc {
+        guests: (RsvpViewGuest & { sortOrder: number })[];
+        attending: number;
+        declined: number;
+        maybe: number;
+      }
+      const byEvent = new Map<string, Acc>();
+      for (const row of rsvpRows) {
+        let acc = byEvent.get(row.eventId);
+        if (!acc) {
+          acc = { guests: [], attending: 0, declined: 0, maybe: 0 };
+          byEvent.set(row.eventId, acc);
+        }
+        acc.guests.push({
+          guestId: row.guestId,
+          firstName: row.firstName,
+          lastName: row.lastName,
+          familyName: row.familyName,
+          familyCode: row.familyCode,
+          status: row.status,
+          dietary: row.dietary,
+          sortOrder: row.sortOrder,
+        });
+        if (row.status === "attending") acc.attending += 1;
+        else if (row.status === "declined") acc.declined += 1;
+        else acc.maybe += 1;
+      }
+
+      const viewEvents: RsvpViewEvent[] = orderedEvents.map((e) => {
+        const acc = byEvent.get(e.id);
+        const guestList = (acc?.guests ?? [])
+          .toSorted((a, b) => {
+            if (a.familyCode !== b.familyCode) return a.familyCode < b.familyCode ? -1 : 1;
+            if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+            return a.guestId < b.guestId ? -1 : a.guestId > b.guestId ? 1 : 0;
+          })
+          .map(({ sortOrder: _sortOrder, ...g }) => g);
+        const attending = acc?.attending ?? 0;
+        const declined = acc?.declined ?? 0;
+        const maybe = acc?.maybe ?? 0;
+        const responded = attending + declined + maybe;
+        const invited = invitedByEvent.get(e.id) ?? 0;
+        return {
+          id: e.id,
+          name: e.name,
+          invited,
+          attending,
+          declined,
+          maybe,
+          responded,
+          noResponse: Math.max(0, invited - responded),
+          guests: guestList,
+        };
+      });
+
+      return { events: viewEvents };
+    }).pipe(Effect.withSpan("cire.rsvp-export.buildView"));
+  },
+
   /**
    * Build the RSVP export for one wedding. weddingId is required — an unscoped
    * variant would be a cross-tenant leak (mirrors `getAllGuests`). Host-kind
