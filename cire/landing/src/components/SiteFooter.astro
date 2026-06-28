@@ -1,0 +1,112 @@
+---
+// Marketing-site footer. Carries the wordmark, the primary CTA, in-page section
+// links, and — like cire/web's SiteFooter — the legal pages so the privacy
+// notice + terms are reachable from every page (compliance: privacy notice
+// published and linked at point of collection).
+import { ORGANISER_URL } from '../lib/site'
+
+const year = 2026
+---
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <div class="site-footer__brand">
+      <p class="site-footer__wordmark">Cire</p>
+      <p class="site-footer__tagline">Invitations worthy of the moment.</p>
+    </div>
+
+    <nav class="site-footer__nav" aria-label="Sections">
+      <a href="/#how-it-works">How it works</a>
+      <a href="/#features">Features</a>
+      <a href="/#faq">Questions</a>
+      <a href={ORGANISER_URL}>Create an invitation</a>
+    </nav>
+  </div>
+
+  <div class="site-footer__legal">
+    <nav aria-label="Legal">
+      <a href="/privacy">Privacy Notice</a>
+      <span aria-hidden="true">&middot;</span>
+      <a href="/terms">Terms</a>
+    </nav>
+    <p class="site-footer__copy">&copy; {year} Cire. Made with care.</p>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+    padding: 3.5rem 1.5rem 3rem;
+    font-family: var(--font-body, "Lato", system-ui, sans-serif);
+    color: var(--color-text-muted, rgba(255, 255, 255, 0.5));
+  }
+
+  .site-footer__inner {
+    max-width: 64rem;
+    margin: 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 2rem 3rem;
+  }
+
+  .site-footer__wordmark {
+    font-family: var(--font-display, "Cormorant Garamond", Georgia, serif);
+    font-size: 1.75rem;
+    font-weight: 400;
+    font-style: italic;
+    letter-spacing: 0.04em;
+    color: var(--color-gold, oklch(74.99% 0.0854 82.08));
+    margin: 0 0 0.35rem;
+  }
+
+  .site-footer__tagline {
+    font-size: 0.875rem;
+    margin: 0;
+  }
+
+  .site-footer__nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    font-size: 0.875rem;
+  }
+
+  .site-footer__legal {
+    max-width: 64rem;
+    margin: 2.5rem auto 0;
+    padding-top: 1.75rem;
+    border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.8125rem;
+  }
+
+  .site-footer__legal nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .site-footer__copy {
+    margin: 0;
+  }
+
+  .site-footer a {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition:
+      color 0.2s ease,
+      border-color 0.2s ease;
+  }
+
+  .site-footer a:hover,
+  .site-footer a:focus-visible {
+    color: var(--color-gold, oklch(74.99% 0.0854 82.08));
+    border-bottom-color: currentColor;
+  }
+</style>

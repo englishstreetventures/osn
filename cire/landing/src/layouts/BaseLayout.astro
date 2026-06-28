@@ -1,0 +1,101 @@
+---
+import '../styles/global.css'
+import { VineCanvas } from '../components/VineCanvas'
+import SiteFooter from '../components/SiteFooter.astro'
+import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE } from '../lib/site'
+
+interface Props {
+  /** Document <title>. Defaults to the brand + tagline. */
+  title?: string
+  /** Meta description / og:description. */
+  description?: string
+  /** Hide the footer (legal pages render their own chrome). */
+  footer?: boolean
+}
+
+const {
+  title = `${SITE_NAME} — ${SITE_TAGLINE}`,
+  description = SITE_DESCRIPTION,
+  footer = true,
+} = Astro.props
+
+// Canonical URL for this page (Astro.site comes from astro.config `site`).
+const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : Astro.url.pathname
+---
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+    {/* Open Graph / Twitter — elegant share cards. */}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={SITE_NAME} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="theme-color" content="#0d1f17" />
+
+    {/* Same font strategy as cire/web so the marketing site and the invites it
+        advertises render in the exact same type. */}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400;700&display=swap"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+      {/* No JS ⇒ the scroll-reveal observer never runs, so reveal everything up
+          front rather than leaving it hidden (SEO + accessibility). */}
+      <style is:inline>[data-reveal]{opacity:1 !important;transform:none !important}</style>
+    </noscript>
+  </head>
+  <body>
+    <div class="page-root">
+      {/* Generative vine backdrop — server-rendered baseline, client regrows a
+          unique field per load and animates growth on scroll. client:load so it
+          hydrates promptly behind the content. */}
+      <VineCanvas client:load />
+      <slot />
+      {footer && <SiteFooter />}
+    </div>
+
+    {/* Scroll-reveal: add `data-revealed` to any `[data-reveal]` as it enters the
+        viewport. Progressive — with no JS the elements simply render (the CSS
+        keeps them hidden only while JS can later reveal them, so we reveal-all as
+        a fallback below). Reduced motion zeroes the transition (see global.css). */}
+    <script is:inline>
+      ;(() => {
+        const els = Array.from(document.querySelectorAll('[data-reveal]'))
+        if (els.length === 0) return
+        if (!('IntersectionObserver' in window)) {
+          for (const el of els) el.setAttribute('data-revealed', '')
+          return
+        }
+        const io = new IntersectionObserver(
+          (entries, obs) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                entry.target.setAttribute('data-revealed', '')
+                obs.unobserve(entry.target)
+              }
+            }
+          },
+          { rootMargin: '0px 0px -10% 0px', threshold: 0.1 },
+        )
+        for (const el of els) io.observe(el)
+      })()
+    </script>
+  </body>
+</html>

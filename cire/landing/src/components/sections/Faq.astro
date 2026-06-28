@@ -1,0 +1,77 @@
+---
+// Honest answers to the questions couples actually ask. Native <details> so it
+// works with zero JS and is accessible by default.
+const faqs = [
+  {
+    q: 'Do my guests need an account or an app?',
+    a: 'No. Guests open a link (or enter a short code from a paper invite) and reply right there. Nothing to download, nothing to sign up for.',
+  },
+  {
+    q: 'Is it really private?',
+    a: 'Yes. There&rsquo;s no public guest list and no shareable per-guest link to leak. Each household claims its own code, and the details they share are used only for your wedding — never sold, never used for ads.',
+  },
+  {
+    q: 'Can I make it match our wedding?',
+    a: 'That&rsquo;s the point. Colours, fonts, photography and moodboards make each invitation unmistakably yours, so it feels like your day from the first second a guest opens it.',
+  },
+  {
+    q: 'Isn&rsquo;t paper more special than digital?',
+    a: 'Paper is gorgeous — and static. Cire keeps the ceremony of opening something beautiful, then adds what paper can&rsquo;t: a map, add-to-calendar, live RSVPs and headcounts. Many couples send both; a printed card with a claim code is the perfect pairing.',
+  },
+  {
+    q: 'How do RSVPs work?',
+    a: 'Guests reply per person — attending or not, with dietary notes — in a tap. You see every response, headcount and note gather on a dashboard built for the couple, updating live.',
+  },
+  {
+    q: 'What does it cost?',
+    a: 'Cire is in an invitation-only early chapter while we craft each wedding by hand. Start your invitation and we&rsquo;ll walk you through what&rsquo;s involved — no surprises.',
+  },
+] as const
+---
+<section id="faq" class="px-6 py-24 md:py-32" aria-labelledby="faq-heading">
+  <div class="mx-auto max-w-[44rem]">
+    <div class="mb-14 text-center" data-reveal>
+      <p class="font-body text-gold mb-4 text-[0.72rem] tracking-[0.28em] uppercase">
+        Questions
+      </p>
+      <h2
+        id="faq-heading"
+        class="font-display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2] font-light italic"
+      >
+        Everything you might be wondering.
+      </h2>
+    </div>
+
+    <div class="flex flex-col" data-reveal>
+      {
+        faqs.map((faq) => (
+          <details class="faq-item border-border border-b">
+            <summary class="font-display text-text flex cursor-pointer items-center justify-between gap-4 py-5 text-[1.2rem] font-normal italic">
+              <span set:html={faq.q} />
+              <span class="faq-marker text-gold shrink-0 text-2xl leading-none" aria-hidden="true">+</span>
+            </summary>
+            <p
+              class="font-body text-text-muted pb-5 text-[0.95rem] leading-[1.75] font-light"
+              set:html={faq.a}
+            />
+          </details>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .faq-item summary {
+    list-style: none;
+  }
+  .faq-item summary::-webkit-details-marker {
+    display: none;
+  }
+  .faq-item[open] .faq-marker {
+    transform: rotate(45deg);
+  }
+  .faq-marker {
+    transition: transform 0.2s ease;
+  }
+</style>

@@ -1,0 +1,62 @@
+name: Preview — cire/landing
+
+# Deploys ONLY the cire/landing marketing site to its own NON-APEX Cloudflare
+# Pages project (cire-landing → cire-landing.pages.dev). Runs automatically on
+# every push to the landing feature branch (so the preview stays fresh) and can
+# be run manually from the Actions tab.
+#
+# It deliberately touches NOTHING else — no cire-api / cire-web / organiser prod
+# deploy, no D1 migrations — so it is safe to run from a feature branch without
+# disturbing the live apex. It uses the `production` environment's Cloudflare
+# credentials (the same token that already deploys the other cire Pages sites).
+on:
+  push:
+    branches: [claude/cire-landing-page-hcebp7]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-cire-landing-preview
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build + deploy cire/landing preview
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build cire/landing
+        run: bun run --cwd cire/landing build
+        env:
+          # Primary CTA points at the current organiser host until the apex
+          # cutover moves it to host.cireweddings.com.
+          PUBLIC_ORGANISER_URL: https://app.cireweddings.com
+          # Canonical origin for SEO meta — the preview advertises its own URL.
+          SITE: https://cire-landing.pages.dev
+
+      # Idempotent: creates the Pages project on first run, no-ops (|| true) once
+      # it already exists.
+      - name: Ensure the cire-landing Pages project exists
+        run: bunx wrangler pages project create cire-landing --production-branch main || true
+        working-directory: cire/landing
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Deploy to the project's production branch so it serves at the clean
+      # cire-landing.pages.dev (this is a standalone preview project, NOT the
+      # apex — the apex stays on cire/web until the reviewed cutover).
+      - name: Deploy to Cloudflare Pages
+        run: bunx wrangler pages deploy dist --project-name cire-landing --branch main --commit-dirty=true
+        working-directory: cire/landing
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

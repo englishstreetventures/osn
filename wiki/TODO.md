@@ -207,10 +207,35 @@ Wedding-invite stack merged from cire.git (2026-06). Cire-internal feature work 
 - [x] **Per-section invite theming (#152)** — bounded, CSS-injection-safe fonts + colours; migration `0014`. See [[cire]]. (Moved to [[changelog/completed-features]].)
 - [x] **Any OSN user is a first-class organiser (#156)** — `ensureBootstrapOwner` 503 gate + `BOOTSTRAP_OWNER_PROFILE_ID` removed; migration `0015` drops `wed_bootstrap`. See [[cire-auth]]. (Moved to [[changelog/completed-features]].)
 - [x] **Organiser Security / Devices section (#155)** — `PasskeysView` (list/add/rename/remove) + passkey-only step-up in the portal `SecurityPanel`. See [[passkey-primary]]. (Moved to [[changelog/completed-features]].)
+- [x] **Host-preview RSVP is an interactive no-op** — the organiser host preview's RSVP was greyed out (`disabled` in preview mode); it's now fully interactive with submit short-circuited to a no-op + a "nothing you send here is saved" banner (`RsvpModal` `preview` prop). Lets a host feel the guest flow without writing RSVP data. See [[cire-landing]].
 - [ ] Pulse event-feed integration — surface cire weddings in Pulse's discovery/feed. Blocked on the mechanism decision (ARC-token pull from `cire/api` vs push-on-publish into `pulse/db`) — see Deferred Decisions.
 - [ ] Co-host **roles** — membership shipped (#148, read-only co-hosts); add a role column (`owner`/`editor`/`viewer`) so a co-host (partner / planner) can be granted write access short of ownership. See [[cire-auth]].
 - [ ] Guest claim-code → optional OSN account linking (frontend) — backend shipped; the guest-site "link my Pulse account" affordance remains (guests stay deliberately account-free — see [[cire-auth]]).
 - [ ] **IB-S-L1 / colour-allowlist duplication (#152)** — the bounded theming colour allowlist is duplicated between the cire-api validator and the cire/web render path; a future drift could let an un-validated value reach rendered CSS. Factor a single shared source of truth (one `@cire/*` module both import) so the CSS-injection-safe guarantee can't drift — see [[cire]].
+
+---
+
+## Cire Landing (`cire/landing`)
+
+Static marketing site for the apex `cireweddings.com`. Full design + deploy +
+domain-migration plan in [[cire-landing]].
+
+- [x] **Build `@cire/landing`** — static Astro + SolidJS + Tailwind v4 marketing site; brand tokens kept byte-identical to `cire/web`. Promise/features/how-it-works/craft/FAQ sections, hotlinked-Unsplash imagery (centralised + swappable in `lib/site.ts`), legal drafts, `SiteFooter`. See [[cire-landing]].
+- [x] **Full-page envelope hero** — the whole first screen is the front of a sealed envelope (`WaxSealHero` + `WaxSeal.motion.ts`) that opens to unveil the page.
+- [x] **Generative scroll-grown vine backdrop** — `VineCanvas` + `lib/vines/` (seeded PRNG + Catmull-Rom smoother, unit-tested for determinism); SSR roots + per-load-unique client field, vines draw on as you scroll, per-element reveal locked to the growth front. Scroll-paint culled to in-view vines; resize-regen gated to width changes. See [[cire-landing]].
+- [x] **Interactive no-op demo invite** — in-page "See it live" invitation (`demo/DemoRsvp.tsx`); RSVP is fully interactive but never hits the network (test-asserted).
+- [x] **Hidden testimonials** — section designed but gated behind `SHOW_TESTIMONIALS = false` until real, permissioned quotes exist.
+- [x] **CI deploy** — `deploy-cire-landing` (in `deploy.yml`) + a push-triggered `deploy-landing-preview.yml`; both ship to a **non-apex** Pages preview (`cire-landing.pages.dev`); apex untouched so live invites don't break. The `cire-landing` Pages project is auto-created on first deploy.
+- [ ] **Replace the wax-seal graphic** — the hero's seal disc is a `TODO(design)` placeholder pending a separately designed asset; only the inner seal `<div>` needs swapping. See [[cire-landing]] "Deferred".
+- [ ] **Apex cutover (separate, reviewed change)** — move `cire/web` → `invite.cireweddings.com` (+301 from old invite paths), `cire/organiser` → `host.cireweddings.com` (update WebAuthn `OSN_ORIGIN`/CORS), point `PUBLIC_ORGANISER_URL`/`SITE` at the new hosts, then flip `cire/landing` onto the apex. Also fold in **S-L1/S-L2** hardening (self-host fonts, proxy imagery, drop CSP `'unsafe-inline'`; list Unsplash + Google Fonts in [[subprocessors]]). See [[cire-landing]], [[production-deploy]].
+- [ ] **Real hero/gallery art** — replace the hotlinked Unsplash placeholders in `lib/site.ts` with brand photography.
+- [ ] **Wire a real demo invite** — set `PUBLIC_DEMO_INVITE_URL` to a seeded read-only invitation so "See a live invite" links out instead of scrolling to the in-page demo.
+
+### Platform roadmap (withjoy parity)
+
+- [ ] **Gift registry** — first-class registry surface (parity with withjoy).
+- [ ] **Wedding-management platform** — budget, vendors, seating, timeline, guest comms — built out from the organiser dashboard (`host.cireweddings.com`). Multi-tenant `weddings` root already in place. See [[cire]].
+- [ ] **Marketing depth** — pricing page, case studies, blog/SEO content; flip testimonials live once permissioned.
 
 ---
 
@@ -600,6 +625,8 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 - [ ] S-L2 (pulse-close-friends) — Cross-DB hygiene: `pulse_close_friends.friendId` references an OSN profile but Pulse has no S2S notification or reconciliation hook for OSN profile deletion. Stale rows render as ghost entries (null handle/displayName) on the close-friends page. Add an internal Pulse endpoint OSN can ARC-call post-deletion, or a periodic reconciliation job — see [[pulse-close-friends]], [[s2s-patterns]]
 - [ ] S-L1 (cire) — Verify `ORGANISER_TOKEN` is not set as a CF secret on the deployed cire-api worker; the `X-Organiser-Token` auth path is deleted from code, but a secret set during the interim would linger as stale config. If present: `wrangler secret delete ORGANISER_TOKEN` (manual, from `cire/api`) — see [[cire-auth]]
 - [ ] S-L3 (cire) — No Origin-header validation on cire's state-changing routes (`POST /api/claim`, `/api/rsvp`). Relies solely on `SameSite=Lax` for CSRF defence; OSN convention (origin-guard M1) additionally rejects POST/PUT/PATCH/DELETE whose `Origin` is present and not in the CORS allowlist. Apply the origin-guard equivalent on cire/api — see [[cire-auth]], `osn/api/src/lib/origin-guard.ts`
+- [ ] S-L1 (cire-landing) — CSP on the static marketing site (`cire/landing/public/_headers`) allows `script-src 'self' 'unsafe-inline'` (needed by Astro's island bootstrap + the `is:inline` reveal/font scripts). No active vector today — the site is fully static with no user-reflected content — but move to nonce/hash-based `script-src` and drop `'unsafe-inline'` once Astro's inline bootstrap is hashable. Fold into the apex cutover. See [[cire-landing]]
+- [ ] S-L2 (cire-landing) — Hotlinked third-party origins (`images.unsplash.com`, `fonts.googleapis.com`/`fonts.gstatic.com`) receive visitor IP/UA; passive subresources (no code-exec), CSP-allowlisted. Privacy/ePrivacy concern, not a code flaw: before the apex flips to real traffic, self-host fonts + proxy/self-host imagery and list Unsplash + Google Fonts in [[subprocessors]]. See [[cire-landing]]
 - [ ] S-L1 (db-dev-tooling) — `scripts/cire-db-seed.sh` interpolates `CIRE_DEV_OWNER_PROFILE_ID` directly into a SQL `UPDATE` string (string-breakout shape). Bounded: developer-supplied env var, executed against a `--local` miniflare D1 only — not an exploitable vector, but the wrong pattern to copy. Parameterise via `wrangler d1 execute --param` (the equivalent re-point in `cire/api/src/local.ts` already uses Drizzle binding correctly) — see [[cire-auth]]
 - [ ] S-L2 (share-attribution) — `getClientIp` shared `"unknown"` bucket. When `x-forwarded-for` is absent, `shared/rate-limit/src/index.ts` keys everyone under the literal `"unknown"`, collapsing the per-IP guarantee that the share/exposure (60/120 req/min) limits depend on. Pre-existing helper, but the new unauthenticated `pulse.events.share.invoked` / `pulse.events.share.exposure` counters are the most sensitive consumers. Fold into the planned Redis-backed limiter so per-IP buckets can pull from the connection address — see [[rate-limiting]]
 - [ ] S-L4 (zap) — On the Cloudflare Workers runtime the per-IP write limiters use in-memory counters scoped to a single isolate (`zap/api/src/index.ts buildApp` → `createDefaultZapRateLimiters`), so the effective ceiling multiplies with isolate count. The IP key is now spoof-safe (S-H1 fixed) but the bucket store is not yet distributed. Move to a durable backend (CF Rate-Limiting binding / KV / Durable Object) before relying on Zap limits as a hard throttle in prod — see [[rate-limiting]] (PR #116 review)
@@ -678,6 +705,9 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 
 ### Info
 
+- [x] P-W1 (cire-landing) — Vine scroll loop repainted the whole field every frame. **Fixed on `claude/cire-landing-page-hcebp7`** — `VineCanvas` now skips redundant `--p` writes (off-screen vines pinned at 0/1 are unchanged → no recalc/paint), bounding per-frame paint to vines crossing the growth front. See [[cire-landing]].
+- [x] P-W2 (cire-landing) — Full vine regenerate fired on every resize settle, incl. mobile URL-bar height-only resizes (jank + reseed glitch mid-scroll). **Fixed** — regen gated to real WIDTH changes; the per-load seed is stable across resizes so a genuine resize re-lays-out the same plant. See [[cire-landing]].
+- [ ] P-I1 (cire-landing) — Optional: self-host the Google Font WOFF2 subsets (collapses two third-party connections into same-origin `_astro/*` immutable-cached requests) and pass tighter `sizes` to `Figure.astro` where a figure renders narrower than 45vw. Low priority for a low-traffic static page; fold into the apex cutover. See [[cire-landing]].
 - [x] P-I1 — `evictExpiredTokens` iterates full cache on every `getOrCreateArcToken` call. **Fixed as P-W102** — debounced internal sweep — see [[arc-tokens]]
 - [x] P-I100 — `rotateKey` retry had no jitter; simultaneous failures on horizontal instances caused thundering-herd on `/register-service`. **Fixed** — retry delay is `5 min ± 30 s` — see [[arc-tokens]]
 - [x] P-I101 — `startKeyRotation` scheduled a rotation timer for the pre-distributed key path that always silently no-oped. **Fixed** — pre-distributed key path removed entirely; all rotation is ephemeral auto-rotation — see [[arc-tokens]]

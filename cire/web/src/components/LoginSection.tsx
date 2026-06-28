@@ -161,7 +161,7 @@ export function LoginSection(props: LoginSectionProps) {
               class="border-gold/40 bg-gold/5 text-gold mx-auto mb-6 max-w-[420px] rounded-sm border px-4 py-3 text-[0.78rem] tracking-[0.08em] uppercase"
               role="status"
             >
-              Preview mode — every event is shown. RSVP is disabled.
+              Preview mode — every event is shown. Try the RSVP; nothing you send is saved.
             </p>
           </Show>
           <Show

@@ -1,0 +1,183 @@
+@import "tailwindcss";
+
+/* Brand tokens — kept byte-identical to cire/web's theme block so the marketing
+   site, the invites it advertises, and the organiser portal all read as one
+   brand. If you change a token here, change it in cire/web/src/styles/global.css
+   too (and vice versa). See [[wiki/apps/cire-landing]] → "Brand parity". */
+@theme {
+  --color-bg: oklch(19.96% 0.0331 147.34);
+  --color-surface: oklch(22.7% 0.0275 152.78);
+  --color-surface-raised: oklch(27.87% 0.0393 149.62);
+  --color-border: oklch(85.51% 0.069 144.94 / 0.1);
+  --color-text: oklch(94.62% 0.0111 89.72);
+  --color-text-muted: oklch(94.62% 0.0111 89.72 / 0.5);
+  --color-gold: oklch(74.99% 0.0854 82.08);
+  --color-gold-dim: oklch(74.99% 0.0854 82.08 / 0.35);
+  --color-error: oklch(67.56% 0.1401 21.48);
+  --color-success: oklch(75.96% 0.1421 146.94);
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-body: "Lato", system-ui, sans-serif;
+  --default-font-family: var(--font-body);
+}
+
+@layer base {
+  html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-weight: 400;
+    line-height: 1.5;
+    min-height: 100vh;
+    /* Safety net against horizontal scroll on small viewports: a single wide
+       island (e.g. a fixed-width third-party embed) should never let the whole
+       page pan sideways. Vertical scrolling is unaffected. */
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background: var(--color-gold-dim);
+    color: var(--color-text);
+  }
+
+  /* Honour reduced-motion globally: the smooth-scroll above and any CSS-driven
+     entrance animation snap off. Motion-One islands check the same media query
+     in JS before animating (mirrors cire/web's AnimatedModal). */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+/* Scroll-reveal primitive used by the static section components: an element with
+   `data-reveal` starts dimmed + nudged down; the IntersectionObserver in
+   BaseLayout adds `data-revealed` when it scrolls into view. No-JS / reduced
+   motion: the reveal still lands visible (the observer sets it, and reduced
+   motion zeroes the transition). */
+@layer utilities {
+  [data-reveal] {
+    opacity: 0;
+    transform: translateY(1.5rem);
+    transition:
+      opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
+  }
+
+  [data-reveal][data-revealed] {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── Generative vine backdrop (see VineCanvas.tsx) ───────────────────────────
+   Typed custom properties so the growth maths interpolates cleanly in calc().
+   `--p` is the per-vine growth front (0→1, set from scroll). `--a0`/`--a1` are a
+   strand's draw window and `--a` an organ's reveal point — both normalized
+   positions within the vine's span, so every element draws/recedes locked to
+   the same front (a tendril only appears once the stem reaches it). */
+@property --p {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+@property --a0 {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+@property --a1 {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+@property --a {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+/* The page wrapper is the positioning context; the vine layer spans its full
+   content height and sits behind everything (so vines run the whole page) but
+   never adds scrollable area (height:100% of content, overflow clipped). */
+.page-root {
+  position: relative;
+}
+
+.vine-layer {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  z-index: -1;
+  overflow: clip;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.vine-layer svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Hairline sage stems; flowers carry a faint gold heart. non-scaling-stroke
+   keeps the line weight constant despite the stretch-to-fit viewBox. */
+.vine-stroke {
+  fill: none;
+  stroke: oklch(53% 0.045 150 / 0.6);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.vine-leaf,
+.vine-petal {
+  fill: oklch(50% 0.05 150 / 0.4);
+}
+
+.vine-heart {
+  fill: oklch(74.99% 0.0854 82.08 / 0.5);
+}
+
+/* Animated mode (JS hydrated): each strand draws only across its own window
+   [--a0, --a1] of the growth front, so a tendril stays attached to the stem and
+   recedes with it on scroll-up. Each leaf/flower reveals as the front passes its
+   own point --a. */
+.vine-layer.is-animated .vine-stroke {
+  stroke-dasharray: 1;
+  stroke-dashoffset: clamp(0, calc((var(--a1, 1) - var(--p, 1)) / (var(--a1, 1) - var(--a0, 0))), 1);
+}
+
+.vine-layer.is-animated .vine-leaf,
+.vine-layer.is-animated .vine-organs > g {
+  opacity: clamp(0, calc((var(--p, 1) - var(--a, 0)) * 7), 1);
+}
+
+/* Reduced motion (and the no-JS baseline): show the vines fully drawn. */
+@media (prefers-reduced-motion: reduce) {
+  .vine-layer.is-animated .vine-stroke {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+
+  .vine-layer.is-animated .vine-leaf,
+  .vine-layer.is-animated .vine-organs > g {
+    opacity: 1;
+  }
+}

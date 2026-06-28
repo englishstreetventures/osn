@@ -74,7 +74,7 @@ describe("InvitePage", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("auto-claims from a ?code= deep-link, shows the preview banner, and disables RSVP", async () => {
+  it("auto-claims from a ?code= deep-link, shows the preview banner, and keeps RSVP interactive as a no-op", async () => {
     const previewClaim: ClaimResult = { ...claim, preview: true };
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(previewClaim), {
@@ -85,7 +85,9 @@ describe("InvitePage", () => {
     vi.stubGlobal("fetch", fetchMock);
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
 
-    const { getByText, getByRole } = render(() => <InvitePage apiUrl="https://api.test" />);
+    const { getByText, getByRole, getByTestId } = render(() => (
+      <InvitePage apiUrl="https://api.test" />
+    ));
 
     // The events view renders without the guest typing anything.
     await waitFor(() => expect(getByText(/Preview mode/i)).toBeTruthy(), { timeout: 2000 });
@@ -97,9 +99,17 @@ describe("InvitePage", () => {
       publicId: "HOST-ABCDEF0123456789ABCDEF01",
     });
 
-    // RSVP is disabled in preview mode.
+    // RSVP is NO LONGER disabled in preview — the host can try it.
     const respond = getByRole("button", { name: /Respond/i }) as HTMLButtonElement;
-    expect(respond.disabled).toBe(true);
+    expect(respond.disabled).toBe(false);
+
+    // Opening it mounts the RSVP modal in preview mode, so submit is a no-op.
+    fireEvent.click(respond);
+    await waitFor(() => expect(getByTestId("rsvp-modal-stub")).toBeTruthy());
+    expect(capturedProps.value?.preview).toBe(true);
+
+    // No further network call beyond the original claim — the preview never POSTs.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     // S-L1: the host code is stripped from the URL after the one-time claim.
     expect(window.location.search).not.toContain("code");

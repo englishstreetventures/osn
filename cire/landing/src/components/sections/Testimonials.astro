@@ -1,0 +1,53 @@
+---
+// Testimonials — DESIGNED AND READY, but HIDDEN until we have real, attributable
+// quotes from real couples. Flip `SHOW_TESTIMONIALS` to true (and replace the
+// placeholder data with consented quotes) to ship it. Until then this renders
+// nothing — we don't fabricate social proof. See wiki/apps/cire-landing.md.
+const SHOW_TESTIMONIALS = false
+
+// ⚠️ PLACEHOLDER copy — do not publish. Replace with real, permissioned quotes.
+const testimonials = [
+  {
+    quote:
+      'Our guests kept messaging to say it was the most beautiful invitation they&rsquo;d ever received. And we had every RSVP without chasing a soul.',
+    name: 'Placeholder Couple',
+    detail: 'Married in {{PLACE}}, {{YEAR}}',
+  },
+  {
+    quote:
+      'It felt like us. Opening it actually gave me goosebumps — and the dashboard meant I never lost track of a single reply.',
+    name: 'Placeholder Couple',
+    detail: 'Married in {{PLACE}}, {{YEAR}}',
+  },
+] as const
+---
+{
+  SHOW_TESTIMONIALS && (
+    <section
+      class="border-border bg-surface border-y px-6 py-24 md:py-32"
+      aria-labelledby="testimonials-heading"
+    >
+      <div class="mx-auto max-w-[64rem]">
+        <h2
+          id="testimonials-heading"
+          class="font-display text-text mb-16 text-center text-[clamp(1.9rem,4.5vw,3rem)] font-light italic"
+        >
+          Loved by couples.
+        </h2>
+        <div class="grid gap-10 md:grid-cols-2 md:gap-14">
+          {testimonials.map((t) => (
+            <figure class="text-center md:text-left" data-reveal>
+              <blockquote
+                class="font-display text-text text-[clamp(1.4rem,2.6vw,1.9rem)] leading-[1.4] font-light italic"
+                set:html={`&ldquo;${t.quote}&rdquo;`}
+              />
+              <figcaption class="font-body text-text-muted mt-6 text-[0.85rem] tracking-[0.06em]">
+                <span class="text-gold">{t.name}</span> &middot; {t.detail}
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}

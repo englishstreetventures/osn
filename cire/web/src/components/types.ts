@@ -66,7 +66,10 @@ export interface RsvpSummary {
 export interface ClaimResult {
   publicId: string;
   familyName: string;
-  /** True for the organiser host preview session — disables RSVP in the UI. */
+  /**
+   * True for the organiser host preview session. The RSVP stays interactive but
+   * submit is a no-op (nothing is saved) — see RsvpModal's `preview` prop.
+   */
   preview?: boolean;
   members: FamilyMember[];
   events: EventSummary[];

@@ -1,0 +1,87 @@
+---
+// The real product, told as alternating image/text rows. Every feature here is
+// something cire actually ships today (see wiki/apps/cire.md) — no vapourware.
+import Figure from '../Figure.astro'
+import { IMAGES } from '../../lib/site'
+
+const features = [
+  {
+    image: IMAGES.reveal,
+    eyebrow: 'The opening',
+    title: 'An invitation that unwraps',
+    body:
+      'Every Cire invite opens with motion — a wax seal that breaks, a letter that unfolds. The first thing your guests feel is occasion, not a web page.',
+  },
+  {
+    image: IMAGES.personal,
+    eyebrow: 'Personal',
+    title: 'Greets every guest by name',
+    body:
+      'One link, but no two arrivals are the same. Each household sees their own warm greeting and only the events they&rsquo;re invited to — partners, plus-ones and families handled gracefully.',
+  },
+  {
+    image: IMAGES.rsvp,
+    eyebrow: 'Replies',
+    title: 'Effortless RSVPs, counted live',
+    body:
+      'Guests reply in a tap — attending or not, per person, with dietary notes. You watch the numbers land in real time on a dashboard built for the couple, not a spreadsheet.',
+  },
+  {
+    image: IMAGES.details,
+    eyebrow: 'The details',
+    title: 'Everything they need to be there',
+    body:
+      'Times, venues, an interactive map, add-to-calendar and dress code — all in the invitation. No follow-up group chats, no &ldquo;what was the address again?&rdquo;.',
+  },
+  {
+    image: IMAGES.moodboard,
+    eyebrow: 'Your look',
+    title: 'Themed to your day',
+    body:
+      'Colour palettes, fonts and moodboards make each invitation unmistakably yours — so what guests open already feels like your wedding.',
+  },
+] as const
+---
+<section id="features" class="px-6 py-12 md:py-20" aria-labelledby="features-heading">
+  <div class="mx-auto max-w-[64rem]">
+    <div class="mb-16 text-center md:mb-24" data-reveal>
+      <p class="font-body text-gold mb-4 text-[0.72rem] tracking-[0.28em] uppercase">
+        What&rsquo;s inside
+      </p>
+      <h2
+        id="features-heading"
+        class="font-display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2] font-light italic"
+      >
+        Beautiful to open. Effortless to run.
+      </h2>
+    </div>
+
+    <div class="flex flex-col gap-20 md:gap-28">
+      {
+        features.map((feature, i) => (
+          <div
+            class="grid items-center gap-8 md:grid-cols-2 md:gap-14"
+            data-reveal
+          >
+            <Figure
+              image={feature.image}
+              class={`aspect-[4/3] ${i % 2 === 1 ? 'md:order-2' : 'md:order-1'}`}
+            />
+            <div class={i % 2 === 1 ? 'md:order-1' : 'md:order-2'}>
+              <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+                {feature.eyebrow}
+              </p>
+              <h3 class="font-display text-text mb-4 text-[clamp(1.6rem,3.5vw,2.25rem)] leading-[1.2] font-normal italic">
+                {feature.title}
+              </h3>
+              <p
+                class="font-body text-text-muted text-[1rem] leading-[1.8] font-light"
+                set:html={feature.body}
+              />
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

@@ -8,6 +8,13 @@ interface RsvpModalProps {
   members: ReadonlyArray<FamilyMember>;
   existingRsvps?: ReadonlyArray<RsvpSummary>;
   apiUrl: string;
+  /**
+   * Organiser host preview — the RSVP stays fully interactive (pick, type,
+   * submit) but is a deliberate NO-OP: a valid submit never hits the API and
+   * nothing is saved. Lets a host feel the guest flow without polluting their
+   * own RSVP data. A banner makes the no-op explicit.
+   */
+  preview?: boolean;
   onClose: () => void;
   onSubmitted?: (updated: RsvpSummary[]) => void;
 }
@@ -111,6 +118,13 @@ export function RsvpModal(props: RsvpModalProps) {
       return;
     }
 
+    // Host preview: the form validated like the real thing, but we stop here —
+    // no network call, nothing persisted. Just close as if it had been sent.
+    if (props.preview) {
+      props.onClose();
+      return;
+    }
+
     setLoading(true);
 
     const body = {
@@ -170,9 +184,22 @@ export function RsvpModal(props: RsvpModalProps) {
   return (
     <AnimatedModal onClose={props.onClose} labelledBy={titleId}>
       <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">Respond</p>
-      <h3 id={titleId} class="font-display text-text mb-6 text-[1.6rem] font-light italic">
+      <h3
+        id={titleId}
+        class="font-display text-text text-[1.6rem] font-light italic"
+        classList={{ "mb-6": !props.preview, "mb-3": props.preview }}
+      >
         {props.event.name}
       </h3>
+
+      <Show when={props.preview}>
+        <p
+          class="border-gold/40 bg-gold/5 text-gold mb-6 rounded-sm border px-3.5 py-2.5 text-[0.74rem] leading-relaxed"
+          role="status"
+        >
+          Preview — try the RSVP as a guest would. Nothing you send here is saved.
+        </p>
+      </Show>
 
       <form class="flex flex-col gap-5" onSubmit={handleSubmit}>
         <For each={eventMembers()}>

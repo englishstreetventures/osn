@@ -483,4 +483,69 @@ describe("RsvpModal", () => {
       expect(s).not.toContain("peanut");
     }
   });
+
+  it("shows the preview banner in preview mode", () => {
+    const { getByText } = render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya]}
+        apiUrl="https://api.test"
+        preview={true}
+        onClose={() => {}}
+      />
+    ));
+    expect(getByText(/Nothing you send here is saved/i)).toBeTruthy();
+  });
+
+  it("treats a valid submit as a no-op in preview mode: closes, never POSTs", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const onClose = vi.fn();
+    const onSubmitted = vi.fn();
+
+    const { getByText } = render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya]}
+        apiUrl="https://api.test"
+        preview={true}
+        onClose={onClose}
+        onSubmitted={onSubmitted}
+      />
+    ));
+
+    fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+    fireEvent.click(getByText("Save"));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    // The deliberate no-op: nothing left the browser and nothing was "saved".
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(onSubmitted).not.toHaveBeenCalled();
+  });
+
+  it("still enforces party-complete validation before the preview no-op", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const onClose = vi.fn();
+
+    const { getByText } = render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya, raj]}
+        apiUrl="https://api.test"
+        preview={true}
+        onClose={onClose}
+      />
+    ));
+
+    // Only Priya answered → submit is blocked even in preview, and does not close.
+    fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+    fireEvent.click(getByText("Save"));
+
+    await waitFor(() =>
+      expect(getByText("Please respond for everyone in your party.")).toBeTruthy(),
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });

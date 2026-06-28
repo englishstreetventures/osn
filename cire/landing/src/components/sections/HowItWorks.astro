@@ -1,0 +1,60 @@
+---
+// Three steps — the whole journey, compressed.
+const steps = [
+  {
+    n: '01',
+    title: 'Design your invitation',
+    body:
+      'Add your events, your wording and your guests, then theme it to your day. No design tools, no developers — it looks considered out of the box.',
+  },
+  {
+    n: '02',
+    title: 'Share one link',
+    body:
+      'Send a single link, or print a claim code on paper invites. Your guest list stays private — guests never need an account.',
+  },
+  {
+    n: '03',
+    title: 'Watch the RSVPs roll in',
+    body:
+      'Replies, headcounts and dietary notes gather themselves on your dashboard. You stay on top of the day without lifting a spreadsheet.',
+  },
+] as const
+---
+<section
+  id="how-it-works"
+  class="border-border bg-surface/75 border-y px-6 py-24 md:py-32"
+  aria-labelledby="how-heading"
+>
+  <div class="mx-auto max-w-[64rem]">
+    <div class="mb-16 text-center" data-reveal>
+      <p class="font-body text-gold mb-4 text-[0.72rem] tracking-[0.28em] uppercase">
+        How it works
+      </p>
+      <h2
+        id="how-heading"
+        class="font-display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2] font-light italic"
+      >
+        From idea to invited in an afternoon.
+      </h2>
+    </div>
+
+    <ol class="grid gap-10 md:grid-cols-3 md:gap-12">
+      {
+        steps.map((step) => (
+          <li class="text-center md:text-left" data-reveal>
+            <p class="font-display text-gold mb-4 text-[2.75rem] leading-none font-light italic">
+              {step.n}
+            </p>
+            <h3 class="font-display text-text mb-3 text-[1.5rem] font-normal italic">
+              {step.title}
+            </h3>
+            <p class="font-body text-text-muted text-[0.95rem] leading-[1.75] font-light">
+              {step.body}
+            </p>
+          </li>
+        ))
+      }
+    </ol>
+  </div>
+</section>

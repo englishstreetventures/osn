@@ -137,7 +137,6 @@ export default function InvitePage(props: InvitePageProps) {
                         // (`alt`). Collapses to a single text column when the
                         // event has no image.
                         orientation={index() % 2 === 0 ? "norm" : "alt"}
-                        preview={data().preview}
                         onRespond={setRsvpEvent}
                         onDetails={setDetailsEvent}
                       />
@@ -176,6 +175,8 @@ export default function InvitePage(props: InvitePageProps) {
             members={claimResult()!.members}
             existingRsvps={claimResult()!.rsvps}
             apiUrl={props.apiUrl}
+            // Host preview keeps the RSVP interactive but makes submit a no-op.
+            preview={claimResult()!.preview}
             onClose={() => setRsvpEvent(null)}
             onSubmitted={(updated: RsvpSummary[]) => {
               const current = claimResult();

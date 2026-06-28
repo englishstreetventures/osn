@@ -1,0 +1,40 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import { WaxSealHero } from '../components/WaxSealHero'
+import Promise from '../components/sections/Promise.astro'
+import Features from '../components/sections/Features.astro'
+import HowItWorks from '../components/sections/HowItWorks.astro'
+import SeeItLive from '../components/sections/SeeItLive.astro'
+import Craft from '../components/sections/Craft.astro'
+import Testimonials from '../components/sections/Testimonials.astro'
+import Faq from '../components/sections/Faq.astro'
+import FinalCta from '../components/sections/FinalCta.astro'
+import { DEMO_ANCHOR, DEMO_INVITE_URL, IMAGES, ORGANISER_URL } from '../lib/site'
+
+// "See a live invite" links out to a real seeded invitation when one is wired
+// (PUBLIC_DEMO_INVITE_URL), otherwise it scrolls to the in-page interactive demo.
+const demoHref = DEMO_INVITE_URL ?? DEMO_ANCHOR
+const demoIsExternal = DEMO_INVITE_URL !== null
+---
+<BaseLayout>
+  {/* Hero is client:load — it's the first paint and the signature interaction. */}
+  <WaxSealHero
+    client:load
+    heroImageId={IMAGES.hero.id}
+    heroImageAlt={IMAGES.hero.alt}
+    organiserUrl={ORGANISER_URL}
+    demoHref={demoHref}
+    demoIsExternal={demoIsExternal}
+  />
+
+  <main>
+    <Promise />
+    <Features />
+    <HowItWorks />
+    <SeeItLive />
+    <Craft />
+    <Testimonials />
+    <Faq />
+    <FinalCta />
+  </main>
+</BaseLayout>

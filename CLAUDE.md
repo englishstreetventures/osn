@@ -17,6 +17,7 @@ Phase 1 surfaces:
 | Events | `@pulse/app` + `@pulse/api` (port 3001) + `@pulse/db` | Active |
 | Messaging | `@zap/api` (port 3002) + `@zap/db` | M0 scaffolded; M1 in flight; client app not started |
 | Wedding invites | @cire/api (:8787, prod `api.cireweddings.com`) + @cire/web (:4321) + @cire/organiser (:4322) + @cire/db | Active — **deployed on `cireweddings.com`** |
+| Wedding marketing site | `@cire/landing` (:4323) | Active — built; ships to a non-apex Pages preview (apex cutover deferred). See `[[wiki/apps/cire-landing]]` |
 | Marketing | `@osn/landing` | Scaffolded |
 
 ## File Responsibilities
@@ -84,6 +85,7 @@ Phase 1 surfaces:
 | Work on Pulse | `[[wiki/apps/pulse]]` |
 | Work on Zap | `[[wiki/apps/zap]]` |
 | Work on cire (wedding invites) | `[[wiki/apps/cire]]`, `[[wiki/systems/cire-auth]]` |
+| Work on the cire marketing site / apex landing page (`@cire/landing`) | `[[wiki/apps/cire-landing]]` |
 | Deploy osn-api + cire to production (secrets/vars, migrations, CI pipeline, smoke checks) | `[[wiki/runbooks/production-deploy]]` |
 | Check free-tier limits / what breaks at a cap / unavailability response / Cloudflare hardening TODO | `[[wiki/runbooks/free-tier-limits]]` |
 | Debug auth failure | `[[wiki/runbooks/auth-failure]]` |

@@ -1,0 +1,54 @@
+---
+import LegalLayout from '../layouts/LegalLayout.astro'
+---
+<LegalLayout title="Privacy Notice">
+  <div class="draft-banner">
+    <strong>Draft</strong> — A working draft for review, not legal advice. Have it checked before
+    publishing and replace every highlighted <span class="placeholder">{'{{PLACEHOLDER}}'}</span>
+    value (legal entity, contact address, regulator details).
+  </div>
+
+  <h1>Privacy Notice</h1>
+  <p class="meta">Last updated: 2026-06-24</p>
+
+  <p>
+    This notice explains how <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span> (&ldquo;Cire&rdquo;,
+    &ldquo;we&rdquo;) handles personal information collected through our marketing site at
+    cireweddings.com. It covers visitors to this site. The separate privacy notice shown inside a
+    couple&rsquo;s invitation governs the guest data handled for that wedding.
+  </p>
+
+  <h2>What we collect here</h2>
+  <ul>
+    <li>Anything you choose to send us — for example your name and email when you start an invitation or contact us.</li>
+    <li>Basic, privacy-respecting analytics about how this site is used, so we can improve it.</li>
+  </ul>
+
+  <h2>Why we collect it</h2>
+  <ul>
+    <li>To respond to your enquiry and set up your invitation.</li>
+    <li>To keep the site secure and working well.</li>
+  </ul>
+  <p>We do not sell your information, and we do not use it for third-party advertising.</p>
+
+  <h2>How long we keep it</h2>
+  <p>
+    Only as long as we need it for the purpose above, then we delete or anonymise it. Specific
+    retention periods: <span class="placeholder">{'{{RETENTION}}'}</span>.
+  </p>
+
+  <h2>Your rights</h2>
+  <p>
+    Depending on where you live, you may have rights to access, correct, delete or port your
+    information, and to object to certain uses. To exercise them, contact us at
+    <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span>. You may also complain to your local data
+    protection regulator (<span class="placeholder">{'{{REGULATOR}}'}</span>).
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span>,
+    <span class="placeholder">{'{{POSTAL_ADDRESS}}'}</span> —
+    <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span>.
+  </p>
+</LegalLayout>

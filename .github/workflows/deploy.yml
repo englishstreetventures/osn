@@ -230,6 +230,58 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+  # ── cire landing (Astro → Cloudflare Pages, NON-APEX preview) ──────────────
+  # The marketing site for the apex. Built fully static (output: "static", no
+  # Cloudflare adapter) and deployed to its OWN Pages project, separate from the
+  # guest site + organiser portal. IMPORTANT: this ships to a NON-APEX preview
+  # (cire-landing.pages.dev / optionally new.cireweddings.com) — the apex
+  # cireweddings.com still serves the guest site, so live invitations are
+  # untouched. Flipping the landing site onto the apex (and moving invites →
+  # invite. / organiser → host.) is a separate, reviewed cutover — see
+  # wiki/apps/cire-landing.md. The `cire-landing` Pages project must exist in the
+  # account before first run (create once: `wrangler pages project create`).
+  deploy-cire-landing:
+    name: Deploy cire/landing (Pages, preview)
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      # Build-time PUBLIC_* vars (all baked in by Vite):
+      #   PUBLIC_ORGANISER_URL — target of the primary "Create your invitation"
+      #     CTA. Points at the CURRENT organiser host (app.cireweddings.com) until
+      #     the cutover moves it to host.cireweddings.com — flip this then.
+      #   SITE — canonical origin for SEO meta. The preview advertises its own
+      #     URL; at apex cutover this becomes https://cireweddings.com.
+      - name: Build cire/landing
+        run: bun run --cwd cire/landing build
+        env:
+          PUBLIC_ORGANISER_URL: https://app.cireweddings.com
+          SITE: https://cire-landing.pages.dev
+
+      - name: Deploy cire/landing to Cloudflare Pages
+        run: bunx wrangler pages deploy dist --project-name cire-landing
+        working-directory: cire/landing
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
   # ── osn/api ────────────────────────────────────────────────────────────────
   # NOTE: osn/api is NOT deployed by CI yet. Its Worker entry exists
   # (`main = "src/index.ts"`, Phase 6) and its prod config is wired — the

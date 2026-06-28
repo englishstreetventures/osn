@@ -8,14 +8,16 @@ packages:
   - "@cire/organiser"
   - "@cire/api"
   - "@cire/db"
+  - "@cire/landing"
 related:
   - "[[cire-auth]]"
+  - "[[cire-landing]]"
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-06-18
+last-reviewed: 2026-06-24
 ---
 
 # Cire
@@ -30,6 +32,7 @@ Cire is a bespoke digital wedding invite — a tactile, animated guest-facing si
 | `@cire/organiser` | `cire/organiser` | 4322 | Organiser portal (Astro + SolidJS) — guest/event tables, spreadsheet import, OSN passkey sign-in + inline account creation |
 | `@cire/api` | `cire/api` | 8787 | Elysia on Cloudflare Workers + Effect services + Drizzle on D1 |
 | `@cire/db` | `cire/db` | — | Drizzle schema + D1 SQL migrations |
+| `@cire/landing` | `cire/landing` | 4323 | Static marketing site for the apex `cireweddings.com` — see [[cire-landing]] |
 
 Note: `@cire/api` runs Elysia with `aot: false` — Elysia's ahead-of-time compilation builds handlers via `new Function`, which Cloudflare Workers forbids. Organiser auth uses the shared Elysia adapter (`@shared/osn-auth-client/middleware/elysia`), same as the other backends. (Migrated from Hono 2026-06-12 — see `[[changelog/completed-features]]`.)
 
@@ -116,6 +119,21 @@ one-time Turnstile widget step, and post-deploy smoke checks live in the
 
 Cire keeps its own knowledge graph: `cire/CLAUDE.md` is the AI entry point and `cire/wiki/` is the Obsidian vault (architecture, conventions, observability, per-area TODO shards under `cire/wiki/todo/`). This page and [[cire-auth]] cover the OSN-facing integration surface only.
 
+## Marketing site + platform roadmap
+
+The apex `cireweddings.com` is being given a dedicated **marketing site**,
+`@cire/landing` — a static Astro brochure that opens with a wax-seal "unveil" and
+markets the invite product (full design + deploy/migration plan in
+[[cire-landing]]). The end-state packaging is three clean concerns on three
+hosts: marketing (apex) · invites (`invite.cireweddings.com`) · organiser
+(`host.cireweddings.com`).
+
+Longer term, the ambition is to grow the organiser portal into a full wedding
+**management platform** (withjoy-class), starting with a gift **registry** and
+extending to budget / vendors / seating / timeline. The multi-tenant `weddings`
+root means this is a product build-out, not a migration. Tracked under the Cire +
+Landing sections of `wiki/TODO.md`.
+
 ## Future integrations
 
 - **Pulse event feed** — surface cire weddings in Pulse's event feed. Mechanism undecided: ARC-token pull from `cire/api` vs push-on-publish into `pulse/db` (Deferred Decisions in `wiki/TODO.md`).
@@ -139,6 +157,7 @@ recorded in the OSN compliance programme:
 
 ## Related
 
+- [[cire-landing]] — the marketing site for the apex + the domain migration / platform roadmap
 - [[cire-auth]] — the two-auth-system contract (guest sessions + organiser OSN passkeys)
 - [[identity-model]] — OSN accounts/profiles that organiser auth builds on
 - [[passkey-primary]] — the passkey-only login model organisers use
