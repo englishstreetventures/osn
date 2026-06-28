@@ -6,8 +6,8 @@ import { buildSrcSet, variantSrc } from "./InviteHeader";
 // The event card photo's default display aspect (4∶3) — used when a crop carries
 // no source dimensions (a legacy crop), so the box keeps today's fixed shape.
 const EVENT_DEFAULT_ASPECT = 4 / 3;
+import { formatEventDay, venueLine } from "./event-details";
 import type { EventSummary } from "./types";
-import { formatDate } from "./utils";
 
 interface EventCardProps {
   event: EventSummary;
@@ -64,9 +64,11 @@ export function EventCard(props: EventCardProps) {
             {props.event.name}
           </h3>
           <p class="font-body text-gold mb-1 text-[0.78rem] tracking-[0.12em] uppercase">
-            {formatDate(props.event.date)}
+            {formatEventDay(props.event)}
           </p>
-          <p class="font-body text-text-muted mb-3 text-[0.88rem]">{props.event.location}</p>
+          <Show when={venueLine(props.event)}>
+            {(venue) => <p class="font-body text-text-muted mb-3 text-[0.88rem]">{venue()}</p>}
+          </Show>
           <p class="font-body text-text-muted mb-5 text-[0.88rem] leading-[1.65] font-light">
             {props.event.description}
           </p>

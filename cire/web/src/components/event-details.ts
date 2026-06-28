@@ -10,12 +10,10 @@ import type { EventSummary } from "./types";
  * from `address` / `mapsUrl` alone — no map API key, no network call.
  */
 
-/** Resolve the canonical venue string, preferring `address` over the deprecated `location`. */
-export function venueLine(event: Pick<EventSummary, "address" | "location">): string | null {
+/** Resolve the canonical venue string from the free-form `address`, or null when unset. */
+export function venueLine(event: Pick<EventSummary, "address">): string | null {
   const address = event.address?.trim();
-  if (address) return address;
-  const location = event.location?.trim();
-  return location && location.length > 0 ? location : null;
+  return address && address.length > 0 ? address : null;
 }
 
 /**
@@ -81,9 +79,7 @@ export function formatTimeRange(
  * null only when neither a usable link nor an address is available, so the
  * caller can hide the affordance rather than render a dead button.
  */
-export function resolveMapsUrl(
-  event: Pick<EventSummary, "mapsUrl" | "address" | "location">,
-): string | null {
+export function resolveMapsUrl(event: Pick<EventSummary, "mapsUrl" | "address">): string | null {
   const direct = event.mapsUrl?.trim();
   if (direct && isHttpUrl(direct)) return direct;
 
@@ -118,7 +114,7 @@ function isHttpUrl(s: string): boolean {
  * what makes baking it into static HTML safe; it must never be logged.
  */
 export function resolveMapsEmbedUrl(
-  event: Pick<EventSummary, "address" | "location">,
+  event: Pick<EventSummary, "address">,
   key: string | undefined,
 ): string | null {
   const trimmedKey = key?.trim();

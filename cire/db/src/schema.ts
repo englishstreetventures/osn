@@ -163,11 +163,9 @@ export const guests = sqliteTable(
   (t) => [index("guests_family_id_sort_idx").on(t.familyId, t.sortOrder)],
 );
 
-// `id` is a UUID v4 string. `slug` and `location` are kept for backwards
-// compatibility with migration 0001 — `address` is the canonical free-form
-// venue address going forward; `location` will be retired in a later PR.
-// `date` is similarly deprecated in favour of `startAt` / `endAt` /
-// `timezone`. Forward-only D1 migrations preclude column drops here.
+// `id` is a UUID v4 string. The canonical timing is `startAt` / `endAt` /
+// `timezone`; the canonical venue is the free-form `address`. (The legacy
+// `date` + `location` columns these superseded were dropped in migration 0025.)
 export const events = sqliteTable(
   "events",
   {
@@ -177,8 +175,6 @@ export const events = sqliteTable(
       .references(() => weddings.id, { onDelete: "cascade" }),
     slug: text("slug").notNull().unique(),
     name: text("name").notNull(),
-    date: text("date").notNull(),
-    location: text("location").notNull(),
     description: text("description").notNull().default(""),
     startAt: text("start_at").notNull(),
     endAt: text("end_at").notNull(),

@@ -52,7 +52,6 @@ function eventsBlock(): string {
     );
     return `  (
     ${sql(event.id)}, ${sql(bootstrapWedding.id)}, ${sql(event.slug)}, ${sql(event.name)},
-    ${sql(event.date)}, ${sql(event.location)},
     ${sql(event.description)},
     ${sql(event.startAt)}, ${sql(event.endAt)}, ${sql(event.timezone)},
     ${sql(event.address)},
@@ -72,7 +71,7 @@ ${RULE}
 -- The wedding_id column is NOT NULL with an FK, so the seed supplies it
 -- explicitly.
 INSERT OR IGNORE INTO events (
-  id, wedding_id, slug, name, date, location, description,
+  id, wedding_id, slug, name, description,
   start_at, end_at, timezone, address,
   dress_code_description, dress_code_palette,
   pinterest_url, maps_url, sort_order

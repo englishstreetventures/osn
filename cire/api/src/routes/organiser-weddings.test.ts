@@ -66,8 +66,6 @@ function seedOtherWedding(db: Db) {
       weddingId: OTHER_WEDDING_ID,
       slug: "other-party",
       name: "Other Party",
-      date: "2027-01-01",
-      location: "Elsewhere",
       description: "",
       startAt: "2027-01-01T16:00:00+10:00",
       endAt: "2027-01-01T22:00:00+10:00",

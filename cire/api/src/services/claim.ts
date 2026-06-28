@@ -241,8 +241,6 @@ export const claimService = {
         eventList.push({
           id: e.id,
           name: e.name,
-          date: e.date,
-          location: e.location,
           description: e.description,
           startAt: e.startAt,
           endAt: e.endAt,
@@ -284,11 +282,9 @@ export const claimService = {
       name: string;
       slug: string;
       sortOrder: number;
-      date: string;
       startAt: string;
       endAt: string;
       timezone: string;
-      location: string;
       address: string | null;
       description: string;
       dressCodeDescription: string | null;
@@ -324,11 +320,9 @@ export const claimService = {
           name: row.name,
           slug: row.slug,
           sortOrder: row.sortOrder,
-          date: row.date,
           startAt: row.startAt,
           endAt: row.endAt,
           timezone: row.timezone,
-          location: row.location,
           address: row.address,
           description: row.description,
           dressCodeDescription: row.dressCodeDescription,

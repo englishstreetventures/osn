@@ -13,11 +13,9 @@ export type SeedEvent = {
   readonly id: string;
   readonly slug: string;
   readonly name: string;
-  readonly date: string;
   readonly startAt: string;
   readonly endAt: string;
   readonly timezone: string;
-  readonly location: string;
   readonly address: string;
   readonly description: string;
   readonly dressCodeDescription: string;
@@ -34,11 +32,9 @@ export const events = {
     id: "9f7a2c14-1b3d-4e5f-8a01-000000000001",
     slug: "catholic",
     name: "Catholic Ceremony",
-    date: "2026-10-31",
     startAt: "2026-10-31T10:00:00+11:00",
     endAt: "2026-10-31T13:00:00+11:00",
     timezone: "Australia/Sydney",
-    location: "Example Parish Hall",
     address: "123 Example St, Sampletown NSW 2000",
     description: "Service commences at 10:00am. Free parking onsite.",
     dressCodeDescription: "Semiformal. Pink and green colour theme.",
@@ -56,11 +52,9 @@ export const events = {
     id: "9f7a2c14-1b3d-4e5f-8a01-000000000005",
     slug: "kitchen-tea",
     name: "Kitchen Tea",
-    date: "2026-11-20",
     startAt: "2026-11-20T16:00:00+11:00",
     endAt: "2026-11-20T18:00:00+11:00",
     timezone: "Australia/Sydney",
-    location: "124 Sample Avenue, Exampleville",
     address: "124 Sample Avenue, Exampleville NSW 2001",
     description: "From 4pm to 6pm.",
     dressCodeDescription: "Smart casual / high tea. Pastel and cream colour theme.",
@@ -78,11 +72,9 @@ export const events = {
     id: "9f7a2c14-1b3d-4e5f-8a01-000000000002",
     slug: "mehendi",
     name: "Mehendi",
-    date: "2026-11-22",
     startAt: "2026-11-22T18:00:00+11:00",
     endAt: "2026-11-22T23:00:00+11:00",
     timezone: "Australia/Sydney",
-    location: "124 Sample Avenue, Exampleville",
     address: "124 Sample Avenue, Exampleville NSW 2001",
     description: "From 6pm.",
     dressCodeDescription: "Semicasual/Indian. Yellow and orange colour theme.",
@@ -100,11 +92,9 @@ export const events = {
     id: "9f7a2c14-1b3d-4e5f-8a01-000000000003",
     slug: "hindu",
     name: "Hindu Ceremony",
-    date: "2026-11-25",
     startAt: "2026-11-25T09:00:00+11:00",
     endAt: "2026-11-25T12:00:00+11:00",
     timezone: "Australia/Sydney",
-    location: "Example Temple",
     address: "125 Placeholder Highway, Mocktown NSW 2002",
     description:
       "Service commences at 9am. Free parking onsite and adjacent streets (some streets may be time limited).",
@@ -123,11 +113,9 @@ export const events = {
     id: "9f7a2c14-1b3d-4e5f-8a01-000000000004",
     slug: "reception",
     name: "Reception",
-    date: "2026-11-28",
     startAt: "2026-11-28T18:00:00+11:00",
     endAt: "2026-11-28T23:00:00+11:00",
     timezone: "Australia/Sydney",
-    location: "Sample Reception House",
     address: "126 Example Road, Testburg NSW 2003",
     description: "From 6pm. Free parking onsite.",
     dressCodeDescription: "Formal. Dark blue and dark purple colour theme.",

@@ -7,8 +7,6 @@ import type { EventSummary } from "./types";
 const baseEvent: EventSummary = {
   id: "9f7a2c14-1b3d-4e5f-8a01-000000000001",
   name: "Reception, Cocktail Hour & Dinner",
-  date: "2026-09-18",
-  location: "The Sharma Residence",
   description: "An evening of feasting",
   startAt: "2026-09-18T16:00:00+10:00",
   endAt: "2026-09-18T22:00:00+10:00",

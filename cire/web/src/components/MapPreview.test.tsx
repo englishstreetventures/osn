@@ -7,8 +7,6 @@ import type { EventSummary } from "./types";
 const baseEvent: EventSummary = {
   id: "9f7a2c14-1b3d-4e5f-8a01-000000000001",
   name: "Mehndi",
-  date: "2026-09-18",
-  location: "The Sharma Residence",
   description: "An evening of henna",
   startAt: "2026-09-18T16:00:00+10:00",
   endAt: "2026-09-18T22:00:00+10:00",
@@ -48,9 +46,9 @@ describe("MapPreview", () => {
     expect(getByText(/open in maps/i)).toBeTruthy();
   });
 
-  it("renders nothing when there is no address, location, or mapsUrl", () => {
+  it("renders nothing when there is no address or mapsUrl", () => {
     const { container } = render(() => (
-      <MapPreview event={{ ...baseEvent, address: null, location: "", mapsUrl: null }} />
+      <MapPreview event={{ ...baseEvent, address: null, mapsUrl: null }} />
     ));
     expect(container.querySelector("a")).toBeNull();
   });
@@ -58,7 +56,7 @@ describe("MapPreview", () => {
   it("still renders when the address is absent but a mapsUrl is supplied", () => {
     const url = "https://maps.google.com/?q=somewhere";
     const { getByRole, getByText } = render(() => (
-      <MapPreview event={{ ...baseEvent, address: null, location: "", mapsUrl: url }} />
+      <MapPreview event={{ ...baseEvent, address: null, mapsUrl: url }} />
     ));
     expect((getByRole("link") as HTMLAnchorElement).href).toBe(url);
     // No venue text to show — falls back to a neutral "View on map" label.
@@ -70,7 +68,7 @@ describe("MapPreview", () => {
   it("uses an accessible-name fallback when there is no venue but a mapsUrl is present", () => {
     const url = "https://maps.google.com/?q=somewhere";
     const { getByLabelText } = render(() => (
-      <MapPreview event={{ ...baseEvent, address: null, location: "", mapsUrl: url }} />
+      <MapPreview event={{ ...baseEvent, address: null, mapsUrl: url }} />
     ));
     expect(getByLabelText(/open the venue in maps/i)).toBeTruthy();
   });
@@ -135,14 +133,13 @@ describe("MapPreview", () => {
 
     it("falls back to the CSS card (no iframe) when there is no address to query", () => {
       vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
-      // mapsUrl present so the component still renders, but no address/location
-      // means there is nothing to feed the Embed API `q` — so no iframe.
+      // mapsUrl present so the component still renders, but no address means
+      // there is nothing to feed the Embed API `q` — so no iframe.
       const { container, getByRole } = render(() => (
         <MapPreview
           event={{
             ...baseEvent,
             address: null,
-            location: "",
             mapsUrl: "https://maps.google.com/?q=somewhere",
           }}
         />

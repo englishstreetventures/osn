@@ -453,8 +453,6 @@ describe("wedding scoping: import is tenant-isolated", () => {
         weddingId: "wed_second",
         slug: "second-party",
         name: "Second Party",
-        date: "2027-02-02",
-        location: "Elsewhere",
         description: "",
         startAt: "2027-02-02T10:00:00+11:00",
         endAt: "2027-02-02T12:00:00+11:00",

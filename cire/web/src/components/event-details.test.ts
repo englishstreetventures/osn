@@ -13,8 +13,6 @@ import type { EventSummary } from "./types";
 const base: EventSummary = {
   id: "9f7a2c14-1b3d-4e5f-8a01-000000000001",
   name: "Mehndi",
-  date: "2026-09-18",
-  location: "The Sharma Residence",
   description: "An evening of henna",
   startAt: "2026-09-18T16:00:00+10:00",
   endAt: "2026-09-18T22:00:00+10:00",
@@ -28,17 +26,13 @@ const base: EventSummary = {
 };
 
 describe("venueLine", () => {
-  it("prefers the canonical address", () => {
+  it("returns the canonical address", () => {
     expect(venueLine(base)).toBe("12 Banksia Lane, Strathfield");
   });
 
-  it("falls back to the deprecated location when address is null", () => {
-    expect(venueLine({ ...base, address: null })).toBe("The Sharma Residence");
-  });
-
-  it("returns null when neither is present", () => {
-    expect(venueLine({ address: null, location: "" })).toBeNull();
-    expect(venueLine({ address: "   ", location: "" })).toBeNull();
+  it("returns null when the address is absent or blank", () => {
+    expect(venueLine({ address: null })).toBeNull();
+    expect(venueLine({ address: "   " })).toBeNull();
   });
 });
 
@@ -101,13 +95,8 @@ describe("resolveMapsUrl", () => {
     expect(out).toContain(encodeURIComponent("12 Banksia Lane, Strathfield"));
   });
 
-  it("falls back to the deprecated location when address is null", () => {
-    const out = resolveMapsUrl({ ...base, address: null });
-    expect(out).toContain(encodeURIComponent("The Sharma Residence"));
-  });
-
   it("returns null when there is nothing to point at", () => {
-    expect(resolveMapsUrl({ mapsUrl: null, address: null, location: "" })).toBeNull();
+    expect(resolveMapsUrl({ mapsUrl: null, address: null })).toBeNull();
   });
 });
 
@@ -121,9 +110,8 @@ describe("resolveMapsEmbedUrl", () => {
     expect(out).toContain(`q=${encodeURIComponent("12 Banksia Lane, Strathfield")}`);
   });
 
-  it("falls back to the deprecated location when address is null", () => {
-    const out = resolveMapsEmbedUrl({ ...base, address: null }, KEY);
-    expect(out).toContain(`q=${encodeURIComponent("The Sharma Residence")}`);
+  it("returns null when the address is absent", () => {
+    expect(resolveMapsEmbedUrl({ ...base, address: null }, KEY)).toBeNull();
   });
 
   it("returns null when no key is configured", () => {
@@ -133,7 +121,7 @@ describe("resolveMapsEmbedUrl", () => {
   });
 
   it("returns null when there is no venue address to query", () => {
-    expect(resolveMapsEmbedUrl({ ...base, address: null, location: "" }, KEY)).toBeNull();
+    expect(resolveMapsEmbedUrl({ ...base, address: null }, KEY)).toBeNull();
   });
 
   it("encodes special characters in the address so they cannot break the query", () => {

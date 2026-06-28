@@ -7,8 +7,6 @@ import type { EventSummary } from "./types";
 const baseEvent: EventSummary = {
   id: "9f7a2c14-1b3d-4e5f-8a01-000000000001",
   name: "Mehndi",
-  date: "2026-09-18",
-  location: "The Sharma Residence",
   description: "An evening of henna",
   startAt: "2026-09-18T16:00:00+10:00",
   endAt: "2026-09-18T22:00:00+10:00",
@@ -32,15 +30,28 @@ const noop = () => {};
 describe("EventCard", () => {
   afterEach(() => cleanup());
 
-  it("renders the event name, date, location, description and BOTH buttons (Respond first)", () => {
+  it("renders the event name, day (from startAt), venue (from address), description and BOTH buttons (Respond first)", () => {
     const { getByRole, container } = render(() => (
       <EventCard event={baseEvent} onRespond={noop} onDetails={noop} />
     ));
     expect(getByRole("heading", { name: "Mehndi" })).toBeTruthy();
-    expect(container.textContent).toContain("The Sharma Residence");
+    // The day is derived from startAt/timezone (no deprecated `date` field).
+    expect(container.textContent).toContain("18 September 2026");
+    // The venue is the canonical `address` (no deprecated `location` field).
+    expect(container.textContent).toContain("12 Banksia Lane, Strathfield");
     expect(container.textContent).toContain("An evening of henna");
     const buttons = [...container.querySelectorAll("button")];
     expect(buttons.map((b) => b.textContent)).toEqual(["Respond", "View Event"]);
+  });
+
+  it("omits the venue line entirely when the event has no address", () => {
+    const noAddress: EventSummary = { ...baseEvent, address: null };
+    const { container } = render(() => (
+      <EventCard event={noAddress} onRespond={noop} onDetails={noop} />
+    ));
+    // Day still renders from startAt; the venue paragraph is simply absent.
+    expect(container.textContent).toContain("18 September 2026");
+    expect(container.textContent).not.toContain("12 Banksia Lane");
   });
 
   it("collapses to a single text-only column when there is no image", () => {

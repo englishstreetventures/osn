@@ -105,8 +105,6 @@ function seedReferenced(opts: {
           weddingId,
           slug: `${weddingId}-ev-0`,
           name: "Ceremony",
-          date: "2025-01-01",
-          location: "Somewhere",
           startAt: "2025-01-01T10:00:00+11:00",
           endAt: "2025-01-01T12:00:00+11:00",
           timezone: "Australia/Sydney",

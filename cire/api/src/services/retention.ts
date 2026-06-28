@@ -56,9 +56,11 @@ function rowsChanged(result: unknown): number {
 }
 
 /**
- * `events.date` is a zero-padded `YYYY-MM-DD` string, so lexical order equals
- * chronological order — a string comparison against the cutoff date is exact and
- * needs no parsing. Returns the `YYYY-MM-DD` for `now - RETENTION_AFTER_FINAL_EVENT_MS`.
+ * `events.end_at` is an ISO-8601 string that begins with a zero-padded
+ * `YYYY-MM-DD` date, so a lexical comparison of `MAX(end_at)` against a
+ * `YYYY-MM-DD` cutoff is exact (the 10-char cutoff sorts strictly before any
+ * same-day `YYYY-MM-DDThh:mm:ss…` instant) — no date parsing needed. Returns the
+ * `YYYY-MM-DD` for `now - RETENTION_AFTER_FINAL_EVENT_MS`.
  */
 function cutoffDateString(now: Date): string {
   const cutoff = new Date(now.getTime() - RETENTION_AFTER_FINAL_EVENT_MS);
@@ -77,12 +79,14 @@ export const retentionService = {
    * wedding/events shell is intentionally **kept** — it carries no guest PII and
    * deleting it would orphan the published invite + slug.
    *
-   * Selection: `events.date` is a zero-padded `YYYY-MM-DD` string, so the latest
-   * event is `MAX(date)` and "final event > 1 year ago" is `MAX(date) < cutoff`
-   * (strict — a wedding whose final event is *exactly* at the cutoff is kept one
-   * more day). A wedding with **no events** is never selected (the inner join
-   * drops it) — we cannot prove its window has lapsed, so the safe default is to
-   * keep it; this is also the in-progress-setup case.
+   * Selection: `events.end_at` is an ISO-8601 string that begins with a
+   * zero-padded `YYYY-MM-DD` date, so the latest event is `MAX(end_at)` and
+   * "final event > 1 year ago" is `MAX(end_at) < cutoff` (strict — a wedding
+   * whose final event is *exactly* at the cutoff is kept one more day; the
+   * `YYYY-MM-DD` cutoff sorts before any same-day instant). A wedding with **no
+   * events** is never selected (the group/having drops the empty group) — we
+   * cannot prove its window has lapsed, so the safe default is to keep it; this
+   * is also the in-progress-setup case.
    *
    * R2 reaping (IB-S-L2 / C-H1): the deleted `imports` rows reference
    * personal-data R2 objects that D1's `ON DELETE cascade` can NEVER reach — the
@@ -117,7 +121,7 @@ export const retentionService = {
           .select({ weddingId: events.weddingId })
           .from(events)
           .groupBy(events.weddingId)
-          .having(lt(sql`max(${events.date})`, cutoff))
+          .having(lt(sql`max(${events.endAt})`, cutoff))
           .all(),
       );
       const weddingIds = expired.map((r) => r.weddingId);

@@ -481,8 +481,6 @@ export function applyImport(
           weddingId,
           slug: mintEventSlug(ec.event.name),
           name: ec.event.name,
-          date: ec.event.startAt.slice(0, 10),
-          location: ec.event.location ?? "",
           description: "",
           startAt: ec.event.startAt,
           endAt: ec.event.endAt,
@@ -504,8 +502,6 @@ export function applyImport(
           .update(events)
           .set({
             name: eu.event.name,
-            date: eu.event.startAt.slice(0, 10),
-            location: eu.event.location ?? "",
             startAt: eu.event.startAt,
             endAt: eu.event.endAt,
             timezone: eu.event.timezone,

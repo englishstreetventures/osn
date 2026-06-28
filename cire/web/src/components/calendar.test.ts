@@ -6,8 +6,6 @@ import type { EventSummary } from "./types";
 const sydneyEvent: EventSummary = {
   id: "9f7a2c14-1b3d-4e5f-8a01-000000000001",
   name: "Mehndi",
-  date: "2026-09-18",
-  location: "The Sharma Residence",
   description: "An evening of henna",
   startAt: "2026-09-18T16:00:00+10:00",
   endAt: "2026-09-18T22:00:00+10:00",
@@ -63,9 +61,9 @@ describe("googleCalendarUrl", () => {
     expect(url.searchParams.get("ctz")).toBe("Australia/Sydney");
   });
 
-  it("falls back to event.location when address is null", () => {
+  it("emits an empty location when the event has no address", () => {
     const url = new URL(googleCalendarUrl({ ...sydneyEvent, address: null }, SITE_URL));
-    expect(url.searchParams.get("location")).toBe("The Sharma Residence");
+    expect(url.searchParams.get("location")).toBe("");
   });
 
   it("includes the invite siteUrl in details", () => {

@@ -18,11 +18,6 @@ export type DressSwatch = Schema.Schema.Type<typeof DressSwatch>;
 export const EventSummary = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
-  // Deprecated: prefer startAt / endAt. Kept for one release while consumers
-  // migrate.
-  date: Schema.String,
-  // Deprecated: prefer address. Kept while organiser portal still writes it.
-  location: Schema.String,
   description: Schema.String,
   startAt: Schema.String,
   endAt: Schema.String,

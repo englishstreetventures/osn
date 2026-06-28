@@ -22,10 +22,6 @@ export interface ImageCrop {
 export interface EventSummary {
   id: string;
   name: string;
-  /** Deprecated: prefer startAt / endAt. Kept for transition. */
-  date: string;
-  /** Deprecated: prefer address. Kept for transition. */
-  location: string;
   description: string;
   startAt: string;
   endAt: string;

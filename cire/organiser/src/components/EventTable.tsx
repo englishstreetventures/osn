@@ -209,9 +209,6 @@ export default function EventTable(props: EventTableProps) {
                 </header>
 
                 <dl class="font-body grid grid-cols-1 gap-x-6 gap-y-2 text-[0.88rem] md:grid-cols-2">
-                  <Show when={event.location}>
-                    <Detail label="Location" value={event.location} />
-                  </Show>
                   <Show when={event.address}>
                     <Detail label="Address" value={event.address!} />
                   </Show>

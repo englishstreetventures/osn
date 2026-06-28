@@ -1,38 +1,11 @@
 import { describe, it, expect } from "vitest";
 
-import { formatDate, isValidClaimResponse } from "./utils";
-
-describe("formatDate", () => {
-  it("formats a date string to en-AU long format", () => {
-    const result = formatDate("2026-09-20");
-    expect(result).toContain("September");
-    expect(result).toContain("2026");
-    expect(result).toContain("20");
-  });
-
-  it("includes the weekday", () => {
-    // 2026-09-20 is a Sunday
-    expect(formatDate("2026-09-20")).toContain("Sunday");
-  });
-
-  it("handles single-digit days", () => {
-    const result = formatDate("2026-09-01");
-    expect(result).toContain("1");
-    expect(result).toContain("September");
-  });
-
-  it("handles different months", () => {
-    expect(formatDate("2026-01-15")).toContain("January");
-    expect(formatDate("2026-12-25")).toContain("December");
-  });
-});
+import { isValidClaimResponse } from "./utils";
 
 describe("isValidClaimResponse", () => {
   const baseEvent = {
     id: "9f7a2c14-1b3d-4e5f-8a01-000000000001",
     name: "Mehndi",
-    date: "2026-09-18",
-    location: "The Sharma Residence",
     description: "An evening of henna",
     startAt: "2026-09-18T16:00:00+10:00",
     endAt: "2026-09-18T22:00:00+10:00",
@@ -210,17 +183,6 @@ describe("isValidClaimResponse", () => {
         familyName: "Test",
         members: [],
         events: [rest],
-      }),
-    ).toBe(false);
-  });
-
-  it("rejects events with non-string date", () => {
-    expect(
-      isValidClaimResponse({
-        publicId: "X",
-        familyName: "Test",
-        members: [],
-        events: [{ ...baseEvent, date: 123 }],
       }),
     ).toBe(false);
   });

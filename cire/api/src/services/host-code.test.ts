@@ -87,8 +87,6 @@ describe("hostCodeService.ensureForWedding", () => {
                 weddingId: BOOTSTRAP_WEDDING_ID,
                 slug: "after-host",
                 name: "Afterparty",
-                date: "2027-02-02",
-                location: "Rooftop",
                 description: "",
                 startAt: "2027-02-02T20:00:00+10:00",
                 endAt: "2027-02-03T02:00:00+10:00",

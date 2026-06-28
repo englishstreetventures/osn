@@ -34,14 +34,13 @@ VALUES ('wed_bootstrap', 'cire-wedding', 'Cire Wedding', 'usr_dev_bootstrap_owne
 -- The wedding_id column is NOT NULL with an FK, so the seed supplies it
 -- explicitly.
 INSERT OR IGNORE INTO events (
-  id, wedding_id, slug, name, date, location, description,
+  id, wedding_id, slug, name, description,
   start_at, end_at, timezone, address,
   dress_code_description, dress_code_palette,
   pinterest_url, maps_url, sort_order
 ) VALUES
   (
     '9f7a2c14-1b3d-4e5f-8a01-000000000001', 'wed_bootstrap', 'catholic', 'Catholic Ceremony',
-    '2026-10-31', 'Example Parish Hall',
     'Service commences at 10:00am. Free parking onsite.',
     '2026-10-31T10:00:00+11:00', '2026-10-31T13:00:00+11:00', 'Australia/Sydney',
     '123 Example St, Sampletown NSW 2000',
@@ -53,7 +52,6 @@ INSERT OR IGNORE INTO events (
   ),
   (
     '9f7a2c14-1b3d-4e5f-8a01-000000000005', 'wed_bootstrap', 'kitchen-tea', 'Kitchen Tea',
-    '2026-11-20', '124 Sample Avenue, Exampleville',
     'From 4pm to 6pm.',
     '2026-11-20T16:00:00+11:00', '2026-11-20T18:00:00+11:00', 'Australia/Sydney',
     '124 Sample Avenue, Exampleville NSW 2001',
@@ -65,7 +63,6 @@ INSERT OR IGNORE INTO events (
   ),
   (
     '9f7a2c14-1b3d-4e5f-8a01-000000000002', 'wed_bootstrap', 'mehendi', 'Mehendi',
-    '2026-11-22', '124 Sample Avenue, Exampleville',
     'From 6pm.',
     '2026-11-22T18:00:00+11:00', '2026-11-22T23:00:00+11:00', 'Australia/Sydney',
     '124 Sample Avenue, Exampleville NSW 2001',
@@ -77,7 +74,6 @@ INSERT OR IGNORE INTO events (
   ),
   (
     '9f7a2c14-1b3d-4e5f-8a01-000000000003', 'wed_bootstrap', 'hindu', 'Hindu Ceremony',
-    '2026-11-25', 'Example Temple',
     'Service commences at 9am. Free parking onsite and adjacent streets (some streets may be time limited).',
     '2026-11-25T09:00:00+11:00', '2026-11-25T12:00:00+11:00', 'Australia/Sydney',
     '125 Placeholder Highway, Mocktown NSW 2002',
@@ -89,7 +85,6 @@ INSERT OR IGNORE INTO events (
   ),
   (
     '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'wed_bootstrap', 'reception', 'Reception',
-    '2026-11-28', 'Sample Reception House',
     'From 6pm. Free parking onsite.',
     '2026-11-28T18:00:00+11:00', '2026-11-28T23:00:00+11:00', 'Australia/Sydney',
     '126 Example Road, Testburg NSW 2003',

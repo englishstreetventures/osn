@@ -105,7 +105,7 @@ export function googleCalendarUrl(event: EventSummary, siteUrl: string): string 
     text: event.name,
     dates: `${start}/${end}`,
     details: `${event.description}\n\nInvite: ${siteUrl}`,
-    location: event.address ?? event.location,
+    location: event.address ?? "",
     ctz: event.timezone,
   });
 
@@ -122,7 +122,7 @@ export function icsBlob(event: EventSummary, siteUrl: string): Blob {
   const dtStart = localBasic(new Date(event.startAt), tz);
   const dtEnd = localBasic(new Date(event.endAt), tz);
   const dtStamp = utcBasic(new Date());
-  const location = event.address ?? event.location;
+  const location = event.address ?? "";
 
   const rawLines: string[] = [
     "BEGIN:VCALENDAR",

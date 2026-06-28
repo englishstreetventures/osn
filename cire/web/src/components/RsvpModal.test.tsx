@@ -11,8 +11,6 @@ vi.mock("motion", () => ({
 const event: EventSummary = {
   id: "event-1",
   name: "Mehndi",
-  date: "2026-09-18",
-  location: "The Sharma Residence",
   description: "Henna evening",
   startAt: "2026-09-18T16:00:00+10:00",
   endAt: "2026-09-18T22:00:00+10:00",

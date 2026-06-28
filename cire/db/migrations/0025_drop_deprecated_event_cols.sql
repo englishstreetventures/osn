@@ -1,0 +1,21 @@
+-- Retire the deprecated `events.date` + `events.location` columns. They were
+-- kept "for backwards compatibility with migration 0001" but have been fully
+-- superseded: the canonical event timing is `start_at` / `end_at` / `timezone`,
+-- and the canonical venue is the free-form `address`. Every read + write was
+-- migrated off these two columns before this migration (the claim/listEvents
+-- response, the spreadsheet import writer, the retention sweep's "final event"
+-- selection — now `MAX(end_at)` — and the guest/organiser frontends).
+--
+-- IRREVERSIBLE-FORWARD: this physically drops the columns, so the data in them
+-- is gone after it applies. The Worker code in this same deploy no longer reads
+-- or writes them; rolling the code back to a build that still expects these
+-- columns would fail. Deploy the code first, confirm healthy, then know the drop
+-- cannot be undone forward (see the PR body's rollback note).
+--
+-- D1/SQLite (>= 3.35) supports ALTER TABLE ... DROP COLUMN directly. Both
+-- columns are NOT NULL but carry no constraint other than that, and nothing
+-- (index / generated column / view) references them, so the simple DROP applies
+-- cleanly without a 12-step table rebuild.
+ALTER TABLE events DROP COLUMN date;
+--> statement-breakpoint
+ALTER TABLE events DROP COLUMN location;

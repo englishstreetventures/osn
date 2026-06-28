@@ -133,8 +133,6 @@ function makeWedding(opts: {
           weddingId,
           slug: `${weddingId}-ev-${i}`,
           name: `Event ${i}`,
-          date,
-          location: "Somewhere",
           startAt: `${date}T10:00:00+11:00`,
           endAt: `${date}T12:00:00+11:00`,
           timezone: "Australia/Sydney",

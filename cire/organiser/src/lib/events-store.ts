@@ -32,11 +32,9 @@ export interface EventRow {
   name: string;
   slug: string;
   sortOrder: number;
-  date: string;
   startAt: string;
   endAt: string;
   timezone: string;
-  location: string;
   address: string | null;
   description: string;
   dressCodeDescription: string | null;

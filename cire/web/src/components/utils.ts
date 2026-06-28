@@ -1,15 +1,5 @@
 import type { ClaimResult } from "./types";
 
-export function formatDate(dateStr: string): string {
-  const date = new Date(`${dateStr}T00:00:00`);
-  return date.toLocaleDateString("en-AU", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-}
-
 function isDressSwatch(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
@@ -51,8 +41,6 @@ export function isValidClaimResponse(data: unknown): data is ClaimResult {
     const ev = e as Record<string, unknown>;
     if (typeof ev.id !== "string") return false;
     if (typeof ev.name !== "string") return false;
-    if (typeof ev.date !== "string") return false;
-    if (typeof ev.location !== "string") return false;
     if (typeof ev.startAt !== "string") return false;
     if (typeof ev.endAt !== "string") return false;
     if (typeof ev.timezone !== "string") return false;
