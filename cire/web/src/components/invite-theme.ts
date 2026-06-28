@@ -64,7 +64,18 @@ export function sectionThemeVars(
   const body = fontStack(theme.bodyFont);
   if (body) vars["--invite-body"] = body;
 
-  const { accentColor, surfaceColor } = theme[section];
+  // Defensive: a truthy-but-partial theme (the requested section's sub-object
+  // missing — e.g. a mid-deploy payload-shape mismatch on the no-store
+  // revalidation, or future shape drift) must NEVER throw here. This map styles
+  // the guest invite's events ("details") section wrapper, so a throw would crash
+  // the InvitePage island and make the EVENTS list disappear entirely. Mirror the
+  // organiser preview helper's `?? default` resilience (`invite-theme-preview.ts`)
+  // and simply omit the section colours, falling back to the built-in tokens.
+  const sectionColors = theme[section] as
+    | { accentColor: string | null; surfaceColor: string | null }
+    | undefined;
+  const accentColor = sectionColors?.accentColor ?? null;
+  const surfaceColor = sectionColors?.surfaceColor ?? null;
   if (accentColor && isValidColor(accentColor)) vars["--invite-accent"] = accentColor;
   if (surfaceColor && isValidColor(surfaceColor)) vars["--invite-surface"] = surfaceColor;
 

@@ -46,6 +46,27 @@ describe("sectionThemeVars", () => {
     expect(sectionThemeVars(undefined, "story")).toEqual({});
   });
 
+  it("never throws on a truthy-but-partial theme (the section sub-object missing)", () => {
+    // Regression: a malformed/partial theme payload (a missing section — e.g. a
+    // mid-deploy shape mismatch on the guest invite's no-store revalidation) must
+    // NOT throw. This map styles the events ("details") section wrapper, and a
+    // throw here would crash the InvitePage island and make the events vanish.
+    const partial = {
+      headingFont: "cormorant",
+      bodyFont: null,
+      hero: { accentColor: "#d4af37", surfaceColor: null },
+      // `story` + `details` deliberately absent — an out-of-contract payload.
+    } as unknown as InviteTheme;
+
+    expect(() => sectionThemeVars(partial, "details")).not.toThrow();
+    const vars = sectionThemeVars(partial, "details");
+    // No section colours (fall back to the built-in tokens), but the global font
+    // still applies — exactly as a section with both colours null would render.
+    expect(vars["--invite-accent"]).toBeUndefined();
+    expect(vars["--invite-surface"]).toBeUndefined();
+    expect(vars["--invite-heading"]).toContain("Cormorant Garamond");
+  });
+
   it("drops a colour that fails the allow-list (defence in depth at the render boundary)", () => {
     const malicious: InviteTheme = {
       ...fullTheme,

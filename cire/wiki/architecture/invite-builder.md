@@ -4,7 +4,7 @@ tags: [architecture, api, web, db]
 related:
   - "[[index]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-06-19
+last-reviewed: 2026-06-28
 ---
 
 # Invite Builder
@@ -336,6 +336,14 @@ gold / surface / display token. `cire/web/src/components/invite-theme.ts`
 colours + resolving the font key). The hero + story sections read the live theme
 from `InviteHeader`'s resource; the "details"/events section reads the live theme
 from `InvitePage`'s own resource (both override the build-time snapshot above).
+
+> **Render-boundary resilience.** `sectionThemeVars` reads the section sub-object
+> defensively (`theme[section]?` → fall back to the built-in tokens) and never
+> throws on a truthy-but-partial theme. This matters because the "details" map
+> styles the **events** section wrapper, so a throw here would crash the
+> `InvitePage` island and make the whole events list vanish. A malformed/partial
+> payload now degrades to the default section colours rather than taking events
+> down — mirroring the organiser preview helper's `?? default` behaviour.
 
 `PUBLIC_WEDDING_SLUG` (env) selects which wedding's customisation the guest site
 renders (default `cire-wedding`, the bootstrap wedding slug).
