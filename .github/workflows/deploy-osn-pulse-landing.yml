@@ -1,0 +1,75 @@
+name: Preview — osn/landing + pulse/landing
+
+# Deploys the two marketing sites (osn/landing, pulse/landing) to their own
+# NON-APEX Cloudflare Pages preview projects (osn-landing → osn-landing.pages.dev,
+# pulse-landing → pulse-landing.pages.dev), so they can be reviewed on a real URL.
+# Runs on every push to the landing feature branch and can be triggered manually
+# from the Actions tab.
+#
+# It touches NOTHING else — no API/Worker deploy, no D1 — so it is safe to run
+# from a feature branch. It reuses the `production` environment's Cloudflare
+# credentials (the same token that already deploys the other Pages sites).
+on:
+  push:
+    branches: [claude/osn-pulse-landing-sites-dq3pmc]
+  workflow_dispatch:
+
+# Least privilege: the job only needs to read the repo to build + ship to Pages
+# (deploy auth is the Cloudflare token, not GITHUB_TOKEN). Deny everything else.
+permissions:
+  contents: read
+
+# Per-project concurrency so a rapid re-push cancels the stale build but the two
+# sites never block each other.
+concurrency:
+  group: deploy-osn-pulse-landing-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build + deploy ${{ matrix.site.project }}
+    runs-on: ubuntu-latest
+    environment: production
+    strategy:
+      fail-fast: false
+      matrix:
+        site:
+          # `project` is also the *.pages.dev subdomain, which is GLOBALLY unique
+          # across all Cloudflare accounts — `pulse-landing` was already taken by
+          # an unrelated account, so the Pulse project carries an `osn-` prefix to
+          # claim a clean, owned subdomain.
+          - { dir: osn/landing, project: osn-landing }
+          - { dir: pulse/landing, project: osn-pulse-landing }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build ${{ matrix.site.project }}
+        run: bun run --cwd ${{ matrix.site.dir }} build
+        env:
+          # Canonical origin for SEO meta — each preview advertises its own URL.
+          SITE: https://${{ matrix.site.project }}.pages.dev
+
+      # Idempotent: creates the Pages project on first run, no-ops (|| true) once
+      # it already exists.
+      - name: Ensure the ${{ matrix.site.project }} Pages project exists
+        run: bunx wrangler pages project create ${{ matrix.site.project }} --production-branch main || true
+        working-directory: ${{ matrix.site.dir }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Deploy to the project's production branch so it serves at the clean
+      # <project>.pages.dev (standalone preview projects, NOT any apex).
+      - name: Deploy to Cloudflare Pages
+        run: bunx wrangler pages deploy dist --project-name ${{ matrix.site.project }} --branch main --commit-dirty=true
+        working-directory: ${{ matrix.site.dir }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

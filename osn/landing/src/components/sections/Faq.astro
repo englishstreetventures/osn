@@ -1,0 +1,73 @@
+---
+// Honest answers, grounded in what OSN actually is. Native <details> so it works
+// with zero JS and is accessible by default.
+const faqs = [
+  {
+    q: 'What is OSN?',
+    a: 'OSN is an open, modular social platform. It separates your identity and social graph from the apps that use them, so you own your connections and decide which apps get access — instead of each app owning a copy of your social life.',
+  },
+  {
+    q: 'Do I need to use every app?',
+    a: 'No. Each app — events (Pulse), messaging (Zap), and others — is independent and opt-in. Turn on what you want, leave the rest. Your identity and graph stay the same underneath.',
+  },
+  {
+    q: 'Who controls my data?',
+    a: 'You do. Your social graph lives with your identity, all personalisation data is accessible and resettable, and apps only see the slice you grant them. We don&rsquo;t sell your data or use it for third-party advertising.',
+  },
+  {
+    q: 'Is it open source?',
+    a: 'Yes — OSN is open by design, built on open standards including an OAuth / OIDC provider for third-party integrations, with self-hosting planned for enterprise use.',
+  },
+  {
+    q: 'How do I sign in?',
+    a: 'With a passkey — no passwords. OSN uses passkey-only primary login (WebAuthn / FIDO2), backed by recovery codes for lost devices, per-device session management, and step-up authentication for sensitive actions.',
+  },
+] as const
+---
+<section id="faq" class="px-6 py-24 md:py-32" aria-labelledby="faq-heading">
+  <div class="mx-auto max-w-[44rem]">
+    <div class="mb-14 text-center" data-reveal>
+      <p class="font-body text-accent mb-4 text-[0.72rem] font-medium tracking-[0.26em] uppercase">
+        Questions
+      </p>
+      <h2
+        id="faq-heading"
+        class="font-display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2] font-bold tracking-[-0.02em]"
+      >
+        Everything you might be wondering.
+      </h2>
+    </div>
+
+    <div class="flex flex-col" data-reveal>
+      {
+        faqs.map((faq) => (
+          <details class="faq-item border-border border-b">
+            <summary class="font-display text-text flex cursor-pointer items-center justify-between gap-4 py-5 text-[1.15rem] font-semibold">
+              <span set:html={faq.q} />
+              <span class="faq-marker text-accent shrink-0 text-2xl leading-none" aria-hidden="true">+</span>
+            </summary>
+            <p
+              class="font-body text-text-muted pb-5 text-[0.95rem] leading-[1.75]"
+              set:html={faq.a}
+            />
+          </details>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .faq-item summary {
+    list-style: none;
+  }
+  .faq-item summary::-webkit-details-marker {
+    display: none;
+  }
+  .faq-item[open] .faq-marker {
+    transform: rotate(45deg);
+  }
+  .faq-marker {
+    transition: transform 0.2s ease;
+  }
+</style>

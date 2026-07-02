@@ -1,0 +1,214 @@
+@import "tailwindcss";
+
+/* Brand tokens — derived from the Pulse design system (pulse/DESIGN.md). The
+   marketing site is intentionally BRIGHT (the Pulse app supports light/dark; the
+   landing page is the warm-light, colourful, fun face of the brand). The coral
+   accent family is byte-shared with the app's `--pulse-accent*` tokens so the
+   site, the app it advertises, and the glyph placeholders all read as one brand.
+   If you change the accent family here, change it in the Pulse app theme too. */
+@theme {
+  /* Warm-tinted light neutrals (hue ~60–80 per DESIGN.md). Cream/off-white base
+     with dark warm text for the bright, lively marketing feel. */
+  --color-bg: oklch(0.98 0.008 80);
+  --color-surface: oklch(0.965 0.01 75);
+  --color-surface-raised: oklch(1 0.004 80);
+  --color-border: oklch(0.4 0.02 70 / 0.14);
+  --color-text: oklch(0.27 0.02 65);
+  --color-text-muted: oklch(0.27 0.02 65 / 0.62);
+
+  /* Pulse accent — coral / ember family (primary brand). */
+  --pulse-accent: oklch(0.68 0.18 38);
+  --pulse-accent-strong: oklch(0.58 0.19 35);
+  --pulse-accent-soft: oklch(0.95 0.05 45);
+  /* Tailwind-addressable aliases (text-accent / bg-accent etc.). */
+  --color-accent: var(--pulse-accent);
+  --color-accent-strong: var(--pulse-accent-strong);
+  --color-accent-soft: var(--pulse-accent-soft);
+
+  /* Playful multi-colour category palette — vivid but tasteful oklch hues that
+     drive the colourful category showcase and accent glyphs. cat-2 mirrors the
+     app's `--close-friend` green. */
+  --cat-1: oklch(0.68 0.18 38); /* coral — Music */
+  --cat-2: oklch(0.66 0.16 145); /* green — Community (== --close-friend) */
+  --cat-3: oklch(0.62 0.2 295); /* violet — Nightlife */
+  --cat-4: oklch(0.7 0.15 230); /* blue — Arts */
+  --cat-5: oklch(0.8 0.16 90); /* sunny yellow — Food */
+  --cat-6: oklch(0.72 0.16 195); /* teal — Sport */
+
+  --color-cat-1: var(--cat-1);
+  --color-cat-2: var(--cat-2);
+  --color-cat-3: var(--cat-3);
+  --color-cat-4: var(--cat-4);
+  --color-cat-5: var(--cat-5);
+  --color-cat-6: var(--cat-6);
+
+  --font-display: "Instrument Serif", Georgia, serif;
+  --font-body: "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --default-font-family: var(--font-body);
+}
+
+@layer base {
+  html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-weight: 400;
+    line-height: 1.5;
+    min-height: 100vh;
+    /* Safety net against horizontal scroll on small viewports: a single wide
+       island should never let the whole page pan sideways. */
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background: var(--pulse-accent-soft);
+    color: var(--pulse-accent-strong);
+  }
+
+  /* Honour reduced-motion globally: smooth-scroll and any CSS-driven entrance
+     animation snap off. The JS islands check the same media query before they
+     animate (they fall back to a still field / instant reveal). */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+/* Scroll-reveal primitive used by the static section components: an element with
+   `data-reveal` starts dimmed + nudged down; the IntersectionObserver in
+   BaseLayout adds `data-revealed` when it scrolls into view. No-JS / reduced
+   motion: the reveal still lands visible. */
+@layer utilities {
+  [data-reveal] {
+    opacity: 0;
+    transform: translateY(1.5rem);
+    transition:
+      opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
+  }
+
+  [data-reveal][data-revealed] {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── Pulse field backdrop (see PulseField.tsx) ───────────────────────────────
+   The page wrapper is the positioning context; the field layer spans its full
+   content height and sits behind everything (so the colourful pulsing dots run
+   the whole page) but never adds scrollable area. */
+.page-root {
+  position: relative;
+}
+
+.pulse-layer {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  z-index: -1;
+  overflow: clip;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.pulse-layer svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Each dot carries its own colour (set inline from the category palette). The
+   animated mode lets the JS island drive a gentle per-dot pulse via the `--s`
+   (scale) and `--o` (opacity) custom properties; the still baseline just shows
+   the dots at rest. */
+.pulse-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.pulse-layer.is-animated .pulse-dot {
+  transform: scale(var(--s, 1));
+  opacity: var(--o, 0.5);
+}
+
+.pulse-ring {
+  fill: none;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.pulse-layer.is-animated .pulse-ring {
+  transform: scale(var(--rs, 1));
+  opacity: var(--ro, 0);
+}
+
+/* Reduced motion (and the no-JS baseline): show a calm, static field. */
+@media (prefers-reduced-motion: reduce) {
+  .pulse-layer.is-animated .pulse-dot {
+    transform: none;
+    opacity: 0.5;
+  }
+
+  .pulse-layer.is-animated .pulse-ring {
+    opacity: 0;
+  }
+}
+
+/* Hero entrance — pure CSS so the hero is visible WITHOUT JS / hydration. The
+   resting state is fully visible (opacity:1); only when motion is allowed do we
+   play a one-shot fade-up. `both` fill keeps the end state after it runs; the
+   `animation-delay` set inline on the floating chips staggers them. No-JS,
+   reduced-motion and pre-hydration all show the content at rest. */
+@layer utilities {
+  .pulse-rise {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pulse-rise {
+    animation: pulse-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes pulse-rise {
+  from {
+    opacity: 0;
+    transform: translateY(1.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Small reusable dot-motif utility — a coral disc with a soft halo, used by the
+   wordmark and a few accents to echo the app's "pulsing coral dot" mark. */
+@layer utilities {
+  .dot-mark {
+    display: inline-block;
+    width: 0.7em;
+    height: 0.7em;
+    border-radius: 9999px;
+    background: var(--pulse-accent);
+    box-shadow: 0 0 0 0.18em var(--pulse-accent-soft);
+  }
+}

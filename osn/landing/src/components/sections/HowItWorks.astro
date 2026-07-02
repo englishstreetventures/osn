@@ -1,0 +1,57 @@
+---
+// Three steps — the whole journey, compressed.
+const steps = [
+  {
+    n: '01',
+    title: 'Own your identity',
+    body: 'Create one account with a passkey — no passwords. It becomes your OIDC identity across the whole ecosystem, with recovery codes and per-device sessions you control.',
+  },
+  {
+    n: '02',
+    title: 'Build your connections',
+    body: 'Add connections and close friends, set visibility, block who you want. Your social graph lives here — portable, consistent, and yours.',
+  },
+  {
+    n: '03',
+    title: 'Switch on the apps you want',
+    body: 'Opt into Pulse for events or Zap for secure messaging — each independently. They read only the slice of your graph you grant, and never keep it.',
+  },
+] as const
+---
+<section
+  id="how-it-works"
+  class="border-border bg-surface/75 border-y px-6 py-24 md:py-32"
+  aria-labelledby="how-heading"
+>
+  <div class="mx-auto max-w-[64rem]">
+    <div class="mb-16 text-center" data-reveal>
+      <p class="font-body text-accent mb-4 text-[0.72rem] font-medium tracking-[0.26em] uppercase">
+        How it works
+      </p>
+      <h2
+        id="how-heading"
+        class="font-display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2] font-bold tracking-[-0.02em]"
+      >
+        Three steps to a social life you own.
+      </h2>
+    </div>
+
+    <ol class="grid gap-10 md:grid-cols-3 md:gap-12">
+      {
+        steps.map((step) => (
+          <li class="text-center md:text-left" data-reveal>
+            <p class="font-display text-accent mb-4 text-[2.5rem] leading-none font-bold tracking-[-0.02em]">
+              {step.n}
+            </p>
+            <h3 class="font-display text-text mb-3 text-[1.4rem] font-semibold">
+              {step.title}
+            </h3>
+            <p class="font-body text-text-muted text-[0.95rem] leading-[1.75]">
+              {step.body}
+            </p>
+          </li>
+        ))
+      }
+    </ol>
+  </div>
+</section>

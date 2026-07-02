@@ -1,0 +1,64 @@
+---
+// The ecosystem. Each app is independent and opt-in — the README's modularity
+// principle made concrete. Restrained, per-app accent chips for variety.
+const apps = [
+  {
+    name: 'Pulse',
+    kind: 'Events',
+    accent: 'var(--color-accent)',
+    body: 'Discover what&rsquo;s happening near you, RSVP, and run your own events — with venue pages, group chats, calendar export and hidden-attendance options for private gatherings.',
+  },
+  {
+    name: 'Zap',
+    kind: 'Messaging',
+    accent: 'var(--color-accent-2)',
+    body: 'Playful, end-to-end encrypted messaging over the Signal protocol — DMs, groups and event chats — that doubles as the ecosystem&rsquo;s identity-aware support and announcements channel.',
+  },
+  {
+    name: 'Cire',
+    kind: 'Wedding invites',
+    accent: 'oklch(0.74 0.13 300)',
+    body: 'Bespoke digital wedding invitations: guests open a link and RSVP with no account, while every reply is tracked for the couple. Built on OSN, usable on its own.',
+  },
+] as const
+---
+<section id="apps" class="px-6 py-12 md:py-20" aria-labelledby="apps-heading">
+  <div class="mx-auto max-w-[64rem]">
+    <div class="mb-14 text-center md:mb-20" data-reveal>
+      <p class="font-body text-accent mb-4 text-[0.72rem] font-medium tracking-[0.26em] uppercase">
+        The ecosystem
+      </p>
+      <h2
+        id="apps-heading"
+        class="font-display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2] font-bold tracking-[-0.02em]"
+      >
+        One graph. Many apps. All opt-in.
+      </h2>
+      <p class="font-body text-text-muted mx-auto mt-5 max-w-[38rem] text-[1rem] leading-[1.7]">
+        Each app stands alone and connects to your OSN identity independently. Use what you want,
+        ignore what you don&rsquo;t — your social graph stays the same underneath.
+      </p>
+    </div>
+
+    <div class="grid gap-6 md:grid-cols-3" data-reveal>
+      {
+        apps.map((app) => (
+          <article class="dot-grid flex flex-col rounded-xl border border-border bg-surface p-7">
+            <div class="mb-5 flex items-center gap-3">
+              <span
+                class="font-body inline-flex items-center rounded-full px-3 py-1 text-[0.7rem] font-medium tracking-[0.08em] uppercase"
+                style={`color: ${app.accent}; background: color-mix(in oklab, ${app.accent} 16%, transparent); border: 1px solid color-mix(in oklab, ${app.accent} 35%, transparent);`}
+              >
+                {app.kind}
+              </span>
+            </div>
+            <h3 class="font-display text-text mb-3 text-[1.6rem] font-bold tracking-[-0.01em]">
+              {app.name}
+            </h3>
+            <p class="font-body text-text-muted text-[0.95rem] leading-[1.7]" set:html={app.body} />
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>

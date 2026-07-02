@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-06-20
+last-reviewed: 2026-07-02
 ---
 
 # Data Map
@@ -163,6 +163,7 @@ cire-specific gate is required in the interim. Light-touch by design.
 |---|---|---|---|---|
 | Outbound email (OTP, security notice) | Transactional auth | Art. 6(1)(b) | Resend retains delivery logs per their DPA | **Resend (US)** — live transport; Cloudflare Email Service (US) is a legacy fallback |
 | Geocoder query (Pulse) | Convert typed address → coordinates | Currently no consent — **outstanding compliance gap (S-M13)** | Not retained by us; Photon retains per their policy | Photon (Komoot, Germany) |
+| Visitor IP-derived coarse location — `request.cf` city/region/country (Pulse **marketing** site) | Show the visitor's approximate "what's on near you" area on the `@pulse/landing` hero + route its CTA to the nearest city | Art. 6(1)(f) — legit interest in a relevant landing page (coarse, city-level only) | **Not retained** — computed per request at the Cloudflare edge, never stored, no cookies | `@pulse/landing` Pages Function (`/api/geo`) → the visitor's own browser only; no third party. See [[pulse-landing]] |
 
 ## Things we explicitly do NOT collect
 

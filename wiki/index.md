@@ -60,7 +60,8 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[zap]] — messaging app (`@zap/api` + `@zap/db` scaffolded; client app planned)
 - [[cire]] — wedding-invite stack (`@cire/web` + `@cire/organiser` + `@cire/api` + `@cire/db`)
 - [[cire-landing]] — marketing site for the apex `cireweddings.com` (`@cire/landing`) + domain-migration / platform roadmap
-- [[landing]] — marketing site (`@osn/landing`)
+- [[osn-landing]] — marketing site for OSN (`@osn/landing`) — dark/dotted, connections-led
+- [[pulse-landing]] — marketing site for Pulse events (`@pulse/landing`) — colourful + fun
 
 ## Conventions
 

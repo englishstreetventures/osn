@@ -1,0 +1,53 @@
+---
+// The four founding principles, straight from the README. Four-up grid.
+const principles = [
+  {
+    title: 'Modularity',
+    body: 'Each capability — events, messaging, social — is a standalone app. Use what you want, ignore what you don&rsquo;t.',
+  },
+  {
+    title: 'Data transparency',
+    body: 'All personalisation data is accessible to you and can be reset at any time. No hidden profiles.',
+  },
+  {
+    title: 'Privacy by design',
+    body: 'End-to-end encryption for messaging, granular visibility controls, and hidden-attendance options throughout.',
+  },
+  {
+    title: 'Open standards',
+    body: 'An OAuth / OIDC provider for third-party integrations, with self-hosting planned for enterprise use.',
+  },
+] as const
+---
+<section
+  id="principles"
+  class="border-border bg-surface/75 border-y px-6 py-24 md:py-32"
+  aria-labelledby="principles-heading"
+>
+  <div class="mx-auto max-w-[64rem]">
+    <div class="mb-14 text-center" data-reveal>
+      <p class="font-body text-accent mb-4 text-[0.72rem] font-medium tracking-[0.26em] uppercase">
+        What we stand on
+      </p>
+      <h2
+        id="principles-heading"
+        class="font-display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2] font-bold tracking-[-0.02em]"
+      >
+        Principles, not promises.
+      </h2>
+    </div>
+
+    <dl class="grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2" data-reveal>
+      {
+        principles.map((p) => (
+          <div class="bg-surface p-7">
+            <dt class="font-display text-text mb-2.5 text-[1.25rem] font-semibold">
+              {p.title}
+            </dt>
+            <dd class="font-body text-text-muted text-[0.95rem] leading-[1.7]" set:html={p.body} />
+          </div>
+        ))
+      }
+    </dl>
+  </div>
+</section>

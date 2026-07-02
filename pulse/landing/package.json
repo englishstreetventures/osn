@@ -1,0 +1,32 @@
+{
+  "name": "@pulse/landing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev --port 4325",
+    "build": "astro build",
+    "preview": "astro preview --port 4325",
+    "check": "bunx --bun astro check",
+    "test": "vitest run",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "@astrojs/solid-js": "^6.0.1",
+    "@tailwindcss/vite": "^4.3.0",
+    "astro": "^6.4.6",
+    "motion": "^12.40.0",
+    "solid-js": "^1.9.13",
+    "tailwindcss": "^4.3.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.9",
+    "@solidjs/testing-library": "^0.8.10",
+    "@shared/typescript-config": "workspace:*",
+    "@testing-library/jest-dom": "^6.9.1",
+    "jsdom": "^29.1.1",
+    "typescript": "^6.0.3",
+    "vite-plugin-solid": "^2.11.12",
+    "vitest": "^4.1.8"
+  }
+}

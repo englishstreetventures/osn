@@ -1,0 +1,71 @@
+---
+// Venue pages / nightlife lineups — a real Pulse feature. Shows a stylised faux
+// lineup timeline (mono time + act, headliner weighted heavier), borrowing the
+// VenueLineupTimeline vocabulary from DESIGN.md. Pure markup, no images.
+const lineup = [
+  { time: '21:00', act: 'Doors', role: 'support' },
+  { time: '22:00', act: 'Mira Vale', role: 'support' },
+  { time: '23:30', act: 'KODEX', role: 'headliner' },
+  { time: '01:00', act: 'Late set — Sunna', role: 'support' },
+] as const
+---
+<section
+  id="venues"
+  class="border-y border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-24 md:py-32"
+  aria-labelledby="venues-heading"
+>
+  <div class="mx-auto grid max-w-[64rem] items-center gap-12 md:grid-cols-2 md:gap-16">
+    <div data-reveal>
+      <p class="font-mono text-[var(--cat-3)] mb-4 text-[0.72rem] tracking-[0.28em] uppercase">
+        Venues
+      </p>
+      <h2
+        id="venues-heading"
+        class="font-display text-[var(--color-text)] text-[clamp(1.8rem,4.5vw,2.75rem)] leading-[1.2]"
+      >
+        Know the <span class="italic text-[var(--pulse-accent)]">lineup</span> before you leave.
+      </h2>
+      <p class="font-body text-[var(--color-text-muted)] mt-6 max-w-[34rem] text-[1.02rem] leading-[1.8]">
+        Clubs and venues get their own page on Pulse — genres, resident DJs and the full schedule for
+        the night. See who&rsquo;s on and when, so you arrive for the set you actually came for.
+      </p>
+    </div>
+
+    {/* Faux lineup timeline — decorative, mirrors VenueLineupTimeline. */}
+    <div
+      class="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-6 shadow-sm"
+      data-reveal
+      aria-hidden="true"
+    >
+      <p class="font-mono mb-5 text-[0.62rem] tracking-[0.22em] text-[var(--color-text-muted)] uppercase">
+        Tonight · The Hollow
+      </p>
+      <ol class="relative ml-2 border-l border-[var(--color-border)]">
+        {
+          lineup.map((slot) => (
+            <li class="relative pb-5 pl-5 last:pb-0">
+              <span
+                class="absolute top-1 -left-[5px] h-2.5 w-2.5 rounded-full"
+                style={
+                  slot.role === 'headliner'
+                    ? 'background: var(--pulse-accent); box-shadow: 0 0 0 4px var(--pulse-accent-soft);'
+                    : 'background: var(--cat-3);'
+                }
+              />
+              <span class="font-mono mr-3 text-[0.8rem] text-[var(--color-text-muted)]">
+                {slot.time}
+              </span>
+              <span
+                class={`font-body text-[var(--color-text)] ${
+                  slot.role === 'headliner' ? 'text-[1.05rem] font-bold' : 'text-[0.95rem] font-medium'
+                }`}
+              >
+                {slot.act}
+              </span>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,114 @@
+---
+// Marketing-site footer. Carries the wordmark (with the coral dot mark), a fun
+// tagline, in-page section links, and the legal pages so the privacy notice +
+// terms are reachable from every page.
+import { APP_URL } from '../lib/site'
+
+const year = 2026
+---
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <div class="site-footer__brand">
+      <p class="site-footer__wordmark"><span class="dot-mark" aria-hidden="true"></span>Pulse</p>
+      <p class="site-footer__tagline">Find your scene — what&rsquo;s happening near you, tonight.</p>
+    </div>
+
+    <nav class="site-footer__nav" aria-label="Sections">
+      <a href="/#how-it-works">How it works</a>
+      <a href="/#features">Features</a>
+      <a href="/#categories">Categories</a>
+      <a href="/#faq">Questions</a>
+      <a href={APP_URL}>Find events</a>
+    </nav>
+  </div>
+
+  <div class="site-footer__legal">
+    <nav aria-label="Legal">
+      <a href="/privacy">Privacy Notice</a>
+      <span aria-hidden="true">&middot;</span>
+      <a href="/terms">Terms</a>
+    </nav>
+    <p class="site-footer__copy">&copy; {year} Pulse. Go out more.</p>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    border-top: 1px solid var(--color-border);
+    padding: 3.5rem 1.5rem 3rem;
+    font-family: var(--font-body);
+    color: var(--color-text-muted);
+  }
+
+  .site-footer__inner {
+    max-width: 64rem;
+    margin: 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 2rem 3rem;
+  }
+
+  .site-footer__wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-display);
+    font-size: 1.85rem;
+    font-weight: 400;
+    letter-spacing: 0.01em;
+    color: var(--color-text);
+    margin: 0 0 0.35rem;
+  }
+
+  .site-footer__tagline {
+    font-size: 0.875rem;
+    margin: 0;
+  }
+
+  .site-footer__nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    font-size: 0.875rem;
+  }
+
+  .site-footer__legal {
+    max-width: 64rem;
+    margin: 2.5rem auto 0;
+    padding-top: 1.75rem;
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.8125rem;
+  }
+
+  .site-footer__legal nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .site-footer__copy {
+    margin: 0;
+  }
+
+  .site-footer a {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition:
+      color 0.2s ease,
+      border-color 0.2s ease;
+  }
+
+  .site-footer a:hover,
+  .site-footer a:focus-visible {
+    color: var(--pulse-accent);
+    border-bottom-color: currentColor;
+  }
+</style>

@@ -1,7 +1,9 @@
 {
-  "extends": "astro/tsconfigs/strict",
+  "extends": "@shared/typescript-config/solid.json",
   "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "preserve",
     "jsxImportSource": "solid-js"
-  }
+  },
+  "include": ["src/**/*", "env.d.ts"]
 }

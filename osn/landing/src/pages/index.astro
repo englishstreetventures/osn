@@ -1,10 +1,26 @@
 ---
-import Layout from "../layouts/Layout.astro";
+import BaseLayout from '../layouts/BaseLayout.astro'
+import { ConnectionsHero } from '../components/ConnectionsHero'
+import Promise from '../components/sections/Promise.astro'
+import Features from '../components/sections/Features.astro'
+import HowItWorks from '../components/sections/HowItWorks.astro'
+import Apps from '../components/sections/Apps.astro'
+import Principles from '../components/sections/Principles.astro'
+import Faq from '../components/sections/Faq.astro'
+import FinalCta from '../components/sections/FinalCta.astro'
+import { ANCHORS, APP_URL } from '../lib/site'
 ---
+<BaseLayout>
+  {/* Hero is client:load — it's the first paint and the signature interaction. */}
+  <ConnectionsHero client:load appUrl={APP_URL} exploreHref={ANCHORS.apps} />
 
-<Layout title="Open Social Network">
   <main>
-    <h1>Open Social Network</h1>
-    <p>Your social graph, your control.</p>
+    <Promise />
+    <Features />
+    <HowItWorks />
+    <Apps />
+    <Principles />
+    <Faq />
+    <FinalCta />
   </main>
-</Layout>
+</BaseLayout>

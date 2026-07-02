@@ -1,0 +1,94 @@
+---
+// The real product as a colourful glyph-card grid — no photography (the brief is
+// pure CSS/SVG visuals). Each card carries a category-coloured gradient header
+// with a serif glyph, echoing DESIGN.md's "ph-1..ph-8" gradient placeholder +
+// category-glyph system. Every feature here is something Pulse actually ships
+// (see README "Pulse (Events)").
+// Four core capabilities — the ones that actually sell going out. Every one is
+// something Pulse ships (see README "Pulse (Events)"). "What's on near you" is
+// the hero's job now, so it isn't repeated here.
+const features = [
+  {
+    glyph: '◎',
+    color: 'var(--cat-1)',
+    eyebrow: 'Discover',
+    title: 'By location, category, friends & interests',
+    body:
+      'Filter what&rsquo;s on by where you are, what you&rsquo;re into, and who&rsquo;s going — your social graph and your tastes do the curating.',
+  },
+  {
+    glyph: '✓',
+    color: 'var(--cat-2)',
+    eyebrow: 'RSVP',
+    title: 'Effortless replies',
+    body:
+      'One tap to say you&rsquo;re in. Hosts get a live headcount; you get a tidy list of where you said yes.',
+  },
+  {
+    glyph: '◴',
+    color: 'var(--cat-4)',
+    eyebrow: 'Calendar',
+    title: 'Calendar view + iCal export',
+    body:
+      'See your plans on a calendar and export them — one-way sync to Google Calendar and Apple Calendar so nothing slips.',
+  },
+  {
+    glyph: '✦',
+    color: 'var(--cat-3)',
+    eyebrow: 'Venues',
+    title: 'Venue pages & nightly lineups',
+    body:
+      'Clubs and venues get their own page — DJ schedules, genres and the night&rsquo;s lineup, so you know the vibe before you go.',
+  },
+] as const
+---
+<section id="features" class="px-6 py-12 md:py-20" aria-labelledby="features-heading">
+  <div class="mx-auto max-w-[68rem]">
+    <div class="mb-14 text-center md:mb-20" data-reveal>
+      <p class="font-mono text-[var(--pulse-accent-strong)] mb-4 text-[0.72rem] tracking-[0.28em] uppercase">
+        What&rsquo;s inside
+      </p>
+      <h2
+        id="features-heading"
+        class="font-display text-[var(--color-text)] text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2]"
+      >
+        Everything you need to <span class="italic text-[var(--pulse-accent)]">go out</span>.
+      </h2>
+    </div>
+
+    <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      {
+        features.map((feature) => (
+          <article
+            class="flex flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-raised)] shadow-sm"
+            data-reveal
+          >
+            <div
+              class="flex h-28 items-center justify-center"
+              style={`background: linear-gradient(135deg, ${feature.color}, color-mix(in oklab, ${feature.color} 55%, white));`}
+              aria-hidden="true"
+            >
+              <span class="font-display text-[3rem] leading-none text-white/90">{feature.glyph}</span>
+            </div>
+            <div class="flex flex-1 flex-col p-5">
+              <p
+                class="font-mono mb-2 text-[0.62rem] tracking-[0.2em] uppercase"
+                style={`color: ${feature.color};`}
+              >
+                {feature.eyebrow}
+              </p>
+              <h3
+                class="font-body mb-2 text-[1.02rem] font-semibold leading-snug text-[var(--color-text)]"
+                set:html={feature.title}
+              />
+              <p
+                class="font-body text-[0.875rem] leading-[1.6] text-[var(--color-text-muted)]"
+                set:html={feature.body}
+              />
+            </div>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>

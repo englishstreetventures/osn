@@ -1,0 +1,68 @@
+---
+// Three steps — the whole journey, compressed.
+const steps = [
+  {
+    n: '01',
+    color: 'var(--cat-1)',
+    title: 'Discover what&rsquo;s on',
+    body:
+      'Open Pulse to today&rsquo;s events near you. Filter by category, distance or which friends are going until something jumps out.',
+  },
+  {
+    n: '02',
+    color: 'var(--cat-3)',
+    title: 'RSVP in a tap',
+    body:
+      'Say you&rsquo;re in with one tap. The host sees the headcount; the event lands on your calendar and in your plans.',
+  },
+  {
+    n: '03',
+    color: 'var(--cat-2)',
+    title: 'Show up',
+    body:
+      'Calendar synced, group chat ready, lineup in your pocket. Pulse handles the logistics so you just enjoy the night.',
+  },
+] as const
+---
+<section
+  id="how-it-works"
+  class="border-y border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-24 md:py-32"
+  aria-labelledby="how-heading"
+>
+  <div class="mx-auto max-w-[64rem]">
+    <div class="mb-16 text-center" data-reveal>
+      <p class="font-mono text-[var(--pulse-accent-strong)] mb-4 text-[0.72rem] tracking-[0.28em] uppercase">
+        How it works
+      </p>
+      <h2
+        id="how-heading"
+        class="font-display text-[var(--color-text)] text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2]"
+      >
+        From bored to <span class="italic text-[var(--pulse-accent)]">booked</span> in three taps.
+      </h2>
+    </div>
+
+    <ol class="grid gap-10 md:grid-cols-3 md:gap-12">
+      {
+        steps.map((step) => (
+          <li class="text-center md:text-left" data-reveal>
+            <p
+              class="font-display mb-4 text-[2.75rem] leading-none"
+              style={`color: ${step.color};`}
+            >
+              {step.n}
+            </p>
+            <h3
+              class="font-body text-[var(--color-text)] mb-3 text-[1.25rem] font-semibold"
+              set:html={step.title}
+            />
+            <p
+              class="font-body text-[var(--color-text-muted)] text-[0.95rem] leading-[1.75]"
+              set:html={step.body}
+            />
+          </li>
+        ))
+      }
+    </ol>
+  </div>
+</section>

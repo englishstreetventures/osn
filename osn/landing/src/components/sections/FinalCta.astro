@@ -1,0 +1,39 @@
+---
+import { APP_URL, ANCHORS } from '../../lib/site'
+---
+<section class="relative overflow-hidden px-6 py-28 text-center md:py-40" aria-labelledby="cta-heading">
+  <div
+    class="absolute inset-0 -z-10"
+    style="background: radial-gradient(120% 80% at 50% 0%, var(--color-accent-dim), transparent 60%);"
+  >
+  </div>
+  <div class="mx-auto max-w-[44rem]" data-reveal>
+    <p class="font-body text-accent mb-5 text-[0.72rem] font-medium tracking-[0.26em] uppercase">
+      Take back your social graph
+    </p>
+    <h2
+      id="cta-heading"
+      class="font-display text-text text-[clamp(2.2rem,6vw,4rem)] leading-[1.08] font-bold tracking-[-0.02em]"
+    >
+      Your network. Your rules.
+    </h2>
+    <p class="font-body text-text-muted mx-auto mt-6 max-w-[34rem] text-[1.05rem] leading-[1.7]">
+      Create your identity once, keep your connections for good, and bring only the apps you want
+      along for the ride.
+    </p>
+    <div class="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+      <a
+        href={APP_URL}
+        class="border-accent bg-accent text-bg hover:bg-transparent hover:text-accent font-body w-full rounded-md border px-8 py-4 text-[0.9rem] font-medium tracking-[0.02em] transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto"
+      >
+        Get started
+      </a>
+      <a
+        href={ANCHORS.apps}
+        class="border-border font-body text-text hover:border-accent hover:text-accent w-full rounded-md border bg-transparent px-8 py-4 text-[0.9rem] font-medium tracking-[0.02em] transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto"
+      >
+        Explore the apps
+      </a>
+    </div>
+  </div>
+</section>

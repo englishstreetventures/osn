@@ -239,10 +239,14 @@ domain-migration plan in [[cire-landing]].
 
 ---
 
-## Landing (`osn/landing`)
+## Landing (`osn/landing` + `pulse/landing`)
 
-- [ ] Design and build landing page content
-- [ ] Deploy (Vercel/Cloudflare)
+- [x] **Build `@osn/landing`** — static Astro + SolidJS + Tailwind v4 marketing site; dark-grey / dotted-network identity (`ConstellationCanvas` backdrop + `ConnectionsHero`), connections-led copy, Apps/Principles/FAQ sections, legal drafts, tight CSP, `data-reveal` reveal. Space Grotesk + Inter. Dev port 4324. See [[osn-landing]].
+- [x] **Build `@pulse/landing`** — static Astro + SolidJS + Tailwind v4 marketing site following `pulse/DESIGN.md`; colourful + fun (`PulseField` backdrop + `PulseHero`, colourful Categories showcase, Venues lineup teaser). Instrument Serif / Geist / Geist Mono. Dev port 4325; root script `dev:pulse-landing`. See [[pulse-landing]].
+- [x] **CI preview deploy** — `.github/workflows/deploy-osn-pulse-landing.yml` builds + ships both sites to their own Cloudflare Pages previews on every branch push: **`osn-landing.pages.dev`** and **`osn-pulse-landing.pages.dev`** (the plain `pulse-landing` subdomain was already taken by an unrelated account). Pulse is a hybrid static + Pages Function deploy (`/api/geo`). See [[osn-landing]], [[pulse-landing]].
+- [ ] **Domains** — replace the placeholder `SITE` / `PUBLIC_APP_URL` build vars with real hosts once the OSN + Pulse marketing/app domains are chosen; add custom-domain Pages bindings. See [[osn-landing]], [[pulse-landing]].
+- [ ] **"State's main city" geo routing** (pulse-landing) — the hero CTA currently targets the visitor's nearest Cloudflare city; add a region → capital/major-city map so small-town visitors route to their state's main city. See [[pulse-landing]].
+- [ ] **Marketing depth** — pricing, deeper feature pages, real imagery/screenshots, SEO/blog content.
 
 ---
 
@@ -566,6 +570,9 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 
 ### Low
 
+- [ ] S-L1 (landing) — CSP keeps `script-src 'self' 'unsafe-inline'` on `@osn/landing` + `@pulse/landing` `_headers` (required by Astro's island bootstrap + `is:inline` scripts; no first-party HTML sink today, so residual XSS risk is low). Harden to hashed/nonce-based CSP. See [[osn-landing]], [[pulse-landing]].
+- [x] S-L2 (pulse-landing) — `/api/geo` returned per-visitor IP location with `Cache-Control: public`, so a shared proxy could cross-serve one visitor's coarse location to another. **Fixed** — changed to `private, max-age=300` (browser-only). See [[pulse-landing]].
+- [x] S-L3 (landing-deploy) — `.github/workflows/deploy-osn-pulse-landing.yml` declared no `permissions:` block (inherited the default `GITHUB_TOKEN`). **Fixed** — added top-level `permissions: { contents: read }` (least privilege; deploy auth is the Cloudflare token, not `GITHUB_TOKEN`).
 - [ ] S-L1 — Seed data uses reserved handle `"me"` — reservation not DB-enforced
 - [ ] S-L2 — `Effect.orDie` in `requireAuth` swallows auth errors — replace with `Effect.either` + 401
 - [ ] S-L2 (pulse-onboarding) — `_testKey?: CryptoKey` positional argument on `createOnboardingRoutes` (and 3 other Pulse route factories: `createCloseFriendsRoutes`, `createEventsRoutes`, `createSeriesRoutes`). A misuse where a non-test caller passes a key would bypass JWKS rotation + kid-binding. Defence-in-depth fix: gate `_testKey` honouring on `process.env.NODE_ENV === "test"` inside `extractClaims` so production bundles can never honour it. Pre-existing pattern, called out by the security review of this branch — track as a Pulse-wide cleanup — see [[pulse-onboarding]]
@@ -651,6 +658,8 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 
 ### Warning
 
+- [x] P-W1 (osn-landing) — `ConstellationCanvas` sized its backing store to the full document height × dpr (≈100 MB on a long page) and cleared+repainted it at ~60 fps forever, on every page. **Fixed** — the layer is now `position: fixed` and the canvas is sized to the viewport (a few MB regardless of page length), and the rAF loop pauses on `visibilitychange`. See [[osn-landing]].
+- [x] P-W2 (pulse-landing) — `PulseField`'s rAF `tick` re-ran `querySelectorAll` + allocated ~300 `toFixed` strings every frame (the dot/ring set only changes on resize). **Fixed** — the SVG elements + parsed speed/phase are cached after `regen()` and reused each frame; no per-frame DOM walk. See [[pulse-landing]].
 - [ ] P-W1 (zap) — `listChats` returns unbounded results (no pagination)
 - [x] P-W5 (zap) — `createChat` checked OSN social-graph consent for every initial member in a sequential `for` loop (one S2S round-trip per member, up to `MAX_CHAT_MEMBERS`), serialising a large group create. **Fixed (PR #116 review, labelled P-W1 in the review)** — replaced with bounded-concurrency `Effect.forEach(initialMembers, (t) => checkConsent(creator, t), { concurrency: 10, discard: true })` so the round-trips overlap; any rejection still short-circuits (fail-closed, no half-built chat) — `zap/api/src/services/chats.ts`
 - [ ] P-W2 (zap) — `addMember` fetches all members to check count. Use `COUNT(*)` or catch unique constraint
@@ -705,6 +714,8 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 
 ### Info
 
+- [ ] P-I1 (osn-landing) — `ConnectionsHero.render()` re-maps the ring points (`RING.map(pt)`) each frame during the 1.6 s entrance; hoist alongside `edges` in `rebuildEdges()`. Trivial, animation is bounded. See [[osn-landing]].
+- [ ] P-I2 (osn-landing) — `ConstellationCanvas` link loop calls `Math.hypot` per node pair; compare squared distance (`dx*dx+dy*dy < LINK_DIST²`) and only sqrt the surviving pairs. Micro-opt, bounded by `MAX_NODES=120`. See [[osn-landing]].
 - [x] P-W1 (cire-landing) — Vine scroll loop repainted the whole field every frame. **Fixed on `claude/cire-landing-page-hcebp7`** — `VineCanvas` now skips redundant `--p` writes (off-screen vines pinned at 0/1 are unchanged → no recalc/paint), bounding per-frame paint to vines crossing the growth front. See [[cire-landing]].
 - [x] P-W2 (cire-landing) — Full vine regenerate fired on every resize settle, incl. mobile URL-bar height-only resizes (jank + reseed glitch mid-scroll). **Fixed** — regen gated to real WIDTH changes; the per-load seed is stable across resizes so a genuine resize re-lays-out the same plant. See [[cire-landing]].
 - [ ] P-I1 (cire-landing) — Optional: self-host the Google Font WOFF2 subsets (collapses two third-party connections into same-origin `_astro/*` immutable-cached requests) and pass tighter `sizes` to `Figure.astro` where a figure renders narrower than 45vw. Low priority for a low-traffic static page; fold into the apex cutover. See [[cire-landing]].
@@ -798,6 +809,7 @@ Open compliance findings only. Closed items will be archived in a future `wiki/c
 - [ ] **C-L2** — DPO designated and named on `@osn/landing/legal/contact`. Even if not strictly required, simplifies enterprise customer DPAs. See `[[compliance/gdpr]]`, `[[compliance/breach-response]]`.
 - [ ] **C-L3** — Quarterly access review process (calendar + checklist + record under `wiki/compliance/access-reviews/`). First cycle 2026-Q3. SOC 2 CC6. See `[[compliance/access-control]]`.
 - [ ] **C-L4** — GitHub org hardening: required hardware-key MFA, required signed commits, branch protection, codeowners on prod paths. SOC 2 CC6 + CC8. See `[[compliance/access-control]]`.
+- [x] **C-L5** (pulse-landing) — new IP-geo processing surface (`@pulse/landing` `/api/geo`) needed an Art. 30 ROPA row. **Fixed** — added to `[[compliance/data-map]]` Cross-cutting: coarse city-level, Art. 6(1)(f) legitimate interest, computed per request at the edge, not retained, no third party, no cookies. See `[[pulse-landing]]`.
 - [ ] **C-L5** — Annual third-party penetration test before SOC 2 Type II. Budget allocation. See `[[compliance/soc2]]`.
 - [ ] **C-L6** — Cyber + E&O insurance quote before first paying customer. Claim contact listed in `[[compliance/breach-response]]`. See `[[compliance/soc2]]`, `[[compliance/breach-response]]`.
 - [ ] **C-L7** — Global Privacy Control (`Sec-GPC: 1` header) recognition middleware in `@osn/api`. CCPA + Connecticut + Colorado universal-opt-out signal. See `[[compliance/ccpa]]`.

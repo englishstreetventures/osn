@@ -1,0 +1,87 @@
+---
+// The benefits, as a grid of glyph cards (no images — pure CSS/SVG + dot-grid).
+// Every feature here is something OSN actually ships or specs in the README — no
+// vapourware.
+const features = [
+  {
+    glyph: 'graph',
+    title: 'Own your social graph',
+    body: 'Connections, close friends and blocks live with your identity, not an app. Block someone once and it applies everywhere — unless you choose otherwise.',
+  },
+  {
+    glyph: 'profiles',
+    title: 'One identity, many profiles',
+    body: 'A single login, multiple public handles. Keep work, friends and the things you love in separate profiles — all under one account you control.',
+  },
+  {
+    glyph: 'modules',
+    title: 'Apps opt in, and out',
+    body: 'Each capability is a standalone app. Switch on events or messaging when you want them; turn them off and your graph is untouched.',
+  },
+  {
+    glyph: 'shield',
+    title: 'Privacy by design',
+    body: 'End-to-end encrypted messaging over the Signal protocol, granular visibility controls, and hidden-attendance options for events.',
+  },
+  {
+    glyph: 'key',
+    title: 'Passwordless and secure',
+    body: 'Passkey-only sign-in (WebAuthn / FIDO2), recovery codes for lost devices, per-device session management and step-up auth for sensitive actions.',
+  },
+  {
+    glyph: 'reset',
+    title: 'Data you can see',
+    body: 'All personalisation data is accessible to you and resettable at any time. No black-box profiles built behind your back.',
+  },
+] as const
+---
+<section id="features" class="px-6 py-12 md:py-20" aria-labelledby="features-heading">
+  <div class="mx-auto max-w-[64rem]">
+    <div class="mb-14 text-center md:mb-20" data-reveal>
+      <p class="font-body text-accent mb-4 text-[0.72rem] font-medium tracking-[0.26em] uppercase">
+        What you get
+      </p>
+      <h2
+        id="features-heading"
+        class="font-display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2] font-bold tracking-[-0.02em]"
+      >
+        Built around you, not your data.
+      </h2>
+    </div>
+
+    <ul class="grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-3" data-reveal>
+      {
+        features.map((feature) => (
+          <li class="dot-grid bg-surface p-7">
+            <span class="mb-5 inline-flex h-11 w-11 items-center justify-center rounded-lg border border-border bg-surface-raised text-accent" aria-hidden="true">
+              {feature.glyph === 'graph' && (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="12" cy="18" r="2"/><path d="M7.6 7.4 11 16M16.6 8.4 13 16M8 6.5l8 .5"/></svg>
+              )}
+              {feature.glyph === 'profiles' && (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><path d="M16 5.5a3 3 0 0 1 0 5M18.5 19a5.5 5.5 0 0 0-3-4.9"/></svg>
+              )}
+              {feature.glyph === 'modules' && (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke-dasharray="2 2"/></svg>
+              )}
+              {feature.glyph === 'shield' && (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
+              )}
+              {feature.glyph === 'key' && (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="4"/><path d="M11 11l8 8M16 16l2-2M18 18l2-2"/></svg>
+              )}
+              {feature.glyph === 'reset' && (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4"/></svg>
+              )}
+            </span>
+            <h3 class="font-display text-text mb-2.5 text-[1.2rem] font-semibold">
+              {feature.title}
+            </h3>
+            <p class="font-body text-text-muted text-[0.95rem] leading-[1.7]">
+              {feature.body}
+            </p>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>

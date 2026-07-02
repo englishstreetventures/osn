@@ -23,6 +23,7 @@
     "dev:cire": "turbo dev --filter=@cire/api --filter=@cire/web --filter=@cire/organiser --filter=@osn/api",
     "dev:cire-landing": "turbo dev --filter=@cire/landing",
     "dev:landing": "turbo dev --filter=@osn/landing",
+    "dev:pulse-landing": "turbo dev --filter=@pulse/landing",
     "lint": "oxlint -c oxlintrc.json .",
     "check": "turbo check",
     "test": "turbo test --continue",

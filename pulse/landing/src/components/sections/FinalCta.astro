@@ -1,0 +1,39 @@
+---
+import { APP_URL, HOW_ANCHOR } from '../../lib/site'
+---
+<section class="relative overflow-hidden px-6 py-28 text-center md:py-40" aria-labelledby="cta-heading">
+  <div
+    class="absolute inset-0 -z-10"
+    style="background: radial-gradient(120% 80% at 50% 0%, var(--pulse-accent-soft), transparent 60%);"
+  >
+  </div>
+  <div class="mx-auto max-w-[44rem]" data-reveal>
+    <p class="font-mono mb-5 inline-flex items-center gap-2 text-[0.72rem] tracking-[0.28em] text-[var(--pulse-accent-strong)] uppercase">
+      <span class="dot-mark" aria-hidden="true"></span>
+      Your city is busier than you think
+    </p>
+    <h2
+      id="cta-heading"
+      class="font-display text-[var(--color-text)] text-[clamp(2.2rem,6vw,4rem)] leading-[1.08]"
+    >
+      Go find your <span class="italic text-[var(--pulse-accent)]">scene</span>.
+    </h2>
+    <p class="font-body text-[var(--color-text-muted)] mx-auto mt-6 max-w-[32rem] text-[1.05rem] leading-[1.7]">
+      Open Pulse, see what&rsquo;s on tonight, and tap to go. The good nights start here.
+    </p>
+    <div class="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+      <a
+        href={APP_URL}
+        class="font-body w-full rounded-full bg-[var(--pulse-accent)] px-8 py-4 text-[0.9rem] font-semibold text-[var(--color-bg)] transition-transform duration-200 hover:scale-[1.03] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pulse-accent-strong)] sm:w-auto"
+      >
+        Find events
+      </a>
+      <a
+        href={HOW_ANCHOR}
+        class="font-body w-full rounded-full border border-[var(--color-border)] bg-transparent px-8 py-4 text-[0.9rem] font-semibold text-[var(--color-text)] transition-colors duration-200 hover:border-[var(--pulse-accent)] hover:text-[var(--pulse-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pulse-accent-strong)] sm:w-auto"
+      >
+        How it works
+      </a>
+    </div>
+  </div>
+</section>

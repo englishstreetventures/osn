@@ -1,0 +1,27 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import { PulseHero } from '../components/PulseHero'
+import Promise from '../components/sections/Promise.astro'
+import Features from '../components/sections/Features.astro'
+import HowItWorks from '../components/sections/HowItWorks.astro'
+import Categories from '../components/sections/Categories.astro'
+import Venues from '../components/sections/Venues.astro'
+import Faq from '../components/sections/Faq.astro'
+import FinalCta from '../components/sections/FinalCta.astro'
+import { APP_URL, HOW_ANCHOR } from '../lib/site'
+---
+<BaseLayout>
+  {/* Hero content is server-rendered visible (CSS entrance), so it never waits
+      on JS; client:load only *enhances* it with the IP-geo "near you" hook. */}
+  <PulseHero client:load appUrl={APP_URL} howHref={HOW_ANCHOR} />
+
+  <main>
+    <Promise />
+    <Features />
+    <HowItWorks />
+    <Categories />
+    <Venues />
+    <Faq />
+    <FinalCta />
+  </main>
+</BaseLayout>

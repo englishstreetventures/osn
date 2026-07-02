@@ -1,0 +1,49 @@
+---
+// The colourful category showcase — the most playful section. Each category is a
+// vivid glyph chip in its own `--cat-*` colour, echoing DESIGN.md's
+// category-coloured glyph placeholders. Pure CSS/markup, no images.
+import { CATEGORIES } from '../../lib/site'
+---
+<section id="categories" class="px-6 py-24 md:py-32" aria-labelledby="categories-heading">
+  <div class="mx-auto max-w-[64rem]">
+    <div class="mb-14 text-center" data-reveal>
+      <p class="font-mono text-[var(--pulse-accent-strong)] mb-4 text-[0.72rem] tracking-[0.28em] uppercase">
+        Whatever you&rsquo;re into
+      </p>
+      <h2
+        id="categories-heading"
+        class="font-display text-[var(--color-text)] text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2]"
+      >
+        Pick a <span class="italic text-[var(--pulse-accent)]">vibe</span>.
+      </h2>
+    </div>
+
+    <ul class="grid grid-cols-2 gap-4 sm:grid-cols-3" data-reveal>
+      {
+        CATEGORIES.map((cat) => (
+          <li>
+            <div
+              class="group flex h-full flex-col items-start gap-4 rounded-2xl border p-6 transition-transform duration-200 hover:-translate-y-1"
+              style={`border-color: color-mix(in oklab, var(--${cat.color}) 30%, transparent); background: color-mix(in oklab, var(--${cat.color}) 10%, var(--color-surface-raised));`}
+            >
+              <span
+                class="flex h-14 w-14 items-center justify-center rounded-xl font-display text-[2rem] leading-none text-white"
+                style={`background: var(--${cat.color});`}
+                aria-hidden="true"
+              >
+                {cat.glyph}
+              </span>
+              <span class="font-body text-[1.1rem] font-semibold text-[var(--color-text)]">
+                {cat.label}
+              </span>
+            </div>
+          </li>
+        ))
+      }
+    </ul>
+
+    <p class="font-mono mt-8 text-center text-[0.72rem] tracking-[0.18em] text-[var(--color-text-muted)] uppercase" data-reveal>
+      &hellip; and more, near you
+    </p>
+  </div>
+</section>

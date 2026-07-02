@@ -1,0 +1,77 @@
+---
+// Honest answers to the questions people actually ask. Native <details> so it
+// works with zero JS and is accessible by default.
+const faqs = [
+  {
+    q: 'What is Pulse?',
+    a: 'Pulse is an events app for finding what&rsquo;s happening near you — discover events by location, category, friends and interests, RSVP in a tap, and keep it all in one calendar. Think the social ease of Facebook Events, the fun of Partiful and Luma, and the tooling of Eventbrite, in one place.',
+  },
+  {
+    q: 'Do I need an account?',
+    a: 'You can browse what&rsquo;s on near you to get a feel for it. To RSVP, save events or host your own, you sign in with your OSN identity — one account across the whole ecosystem, no separate password to remember.',
+  },
+  {
+    q: 'How do RSVPs work?',
+    a: 'One tap to say you&rsquo;re in. The host gets a live headcount, the event lands on your calendar, and you get a tidy list of everywhere you said yes. Hosts can also hide attendance for private events.',
+  },
+  {
+    q: 'Can I host events?',
+    a: 'Yes. Pulse has real organiser tooling — moderation, cross-event blacklists and ticket configuration — plus venue pages with DJ schedules and nightly lineups for clubs and recurring nights.',
+  },
+  {
+    q: 'Does it sync to my calendar?',
+    a: 'Pulse has a built-in calendar view and exports to iCal, with one-way sync to Google Calendar and Apple Calendar — so the plans you make on Pulse show up wherever you already look.',
+  },
+  {
+    q: 'Is my data mine?',
+    a: 'Yes. Pulse is part of OSN, where you own your identity and social graph. Personalisation data is yours to see and reset, and you opt into each app independently.',
+  },
+] as const
+---
+<section id="faq" class="px-6 py-24 md:py-32" aria-labelledby="faq-heading">
+  <div class="mx-auto max-w-[44rem]">
+    <div class="mb-14 text-center" data-reveal>
+      <p class="font-mono text-[var(--pulse-accent-strong)] mb-4 text-[0.72rem] tracking-[0.28em] uppercase">
+        Questions
+      </p>
+      <h2
+        id="faq-heading"
+        class="font-display text-[var(--color-text)] text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2]"
+      >
+        The <span class="italic text-[var(--pulse-accent)]">honest</span> answers.
+      </h2>
+    </div>
+
+    <div class="flex flex-col" data-reveal>
+      {
+        faqs.map((faq) => (
+          <details class="faq-item border-b border-[var(--color-border)]">
+            <summary class="font-body text-[var(--color-text)] flex cursor-pointer items-center justify-between gap-4 py-5 text-[1.05rem] font-semibold">
+              <span set:html={faq.q} />
+              <span class="faq-marker text-[var(--pulse-accent)] shrink-0 text-2xl leading-none" aria-hidden="true">+</span>
+            </summary>
+            <p
+              class="font-body text-[var(--color-text-muted)] pb-5 text-[0.95rem] leading-[1.75]"
+              set:html={faq.a}
+            />
+          </details>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .faq-item summary {
+    list-style: none;
+  }
+  .faq-item summary::-webkit-details-marker {
+    display: none;
+  }
+  .faq-item[open] .faq-marker {
+    transform: rotate(45deg);
+  }
+  .faq-marker {
+    transition: transform 0.2s ease;
+  }
+</style>

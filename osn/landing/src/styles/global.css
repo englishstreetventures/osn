@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+/* OSN brand tokens — a refined, premium dark-grey palette with a calm electric
+   indigo accent. The visual thesis is "your social graph, your control": cool
+   neutral greys, hairline borders, and dotted/network motifs. */
+@theme {
+  --color-bg: oklch(16% 0.006 260);
+  --color-surface: oklch(20% 0.007 260);
+  --color-surface-raised: oklch(24.5% 0.008 262);
+  --color-border: oklch(92% 0.01 260 / 0.1);
+  --color-text: oklch(95% 0.006 260);
+  --color-text-muted: oklch(95% 0.006 260 / 0.55);
+  --color-accent: oklch(0.7 0.14 250);
+  --color-accent-dim: oklch(0.7 0.14 250 / 0.16);
+  --color-accent-2: oklch(0.78 0.12 205);
+  --color-error: oklch(67.56% 0.1401 21.48);
+  --color-success: oklch(75.96% 0.1421 146.94);
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --default-font-family: var(--font-body);
+}
+
+@layer base {
+  html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-weight: 400;
+    line-height: 1.5;
+    min-height: 100vh;
+    /* Safety net against horizontal scroll on small viewports: a single wide
+       island should never let the whole page pan sideways. */
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background: var(--color-accent-dim);
+    color: var(--color-text);
+  }
+
+  /* Honour reduced-motion globally: the smooth-scroll above and any CSS-driven
+     entrance animation snap off. JS islands check the same media query before
+     animating. */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+/* Scroll-reveal primitive used by the static section components: an element with
+   `data-reveal` starts dimmed + nudged down; the IntersectionObserver in
+   BaseLayout adds `data-revealed` when it scrolls into view. No-JS / reduced
+   motion: the reveal still lands visible (the observer sets it, and reduced
+   motion zeroes the transition). */
+@layer utilities {
+  [data-reveal] {
+    opacity: 0;
+    transform: translateY(1.5rem);
+    transition:
+      opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
+  }
+
+  [data-reveal][data-revealed] {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Reusable dotted-network backdrop — the signature OSN motif. Two radial-dot
+     layers (a denser hairline grid + a sparser accent grid) for subtle depth.
+     Apply to a section: `class="dot-grid"`. */
+  .dot-grid {
+    background-image:
+      radial-gradient(var(--color-border) 1px, transparent 1px),
+      radial-gradient(var(--color-accent-dim) 1px, transparent 1px);
+    background-size:
+      26px 26px,
+      78px 78px;
+    background-position:
+      0 0,
+      13px 13px;
+  }
+}
+
+/* The page wrapper is the positioning context; the constellation layer spans its
+   full content height and sits behind everything but never adds scrollable area
+   (height:100% of content, overflow clipped). Mirrors cire's `.vine-layer`. */
+.page-root {
+  position: relative;
+}
+
+/* Fixed to the viewport (not the full document): the canvas is sized to the
+   viewport in JS, so the backdrop stays a fixed few-MB layer no matter how long
+   the page is, rather than a document-height buffer cleared + repainted every
+   frame. */
+.constellation-layer {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: clip;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.constellation-layer canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

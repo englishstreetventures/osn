@@ -1,0 +1,55 @@
+---
+import LegalLayout from '../layouts/LegalLayout.astro'
+---
+<LegalLayout title="Privacy Notice">
+  <div class="draft-banner">
+    <strong>Draft</strong> — A working draft for review, not legal advice. Have it checked before
+    publishing and replace every highlighted <span class="placeholder">{'{{PLACEHOLDER}}'}</span>
+    value (legal entity, contact address, regulator details).
+  </div>
+
+  <h1>Privacy Notice</h1>
+  <p class="meta">Last updated: 2026-06-28</p>
+
+  <p>
+    This notice explains how <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span> (&ldquo;Pulse&rdquo;,
+    &ldquo;we&rdquo;) handles personal information collected through this marketing site. It covers
+    visitors to this site only. Using the Pulse app itself is governed by the OSN privacy notice
+    shown when you sign in.
+  </p>
+
+  <h2>What we collect here</h2>
+  <ul>
+    <li>This is a static marketing site — it has no sign-in, no forms and no first-party API calls, so it does not collect personal information directly.</li>
+    <li>Basic, privacy-respecting analytics about how this site is used, so we can improve it.</li>
+    <li>Anything you choose to send us if you contact us through a channel linked here — for example your name and email.</li>
+  </ul>
+
+  <h2>Why we collect it</h2>
+  <ul>
+    <li>To keep the site secure and working well.</li>
+    <li>To respond to any enquiry you send us.</li>
+  </ul>
+  <p>We do not sell your information, and we do not use it for third-party advertising.</p>
+
+  <h2>How long we keep it</h2>
+  <p>
+    Only as long as we need it for the purpose above, then we delete or anonymise it. Specific
+    retention periods: <span class="placeholder">{'{{RETENTION}}'}</span>.
+  </p>
+
+  <h2>Your rights</h2>
+  <p>
+    Depending on where you live, you may have rights to access, correct, delete or port your
+    information, and to object to certain uses. To exercise them, contact us at
+    <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span>. You may also complain to your local data
+    protection regulator (<span class="placeholder">{'{{REGULATOR}}'}</span>).
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span>,
+    <span class="placeholder">{'{{POSTAL_ADDRESS}}'}</span> —
+    <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span>.
+  </p>
+</LegalLayout>
