@@ -22,7 +22,7 @@ related:
 packages:
   - "@shared/email"
   - "@osn/api"
-last-reviewed: 2026-06-18
+last-reviewed: 2026-07-03
 ---
 
 # Email Transport
@@ -164,7 +164,7 @@ Content-Type: application/json
 > flows. It is gated strictly on `OSN_ENV` being unset or `"local"` (returns
 > `Effect.void` otherwise), so the code is never logged in staging/production.
 > This makes email-OTP dev flows testable without a real inbox. See
-> `osn/api/src/services/auth.ts`.
+> `osn/api/src/services/auth/helpers.ts`.
 
 Selection lives in `osn/api/src/lib/email-layer.ts` (`selectEmailLayer`,
 shared by the Bun `local.ts` and the Workers `index.ts` entries), in

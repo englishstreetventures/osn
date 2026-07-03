@@ -30,7 +30,7 @@ packages:
   - "@cire/api"
   - "@shared/rate-limit"
   - "@shared/redis"
-last-reviewed: 2026-06-18
+last-reviewed: 2026-07-03
 ---
 
 # Rate Limiting
@@ -43,7 +43,7 @@ OSN uses **per-IP fixed-window rate limiting** on all auth endpoints and **per-u
 shared/rate-limit/src/                  # RateLimiterBackend interface + in-memory createRateLimiter + getClientIp + createWorkersRateLimiter
 osn/api/src/lib/redis-rate-limiters.ts  # createRedisAuthRateLimiters() + createRedisGraphRateLimiter() + recommendation limiter
 osn/api/src/lib/native-rate-limiters.ts # selectAuthRateLimiters() — routes 60s per-IP auth limiters onto the native Workers binding
-osn/api/src/routes/auth.ts              # auth route limiter instances (one per endpoint group)
+osn/api/src/routes/auth/limiters.ts     # auth route limiter instances (one per endpoint group)
 osn/api/src/routes/graph.ts             # graph write rate limiter (60 req/user/min)
 osn/api/src/metrics.ts                  # osn.auth.rate_limited counter
 osn/api/src/build-deps.ts               # buildAppDeps: clientIpConfig (trustCloudflare) + native-vs-Redis limiter selection
@@ -262,7 +262,7 @@ A consuming service migrates off the deprecated default by:
 - [osn/api/src/lib/redis-rate-limiters.ts](../../osn/api/src/lib/redis-rate-limiters.ts) — Redis-backed rate limiter factories
 - [osn/api/src/lib/native-rate-limiters.ts](../../osn/api/src/lib/native-rate-limiters.ts) — `selectAuthRateLimiters` (native binding routing for the 60s per-IP auth limiters)
 - [osn/api/wrangler.toml](../../osn/api/wrangler.toml) — `[[ratelimits]]` tier bindings + `[observability]` (mirrored into every named env)
-- [osn/api/src/routes/auth.ts](../../osn/api/src/routes/auth.ts) — auth route limiter instances
+- [osn/api/src/routes/auth/limiters.ts](../../osn/api/src/routes/auth/limiters.ts) — auth route limiter instances
 - [osn/api/src/routes/graph.ts](../../osn/api/src/routes/graph.ts) — graph route rate limiting
 - [osn/api/src/metrics.ts](../../osn/api/src/metrics.ts) — `osn.auth.rate_limited` metric
 - [osn/api/src/index.ts](../../osn/api/src/index.ts) — composition root with env-driven Redis/memory selection

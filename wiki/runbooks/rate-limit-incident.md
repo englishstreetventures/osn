@@ -7,7 +7,7 @@ related:
   - "[[rate-limiting]]"
   - "[[redis]]"
   - "[[osn-core]]"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-07-03
 ---
 
 # Rate Limit Incident Runbook
@@ -31,7 +31,7 @@ Is this affecting a single IP or is it widespread?
 
 ### 2. Check Rate Limit Configuration
 
-Current limits (defined in `osn/api/src/routes/auth.ts` and bound at the composition root in `osn/api/src/index.ts`). See [[rate-limiting]] for the canonical table — the abbreviated view:
+Current limits (defined in `osn/api/src/routes/auth/limiters.ts` and bound at the composition root in `osn/api/src/index.ts`). See [[rate-limiting]] for the canonical table — the abbreviated view:
 
 | Endpoint group | Max req/IP/min | Purpose |
 |----------------|----------------|---------|

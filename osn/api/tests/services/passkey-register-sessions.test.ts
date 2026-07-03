@@ -1,8 +1,9 @@
 import { it, expect, describe } from "@effect/vitest";
 import { passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { makeLogEmailLive } from "@shared/email";
 import { eq } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { beforeAll, vi } from "vitest";
 
 // O4: `completePasskeyRegistration` runs a real WebAuthn attestation through
@@ -124,4 +125,25 @@ describe("O4 completePasskeyRegistration session invalidation", () => {
       expect(rows.length).toBeGreaterThanOrEqual(1);
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  // T-U1: pins the per-call-site template/kind wiring of the shared
+  // notifySecurityEventByAccountId helper — a swapped template here would
+  // pass every other test silently.
+  it.effect("sends the passkey-added notification email on successful enrolment", () => {
+    const email = makeLogEmailLive();
+    const layer = Layer.merge(createTestLayer(), email.layer);
+    return Effect.gen(function* () {
+      const carol = yield* auth.registerProfile("pkreg-notify@example.com", "pkregnotify");
+      yield* auth.beginPasskeyRegistration(carol.accountId);
+      yield* auth.completePasskeyRegistration(carol.accountId, fakeAttestation(), null);
+
+      // The notification is forkDaemon'd — wait for the fiber to complete.
+      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 50)));
+
+      const sent = email
+        .recorded()
+        .filter((e) => e.template === "passkey-added" && e.to === "pkreg-notify@example.com");
+      expect(sent).toHaveLength(1);
+    }).pipe(Effect.provide(layer));
+  });
 });

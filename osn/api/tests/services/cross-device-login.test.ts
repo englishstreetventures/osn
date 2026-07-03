@@ -104,9 +104,17 @@ describe("cross-device login", () => {
         expect(result.profile.handle).toBe("cdl_user");
       }
 
-      // Notification email is dispatched via forkDaemon — it fires
-      // asynchronously and may not have landed by the time this assertion
-      // runs. The template is covered by shared/email template tests.
+      // T-U2: the approve path records a cross_device_login audit row in the
+      // same request (synchronous — no daemon race).
+      const events = yield* svc.listUnacknowledgedSecurityEvents(profile!.accountId);
+      expect(events.events.some((e) => e.kind === "cross_device_login")).toBe(true);
+
+      // T-U2: the notification email is forkDaemon'd — wait for the fiber to
+      // complete (same pattern as the passkey-removed T-M3 test), then pin
+      // the template so the shared notify helper's per-call-site wiring is
+      // asserted for this flow too.
+      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 50)));
+      expect(captured.lastTemplate).toBe("cross-device-login");
     }).pipe(Effect.provide(layer));
   });
 

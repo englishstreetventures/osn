@@ -19,7 +19,7 @@ packages:
   - "@pulse/api"
   - "@osn/api"
   - "@zap/api"
-last-reviewed: 2026-06-17
+last-reviewed: 2026-07-03
 ---
 
 # Backend Code Patterns
@@ -112,12 +112,25 @@ Key points:
 - Services use `Effect.gen` + generator syntax for sequential Effect composition
 - Every service function should be wrapped in `Effect.withSpan("<domain>.<operation>")` for tracing
 
+### Large services: split into a module directory
+
+When a service outgrows a single file, split it into a directory of domain modules composed by an `index.ts` factory — the canonical example is `osn/api/src/services/auth/`:
+
+- `index.ts` — `createAuthService(config)` builds a shared context once, wires the domain module factories in dependency order, and returns the flat method surface. It also re-exports every previously-public name, so consumers keep importing from `services/auth` unchanged.
+- `context.ts` — `createAuthContext(config)`: config defaults resolved once + injected stores + cross-cutting helpers (e.g. `hashIp`). Every module factory takes this as its first argument.
+- One file per domain (`tokens.ts`, `passkeys.ts`, `recovery.ts`, `step-up.ts`, …). A module that needs another module's methods takes it as a factory parameter (`createTokensModule(ctx, profiles)`) and destructures what it uses — the layering stays acyclic and explicit.
+- Stateless building blocks live beside them: `errors.ts`, `types.ts` (public DTOs), `helpers.ts` (pure functions), `constants.ts` (tunables + rationale), `stores.ts` (store contracts + in-memory defaults), `config.ts`.
+
+Rules of thumb: module factories return only the methods other code calls (internals stay closed over); the composition root enumerates the public surface explicitly rather than spreading modules, so the service's API is pinned in one place.
+
+The same shape applies at the route layer — `osn/api/src/routes/auth/` splits a large route factory into one Elysia group per domain (`registration.ts`, `step-up.ts`, `sessions.ts`, …), each a `createXxxRoutes(ctx)` factory over a shared `AuthRouteContext` (`context.ts`: service instance, app runner, rate-limit / Turnstile gates, IP + cookie plumbing). `index.ts` builds the context once and mounts the groups with `.use(...)`, keeping the original `createAuthRoutes` signature and re-exports intact.
+
 ## Route Factory Pattern
 
 Every backend uses route factories that accept dependency layers, so tests can swap in `createTestLayer()` without touching production wiring:
 
 ```typescript
-// osn/api/src/routes/auth.ts — factory definition
+// osn/api/src/routes/auth/index.ts — factory definition
 export const createAuthRoutes = (config: AuthConfig, dbLayer?: Layer) => { ... }
 export const createGraphRoutes = (dbLayer?: Layer) => { ... }
 
@@ -209,4 +222,5 @@ export const login = (input: LoginInput) =>
 - [CLAUDE.md](../../CLAUDE.md) — "Backend Code Patterns" section
 - [pulse/api/src/routes/events.ts](../../pulse/api/src/routes/events.ts) — canonical route example
 - [pulse/api/src/services/events.ts](../../pulse/api/src/services/events.ts) — canonical service example
-- [osn/api/src/routes/auth.ts](../../osn/api/src/routes/auth.ts) — auth route factory
+- [osn/api/src/routes/auth/index.ts](../../osn/api/src/routes/auth/index.ts) — auth route factory (route-group composition root)
+- [osn/api/src/services/auth/index.ts](../../osn/api/src/services/auth/index.ts) — module-directory service composition root

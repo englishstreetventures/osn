@@ -10,7 +10,7 @@ related:
   - "[[feature-checklist]]"
 packages: ["@shared/observability", "@osn/api", "@pulse/api", "@shared/crypto"]
 finding-ids: [S-C1, S-C2, S-C3]
-last-reviewed: 2026-04-23
+last-reviewed: 2026-07-03
 ---
 
 # Metrics
@@ -173,7 +173,7 @@ export const authLoginDuration = createHistogram<LoginAttrs>({
 });
 ```
 
-### Call site (`osn/api/src/services/auth.ts`)
+### Call site (`osn/api/src/services/auth/`)
 
 ```typescript
 import { authLoginAttempts } from "../metrics";

@@ -295,6 +295,41 @@ describe("notifyRecovery (defensive branches)", () => {
   );
 });
 
+// T-E1: same contract for the shared passkey / cross-device notification
+// helper — its missing-recipient branch is unreachable in production (the
+// account row is read in the same flow that fires the daemon), so pin it
+// directly the way the notifyRecovery branches are pinned above.
+describe("notifySecurityEventByAccountId (defensive branches)", () => {
+  it.effect("resolves without error when the account row is missing", () =>
+    Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      yield* auth.notifySecurityEventByAccountId(
+        "acc_doesnotexist00",
+        "passkey_register",
+        "passkey-added",
+      );
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("dispatches the given template to the account's email", () => {
+    const email = makeLogEmailLive();
+    const layer = Layer.merge(createTestLayer(), email.layer);
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const dana = yield* auth.registerProfile("sev-notify@example.com", "sevnotify");
+      yield* auth.notifySecurityEventByAccountId(
+        dana.accountId,
+        "cross_device_login",
+        "cross-device-login",
+      );
+      const sent = email
+        .recorded()
+        .filter((e) => e.template === "cross-device-login" && e.to === "sev-notify@example.com");
+      expect(sent).toHaveLength(1);
+    }).pipe(Effect.provide(layer));
+  });
+});
+
 describe("acknowledgeSecurityEvent (S-M1 step-up gated)", () => {
   it.effect("acking a row with a valid step-up token removes it from the unacked list", () => {
     const cap = makeEmailCapture();

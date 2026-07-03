@@ -11,7 +11,7 @@ packages:
   - "@osn/client"
   - "@osn/ui"
   - "@cire/organiser"
-last-reviewed: 2026-06-18
+last-reviewed: 2026-07-03
 ---
 
 # Passkey-Primary Login
@@ -31,7 +31,7 @@ holds cradle-to-grave:
   refuses to dismiss the registration flow until `/passkey/register/complete`
   succeeds. There is no "skip for now" button.
 - **Deletion.** `deletePasskey` refuses unconditionally if the delete would
-  drop the account below 1 passkey (`osn/api/src/services/auth.ts`). Recovery
+  drop the account below 1 passkey (`osn/api/src/services/auth/passkey-management.ts`). Recovery
   codes are NOT a substitute credential — they are the "my device is gone"
   escape hatch only.
 - **Rotation.** Users who want to remove a compromised passkey enroll the

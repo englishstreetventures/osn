@@ -6,7 +6,7 @@ related:
   - "[[recovery-codes]]"
   - "[[passkey-primary]]"
   - "[[sessions]]"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-07-03
 ---
 
 # Step-up (sudo) tokens
@@ -58,7 +58,7 @@ ES256 JWT signed with the same key as access tokens (reuses `/.well-known/jwks.j
 - **iss** — (O1) pinned to `AuthConfig.issuerUrl`; the verifier rejects any other issuer. Every verify also allows a **30s `clockTolerance`** for benign signer/verifier skew. Both access and step-up tokens share this contract.
 - **sub** — `accountId` (not profileId). The verifier requires a match against the caller's resolved account.
 - **amr** — RFC 8176 authentication-method-reference array. Verifier intersects with a caller-supplied allow-list.
-- **jti** — single-use replay guard. Backed by a `StepUpJtiStore` interface (see `osn/api/src/services/auth.ts`) with two implementations: an in-memory Map for single-process dev/test, and `createRedisJtiStore` (`osn/api/src/lib/step-up-jti-store.ts`) for multi-pod production. The Redis variant fails closed on outage — an unavailable replay guard is equivalent to a ceremony no one completed.
+- **jti** — single-use replay guard. Backed by a `StepUpJtiStore` interface (see `osn/api/src/services/auth/stores.ts`) with two implementations: an in-memory Map for single-process dev/test, and `createRedisJtiStore` (`osn/api/src/lib/step-up-jti-store.ts`) for multi-pod production. The Redis variant fails closed on outage — an unavailable replay guard is equivalent to a ceremony no one completed.
 
 TTL: 5 minutes.
 

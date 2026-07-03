@@ -175,3 +175,92 @@ describe("step-up OTP ceremony", () => {
     },
   );
 });
+
+// T-S1: account deletion is the highest-stakes step-up consumer (Flow A —
+// full account erasure) and had no direct coverage. Its verifier is the
+// only purpose-REQUIRING gate on the recovery-AMR allow-list, so pin both
+// directions of the S-C1 confused-deputy guard.
+describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
+  it.effect("accepts a token minted with purpose account_delete", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const profile = yield* registered("su-del@example.com", "sudel");
+      yield* auth.beginStepUpOtp(profile.accountId);
+      const { stepUpToken } = yield* auth.completeStepUpOtp(
+        profile.accountId,
+        cap.latest()!,
+        "account_delete",
+      );
+      yield* auth.verifyStepUpForAccountDelete(profile.accountId, stepUpToken);
+    }).pipe(Effect.provide(cap.layer));
+  });
+
+  it.effect("rejects a purposeless token (confused-deputy reuse)", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const profile = yield* registered("su-del-noplan@example.com", "sudelnop");
+      yield* auth.beginStepUpOtp(profile.accountId);
+      // Minted without a purpose — valid for recovery/passkey gates, but the
+      // account-delete verifier must refuse it.
+      const { stepUpToken } = yield* auth.completeStepUpOtp(profile.accountId, cap.latest()!);
+      const err = yield* Effect.flip(
+        auth.verifyStepUpForAccountDelete(profile.accountId, stepUpToken),
+      );
+      expect(err._tag).toBe("AuthError");
+    }).pipe(Effect.provide(cap.layer));
+  });
+
+  it.effect("rejects a token minted for a different purpose", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const profile = yield* registered("su-del-cross@example.com", "sudelcross");
+      yield* auth.beginStepUpOtp(profile.accountId);
+      const { stepUpToken } = yield* auth.completeStepUpOtp(
+        profile.accountId,
+        cap.latest()!,
+        "pulse_app_delete",
+      );
+      const err = yield* Effect.flip(
+        auth.verifyStepUpForAccountDelete(profile.accountId, stepUpToken),
+      );
+      expect(err._tag).toBe("AuthError");
+    }).pipe(Effect.provide(cap.layer));
+  });
+});
+
+// T-S1: the cross-service verifier (`/internal/step-up/verify` for Pulse /
+// Zap) accepts any account (`expectedAccountId = null`) but requires a
+// matching purpose, and must return the accountId from the verified sub.
+describe("verifyStepUpForExternalPurpose", () => {
+  it.effect("returns the verified accountId for a matching purpose", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const profile = yield* registered("su-ext@example.com", "suext");
+      yield* auth.beginStepUpOtp(profile.accountId);
+      const { stepUpToken } = yield* auth.completeStepUpOtp(
+        profile.accountId,
+        cap.latest()!,
+        "pulse_app_delete",
+      );
+      const result = yield* auth.verifyStepUpForExternalPurpose(stepUpToken, "pulse_app_delete");
+      expect(result.accountId).toBe(profile.accountId);
+    }).pipe(Effect.provide(cap.layer));
+  });
+
+  it.effect("rejects a purpose mismatch", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const profile = yield* registered("su-ext-x@example.com", "suextx");
+      yield* auth.beginStepUpOtp(profile.accountId);
+      const { stepUpToken } = yield* auth.completeStepUpOtp(
+        profile.accountId,
+        cap.latest()!,
+        "account_delete",
+      );
+      const err = yield* Effect.flip(
+        auth.verifyStepUpForExternalPurpose(stepUpToken, "pulse_app_delete"),
+      );
+      expect(err._tag).toBe("AuthError");
+    }).pipe(Effect.provide(cap.layer));
+  });
+});

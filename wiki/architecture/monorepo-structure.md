@@ -34,7 +34,7 @@ packages:
   - "@shared/rate-limit"
   - "@shared/redis"
   - "@shared/typescript-config"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-07-03
 ---
 
 # Monorepo Structure
@@ -84,7 +84,7 @@ shared/
 | Question | Answer |
 |---|---|
 | Where does the OSN binary live? | `osn/api` — `@osn/api` is the only OSN runtime. There is no separate `@osn/core` library. |
-| Where do auth route factories live? | `osn/api/src/routes/auth.ts` — exported as `createAuthRoutes(config, dbLayer?)`. |
+| Where do auth route factories live? | `osn/api/src/routes/auth/` — `createAuthRoutes(config, dbLayer?)` composes per-domain route groups from `index.ts`. |
 | Where do ARC token primitives live? | `@shared/crypto` (`shared/crypto/src/arc.ts`). |
 | Where do shared auth UI components live? | `@osn/ui/auth/*` — consumed by `@osn/social`, Pulse app, future Zap app. |
 | Where do Pulse → OSN calls go? | Through `pulse/api/src/services/graphBridge.ts` — see [[s2s-patterns]]. |
