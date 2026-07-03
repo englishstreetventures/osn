@@ -55,6 +55,31 @@ describe("createInMemoryCeremonyStore", () => {
     }
   });
 
+  it("sweeps expired entries on set at most once per debounce window (P-W1 cdl / P-W4)", async () => {
+    const onEntryDelta = vi.fn();
+    const store = createInMemoryCeremonyStore<Entry>("login_challenge", { onEntryDelta });
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(1_000_000));
+      await store.set("stale", entry("s"), 1_000); // first set sweeps (empty) + arms debounce
+
+      // 5s later — "stale" is expired, but we are inside the 30s debounce
+      // window, so a write does NOT trigger the O(n) sweep.
+      vi.setSystemTime(new Date(1_000_000 + 5_000));
+      await store.set("fresh1", entry("f1"), 60_000);
+      expect(onEntryDelta).not.toHaveBeenCalledWith(-1, "login_challenge");
+
+      // Past the debounce window — the next write sweeps and evicts "stale".
+      vi.setSystemTime(new Date(1_000_000 + 40_000));
+      await store.set("fresh2", entry("f2"), 60_000);
+      expect(onEntryDelta).toHaveBeenCalledWith(-1, "login_challenge");
+      expect(await store.get("stale")).toBe(null);
+      expect(await store.get("fresh1")).not.toBe(null);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("carries an updated attempts counter across set/get (attempts carry-over)", async () => {
     const store = createInMemoryCeremonyStore<Entry>("step_up_otp");
     await store.set("k", entry("c", 0), 60_000);
@@ -72,6 +97,53 @@ describe("createInMemoryCeremonyStore", () => {
     // Oldest insertions dropped, newest retained.
     expect(await store.get("k0")).toBe(null);
     expect(await store.get(`k${CEREMONY_STORE_MAX + 4}`)).not.toBe(null);
+  });
+
+  it("evicts expired entries before FIFO-dropping live ones on a cap breach (T-S1)", async () => {
+    const onEntryDelta = vi.fn();
+    const store = createInMemoryCeremonyStore<Entry>("cross_device", { onEntryDelta });
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(1_000_000));
+      // Fill past the cap (CEREMONY_STORE_MAX + 1 — the bound check runs
+      // BEFORE each insert, so the breach is only observed on the next set)
+      // with three short-TTL entries interleaved among long-TTL live ones.
+      // "live-0" is the OLDEST live insertion — first in FIFO order.
+      const shortIndices = new Set([100, 5_000, 9_000]);
+      for (let i = 0; i < CEREMONY_STORE_MAX + 1; i++) {
+        if (shortIndices.has(i)) {
+          // eslint-disable-next-line no-await-in-loop -- sequential insert
+          await store.set(`short-${i}`, entry(`s${i}`), 1_000);
+        } else {
+          // eslint-disable-next-line no-await-in-loop -- sequential insert
+          await store.set(`live-${i}`, entry(`l${i}`), 600_000);
+        }
+      }
+      expect(onEntryDelta).not.toHaveBeenCalledWith(-1, "cross_device");
+
+      // Advance past the short TTLs but WITHIN the 30s sweep debounce — the
+      // debounced TTL sweep is still armed from the first set, so only the
+      // cap-breach path can evict.
+      vi.setSystemTime(new Date(1_000_000 + 5_000));
+      await store.set("extra", entry("x"), 600_000);
+
+      // The breach swept the three expired entries (size drops back under the
+      // cap), so NO live entry was FIFO-dropped: exactly 3 evictions.
+      const evictions = onEntryDelta.mock.calls.filter(
+        ([delta, ns]) => delta === -1 && ns === "cross_device",
+      );
+      expect(evictions).toHaveLength(3);
+      for (const i of shortIndices) {
+        // eslint-disable-next-line no-await-in-loop -- sequential read
+        expect(await store.get(`short-${i}`)).toBe(null);
+      }
+      // The oldest LIVE key survived — expired entries were preferred over
+      // FIFO-dropping live insertions.
+      expect(await store.get("live-0")).toMatchObject({ challenge: "l0" });
+      expect(await store.get("extra")).toMatchObject({ challenge: "x" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("emits op + entry-delta observer hooks", async () => {

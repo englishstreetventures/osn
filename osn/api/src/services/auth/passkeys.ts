@@ -47,6 +47,10 @@ import type { TokensModule } from "./tokens";
 import type { ProfileWithEmail, PublicProfile, SessionMeta, TokenSet } from "./types";
 import { toPublicProfile } from "./types";
 
+// P-I2: hoisted — a TextEncoder is stateless, so one module-level instance
+// serves every registration ceremony instead of allocating per call.
+const textEncoder = new TextEncoder();
+
 export function createPasskeysModule(
   ctx: AuthContext,
   profiles: ProfilesModule,
@@ -132,7 +136,7 @@ export function createPasskeysModule(
           generateRegistrationOptions({
             rpName: config.rpName,
             rpID: config.rpId,
-            userID: new TextEncoder().encode(account.passkeyUserId),
+            userID: textEncoder.encode(account.passkeyUserId),
             userName: `@${profile.handle}`,
             userDisplayName: profile.displayName ?? `@${profile.handle}`,
             attestationType: "none",
@@ -512,23 +516,30 @@ export function createPasskeysModule(
       }
 
       let profile: ProfileWithEmail | null;
-      // Look up the owning account once — needed for both the identified-flow
-      // accountId equality check and the discoverable-flow userHandle pin.
-      const accountRow = yield* Effect.tryPromise({
-        try: () => db.select().from(accounts).where(eq(accounts.id, pk.accountId)).limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      const account = accountRow[0];
-      if (!account) {
-        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
-      }
       if (context.kind === "identified") {
+        // P-I5b: the identifier lookup below is load-bearing (it selects the
+        // profile to log into AND anchors the accountId binding check), but
+        // the separate `accounts` row read is not — `resolveIdentifier`
+        // inner-joins accounts, so a matching profile with
+        // `profile.accountId === pk.accountId` proves the passkey's account
+        // exists. The account row itself is only needed by the discoverable
+        // branch (userHandle pin), so it is fetched there.
         const normalised = normaliseIdentifier(context.identifier);
         profile = yield* resolveIdentifier(normalised);
         if (!profile || profile.accountId !== pk.accountId) {
           return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
         }
       } else {
+        // Look up the owning account — needed for the discoverable-flow
+        // userHandle pin below.
+        const accountRow = yield* Effect.tryPromise({
+          try: () => db.select().from(accounts).where(eq(accounts.id, pk.accountId)).limit(1),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        const account = accountRow[0];
+        if (!account) {
+          return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+        }
         // S-M3: discoverable flow — the credential row supplies the account.
         // Cross-check the assertion's `userHandle` against the account's
         // stored `passkeyUserId`. The signature already binds the assertion

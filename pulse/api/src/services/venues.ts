@@ -5,7 +5,7 @@ import { and, asc, desc, eq, gte, lt } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { metricVenueDetail, metricVenueEventsListed, metricVenueLineupListed } from "../metrics";
-import { applyTransition, DatabaseError } from "./events";
+import { applyTransitions, DatabaseError } from "./events";
 
 export class VenueNotFound extends Data.TaggedError("VenueNotFound")<{
   readonly orgHandle: string;
@@ -117,8 +117,9 @@ export const listVenueEvents = (
     }).pipe(Effect.tapError((e) => Effect.logError("venue.list_events failed", e)));
 
     // Surface auto-derived statuses (e.g. ongoing) — same treatment as
-    // every other read path.
-    const transitioned = yield* Effect.forEach(rows, applyTransition, { concurrency: 5 });
+    // every other read path. Batched into one UPDATE per (from → to)
+    // group (P-W5) instead of one write per stale row.
+    const transitioned = yield* applyTransitions(rows);
     metricVenueEventsListed(scope, transitioned.length);
     return transitioned;
   }).pipe(Effect.withSpan("pulse.venue.list_events"));

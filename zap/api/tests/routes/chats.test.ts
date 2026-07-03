@@ -1,10 +1,11 @@
 import { generateArcKeyPair } from "@shared/crypto";
+import { Effect } from "effect";
 import { SignJWT } from "jose";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
 import { createChatsRoutes } from "../../src/routes/chats";
 import { setConsentGate } from "../../src/services/consent";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, seedChat, seedMember } from "../helpers/db";
 
 let testPrivateKey: CryptoKey;
 let testPublicKey: CryptoKey;
@@ -216,6 +217,85 @@ describe("chats routes", () => {
     expect(bobData.chats).toHaveLength(0);
   });
 
+  // ── List chats pagination (P-W1) ────────────────────────────────────────
+
+  it("GET /chats?limit=1 pages and ?cursor= continues from it", async () => {
+    // Seed with controlled createdAt (second resolution in the schema) so the
+    // strictly-older-than cursor can distinguish the two chats.
+    const base = Date.now();
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const a = yield* seedChat({ type: "group", title: "Chat A", createdAt: new Date(base) });
+        yield* seedMember(a.id, "usr_alice");
+        const b = yield* seedChat({
+          type: "group",
+          title: "Chat B",
+          createdAt: new Date(base + 5000),
+        });
+        yield* seedMember(b.id, "usr_alice");
+      }).pipe(Effect.provide(layer)),
+    );
+
+    const res = await req(app, "GET", "/chats?limit=1", { token: aliceToken });
+    expect(res.status).toBe(200);
+    const data = await body(res);
+    expect(data.chats).toHaveLength(1);
+    expect(data.chats[0].title).toBe("Chat B");
+
+    const res2 = await req(app, "GET", `/chats?limit=1&cursor=${data.chats[0].id}`, {
+      token: aliceToken,
+    });
+    expect(res2.status).toBe(200);
+    const data2 = await body(res2);
+    expect(data2.chats).toHaveLength(1);
+    expect(data2.chats[0].title).toBe("Chat A");
+  });
+
+  it("GET /chats?limit=abc coerces to the default page (200, all chats)", async () => {
+    // Route-level coercion: Number("abc") is NaN, which the service treats
+    // as "no limit supplied" and falls back to the default page size.
+    await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "group", title: "Chat A" },
+    });
+    await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "group", title: "Chat B" },
+    });
+
+    const res = await req(app, "GET", "/chats?limit=abc", { token: aliceToken });
+    expect(res.status).toBe(200);
+    const data = await body(res);
+    expect(data.chats).toHaveLength(2);
+  });
+
+  it("GET /chats returns 422 for an unknown cursor", async () => {
+    await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "group", title: "Chat A" },
+    });
+    const res = await req(app, "GET", "/chats?cursor=chat_does_not_exist", {
+      token: aliceToken,
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("GET /chats returns 422 for a cursor naming another user's chat", async () => {
+    // Bob owns a chat alice is not in.
+    const bobCreate = await req(app, "POST", "/chats", {
+      token: bobToken,
+      body: { type: "group", title: "Bob's" },
+    });
+    const bobChatId = (await body(bobCreate)).chat.id;
+    await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "group", title: "Alice's" },
+    });
+
+    const res = await req(app, "GET", `/chats?cursor=${bobChatId}`, { token: aliceToken });
+    expect(res.status).toBe(422);
+  });
+
   // ── Update chat ─────────────────────────────────────────────────────────
 
   it("PATCH /chats/:id updates title for admin", async () => {
@@ -272,6 +352,66 @@ describe("chats routes", () => {
     expect(res.status).toBe(200);
     const data = await body(res);
     expect(data.members).toHaveLength(1);
+  });
+
+  // ── Member pagination (P-W4) ────────────────────────────────────────────
+
+  it("GET /chats/:id/members pages with limit/offset", async () => {
+    const createRes = await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "group", memberProfileIds: ["usr_bob", "usr_charlie"] },
+    });
+    const chatId = (await body(createRes)).chat.id;
+
+    const page1 = await req(app, "GET", `/chats/${chatId}/members?limit=2`, {
+      token: aliceToken,
+    });
+    expect(page1.status).toBe(200);
+    const data1 = await body(page1);
+    expect(data1.members).toHaveLength(2);
+
+    const page2 = await req(app, "GET", `/chats/${chatId}/members?limit=2&offset=2`, {
+      token: aliceToken,
+    });
+    expect(page2.status).toBe(200);
+    const data2 = await body(page2);
+    expect(data2.members).toHaveLength(1);
+
+    // No overlap between the pages.
+    const ids1 = data1.members.map((m: { id: string }) => m.id);
+    expect(ids1).not.toContain(data2.members[0].id);
+  });
+
+  it("GET /chats/:id/members clamps a negative limit to one member", async () => {
+    const createRes = await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "group", memberProfileIds: ["usr_bob", "usr_charlie"] },
+    });
+    const chatId = (await body(createRes)).chat.id;
+
+    // Number("-5") is finite, so it reaches the service clamp
+    // Math.max(1, requested) — the page floors at exactly one row.
+    const res = await req(app, "GET", `/chats/${chatId}/members?limit=-5`, {
+      token: aliceToken,
+    });
+    expect(res.status).toBe(200);
+    const data = await body(res);
+    expect(data.members).toHaveLength(1);
+  });
+
+  it("GET /chats/:id/members returns empty for an offset beyond the end", async () => {
+    const createRes = await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "group" },
+    });
+    const chatId = (await body(createRes)).chat.id;
+
+    const res = await req(app, "GET", `/chats/${chatId}/members?offset=100`, {
+      token: aliceToken,
+    });
+    expect(res.status).toBe(200);
+    const data = await body(res);
+    expect(data.members).toHaveLength(0);
   });
 
   it("POST /chats/:id/members adds member and returns 201", async () => {

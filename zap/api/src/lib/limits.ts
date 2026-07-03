@@ -22,3 +22,15 @@ export const DEFAULT_MESSAGE_LIMIT = 50;
 
 /** Maximum page size for message pagination. */
 export const MAX_MESSAGE_LIMIT = 100;
+
+/** Default page size for chat-list pagination (P-W1). */
+export const DEFAULT_CHAT_LIMIT = 50;
+
+/** Maximum page size for chat-list pagination (P-W1). */
+export const MAX_CHAT_LIMIT = 100;
+
+/** Default page size for chat-member pagination (P-W4). */
+export const DEFAULT_MEMBER_LIMIT = 100;
+
+/** Maximum page size for chat-member pagination — members cap at MAX_CHAT_MEMBERS. */
+export const MAX_MEMBER_LIMIT = MAX_CHAT_MEMBERS;

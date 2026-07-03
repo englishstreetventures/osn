@@ -62,6 +62,13 @@ export interface CeremonyStore<V> {
 /** Hard ceiling on in-memory entries per store — belt to the TTL-sweep braces. */
 export const CEREMONY_STORE_MAX = 10_000;
 
+/**
+ * P-W1 (cdl) / P-W4: the full TTL scan runs at most once per this window,
+ * mirroring the `maybeSweepExpiredTokens` debounce in `@shared/crypto`'s
+ * arc.ts. Lazy expiry on `get` keeps stale reads correct between sweeps.
+ */
+const SWEEP_DEBOUNCE_MS = 30_000;
+
 interface MemoryEntry<V> {
   value: V;
   expiresAt: number;
@@ -69,17 +76,20 @@ interface MemoryEntry<V> {
 
 /**
  * In-memory ceremony store — single-process dev/test. Mirrors the old inline
- * `Map` behaviour: an opportunistic sweep on every `set` evicts expired
- * entries, and a FIFO drop keeps the map bounded under abuse even if every
- * entry is still live.
+ * `Map` behaviour with amortised eviction: `get` lazily drops an expired
+ * entry it touches, `set` triggers a debounced full TTL sweep (at most once
+ * per {@link SWEEP_DEBOUNCE_MS} — P-W1 (cdl): previously the O(n) scan ran on
+ * EVERY write), and a FIFO drop enforced on every `set` keeps the map hard-
+ * bounded under abuse even if every entry is still live.
  */
 export function createInMemoryCeremonyStore<V>(
   namespace: RedisNamespace,
   observer: CeremonyStoreObserver = {},
 ): CeremonyStore<V> {
   const entries = new Map<string, MemoryEntry<V>>();
+  let lastSweepMs = 0;
 
-  function sweep(): void {
+  function sweepExpired(): void {
     const nowMs = Date.now();
     for (const [k, entry] of entries) {
       if (entry.expiresAt <= nowMs) {
@@ -87,13 +97,26 @@ export function createInMemoryCeremonyStore<V>(
         observer.onEntryDelta?.(-1, namespace);
       }
     }
-    // Bound: drop oldest insertions (Map preserves insertion order) until
-    // back under the cap. Rare — the TTL sweep above handles the common case.
-    while (entries.size > CEREMONY_STORE_MAX) {
-      const oldest = entries.keys().next().value as string | undefined;
-      if (oldest === undefined) break;
-      entries.delete(oldest);
-      observer.onEntryDelta?.(-1, namespace);
+  }
+
+  function maybeSweep(): void {
+    const nowMs = Date.now();
+    if (nowMs - lastSweepMs >= SWEEP_DEBOUNCE_MS) {
+      lastSweepMs = nowMs;
+      sweepExpired();
+    }
+    // Bound: enforced on EVERY set (not debounced) so the hard cap holds.
+    // On a breach, sweep expired entries first so live ones are only FIFO-
+    // dropped as a last resort, then drop oldest insertions (Map preserves
+    // insertion order) until back under the cap.
+    if (entries.size > CEREMONY_STORE_MAX) {
+      sweepExpired();
+      while (entries.size > CEREMONY_STORE_MAX) {
+        const oldest = entries.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        entries.delete(oldest);
+        observer.onEntryDelta?.(-1, namespace);
+      }
     }
   }
 
@@ -101,7 +124,7 @@ export function createInMemoryCeremonyStore<V>(
     backend: "memory",
     namespace,
     async set(key, value, ttlMs) {
-      sweep();
+      maybeSweep();
       const existed = entries.has(key);
       entries.set(key, { value, expiresAt: Date.now() + ttlMs });
       observer.onOp?.("set", namespace);

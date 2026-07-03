@@ -100,9 +100,19 @@ export function genOtpCode(): string {
  * local dev defaults to the debug log level (so it shows), non-local defaults to
  * info (a second guard on top of the env check).
  */
+// P-I1: resolved once and cached — `process.env` is a backed getter, not a
+// plain property read, so re-reading it per OTP issuance is wasted work.
+// S-L2: resolution is LAZY (first `logDevOtp` call, i.e. mid-request) rather
+// than at module evaluation, so a runtime that populates `process.env` after
+// module load can never freeze an unset `OSN_ENV` into "local" — and with it
+// OTP logging — for the process lifetime. "Unset ⇒ local" itself matches the
+// codebase-wide convention (`isNonLocal` in index.ts).
+let isLocalEnvCached: boolean | undefined;
+const isLocalEnv = (): boolean =>
+  (isLocalEnvCached ??= !process.env.OSN_ENV || process.env.OSN_ENV === "local");
+
 export function logDevOtp(purpose: string, to: string, code: string): Effect.Effect<void> {
-  const isLocal = !process.env.OSN_ENV || process.env.OSN_ENV === "local";
-  if (!isLocal) return Effect.void;
+  if (!isLocalEnv()) return Effect.void;
   return Effect.logDebug(`[dev-otp] ${purpose} to=${to} code=${code}`);
 }
 

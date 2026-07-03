@@ -1,7 +1,7 @@
 import { fireEvent, render, cleanup } from "@solidjs/testing-library";
 // @vitest-environment happy-dom
 import type { JSX } from "solid-js";
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 
 import { ExploreMap } from "../../src/explore/ExploreMap";
 import type { VenueSummary } from "../../src/lib/venues";
@@ -314,5 +314,96 @@ describe("ExploreMap", () => {
     await findByText(/See venue/i);
     fireEvent.keyDown(pin, { key: "Escape" });
     expect(queryByText(/See venue/i)).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // Reactive dark mode (P-W5) — useIsDark keeps a signal in sync with the
+  // root classList via MutationObserver, so theme-derived SVG fills flip
+  // without a re-render.
+  // -------------------------------------------------------------------------
+
+  // Base-map theme fills (StyleMap waterFill) — light vs dark.
+  const WATER_LIGHT = "oklch(0.94 0.03 230)";
+  const WATER_DARK = "oklch(0.17 0.015 220)";
+
+  it("updates theme-driven SVG fills when the 'dark' class is toggled on <html>", async () => {
+    document.documentElement.classList.remove("dark");
+    document.body.classList.remove("dark");
+    try {
+      const { container } = render(() => <ExploreMap events={eventsWithGeo} />);
+      const baseMap = container.querySelector("svg")!;
+      const water = baseMap.querySelector("path")!;
+      expect(water.getAttribute("fill")).toBe(WATER_LIGHT);
+
+      document.documentElement.classList.add("dark");
+      // MutationObserver callbacks are delivered asynchronously — yield a
+      // macrotask so the observer fires and the signal propagates.
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(water.getAttribute("fill")).toBe(WATER_DARK);
+
+      // And back again — the observer stays live, not one-shot.
+      document.documentElement.classList.remove("dark");
+      await new Promise((r) => setTimeout(r, 0));
+      expect(water.getAttribute("fill")).toBe(WATER_LIGHT);
+    } finally {
+      document.documentElement.classList.remove("dark");
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Resize debounce (P-W3) — first measurement applies immediately; later
+  // bursts collapse to one trailing-edge update after ~100ms.
+  // -------------------------------------------------------------------------
+
+  class ResizeObserverStub {
+    static instances: ResizeObserverStub[] = [];
+    constructor(private cb: ResizeObserverCallback) {
+      ResizeObserverStub.instances.push(this);
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    fire(width: number, height: number) {
+      this.cb(
+        [{ contentRect: { width, height } }] as unknown as ResizeObserverEntry[],
+        this as unknown as ResizeObserver,
+      );
+    }
+  }
+
+  it("applies the first measurement immediately and debounces resize bursts (~100ms trailing)", () => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+    vi.useFakeTimers();
+    try {
+      const { container } = render(() => <ExploreMap events={eventsWithGeo} />);
+      const ro = ResizeObserverStub.instances.at(-1)!;
+      const baseMap = () => container.querySelector("svg")!;
+
+      // First measurement lands synchronously — the initial paint must not
+      // wait out the debounce window.
+      ro.fire(500, 640);
+      expect(baseMap().getAttribute("width")).toBe("500");
+      expect(baseMap().getAttribute("height")).toBe("640");
+
+      // A burst of follow-up resizes: nothing applies eagerly...
+      ro.fire(510, 640);
+      ro.fire(520, 640);
+      ro.fire(530, 640);
+      expect(baseMap().getAttribute("width")).toBe("500");
+
+      // ...still nothing just before the trailing edge...
+      vi.advanceTimersByTime(99);
+      expect(baseMap().getAttribute("width")).toBe("500");
+
+      // ...then ONLY the last size of the burst lands at ~100ms.
+      vi.advanceTimersByTime(1);
+      expect(baseMap().getAttribute("width")).toBe("530");
+      expect(baseMap().getAttribute("height")).toBe("640");
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      ResizeObserverStub.instances = [];
+    }
   });
 });

@@ -7,7 +7,8 @@ import { accounts, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch } from "@shared/db-utils";
 import { type EmailError, EmailService } from "@shared/email";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/sqlite-core";
 import { Effect, Schema } from "effect";
 
 import { timingSafeEqualString } from "../../lib/timing-safe";
@@ -30,11 +31,13 @@ import type { ProfileWithEmail, SessionMeta } from "./types";
 
 export function createRegistrationModule(
   ctx: AuthContext,
-  profiles: ProfilesModule,
+  // P-W11: uniqueness probes now run as a single inline UNION ALL query, so the
+  // profiles module is no longer consulted. Parameter kept (underscore-
+  // prefixed) so the module factory wiring in index.ts stays uniform.
+  _profiles: ProfilesModule,
   tokens: TokensModule,
 ) {
   const { stores, otpTtl } = ctx;
-  const { findProfileByEmail, findProfileByHandle } = profiles;
   const { issueTokens } = tokens;
 
   /**
@@ -58,18 +61,36 @@ export function createRegistrationModule(
         return yield* Effect.fail(new AuthError({ message: "Handle is reserved" }));
       }
 
-      const [existingEmail, existingHandle] = yield* Effect.all(
-        [findProfileByEmail(email), findProfileByHandle(handle)],
-        { concurrency: "unbounded" },
-      );
-      if (existingEmail) {
+      const { db } = yield* Db;
+      // P-W11: single round-trip uniqueness probe. UNION ALL of two
+      // single-table arms rather than `WHERE email = ? OR handle = ?` across
+      // the users⋈accounts join — an OR spanning two joined tables defeats
+      // SQLite's OR-optimization and plans as a full `users` scan, while each
+      // arm here is a seek on its UNIQUE index (accounts.email / users.handle).
+      // The email error takes priority (same order as the old two checks).
+      const collisions = yield* Effect.tryPromise({
+        try: () =>
+          // No per-arm LIMIT: SQLite rejects LIMIT inside compound arms, and
+          // both columns are UNIQUE so each arm yields at most one row anyway.
+          unionAll(
+            db
+              .select({ field: sql<string>`'email'`.as("field") })
+              .from(accounts)
+              .where(eq(accounts.email, email)),
+            db
+              .select({ field: sql<string>`'handle'`.as("field") })
+              .from(users)
+              .where(eq(users.handle, handle)),
+          ),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      if (collisions.some((c) => c.field === "email")) {
         return yield* Effect.fail(new AuthError({ message: "Email already registered" }));
       }
-      if (existingHandle) {
+      if (collisions.some((c) => c.field === "handle")) {
         return yield* Effect.fail(new AuthError({ message: "Handle already taken" }));
       }
 
-      const { db } = yield* Db;
       const accountId = genId("acc_");
       const id = genId("usr_");
       const ts = now();
@@ -166,15 +187,31 @@ export function createRegistrationModule(
       // O3: the store sweeps expired entries and self-bounds (CEREMONY_STORE_MAX
       // on the in-memory backend, native PX expiry on Redis), so no explicit
       // sweep / size cap is needed here any more.
-      const [existingEmail, existingHandle] = yield* Effect.all(
-        [findProfileByEmail(normalisedEmail), findProfileByHandle(handle)],
-        { concurrency: "unbounded" },
-      );
+      // P-W11: single round-trip existence probe — UNION ALL of two indexed
+      // single-table arms (see registerProfile for why not an OR across the
+      // join). S-M1 below responds identically for either collision, so no
+      // per-field distinction is needed.
+      const { db } = yield* Db;
+      const collision = yield* Effect.tryPromise({
+        try: () =>
+          // No per-arm LIMIT — see registerProfile's probe.
+          unionAll(
+            db
+              .select({ hit: sql<number>`1`.as("hit") })
+              .from(accounts)
+              .where(eq(accounts.email, normalisedEmail)),
+            db
+              .select({ hit: sql<number>`1`.as("hit") })
+              .from(users)
+              .where(eq(users.handle, handle)),
+          ),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
 
       // S-M1: silently no-op when the email/handle already exists. The user
       // can use the login flow if they already have an account; we don't
       // confirm or deny their existence over an unauthenticated channel.
-      if (existingEmail || existingHandle) {
+      if (collision.length > 0) {
         return { sent: true };
       }
 

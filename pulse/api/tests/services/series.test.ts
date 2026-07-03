@@ -197,7 +197,10 @@ it.effect("updateSeries propagates to non-override instances only", () =>
       // Flip one instance to override by patching it directly.
       yield* updateEvent(instances[1]!.id, { venue: "Custom" }, "usr_alice");
 
-      yield* updateSeries(series.id, { venue: "Updated" }, "usr_alice");
+      // P-W2: the single UPDATE … RETURNING reports how many non-override
+      // instances it touched (3 of 4 — the override row is excluded).
+      const result = yield* updateSeries(series.id, { venue: "Updated" }, "usr_alice");
+      expect(result.updated).toBe(3);
 
       const rows = yield* Effect.promise(() =>
         db.select().from(events).where(eq(events.seriesId, series.id)),

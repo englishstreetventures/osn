@@ -1,7 +1,7 @@
 import { events, eventSeries } from "@pulse/db/schema";
 import type { Event, EventSeries, NewEvent, NewEventSeries } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
-import { and, eq, gt, gte, inArray, lt, or } from "drizzle-orm";
+import { and, eq, gt, gte, lt, or } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
 import {
@@ -11,7 +11,7 @@ import {
   metricSeriesRruleRejected,
   metricSeriesUpdated,
 } from "../metrics";
-import { applyTransition, DatabaseError, NotEventOwner, ValidationError } from "./events";
+import { applyTransitions, DatabaseError, NotEventOwner, ValidationError } from "./events";
 
 /** Hard cap on how many instance rows a single series can materialize. */
 export const MAX_SERIES_INSTANCES = 260; // weekly × 5yr
@@ -523,7 +523,9 @@ export const listInstances = (
     }).pipe(Effect.tapError((e) => Effect.logError("series.list_instances failed", e)));
 
     // Apply status transitions so the client sees derived statuses.
-    const transitioned = yield* Effect.forEach(rows, applyTransition, { concurrency: 5 });
+    // Batched into one UPDATE per (from → to) group (P-W1) instead of
+    // up to `limit` individual writes per GET.
+    const transitioned = yield* applyTransitions(rows);
     return transitioned;
   }).pipe(Effect.withSpan("pulse.series.list_instances"));
 
@@ -601,40 +603,30 @@ export const updateSeries = (
       ...(commsChannels ? { commsChannels: JSON.stringify(commsChannels) } : {}),
     };
 
-    const toUpdate = yield* Effect.tryPromise({
-      try: (): Promise<Event[]> =>
+    // P-W2: single conditional UPDATE … RETURNING instead of
+    // SELECT-then-UPDATE. The `instanceOverride = false` predicate is
+    // evaluated atomically at write time, so an override flip landing
+    // between the old read and write can no longer be clobbered — and
+    // the extra round-trip is gone.
+    const updatedRows = yield* Effect.tryPromise({
+      try: () =>
         db
-          .select()
-          .from(events)
+          .update(events)
+          .set({ ...instanceUpdate, updatedAt: now })
           .where(
             and(
               eq(events.seriesId, id),
               eq(events.instanceOverride, false),
               gte(events.startTime, cutoff),
             ),
-          ) as Promise<Event[]>,
+          )
+          .returning({ id: events.id }),
       catch: (cause) => new DatabaseError({ cause }),
-    });
-
-    if (toUpdate.length > 0) {
-      yield* Effect.tryPromise({
-        try: () =>
-          db
-            .update(events)
-            .set({ ...instanceUpdate, updatedAt: now })
-            .where(
-              inArray(
-                events.id,
-                toUpdate.map((e) => e.id),
-              ),
-            ),
-        catch: (cause) => new DatabaseError({ cause }),
-      }).pipe(Effect.tapError((e) => Effect.logError("series.update instances failed", e)));
-    }
+    }).pipe(Effect.tapError((e) => Effect.logError("series.update instances failed", e)));
 
     const fresh = yield* getSeries(id);
     metricSeriesUpdated(scope === "this_and_following" ? "this_and_following" : "all_future", "ok");
-    return { series: fresh, updated: toUpdate.length };
+    return { series: fresh, updated: updatedRows.length };
   }).pipe(Effect.withSpan("pulse.series.update"));
 
 export const cancelSeries = (
@@ -651,30 +643,18 @@ export const cancelSeries = (
     }
 
     const now = new Date();
+    // P-W3: single UPDATE … RETURNING replaces the SELECT-then-UPDATE
+    // pair — the future-instance predicate is applied atomically at
+    // write time and the count comes back in the same round-trip.
     const future = yield* Effect.tryPromise({
-      try: (): Promise<Event[]> =>
+      try: () =>
         db
-          .select()
-          .from(events)
-          .where(and(eq(events.seriesId, id), gt(events.startTime, now))) as Promise<Event[]>,
+          .update(events)
+          .set({ status: "cancelled", updatedAt: now })
+          .where(and(eq(events.seriesId, id), gt(events.startTime, now)))
+          .returning({ id: events.id }),
       catch: (cause) => new DatabaseError({ cause }),
-    });
-
-    if (future.length > 0) {
-      yield* Effect.tryPromise({
-        try: () =>
-          db
-            .update(events)
-            .set({ status: "cancelled", updatedAt: now })
-            .where(
-              inArray(
-                events.id,
-                future.map((e) => e.id),
-              ),
-            ),
-        catch: (cause) => new DatabaseError({ cause }),
-      }).pipe(Effect.tapError((e) => Effect.logError("series.cancel instances failed", e)));
-    }
+    }).pipe(Effect.tapError((e) => Effect.logError("series.cancel instances failed", e)));
 
     yield* Effect.tryPromise({
       try: () =>

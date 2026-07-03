@@ -153,12 +153,16 @@ export function createGraphService() {
         return yield* Effect.fail(new GraphError({ message: "Cannot connect to yourself" }));
       }
 
-      const blocked = yield* eitherBlocked(requesterId, addresseeId);
+      // P-W3: the block check and the existing-connection check are
+      // independent reads — run them concurrently. Failure priority is
+      // preserved by checking `blocked` first below.
+      const [blocked, status] = yield* Effect.all(
+        [eitherBlocked(requesterId, addresseeId), getConnectionStatus(requesterId, addresseeId)],
+        { concurrency: "unbounded" },
+      );
       if (blocked) {
         return yield* Effect.fail(new GraphError({ message: "Cannot send connection request" }));
       }
-
-      const status = yield* getConnectionStatus(requesterId, addresseeId);
       if (status !== "none") {
         return yield* Effect.fail(new GraphError({ message: "Connection already exists" }));
       }

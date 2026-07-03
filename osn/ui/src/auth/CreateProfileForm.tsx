@@ -12,9 +12,11 @@ export interface CreateProfileFormProps {
   /**
    * Server-side handle availability check. When provided, the form debounces
    * calls on input and gates the submit button on `available`. Build it from
-   * the existing `registrationClient.checkHandle` in the consuming app.
+   * the existing `registrationClient.checkHandle` in the consuming app. The
+   * form aborts the previous in-flight check via the `signal` before issuing
+   * a new one (P-W10) — implementations that ignore it still work.
    */
-  checkHandle?: (handle: string) => Promise<{ available: boolean }>;
+  checkHandle?: (handle: string, signal?: AbortSignal) => Promise<{ available: boolean }>;
   onSuccess?: (profile: { id: string; handle: string }) => void;
   onCancel?: () => void;
 }
@@ -30,8 +32,12 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
   >("idle");
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  // Cancels the previous in-flight availability probe when a new one fires,
+  // so debounced typing bursts never stack requests (P-W10).
+  let checkAbort: AbortController | null = null;
   onCleanup(() => {
     if (debounceTimer) clearTimeout(debounceTimer);
+    checkAbort?.abort();
   });
 
   function onHandleInput(value: string) {
@@ -53,12 +59,16 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
     }
     setHandleStatus("checking");
     debounceTimer = setTimeout(async () => {
+      checkAbort?.abort();
+      const controller = new AbortController();
+      checkAbort = controller;
       try {
-        const { available } = await props.checkHandle!(next);
+        const { available } = await props.checkHandle!(next, controller.signal);
         if (handle() !== next) return;
         setHandleStatus(available ? "available" : "taken");
       } catch {
-        if (handle() !== next) return;
+        // An aborted probe was superseded (or unmounted) — never an error state.
+        if (controller.signal.aborted || handle() !== next) return;
         setHandleStatus("error");
       }
     }, 300);

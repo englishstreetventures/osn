@@ -43,16 +43,28 @@ function fmtTime(d: Date) {
   return `${h}:${m.toString().padStart(2, "0")} ${ampm}`;
 }
 
-function isDark() {
-  return (
-    document.documentElement.classList.contains("dark") || document.body.classList.contains("dark")
-  );
+/**
+ * Reactive dark-mode signal (P-W5). Reads the root/body classList once and
+ * keeps a signal in sync via `MutationObserver`, so theme-derived styles are
+ * O(1) signal reads that re-run reactively on theme flips instead of
+ * re-touching the DOM on every access.
+ */
+function useIsDark() {
+  const read = () =>
+    document.documentElement.classList.contains("dark") || document.body.classList.contains("dark");
+  const [dark, setDark] = createSignal(read());
+  const observer = new MutationObserver(() => setDark(read()));
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+  observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  onCleanup(() => observer.disconnect());
+  return dark;
 }
 
 // Stylized SVG map background
 function StyleMap(props: { width: number; height: number }) {
   const w = () => props.width;
   const h = () => props.height;
+  const isDark = useIsDark();
 
   const landFill = () => (isDark() ? "oklch(0.22 0.01 60)" : "oklch(0.97 0.008 80)");
   const waterFill = () => (isDark() ? "oklch(0.17 0.015 220)" : "oklch(0.94 0.03 230)");
@@ -61,18 +73,20 @@ function StyleMap(props: { width: number; height: number }) {
   const minorStroke = () => (isDark() ? "oklch(0.26 0.008 60)" : "oklch(0.95 0.006 70)");
   const labelColor = () => (isDark() ? "oklch(0.6 0.005 60)" : "oklch(0.55 0.01 60)");
 
-  const vLines = () => {
+  // Grid lines are memoised on the (already resize-debounced) size so the
+  // arrays rebuild once per size change instead of on every access (P-W4).
+  const vLines = createMemo(() => {
     const lines: number[] = [];
     for (let x = 60; x < w() - 40; x += 34) lines.push(x);
     return lines;
-  };
-  const hLines = () => {
+  });
+  const hLines = createMemo(() => {
     const lines: number[] = [];
     for (let y = 60; y < h() - 40; y += 30) lines.push(y);
     return lines;
-  };
-  const avenues = () => vLines().filter((_, i) => i % 3 === 0);
-  const streets = () => hLines().filter((_, i) => i % 3 === 0);
+  });
+  const avenues = createMemo(() => vLines().filter((_, i) => i % 3 === 0));
+  const streets = createMemo(() => hLines().filter((_, i) => i % 3 === 0));
 
   return (
     <svg
@@ -360,13 +374,29 @@ export function ExploreMap(props: {
 
   onMount(() => {
     if (!wrapRef) return;
+    // Trailing-edge ~100ms debounce so the canvas heatmap + SVG map redraw
+    // once per resize burst instead of on every observer frame (P-W3). The
+    // very first measurement applies immediately so the initial paint isn't
+    // delayed behind the debounce window.
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+    let measured = false;
     const ro = new ResizeObserver((entries) => {
-      for (const en of entries) {
-        setSize({ w: en.contentRect.width, h: en.contentRect.height });
+      const en = entries[entries.length - 1];
+      if (!en) return;
+      const next = { w: en.contentRect.width, h: en.contentRect.height };
+      if (!measured) {
+        measured = true;
+        setSize(next);
+        return;
       }
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => setSize(next), 100);
     });
     ro.observe(wrapRef);
-    onCleanup(() => ro.disconnect());
+    onCleanup(() => {
+      ro.disconnect();
+      if (resizeTimer) clearTimeout(resizeTimer);
+    });
   });
 
   const geoEvents = createMemo(() =>

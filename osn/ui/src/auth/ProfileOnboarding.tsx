@@ -9,7 +9,7 @@ import { CreateProfileForm } from "./CreateProfileForm";
 const DISMISSED_KEY = "@osn/ui:profile_onboarding_dismissed";
 
 export interface ProfileOnboardingProps {
-  checkHandle?: (handle: string) => Promise<{ available: boolean }>;
+  checkHandle?: (handle: string, signal?: AbortSignal) => Promise<{ available: boolean }>;
   dismissible?: boolean;
 }
 

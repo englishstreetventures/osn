@@ -15,7 +15,7 @@ import {
 import { commitBatch } from "@shared/db-utils";
 import { EmailService } from "@shared/email";
 import type { SecurityEventKind } from "@shared/observability/metrics";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { RECOVERY_LOCKOUT_THRESHOLD } from "../../lib/recovery-lockout-store";
@@ -231,9 +231,13 @@ export function createRecoveryModule(
    * "wrong identifier" and "wrong code" over the wire.
    *
    * S-M2: both branches (unknown identifier vs known identifier + wrong code)
-   * execute the same work — identifier lookup, a `hashRecoveryCode` call, and
-   * an indexed SELECT against `recovery_codes` — so wall-clock latency does
-   * not reveal whether the identifier exists.
+   * execute a similar shape of work — identifier lookup, a `hashRecoveryCode`
+   * call, and an indexed statement against `recovery_codes` (a probe SELECT
+   * on the unknown branch, the atomic conditional UPDATE on the known branch).
+   * Parity is APPROXIMATE, not exact: the known branch additionally runs the
+   * lockout-store round-trips (`isLocked`/`recordFailure`, pre-existing) and
+   * a failure-classification SELECT, so the timing oracle is narrowed by the
+   * per-IP rate limit and per-account lockout rather than eliminated.
    */
   const consumeRecoveryCode = (
     identifier: string,
@@ -276,38 +280,76 @@ export function createRecoveryModule(
       // caller-supplied identifier) so an attacker cannot lock a victim out by
       // spamming their handle, and an unknown identifier — which never reaches
       // this branch — can never trip a lockout. When locked we still run the
-      // same indexed SELECT below for latency parity, then return the SAME
+      // same indexed recovery_codes lookup for latency parity (read-only — a
+      // locked account must never consume a code), then return the SAME
       // generic error as any other failure (preserving the no-enumeration
       // oracle: a locked account is indistinguishable from a wrong code).
       const locked = yield* Effect.promise(() => recoveryLockoutStore.isLocked(profile.accountId));
-
-      const result = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select()
-            .from(recoveryCodes)
-            .where(
-              and(
-                eq(recoveryCodes.accountId, profile.accountId),
-                eq(recoveryCodes.codeHash, codeHash),
-              ),
-            )
-            .limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-
       if (locked) {
+        yield* Effect.tryPromise({
+          try: () =>
+            db
+              .select({ id: recoveryCodes.id })
+              .from(recoveryCodes)
+              .where(
+                and(
+                  eq(recoveryCodes.accountId, profile.accountId),
+                  eq(recoveryCodes.codeHash, codeHash),
+                ),
+              )
+              .limit(1),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
         metricRecoveryLockout("locked");
         metricRecoveryCodeConsumed("invalid");
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
 
-      const row = result[0];
-      if (!row || row.usedAt !== null) {
+      const nowSec = Math.floor(Date.now() / 1000);
+
+      // P-I2 / S-M1: single atomic conditional consume — mark the code used
+      // ONLY while it is still unused, matched by (accountId, codeHash), in
+      // one round-trip. Replaces the previous SELECT-then-CAS pair: no window
+      // exists in which two concurrent requests can both observe the code as
+      // unused, on any backend. RETURNING keys the rest of the ceremony off
+      // whether a row was actually claimed.
+      const consumedRows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .update(recoveryCodes)
+            .set({ usedAt: nowSec })
+            .where(
+              and(
+                eq(recoveryCodes.accountId, profile.accountId),
+                eq(recoveryCodes.codeHash, codeHash),
+                isNull(recoveryCodes.usedAt),
+              ),
+            )
+            .returning({ id: recoveryCodes.id }),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+
+      if (consumedRows.length === 0) {
         // O2: a genuine failed attempt against a real account — record it and
         // trip the lockout (+ audit row) on the attempt that crosses the
-        // threshold. Both "wrong code" and "already-used code" count.
-        if (row?.usedAt) {
+        // threshold. Both "wrong code" and "already-used code" count; a
+        // read-only follow-up classifies which for the metric + replay log
+        // (a concurrent double-consume loser lands here as "used" too).
+        const replayRows = yield* Effect.tryPromise({
+          try: () =>
+            db
+              .select({ usedAt: recoveryCodes.usedAt })
+              .from(recoveryCodes)
+              .where(
+                and(
+                  eq(recoveryCodes.accountId, profile.accountId),
+                  eq(recoveryCodes.codeHash, codeHash),
+                ),
+              )
+              .limit(1),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        if (replayRows[0] && replayRows[0].usedAt !== null) {
           yield* Effect.logWarning("Used recovery code replayed");
           metricRecoveryCodeConsumed("used");
         } else {
@@ -322,7 +364,6 @@ export function createRecoveryModule(
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
 
-      const nowSec = Math.floor(Date.now() / 1000);
       // S-H1: a recovery-code CONSUME is the actual takeover step in the
       // attacker-burns-codes scenario. Record the audit row in the same
       // transaction as the sessions wipe so the legitimate owner can see
@@ -337,39 +378,6 @@ export function createRecoveryModule(
         ipHash: eventMeta?.ip ? hashIp(eventMeta.ip) : null,
         uaLabel: eventMeta?.uaLabel ?? null,
       };
-
-      // S-M1: the SELECT above is check-then-act — two concurrent requests with
-      // the same code can both pass `row.usedAt === null` and double-consume.
-      // Close the race with a compare-and-swap: mark the code used ONLY while it
-      // is still unused (`usedAt IS NULL`), then key the rest of the ceremony off
-      // the rows-affected count. Mirrors the passkey-rename CAS in this file.
-      const consumeResult = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .update(recoveryCodes)
-            .set({ usedAt: nowSec })
-            .where(and(eq(recoveryCodes.id, row.id), isNull(recoveryCodes.usedAt))),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      // better-sqlite3 returns `{ changes }`, libsql/D1 `{ rowsAffected }`.
-      const consumed =
-        (consumeResult as unknown as { changes?: number; rowsAffected?: number }).changes ??
-        (consumeResult as unknown as { changes?: number; rowsAffected?: number }).rowsAffected ??
-        0;
-      if (consumed === 0) {
-        // Lost the CAS — another request consumed this code first. Do NOT wipe
-        // sessions or write the audit row. Treat exactly like a replayed used
-        // code: count the failed attempt and return the generic error.
-        yield* Effect.logWarning("Recovery code consumed concurrently — CAS lost");
-        metricRecoveryCodeConsumed("used");
-        const attempts = yield* Effect.promise(() =>
-          recoveryLockoutStore.recordFailure(profile.accountId),
-        );
-        if (attempts === RECOVERY_LOCKOUT_THRESHOLD) {
-          yield* recordRecoveryLockoutEvent(profile.accountId, eventMeta);
-        }
-        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
-      }
 
       yield* Effect.tryPromise({
         // The code is now ours. Wipe sessions + write the audit row atomically
@@ -441,12 +449,21 @@ export function createRecoveryModule(
   ): Effect.Effect<{ active: number; total: number }, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
+      // P-I1: SQL aggregate instead of SELECTing full rows (including the
+      // secret-bearing code_hash) just to take lengths in JS.
       const rows = yield* Effect.tryPromise({
-        try: () => db.select().from(recoveryCodes).where(eq(recoveryCodes.accountId, accountId)),
+        try: () =>
+          db
+            .select({
+              active: sql<number>`sum(case when ${recoveryCodes.usedAt} is null then 1 else 0 end)`,
+              total: sql<number>`count(*)`,
+            })
+            .from(recoveryCodes)
+            .where(eq(recoveryCodes.accountId, accountId)),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      const active = rows.filter((r) => r.usedAt === null).length;
-      return { active, total: rows.length };
+      // SUM over zero rows is NULL — coalesce both to 0 for empty accounts.
+      return { active: Number(rows[0]?.active ?? 0), total: Number(rows[0]?.total ?? 0) };
     });
 
   return {

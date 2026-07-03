@@ -582,6 +582,18 @@ export const metricEventCreateDuration = (durationSeconds: number, result: Resul
 export const metricEventStatusTransition = (from: EventStatus, to: EventStatus): void =>
   eventStatusTransitions.inc({ from, to });
 
+/**
+ * Batch variant for the grouped status-transition writer (P-W5/P-W1):
+ * one bulk `UPDATE … WHERE id IN (…)` per (from → to) group records the
+ * whole group in a single `add(count)` so the counter's per-event
+ * semantics are preserved without N individual increments.
+ */
+export const metricEventStatusTransitionBatch = (
+  from: EventStatus,
+  to: EventStatus,
+  count: number,
+): void => eventStatusTransitions.add(count, { from, to });
+
 export const metricEventValidationFailure = (
   operation: "create" | "update",
   reason: "schema" | "past_start_time" | "duration_exceeds_max",

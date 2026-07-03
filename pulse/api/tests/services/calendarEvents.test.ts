@@ -169,6 +169,71 @@ it.effect("clamps the result count to the requested limit", () =>
   }).pipe(Effect.provide(createTestLayer())),
 );
 
+// T-S5 — applyTransitions preserves row order, so the parallel myStatus
+// array zips back by index. Interleave transitioning (already-started,
+// stored "upcoming") and non-transitioning (future) events with different
+// myStatus/isHost values and assert each returned entry's pairing.
+it.effect("keeps myStatus/isHost paired to the right event when transitions interleave", () =>
+  Effect.gen(function* () {
+    const minutesAgo = (n: number) => new Date(now - n * 60_000).toISOString();
+
+    // Seeded out of start-time order on purpose so the merge sort + zip is
+    // exercised, not just the insertion order.
+    const upcomingGoing = yield* seedEvent({
+      title: "Upcoming Going",
+      startTime: inDays(1),
+      createdByProfileId: OTHER,
+    });
+    const startedMaybe = yield* seedEvent({
+      title: "Started Maybe",
+      startTime: minutesAgo(2),
+      createdByProfileId: OTHER,
+    });
+    const upcomingHosted = yield* seedEvent({
+      title: "Upcoming Hosted",
+      startTime: inDays(2),
+      createdByProfileId: VIEWER,
+    });
+    const startedHosted = yield* seedEvent({
+      title: "Started Hosted",
+      startTime: minutesAgo(1),
+      createdByProfileId: VIEWER,
+    });
+    yield* upsertRsvp(upcomingGoing.id, VIEWER, { status: "going" });
+    yield* upsertRsvp(startedMaybe.id, VIEWER, { status: "maybe" });
+    yield* upsertRsvp(upcomingHosted.id, VIEWER, { status: "going" });
+
+    const entries = yield* listMyCalendarEvents(VIEWER);
+
+    // Chronological order survives the transition pass.
+    expect(entries.map((e) => e.event.id)).toEqual([
+      startedMaybe.id,
+      startedHosted.id,
+      upcomingGoing.id,
+      upcomingHosted.id,
+    ]);
+
+    // Each entry keeps ITS OWN myStatus/isHost — a shifted zip would swap
+    // neighbours' values.
+    const byId = new Map(entries.map((e) => [e.event.id, e]));
+    expect(byId.get(startedMaybe.id)!.myStatus).toBe("maybe");
+    expect(byId.get(startedMaybe.id)!.isHost).toBe(false);
+    expect(byId.get(startedHosted.id)!.myStatus).toBeNull();
+    expect(byId.get(startedHosted.id)!.isHost).toBe(true);
+    expect(byId.get(upcomingGoing.id)!.myStatus).toBe("going");
+    expect(byId.get(upcomingGoing.id)!.isHost).toBe(false);
+    expect(byId.get(upcomingHosted.id)!.myStatus).toBe("going");
+    expect(byId.get(upcomingHosted.id)!.isHost).toBe(true);
+
+    // The started rows actually transitioned (upcoming → ongoing) while the
+    // future rows did not — proving the mix was genuinely interleaved.
+    expect(byId.get(startedMaybe.id)!.event.status).toBe("ongoing");
+    expect(byId.get(startedHosted.id)!.event.status).toBe("ongoing");
+    expect(byId.get(upcomingGoing.id)!.event.status).toBe("upcoming");
+    expect(byId.get(upcomingHosted.id)!.event.status).toBe("upcoming");
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
 it.effect("fails with DatabaseError when the underlying query errors", () =>
   Effect.gen(function* () {
     const err = yield* Effect.flip(listMyCalendarEvents(VIEWER));

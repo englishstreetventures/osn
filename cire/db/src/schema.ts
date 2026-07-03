@@ -204,10 +204,11 @@ export const events = sqliteTable(
     // the stored bytes are untouched.
     eventImageCrop: text("event_image_crop"),
   },
-  (t) => [
-    index("events_sort_order_idx").on(t.sortOrder),
-    index("events_wedding_idx").on(t.weddingId),
-  ],
+  // Composite index covering the (wedding filter, sort) access pattern used by
+  // every events read (migration 0026). Replaces the dead single-column
+  // events_sort_order_idx + events_wedding_idx pair — mirrors
+  // guests_family_id_sort_idx above.
+  (t) => [index("events_wedding_id_sort_idx").on(t.weddingId, t.sortOrder)],
 );
 
 export const guestEvents = sqliteTable(

@@ -1,4 +1,7 @@
 import { it, expect, describe } from "@effect/vitest";
+import { recoveryCodes } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { beforeAll } from "vitest";
 
@@ -57,6 +60,33 @@ describe("generateRecoveryCodesForAccount", () => {
       // A code from the new set works.
       yield* auth.consumeRecoveryCode("bob@example.com", second.recoveryCodes[0]!);
     }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+// T-U2 — countActiveRecoveryCodes SQL-aggregate rewrite (P-I1).
+describe("countActiveRecoveryCodes", () => {
+  it.effect("returns {active: 9, total: 10} after one code is consumed", () =>
+    Effect.gen(function* () {
+      const profile = yield* registered("count-a@example.com", "counta");
+      const { recoveryCodes: codes } = yield* auth.generateRecoveryCodesForAccount(
+        profile.accountId,
+      );
+      yield* auth.consumeRecoveryCode("count-a@example.com", codes[0]!);
+      const counts = yield* auth.countActiveRecoveryCodes(profile.accountId);
+      expect(counts).toEqual({ active: 9, total: 10 });
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect(
+    "returns {active: 0, total: 0} for a fresh account with no codes (SUM-over-zero-rows NULL coalesce)",
+    () =>
+      Effect.gen(function* () {
+        const profile = yield* registered("count-none@example.com", "countnone");
+        // No generateRecoveryCodesForAccount call — zero recovery_codes rows, so
+        // the SQL SUM aggregate yields NULL and must coalesce to 0, not NaN.
+        const counts = yield* auth.countActiveRecoveryCodes(profile.accountId);
+        expect(counts).toEqual({ active: 0, total: 0 });
+      }).pipe(Effect.provide(createTestLayer())),
   );
 });
 
@@ -214,6 +244,21 @@ describe("O2 recovery-code lockout", () => {
       );
       expect(lockedErr._tag).toBe("AuthError");
       expect(lockedErr.message).toBe("Invalid request");
+
+      // T-E1: the locked branch must be READ-ONLY — the correct code presented
+      // while locked must NOT have been consumed. Every recovery_codes row for
+      // the account still has used_at IS NULL.
+      const { db } = yield* Db;
+      const rows = yield* Effect.promise(() =>
+        db
+          .select({ usedAt: recoveryCodes.usedAt })
+          .from(recoveryCodes)
+          .where(eq(recoveryCodes.accountId, profile.accountId)),
+      );
+      expect(rows).toHaveLength(10);
+      for (const row of rows) {
+        expect(row.usedAt).toBeNull();
+      }
     }).pipe(Effect.provide(createTestLayer())),
   );
 

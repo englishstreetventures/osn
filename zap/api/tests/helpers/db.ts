@@ -67,13 +67,15 @@ export interface SeedChatInput {
   title?: string;
   eventId?: string;
   createdByProfileId?: string;
+  /** Controllable timestamp for cursor-pagination tests. */
+  createdAt?: Date;
 }
 
 export const seedChat = (input: SeedChatInput): Effect.Effect<Chat, never, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const id = "chat_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-    const now = new Date();
+    const now = input.createdAt ?? new Date();
     const row: Chat = {
       id,
       type: input.type,

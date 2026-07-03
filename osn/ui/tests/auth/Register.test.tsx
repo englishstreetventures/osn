@@ -133,7 +133,23 @@ describe("Register component", () => {
       await waitFor(() => {
         expect(screen.getByText(/@alice is available/)).toBeTruthy();
       });
-      expect(stub.checkHandle).toHaveBeenCalledWith("alice");
+      expect(stub.checkHandle).toHaveBeenCalledWith("alice", expect.any(AbortSignal));
+    });
+
+    it("aborts the previous in-flight check before issuing a new one (P-W10)", async () => {
+      stub.checkHandle.mockImplementation(() => new Promise(() => {}));
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
+      fillHandle("ali");
+      await vi.advanceTimersByTimeAsync(350);
+      expect(stub.checkHandle).toHaveBeenCalledTimes(1);
+      const firstSignal = stub.checkHandle.mock.calls[0][1] as AbortSignal;
+      expect(firstSignal.aborted).toBe(false);
+
+      fillHandle("alice");
+      await vi.advanceTimersByTimeAsync(350);
+      expect(stub.checkHandle).toHaveBeenCalledTimes(2);
+      expect(firstSignal.aborted).toBe(true);
+      expect((stub.checkHandle.mock.calls[1][1] as AbortSignal).aborted).toBe(false);
     });
 
     it("shows 'taken' when the server reports unavailable", async () => {

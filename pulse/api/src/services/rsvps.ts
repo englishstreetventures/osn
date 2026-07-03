@@ -488,6 +488,13 @@ export const listRsvps = (
   options: {
     status?: EventRsvp["status"];
     limit?: number;
+    /**
+     * Already-loaded event row (P-W1/P-I15). The routes gate every RSVP
+     * read behind `loadVisibleEvent`, which has just fetched this exact
+     * row — passing it here skips the redundant internal re-fetch.
+     * When omitted the event is loaded (and 404-checked) as before.
+     */
+    event?: Event;
   } = {},
 ): Effect.Effect<
   RsvpWithProfile[],
@@ -495,7 +502,11 @@ export const listRsvps = (
   Db
 > =>
   Effect.gen(function* () {
-    const event = yield* loadEvent(eventId);
+    // S-L3: the pre-loaded row is only an optimisation — never let a
+    // mismatched hint decide another event's authorization. On mismatch,
+    // fall back to loading the row for `eventId` ourselves.
+    const hinted = options.event && options.event.id === eventId ? options.event : undefined;
+    const event = hinted ?? (yield* loadEvent(eventId));
 
     // S-H4: invite lists are organiser-only. Return empty rather than
     // an error so the route can render the same 200-empty response as
@@ -574,11 +585,13 @@ export const latestRsvps = (
   eventId: string,
   viewerId: string | null,
   limit = 5,
+  /** Already-loaded event row — see `listRsvps` (P-W1/P-I15). */
+  event?: Event,
 ): Effect.Effect<
   RsvpWithProfile[],
   EventNotFound | DatabaseError | GraphBridgeError | CloseFriendsDatabaseError,
   Db
-> => listRsvps(eventId, viewerId, { status: "going", limit });
+> => listRsvps(eventId, viewerId, { status: "going", limit, event });
 
 /**
  * Returns the counts per status. Counts are always visible (they don't
@@ -587,9 +600,16 @@ export const latestRsvps = (
  */
 export const rsvpCounts = (
   eventId: string,
+  /**
+   * Already-loaded event row — see `listRsvps` (P-I15). Only used as an
+   * existence proof: when provided, the internal `loadEvent` 404-check
+   * is skipped.
+   */
+  event?: Event,
 ): Effect.Effect<RsvpCounts, EventNotFound | DatabaseError, Db> =>
   Effect.gen(function* () {
-    yield* loadEvent(eventId); // 404 if missing
+    // S-L3: only honour the existence hint when it names THIS event.
+    if (!event || event.id !== eventId) yield* loadEvent(eventId); // 404 if missing
     const { db } = yield* Db;
     const rows = yield* Effect.tryPromise({
       try: (): Promise<{ status: EventRsvp["status"]; total: number }[]> =>

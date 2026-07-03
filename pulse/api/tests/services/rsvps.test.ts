@@ -292,6 +292,27 @@ it.effect("rsvpCounts groups by status", () =>
   }).pipe(Effect.provide(createTestLayer())),
 );
 
+// P-I15 / P-W1 — the routes gate every RSVP read behind loadVisibleEvent
+// and thread the loaded row into the service, which then skips its own
+// event fetch. Same results either way.
+it.effect("rsvpCounts and listRsvps accept a preloaded event and return identical results", () =>
+  Effect.gen(function* () {
+    const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
+    yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
+    yield* upsertRsvp(event.id, "usr_carol", { status: "maybe" });
+
+    const counts = yield* rsvpCounts(event.id, event);
+    expect(counts.going).toBe(1);
+    expect(counts.maybe).toBe(1);
+
+    const withPreload = yield* listRsvps(event.id, null, { status: "going", event });
+    const withoutPreload = yield* listRsvps(event.id, null, { status: "going" });
+    expect(withPreload.map((r) => r.profileId)).toEqual(withoutPreload.map((r) => r.profileId));
+    expect(withPreload).toHaveLength(1);
+    expect(withPreload[0]!.profileId).toBe("usr_bob");
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
 // ---------------------------------------------------------------------------
 // listRsvps — visibility filtering
 // ---------------------------------------------------------------------------

@@ -1,4 +1,6 @@
 import { expect, it } from "@effect/vitest";
+import { events } from "@pulse/db/schema";
+import { Db } from "@pulse/db/service";
 import { Effect } from "effect";
 import { vi } from "vitest";
 
@@ -686,6 +688,83 @@ it.effect("listTodayEvents returns transitioned statuses", () =>
       const results = yield* listTodayEvents;
       const started = results.find((e) => e.title === "Today Started");
       expect(started?.status).toBe("ongoing");
+    }),
+  ),
+);
+
+// P-W5 / P-W1 — the list read paths batch status-transition writes into one
+// UPDATE per (from → to) group. Semantics must match the per-row writer:
+// persisted transitions land in the DB, maybe_finished stays display-only.
+it.effect("listEvents persists batched status transitions grouped by (from → to)", () =>
+  provide(
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      // Two upcoming → ongoing, one ongoing → finished, one soft maybe_finished.
+      const a = yield* seedEvent({ title: "A", startTime: STARTED });
+      const b = yield* seedEvent({ title: "B", startTime: STARTED });
+      const c = yield* seedEvent({
+        title: "C",
+        startTime: STARTED,
+        endTime: ENDED,
+        status: "ongoing",
+      });
+      const ninehAgo = new Date(Date.now() - 9 * 60 * 60 * 1000);
+      const d = yield* seedEvent({ title: "D", startTime: ninehAgo, status: "ongoing" });
+
+      const batchSpy = vi.spyOn(metrics, "metricEventStatusTransitionBatch");
+      const results = yield* listEvents({});
+      const returned = new Map(results.map((e) => [e.id, e.status]));
+      expect(returned.get(a.id)).toBe("ongoing");
+      expect(returned.get(b.id)).toBe("ongoing");
+      expect(returned.get(c.id)).toBe("finished");
+      expect(returned.get(d.id)).toBe("maybe_finished");
+
+      // One grouped counter add per (from → to) pair, count preserved.
+      expect(batchSpy).toHaveBeenCalledTimes(2);
+      expect(batchSpy).toHaveBeenCalledWith("upcoming", "ongoing", 2);
+      expect(batchSpy).toHaveBeenCalledWith("ongoing", "finished", 1);
+      batchSpy.mockRestore();
+
+      // Persisted rows: A/B/C transitioned at rest; D's soft state is
+      // display-only and stays "ongoing" in the DB.
+      const rows = yield* Effect.promise(() => db.select().from(events));
+      const stored = new Map(rows.map((r) => [r.id, r.status]));
+      expect(stored.get(a.id)).toBe("ongoing");
+      expect(stored.get(b.id)).toBe("ongoing");
+      expect(stored.get(c.id)).toBe("finished");
+      expect(stored.get(d.id)).toBe("ongoing");
+    }),
+  ),
+);
+
+// P-W3 — the "today" feed is bounded at the DB layer.
+it.effect("listTodayEvents caps the result set at 200 rows", () =>
+  provide(
+    Effect.gen(function* () {
+      const now = new Date();
+      yield* Effect.forEach(
+        Array.from({ length: 205 }, (_, i) => i),
+        (i) => seedEvent({ title: `Bulk ${i}`, startTime: now, status: "ongoing" }),
+        { concurrency: 1 },
+      );
+      const results = yield* listTodayEvents;
+      expect(results.length).toBe(200);
+    }),
+  ),
+);
+
+// P-I7 — createEvent uses INSERT … RETURNING; DB column defaults must come
+// back on the returned row without a second read.
+it.effect("createEvent returns DB defaults in the same round-trip", () =>
+  provide(
+    Effect.gen(function* () {
+      const event = yield* createEvent({ title: "Defaults", startTime: FUTURE }, ALICE);
+      expect(event.visibility).toBe("public");
+      expect(event.guestListVisibility).toBe("public");
+      expect(event.joinPolicy).toBe("open");
+      expect(event.allowInterested).toBe(true);
+      expect(JSON.parse(event.commsChannels)).toEqual(["email"]);
+      expect(event.createdAt).toBeInstanceOf(Date);
     }),
   ),
 );

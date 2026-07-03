@@ -65,8 +65,8 @@ describe("zap/api over real D1 (Miniflare)", () => {
     expect(chat.title).toBe("Trip");
 
     const mine = await run(listChats(ALICE));
-    expect(mine).toHaveLength(1);
-    expect(mine[0]!.id).toBe(chat.id);
+    expect(mine.chats).toHaveLength(1);
+    expect(mine.chats[0]!.id).toBe(chat.id);
   });
 
   it("sendMessage then listMessages persists via the async driver", async () => {

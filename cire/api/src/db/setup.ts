@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS events (
   event_image_key TEXT,
   event_image_crop TEXT
 );
-CREATE INDEX IF NOT EXISTS events_wedding_idx ON events(wedding_id);
+CREATE INDEX IF NOT EXISTS events_wedding_id_sort_idx ON events(wedding_id, sort_order);
 
 CREATE TABLE IF NOT EXISTS guest_events (
   guest_id TEXT NOT NULL REFERENCES guests(id) ON DELETE CASCADE,

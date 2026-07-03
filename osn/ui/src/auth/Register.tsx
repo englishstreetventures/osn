@@ -63,8 +63,12 @@ export function Register(props: RegisterProps) {
     "idle" | "checking" | "available" | "taken" | "invalid" | "error"
   >("idle");
   let handleTimer: ReturnType<typeof setTimeout> | null = null;
+  // Cancels the previous in-flight availability probe when a new one fires,
+  // so debounced typing bursts never stack requests (P-W10).
+  let handleAbort: AbortController | null = null;
   onCleanup(() => {
     if (handleTimer) clearTimeout(handleTimer);
+    handleAbort?.abort();
   });
 
   function onHandleInput(value: string) {
@@ -81,12 +85,16 @@ export function Register(props: RegisterProps) {
     }
     setHandleStatus("checking");
     handleTimer = setTimeout(async () => {
+      handleAbort?.abort();
+      const controller = new AbortController();
+      handleAbort = controller;
       try {
-        const { available } = await client.checkHandle(next);
+        const { available } = await client.checkHandle(next, controller.signal);
         if (handle() !== next) return;
         setHandleStatus(available ? "available" : "taken");
       } catch {
-        if (handle() !== next) return;
+        // An aborted probe was superseded (or unmounted) — never an error state.
+        if (controller.signal.aborted || handle() !== next) return;
         setHandleStatus("error");
       }
     }, 300);

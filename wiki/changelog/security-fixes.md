@@ -7,12 +7,21 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-06-21
+last-reviewed: 2026-07-03
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## Performance-audit sweep, in-branch review round (2026-07-03)
+
+Findings raised by the branch's own security review against code introduced by the same branch — fixed before merge, so no deployed exposure existed.
+
+- **S-M1 (ics-cache)** — **Issue:** the new ICS caching headers used `Cache-Control: private, max-age=300`; a browser's private cache keys on URL only, so a 200 fetched by an authorized viewer could be replayed for 5 minutes across auth-state changes (logout, profile switch) on the same client without re-running the `loadVisibleEvent` gate — and the ICS body includes private-event GEO metadata. **Why:** client-side bypass window around a server-side access gate (OWASP A01). **Solution:** `Cache-Control: private, no-cache` + the weak ETag — every reuse is a conditional revalidation through the visibility gate (cheap 304, body regeneration still skipped). **Rationale:** keeps the entire P-I14 perf win while making the cached body unservable to a viewer the server would reject. See [[event-access]].
+- **S-L3 (rsvp-event-hint)** — **Issue:** `listRsvps`/`rsvpCounts` accepted a pre-loaded `event` row (P-W1/P-I15 optimisation) without asserting `event.id === eventId`, so a future mis-paired caller would apply one event's authorization to another event's RSVP rows. **Solution:** the hint is honoured only when it names the same event; on mismatch the services silently re-load the correct row. **Rationale:** O(1) guard converts route-level discipline into a service-enforced invariant. See [[event-access]].
+- **S-L2 (dev-otp-env)** — **Issue:** `IS_LOCAL_ENV` was frozen at module evaluation; a runtime populating `process.env` after module load would permanently treat the process as local and emit dev-OTP debug lines (`to=<email> code=<otp>`). **Solution:** lazy resolution cached on first `logDevOtp` call (mid-request, after env population), keeping the P-I1 single-read win; "unset ⇒ local" stays consistent with `isNonLocal` in `index.ts`. **Rationale:** removes the eval-timing hazard without diverging from the codebase-wide env convention or breaking local dev. See [[email]].
+- **S-L1 (recovery-timing-comment)** — **Issue:** the S-M2 comment on `consumeRecoveryCode` claimed the unknown-identifier and wrong-code branches do "the same shape of work", overstating timing parity after the atomic-UPDATE rewrite (the known branch adds lockout-store round-trips and a classification SELECT). **Solution:** comment corrected to state parity is approximate and bounded by the per-IP rate limit + per-account lockout; residual oracle pre-dates the branch. **Rationale:** documentation must not overstate a security property. See [[recovery-codes]].
 
 ## Dependency security sweep — `bun audit` 8→0 + audit-gate retighten (2026-06-21, #214)
 

@@ -64,6 +64,27 @@ describe("createRegistrationClient", () => {
       stubFetch(() => jsonResponse({ something: "else" }));
       await expect(client.checkHandle("alice")).rejects.toBeInstanceOf(RegistrationError);
     });
+
+    it("threads an AbortSignal through to fetch (P-W10)", async () => {
+      const { calls } = stubFetch(() => jsonResponse({ available: true }));
+      const controller = new AbortController();
+      await client.checkHandle("alice", controller.signal);
+      expect(calls[0].init?.signal).toBe(controller.signal);
+    });
+
+    it("rejects with the abort reason when the signal is already aborted", async () => {
+      // Mirror real fetch abort semantics: reject with the signal's reason.
+      stubFetch((call) => {
+        const signal = call.init?.signal;
+        if (signal?.aborted) throw signal.reason;
+        return jsonResponse({ available: true });
+      });
+      const controller = new AbortController();
+      controller.abort();
+      await expect(client.checkHandle("alice", controller.signal)).rejects.toMatchObject({
+        name: "AbortError",
+      });
+    });
   });
 
   describe("beginRegistration", () => {

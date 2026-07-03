@@ -86,6 +86,21 @@ describe("registerProfile", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  // T-S2: the P-W11 single OR-probe must preserve the email-first error
+  // priority of the old two sequential checks when BOTH fields collide —
+  // against two different existing accounts.
+  it.effect(
+    "reports the email collision when email and handle collide with different accounts",
+    () =>
+      Effect.gen(function* () {
+        yield* auth.registerProfile("alice@example.com", "alice");
+        yield* auth.registerProfile("bob@example.com", "bob");
+        const error = yield* Effect.flip(auth.registerProfile("alice@example.com", "bob"));
+        expect(error._tag).toBe("AuthError");
+        expect(error.message).toContain("Email already registered");
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
   it.effect("fails with invalid email format", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(auth.registerProfile("not-an-email", "myhandle"));

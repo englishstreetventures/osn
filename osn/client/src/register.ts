@@ -78,7 +78,12 @@ export interface CompleteRegistrationResult {
 }
 
 export interface RegistrationClient {
-  checkHandle(handle: string): Promise<{ available: boolean }>;
+  /**
+   * "Is this @ free?" probe. Pass an `AbortSignal` so debounced callers can
+   * cancel the previous in-flight probe before issuing a new one (P-W10) —
+   * an aborted call rejects with the fetch `AbortError`.
+   */
+  checkHandle(handle: string, signal?: AbortSignal): Promise<{ available: boolean }>;
   beginRegistration(input: {
     email: string;
     handle: string;
@@ -112,8 +117,11 @@ export interface RegistrationClient {
 export function createRegistrationClient(config: RegistrationClientConfig): RegistrationClient {
   const base = config.issuerUrl.replace(/\/$/, "");
 
-  const checkHandle = async (handle: string) => {
-    const res = await fetch(`${base}/handle/${encodeURIComponent(handle)}`);
+  const checkHandle = async (handle: string, signal?: AbortSignal) => {
+    const res = await fetch(
+      `${base}/handle/${encodeURIComponent(handle)}`,
+      signal ? { signal } : undefined,
+    );
     const json = (await res.json()) as { available?: boolean; error?: string };
     if (!res.ok || typeof json.available !== "boolean") {
       throw new RegistrationError(json.error ?? "Invalid handle");

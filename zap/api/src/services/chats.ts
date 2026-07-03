@@ -1,10 +1,17 @@
 import { chats, chatMembers } from "@zap/db/schema";
 import type { Chat, ChatMember } from "@zap/db/schema";
 import { Db } from "@zap/db/service";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, lt, or } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
-import { MAX_CHAT_MEMBERS, MAX_CHAT_TITLE_LENGTH } from "../lib/limits";
+import {
+  DEFAULT_CHAT_LIMIT,
+  DEFAULT_MEMBER_LIMIT,
+  MAX_CHAT_LIMIT,
+  MAX_CHAT_MEMBERS,
+  MAX_CHAT_TITLE_LENGTH,
+  MAX_MEMBER_LIMIT,
+} from "../lib/limits";
 import { metricChatCreated, metricMemberAdded, metricMemberRemoved } from "../metrics";
 import { checkConsent, ConsentDenied } from "./consent";
 
@@ -90,25 +97,78 @@ export const getChat = (id: string): Effect.Effect<Chat, ChatNotFound | Database
     return result[0]!;
   }).pipe(Effect.withSpan("zap.chats.get"));
 
-export const listChats = (profileId: string): Effect.Effect<Chat[], DatabaseError, Db> =>
+export const listChats = (
+  profileId: string,
+  opts: { limit?: number; cursor?: string } = {},
+): Effect.Effect<
+  { chats: Chat[]; nextCursor: string | null; hasMore: boolean },
+  ValidationError | DatabaseError,
+  Db
+> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
-    // Find all chats the user is a member of.
-    const memberRows = yield* Effect.tryPromise({
-      try: (): Promise<ChatMember[]> =>
-        db.select().from(chatMembers).where(eq(chatMembers.profileId, profileId)) as Promise<
-          ChatMember[]
-        >,
+
+    // P-W1: bounded page size — default 50, cap 100, floor 1.
+    const requested = Number.isFinite(opts.limit) ? (opts.limit as number) : DEFAULT_CHAT_LIMIT;
+    const limit = Math.min(Math.max(1, requested), MAX_CHAT_LIMIT);
+
+    // Cursor-based pagination: fetch chats older than the cursor (newest first).
+    const conditions = [eq(chatMembers.profileId, profileId)];
+    if (opts.cursor) {
+      // Mirrors the hardened listMessages cursor contract: the cursor is a
+      // chat ID. Scope the lookup to the CALLER'S chats (membership join) so a
+      // cursor naming someone else's chat can't be used to probe chat timing,
+      // and reject an unknown/foreign cursor with a validation error instead
+      // of silently falling back to page 1.
+      const cursorRows = yield* Effect.tryPromise({
+        try: (): Promise<{ createdAt: Date; id: string }[]> =>
+          db
+            .select({ createdAt: chats.createdAt, id: chats.id })
+            .from(chats)
+            .innerJoin(chatMembers, eq(chatMembers.chatId, chats.id))
+            .where(and(eq(chats.id, opts.cursor!), eq(chatMembers.profileId, profileId)))
+            .limit(1) as Promise<{ createdAt: Date; id: string }[]>,
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      if (cursorRows.length === 0) {
+        return yield* Effect.fail(new ValidationError({ cause: "Unknown cursor for this user" }));
+      }
+      // Composite keyset (createdAt, id): created_at has SECOND resolution and
+      // is not unique, so a strict `createdAt <` alone would silently skip any
+      // chat sharing the cursor's second (the expected case for creation
+      // bursts). The id tiebreak makes pages disjoint and exhaustive — same
+      // pattern as getChatMembers' (joinedAt, id) ordering.
+      const cur = cursorRows[0]!;
+      conditions.push(
+        or(
+          lt(chats.createdAt, cur.createdAt),
+          and(eq(chats.createdAt, cur.createdAt), lt(chats.id, cur.id)),
+        )!,
+      );
+    }
+
+    // Single membership-joined query, newest first, bounded by limit —
+    // replaces the old fetch-all-memberships + inArray fetch-all-chats pair.
+    // Fetch limit + 1 so the presence of a next page costs one extra row
+    // instead of one extra request.
+    const rows = yield* Effect.tryPromise({
+      try: (): Promise<{ chat: Chat }[]> =>
+        db
+          .select({ chat: chats })
+          .from(chats)
+          .innerJoin(chatMembers, eq(chatMembers.chatId, chats.id))
+          .where(and(...conditions))
+          .orderBy(desc(chats.createdAt), desc(chats.id))
+          .limit(limit + 1) as Promise<{ chat: Chat }[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
-    if (memberRows.length === 0) return [];
-    const chatIds = memberRows.map((m) => m.chatId);
-    const results = yield* Effect.tryPromise({
-      try: (): Promise<Chat[]> =>
-        db.select().from(chats).where(inArray(chats.id, chatIds)) as Promise<Chat[]>,
-      catch: (cause) => new DatabaseError({ cause }),
-    });
-    return results;
+    const hasMore = rows.length > limit;
+    const page = (hasMore ? rows.slice(0, limit) : rows).map((r) => r.chat);
+    return {
+      chats: page,
+      hasMore,
+      nextCursor: hasMore && page.length > 0 ? page[page.length - 1]!.id : null,
+    };
   }).pipe(Effect.withSpan("zap.chats.list"));
 
 export const createChat = (
@@ -254,21 +314,31 @@ export const addMember = (
     // profile being added. Fail-closed on graph-unreachable.
     yield* checkConsent(requestingProfileId, profileId);
 
-    // Check member count.
-    const existing = yield* Effect.tryPromise({
-      try: (): Promise<ChatMember[]> =>
-        db.select().from(chatMembers).where(eq(chatMembers.chatId, chatId)) as Promise<
-          ChatMember[]
-        >,
+    // P-W2: check the member count with COUNT(*) instead of loading every
+    // member row (up to MAX_CHAT_MEMBERS) into memory.
+    const countRows = yield* Effect.tryPromise({
+      try: (): Promise<{ value: number }[]> =>
+        db
+          .select({ value: count() })
+          .from(chatMembers)
+          .where(eq(chatMembers.chatId, chatId)) as Promise<{ value: number }[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
-    if (existing.length >= MAX_CHAT_MEMBERS) {
+    if ((countRows[0]?.value ?? 0) >= MAX_CHAT_MEMBERS) {
       return yield* Effect.fail(new MemberLimitReached({ chatId }));
     }
 
-    // Check if already a member.
-    const alreadyExists = existing.some((m) => m.profileId === profileId);
-    if (alreadyExists) {
+    // Check if already a member (single indexed lookup on the unique pair).
+    const duplicate = yield* Effect.tryPromise({
+      try: (): Promise<{ id: string }[]> =>
+        db
+          .select({ id: chatMembers.id })
+          .from(chatMembers)
+          .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.profileId, profileId)))
+          .limit(1) as Promise<{ id: string }[]>,
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+    if (duplicate.length > 0) {
       return yield* Effect.fail(new AlreadyMember({ chatId, profileId }));
     }
 
@@ -359,18 +429,39 @@ export const removeMember = (
 
 export const getChatMembers = (
   chatId: string,
-): Effect.Effect<ChatMember[], ChatNotFound | DatabaseError, Db> =>
+  opts: { limit?: number; offset?: number; assertedExists?: boolean } = {},
+): Effect.Effect<{ members: ChatMember[]; hasMore: boolean }, ChatNotFound | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
-    yield* getChat(chatId);
-    const members = yield* Effect.tryPromise({
+    // P-I5: callers that already gated on assertMember have proven the chat
+    // exists (a membership row FK-references it) — skip the redundant load.
+    // Un-gated callers keep the 404 contract.
+    if (!opts.assertedExists) {
+      yield* getChat(chatId);
+    }
+
+    // P-W4: limit/offset pagination — members are bounded at MAX_CHAT_MEMBERS
+    // (500), so offset paging is stable enough. Default 100, cap 500, floor 1.
+    const requested = Number.isFinite(opts.limit) ? (opts.limit as number) : DEFAULT_MEMBER_LIMIT;
+    const limit = Math.min(Math.max(1, requested), MAX_MEMBER_LIMIT);
+    const offset = Number.isFinite(opts.offset) ? Math.max(0, opts.offset as number) : 0;
+
+    // limit + 1: next-page presence for one extra row, not one extra request.
+    const rows = yield* Effect.tryPromise({
       try: (): Promise<ChatMember[]> =>
-        db.select().from(chatMembers).where(eq(chatMembers.chatId, chatId)) as Promise<
-          ChatMember[]
-        >,
+        db
+          .select()
+          .from(chatMembers)
+          .where(eq(chatMembers.chatId, chatId))
+          // Deterministic page order: joinedAt, then id as tiebreak (batch
+          // inserts share a joinedAt timestamp).
+          .orderBy(asc(chatMembers.joinedAt), asc(chatMembers.id))
+          .limit(limit + 1)
+          .offset(offset) as Promise<ChatMember[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
-    return members;
+    const hasMore = rows.length > limit;
+    return { members: hasMore ? rows.slice(0, limit) : rows, hasMore };
   }).pipe(Effect.withSpan("zap.chats.get_members"));
 
 // ---------------------------------------------------------------------------

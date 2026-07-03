@@ -20,6 +20,7 @@ import {
   metricEventCreated,
   metricEventDeleted,
   metricEventStatusTransition,
+  metricEventStatusTransitionBatch,
   metricEventUpdated,
   metricEventValidationFailure,
   metricEventsListed,
@@ -228,6 +229,73 @@ export const applyTransition = (event: Event): Effect.Effect<Event, DatabaseErro
   );
 };
 
+/**
+ * Batch variant of {@link applyTransition} for the list read paths
+ * (P-W5 / P-W1). The per-row version issues one `UPDATE` per
+ * transitioning event, so a page of N stale rows costs N writes.
+ * This helper derives every row's status with a single `now`, groups
+ * the rows that need persisting by their (fromStatus → toStatus) pair,
+ * and issues ONE `UPDATE events SET status = ? WHERE id IN (…)` per
+ * group — at most a handful of writes per page regardless of N.
+ *
+ * Semantics are identical to mapping `applyTransition` over the rows:
+ *   - terminal / unchanged rows are returned as-is,
+ *   - "maybe_finished" stays a display-only projection (never persisted),
+ *   - persisted transitions stamp `updatedAt` and fire the
+ *     `status_transitions` counter once per event (batched `add(count)`),
+ *   - each group carries the same "events.apply_transition" span with
+ *     the same from/to attributes.
+ *
+ * Row order is preserved in the returned array.
+ */
+export const applyTransitions = (
+  rows: readonly Event[],
+): Effect.Effect<Event[], DatabaseError, Db> => {
+  const now = new Date();
+  const derivedRows = rows.map((event) => ({ event, derived: deriveStatus(event, now) }));
+
+  const groups = new Map<string, { from: Event["status"]; to: Event["status"]; ids: string[] }>();
+  for (const { event, derived } of derivedRows) {
+    // Display-only projection — see applyTransition for the rationale.
+    if (derived === event.status || derived === "maybe_finished") continue;
+    const key = `${event.status}→${derived}`;
+    const group = groups.get(key) ?? { from: event.status, to: derived, ids: [] };
+    group.ids.push(event.id);
+    groups.set(key, group);
+  }
+
+  const project = (): Event[] =>
+    derivedRows.map(({ event, derived }) => {
+      if (derived === event.status) return event;
+      if (derived === "maybe_finished") return { ...event, status: derived };
+      return { ...event, status: derived, updatedAt: now };
+    });
+
+  if (groups.size === 0) return Effect.sync(project);
+
+  return Effect.gen(function* () {
+    const { db } = yield* Db;
+    yield* Effect.forEach(
+      [...groups.values()],
+      ({ from, to, ids }) =>
+        Effect.tryPromise({
+          try: () =>
+            db.update(events).set({ status: to, updatedAt: now }).where(inArray(events.id, ids)),
+          catch: (cause) => new DatabaseError({ cause }),
+        }).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => metricEventStatusTransitionBatch(from, to, ids.length)),
+          ),
+          Effect.withSpan("events.apply_transition", {
+            attributes: { "event.from": from, "event.to": to },
+          }),
+        ),
+      { concurrency: 1 },
+    );
+    return project();
+  });
+};
+
 export const listEvents = (
   params: ListEventsParams,
 ): Effect.Effect<Event[], DatabaseError | CloseFriendsDatabaseError, Db> =>
@@ -264,15 +332,13 @@ export const listEvents = (
       catch: (cause) => new DatabaseError({ cause }),
     });
 
-    // Run the per-row transition stream and the viewer's close-friends
+    // Run the batched transition writer and the viewer's close-friends
     // lookup in parallel — neither depends on the other (P-W1).
-    // Bounded concurrency on transitions: 5 is enough parallelism to hide DB
-    // round-trip latency but avoids unleashing a burst of N in-flight
-    // UPDATEs (and N child spans) against SQLite for a page-size of 100
-    // results.
+    // Transitions are grouped into one UPDATE per (from → to) pair
+    // (P-W5) instead of one write per stale row.
     const [transitioned, closeFriendIds] = yield* Effect.all(
       [
-        Effect.forEach(results, applyTransition, { concurrency: 5 }),
+        applyTransitions(results),
         params.viewerId
           ? getCloseFriendIdsForViewer(params.viewerId)
           : Effect.succeed(new Set<string>()),
@@ -301,6 +367,15 @@ export const listEvents = (
     return ranked;
   }).pipe(Effect.withSpan("events.list"));
 
+/**
+ * P-W3: DB-level cap on the "today" feed. The route exposes no limit
+ * param, so a fixed ceiling bounds the page instead — 200 matches the
+ * hard ceiling used by `listRsvps`/`listVenueEvents` and is double
+ * `listEvents`' 100 max, since a whole day can legitimately hold more
+ * rows than a single discovery page.
+ */
+const TODAY_EVENTS_LIMIT = 200;
+
 export const listTodayEvents: Effect.Effect<Event[], DatabaseError, Db> = Effect.gen(function* () {
   const { db } = yield* Db;
   const now = new Date();
@@ -313,14 +388,13 @@ export const listTodayEvents: Effect.Effect<Event[], DatabaseError, Db> = Effect
         .select()
         .from(events)
         .where(and(gte(events.startTime, startOfDay), lte(events.startTime, endOfDay)))
-        .orderBy(events.startTime) as Promise<Event[]>,
+        .orderBy(events.startTime)
+        .limit(TODAY_EVENTS_LIMIT) as Promise<Event[]>,
     catch: (cause) => new DatabaseError({ cause }),
   });
 
-  // Bounded concurrency (see listEvents for the rationale).
-  const transitioned = yield* Effect.forEach(results, applyTransition, {
-    concurrency: 5,
-  });
+  // Batched status-transition writer (P-W5) — see applyTransitions.
+  const transitioned = yield* applyTransitions(results);
   metricEventsListed("today", transitioned.length);
   return transitioned;
 }).pipe(Effect.withSpan("events.list_today"));
@@ -430,19 +504,16 @@ export const listMyCalendarEvents = (
       .slice(0, limit);
 
     // Apply lifecycle transitions so the calendar shows accurate
-    // ongoing/finished labels (bounded concurrency — see listEvents).
-    const entries = yield* Effect.forEach(
-      merged,
-      ({ event, myStatus }) =>
-        Effect.map(
-          applyTransition(event),
-          (e): CalendarEntry => ({
-            event: e,
-            myStatus,
-            isHost: e.createdByProfileId === viewerId,
-          }),
-        ),
-      { concurrency: 5 },
+    // ongoing/finished labels. Batched into one UPDATE per (from → to)
+    // group (P-W5) — applyTransitions preserves row order, so the
+    // parallel myStatus array zips back by index.
+    const transitionedEvents = yield* applyTransitions(merged.map((m) => m.event));
+    const entries = transitionedEvents.map(
+      (e, i): CalendarEntry => ({
+        event: e,
+        myStatus: merged[i]!.myStatus,
+        isHost: e.createdByProfileId === viewerId,
+      }),
     );
 
     metricCalendarListed(entries.length);
@@ -524,14 +595,19 @@ export const createEvent = (
       ...priceFields,
     };
 
-    yield* Effect.tryPromise({
-      try: () => db.insert(events).values(row),
+    // P-I7: RETURNING * gives back the full row (incl. column defaults)
+    // in the same round-trip, replacing the previous INSERT + getEvent
+    // pair. applyTransition is kept so a caller-supplied status is still
+    // normalised exactly as the old read-back path did.
+    const inserted = yield* Effect.tryPromise({
+      try: (): Promise<Event[]> => db.insert(events).values(row).returning() as Promise<Event[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
+    if (inserted.length === 0) {
+      return yield* Effect.fail(new DatabaseError({ cause: "insert returned no row" }));
+    }
 
-    const result = yield* getEvent(id).pipe(
-      Effect.mapError((e) => (e instanceof EventNotFound ? new DatabaseError({ cause: e }) : e)),
-    );
+    const result = yield* applyTransition(inserted[0]!);
     metricEventCreated(result.category, result.endTime !== null);
     return result;
   }).pipe(Effect.withSpan("events.create"));

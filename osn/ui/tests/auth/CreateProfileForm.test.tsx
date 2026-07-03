@@ -66,11 +66,12 @@ describe("CreateProfileForm", () => {
 
   describe("with checkHandle prop", () => {
     let mockCheckHandle: ReturnType<
-      typeof vi.fn<(handle: string) => Promise<{ available: boolean }>>
+      typeof vi.fn<(handle: string, signal?: AbortSignal) => Promise<{ available: boolean }>>
     >;
 
     beforeEach(() => {
-      mockCheckHandle = vi.fn<(handle: string) => Promise<{ available: boolean }>>();
+      mockCheckHandle =
+        vi.fn<(handle: string, signal?: AbortSignal) => Promise<{ available: boolean }>>();
     });
 
     it("debounces availability check and shows 'available'", async () => {
@@ -85,7 +86,24 @@ describe("CreateProfileForm", () => {
       await waitFor(() => {
         expect(screen.getByText(/@alice is available/)).toBeTruthy();
       });
-      expect(mockCheckHandle).toHaveBeenCalledWith("alice");
+      expect(mockCheckHandle).toHaveBeenCalledWith("alice", expect.any(AbortSignal));
+    });
+
+    it("aborts the previous in-flight check before issuing a new one (P-W10)", async () => {
+      mockCheckHandle.mockImplementation(() => new Promise(() => {}));
+      render(() => <CreateProfileForm checkHandle={mockCheckHandle} />);
+
+      fireEvent.input(screen.getByLabelText(/Handle/), { target: { value: "ali" } });
+      await vi.advanceTimersByTimeAsync(350);
+      expect(mockCheckHandle).toHaveBeenCalledTimes(1);
+      const firstSignal = mockCheckHandle.mock.calls[0][1]!;
+      expect(firstSignal.aborted).toBe(false);
+
+      fireEvent.input(screen.getByLabelText(/Handle/), { target: { value: "alice" } });
+      await vi.advanceTimersByTimeAsync(350);
+      expect(mockCheckHandle).toHaveBeenCalledTimes(2);
+      expect(firstSignal.aborted).toBe(true);
+      expect(mockCheckHandle.mock.calls[1][1]!.aborted).toBe(false);
     });
 
     it("shows 'taken' when server reports unavailable", async () => {

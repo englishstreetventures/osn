@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import * as schema from "@cire/db";
 import { eq } from "drizzle-orm";
 
-import { createDb, seedDb } from "./setup";
+import { createDb, DDL, seedDb } from "./setup";
 
 describe("multi-tenant schema", () => {
   it("seeds a bootstrap wedding and scopes families/events to it", () => {
@@ -74,5 +74,22 @@ describe("multi-tenant schema", () => {
       .where(eq(schema.families.weddingId, "wed_t"))
       .all();
     expect(survivors).toHaveLength(0);
+  });
+});
+
+// Composite-index drift guard for the raw DDL mirror. The Drizzle schema
+// (@cire/db) declares events_wedding_id_sort_idx; this DDL string must keep
+// mirroring it (and must not resurrect the dropped single-column pair) —
+// the co-located @cire/db schema test pins the Drizzle side.
+describe("DDL mirror", () => {
+  it("declares the (wedding_id, sort_order) composite events index", () => {
+    expect(DDL).toContain("events_wedding_id_sort_idx");
+  });
+
+  it("does not re-declare the dropped single-column events indexes", () => {
+    expect(DDL).not.toContain("events_sort_order_idx");
+    expect(DDL).not.toContain("events_wedding_idx ");
+    // Guard the un-padded name too (e.g. followed by a newline or paren).
+    expect(/events_wedding_idx\b/.test(DDL)).toBe(false);
   });
 });
