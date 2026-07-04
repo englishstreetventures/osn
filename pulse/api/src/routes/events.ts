@@ -7,7 +7,7 @@ import {
   type ClientIpOptions,
   type RateLimiterBackend,
 } from "@shared/rate-limit";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
 import { MAX_PRICE_MAJOR } from "../lib/currency";
@@ -219,6 +219,8 @@ export const createEventsRoutes = (
    */
   clientIpConfig: Omit<ClientIpOptions, "socketIp"> = {},
 ) => {
+  // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
+  const runtime = ManagedRuntime.make(dbLayer);
   const eventCreateLimiter =
     writeRateLimiters.eventCreate ?? createDefaultWriteRateLimiter("event_create");
   const eventUpdateLimiter =
@@ -270,10 +272,8 @@ export const createEventsRoutes = (
             testKey: _testKey as CryptoKey,
             audience: "osn-access",
           });
-          const result = await Effect.runPromise(
-            listEvents({ ...query, viewerId: claims?.profileId ?? null }).pipe(
-              Effect.provide(dbLayer),
-            ),
+          const result = await runtime.runPromise(
+            listEvents({ ...query, viewerId: claims?.profileId ?? null }),
           );
           return { events: result };
         },
@@ -286,7 +286,7 @@ export const createEventsRoutes = (
         },
       )
       .get("/today", async () => {
-        const result = await Effect.runPromise(listTodayEvents.pipe(Effect.provide(dbLayer)));
+        const result = await runtime.runPromise(listTodayEvents);
         return { events: result };
       })
       .get(
@@ -304,12 +304,11 @@ export const createEventsRoutes = (
           }
           const parsedLimit = query.limit != null ? Number(query.limit) : NaN;
           const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(1, parsedLimit), 100) : 50;
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             listMyCalendarEvents(claims.profileId, { limit }).pipe(
               Effect.catchAll((cause) =>
                 Effect.logError("pulse.calendar.list_failed", { cause }).pipe(Effect.as(null)),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -344,7 +343,7 @@ export const createEventsRoutes = (
             set.status = 401;
             return { message: "Authentication required for friendsOnly" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             discoverEvents(query, viewerId).pipe(
               Effect.catchTag("DiscoveryValidationError", (e) =>
                 Effect.sync(() => {
@@ -370,7 +369,6 @@ export const createEventsRoutes = (
                   return { error: "Discovery failed" } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if ("error" in result) return result;
@@ -410,8 +408,8 @@ export const createEventsRoutes = (
             testKey: _testKey as CryptoKey,
             audience: "osn-access",
           });
-          const result = await Effect.runPromise(
-            loadVisibleEvent(params.id, claims?.profileId ?? null).pipe(Effect.provide(dbLayer)),
+          const result = await runtime.runPromise(
+            loadVisibleEvent(params.id, claims?.profileId ?? null),
           );
           if (result === null) {
             metricEventAccessDenied(
@@ -452,7 +450,7 @@ export const createEventsRoutes = (
               (claims.email ? (claims.email.split("@")[0] ?? null) : null),
             createdByAvatar: null,
           };
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             createEvent(body, creator).pipe(
               Effect.catchTag("ValidationError", (e) =>
                 Effect.sync(() => {
@@ -460,7 +458,6 @@ export const createEventsRoutes = (
                   return { error: String(e.cause) } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if ("error" in result) return result;
@@ -506,7 +503,7 @@ export const createEventsRoutes = (
             set.status = 429;
             return { error: "Too many requests" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             updateEvent(params.id, body, profileId).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotEventOwner", () =>
@@ -521,7 +518,6 @@ export const createEventsRoutes = (
                   return { error: String(e.cause) } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -568,7 +564,7 @@ export const createEventsRoutes = (
             return { message: "Unauthorized" } as const;
           }
           const profileId = claims.profileId;
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             deleteEvent(params.id, profileId).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotEventOwner", () =>
@@ -577,7 +573,6 @@ export const createEventsRoutes = (
                   return { message: "Forbidden" } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -602,9 +597,7 @@ export const createEventsRoutes = (
           });
           const viewerId = claims?.profileId ?? null;
           // Visibility gate first — private events are 404 to non-viewers.
-          const event = await Effect.runPromise(
-            loadVisibleEvent(params.id, viewerId).pipe(Effect.provide(dbLayer)),
-          );
+          const event = await runtime.runPromise(loadVisibleEvent(params.id, viewerId));
           if (event === null) {
             metricEventAccessDenied(
               "rsvps",
@@ -614,7 +607,7 @@ export const createEventsRoutes = (
             return { message: "Event not found" } as const;
           }
           const isOrganiser = viewerId != null && viewerId === event.createdByProfileId;
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             listRsvps(params.id, viewerId, {
               status: query.status,
               limit: query.limit ? Number(query.limit) : undefined,
@@ -629,7 +622,6 @@ export const createEventsRoutes = (
                   return { error: "Failed to list RSVPs" } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -671,8 +663,8 @@ export const createEventsRoutes = (
           });
           // S-H5: gate counts by visibility — leaking the existence /
           // activity of a private event is its own information disclosure.
-          const event = await Effect.runPromise(
-            loadVisibleEvent(params.id, claims?.profileId ?? null).pipe(Effect.provide(dbLayer)),
+          const event = await runtime.runPromise(
+            loadVisibleEvent(params.id, claims?.profileId ?? null),
           );
           if (event === null) {
             metricEventAccessDenied(
@@ -682,12 +674,11 @@ export const createEventsRoutes = (
             set.status = 404;
             return { message: "Event not found" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             // P-I15: pass the already-loaded event so rsvpCounts skips
             // its redundant loadEvent round-trip.
             rsvpCounts(params.id, event).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -706,16 +697,14 @@ export const createEventsRoutes = (
             audience: "osn-access",
           });
           const viewerId = claims?.profileId ?? null;
-          const event = await Effect.runPromise(
-            loadVisibleEvent(params.id, viewerId).pipe(Effect.provide(dbLayer)),
-          );
+          const event = await runtime.runPromise(loadVisibleEvent(params.id, viewerId));
           if (event === null) {
             set.status = 404;
             return { message: "Event not found" } as const;
           }
           const isOrganiser = viewerId != null && viewerId === event.createdByProfileId;
           const limit = query.limit ? Math.min(Math.max(1, Number(query.limit)), 20) : 5;
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             // P-W1: thread the row `loadVisibleEvent` just fetched.
             latestRsvps(params.id, viewerId, limit, event).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
@@ -725,7 +714,6 @@ export const createEventsRoutes = (
                   return { error: "Failed to list RSVPs" } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -767,7 +755,7 @@ export const createEventsRoutes = (
             set.status = 429;
             return { error: "Too many requests" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             upsertRsvp(params.id, claims.profileId, body).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotInvited", () =>
@@ -782,7 +770,6 @@ export const createEventsRoutes = (
                   return { error: String(e.cause) } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -823,10 +810,8 @@ export const createEventsRoutes = (
             testKey: _testKey as CryptoKey,
             audience: "osn-access",
           });
-          const meta = await Effect.runPromise(
-            checkEventVisibility(params.id, claims?.profileId ?? null).pipe(
-              Effect.provide(dbLayer),
-            ),
+          const meta = await runtime.runPromise(
+            checkEventVisibility(params.id, claims?.profileId ?? null),
           );
           if (meta === null) {
             set.status = 404;
@@ -856,10 +841,8 @@ export const createEventsRoutes = (
             testKey: _testKey as CryptoKey,
             audience: "osn-access",
           });
-          const meta = await Effect.runPromise(
-            checkEventVisibility(params.id, claims?.profileId ?? null).pipe(
-              Effect.provide(dbLayer),
-            ),
+          const meta = await runtime.runPromise(
+            checkEventVisibility(params.id, claims?.profileId ?? null),
           );
           if (meta === null) {
             set.status = 404;
@@ -895,7 +878,7 @@ export const createEventsRoutes = (
             set.status = 429;
             return { error: "Too many requests" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             inviteGuests(params.id, claims.profileId, body).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotEventOwner", () =>
@@ -910,7 +893,6 @@ export const createEventsRoutes = (
                   return { error: String(e.cause) } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -937,8 +919,8 @@ export const createEventsRoutes = (
             testKey: _testKey as CryptoKey,
             audience: "osn-access",
           });
-          const event = await Effect.runPromise(
-            loadVisibleEvent(params.id, claims?.profileId ?? null).pipe(Effect.provide(dbLayer)),
+          const event = await runtime.runPromise(
+            loadVisibleEvent(params.id, claims?.profileId ?? null),
           );
           if (event === null) {
             metricEventAccessDenied(
@@ -999,8 +981,8 @@ export const createEventsRoutes = (
             testKey: _testKey as CryptoKey,
             audience: "osn-access",
           });
-          const event = await Effect.runPromise(
-            loadVisibleEvent(params.id, claims?.profileId ?? null).pipe(Effect.provide(dbLayer)),
+          const event = await runtime.runPromise(
+            loadVisibleEvent(params.id, claims?.profileId ?? null),
           );
           if (event === null) {
             metricEventAccessDenied(
@@ -1010,10 +992,9 @@ export const createEventsRoutes = (
             set.status = 404;
             return { message: "Event not found" } as const;
           }
-          const blasts = await Effect.runPromise(
+          const blasts = await runtime.runPromise(
             listBlasts(params.id, 10).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed([])),
-              Effect.provide(dbLayer),
             ),
           );
           return {
@@ -1045,7 +1026,7 @@ export const createEventsRoutes = (
             set.status = 429;
             return { error: "Too many requests" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             sendBlast(params.id, claims.profileId, body).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotEventOwner", () =>
@@ -1060,7 +1041,6 @@ export const createEventsRoutes = (
                   return { error: String(e.cause) } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -1101,6 +1081,8 @@ export const createSettingsRoutes = (
   jwksUrl: string = DEFAULT_JWKS_URL,
   _testKey?: CryptoKey,
 ) => {
+  // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
+  const runtime = ManagedRuntime.make(dbLayer);
   return new Elysia({ prefix: "/me" }).patch(
     "/settings",
     async ({ body, headers, set }) => {
@@ -1113,7 +1095,7 @@ export const createSettingsRoutes = (
         set.status = 401;
         return { message: "Unauthorized" } as const;
       }
-      const result = await Effect.runPromise(
+      const result = await runtime.runPromise(
         updateSettings(claims.profileId, body).pipe(
           Effect.catchTag("ValidationError", (e) =>
             Effect.sync(() => {
@@ -1121,7 +1103,6 @@ export const createSettingsRoutes = (
               return { error: String(e.cause) } as const;
             }),
           ),
-          Effect.provide(dbLayer),
         ),
       );
       if ("error" in result) {
@@ -1143,6 +1124,3 @@ export const createSettingsRoutes = (
     },
   );
 };
-
-export const eventsRoutes = createEventsRoutes();
-export const settingsRoutes = createSettingsRoutes();

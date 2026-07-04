@@ -6,7 +6,7 @@ import {
   type RateLimiterBackend,
 } from "@shared/rate-limit";
 import { DbLive, type Db } from "@zap/db/service";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
 import { DEFAULT_JWKS_URL } from "../lib/jwks";
@@ -82,6 +82,8 @@ export const createChatsRoutes = (
   _testKey?: CryptoKey,
   rateLimiters: ZapRateLimiters = createDefaultZapRateLimiters(),
 ) => {
+  // Layer graph built ONCE per factory, not per request (convention: osn/api/src/lib/route-runtime.ts).
+  const runtime = ManagedRuntime.make(dbLayer);
   return (
     new Elysia({ prefix: "/chats" })
       // ── List user's chats ─────────────────────────────────────────────
@@ -93,7 +95,7 @@ export const createChatsRoutes = (
             set.status = 401;
             return { message: "Unauthorized" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             listChats(claims.profileId, {
               limit: query.limit ? Number(query.limit) : undefined,
               cursor: query.cursor,
@@ -104,7 +106,6 @@ export const createChatsRoutes = (
                   return { error: "Invalid cursor" } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if ("error" in result) return result;
@@ -128,7 +129,7 @@ export const createChatsRoutes = (
             set.status = 401;
             return { message: "Unauthorized" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             Effect.gen(function* () {
               const chat = yield* getChat(params.id);
               yield* assertMember(params.id, claims.profileId);
@@ -136,7 +137,6 @@ export const createChatsRoutes = (
             }).pipe(
               Effect.catchTag("ChatNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotChatMember", () => Effect.succeed(null)),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -166,7 +166,7 @@ export const createChatsRoutes = (
             set.status = 401;
             return { message: "Unauthorized" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             createChat(body, claims.profileId).pipe(
               Effect.catchTag("ValidationError", (e) =>
                 Effect.sync(() => {
@@ -186,7 +186,6 @@ export const createChatsRoutes = (
                   return { error: "Not permitted to message this profile" } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if ("error" in result) return result;
@@ -211,7 +210,7 @@ export const createChatsRoutes = (
             set.status = 401;
             return { message: "Unauthorized" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             Effect.gen(function* () {
               yield* assertMember(params.id, claims.profileId);
               return yield* updateChat(params.id, body, claims.profileId);
@@ -230,7 +229,6 @@ export const createChatsRoutes = (
                   return { error: String(e.cause) } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -254,7 +252,7 @@ export const createChatsRoutes = (
             set.status = 401;
             return { message: "Unauthorized" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             Effect.gen(function* () {
               yield* assertMember(params.id, claims.profileId);
               return yield* getChatMembers(params.id, {
@@ -266,7 +264,6 @@ export const createChatsRoutes = (
             }).pipe(
               Effect.catchTag("ChatNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotChatMember", () => Effect.succeed(null)),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -299,7 +296,7 @@ export const createChatsRoutes = (
             set.status = 401;
             return { message: "Unauthorized" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             addMember(params.id, body.profileId, claims.profileId).pipe(
               Effect.catchTag("ChatNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotChatAdmin", () =>
@@ -332,7 +329,6 @@ export const createChatsRoutes = (
                   return { error: "Not permitted to add this profile" } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -357,7 +353,7 @@ export const createChatsRoutes = (
             set.status = 401;
             return { message: "Unauthorized" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             removeMember(params.id, params.profileId, claims.profileId).pipe(
               Effect.map(() => ({ ok: true }) as const),
               Effect.catchTag("ChatNotFound", () => Effect.succeed(null)),
@@ -379,7 +375,6 @@ export const createChatsRoutes = (
                   return { message: "Cannot remove the last admin" } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -407,7 +402,7 @@ export const createChatsRoutes = (
             set.status = 401;
             return { message: "Unauthorized" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             sendMessage(params.id, claims.profileId, body).pipe(
               Effect.catchTag("ChatNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotChatMember", () =>
@@ -423,7 +418,6 @@ export const createChatsRoutes = (
                   return { error: String(e.cause) } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -451,7 +445,7 @@ export const createChatsRoutes = (
             set.status = 401;
             return { message: "Unauthorized" } as const;
           }
-          const result = await Effect.runPromise(
+          const result = await runtime.runPromise(
             listMessages(params.id, claims.profileId, {
               limit: query.limit ? Number(query.limit) : undefined,
               cursor: query.cursor,
@@ -470,7 +464,6 @@ export const createChatsRoutes = (
                   return { error: "Invalid cursor" } as const;
                 }),
               ),
-              Effect.provide(dbLayer),
             ),
           );
           if (result === null) {
@@ -490,5 +483,3 @@ export const createChatsRoutes = (
       )
   );
 };
-
-export const chatsRoutes = createChatsRoutes();

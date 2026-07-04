@@ -1,7 +1,7 @@
 import { DbLive, type Db } from "@pulse/db/service";
 import { extractClaims } from "@shared/osn-auth-client/verify";
 import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
 import { DEFAULT_JWKS_URL } from "../lib/jwks";
@@ -118,8 +118,10 @@ export const createOnboardingRoutes = (
   _testKey?: CryptoKey,
   completeRateLimiter: RateLimiterBackend = createDefaultOnboardingCompleteRateLimiter(),
   statusRateLimiter: RateLimiterBackend = createDefaultOnboardingStatusRateLimiter(),
-) =>
-  new Elysia({ prefix: "/me/onboarding" })
+) => {
+  // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
+  const runtime = ManagedRuntime.make(dbLayer);
+  return new Elysia({ prefix: "/me/onboarding" })
     .get("/", async ({ headers, set }) => {
       // S-M2: per-IP throttle. The GET path runs JWT verification and may
       // populate the profile→account cache via ARC; without throttling a
@@ -148,13 +150,12 @@ export const createOnboardingRoutes = (
       // absorbs duplicate calls during navigation without staleness that
       // matters in practice (P-W3, mirrors close-friends list).
       set.headers["cache-control"] = "private, max-age=30";
-      const result = await Effect.runPromise(
+      const result = await runtime.runPromise(
         getOnboardingStatus(claims.profileId).pipe(
           Effect.match({
             onSuccess: (status) => ({ ok: true as const, status }),
             onFailure: (e) => ({ ok: false as const, tag: e._tag }),
           }),
-          Effect.provide(dbLayer),
         ),
       );
       if (!result.ok) {
@@ -193,13 +194,12 @@ export const createOnboardingRoutes = (
           set.status = 401;
           return { message: "Unauthorized" } as const;
         }
-        const result = await Effect.runPromise(
+        const result = await runtime.runPromise(
           completeOnboarding(claims.profileId, body).pipe(
             Effect.match({
               onSuccess: (status) => ({ ok: true as const, status }),
               onFailure: (e) => ({ ok: false as const, tag: e._tag }),
             }),
-            Effect.provide(dbLayer),
           ),
         );
         if (!result.ok) {
@@ -226,5 +226,4 @@ export const createOnboardingRoutes = (
         }),
       },
     );
-
-export const onboardingRoutes = createOnboardingRoutes();
+};

@@ -60,9 +60,6 @@ export function blurForVariant(variant: ImageVariant): number | undefined {
   return VARIANT_BLUR[variant];
 }
 
-/** Ordered widest→narrowest, for emitting a `srcset` on the frontend. */
-export const VARIANT_NAMES = ["thumb", "card", "hero"] as const;
-
 /**
  * Resolve a requested `?v=` value to a known variant. Anything missing or
  * outside the allowlist collapses to {@link DEFAULT_VARIANT} rather than 400 —

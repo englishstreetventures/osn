@@ -225,6 +225,7 @@ export function createApp(deps: AppDeps) {
         observabilityLayer,
         undefined,
         cookieConfig,
+        clientIpConfig,
         appRuntime,
       ),
     )

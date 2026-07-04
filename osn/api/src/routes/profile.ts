@@ -7,7 +7,7 @@ import {
   type ClientIpOptions,
   type RateLimiterBackend,
 } from "@shared/rate-limit";
-import { Effect, Layer } from "effect";
+import { Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { resolveAccountId } from "../lib/auth-derive";

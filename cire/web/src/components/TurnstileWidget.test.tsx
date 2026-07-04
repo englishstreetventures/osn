@@ -46,4 +46,26 @@ describe("TurnstileWidget render", () => {
     const { container } = render(() => <TurnstileWidget onToken={onToken} />);
     expect(container.querySelector("div")).not.toBeNull();
   });
+
+  it("fails closed when render() throws: hint shown, onToken(null)", async () => {
+    vi.stubEnv("PUBLIC_TURNSTILE_SITEKEY", "0x4AAAtest");
+    // A pre-loaded `window.turnstile` makes loadTurnstileScript resolve
+    // immediately; a throwing render() exercises the onMount catch.
+    (globalThis as { turnstile?: unknown }).turnstile = {
+      render: () => {
+        throw new Error("render boom");
+      },
+      remove: () => {},
+      reset: () => {},
+    };
+    try {
+      const onToken = vi.fn();
+      const { findByRole } = render(() => <TurnstileWidget onToken={onToken} />);
+      const alert = await findByRole("alert");
+      expect(alert.textContent).toContain("verification challenge");
+      expect(onToken).toHaveBeenCalledWith(null);
+    } finally {
+      delete (globalThis as { turnstile?: unknown }).turnstile;
+    }
+  });
 });

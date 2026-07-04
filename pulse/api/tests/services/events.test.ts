@@ -1,5 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import { events } from "@pulse/db/schema";
+import { events as eventsTable } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { Effect } from "effect";
 import { vi } from "vitest";
@@ -727,7 +727,7 @@ it.effect("listEvents persists batched status transitions grouped by (from → t
 
       // Persisted rows: A/B/C transitioned at rest; D's soft state is
       // display-only and stays "ongoing" in the DB.
-      const rows = yield* Effect.promise(() => db.select().from(events));
+      const rows = yield* Effect.promise(() => db.select().from(eventsTable));
       const stored = new Map(rows.map((r) => [r.id, r.status]));
       expect(stored.get(a.id)).toBe("ongoing");
       expect(stored.get(b.id)).toBe("ongoing");

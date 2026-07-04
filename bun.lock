@@ -18,6 +18,7 @@
       "name": "@cire/api",
       "dependencies": {
         "@cire/db": "workspace:*",
+        "@cire/theme": "workspace:*",
         "@elysiajs/cors": "^1.4.2",
         "@shared/crypto": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -91,11 +92,18 @@
         "vitest": "^4.1.8",
       },
     },
+    "cire/theme": {
+      "name": "@cire/theme",
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+      },
+    },
     "cire/web": {
       "name": "@cire/web",
       "dependencies": {
         "@astrojs/cloudflare": "^13.7.0",
         "@astrojs/solid-js": "^6.0.1",
+        "@cire/theme": "workspace:*",
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
         "@tailwindcss/vite": "^4.3.0",
@@ -116,7 +124,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.8.6",
+      "version": "3.8.8",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@osn/db": "workspace:*",
@@ -144,7 +152,7 @@
     },
     "osn/client": {
       "name": "@osn/client",
-      "version": "2.3.3",
+      "version": "2.3.4",
       "dependencies": {
         "effect": "^3.21.2",
       },
@@ -181,7 +189,7 @@
     },
     "osn/landing": {
       "name": "@osn/landing",
-      "version": "0.0.7",
+      "version": "0.1.0",
       "dependencies": {
         "@astrojs/solid-js": "^6.0.1",
         "@tailwindcss/vite": "^4.3.0",
@@ -203,7 +211,7 @@
     },
     "osn/social": {
       "name": "@osn/social",
-      "version": "0.3.9",
+      "version": "0.3.10",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -228,7 +236,7 @@
     },
     "osn/ui": {
       "name": "@osn/ui",
-      "version": "1.4.4",
+      "version": "1.4.5",
       "dependencies": {
         "@kobalte/core": "^0.13.11",
         "@osn/client": "workspace:*",
@@ -255,7 +263,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.23.3",
+      "version": "0.23.4",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -283,7 +291,7 @@
     },
     "pulse/app": {
       "name": "@pulse/app",
-      "version": "0.15.11",
+      "version": "0.15.12",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -314,7 +322,7 @@
     },
     "pulse/db": {
       "name": "@pulse/db",
-      "version": "0.18.2",
+      "version": "0.18.3",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -333,7 +341,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@astrojs/solid-js": "^6.0.1",
         "@tailwindcss/vite": "^4.3.0",
@@ -476,7 +484,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.6.3",
+      "version": "0.6.4",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -654,6 +662,8 @@
     "@cire/landing": ["@cire/landing@workspace:cire/landing"],
 
     "@cire/organiser": ["@cire/organiser@workspace:cire/organiser"],
+
+    "@cire/theme": ["@cire/theme@workspace:cire/theme"],
 
     "@cire/web": ["@cire/web@workspace:cire/web"],
 

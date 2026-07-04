@@ -264,7 +264,10 @@ export const applyTransitions = (
     groups.set(key, group);
   }
 
+  // `rows` is readonly (shared with callers); in-place mutation is not
+  // acceptable here — the spread copies are the point.
   const project = (): Event[] =>
+    // oxlint-disable-next-line no-map-spread
     derivedRows.map(({ event, derived }) => {
       if (derived === event.status) return event;
       if (derived === "maybe_finished") return { ...event, status: derived };

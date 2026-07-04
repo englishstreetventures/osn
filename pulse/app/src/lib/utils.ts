@@ -101,8 +101,3 @@ export function getDisplayNameFromToken(accessToken: string | null): string | nu
   if (email) return email.split("@")[0] ?? null;
   return null;
 }
-
-/** Extracts the `handle` claim from an access token, without the @ sigil. */
-export function getHandleFromToken(accessToken: string | null): string | null {
-  return getTokenClaims(accessToken).handle;
-}

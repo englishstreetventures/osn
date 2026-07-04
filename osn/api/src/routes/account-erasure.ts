@@ -1,6 +1,12 @@
 import { DbLive, type Db } from "@osn/db/service";
 import { EmailService, makeLogEmailLive } from "@shared/email";
-import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
+import {
+  createRateLimiter,
+  getClientIp,
+  isUnresolvedIp,
+  type ClientIpOptions,
+  type RateLimiterBackend,
+} from "@shared/rate-limit";
 import { Layer } from "effect";
 import { Elysia, t } from "elysia";
 
@@ -43,6 +49,11 @@ export function createAccountErasureRoutes(
   loggerLayer: Layer.Layer<never> = Layer.empty,
   rateLimiters: AccountErasureRateLimiters = createDefaultAccountErasureRateLimiters(),
   cookieConfig: CookieSessionConfig = { secure: false },
+  /**
+   * Client-IP trust policy (S-M5 / S-M34). See `createAuthRoutes` for the
+   * full contract. Defaults to `{}` (direct mode, socket peer only).
+   */
+  clientIpConfig: Omit<ClientIpOptions, "socketIp"> = {},
   /** Shared application runtime (see `createAuthRoutes`). */
   runtime?: AppRuntime,
 ) {
@@ -53,12 +64,27 @@ export function createAccountErasureRoutes(
 
   const handleError = (e: unknown) => publicError(e, loggerLayer);
 
+  /** Per-request transport socket peer (S-M34); `null` under `app.handle`. */
+  type IpCtx = {
+    server: { requestIP?: (req: Request) => { address?: string } | null } | null;
+    request: Request;
+  };
+  const socketIpOf = (ctx: IpCtx): string | null =>
+    ctx.server?.requestIP?.(ctx.request)?.address ?? null;
+
   async function rateLimit(
     headers: Record<string, string | undefined>,
+    socketIp: string | null,
     endpoint: "account_delete" | "account_restore" | "account_deletion_status",
     limiter: RateLimiterBackend,
   ): Promise<{ error: string } | null> {
-    const ip = getClientIp(headers);
+    const ip = getClientIp(headers, { ...clientIpConfig, socketIp });
+    // S-M34: never key the limiter on an unresolved IP — deny instead of
+    // sharing one bucket across all un-attributable requests.
+    if (isUnresolvedIp(ip)) {
+      metricAuthRateLimited(endpoint);
+      return { error: "rate_limited" };
+    }
     let allowed: boolean;
     try {
       allowed = await limiter.check(ip);
@@ -83,8 +109,13 @@ export function createAccountErasureRoutes(
       // ---------------------------------------------------------------------
       .delete(
         "",
-        async ({ body, headers, set }) => {
-          const rlErr = await rateLimit(headers, "account_delete", rl.accountDelete);
+        async ({ body, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "account_delete",
+            rl.accountDelete,
+          );
           if (rlErr) {
             set.status = 429;
             metricAccountDeletionRequested("rate_limited");
@@ -175,8 +206,13 @@ export function createAccountErasureRoutes(
       // this account). We don't require step-up here — the session itself
       // is a fresh-enough authenticator within the 7-day window.
       // ---------------------------------------------------------------------
-      .post("/restore", async ({ headers, set }) => {
-        const rlErr = await rateLimit(headers, "account_restore", rl.accountRestore);
+      .post("/restore", async ({ headers, set, server, request }) => {
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "account_restore",
+          rl.accountRestore,
+        );
         if (rlErr) {
           set.status = 429;
           return rlErr;
@@ -203,8 +239,13 @@ export function createAccountErasureRoutes(
       // ---------------------------------------------------------------------
       // GET /account/deletion-status — UI banner support.
       // ---------------------------------------------------------------------
-      .get("/deletion-status", async ({ headers, set }) => {
-        const rlErr = await rateLimit(headers, "account_deletion_status", rl.accountDeletionStatus);
+      .get("/deletion-status", async ({ headers, set, server, request }) => {
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "account_deletion_status",
+          rl.accountDeletionStatus,
+        );
         if (rlErr) {
           set.status = 429;
           return rlErr;

@@ -384,7 +384,7 @@ export function createRegistrationModule(
       // Success: only NOW delete the pending entry.
       yield* Effect.promise(() => stores.pendingRegistrations.delete(key));
 
-      const tokens = yield* issueTokens(
+      const issued = yield* issueTokens(
         id,
         accountId,
         pending.email,
@@ -399,9 +399,9 @@ export function createRegistrationModule(
         handle: pending.handle,
         email: pending.email,
         displayName: pending.displayName,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        expiresIn: tokens.expiresIn,
+        accessToken: issued.accessToken,
+        refreshToken: issued.refreshToken,
+        expiresIn: issued.expiresIn,
       };
     }).pipe(withAuthRegister("complete"));
 

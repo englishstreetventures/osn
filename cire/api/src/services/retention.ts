@@ -198,6 +198,9 @@ export const retentionService = {
           // bun:sqlite (tests/local): no .batch(); run sequentially, children first.
           return (async () => {
             const out: unknown[] = [];
+            // FK-ordered deletes: children must commit before parents, so
+            // sequential awaiting is the contract, not an oversight.
+            // oxlint-disable-next-line no-await-in-loop
             for (const stmt of stmts) out.push(await stmt);
             return out;
           })();

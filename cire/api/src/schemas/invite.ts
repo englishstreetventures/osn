@@ -1,3 +1,4 @@
+import { isSafeCssColor } from "@cire/theme";
 import { Schema } from "effect";
 
 // ── Image slots ───────────────────────────────────────────────────────────────
@@ -271,36 +272,15 @@ export const FONT_CHOICES = [
 ] as const;
 export type FontChoice = (typeof FONT_CHOICES)[number];
 
-export function isFontChoice(value: string): value is FontChoice {
-  return (FONT_CHOICES as readonly string[]).includes(value);
-}
-
 const FontField = Schema.NullOr(Schema.Literal(...FONT_CHOICES));
 
 /**
- * Strict CSS-colour allow-list, server-side twin of the guest site's
- * `isValidColor` (dress-code palette). Accepts only hex / rgb(a) / hsl(a) /
- * oklch forms with a restricted inner-character set — no named colours, no
- * `var(--…)`, no `url(...)`, no `expression(...)`. This is the security gate:
- * an organiser's colour string is interpolated into a guest-facing inline
- * `style`, so it must NEVER be persisted unvalidated (CSS-injection risk).
+ * Strict CSS-colour allow-list — the write-time half of the CSS-injection
+ * gate. The single source of truth lives in `@cire/theme` (IB-S-L1) and is
+ * shared with the guest site's render-time check, so the two sides cannot
+ * drift.
  */
-const COLOR_INNER = "[\\d \\t,.%/+\\-a-zA-Z]*";
-const COLOR_PATTERNS = [
-  /^#[0-9a-fA-F]{3,8}$/,
-  new RegExp(`^rgb\\(${COLOR_INNER}\\)$`),
-  new RegExp(`^rgba\\(${COLOR_INNER}\\)$`),
-  new RegExp(`^hsl\\(${COLOR_INNER}\\)$`),
-  new RegExp(`^hsla\\(${COLOR_INNER}\\)$`),
-  new RegExp(`^oklch\\(${COLOR_INNER}\\)$`),
-];
-
-export function isThemeColor(value: string): boolean {
-  if (typeof value !== "string") return false;
-  const trimmed = value.trim();
-  if (trimmed.length === 0 || trimmed.length > 64) return false;
-  return COLOR_PATTERNS.some((pattern) => pattern.test(trimmed));
-}
+export const isThemeColor = isSafeCssColor;
 
 // A nullable colour field: `null` clears back to the default token; a present
 // value must pass the allow-list or the whole body is rejected with a 400.

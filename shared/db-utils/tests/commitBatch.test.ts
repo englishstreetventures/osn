@@ -34,9 +34,7 @@ describe("commitBatch", () => {
     // array order, so the recorded order pins the sequential fallback contract.
     const db = {} as AnyDb; // no `batch` method → sequential fallback
     const stmts = [1, 2, 3].map((n) =>
-      Promise.resolve().then(() => {
-        resolved.push(n);
-      }),
+      Promise.resolve().then(() => resolved.push(n)),
     ) as unknown as Parameters<typeof commitBatch>[1];
 
     await commitBatch(db, stmts);

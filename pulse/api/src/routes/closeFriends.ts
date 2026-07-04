@@ -1,7 +1,7 @@
 import { DbLive, type Db } from "@pulse/db/service";
 import { extractClaims } from "@shared/osn-auth-client/verify";
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
 import { DEFAULT_JWKS_URL } from "../lib/jwks";
@@ -33,8 +33,10 @@ export const createCloseFriendsRoutes = (
    * the composition root.
    */
   mutateRateLimiter: RateLimiterBackend = createDefaultWriteRateLimiter("close_friend_mutate"),
-) =>
-  new Elysia({ prefix: "/close-friends" })
+) => {
+  // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
+  const runtime = ManagedRuntime.make(dbLayer);
+  return new Elysia({ prefix: "/close-friends" })
     .get(
       "/",
       async ({ headers, set }) => {
@@ -50,14 +52,11 @@ export const createCloseFriendsRoutes = (
         // POST/DELETE routes, and 30s absorbs repeat reads on rapid
         // navigation without staleness that matters in practice (P-W3).
         set.headers["cache-control"] = "private, max-age=30";
-        const ids = await Effect.runPromise(
-          listCloseFriendIds(claims.profileId).pipe(Effect.provide(dbLayer)),
-        );
+        const ids = await runtime.runPromise(listCloseFriendIds(claims.profileId));
         if (ids.length === 0) return { closeFriends: [] };
-        const displays = await Effect.runPromise(
+        const displays = await runtime.runPromise(
           getProfileDisplays(ids).pipe(
             Effect.catchTag("GraphBridgeError", () => Effect.succeed(new Map())),
-            Effect.provide(dbLayer),
           ),
         );
         return {
@@ -91,7 +90,7 @@ export const createCloseFriendsRoutes = (
           set.status = 429;
           return { error: "Too many requests" } as const;
         }
-        const result = await Effect.runPromise(
+        const result = await runtime.runPromise(
           addCloseFriend(claims.profileId, params.friendId).pipe(
             Effect.match({
               onSuccess: () => ({ ok: true }) as const,
@@ -103,7 +102,6 @@ export const createCloseFriendsRoutes = (
                 return { _err: "db" as const };
               },
             }),
-            Effect.provide(dbLayer),
           ),
         );
         if ("_err" in result) {
@@ -136,7 +134,7 @@ export const createCloseFriendsRoutes = (
           set.status = 429;
           return { error: "Too many requests" } as const;
         }
-        const result = await Effect.runPromise(
+        const result = await runtime.runPromise(
           removeCloseFriend(claims.profileId, params.friendId).pipe(
             Effect.match({
               onSuccess: () => ({ ok: true }) as const,
@@ -145,7 +143,6 @@ export const createCloseFriendsRoutes = (
                 return { _err: "db" as const };
               },
             }),
-            Effect.provide(dbLayer),
           ),
         );
         if ("_err" in result) {
@@ -171,12 +168,11 @@ export const createCloseFriendsRoutes = (
           set.status = 401;
           return { message: "Unauthorized" } as const;
         }
-        const isCloseFriend = await Effect.runPromise(
-          isCloseFriendOf(claims.profileId, params.friendId).pipe(Effect.provide(dbLayer)),
+        const isCloseFriend = await runtime.runPromise(
+          isCloseFriendOf(claims.profileId, params.friendId),
         );
         return { isCloseFriend };
       },
       { params: t.Object({ friendId: t.String({ minLength: 1 }) }) },
     );
-
-export const closeFriendsRoutes = createCloseFriendsRoutes();
+};

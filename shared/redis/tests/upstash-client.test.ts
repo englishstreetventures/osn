@@ -20,7 +20,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { RedisMock } = vi.hoisted(() => ({
   // A spy whose implementation is a plain (non-arrow) function so it is usable
   // with `new` (the adapter calls `new Redis(config)`).
-  RedisMock: vi.fn(function RedisMock(this: Record<string, unknown>) {
+  RedisMock: vi.fn(function RedisMockImpl(this: Record<string, unknown>) {
     this.eval = vi.fn();
     this.ping = vi.fn();
     this.get = vi.fn();

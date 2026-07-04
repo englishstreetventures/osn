@@ -76,15 +76,6 @@ export interface AccountSession {
 // Schema validation (S-H2, S-M4)
 // ---------------------------------------------------------------------------
 
-const SessionSchema = Schema.Struct({
-  accessToken: Schema.String,
-  idToken: Schema.NullOr(Schema.String),
-  expiresAt: Schema.Number,
-  scopes: Schema.Array(Schema.String),
-});
-
-export const decodeSession = Schema.decodeUnknownSync(SessionSchema);
-
 const ProfileTokenSchema = Schema.Struct({
   accessToken: Schema.String,
   expiresAt: Schema.Number,

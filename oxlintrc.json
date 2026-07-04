@@ -24,6 +24,10 @@
     "prefer-const": "warn",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "no-var": "error",
+    // Effect.ts `_tag` discriminants and `_`-prefixed intentionally-unused
+    // bindings are idiomatic here; this style rule leaked in via an oxlint
+    // category re-shuffle and was never opted into.
+    "no-underscore-dangle": "off",
 
     "import/no-cycle": "error",
     "import/no-self-import": "error",
@@ -36,6 +40,10 @@
     "unicorn/prefer-top-level-await": "off",
     "unicorn/filename-case": "off",
     "unicorn/prefer-array-flat-map": "warn",
+    // Noise in this architecture: boot-time factory modules (createXxxModule /
+    // createXxxRoutes) and Effect-context DI mean inner functions legitimately
+    // capture nothing, and SolidJS component bodies run once per mount.
+    "unicorn/consistent-function-scoping": "off",
 
     "vitest/no-focused-tests": "error",
     "vitest/no-disabled-tests": "warn",
@@ -66,12 +74,24 @@
     "jsx-a11y/no-noninteractive-element-to-interactive-role": "warn",
     "jsx-a11y/no-noninteractive-element-interactions": "warn",
     "jsx-a11y/interactive-supports-focus": "warn",
-    "jsx-a11y/control-has-associated-label": "warn",
+    // depth raised from the default 2: Solid components wrap text in
+    // <For>/<Show> + styled spans, so real labels often sit 3-4 levels deep.
+    "jsx-a11y/control-has-associated-label": ["warn", { "depth": 6 }],
 
     "no-unassigned-vars": "off",
 
     "node/no-process-env": "off"
   },
+  "overrides": [
+    {
+      // Tests: sequential awaits in loops are usually the point
+      // (rate-limit windows, ordered seeding).
+      "files": ["**/*.test.*", "**/tests/**"],
+      "rules": {
+        "no-await-in-loop": "off"
+      }
+    }
+  ],
   "ignorePatterns": [
     "node_modules",
     "dist",

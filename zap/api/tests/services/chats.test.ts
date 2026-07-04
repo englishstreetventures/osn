@@ -494,7 +494,7 @@ describe("chats service", () => {
         cursor = page.nextCursor!;
       }
       // Every burst chat appears exactly once — no drops, no repeats.
-      expect([...seen].sort()).toEqual([...ids].sort());
+      expect(seen.toSorted()).toEqual(ids.toSorted());
       expect(new Set(seen).size).toBe(ids.length);
     }).pipe(Effect.provide(createTestLayer())),
   );

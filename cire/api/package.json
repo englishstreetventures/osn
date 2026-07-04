@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@cire/db": "workspace:*",
+    "@cire/theme": "workspace:*",
     "@elysiajs/cors": "^1.4.2",
     "@shared/crypto": "workspace:*",
     "@shared/observability": "workspace:*",

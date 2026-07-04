@@ -1,6 +1,6 @@
 import { DbLive, type Db } from "@pulse/db/service";
 import { extractClaims } from "@shared/osn-auth-client/verify";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
 import { DEFAULT_JWKS_URL } from "../lib/jwks";
@@ -32,8 +32,10 @@ export const createAccountRoutes = (
   dbLayer: Layer.Layer<Db> = DbLive,
   jwksUrl: string = DEFAULT_JWKS_URL,
   _testKey?: CryptoKey,
-) =>
-  new Elysia({ prefix: "/account" })
+) => {
+  // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
+  const runtime = ManagedRuntime.make(dbLayer);
+  return new Elysia({ prefix: "/account" })
     .delete(
       "",
       async ({ body, headers, set }) => {
@@ -72,13 +74,14 @@ export const createAccountRoutes = (
         const accountId = verify.accountId;
 
         try {
-          const result = await Effect.runPromise(
-            accountErasure
-              .requestErasure({ profileId: claims.profileId, accountId })
-              .pipe(Effect.provide(dbLayer)) as Effect.Effect<
+          const result = await runtime.runPromise(
+            accountErasure.requestErasure({
+              profileId: claims.profileId,
+              accountId,
+            }) as Effect.Effect<
               accountErasure.RequestErasureOutput,
               accountErasure.PulseErasureDbError,
-              never
+              Db
             >,
           );
 
@@ -92,21 +95,25 @@ export const createAccountRoutes = (
           // sweeper — the user still gets 202. accountId is the
           // server-derived value from the verifyStepUp response above —
           // never client-controlled (P6 invariant).
-          void Effect.runPromise(
-            notifyAppLeft(accountId).pipe(
-              Effect.tap(() => Effect.sync(() => metricPulseEnrollmentNotify("ok"))),
-              Effect.catchAll(() => {
-                metricPulseEnrollmentNotify("error");
-                return Effect.void;
-              }),
-              Effect.flatMap(
-                () =>
-                  accountErasure
-                    .markEnrollmentNotifyDone(claims.profileId)
-                    .pipe(Effect.provide(dbLayer)) as Effect.Effect<void, never, never>,
-              ),
-            ) as Effect.Effect<void, never, never>,
-          ).catch(() => undefined);
+          void runtime
+            .runPromise(
+              notifyAppLeft(accountId).pipe(
+                Effect.tap(() => Effect.sync(() => metricPulseEnrollmentNotify("ok"))),
+                Effect.catchAll(() => {
+                  metricPulseEnrollmentNotify("error");
+                  return Effect.void;
+                }),
+                Effect.flatMap(
+                  () =>
+                    accountErasure.markEnrollmentNotifyDone(claims.profileId) as Effect.Effect<
+                      void,
+                      never,
+                      Db
+                    >,
+                ),
+              ) as Effect.Effect<void, never, Db>,
+            )
+            .catch(() => undefined);
 
           set.status = 202;
           return {
@@ -138,13 +145,11 @@ export const createAccountRoutes = (
         return { error: "unauthorized" } as const;
       }
       try {
-        const result = await Effect.runPromise(
-          accountErasure
-            .cancelErasure(claims.profileId)
-            .pipe(Effect.provide(dbLayer)) as Effect.Effect<
+        const result = await runtime.runPromise(
+          accountErasure.cancelErasure(claims.profileId) as Effect.Effect<
             { cancelled: boolean },
             accountErasure.PulseErasureDbError,
-            never
+            Db
           >,
         );
         return { cancelled: result.cancelled };
@@ -163,13 +168,11 @@ export const createAccountRoutes = (
         return { error: "unauthorized" } as const;
       }
       try {
-        const status = await Effect.runPromise(
-          accountErasure
-            .getDeletionStatus(claims.profileId)
-            .pipe(Effect.provide(dbLayer)) as Effect.Effect<
+        const status = await runtime.runPromise(
+          accountErasure.getDeletionStatus(claims.profileId) as Effect.Effect<
             { scheduled: boolean } & Record<string, unknown>,
             accountErasure.PulseErasureDbError,
-            never
+            Db
           >,
         );
         return status;
@@ -178,5 +181,4 @@ export const createAccountRoutes = (
         return { error: "internal_error" } as const;
       }
     });
-
-export const accountRoutes = createAccountRoutes();
+};

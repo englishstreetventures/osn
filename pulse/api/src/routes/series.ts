@@ -1,7 +1,7 @@
 import { DbLive, type Db } from "@pulse/db/service";
 import { extractClaims } from "@shared/osn-auth-client/verify";
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
 import { DEFAULT_JWKS_URL } from "../lib/jwks";
@@ -37,6 +37,8 @@ export const createSeriesRoutes = (
     seriesUpdate?: RateLimiterBackend;
   } = {},
 ) => {
+  // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
+  const runtime = ManagedRuntime.make(dbLayer);
   const seriesCreateLimiter =
     writeRateLimiters.seriesCreate ?? createDefaultWriteRateLimiter("series_create");
   const seriesUpdateLimiter =
@@ -65,7 +67,7 @@ export const createSeriesRoutes = (
             (claims.email ? (claims.email.split("@")[0] ?? null) : null),
           createdByAvatar: null,
         };
-        const result = await Effect.runPromise(
+        const result = await runtime.runPromise(
           createSeries(body, creator).pipe(
             Effect.catchTag("ValidationError", (e) =>
               Effect.sync(() => {
@@ -79,7 +81,6 @@ export const createSeriesRoutes = (
                 return { error: e.message, reason: e.reason } as const;
               }),
             ),
-            Effect.provide(dbLayer),
           ),
         );
         if ("error" in result) return result;
@@ -117,11 +118,8 @@ export const createSeriesRoutes = (
         });
         const viewerId = claims?.profileId ?? null;
 
-        const series = await Effect.runPromise(
-          getSeries(params.id).pipe(
-            Effect.catchTag("SeriesNotFound", () => Effect.succeed(null)),
-            Effect.provide(dbLayer),
-          ),
+        const series = await runtime.runPromise(
+          getSeries(params.id).pipe(Effect.catchTag("SeriesNotFound", () => Effect.succeed(null))),
         );
         if (series === null) {
           set.status = 404;
@@ -134,10 +132,9 @@ export const createSeriesRoutes = (
         // first instance so the same access rules apply.
         if (series.visibility === "private") {
           // Probe: does the viewer see any instance?
-          const instances = await Effect.runPromise(
+          const instances = await runtime.runPromise(
             listInstances(params.id, { scope: "all", viewerId, limit: 1 }).pipe(
               Effect.catchTag("SeriesNotFound", () => Effect.succeed([])),
-              Effect.provide(dbLayer),
             ),
           );
           if (instances.length === 0 && viewerId !== series.createdByProfileId) {
@@ -149,9 +146,7 @@ export const createSeriesRoutes = (
           // Also do the explicit canViewEvent gate on the first instance so
           // an invited-to-instance viewer can reach the series page.
           if (instances.length > 0) {
-            const canSee = await Effect.runPromise(
-              canViewEvent(instances[0]!, viewerId).pipe(Effect.provide(dbLayer)),
-            );
+            const canSee = await runtime.runPromise(canViewEvent(instances[0]!, viewerId));
             if (!canSee && viewerId !== series.createdByProfileId) {
               set.status = 404;
               return { message: "Series not found" } as const;
@@ -170,15 +165,12 @@ export const createSeriesRoutes = (
           testKey: _testKey as CryptoKey,
           audience: "osn-access",
         });
-        const result = await Effect.runPromise(
+        const result = await runtime.runPromise(
           listInstances(params.id, {
             scope: query.scope ?? "upcoming",
             viewerId: claims?.profileId ?? null,
             limit: query.limit ? Number(query.limit) : undefined,
-          }).pipe(
-            Effect.catchTag("SeriesNotFound", () => Effect.succeed(null)),
-            Effect.provide(dbLayer),
-          ),
+          }).pipe(Effect.catchTag("SeriesNotFound", () => Effect.succeed(null))),
         );
         if (result === null) {
           set.status = 404;
@@ -209,7 +201,7 @@ export const createSeriesRoutes = (
           set.status = 429;
           return { error: "Too many requests" } as const;
         }
-        const result = await Effect.runPromise(
+        const result = await runtime.runPromise(
           updateSeries(params.id, body, claims.profileId).pipe(
             Effect.catchTag("SeriesNotFound", () => Effect.succeed(null)),
             Effect.catchTag("NotEventOwner", () =>
@@ -224,7 +216,6 @@ export const createSeriesRoutes = (
                 return { error: String(e.cause) } as const;
               }),
             ),
-            Effect.provide(dbLayer),
           ),
         );
         if (result === null) {
@@ -267,7 +258,7 @@ export const createSeriesRoutes = (
           set.status = 401;
           return { message: "Unauthorized" } as const;
         }
-        const result = await Effect.runPromise(
+        const result = await runtime.runPromise(
           cancelSeries(params.id, claims.profileId).pipe(
             Effect.catchTag("SeriesNotFound", () => Effect.succeed(null)),
             Effect.catchTag("NotEventOwner", () =>
@@ -276,7 +267,6 @@ export const createSeriesRoutes = (
                 return { message: "Forbidden" } as const;
               }),
             ),
-            Effect.provide(dbLayer),
           ),
         );
         if (result === null) {
@@ -289,5 +279,3 @@ export const createSeriesRoutes = (
       { params: t.Object({ id: t.String() }) },
     );
 };
-
-export const seriesRoutes = createSeriesRoutes();

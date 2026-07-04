@@ -218,13 +218,14 @@ Expired entries are evicted on every `check()` call when at least one window has
 
 **Backward compatibility:** the no-options form `getClientIp(headers)` is `@deprecated` but preserved — it keeps the legacy left-most-XFF / `"unknown"` behaviour so un-migrated services still build. Hardening is opt-in per service via the options argument.
 
-> **Residual call site (S-M5 osn, open).** The CF-IP-trust opt-in covers the
-> auth + profile per-IP limiters, but `osn/api/src/routes/account-erasure.ts`
-> (~line 61) still calls the deprecated no-args `getClientIp(headers)`, so the
-> erasure routes key on the spoofable left-most XFF / `"unknown"` fallback even
-> on the deployed Worker. Thread `clientIpConfig` (or the resolved IP) from
-> `buildAppDeps` into the erasure routes so they key off `cf-connecting-ip` like
-> the rest. Tracked in the Security Backlog (S-M5 osn).
+> **S-M5 (osn) — fixed 2026-07-03.** The last residual call site,
+> `osn/api/src/routes/account-erasure.ts`, now threads `clientIpConfig` from
+> `app.ts` and keys via `getClientIp(headers, { ...clientIpConfig, socketIp })`
+> with the `isUnresolvedIp` → 429 deny, matching the auth + profile routes.
+> No deprecated no-args `getClientIp(headers)` call remains in `osn/api`
+> (`pulse/api`'s public venue/discover limiters still use it — their own
+> Redis/Workers limiter migration is tracked separately). See
+> [[changelog/security-fixes]].
 
 **`@osn/api` wiring (now behind Cloudflare):** osn-api is deployed on Cloudflare Workers serving `id.cireweddings.com`, so every **non-local** tier now keys per-IP rate limiting on `cf-connecting-ip` **exclusively** (`trustCloudflare: true`), closing the XFF-spoof bypass. The Workers entry (`osn/api/src/index.ts` `buildAll`) sets `trustCloudflare: isNonLocal(env)`; `buildAppDeps` (`build-deps.ts`) then builds `clientIpConfig = { trustCloudflare: true }` for deployed tiers. `TRUSTED_PROXY_COUNT` is **ignored** in deployed tiers (it only feeds the legacy XFF/socket path on the local Bun dev server, where `trustCloudflare` is `false` and the per-request `socketIp` comes from Bun's `server.requestIP`). The W3.3 proxy-count startup warning is suppressed under Cloudflare. Unresolved IPs still deny (429) at the call sites via `isUnresolvedIp`. Pulse / Zap still use their own options; Cire is CF-aware in its own surface.
 

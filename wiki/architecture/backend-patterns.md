@@ -73,6 +73,8 @@ const result = await run(createEvent(body));
 
 Route factories keep accepting `dbLayer` / `loggerLayer` for tests (where `makeAppRunner` wraps the test layer in a one-time `ManagedRuntime`); production threads the single shared `appRuntime` through every factory so there is exactly one OTel SDK + one DB connection process-wide. Cheap, stateless effects that need no services (e.g. JWT verification) can still use a bare `Effect.runPromise` — the rule is specifically: do not re-provide `DbLive` or the observability layer inside a hot request path.
 
+As of 2026-07-03, `pulse/api` and `zap/api` route factories comply too: each factory builds `const runtime = ManagedRuntime.make(dbLayer)` once at construction time and handlers call `runtime.runPromise(eff)` — the per-request `Effect.provide(dbLayer)` pattern was removed monorepo-wide. (They build one runtime per route group rather than threading a single shared `AppRuntime` like `osn/api`; consolidating to one runtime per process is a follow-up if those services grow an observability layer.)
+
 ## Service Layer -- Effect Schema for domain validation + transforms
 
 Services use Effect Schema to validate AND transform data into domain types. This is where strings become `Date` objects, enums are narrowed, and invariants are enforced.

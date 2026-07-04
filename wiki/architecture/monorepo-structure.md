@@ -70,12 +70,22 @@ zap/
   api/                 # @zap/api — Elysia messaging server (port 3002) — M0 scaffolded; M1+ in flight (see TODO.md)
   db/                  # @zap/db — Drizzle schema (chats, messages, group state)
                        # @zap/app — planned (Tauri + SolidJS messaging client)
+cire/
+  web/                 # @cire/web — Astro + SolidJS guest invite site (port 4321; prod cireweddings.com)
+  organiser/           # @cire/organiser — Astro + SolidJS organiser portal (port 4322)
+  api/                 # @cire/api — Elysia on Cloudflare Workers (port 8787; prod api.cireweddings.com)
+  db/                  # @cire/db — Drizzle schema + D1 migrations
+  theme/               # @cire/theme — zero-dep shared theming validators (CSS-colour allow-list, IB-S-L1)
+  landing/             # @cire/landing — Astro + Solid marketing site for the apex (port 4323)
 shared/
   crypto/              # @shared/crypto — ARC tokens (S2S), recovery codes; Signal Protocol pending
-  db-utils/            # @shared/db-utils — createDrizzleClient, makeDbLive
+  db-utils/            # @shared/db-utils — createDrizzleClient, makeDbLive, commitBatch
+  email/               # @shared/email — EmailService Tag: Resend / Cloudflare / Log / Noop transports
   observability/       # @shared/observability — OTel logger / tracer / metric helpers, Elysia plugin, instrumentedFetch
-  rate-limit/          # @shared/rate-limit — per-IP / per-user fixed-window limiter primitives
+  osn-auth-client/     # @shared/osn-auth-client — downstream access-JWT verification (JWKS cache, Elysia adapter)
+  rate-limit/          # @shared/rate-limit — per-IP / per-user fixed-window limiter primitives, getClientIp trust policy
   redis/               # @shared/redis — Redis client wrapper, rate-limiter Lua, JTI / rotated-session stores
+  turnstile/           # @shared/turnstile — key-optional, fail-closed Turnstile verifier
   typescript-config/   # @shared/typescript-config — base.json, node.json, solid.json
 ```
 
@@ -97,6 +107,7 @@ The dependency flow is strictly directional:
 - `osn/*` packages depend on `shared/*` but never on `pulse/*` or `zap/*`
 - `pulse/*` packages may depend on `osn/*` (through `graphBridge`) and `shared/*`
 - `zap/*` packages may depend on `osn/*` (for identity verification) and `shared/*`
+- `cire/*` packages depend on `shared/*` (and `@cire/api`/`@cire/web` on the intra-stack `@cire/db` / `@cire/theme`) but never on `pulse/*` or `zap/*`
 - `pulse/*` and `zap/*` never depend on each other directly
 
 Cross-domain access (e.g. Pulse reading OSN's social graph) goes through a bridge module — see [[s2s-patterns]].

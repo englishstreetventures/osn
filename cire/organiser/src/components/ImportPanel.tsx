@@ -330,7 +330,9 @@ function PlanCounts(props: { plan: ImportPlan }) {
     <table class="font-body w-full border-collapse text-[0.88rem]">
       <thead>
         <tr>
-          <th class="border-border text-gold border-b px-3 py-2 text-left text-[0.72rem] font-normal tracking-[0.1em] uppercase" />
+          <th class="border-border text-gold border-b px-3 py-2 text-left text-[0.72rem] font-normal tracking-[0.1em] uppercase">
+            <span class="sr-only">Record type</span>
+          </th>
           <th class="border-border text-gold border-b px-3 py-2 text-right text-[0.72rem] font-normal tracking-[0.1em] uppercase">
             Create
           </th>
@@ -663,10 +665,13 @@ function SheetTabs() {
 
   return (
     <div class="flex flex-col gap-3">
+      {/* tabIndex={-1}: the tablist is not a tab stop itself — the tab buttons
+          inside are the focusable stops; keydown arrives here by bubbling. */}
       <div
         role="tablist"
         aria-label="Choose a sheet"
         class="border-border/60 flex gap-1 border-b"
+        tabIndex={-1}
         onKeyDown={onKeyDown}
       >
         <For each={sheets}>

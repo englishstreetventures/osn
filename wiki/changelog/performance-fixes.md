@@ -13,6 +13,10 @@ last-reviewed: 2026-07-03
 
 Archived completed performance findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Performance Backlog in [[TODO]].
 
+## Code-quality review sweep (2026-07-03)
+
+- **P-W (pulse/zap per-request layer rebuild)** — **Issue:** every route handler in `pulse/api` (8 factories, 48 call sites across events/venues/series/closeFriends/account/onboarding/internal) and `zap/api` (`chats.ts`, 9 call sites) ran `Effect.runPromise(eff.pipe(Effect.provide(dbLayer)))`, rebuilding the layer graph — for the default `DbLive`, a fresh never-closed `bun:sqlite` connection — on **every request**, the exact anti-pattern documented in [[backend-patterns]] and already fixed in `osn/api` (#118). **Why:** per-request resource-graph construction scales cost with traffic instead of boot count and leaks connections. **Solution:** each factory now builds `ManagedRuntime.make(dbLayer)` once at construction; handlers call `runtime.runPromise(eff)`. Test injection seams unchanged (tests pass their layer to the factory as before). Dead pre-instantiated route-group exports (`eventsRoutes`, `venuesRoutes`, … 9 total), which would have eagerly built runtimes at import, were removed. **Rationale:** brings pulse/zap onto the same one-time-boot-cost contract as `osn/api`; full pulse (512) + zap (101) suites green. See [[backend-patterns]].
+
 ## Performance audit sweep (2026-07-03)
 
 Cross-monorepo sweep of the open Performance Backlog. All fixes preserve security semantics exactly (fail-closed rate limiting, visibility gates, consent checks, single-use guarantees, tenant scoping); two of them (P-I2 recovery, P-W2 series) also close check-then-act races as a side effect.

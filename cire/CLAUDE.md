@@ -84,6 +84,7 @@ cire/                 # workspace dir inside the OSN monorepo
 ├── organiser/        # @cire/organiser — Astro + SolidJS organiser portal (port 4322)
 ├── api/              # @cire/api — Elysia on CF Workers (port 8787, wrangler dev)
 ├── db/               # @cire/db — Drizzle schema + D1 migrations
+├── theme/            # @cire/theme — zero-dep shared theming validators (CSS-colour allow-list)
 ├── wiki/             # Obsidian knowledge graph (cire-internal)
 ├── README.md
 └── CLAUDE.md         # this file

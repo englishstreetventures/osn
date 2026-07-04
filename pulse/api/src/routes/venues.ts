@@ -1,7 +1,7 @@
 import type { Event } from "@pulse/db/schema";
 import { DbLive, type Db } from "@pulse/db/service";
 import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
 import { metricEventAccessDenied } from "../metrics";
@@ -69,6 +69,8 @@ export const createVenuesRoutes = (
    */
   venuesRateLimiter: RateLimiterBackend = createDefaultVenuesRateLimiter(),
 ) => {
+  // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
+  const runtime = ManagedRuntime.make(dbLayer);
   return new Elysia({ prefix: "/venues" })
     .onBeforeHandle(async ({ headers, set }) => {
       // S-L1: fail-closed per-IP limit, matching the discover route —
@@ -88,16 +90,15 @@ export const createVenuesRoutes = (
     .get("/", async () => {
       // TODO(venue-bbox-search): swap for bbox-filtered query — see
       // wiki/TODO.md → Performance Backlog P-W28 (explore).
-      const venues = await Effect.runPromise(listAllVenues().pipe(Effect.provide(dbLayer)));
+      const venues = await runtime.runPromise(listAllVenues());
       return { venues };
     })
     .get(
       "/:orgHandle/:venueHandle",
       async ({ params, set }) => {
-        const venue = await Effect.runPromise(
+        const venue = await runtime.runPromise(
           getVenue(params.orgHandle, params.venueHandle, { recordMetric: true }).pipe(
             Effect.catchTag("VenueNotFound", () => Effect.succeed(null)),
-            Effect.provide(dbLayer),
           ),
         );
         if (venue === null) {
@@ -111,14 +112,11 @@ export const createVenuesRoutes = (
     .get(
       "/:orgHandle/:venueHandle/events",
       async ({ params, query, set }) => {
-        const result = await Effect.runPromise(
+        const result = await runtime.runPromise(
           listVenueEvents(params.orgHandle, params.venueHandle, {
             scope: query.scope ?? "upcoming",
             limit: query.limit,
-          }).pipe(
-            Effect.catchTag("VenueNotFound", () => Effect.succeed(null)),
-            Effect.provide(dbLayer),
-          ),
+          }).pipe(Effect.catchTag("VenueNotFound", () => Effect.succeed(null))),
         );
         if (result === null) {
           set.status = 404;
@@ -141,10 +139,9 @@ export const createVenuesRoutes = (
       async ({ params, set }) => {
         // Confirm the venue exists first so a wrong handle returns 404
         // even when an attacker guesses a real eventId.
-        const venue = await Effect.runPromise(
+        const venue = await runtime.runPromise(
           getVenue(params.orgHandle, params.venueHandle).pipe(
             Effect.catchTag("VenueNotFound", () => Effect.succeed(null)),
-            Effect.provide(dbLayer),
           ),
         );
         if (venue === null) {
@@ -156,17 +153,13 @@ export const createVenuesRoutes = (
         // (anonymous viewer → public events only), AND the event must
         // belong to the venue in the URL — otherwise any valid venue
         // path would unlock any event's programme.
-        const event = await Effect.runPromise(
-          loadVisibleEvent(params.eventId, null).pipe(Effect.provide(dbLayer)),
-        );
+        const event = await runtime.runPromise(loadVisibleEvent(params.eventId, null));
         if (event === null || event.venueId !== venue.id) {
           metricEventAccessDenied("lineup", event === null ? "private_anonymous" : "other");
           set.status = 404;
           return { message: "Event not found" } as const;
         }
-        const slots = await Effect.runPromise(
-          listEventLineup(params.eventId).pipe(Effect.provide(dbLayer)),
-        );
+        const slots = await runtime.runPromise(listEventLineup(params.eventId));
         return { slots };
       },
       {
@@ -178,5 +171,3 @@ export const createVenuesRoutes = (
       },
     );
 };
-
-export const venuesRoutes = createVenuesRoutes();
