@@ -4,7 +4,7 @@ tags: [architecture, api, web, db]
 related:
   - "[[index]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-06-28
+last-reviewed: 2026-07-04
 ---
 
 # Invite Builder
@@ -355,14 +355,31 @@ tab in `DashboardTabs.tsx`. Text inputs + per-slot image pickers (with preview +
 remove) drive the organiser endpoints via `useAuth().authFetch`; `solid-toast`
 for feedback, `isAuthExpired` / `redirectToLogin` for 401 handling — same
 patterns as `ImportPanel`. A **Theme** fieldset adds two font `<select>`s (closed
-`FONT_OPTIONS` mirror of the server enum) and, per section, two native
-`<input type="color">` accent/surface pickers each with a "Use default" clear
-(null ⇒ built-in token). Native colour inputs only emit `#rrggbb`, so the UI can
-never submit a colour the server allow-list would reject. The **Hero** fieldset
+`FONT_OPTIONS` mirror of the server enum) and, per section, two popover
+accent/surface pickers (`ColorPicker.tsx`, Kobalte ColorArea + hue slider +
+labelled hex field) each with a "Use default" clear (null ⇒ built-in token).
+The picker only emits a full `#rrggbb` (never partial input, and never
+mid-typing: the hex field commits only on a complete 6-digit value — 3/4-digit
+shorthand would otherwise parse and hijack the colour after three keystrokes —
+while shorthand still commits on blur via Kobalte's normalisation), so the UI
+can never submit a colour the server allow-list would reject. The **Hero** fieldset
 also carries two segmented toggles (`ToggleField`, a small `radiogroup`) — **Hero
 image** (Blurred / Regular) and **Title backdrop** (None / Solid). All of these —
 fonts, colours, **and the two hero display toggles** — are saved together via a
 single `PUT /invite/theme` ("Save theme" button) independent of the copy save.
+
+**Crop editor.** Per-slot "Crop" opens `ImageCropModal.tsx` (cropperjs **v2**
+web components wrapped by the `Cropper` class). Two v1→v2 behaviour gaps are
+compensated in the modal — v2's `initial-coverage` covers the **canvas**, not
+the displayed image, and v2 dropped v1's built-in containment of the crop box
+within the image. The modal therefore fits the opening selection to the
+displayed image itself (`fitAspectBox` in `lib/image-crop.ts`, honouring the
+active aspect preset), vetoes out-of-image drags/resizes through the
+selection's cancellable `change` event, refits within the image on preset
+switches, and re-seeds a saved crop to its exact stored rectangle (NaN
+per-change ratio, so the preset lock never "cover"-adjusts it). Save converts
+the selection-over-image bounding boxes into resolution-independent 0..1
+source fractions plus the image's natural dimensions.
 
 **Live theme preview.** A compact, representative mini-invite (one labelled card
 per section: Hero / Our Story / Event Details) sits beside the colour controls and

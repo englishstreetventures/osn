@@ -4,12 +4,20 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-06-21
+last-reviewed: 2026-07-04
 ---
 
 # Performance Backlog
 
 See [[review-findings]] for severity prefix conventions.
+
+### Crop editor + colour picker fixes — review findings (cire-color-upload-bugs branch)
+
+Branch-scoped IDs (distinct from the numbered items below).
+
+- [ ] **CB-P-W1** — `ImageCropModal.onSelectionChange` reads `getBoundingClientRect()` on both `<cropper-image>` and `<cropper-canvas>` on every cancellable `change` event (fires per pointermove during selection drag/resize), forcing a synchronous reflow in the hot path. Correct but jank-prone on low-end/mobile hardware, and layout invalidation is document-scoped (the dashboard behind the modal is included). Fix: cache the image bounds and invalidate on the `<cropper-image>` `transform` event (pan/zoom is the only thing that moves them mid-session) + window `resize`; the `boxWithinBounds` veto itself is free arithmetic.
+- [x] **CB-P-I1** (fixed on branch) — `COMPLETE_HEX` regex was declared inside the `ColorPicker` component body (recompiled per mounted picker, two per theme section); hoisted to module scope alongside `DEFAULT_HEX`.
+- [ ] **CB-P-I2** (pre-existing, surfaced by review) — `cropperjs` is statically imported by `ImageCropModal`, which `InviteBuilder` + `EventTable` import statically, so the full Cropper v2 web-component suite ships in the initial organiser-dashboard chunk for a feature used in a fraction of sessions. Fix: `lazy(() => import("./ImageCropModal"))` at both consumption sites (it already renders conditionally), or dynamic `import("cropperjs")` in `onMount`.
 
 ### Host invite preview — review findings (host-preview-code branch)
 

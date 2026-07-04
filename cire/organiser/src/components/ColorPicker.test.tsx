@@ -51,6 +51,49 @@ describe("ColorPicker", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it("accepts a bare 6-digit hex pasted without the leading '#'", async () => {
+    const onChange = vi.fn();
+    render(() => <ColorPicker label="Accent" value={null} onChange={onChange} />);
+
+    fireEvent.click(screen.getByLabelText("Accent colour"));
+    const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
+    // Design tools often copy hex without the hash — the commit path prepends it.
+    fireEvent.input(hex, { target: { value: "d4af37" } });
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("#D4AF37"));
+  });
+
+  it("does not emit 3/4-digit shorthand while the organiser is still typing", async () => {
+    const onChange = vi.fn();
+    render(() => <ColorPicker label="Accent" value="#d4af37" onChange={onChange} />);
+
+    fireEvent.click(screen.getByLabelText("Accent colour"));
+    const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
+    // "#d4a" is valid 3-digit shorthand (#DD44AA) but here it's just the first
+    // three digits of "#d4af37". Committing it would hijack the colour mid-typing.
+    fireEvent.input(hex, { target: { value: "#d4a" } });
+    fireEvent.input(hex, { target: { value: "#d4af" } });
+    expect(onChange).not.toHaveBeenCalled();
+
+    // The full 6-digit value commits as normal.
+    fireEvent.input(hex, { target: { value: "#d4af37" } });
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("#D4AF37"));
+  });
+
+  it("commits shorthand on blur via Kobalte's normalisation to the full hex", async () => {
+    const onChange = vi.fn();
+    render(() => <ColorPicker label="Accent" value="#d4af37" onChange={onChange} />);
+
+    fireEvent.click(screen.getByLabelText("Accent colour"));
+    const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
+    fireEvent.input(hex, { target: { value: "#1a2" } });
+    expect(onChange).not.toHaveBeenCalled();
+
+    // Leaving the field expands the shorthand ("#1a2" → "#11AA22") and commits it.
+    fireEvent.blur(hex);
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("#11AA22"));
+  });
+
   it("emits null when 'Use default' is clicked", () => {
     const onChange = vi.fn();
     render(() => <ColorPicker label="Accent" value="#112233" onChange={onChange} />);

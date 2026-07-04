@@ -5,7 +5,10 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import {
   ASPECT_PRESETS,
   type AspectPresetId,
+  type Box,
+  boxWithinBounds,
   type CropSlot,
+  fitAspectBox,
   type ImageCrop,
   presetAspectRatio,
   presetForCrop,
@@ -32,8 +35,13 @@ import {
  * crop at its true pixel aspect — UNIFORMLY scaled, never stretched (the
  * distortion fix).
  *
- * Lifecycle: on mount we attach Cropper to the `<img>` ref; once the image is
- * ready we seed the saved crop's box (and its preset). Save derives the crop
+ * Lifecycle: on mount we attach Cropper to the `<img>` ref and hook the
+ * selection's cancellable `change` event to keep the box INSIDE the displayed
+ * image (v2 dropped v1's built-in containment — unconstrained, the box roams
+ * the letterbox background and the out-of-image area clamps away on save).
+ * Once the image is ready we seed the saved crop's box (and its preset), or —
+ * with no saved crop — fit the box over the displayed image, because v2's
+ * `initial-coverage` covers the canvas, not the image. Save derives the crop
  * rectangle from the live geometry — the displayed `<cropper-image>` bounding box
  * vs the `<cropper-selection>` bounding box give the same 0..1 source fractions
  * v1's `getData(true)` produced (selection-over-image fractions are
@@ -84,18 +92,81 @@ export default function ImageCropModal(props: ImageCropModalProps) {
   }
 
   /**
-   * Lock the selection to the given aspect ratio. v2's `<cropper-selection>` takes
-   * `aspectRatio` as a property (NaN ⇒ unlocked / free). Re-rendering re-fits the
-   * current box to the new ratio.
+   * The displayed image's rect in `<cropper-canvas>` pixel space — the
+   * coordinate space all selection geometry lives in. Undefined before the
+   * cropper is live or the image has laid out.
+   */
+  function imageBounds(): Box | undefined {
+    const img = cropperImage();
+    const canvas = cropper?.getCropperCanvas();
+    if (!img || !canvas) return undefined;
+    const imgRect = img.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    if (imgRect.width <= 0 || imgRect.height <= 0) return undefined;
+    return {
+      x: imgRect.left - canvasRect.left,
+      y: imgRect.top - canvasRect.top,
+      w: imgRect.width,
+      h: imgRect.height,
+    };
+  }
+
+  // Rounding slack for the containment veto below — see `boxWithinBounds`.
+  const EDGE_EPS = 1;
+
+  /**
+   * Veto any selection change that leaves the displayed image (Cropper v2's
+   * `change` event is cancellable exactly for this). v1 constrained the crop box
+   * to the image for us; v2's selection roams the whole canvas by default, which
+   * let organisers drag/resize the box onto the letterbox background — regions
+   * that don't exist in the source image and got silently clamped away on save.
+   */
+  function onSelectionChange(e: Event) {
+    const detail = (e as CustomEvent<{ x: number; y: number; width: number; height: number }>)
+      .detail;
+    const bounds = imageBounds();
+    if (!detail || !bounds) return;
+    const box: Box = { x: detail.x, y: detail.y, w: detail.width, h: detail.height };
+    if (!boxWithinBounds(box, bounds, EDGE_EPS)) {
+      e.preventDefault();
+    }
+  }
+
+  /**
+   * Lock the selection to the given aspect ratio (NaN ⇒ unlocked / free) and
+   * re-fit the box INSIDE the displayed image: the largest ratio-correct box
+   * centred on the current selection, clamped to the image bounds. Fitting to
+   * the image (not just re-snapping the top-left corner) matters twice over —
+   * a corner-anchored resize can push the box past the image edge, where the
+   * containment veto would reject it and the preset button would appear dead.
    */
   function applyAspectRatio(ratio: number) {
     const sel = selection();
     if (!sel) return;
     sel.aspectRatio = ratio;
-    // Re-snap the existing box to the new ratio, keeping its top-left corner.
-    if (Number.isFinite(ratio) && sel.width > 0) {
-      sel.$change(sel.x, sel.y, sel.width, sel.width / ratio, ratio);
+    const bounds = imageBounds();
+    if (Number.isFinite(ratio) && bounds) {
+      const centreX = sel.width > 0 ? sel.x + sel.width / 2 : undefined;
+      const centreY = sel.height > 0 ? sel.y + sel.height / 2 : undefined;
+      const box = fitAspectBox(bounds, ratio, centreX, centreY);
+      sel.$change(box.x, box.y, box.w, box.h, ratio, true);
     }
+    sel.$render();
+  }
+
+  /**
+   * Open the selection over the whole displayed image, honouring the active
+   * aspect lock. This replaces `initial-coverage`'s canvas-covering default: a
+   * letterboxed image (aspect ≠ canvas aspect) would otherwise start with the
+   * box overflowing onto the background, and saving that clamps to the
+   * degenerate full-frame rect — the "crop does nothing" bug.
+   */
+  function fitSelectionToImage(ratio: number) {
+    const sel = selection();
+    const bounds = imageBounds();
+    if (!sel || !bounds) return;
+    const box = Number.isFinite(ratio) ? fitAspectBox(bounds, ratio) : bounds;
+    sel.$change(box.x, box.y, box.w, box.h, Number.NaN, true);
     sel.$render();
   }
 
@@ -105,13 +176,14 @@ export default function ImageCropModal(props: ImageCropModalProps) {
     cropper = new Cropper(el, {
       // A custom template mirroring the v1 editor: the image pans/zooms inside the
       // canvas, a shaded overlay dims the un-selected area, and the selection box
-      // is movable + resizable with corner/edge handles. `initial-coverage="1"`
-      // opens the box over the whole image (v1's `autoCropArea: 1`).
+      // is movable + resizable with corner/edge handles. No `initial-coverage` —
+      // it would cover the CANVAS, not the image; `fitSelectionToImage` opens the
+      // box over the displayed image once it's ready (v1's `autoCropArea: 1`).
       template: `<cropper-canvas background style="width:100%;height:100%">
         <cropper-image rotatable scalable translatable></cropper-image>
         <cropper-shade hidden></cropper-shade>
         <cropper-handle action="select" plain></cropper-handle>
-        <cropper-selection initial-coverage="1" movable resizable outlined>
+        <cropper-selection movable resizable outlined>
           <cropper-grid role="grid" covered></cropper-grid>
           <cropper-crosshair centered></cropper-crosshair>
           <cropper-handle action="move" theme-color="rgba(255,255,255,0.35)"></cropper-handle>
@@ -131,10 +203,19 @@ export default function ImageCropModal(props: ImageCropModalProps) {
     const img = cropperImage();
     if (sel) {
       sel.aspectRatio = presetAspectRatio(preset(), props.slot);
+      sel.addEventListener("change", onSelectionChange);
     }
-    // Seed the saved box once the image has loaded (we need its real geometry to
-    // map the stored fractions onto the displayed image).
-    img?.$ready(() => seedInitialCrop());
+    // Position the box once the image has loaded — its layout + transform are
+    // applied before `$ready` callbacks run, so geometry reads are safe here.
+    // A saved crop re-opens on its stored rect; otherwise open over the whole
+    // image (aspect-fitted), replacing `initial-coverage`'s canvas-wide default.
+    img?.$ready(() => {
+      if (props.initialCrop) {
+        seedInitialCrop();
+      } else {
+        fitSelectionToImage(presetAspectRatio(preset(), props.slot));
+      }
+    });
   });
 
   /**
@@ -157,7 +238,12 @@ export default function ImageCropModal(props: ImageCropModalProps) {
     const y = imgRect.top - canvasRect.top + c.y * imgRect.height;
     const width = c.w * imgRect.width;
     const height = c.h * imgRect.height;
-    sel.$change(x, y, width, height, sel.aspectRatio || Number.NaN, true);
+    // NaN ratio for this one change: restore EXACTLY the saved rect. Passing the
+    // preset lock here would "cover"-adjust the box whenever the stored crop's
+    // aspect differs even fractionally from the matched preset, silently growing
+    // it past what was saved. The lock (sel.aspectRatio) still governs the
+    // organiser's subsequent resizes.
+    sel.$change(x, y, width, height, Number.NaN, true);
     sel.$render();
   }
 
