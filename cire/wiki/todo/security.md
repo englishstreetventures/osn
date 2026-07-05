@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-04
+last-reviewed: 2026-07-05
 ---
 
 # Security Backlog
@@ -23,5 +23,6 @@ Completed findings are archived in `[[changelog/security-fixes]]` (Migrated from
 - [ ] **CSV-S-L1** — the organiser CSV export routes (`rsvps.csv`, `guests.csv`, `events.csv`) have no rate limit, unlike the mutation groups in the same route file. An authenticated organiser (or a compromised organiser token) can loop them and burn D1 read quota / Worker CPU on the Free tier. Add a modest per-user limiter (~10 exports/min, existing Upstash per-user backend) to the export routes or the dashboard-read group. Low because the caller must already hold a valid OSN access token AND pass `weddingMember()`. See [[cire-auth]] + root `[[wiki/runbooks/free-tier-limits]]`. (guests/events CSV export branch review)
 - [x] **CSV-S-L2** (fixed in the same PR) — the CSV export handlers' `catchAllDefect` recovery returned 500 silently, violating the "every catch emits a log line" rule. Fixed: shared `exportDefect` recovery logs `csv export failed` with the export name + `weddingId` only (no guest data) before answering the generic 500 — applied to all three export routes incl. the pre-existing `rsvps.csv`.
 - [x] **CSV-C-L1** (fixed in the same PR, documentation-only) — `guests.csv` surfaces the `families` invite-tracking timestamps (`code_shared_at`, `first_opened_at`, `deactivated_at`) which had no data-map row. Added the Art. 30 row to root `[[wiki/compliance/data-map]]` (purpose: organiser invite-delivery tracking; basis Art. 6(1)(f); retention: 1-year families sweep; recipients: organiser/co-hosts incl. CSV export).
+- [ ] **CROP-S-L1** — the invite/event image serve routes (`imageResponseHeaders` in `cire/api/src/routes/invite.ts`) send `Cache-Control: public, max-age=31536000, immutable` with `Vary: Accept` only, while the app-level CORS plugin echoes a per-request ACAO. Any **future CORS-mode consumer** of these URLs (a reintroduced `crossOrigin` attribute, a `fetch()` of image bytes, the anticipated `$toCanvas` export) re-triggers the browser cache-entry mode-mixing that broke the crop editor: a cached no-cors response replayed to a cors-mode request fails the CORS check without touching the network. Prerequisite before shipping any such consumer: add `Vary: Origin` (ideally an unconditional ACAO for allowlisted origins — the endpoint is public). Low: today no CORS-mode consumer exists, content never varies on credentials, and the constraint is documented in `[[invite-builder]]`. (crop-editor CORS-cache fix branch review)
 - [ ] Verify `ORGANISER_TOKEN` is not set as a CF secret on the deployed cire-api worker — the `X-Organiser-Token` code path is deleted, but a secret set during the interim would linger as stale config. If present: `wrangler secret delete ORGANISER_TOKEN` (manual, from `cire/api`).
       </content>

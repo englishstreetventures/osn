@@ -372,13 +372,22 @@ export default function ImageCropModal(props: ImageCropModalProps) {
         </div>
 
         {/* Bounded height so the cropper canvas fits the modal; Cropper.js v2 hides
-            this `<img>` and injects a `<cropper-canvas>` sibling that fills the box. */}
+            this `<img>` and injects a `<cropper-canvas>` sibling that fills the box.
+
+            MUST NOT set `crossOrigin` here. The dashboard thumbnail loads this exact
+            URL as a plain (no-cors) <img> first, and the API serves it with
+            `Cache-Control: immutable` and no `Vary: Origin` — so the browser caches
+            the response WITHOUT CORS headers. A crossorigin load of the same URL is
+            then answered from that cache entry and hard-fails the CORS check: the
+            cropper's image never becomes ready and the editor opens dead (verified
+            in Chromium against cropperjs 2.1.1). The editor only reads geometry and
+            `naturalWidth`/`naturalHeight` — never canvas pixels — so a non-CORS
+            image is fully sufficient. */}
         <div class="bg-surface h-[55vh] overflow-hidden rounded-sm">
           <img
             ref={imgEl}
             src={props.imageUrl}
             alt="Region selected for the invite"
-            crossOrigin="anonymous"
             class="block max-w-full"
           />
         </div>

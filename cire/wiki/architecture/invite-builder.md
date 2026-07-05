@@ -4,7 +4,7 @@ tags: [architecture, api, web, db]
 related:
   - "[[index]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-07-04
+last-reviewed: 2026-07-05
 ---
 
 # Invite Builder
@@ -380,6 +380,21 @@ switches, and re-seeds a saved crop to its exact stored rectangle (NaN
 per-change ratio, so the preset lock never "cover"-adjusts it). Save converts
 the selection-over-image bounding boxes into resolution-independent 0..1
 source fractions plus the image's natural dimensions.
+
+The modal's `<img>` **must not carry `crossOrigin`** (the root cause of the
+editor opening dead in production long after the geometry fixes above). The
+dashboard thumbnail loads the same cache-busted image URL as a plain no-cors
+`<img>` first; the API serves it `Cache-Control: immutable` with `Vary: Accept`
+only (no `Vary: Origin`), so the browser HTTP-caches the response **without**
+CORS headers. A subsequent `crossOrigin="anonymous"` load of the identical URL
+is answered from that cache entry, fails the CORS check without ever reaching
+the network, and cropperjs's `$ready` rejects — the selection is never seeded
+and the editor appears broken. The editor only reads element geometry and
+`naturalWidth`/`naturalHeight`, never canvas pixels, so it has no need for a
+CORS-mode image. If a future feature needs pixel access (e.g. client-side
+export via `$toCanvas`), the image serve endpoint must first send
+`Vary: Origin` (and ideally an unconditional ACAO for allowlisted origins) so
+cors- and no-cors-mode responses never share a cache entry.
 
 **Live theme preview.** A compact, representative mini-invite (one labelled card
 per section: Hero / Our Story / Event Details) sits beside the colour controls and
