@@ -11,6 +11,13 @@ last-reviewed: 2026-07-04
 
 See [[review-findings]] for severity prefix conventions.
 
+### Guests/events CSV exports — review findings (cire-csv-download-buttons branch)
+
+- [x] **CSV-P-W1** (fixed in the same PR) — `eventsCsv` fetched one `guest_events` row per membership (O(guests × events) rows read) to produce per-event counts in JS. Fixed: SQL `GROUP BY` aggregate via a shared `invitedCountsByEvent(weddingId)` helper (`services/table-export.ts`), also adopted by `rsvpExportService.buildView` which had the same pattern — rows read drops to one per event.
+- [x] **CSV-P-I1** (fixed in the same PR) — each export route ran the CSV build then `weddingsService.slugOf` sequentially. Fixed: `Effect.all([build, slugOf], { concurrency: 2 })` on all three export routes. The deeper variant (expose the slug from the `weddingMember()` derive, deleting `slugOf` from the routes entirely) is a possible future cleanup.
+- [x] **CSV-P-I2** (fixed in the same PR) — `eventsCsv` used an unprojected `db.select()`; now projects only the columns the CSV emits, matching the service's projection convention.
+- [x] **CSV-P-I3** (no change — deliberate) — the `guests.csv` Events cell filters the full event list per guest (O(guests × events) `Set` lookups). Microseconds at wedding scale (~hundreds × ~10); the simple filter is the more readable choice. Revisit only if the service is reused for larger tenants.
+
 ### Crop editor + colour picker fixes — review findings (cire-color-upload-bugs branch)
 
 Branch-scoped IDs (distinct from the numbered items below).

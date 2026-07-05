@@ -78,7 +78,9 @@ export default function GuestTable(props: GuestTableProps) {
   // copy succeeds, so the indicator updates without a reload while the
   // best-effort mark-shared POST settles in the background.
   const [sharedNow, setSharedNow] = createSignal<Set<string>>(new Set());
-  const [exporting, setExporting] = createSignal(false);
+  // Which CSV export is in flight (both buttons share the guard so only one
+  // download runs at a time).
+  const [exporting, setExporting] = createSignal<"rsvps" | "guests" | null>(null);
   // Optimistic deactivation overrides keyed by family id, applied over the
   // server's `deactivatedAt` so a confirmed toggle mutes/relabels the row at once
   // while the POST settles. A family id can appear in at most one set; clearing
@@ -223,26 +225,28 @@ export default function GuestTable(props: GuestTableProps) {
   }
 
   /**
-   * Download the wedding's RSVP CSV. The CSV is built (and formula-sanitised)
-   * server-side at `GET …/rsvps.csv`; the response Blob is handed to the shared
-   * download helper. authFetch attaches the OSN access token — the endpoint is
-   * gated by `weddingMember()` so the owner OR a co-host can export.
+   * Download one of the wedding's CSV exports — the RSVP grid (`rsvps.csv`) or
+   * the guest roster (`guests.csv`). Both are built (and formula-sanitised)
+   * server-side; the response Blob is handed to the shared download helper.
+   * authFetch attaches the OSN access token — the endpoints are gated by
+   * `weddingMember()` so the owner OR a co-host can export.
    */
-  async function exportRsvps() {
+  async function exportCsv(kind: "rsvps" | "guests") {
     if (exporting()) return;
-    setExporting(true);
+    setExporting(kind);
+    const label = kind === "rsvps" ? "RSVP" : "Guest list";
     try {
-      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/rsvps.csv`));
+      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/${kind}.csv`));
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`Export failed (${res.status})`);
       const blob = await res.blob();
-      downloadBlob(`cire-rsvps-${props.weddingSlug}.csv`, blob);
-      toast.success("RSVP export downloaded");
+      downloadBlob(`cire-${kind}-${props.weddingSlug}.csv`, blob);
+      toast.success(`${label} export downloaded`);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
-      toast.error("Could not export RSVPs. Try again.");
+      toast.error(`${label} export failed. Try again.`);
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   }
 
@@ -274,11 +278,19 @@ export default function GuestTable(props: GuestTableProps) {
           <Show when={!loading() && !error() && hasGuests()}>
             <button
               type="button"
-              onClick={() => void exportRsvps()}
-              disabled={exporting()}
+              onClick={() => void exportCsv("guests")}
+              disabled={exporting() !== null}
               class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
             >
-              {exporting() ? "Exporting…" : "Download RSVPs (CSV)"}
+              {exporting() === "guests" ? "Exporting…" : "Download guests (CSV)"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void exportCsv("rsvps")}
+              disabled={exporting() !== null}
+              class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+            >
+              {exporting() === "rsvps" ? "Exporting…" : "Download RSVPs (CSV)"}
             </button>
           </Show>
         }

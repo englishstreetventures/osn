@@ -188,6 +188,50 @@ describe("GuestTable", () => {
     expect(downloadBlobMock.mock.calls[0]![1]).toBeInstanceOf(Blob);
   });
 
+  it("downloads the guest-roster CSV when its export button is clicked", async () => {
+    primeLoad();
+    const csv = "Family Code,Family Name\r\nSHARMA-WIDGET-AB3K9-X7QPM,Sharma";
+    authFetchMock.mockResolvedValueOnce(
+      new Response(csv, { status: 200, headers: { "Content-Type": "text/csv" } }),
+    );
+
+    render(() => (
+      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /Download guests/i }));
+
+    // Hits the server-built CSV endpoint…
+    await waitFor(() =>
+      expect(
+        authFetchMock.mock.calls.some(
+          (c) => String(c[0]) === "https://api.test/api/organiser/weddings/wed_a/guests.csv",
+        ),
+      ).toBe(true),
+    );
+    // …and triggers a blob download with the slug-based filename.
+    await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
+    expect(downloadBlobMock.mock.calls[0]![0]).toBe("cire-guests-nadia-sam-abc123.csv");
+    expect(downloadBlobMock.mock.calls[0]![1]).toBeInstanceOf(Blob);
+  });
+
+  it("surfaces an error toast when an export fails (no download)", async () => {
+    primeLoad();
+    authFetchMock.mockResolvedValueOnce(new Response("nope", { status: 500 })); // export fails
+
+    render(() => (
+      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /Download guests/i }));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(toastError.mock.calls[0]![0]).toContain("Guest list export failed");
+    expect(downloadBlobMock).not.toHaveBeenCalled();
+  });
+
   it("shows a Sent indicator for an already-shared family", async () => {
     withClipboard();
     primeLoad();

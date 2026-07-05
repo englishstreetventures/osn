@@ -914,6 +914,134 @@ describe("GET /api/organiser/weddings/:weddingId/rsvps.csv", () => {
   });
 });
 
+describe("GET /api/organiser/weddings/:weddingId/guests.csv", () => {
+  const COHOST = "usr_cohost_guestscsv";
+  const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests.csv`;
+
+  function seedCohost(db: Db) {
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_guestscsv",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: COHOST,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "host",
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  it("returns 401 without a token", async () => {
+    const { app } = buildApp();
+    const res = await get(app, path);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 for a non-member (neither owner nor co-host)", async () => {
+    const { app } = buildApp();
+    const res = await get(app, path, OTHER_OWNER);
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 404 for an unknown wedding", async () => {
+    const { app } = buildApp();
+    const res = await get(app, "/api/organiser/weddings/wed_nope/guests.csv", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(404);
+  });
+
+  it("serves a CSV download for the owner with the right headers", async () => {
+    const { app } = buildApp();
+    const res = await get(app, path, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/csv");
+    const disposition = res.headers.get("content-disposition") ?? "";
+    expect(disposition).toContain("attachment");
+    // Filename embeds the wedding slug.
+    expect(disposition).toContain("cire-guests-cire-wedding.csv");
+    expect(res.headers.get("cache-control")).toContain("no-store");
+
+    const body = await res.text();
+    const header = body.split("\r\n")[0]!;
+    expect(header).toContain("Family Code");
+    expect(header).toContain("Code Status");
+    // Seed guest present, scoped to THIS wedding only.
+    expect(body).toContain("Ada");
+    expect(body).not.toContain("Olive");
+  });
+
+  it("serves the CSV for a co-host too (weddingMember gate)", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db);
+    const res = await get(app, path, COHOST);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/csv");
+  });
+});
+
+describe("GET /api/organiser/weddings/:weddingId/events.csv", () => {
+  const COHOST = "usr_cohost_eventscsv";
+  const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events.csv`;
+
+  function seedCohost(db: Db) {
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_eventscsv",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: COHOST,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "host",
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  it("returns 401 without a token", async () => {
+    const { app } = buildApp();
+    const res = await get(app, path);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 for a non-member (neither owner nor co-host)", async () => {
+    const { app } = buildApp();
+    const res = await get(app, path, OTHER_OWNER);
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 404 for an unknown wedding", async () => {
+    const { app } = buildApp();
+    const res = await get(app, "/api/organiser/weddings/wed_nope/events.csv", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(404);
+  });
+
+  it("serves a CSV download for the owner with the right headers", async () => {
+    const { app } = buildApp();
+    const res = await get(app, path, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/csv");
+    const disposition = res.headers.get("content-disposition") ?? "";
+    expect(disposition).toContain("attachment");
+    // Filename embeds the wedding slug.
+    expect(disposition).toContain("cire-events-cire-wedding.csv");
+    expect(res.headers.get("cache-control")).toContain("no-store");
+
+    const body = await res.text();
+    const header = body.split("\r\n")[0]!;
+    expect(header).toContain("Event Name");
+    expect(header).toContain("Invited Guests");
+    // Seed event present, scoped to THIS wedding only.
+    expect(body).toContain("Catholic Ceremony");
+    expect(body).not.toContain("Other Party");
+  });
+
+  it("serves the CSV for a co-host too (weddingMember gate)", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db);
+    const res = await get(app, path, COHOST);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/csv");
+  });
+});
+
 describe("GET /api/organiser/weddings/:weddingId/rsvps (read-only JSON view)", () => {
   const COHOST = "usr_cohost_view";
   const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/rsvps`;

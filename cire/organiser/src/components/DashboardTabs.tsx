@@ -102,7 +102,7 @@ export default function DashboardTabs(props: DashboardTabsProps) {
       </nav>
 
       <Show when={active() === "events"}>
-        <EventTable weddingId={props.weddingId} />
+        <EventTable weddingId={props.weddingId} weddingSlug={props.weddingSlug} />
       </Show>
       <Show when={active() === "guests"}>
         <GuestTable

@@ -18,12 +18,41 @@ import { markSharedService } from "../services/mark-shared";
 import { regenerateCodeService } from "../services/regenerate-code";
 import { remintCodesService } from "../services/remint-codes";
 import { rsvpExportService, toCsv } from "../services/rsvp-export";
+import { tableExportService } from "../services/table-export";
 import { weddingsService } from "../services/weddings";
 
 // Sentinel parse hook: stops Elysia from consuming the body so the handler can
 // parse it by hand — a malformed payload degrades to the schema's 400 instead
 // of Elysia's parser error. Same idiom as the import routes.
 const manualParse = { parse: () => ({}) };
+
+/**
+ * Wrap a server-built CSV in a browser-download response. Shared by the three
+ * exports (rsvps / guests / events): Content-Disposition: attachment so the
+ * browser downloads it directly; guest PII (names, dietary, codes) — never let
+ * an intermediary cache it; nosniff as belt-and-braces against content sniffing.
+ */
+const csvAttachment = (csv: string, filename: string) =>
+  new Response(csv, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+
+/**
+ * Shared defect recovery for the CSV export routes: log the failure (S-L2 —
+ * a silent run of 500s on a PII-bearing export leaves no incident signal;
+ * weddingId only, never guest data) and answer a generic 500.
+ */
+const exportDefect = (set: { status?: number | string }, exportName: string, weddingId: string) =>
+  Effect.gen(function* () {
+    yield* Effect.logError("csv export failed", { export: exportName, weddingId });
+    set.status = 500;
+    return { error: "Internal error" };
+  });
 
 /**
  * Wedding-scoped organiser routes, mounted under /api/organiser. osnAuth()
@@ -97,9 +126,8 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
         })
         // RSVP CSV export — one row per guest (incl. guests who haven't RSVP'd),
         // one column per event, dietary requirements. Sorted by family code.
-        // Returns a server-built CSV with Content-Disposition: attachment so the
-        // browser downloads it directly. Same weddingMember() gate as the reads
-        // above (owner OR co-host). The filename embeds the wedding slug.
+        // Same weddingMember() gate as the reads above (owner OR co-host). The
+        // filename embeds the wedding slug.
         .get("/rsvps.csv", ({ weddingId, set }) => {
           if (!weddingId) {
             set.status = 500;
@@ -107,28 +135,59 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
           }
           return runCire(
             Effect.gen(function* () {
-              const data = yield* rsvpExportService.build(weddingId);
-              const slug = yield* weddingsService.slugOf(weddingId);
-              const csv = toCsv(data);
-              const filename = `cire-rsvps-${slug ?? weddingId}.csv`;
-              return new Response(csv, {
-                headers: {
-                  "Content-Type": "text/csv; charset=utf-8",
-                  "Content-Disposition": `attachment; filename="${filename}"`,
-                  // Guest PII (names, dietary) — never let an intermediary cache it.
-                  "Cache-Control": "no-store",
-                  // Belt-and-braces against content sniffing.
-                  "X-Content-Type-Options": "nosniff",
-                },
-              });
+              // The build and the filename slug are independent reads — run
+              // them concurrently rather than paying two sequential D1
+              // round-trips (P-I1).
+              const [data, slug] = yield* Effect.all(
+                [rsvpExportService.build(weddingId), weddingsService.slugOf(weddingId)],
+                { concurrency: 2 },
+              );
+              return csvAttachment(toCsv(data), `cire-rsvps-${slug ?? weddingId}.csv`);
             }).pipe(
               Effect.provideService(DbService, db),
-              Effect.catchAllDefect(() =>
-                Effect.sync(() => {
-                  set.status = 500;
-                  return { error: "Internal error" };
-                }),
-              ),
+              Effect.catchAllDefect(() => exportDefect(set, "rsvps.csv", weddingId)),
+            ),
+          );
+        })
+        // Guest-roster CSV export — one row per guest with household code,
+        // invited event names, Sent/Opened timestamps, and code status. Same
+        // weddingMember() gate + attachment/no-store contract as rsvps.csv.
+        .get("/guests.csv", ({ weddingId, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            Effect.gen(function* () {
+              const [csv, slug] = yield* Effect.all(
+                [tableExportService.guestsCsv(weddingId), weddingsService.slugOf(weddingId)],
+                { concurrency: 2 },
+              );
+              return csvAttachment(csv, `cire-guests-${slug ?? weddingId}.csv`);
+            }).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchAllDefect(() => exportDefect(set, "guests.csv", weddingId)),
+            ),
+          );
+        })
+        // Event-list CSV export — one row per event (chronological) with the
+        // dashboard's details plus an invited-guest count. Same weddingMember()
+        // gate + attachment/no-store contract as rsvps.csv.
+        .get("/events.csv", ({ weddingId, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            Effect.gen(function* () {
+              const [csv, slug] = yield* Effect.all(
+                [tableExportService.eventsCsv(weddingId), weddingsService.slugOf(weddingId)],
+                { concurrency: 2 },
+              );
+              return csvAttachment(csv, `cire-events-${slug ?? weddingId}.csv`);
+            }).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchAllDefect(() => exportDefect(set, "events.csv", weddingId)),
             ),
           );
         })

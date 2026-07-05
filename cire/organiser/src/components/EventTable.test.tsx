@@ -28,6 +28,12 @@ vi.mock("../lib/api", () => ({
   redirectToLogin: () => redirectSpy(),
 }));
 
+const downloadBlobMock = vi.fn();
+vi.mock("../lib/download", () => ({
+  downloadBlob: (name: string, blob: Blob) => downloadBlobMock(name, blob),
+  downloadCsv: vi.fn(),
+}));
+
 import { __resetEventsCache, invalidateEvents } from "../lib/events-store";
 import EventTable from "./EventTable";
 
@@ -67,7 +73,7 @@ describe("EventTable per-event image", () => {
 
   it("renders the event with an image upload field and the replace note", async () => {
     authFetchMock.mockResolvedValueOnce(json([EVENT]));
-    render(() => <EventTable weddingId="wed_1" />);
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
 
     await waitFor(() => screen.getByText("Reception"));
     expect(screen.getByLabelText("Event image")).toBeTruthy();
@@ -80,7 +86,7 @@ describe("EventTable per-event image", () => {
       json({ eventId: "evt_1", imageUrl: "/api/invite/cire-wedding/event/evt_1/image?v=abc" }),
     ); // upload
 
-    const { container } = render(() => <EventTable weddingId="wed_1" />);
+    const { container } = render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
     await waitFor(() => screen.getByText("Reception"));
 
     const input = screen.getByLabelText("Event image") as HTMLInputElement;
@@ -109,7 +115,7 @@ describe("EventTable per-event image", () => {
     ); // initial load WITH an image
     authFetchMock.mockResolvedValueOnce(json({ eventId: "evt_1", imageUrl: null })); // delete
 
-    const { container } = render(() => <EventTable weddingId="wed_1" />);
+    const { container } = render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
     await waitFor(() => screen.getByText("Reception"));
     // The preview + Remove button are present.
     expect(container.querySelector("img")).not.toBeNull();
@@ -151,7 +157,7 @@ describe("EventTable events caching", () => {
     authFetchMock.mockResolvedValueOnce(json([EVENT]));
 
     // First mount (Events tab) — fetches.
-    const first = render(() => <EventTable weddingId="wed_1" />);
+    const first = render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
     await waitFor(() => screen.getByText("Reception"));
     expect(authFetchMock).toHaveBeenCalledTimes(1);
 
@@ -160,7 +166,7 @@ describe("EventTable events caching", () => {
 
     // Switch back to Events: EventTable remounts. It must reuse the cache, not
     // refetch — call count stays at 1.
-    render(() => <EventTable weddingId="wed_1" />);
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
     await waitFor(() => screen.getByText("Reception"));
     expect(authFetchMock).toHaveBeenCalledTimes(1);
     // Rows render immediately from cache (no skeleton-then-data round trip).
@@ -173,13 +179,13 @@ describe("EventTable events caching", () => {
       json([{ ...EVENT, id: "evt_2", name: "Ceremony", slug: "ceremony" }]),
     ); // wed_2
 
-    const first = render(() => <EventTable weddingId="wed_1" />);
+    const first = render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
     await waitFor(() => screen.getByText("Reception"));
     expect(authFetchMock).toHaveBeenCalledTimes(1);
     first.unmount();
 
     // A different wedding is a different cache key → a fresh fetch.
-    render(() => <EventTable weddingId="wed_2" />);
+    render(() => <EventTable weddingId="wed_2" weddingSlug="my-other-wedding" />);
     await waitFor(() => screen.getByText("Ceremony"));
     expect(authFetchMock).toHaveBeenCalledTimes(2);
     expect(authFetchMock.mock.calls[1][0]).toBe(
@@ -193,7 +199,7 @@ describe("EventTable events caching", () => {
       json([EVENT, { ...EVENT, id: "evt_2", name: "Ceremony", slug: "ceremony" }]),
     ); // post-import load (a new event was added)
 
-    const first = render(() => <EventTable weddingId="wed_1" />);
+    const first = render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
     await waitFor(() => screen.getByText("Reception"));
     expect(authFetchMock).toHaveBeenCalledTimes(1);
     first.unmount();
@@ -203,8 +209,68 @@ describe("EventTable events caching", () => {
 
     // Next mount must refetch (cache was dropped) and show the newly imported
     // event.
-    render(() => <EventTable weddingId="wed_1" />);
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
     await waitFor(() => screen.getByText("Ceremony"));
     expect(authFetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * The Events tab's "Download events (CSV)" button — the CSV is built (and
+ * formula-sanitised) server-side at `GET …/events.csv`; the component only hands
+ * the response Blob to the shared download helper. Mirrors GuestTable's export
+ * tests.
+ */
+describe("EventTable events CSV export", () => {
+  afterEach(() => {
+    cleanup();
+    __resetEventsCache();
+    authFetchMock.mockReset();
+    redirectSpy.mockReset();
+    toastSuccess.mockReset();
+    toastError.mockReset();
+    downloadBlobMock.mockReset();
+  });
+
+  it("downloads the server-built events CSV with a slug-based filename", async () => {
+    authFetchMock.mockResolvedValueOnce(json([EVENT])); // initial load
+    authFetchMock.mockResolvedValueOnce(
+      new Response("Event Name,Slug\r\nReception,reception", {
+        status: 200,
+        headers: { "Content-Type": "text/csv; charset=utf-8" },
+      }),
+    ); // export
+
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+    await waitFor(() => screen.getByText("Reception"));
+
+    fireEvent.click(screen.getByRole("button", { name: /Download events/i }));
+
+    // Hits the server-built CSV endpoint…
+    await waitFor(() =>
+      expect(
+        authFetchMock.mock.calls.some(
+          (c) => String(c[0]) === "https://api.test/api/organiser/weddings/wed_1/events.csv",
+        ),
+      ).toBe(true),
+    );
+    // …and triggers a blob download with the slug-based filename.
+    await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
+    expect(downloadBlobMock.mock.calls[0]![0]).toBe("cire-events-my-wedding.csv");
+    expect(downloadBlobMock.mock.calls[0]![1]).toBeInstanceOf(Blob);
+    expect(toastSuccess).toHaveBeenCalled();
+  });
+
+  it("surfaces an error toast when the export fails", async () => {
+    authFetchMock.mockResolvedValueOnce(json([EVENT])); // initial load
+    authFetchMock.mockResolvedValueOnce(new Response("nope", { status: 500 })); // export fails
+
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+    await waitFor(() => screen.getByText("Reception"));
+
+    fireEvent.click(screen.getByRole("button", { name: /Download events/i }));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(downloadBlobMock).not.toHaveBeenCalled();
   });
 });

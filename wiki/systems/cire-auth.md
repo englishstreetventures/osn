@@ -9,7 +9,7 @@ related:
   - "[[data-map]]"
   - "[[access-control]]"
   - "[[arc-tokens]]"
-last-reviewed: 2026-06-19
+last-reviewed: 2026-07-04
 ---
 
 # Cire two-system auth
@@ -96,6 +96,7 @@ Organisers who don't yet have an OSN account can create one from the same page: 
 |---|---|---|---|
 | View guests / events dashboard | ✅ | ✅ | `weddingMember()` |
 | Export RSVPs (`GET /weddings/:id/rsvps.csv`) | ✅ | ✅ | `weddingMember()` |
+| Export guest roster / event list (`GET /weddings/:id/guests.csv`, `/events.csv`) | ✅ | ✅ | `weddingMember()` |
 | Spreadsheet import — preview / apply / revert / list | ✅ | ✅ | `weddingMember()` |
 | View + customise the invite (text / theme / images) | ✅ | ✅ | `weddingMember()` |
 | View the co-host list (`GET /hosts`) | ✅ | ✅ | `weddingMember()` |

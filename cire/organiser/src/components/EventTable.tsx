@@ -3,6 +3,7 @@ import { createSignal, onMount, Show, For } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { downloadBlob } from "../lib/download";
 import {
   type EventRow,
   eventsAccessor,
@@ -21,6 +22,8 @@ import SectionIntro from "./SectionIntro";
 
 interface EventTableProps {
   weddingId: string;
+  /** URL slug of the wedding — embedded in the events CSV download filename. */
+  weddingSlug: string;
 }
 
 function formatRange(startAt: string, endAt: string, timezone: string): string {
@@ -58,6 +61,7 @@ export default function EventTable(props: EventTableProps) {
   // means we already have rows, so a remount paints them immediately.
   const [loading, setLoading] = createSignal(!hasCachedEvents(props.weddingId));
   const [error, setError] = createSignal<string | null>(null);
+  const [exporting, setExporting] = createSignal(false);
 
   onMount(async () => {
     // Cache hit: a previous mount already loaded this wedding's events. Reuse
@@ -152,6 +156,30 @@ export default function EventTable(props: EventTableProps) {
     toast.success(crop ? "Crop saved" : "Crop reset");
   }
 
+  /**
+   * Download the wedding's event list CSV. Built (and formula-sanitised)
+   * server-side at `GET …/events.csv`; the response Blob is handed to the
+   * shared download helper. Gated by `weddingMember()` so the owner OR a
+   * co-host can export — same pattern as the Guests tab's exports.
+   */
+  async function exportEvents() {
+    if (exporting()) return;
+    setExporting(true);
+    try {
+      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events.csv`));
+      if (res.status === 401) return redirectToLogin();
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      const blob = await res.blob();
+      downloadBlob(`cire-events-${props.weddingSlug}.csv`, blob);
+      toast.success("Events export downloaded");
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      toast.error("Events export failed. Try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const hasEvents = () => events().length > 0;
 
   return (
@@ -160,6 +188,18 @@ export default function EventTable(props: EventTableProps) {
         eyebrow="Events"
         title="The day, hour by hour"
         description="Every event your guests can be invited to — the details come from your spreadsheet import. Add one photo per event here to bring each card to life."
+        actions={
+          <Show when={!loading() && !error() && hasEvents()}>
+            <button
+              type="button"
+              onClick={() => void exportEvents()}
+              disabled={exporting()}
+              class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+            >
+              {exporting() ? "Exporting…" : "Download events (CSV)"}
+            </button>
+          </Show>
+        }
       />
 
       <Show when={loading()}>

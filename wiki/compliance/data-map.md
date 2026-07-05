@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-07-02
+last-reviewed: 2026-07-04
 ---
 
 # Data Map
@@ -110,6 +110,7 @@ organiser-initiated wedding administration.
 | `families.public_id` (claim CODE, e.g. `SHARMA-IVY-QM42`) | **Credential** — exchanged at `POST /api/claim` for a guest session; not a public identifier | Art. 6(1)(b) — contract (the access mechanism for the guest's RSVP) | Tied to wedding lifecycle (C-H1) | `@cire/api` only (treated as a secret — redacted in logs, C-M2) | [[cire-auth]] |
 | `families.public_id` where `kind = 'host'` (host preview CODE, `HOST-*`) | **Credential** — organiser-provisioned code that opens the guest invite to see every event ("Preview invite"). Synthetic host family carries no real guest personal data (one placeholder member "Wedding Host"); preview-only, cannot RSVP | Art. 6(1)(f) — wedding administration (organiser self-service preview) | Tied to wedding lifecycle (C-H1) | `@cire/api` only (treated as a secret — redacted via the `publicId`/`public_id` deny-list) | [[cire-auth]] |
 | `guests.first_name`, `last_name` | Per-guest identity on the invite + RSVP attribution | Art. 6(1)(f) — wedding administration (organiser-controlled) | Tied to wedding lifecycle (C-H1) | `@cire/api` + wedding owner | [[cire-auth]] |
+| `families.code_shared_at`, `first_opened_at`, `deactivated_at` (invite-tracking timestamps) | Organiser invite-delivery tracking — drives the dashboard's Sent/Opened badges + Deactivated state and the `guests.csv` roster export. `first_opened_at` is behavioural (when a guest household first opened the invite; host-preview claims excluded) | Art. 6(1)(f) — wedding administration (organiser-controlled) | Tied to wedding lifecycle — covered by the 1-year `sweepExpiredGuestData` families sweep, see [[retention]] (C-H1 for the R2 side) | `@cire/api` + wedding owner/co-hosts (dashboard + CSV export) | [[cire-auth]] |
 | `rsvps.status` (attending/declined/pending) | RSVP tracking for the organiser | Art. 6(1)(f) — wedding administration | Tied to wedding lifecycle (C-H1) | `@cire/api` + wedding owner | [[cire-auth]] |
 | `rsvps.dietary` (FREE TEXT) | Cater for dietary needs | **Special-category — Art. 9(2)(a) explicit consent.** Free text reveals religion (halal/kosher) + health (allergies/coeliac). Consent affordance + consent-record capture at the RSVP form **IMPLEMENTED — C-H2 (cire dietary), PR #123**: unticked opt-in checkbox, API 422s any non-empty dietary without consent, server-stamped consent record. Underlying Art. 6 basis: Art. 6(1)(a) consent. | Tied to wedding lifecycle; **1-year sweep now enforced (PR #132)** — see [[retention]]. R2 follow-up still open (C-H1) | `@cire/api` + wedding owner | [[cire-auth]], [[dpia/cire-guest-data]] |
 | `rsvps.dietary_consent_at`, `rsvps.dietary_consent_version` (consent record) | Evidence the Art. 9(2)(a) explicit consent for the dietary field (who/when/which copy version) | Art. 9(2)(a) — the consent record itself; necessary for accountability (Art. 5(2)). Server-stamped (`dietary_consent_version` default `"2026-06-17"`); migration `0012_dietary_consent.sql` | Cascades with the parent `rsvps` row (1-year sweep, PR #132) | `@cire/api` + wedding owner | [[dpia/cire-guest-data]] |

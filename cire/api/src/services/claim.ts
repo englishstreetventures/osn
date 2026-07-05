@@ -13,9 +13,10 @@ export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {
 /**
  * Defence-in-depth: drop any stored URL whose scheme isn't http(s) so a
  * legacy row written before the CSV-import scheme check can't smuggle a
- * `javascript:` href into the organiser UI.
+ * `javascript:` href into the organiser UI. Exported for the events CSV
+ * export, which surfaces the same stored URLs.
  */
-function safeHttpUrl(raw: string | null): string | null {
+export function safeHttpUrl(raw: string | null): string | null {
   if (!raw) return null;
   try {
     const u = new URL(raw);
@@ -29,9 +30,10 @@ function safeHttpUrl(raw: string | null): string | null {
  * Decode the JSON-encoded `dress_code_palette` column. Returns `palette: null`
  * + `malformed: true` so the caller can emit a structured log line referencing
  * the offending event id (kept out of this pure helper to preserve testability
- * and avoid threading Effect through every call site).
+ * and avoid threading Effect through every call site). Exported for the events
+ * CSV export, which renders the same swatches as text.
  */
-function decodePalette(raw: string | null): {
+export function decodePalette(raw: string | null): {
   palette: readonly DressSwatch[] | null;
   malformed: boolean;
 } {

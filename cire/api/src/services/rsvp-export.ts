@@ -3,6 +3,14 @@ import { and, asc, eq, ne } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { sanitiseCsvCell, serialiseCsv } from "../lib/csv";
+import { compareEventsByStart } from "../lib/event-order";
+import { invitedCountsByEvent } from "./table-export";
+
+// Re-exported for existing importers (tests + `download.ts` docs reference this
+// module); the implementation moved to `../lib/csv` when the guests/events
+// exports were added.
+export { sanitiseCsvCell };
 
 /**
  * Per-guest per-event RSVP cell. Distinguishes four states an organiser cares
@@ -122,35 +130,11 @@ export const rsvpExportService = {
           .all(),
       );
 
-      const orderedEvents = eventRows.toSorted((a, b) => {
-        const ta = Date.parse(a.startAt);
-        const tb = Date.parse(b.startAt);
-        const aValid = !Number.isNaN(ta);
-        const bValid = !Number.isNaN(tb);
-        if (aValid && bValid && ta !== tb) return ta - tb;
-        if (aValid !== bValid) return aValid ? -1 : 1;
-        if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-      });
+      const orderedEvents = eventRows.toSorted(compareEventsByStart);
 
-      // Invite counts per event (one guest_events row per invited guest), host
-      // families excluded.
-      const inviteRows = yield* dbQuery(() =>
-        db
-          .select({
-            eventId: guestEvents.eventId,
-            guestId: guests.id,
-          })
-          .from(guestEvents)
-          .innerJoin(guests, eq(guestEvents.guestId, guests.id))
-          .innerJoin(families, eq(guests.familyId, families.id))
-          .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-          .all(),
-      );
-      const invitedByEvent = new Map<string, number>();
-      for (const row of inviteRows) {
-        invitedByEvent.set(row.eventId, (invitedByEvent.get(row.eventId) ?? 0) + 1);
-      }
+      // Invite counts per event, host families excluded — aggregated in SQL
+      // (shared with the events CSV export).
+      const invitedByEvent = yield* invitedCountsByEvent(weddingId);
 
       // RSVP rows joined to guest + family for the per-event guest lists.
       const rsvpRows = yield* dbQuery(() =>
@@ -263,16 +247,7 @@ export const rsvpExportService = {
           .all(),
       );
 
-      const orderedEvents = eventRows.toSorted((a, b) => {
-        const ta = Date.parse(a.startAt);
-        const tb = Date.parse(b.startAt);
-        const aValid = !Number.isNaN(ta);
-        const bValid = !Number.isNaN(tb);
-        if (aValid && bValid && ta !== tb) return ta - tb;
-        if (aValid !== bValid) return aValid ? -1 : 1;
-        if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-      });
+      const orderedEvents = eventRows.toSorted(compareEventsByStart);
 
       // (b) Guests + family + their event memberships (left join → a guest with
       // no invites still appears). Host families excluded.
@@ -401,37 +376,8 @@ export const rsvpExportService = {
 };
 
 // ---------------------------------------------------------------------------
-// CSV serialisation
+// CSV serialisation (shared guard + serialiser live in ../lib/csv)
 // ---------------------------------------------------------------------------
-
-const FORMULA_MARKERS = new Set(["=", "+", "-", "@"]);
-
-/**
- * Defuse CSV formula injection: a cell that (after trimming) starts with one of
- * `= + - @` is interpreted as a formula by Excel / Google Sheets when the file
- * is opened. Unlike the IMPORT side (which REJECTS such cells — they come from
- * an untrusted upload), the EXPORT contains guest-supplied data we still want to
- * surface, so we neutralise it by prefixing a single quote (`'`). The leading
- * whitespace is preserved after the quote so the displayed value is unchanged
- * apart from the guard. Mirrors the same `= + - @` marker set as
- * `cire/api/src/services/spreadsheet.ts`.
- */
-export function sanitiseCsvCell(value: string): string {
-  const trimmed = value.trimStart();
-  if (trimmed.length > 0 && FORMULA_MARKERS.has(trimmed[0]!)) {
-    return `'${value}`;
-  }
-  return value;
-}
-
-/** Quote a CSV field iff it contains a comma, quote, or newline (RFC 4180). */
-function csvField(value: string): string {
-  const safe = sanitiseCsvCell(value);
-  if (/[",\r\n]/.test(safe)) {
-    return `"${safe.replace(/"/g, '""')}"`;
-  }
-  return safe;
-}
 
 /** Fixed leading columns, then one per event, then dietary. */
 export function toCsv(data: RsvpExport): string {
@@ -444,18 +390,13 @@ export function toCsv(data: RsvpExport): string {
     "Dietary Requirements",
   ];
 
-  const lines = [header.map(csvField).join(",")];
-  for (const row of data.rows) {
-    const fields = [
-      row.familyCode,
-      row.familyName,
-      row.firstName,
-      row.lastName,
-      ...row.cells.map((c) => CELL_LABEL[c]),
-      row.dietary,
-    ];
-    lines.push(fields.map(csvField).join(","));
-  }
-  // CRLF line endings (RFC 4180), matching the import templates.
-  return lines.join("\r\n");
+  const rows = data.rows.map((row) => [
+    row.familyCode,
+    row.familyName,
+    row.firstName,
+    row.lastName,
+    ...row.cells.map((c) => CELL_LABEL[c]),
+    row.dietary,
+  ]);
+  return serialiseCsv(header, rows);
 }
