@@ -8,6 +8,7 @@ const fullTheme: InviteTheme = {
   hero: { accentColor: "#d4af37", surfaceColor: "oklch(22.7% 0.0275 152.78)" },
   story: { accentColor: "rgb(212, 175, 55)", surfaceColor: null },
   details: { accentColor: null, surfaceColor: null },
+  welcome: { accentColor: "#7a9e7e", surfaceColor: "oklch(30% 0.02 150)" },
 };
 
 describe("fontStack", () => {
@@ -39,6 +40,25 @@ describe("sectionThemeVars", () => {
     expect(vars["--invite-surface"]).toBeUndefined();
     // Global fonts still apply to every section.
     expect(vars["--invite-heading"]).toContain("Cormorant Garamond");
+  });
+
+  it("emits accent + surface for the welcome section (code entry + welcome banner)", () => {
+    const vars = sectionThemeVars(fullTheme, "welcome");
+    expect(vars["--invite-accent"]).toBe("#7a9e7e");
+    expect(vars["--invite-surface"]).toBe("oklch(30% 0.02 150)");
+  });
+
+  it("keeps the defaults when a payload predates the welcome section (no `welcome` key)", () => {
+    // A cached/mid-deploy invite payload without `welcome` must render the code
+    // entry + welcome banner exactly as before — no throw, no stray variables.
+    const preWelcome = {
+      headingFont: null,
+      bodyFont: null,
+      hero: { accentColor: "#d4af37", surfaceColor: null },
+      story: { accentColor: null, surfaceColor: null },
+      details: { accentColor: null, surfaceColor: null },
+    } as InviteTheme;
+    expect(sectionThemeVars(preWelcome, "welcome")).toEqual({});
   });
 
   it("returns an empty map for a null theme (fully default)", () => {

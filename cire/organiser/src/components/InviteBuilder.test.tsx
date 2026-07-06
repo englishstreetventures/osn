@@ -48,6 +48,7 @@ const EMPTY_CUSTOMISATION = {
     hero: { accentColor: null, surfaceColor: null },
     story: { accentColor: null, surfaceColor: null },
     details: { accentColor: null, surfaceColor: null },
+    welcome: { accentColor: null, surfaceColor: null },
   },
 };
 
@@ -86,7 +87,7 @@ describe("InviteBuilder theme", () => {
     await waitFor(() => screen.getByText("Save theme"));
 
     fireEvent.change(screen.getByLabelText("Heading font"), { target: { value: "cormorant" } });
-    // Three "Accent colour" swatch triggers (one per section); the first is Hero.
+    // Four "Accent colour" swatch triggers (one per section); the first is Hero.
     // Open its popover and type a full hex into the labelled "Hex" field.
     const accents = screen.getAllByLabelText("Accent colour");
     fireEvent.click(accents[0]);
@@ -108,7 +109,72 @@ describe("InviteBuilder theme", () => {
     expect(sent.heroBlur).toBe(28);
     expect(sent.titleBackdropOpacity).toBe(0);
     expect(sent.titleBackdropBlur).toBe(0);
+    // The untouched welcome section rides along as null (keep the defaults) —
+    // the body is total, so the fields must be present.
+    expect(sent.welcomeAccentColor).toBeNull();
+    expect(sent.welcomeSurfaceColor).toBeNull();
     await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+  });
+
+  it("seeds the welcome section pickers and PUTs the edited welcome accent", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        ...EMPTY_CUSTOMISATION,
+        theme: {
+          ...EMPTY_CUSTOMISATION.theme,
+          welcome: { accentColor: "#7a9e7e", surfaceColor: null },
+        },
+      }),
+    );
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
+
+    render(() => <InviteBuilder weddingId="wed_1" />);
+    await waitFor(() => screen.getByText("Save theme"));
+
+    // The section has its own labelled picker row AND a live preview card.
+    expect(screen.getAllByText("Code Entry & Welcome").length).toBeGreaterThanOrEqual(2);
+    screen.getByLabelText("Code Entry & Welcome preview");
+
+    // Welcome is the FOURTH section — recolour it and save.
+    const accents = screen.getAllByLabelText("Accent colour");
+    expect(accents.length).toBe(4);
+    fireEvent.click(accents[3]);
+    const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
+    // Seeded from the loaded theme, not the empty default (case per Kobalte).
+    expect(hex.value.toLowerCase()).toBe("#7a9e7e");
+    fireEvent.input(hex, { target: { value: "#112233" } });
+    fireEvent.click(screen.getByText("Save theme"));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    const sent = JSON.parse(authFetchMock.mock.calls[1][1].body as string);
+    expect(sent.welcomeAccentColor).toBe("#112233");
+    // The sibling sections are untouched.
+    expect(sent.heroAccentColor).toBeNull();
+    expect(sent.detailsAccentColor).toBeNull();
+  });
+
+  it("PUTs an edited welcome surface colour (the background signal lane)", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
+
+    render(() => <InviteBuilder weddingId="wed_1" />);
+    await waitFor(() => screen.getByText("Save theme"));
+
+    // The FOURTH "Background colour" swatch is the welcome section's surface.
+    const surfaces = screen.getAllByLabelText("Background colour");
+    expect(surfaces.length).toBe(4);
+    fireEvent.click(surfaces[3]);
+    const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
+    fireEvent.input(hex, { target: { value: "#223344" } });
+    fireEvent.click(screen.getByText("Save theme"));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    const sent = JSON.parse(authFetchMock.mock.calls[1][1].body as string);
+    expect(sent.welcomeSurfaceColor).toBe("#223344");
+    // Sibling surface lanes untouched — guards a copy-paste slip in the updater.
+    expect(sent.storySurfaceColor).toBeNull();
+    expect(sent.detailsSurfaceColor).toBeNull();
+    expect(sent.welcomeAccentColor).toBeNull();
   });
 
   it("seeds the hero display sliders from the loaded customisation", async () => {

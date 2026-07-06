@@ -17,7 +17,7 @@ import ColorPicker from "./ColorPicker";
 import ImageCropModal from "./ImageCropModal";
 
 type ImageSlot = "hero" | "story";
-type ThemeSection = "hero" | "story" | "details";
+type ThemeSection = "hero" | "story" | "details" | "welcome";
 
 // Closed font allow-list — mirrors FONT_CHOICES in cire/api. The value is the
 // only thing persisted; the guest site owns the concrete font stack. Kept in
@@ -37,6 +37,10 @@ interface InviteTheme {
   hero: { accentColor: string | null; surfaceColor: string | null };
   story: { accentColor: string | null; surfaceColor: string | null };
   details: { accentColor: string | null; surfaceColor: string | null };
+  // The guest site's invite-code entry form + post-claim welcome banner.
+  // Optional on the wire only until cire-api ships migration 0027 (the seed
+  // below already coalesces a missing section to "keep the defaults").
+  welcome?: { accentColor: string | null; surfaceColor: string | null };
 }
 
 // Hero display sliders (organiser choice; migration 0018 replaced the coarse
@@ -143,11 +147,13 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     hero: null,
     story: null,
     details: null,
+    welcome: null,
   });
   const [surface, setSurface] = createSignal<Record<ThemeSection, string | null>>({
     hero: null,
     story: null,
     details: null,
+    welcome: null,
   });
   const [savingTheme, setSavingTheme] = createSignal(false);
 
@@ -172,11 +178,13 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       hero: d.theme.hero.accentColor,
       story: d.theme.story.accentColor,
       details: d.theme.details.accentColor,
+      welcome: d.theme.welcome?.accentColor ?? null,
     });
     setSurface({
       hero: d.theme.hero.surfaceColor,
       story: d.theme.story.surfaceColor,
       details: d.theme.details.surfaceColor,
+      welcome: d.theme.welcome?.surfaceColor ?? null,
     });
     setHeroBlur(d.heroDisplay?.blur ?? HERO_BLUR_DEFAULT);
     setTitleBackdropOpacity(d.heroDisplay?.titleBackdrop?.opacity ?? 0);
@@ -252,6 +260,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           storySurfaceColor: s.story,
           detailsAccentColor: a.details,
           detailsSurfaceColor: s.details,
+          welcomeAccentColor: a.welcome,
+          welcomeSurfaceColor: s.welcome,
           heroBlur: heroBlur(),
           titleBackdropOpacity: titleBackdropOpacity(),
           titleBackdropBlur: titleBackdropBlur(),
@@ -542,6 +552,13 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     onAccent={(v) => setAccent((p) => ({ ...p, details: v }))}
                     onSurface={(v) => setSurface((p) => ({ ...p, details: v }))}
                   />
+                  <SectionColors
+                    label="Code Entry & Welcome"
+                    accent={accent().welcome}
+                    surface={surface().welcome}
+                    onAccent={(v) => setAccent((p) => ({ ...p, welcome: v }))}
+                    onSurface={(v) => setSurface((p) => ({ ...p, welcome: v }))}
+                  />
                 </div>
 
                 {/* Live preview — updates instantly as the controls change, so the
@@ -590,6 +607,12 @@ function ThemePreview(props: { theme: PreviewTheme }) {
     { key: "hero" as const, label: "Hero", eyebrow: "Save the Date", heading: "V & R" },
     { key: "story" as const, label: "Our Story", eyebrow: "Our Story", heading: "How It Began" },
     { key: "details" as const, label: "Event Details", eyebrow: "Details", heading: "The Day" },
+    {
+      key: "welcome" as const,
+      label: "Code Entry & Welcome",
+      eyebrow: "Your Invitation",
+      heading: "Enter Your Code",
+    },
   ];
   return (
     <div class="flex flex-col gap-2">

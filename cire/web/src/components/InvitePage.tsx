@@ -72,9 +72,11 @@ export default function InvitePage(props: InvitePageProps) {
     { initialValue: props.theme ?? null },
   );
 
-  // Validated CSS-variable map for the "details" section; an unset field falls
-  // through to the built-in token via the var() fallbacks below.
+  // Validated CSS-variable maps per section; an unset field falls through to the
+  // built-in token via the var() fallbacks below. "welcome" styles the invite-code
+  // entry form + post-claim welcome banner inside LoginSection.
   const detailsVars = () => sectionThemeVars(liveTheme() ?? null, "details");
+  const welcomeVars = () => sectionThemeVars(liveTheme() ?? null, "welcome");
 
   let loginFormRef: HTMLDivElement;
   let welcomeRef: HTMLDivElement;
@@ -100,6 +102,7 @@ export default function InvitePage(props: InvitePageProps) {
         onClaimed={handleClaimed}
         formRef={(el) => (loginFormRef = el)}
         welcomeRef={(el) => (welcomeRef = el)}
+        themeVars={welcomeVars()}
       />
 
       <Show when={claimResult()}>

@@ -858,6 +858,8 @@ describe("PUT /invite/theme (organiser)", () => {
     storySurfaceColor: null,
     detailsAccentColor: "rgb(212, 175, 55)",
     detailsSurfaceColor: null,
+    welcomeAccentColor: "#7a9e7e",
+    welcomeSurfaceColor: null,
     heroBlur: 28,
     titleBackdropOpacity: 0,
     titleBackdropBlur: 0,
@@ -900,6 +902,7 @@ describe("PUT /invite/theme (organiser)", () => {
         hero: { accentColor: string | null; surfaceColor: string | null };
         story: { accentColor: string | null; surfaceColor: string | null };
         details: { accentColor: string | null; surfaceColor: string | null };
+        welcome: { accentColor: string | null; surfaceColor: string | null };
       };
     };
     expect(body.theme.headingFont).toBe("cormorant");
@@ -908,6 +911,8 @@ describe("PUT /invite/theme (organiser)", () => {
     expect(body.theme.hero.surfaceColor).toBe("oklch(22.7% 0.0275 152.78)");
     expect(body.theme.story.accentColor).toBeNull();
     expect(body.theme.details.accentColor).toBe("rgb(212, 175, 55)");
+    expect(body.theme.welcome.accentColor).toBe("#7a9e7e");
+    expect(body.theme.welcome.surfaceColor).toBeNull();
   });
 
   it("defaults to a null theme when never customised", async () => {
@@ -963,8 +968,9 @@ describe("PUT /invite/theme (organiser)", () => {
     const res = await appRequest(app, `${orgBase}/theme`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
-      // Omits detailsSurfaceColor — the body is total, so this must be a 400, not
-      // a partial update (guards against an accidental Schema.optional refactor).
+      // Omits detailsSurfaceColor (and everything after it) — the body is total,
+      // so this must be a 400, not a partial update (guards against an accidental
+      // Schema.optional refactor).
       body: JSON.stringify({
         headingFont: "default",
         bodyFont: "default",
@@ -1019,6 +1025,8 @@ describe("hero display sliders (migration 0018)", () => {
     storySurfaceColor: null,
     detailsAccentColor: null,
     detailsSurfaceColor: null,
+    welcomeAccentColor: null,
+    welcomeSurfaceColor: null,
     heroBlur: 28,
     titleBackdropOpacity: 0,
     titleBackdropBlur: 0,

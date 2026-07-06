@@ -86,15 +86,21 @@ lockstep with the parser by `import-templates.test.ts`.
 ## Theme (per-section fonts + colours)
 
 A second bounded surface on the same row: two global fonts (`headingFont`,
-`bodyFont`) plus an accent + surface colour for each of three named sections.
+`bodyFont`) plus an accent + surface colour for each of four named sections.
 Single source of truth: `cire/api/src/schemas/invite.ts` (`THEME_SECTIONS`,
 `FONT_CHOICES`, `InviteThemeBody`).
 
-| Section       | Theme key | Accent colour         | Surface colour          |
-| ------------- | --------- | --------------------- | ----------------------- |
-| Hero          | `hero`    | `heroAccentColor`     | `heroSurfaceColor`      |
-| Our Story     | `story`   | `storyAccentColor`    | `storySurfaceColor`     |
-| Event Details | `details` | `detailsAccentColor`  | `detailsSurfaceColor`   |
+| Section              | Theme key | Accent colour         | Surface colour          |
+| -------------------- | --------- | --------------------- | ----------------------- |
+| Hero                 | `hero`    | `heroAccentColor`     | `heroSurfaceColor`      |
+| Our Story            | `story`   | `storyAccentColor`    | `storySurfaceColor`     |
+| Event Details        | `details` | `detailsAccentColor`  | `detailsSurfaceColor`   |
+| Code Entry & Welcome | `welcome` | `welcomeAccentColor`  | `welcomeSurfaceColor`   |
+
+The `welcome` section (migration `0027_welcome_theme.sql`) covers the guest
+site's **invite-code entry form and the post-claim welcome banner**
+(`LoginSection.tsx`), which were previously pinned to the built-in green/gold
+tokens with no organiser control.
 
 Every field is nullable ⇒ "use the built-in token", so an un-themed (or
 partially-themed) invite renders exactly as before.
@@ -121,7 +127,8 @@ partially-themed) invite renders exactly as before.
 `0017_hero_display_options.sql`) — one row per wedding (`wedding_id` PK + cascade
 FK ⇒ 1:1). Nullable text columns + nullable `hero_image_key` / `story_image_key` +
 nullable theme columns (`theme_heading_font`, `theme_body_font`, and
-`{hero,story,details}_{accent,surface}_color`) + the two **hero display** columns
+`{hero,story,details,welcome}_{accent,surface}_color` — the `welcome` pair
+landed in `0027_welcome_theme.sql`) + the two **hero display** columns
 `hero_image_style` (`blurred | regular`, **NOT NULL DEFAULT `blurred`**) and
 `hero_title_backdrop` (`none | solid`, **NOT NULL DEFAULT `none`**). The two
 hero-display columns are NOT NULL with defaults that reproduce today's look, so a
@@ -334,8 +341,20 @@ fallbacks — so an unset (or validation-rejected) field resolves to the origina
 gold / surface / display token. `cire/web/src/components/invite-theme.ts`
 (`sectionThemeVars`, `fontStack`) builds the validated variable map (re-checking
 colours + resolving the font key). The hero + story sections read the live theme
-from `InviteHeader`'s resource; the "details"/events section reads the live theme
-from `InvitePage`'s own resource (both override the build-time snapshot above).
+from `InviteHeader`'s resource; the "details"/events **and** "welcome" (code
+entry + welcome banner) sections read the live theme from `InvitePage`'s own
+resource (both override the build-time snapshot above).
+
+> **Welcome section token bridge.** `LoginSection`'s states (input focus border,
+> submit-button hover fill) live in Tailwind pseudo-class utilities that inline
+> styles can't reach, so instead of per-element `var(--invite-accent, …)`
+> styles the section wrapper **re-points the scoped Tailwind tokens** at the
+> validated variables: `--color-gold: var(--invite-accent, <gold literal>)`,
+> `--font-display`/`--font-body` likewise, and `background-color:
+> var(--invite-surface, transparent)`. Every gold/font utility inside the
+> section — including hover/focus — then follows the organiser's pick, and an
+> unset variable falls through to the literal built-in token (a var()
+> self-reference would be a cycle, hence the literals).
 
 > **Render-boundary resilience.** `sectionThemeVars` reads the section sub-object
 > defensively (`theme[section]?` → fall back to the built-in tokens) and never

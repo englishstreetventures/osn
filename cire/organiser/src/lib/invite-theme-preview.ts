@@ -13,7 +13,7 @@
  * below replicate those same fallbacks for an honest "before/after".
  */
 
-export type ThemeSection = "hero" | "story" | "details";
+export type ThemeSection = "hero" | "story" | "details" | "welcome";
 
 /**
  * Font-choice key → CSS `font-family` stack. MUST mirror `FONT_STACKS` in

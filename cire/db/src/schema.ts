@@ -378,6 +378,11 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   storySurfaceColor: text("story_surface_color"),
   detailsAccentColor: text("details_accent_color"),
   detailsSurfaceColor: text("details_surface_color"),
+  // "Welcome" section (migration 0027) — the invite-code entry form and the
+  // post-claim welcome banner on the guest site, which were previously stuck on
+  // the built-in green/gold tokens with no organiser control.
+  welcomeAccentColor: text("welcome_accent_color"),
+  welcomeSurfaceColor: text("welcome_surface_color"),
   // Optional host override for the FIRST line of the message an organiser copies
   // to send a family their invite (migration 0023). NULL ⇒ the built-in default
   // prose. The copied message is always the same 3-line shape — this line, then

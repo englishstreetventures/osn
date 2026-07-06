@@ -245,7 +245,7 @@ const sliderField = (min: number, max: number) =>
  * as the image slots: a few well-placed sections, not a page-builder. Bounds the
  * theme columns and the CSS-variable namespace the guest site emits.
  */
-export const THEME_SECTIONS = ["hero", "story", "details"] as const;
+export const THEME_SECTIONS = ["hero", "story", "details", "welcome"] as const;
 export type ThemeSection = (typeof THEME_SECTIONS)[number];
 
 /**
@@ -306,6 +306,9 @@ export const InviteThemeBody = Schema.Struct({
   storySurfaceColor: ColorField,
   detailsAccentColor: ColorField,
   detailsSurfaceColor: ColorField,
+  // "Welcome" — the invite-code entry form + post-claim welcome banner.
+  welcomeAccentColor: ColorField,
+  welcomeSurfaceColor: ColorField,
   // Hero display sliders. Non-nullable bounded ints — the builder always submits
   // all three, each is clamped into range on decode (out-of-range is silently
   // clamped, not rejected), and a non-integer is a ParseError → 400. The

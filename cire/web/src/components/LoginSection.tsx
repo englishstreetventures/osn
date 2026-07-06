@@ -10,6 +10,12 @@ interface LoginSectionProps {
   onClaimed: (result: ClaimResult) => void;
   formRef?: (el: HTMLDivElement) => void;
   welcomeRef?: (el: HTMLDivElement) => void;
+  /**
+   * Validated `--invite-*` CSS-variable map for the "welcome" theme section
+   * (`sectionThemeVars(theme, "welcome")`), covering the code-entry form and the
+   * post-claim welcome banner. Empty/absent ⇒ the built-in tokens, unchanged.
+   */
+  themeVars?: Record<string, string>;
 }
 
 export function LoginSection(props: LoginSectionProps) {
@@ -105,7 +111,26 @@ export function LoginSection(props: LoginSectionProps) {
   });
 
   return (
-    <section class="border-border border-b px-6 py-16 md:px-8 md:py-20">
+    <section
+      class="border-border border-b px-6 py-16 md:px-8 md:py-20"
+      style={{
+        ...props.themeVars,
+        // Scoped token bridge: every gold/font utility inside this section (the
+        // eyebrow labels, headings, the input's focus border, the submit button
+        // and its hover fill, the preview-mode chip) resolves `var(--color-gold)`
+        // / `var(--font-*)`, so re-pointing those tokens at the validated
+        // `--invite-*` variables themes ALL states — including hover/focus, which
+        // per-element inline styles cannot reach. Each fallback is the built-in
+        // token's literal value (self-reference would be a var() cycle), so an
+        // un-themed invite renders exactly as before. The section has no
+        // background by default — `transparent` keeps the body backdrop showing
+        // through unless the organiser picks a surface colour.
+        "--color-gold": "var(--invite-accent, oklch(74.99% 0.0854 82.08))",
+        "--font-display": 'var(--invite-heading, "Cormorant Garamond", Georgia, serif)',
+        "--font-body": 'var(--invite-body, "Lato", system-ui, sans-serif)',
+        "background-color": "var(--invite-surface, transparent)",
+      }}
+    >
       <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
         {/* Login form — visible before claim */}
         <div ref={props.formRef} style={{ display: props.result ? "none" : "" }}>

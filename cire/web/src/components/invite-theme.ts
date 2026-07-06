@@ -12,9 +12,14 @@ export interface InviteTheme {
   hero: { accentColor: string | null; surfaceColor: string | null };
   story: { accentColor: string | null; surfaceColor: string | null };
   details: { accentColor: string | null; surfaceColor: string | null };
+  // "Welcome" — the invite-code entry form + post-claim welcome banner. Optional
+  // on the wire only until cire-api ships migration 0027; a payload without it
+  // simply keeps the built-in tokens (sectionThemeVars already tolerates a
+  // missing section).
+  welcome?: { accentColor: string | null; surfaceColor: string | null };
 }
 
-export type ThemeSection = "hero" | "story" | "details";
+export type ThemeSection = "hero" | "story" | "details" | "welcome";
 
 /**
  * Closed map of font-choice key → concrete CSS `font-family` stack. The key is

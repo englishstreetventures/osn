@@ -41,6 +41,8 @@ export interface InviteTheme {
   hero: { accentColor: string | null; surfaceColor: string | null };
   story: { accentColor: string | null; surfaceColor: string | null };
   details: { accentColor: string | null; surfaceColor: string | null };
+  // The invite-code entry form + post-claim welcome banner (migration 0027).
+  welcome: { accentColor: string | null; surfaceColor: string | null };
 }
 
 /**
@@ -90,6 +92,7 @@ const EMPTY_THEME: InviteTheme = {
   hero: { accentColor: null, surfaceColor: null },
   story: { accentColor: null, surfaceColor: null },
   details: { accentColor: null, surfaceColor: null },
+  welcome: { accentColor: null, surfaceColor: null },
 };
 
 // The defaults a wedding with no customisation row reports — identical to the
@@ -146,6 +149,8 @@ function toCustomisation(
     storySurfaceColor: string | null;
     detailsAccentColor: string | null;
     detailsSurfaceColor: string | null;
+    welcomeAccentColor: string | null;
+    welcomeSurfaceColor: string | null;
     inviteMessage: string | null;
     updatedAt: Date | null;
   },
@@ -186,6 +191,7 @@ function toCustomisation(
       hero: { accentColor: c.heroAccentColor, surfaceColor: c.heroSurfaceColor },
       story: { accentColor: c.storyAccentColor, surfaceColor: c.storySurfaceColor },
       details: { accentColor: c.detailsAccentColor, surfaceColor: c.detailsSurfaceColor },
+      welcome: { accentColor: c.welcomeAccentColor, surfaceColor: c.welcomeSurfaceColor },
     },
     inviteMessage: c.inviteMessage,
   };
@@ -255,6 +261,8 @@ export const inviteService = {
             storySurfaceColor: weddingInviteCustomisations.storySurfaceColor,
             detailsAccentColor: weddingInviteCustomisations.detailsAccentColor,
             detailsSurfaceColor: weddingInviteCustomisations.detailsSurfaceColor,
+            welcomeAccentColor: weddingInviteCustomisations.welcomeAccentColor,
+            welcomeSurfaceColor: weddingInviteCustomisations.welcomeSurfaceColor,
             inviteMessage: weddingInviteCustomisations.inviteMessage,
             updatedAt: weddingInviteCustomisations.updatedAt,
           })
@@ -380,6 +388,8 @@ export const inviteService = {
         storySurfaceColor: fields.storySurfaceColor,
         detailsAccentColor: fields.detailsAccentColor,
         detailsSurfaceColor: fields.detailsSurfaceColor,
+        welcomeAccentColor: fields.welcomeAccentColor,
+        welcomeSurfaceColor: fields.welcomeSurfaceColor,
         // Hero display sliders (already clamped into range by the schema decode).
         // Persisting these bumps `updatedAt` below — critical because the hero
         // image cache version derives from `updatedAt`, so changing `heroBlur`

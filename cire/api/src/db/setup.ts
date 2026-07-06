@@ -156,6 +156,8 @@ CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
   story_surface_color TEXT,
   details_accent_color TEXT,
   details_surface_color TEXT,
+  welcome_accent_color TEXT,
+  welcome_surface_color TEXT,
   invite_message TEXT,
   updated_at INTEGER NOT NULL
 );

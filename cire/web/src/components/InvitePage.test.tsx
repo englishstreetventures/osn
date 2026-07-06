@@ -147,6 +147,98 @@ describe("InvitePage", () => {
     expect(section.style.getPropertyValue("--invite-surface")).toBe("oklch(30% 0.02 150)");
   });
 
+  it("applies the validated welcome-section theme to the code entry + welcome banner", () => {
+    const { getByText } = render(() => (
+      <InvitePage
+        apiUrl="https://api.test"
+        theme={{
+          headingFont: null,
+          bodyFont: null,
+          hero: { accentColor: null, surfaceColor: null },
+          story: { accentColor: null, surfaceColor: null },
+          details: { accentColor: null, surfaceColor: null },
+          // Only the welcome section is themed — proves the binding uses the
+          // "welcome" key, not a copy-pasted sibling section.
+          welcome: { accentColor: "#7a9e7e", surfaceColor: "oklch(30% 0.02 150)" },
+        }}
+      />
+    ));
+
+    const section = getByText("Enter Your Code").closest("section") as HTMLElement;
+    expect(section.style.getPropertyValue("--invite-accent")).toBe("#7a9e7e");
+    expect(section.style.getPropertyValue("--invite-surface")).toBe("oklch(30% 0.02 150)");
+    // The scoped token bridge re-points the section's gold utilities (labels,
+    // focus border, button hover fill) and background at the picked values.
+    expect(section.style.getPropertyValue("--color-gold")).toContain("--invite-accent");
+    expect(section.style.getPropertyValue("background-color")).toContain("--invite-surface");
+    // The font bridges too — and their literal fallbacks must be the built-in
+    // stacks (a self-referential var() would be a cycle), so a typo there would
+    // silently change fonts on every un-themed invite.
+    const fontDisplay = section.style.getPropertyValue("--font-display");
+    expect(fontDisplay).toContain("--invite-heading");
+    expect(fontDisplay).toContain("Cormorant Garamond");
+    const fontBody = section.style.getPropertyValue("--font-body");
+    expect(fontBody).toContain("--invite-body");
+    expect(fontBody).toContain("Lato");
+  });
+
+  it("ignores a malicious welcome colour from the live refetch (never reaches the code-entry DOM)", async () => {
+    // Counterpart of the malicious-details test for the no-store revalidation
+    // path: pins that LoginSection consumes the validated sectionThemeVars path
+    // on live updates too. The valid surface colour proves the refetch landed;
+    // the malicious accent must still be dropped.
+    const liveInvite = {
+      theme: {
+        headingFont: null,
+        bodyFont: null,
+        hero: { accentColor: null, surfaceColor: null },
+        story: { accentColor: null, surfaceColor: null },
+        details: { accentColor: null, surfaceColor: null },
+        welcome: {
+          accentColor: "red;background:url(https://evil.example)",
+          surfaceColor: "oklch(30% 0.02 150)",
+        },
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(liveInvite), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { getByText } = render(() => (
+      <InvitePage apiUrl="https://api.test" slug="cire-wedding" />
+    ));
+
+    const section = getByText("Enter Your Code").closest("section") as HTMLElement;
+    await waitFor(() =>
+      expect(section.style.getPropertyValue("--invite-surface")).toBe("oklch(30% 0.02 150)"),
+    );
+    expect(section.style.getPropertyValue("--invite-accent")).toBe("");
+  });
+
+  it("renders the code entry untouched when the theme has no welcome section (pre-0027 payload)", () => {
+    const { getByText } = render(() => (
+      <InvitePage
+        apiUrl="https://api.test"
+        theme={{
+          headingFont: null,
+          bodyFont: null,
+          hero: { accentColor: null, surfaceColor: null },
+          story: { accentColor: null, surfaceColor: null },
+          details: { accentColor: null, surfaceColor: null },
+        }}
+      />
+    ));
+
+    const section = getByText("Enter Your Code").closest("section") as HTMLElement;
+    // No --invite-* variables ⇒ the bridge falls through to the built-in tokens.
+    expect(section.style.getPropertyValue("--invite-accent")).toBe("");
+    expect(section.style.getPropertyValue("--invite-surface")).toBe("");
+  });
+
   it("ignores a malicious details colour (never reaches the events-section DOM)", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ...claim, preview: true }), {
