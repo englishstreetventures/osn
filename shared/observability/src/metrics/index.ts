@@ -34,7 +34,6 @@ export {
   type ProfileSwitchAction,
   type ProfileCrudAction,
   type ProfileDeleteCascadeTable,
-  type JwksCacheResult,
   type SecurityInvalidationTrigger,
   type OriginGuardRejectionReason,
   type RecoveryCodeStep,

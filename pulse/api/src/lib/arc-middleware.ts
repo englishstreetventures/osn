@@ -1,4 +1,9 @@
-import { importKeyFromJwk, verifyArcToken, type ArcTokenPayload } from "@shared/crypto";
+import {
+  importKeyFromJwk,
+  metricArcTokenVerification,
+  verifyArcToken,
+  type ArcTokenPayload,
+} from "@shared/crypto";
 
 /**
  * Lightweight in-memory ARC verifier for pulse-api.
@@ -116,27 +121,44 @@ export async function requireArc(
   expectedAudience: string,
   requiredScope: string,
 ): Promise<ArcCaller | null> {
+  // S-L6: the early-exit branches below reject before `verifyArcToken` runs
+  // (which self-reports its own outcomes, incl. "ok"), so each one records
+  // the shared `arc.token.verification` counter itself — otherwise
+  // kid-unknown / kid-revoked / registry-scope-denied failures are invisible
+  // on dashboards and every 401 looks the same. The issuer attribute is only
+  // trustworthy once the kid resolves to a registered key; before that we
+  // label "unknown" (the recording helper also bounds cardinality).
   const raw = extractToken(authorization);
   if (!raw) {
+    metricArcTokenVerification("unknown", "malformed");
     set.status = 401;
     return null;
   }
   const kid = peekKid(raw);
   if (!kid) {
+    metricArcTokenVerification("unknown", "malformed");
     set.status = 401;
     return null;
   }
   const registered = keyRegistry.get(kid);
-  if (!registered || registered.revokedAt !== null) {
+  if (!registered) {
+    metricArcTokenVerification("unknown", "unknown_issuer");
+    set.status = 401;
+    return null;
+  }
+  if (registered.revokedAt !== null) {
+    metricArcTokenVerification(registered.issuer, "revoked_key");
     set.status = 401;
     return null;
   }
   const nowSec = Math.floor(Date.now() / 1_000);
   if (registered.expiresAt !== null && registered.expiresAt <= nowSec) {
+    metricArcTokenVerification(registered.issuer, "revoked_key");
     set.status = 401;
     return null;
   }
   if (!registered.allowedScopes.has(requiredScope.toLowerCase())) {
+    metricArcTokenVerification(registered.issuer, "scope_denied");
     set.status = 401;
     return null;
   }

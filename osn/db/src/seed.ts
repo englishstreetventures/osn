@@ -254,7 +254,13 @@ export function buildSeedServiceAccounts(now: Date): NewServiceAccount[] {
   return [
     {
       serviceId: "pulse-api",
-      allowedScopes: "graph:read",
+      // The full pulse-api scope union — MUST equal what both boot
+      // registrations send (`graphBridge.ts` REGISTERED_SCOPES and
+      // `outbound-arc.ts` ALLOWED_SCOPES). allowedScopes is stored per
+      // service and each /register-service upsert replaces it wholesale, so
+      // divergent values ping-pong on boot/rotation (S-H1).
+      // graph:resolve-account gates /graph/internal/profile-account (S-M1).
+      allowedScopes: "graph:read,graph:resolve-account,step-up:verify,app-enrollment:write",
       createdAt: now,
       updatedAt: now,
     },

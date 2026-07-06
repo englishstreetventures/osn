@@ -14,6 +14,8 @@ vi.mock("@shared/crypto", () => ({
   getOrCreateArcToken: vi.fn().mockResolvedValue("test-arc-token"),
 }));
 
+import { getOrCreateArcToken } from "@shared/crypto";
+
 import { MAX_EVENT_GUESTS } from "../../src/lib/limits";
 import {
   getAccountIdForProfile,
@@ -72,6 +74,14 @@ describe("getConnectionIds", () => {
     await Effect.runPromise(getConnectionIds("usr_alice"));
     const headers = spy.mock.calls[0]![1]?.headers as Record<string, string>;
     expect(headers["authorization"]).toMatch(/^ARC /);
+  });
+
+  it("mints its token with the minimal graph:read scope (T-U2 — arcAuthHeader default)", async () => {
+    vi.mocked(getOrCreateArcToken).mockClear();
+    mockFetch({ connectionIds: [] });
+    await Effect.runPromise(getConnectionIds("usr_alice"));
+    const claims = vi.mocked(getOrCreateArcToken).mock.calls.at(-1)![1];
+    expect(claims.scope).toBe("graph:read");
   });
 
   it("fails with GraphBridgeError on HTTP error", async () => {
@@ -135,6 +145,16 @@ describe("getAccountIdForProfile", () => {
     await Effect.runPromise(getAccountIdForProfile("usr/with&special?chars"));
     const url = spy.mock.calls[0]![0] as string;
     expect(url).toContain("profileId=usr%2Fwith%26special%3Fchars");
+  });
+
+  it("mints its token with the dedicated graph:resolve-account scope (T-U2)", async () => {
+    // osn-api's /profile-account rejects plain graph:read (S-M1) — a silent
+    // regression to the default scope would only surface as production 401s.
+    vi.mocked(getOrCreateArcToken).mockClear();
+    mockFetch({ accountId: "acc_alice" });
+    await Effect.runPromise(getAccountIdForProfile("usr_alice"));
+    const claims = vi.mocked(getOrCreateArcToken).mock.calls.at(-1)![1];
+    expect(claims.scope).toBe("graph:resolve-account");
   });
 
   it("fails with ProfileNotFoundError on 404 (distinct from infra failures)", async () => {
@@ -217,7 +237,11 @@ describe("startKeyRotation", () => {
     expect(init?.method).toBe("POST");
     const body = JSON.parse(init?.body as string) as Record<string, unknown>;
     expect(body.serviceId).toBe("pulse-api");
-    expect(body.allowedScopes).toBe("graph:read");
+    // The FULL pulse-api scope union — must match outbound-arc's registration
+    // (service-level allowedScopes, last-write-wins upsert — S-H1).
+    expect(body.allowedScopes).toBe(
+      "graph:read,graph:resolve-account,step-up:verify,app-enrollment:write",
+    );
     expect(typeof body.keyId).toBe("string");
     expect(typeof body.publicKeyJwk).toBe("string");
   });

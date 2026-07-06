@@ -20,7 +20,11 @@ import type {
 import { and, eq, inArray, lte, ne, or } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { metricPulseAccountDeletionCompleted, withPulseAccountDeletion } from "../metrics";
+import {
+  metricPulseAccountDeletionCompleted,
+  metricPulseHostCancelledHardDelete,
+  withPulseAccountDeletion,
+} from "../metrics";
 
 /**
  * Pulse-side account erasure (Flow B — leave Pulse).
@@ -375,7 +379,10 @@ export const runEventCancellationSweep = (
             db.delete(events).where(eq(events.id, row.id)),
           ]),
         catch: (cause) => new PulseErasureDbError({ cause }),
-      });
+      }).pipe(
+        Effect.tapError(() => Effect.sync(() => metricPulseHostCancelledHardDelete("error"))),
+      );
+      metricPulseHostCancelledHardDelete("ok");
       purged += 1;
     }
     return { purged };

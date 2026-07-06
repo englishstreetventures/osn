@@ -437,8 +437,13 @@ describe("internal graph routes (ARC-protected)", () => {
   // -------------------------------------------------------------------------
 
   describe("GET /graph/internal/profile-account", () => {
+    // The endpoint requires the dedicated graph:resolve-account scope (S-M1
+    // pulse-onboarding), granted alongside graph:read as in the real
+    // pulse-api / cire-api registrations.
+    const RESOLVE_SCOPES = "graph:read,graph:resolve-account";
+
     it("returns the accountId that owns the profile", async () => {
-      const { token } = await setupArcService();
+      const { token } = await setupArcService("pulse-api", RESOLVE_SCOPES);
       const alice = await registerProfile("alice@example.com", "alice");
 
       const res = await app.handle(
@@ -453,7 +458,7 @@ describe("internal graph routes (ARC-protected)", () => {
     });
 
     it("returns 404 when profile does not exist", async () => {
-      const { token } = await setupArcService();
+      const { token } = await setupArcService("pulse-api", RESOLVE_SCOPES);
 
       const res = await app.handle(
         new Request("http://localhost/graph/internal/profile-account?profileId=usr_missing", {
@@ -468,6 +473,18 @@ describe("internal graph routes (ARC-protected)", () => {
     it("rejects missing ARC token with 401", async () => {
       const res = await app.handle(
         new Request("http://localhost/graph/internal/profile-account?profileId=usr_x"),
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it("rejects a token carrying only graph:read with 401 (S-M1 least privilege)", async () => {
+      const { token } = await setupArcService("pulse-api", "graph:read");
+      const alice = await registerProfile("alice@example.com", "alice");
+
+      const res = await app.handle(
+        new Request(`http://localhost/graph/internal/profile-account?profileId=${alice}`, {
+          headers: { Authorization: `ARC ${token}` },
+        }),
       );
       expect(res.status).toBe(401);
     });

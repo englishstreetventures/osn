@@ -1,5 +1,11 @@
 import type { Db } from "@osn/db/service";
-import { verifyArcToken, resolvePublicKey, type ArcTokenPayload } from "@shared/crypto";
+import {
+  metricArcTokenVerification,
+  resolvePublicKey,
+  verifyArcToken,
+  type ArcTokenPayload,
+} from "@shared/crypto";
+import type { ArcVerifyResult } from "@shared/observability/metrics";
 import type { Effect } from "effect";
 
 /**
@@ -83,6 +89,39 @@ function peekClaims(token: string): { kid: string; iss: string; scopes: string[]
  * @param expectedAudience - The service ID this token must be addressed to (e.g. "osn-api")
  * @param requiredScope - The scope the token must include (e.g. "graph:read")
  */
+/**
+ * Classifies a `resolvePublicKey` failure into a bounded `ArcVerifyResult`
+ * for the shared `arc.token.verification` counter (S-L1, mirrors the pulse
+ * receiver's S-L6 instrumentation). `issuerConfirmed` says whether the DB
+ * lookup matched the claimed (kid, iss) pair — only then is the peeked `iss`
+ * safe to use as a metric label (S-C2: before that it is attacker-controlled
+ * and must collapse to "unknown"; `safeIssuer` inside the recording helper is
+ * the second line of defence). Returns `null` for infra failures (DB query
+ * error) — those are not token verdicts and shouldn't skew the counter.
+ *
+ * The error arrives wrapped by the Effect runtime (FiberFailure), so we match
+ * on the stringified form rather than `.message`.
+ */
+function classifyResolveFailure(
+  err: unknown,
+): { result: ArcVerifyResult; issuerConfirmed: boolean } | null {
+  const text = `${String(err)} ${err instanceof Error ? err.message : ""}`.toLowerCase();
+  if (text.includes("not authorised for scope")) {
+    // Scope check runs only after the (kid, iss) row matched.
+    return { result: "scope_denied", issuerConfirmed: true };
+  }
+  if (text.includes("unknown or invalid key")) {
+    // Covers unknown kid AND revoked/expired rows (the WHERE clause folds
+    // them — indistinguishable without a schema change).
+    return { result: "unknown_issuer", issuerConfirmed: false };
+  }
+  if (text.includes("invalid public key")) {
+    return { result: "unknown_issuer", issuerConfirmed: true };
+  }
+  if (text.includes("failed to query")) return null; // infra, not a verdict
+  return { result: "unknown_issuer", issuerConfirmed: false };
+}
+
 export async function requireArc(
   authorization: string | undefined,
   set: { status?: number | string },
@@ -90,14 +129,21 @@ export async function requireArc(
   expectedAudience: string,
   requiredScope: string,
 ): Promise<ArcCaller | null> {
+  // S-L1: the early-exit branches below reject before `verifyArcToken` runs
+  // (which self-reports its own outcomes), so they record the shared
+  // `arc.token.verification` counter themselves — otherwise malformed /
+  // unknown-kid / registry-scope-denied failures are invisible on the ARC
+  // dashboard. Same rule the pulse receiver follows (see [[arc-tokens]]).
   const raw = extractArcToken(authorization);
   if (!raw) {
+    metricArcTokenVerification("unknown", "malformed");
     set.status = 401;
     return null;
   }
 
   const peeked = peekClaims(raw);
   if (!peeked) {
+    metricArcTokenVerification("unknown", "malformed");
     set.status = 401;
     return null;
   }
@@ -109,7 +155,19 @@ export async function requireArc(
     // base64 payload, verifyArcToken below will reject the signature —
     // so the DB scope check here is a fail-fast optimisation, not the
     // sole gate. The cryptographic verification below is authoritative.
-    const publicKey = await run(resolvePublicKey(peeked.kid, peeked.iss, peeked.scopes));
+    let publicKey: CryptoKey;
+    try {
+      publicKey = await run(resolvePublicKey(peeked.kid, peeked.iss, peeked.scopes));
+    } catch (err) {
+      const classified = classifyResolveFailure(err);
+      if (classified) {
+        metricArcTokenVerification(
+          classified.issuerConfirmed ? peeked.iss : "unknown",
+          classified.result,
+        );
+      }
+      throw err; // outer catch turns it into the uniform 401
+    }
 
     // Verify signature, audience, expiry, required scope, and issuer (X1).
     // We pass `peeked.iss` as the expected issuer: the key was resolved by the

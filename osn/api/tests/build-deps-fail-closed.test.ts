@@ -57,6 +57,42 @@ describe("loadJwtKeyPair non-local guard (S-H2)", () => {
   });
 });
 
+describe("loadJwtKeyPair sign-usage guard (S-M4)", () => {
+  it("throws when the PUBLIC JWK is pasted into the private slot", async () => {
+    await expect(
+      loadJwtKeyPair({ OSN_JWT_PRIVATE_KEY: pubB64, OSN_JWT_PUBLIC_KEY: pubB64 }),
+    ).rejects.toThrow(/does not import as a signing key/);
+  });
+
+  it("accepts a genuine private key", async () => {
+    const pair = await loadJwtKeyPair({
+      OSN_JWT_PRIVATE_KEY: privB64,
+      OSN_JWT_PUBLIC_KEY: pubB64,
+    });
+    expect(pair.ephemeral).toBeUndefined();
+    expect(pair.privateKey.usages).toContain("sign");
+  });
+});
+
+describe("buildAppDeps OSN_ORIGIN non-local guard (S-L5)", () => {
+  it("throws in non-local when OSN_ORIGIN is absent", async () => {
+    await expect(
+      buildAppDeps(
+        {
+          OSN_ENV: "production",
+          OSN_ISSUER_URL: "https://api.osn.test",
+          OSN_CORS_ORIGIN: "https://app.osn.test",
+          OSN_RP_ID: "osn.test",
+          OSN_JWT_PRIVATE_KEY: privB64,
+          OSN_JWT_PUBLIC_KEY: pubB64,
+          OSN_SESSION_IP_PEPPER: "x".repeat(32),
+        },
+        nonLocalParts(),
+      ),
+    ).rejects.toThrow(/OSN_ORIGIN must be set in non-local environments/);
+  });
+});
+
 describe("buildAppDeps session-IP-pepper non-local guard (S-M2)", () => {
   it("throws in non-local when OSN_SESSION_IP_PEPPER is absent", async () => {
     await expect(
@@ -130,6 +166,7 @@ describe("buildAll email fail-closed + degraded opt-in (non-local)", () => {
       DB: {} as Env["DB"],
       OSN_ISSUER_URL: "https://api.osn.test",
       OSN_CORS_ORIGIN: "https://app.osn.test",
+      OSN_ORIGIN: "https://app.osn.test",
       OSN_RP_ID: "osn.test",
       OSN_JWT_PRIVATE_KEY: privB64,
       OSN_JWT_PUBLIC_KEY: pubB64,

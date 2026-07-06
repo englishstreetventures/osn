@@ -9,7 +9,7 @@ related:
   - "[[database-environments]]"
   - "[[redis]]"
   - "[[email]]"
-last-reviewed: 2026-06-19
+last-reviewed: 2026-07-05
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -597,8 +597,28 @@ OSN account. It is **additive and opt-in**; skip this section for the minimal la
 - cire-api: `CIRE_API_ARC_PRIVATE_KEY` (ES256 JWK), `CIRE_API_ARC_KEY_ID`, `OSN_API_URL`
   (§3.2). All three absent ⇒ the linking POST simply answers 503 (`src/index.ts:78-85`).
 - osn-api: cire-api's matching ES256 **public** key registered in `service_accounts`
-  under serviceId `cire-api` with scope `graph:read`, so osn-api can verify cire's ARC
-  token on `GET /graph/internal/profile-account` (`services/osn-bridge.ts:19-29,59-90`).
+  under serviceId `cire-api` with scopes `graph:read,graph:resolve-account`, so osn-api
+  can verify cire's ARC token on `GET /graph/internal/profile-account`
+  (`services/osn-bridge.ts`). The `graph:resolve-account` scope is the dedicated gate
+  on that endpoint (S-M1 pulse-onboarding) — a `graph:read`-only registration gets 401
+  on account resolution. If cire-api was registered before this scope existed, re-run
+  §6.2 with the widened `allowedScopes` (the endpoint upserts).
+
+> ⚠ **Deploy order for the `graph:resolve-account` rollout (S-L2).** There is no
+> order that avoids a brief account-linking outage without the manual step: new
+> cire-api mints `graph:resolve-account` (old osn-api's registry rejects it), and new
+> osn-api rejects old cire-api's `graph:read` on `/profile-account`. CI auto-deploys
+> cire-api on merge while osn-api deploys are manual, so `POST /api/account/link`
+> **401s from merge time until BOTH steps below are done**:
+> 1. Deploy the osn-api Worker first (its widened `PERMITTED_SCOPES` is
+>    backwards-compatible for every route except `/profile-account`).
+> 2. Re-run §6.2 with `allowedScopes: "graph:read,graph:resolve-account"` (upsert).
+>
+> Likewise deploy osn-api **before** pulse-api in any environment — a new pulse-api
+> booting against an old osn-api gets 400 `Unknown scopes: graph:resolve-account`
+> from `/register-service`, which is fatal at boot in non-local envs. Impact is
+> availability-only (the linking endpoint is additive/opt-in; failure mode is
+> 401/503, never a bypass).
 
 ### 6.2 Register cire's ARC public key with osn-api
 
@@ -610,7 +630,7 @@ and the chosen `kid` as `CIRE_API_ARC_KEY_ID`, then register the **public** half
 curl -X POST "$OSN_ISSUER_URL/graph/internal/register-service" \
   -H "Authorization: Bearer $INTERNAL_SERVICE_SECRET" \
   -H "Content-Type: application/json" \
-  -d '{"serviceId":"cire-api","keyId":"<CIRE_API_ARC_KEY_ID>","publicKeyJwk":"<public JWK string>","allowedScopes":"graph:read"}'
+  -d '{"serviceId":"cire-api","keyId":"<CIRE_API_ARC_KEY_ID>","publicKeyJwk":"<public JWK string>","allowedScopes":"graph:read,graph:resolve-account"}'
 ```
 
 (`POST /graph/internal/register-service` returns 501 if `INTERNAL_SERVICE_SECRET` is

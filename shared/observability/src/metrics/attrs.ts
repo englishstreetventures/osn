@@ -33,6 +33,7 @@ export type ArcVerifyResult =
   | "expired"
   | "bad_signature"
   | "unknown_issuer"
+  | "revoked_key" // kid known but revoked (or its registration expired) — distinguishable from unknown_issuer on dashboards (S-L6)
   | "scope_denied"
   | "audience_mismatch"
   | "malformed";
@@ -60,9 +61,6 @@ export type ProfileCrudAction = "create" | "delete" | "set_default";
 
 /** Tables affected by cascade profile delete (P3). */
 export type ProfileDeleteCascadeTable = "connections" | "blocks" | "org_members";
-
-/** JWKS public key cache lookup outcomes. */
-export type JwksCacheResult = "hit" | "miss" | "refresh";
 
 /** Security events that trigger session invalidation (H1). */
 export type SecurityInvalidationTrigger =

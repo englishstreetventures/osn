@@ -53,4 +53,21 @@ describe("signArcToken (Worker-safe ARC signer)", () => {
       signArcToken(privateKey, { iss: "a", aud: "b", scope: "bad scope!", kid: "k" }),
     ).rejects.toBeInstanceOf(ArcTokenError);
   });
+
+  // Regression: hyphenated scopes are part of the deployed taxonomy
+  // (osn-api PERMITTED_SCOPES: step-up:verify, app-enrollment:write,
+  // graph:resolve-account). SCOPE_PATTERN once rejected `-`, which made
+  // every Flow B leave-app token mint throw at runtime.
+  it("accepts the hyphenated scopes in the deployed taxonomy (round-trip)", async () => {
+    const { privateKey, publicKey } = await generateArcKeyPair();
+    const scope = "step-up:verify,app-enrollment:write,graph:resolve-account";
+    const token = await signArcToken(privateKey, {
+      iss: "pulse-api",
+      aud: "osn-api",
+      scope,
+      kid: "kid-hyphen",
+    });
+    const payload = await verifyArcToken(token, publicKey, "osn-api", "app-enrollment:write");
+    expect(payload.scope).toBe(scope);
+  });
 });

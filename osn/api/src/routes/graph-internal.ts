@@ -16,6 +16,15 @@ import { createGraphService } from "../services/graph";
 
 const AUDIENCE = "osn-api";
 const SCOPE_GRAPH_READ = "graph:read";
+/**
+ * Dedicated scope for the profile → account resolution endpoint (S-M1
+ * pulse-onboarding). `profileId → accountId` dissolves the multi-account
+ * privacy invariant ([[identity-model]] §"Privacy Rules") if it leaks, so it
+ * must not ride along with the general-purpose `graph:read` grant — only
+ * services that genuinely key state by account (pulse-api onboarding,
+ * cire-api account linking) are granted it.
+ */
+const SCOPE_RESOLVE_ACCOUNT = "graph:resolve-account";
 /** Max profile IDs per batch request — stays well under SQLite's variable limit (999). */
 const MAX_BATCH_PROFILE_IDS = 200;
 /**
@@ -39,9 +48,13 @@ const MAX_SEARCH_LIMIT = 10;
  * Flow B leave-app callbacks: Pulse validates a user's step-up token via
  * `/internal/step-up/verify` and reports the leave via
  * `/internal/app-enrollment/leave`.
+ *
+ * `graph:resolve-account` — gates `/graph/internal/profile-account` only
+ * (see SCOPE_RESOLVE_ACCOUNT above). Granted to pulse-api + cire-api.
  */
 const PERMITTED_SCOPES = new Set([
   "graph:read",
+  "graph:resolve-account",
   "account:erase",
   "step-up:verify",
   "app-enrollment:write",
@@ -396,6 +409,13 @@ export function createInternalGraphRoutes(
       // Privacy note: accountId is intentionally absent from access-token
       // claims and user-facing responses (see osn/api/tests/privacy.test.ts).
       // It is only ever exchanged S2S over ARC, never to clients.
+      //
+      // S-M1 (pulse-onboarding): gated by the dedicated
+      // `graph:resolve-account` scope, NOT the general `graph:read` — a
+      // generic graph consumer must not be able to enumerate
+      // profileId → accountId and dissolve the multi-account privacy
+      // invariant. Grant the scope only to services that key state by
+      // account (pulse-api, cire-api).
       // -----------------------------------------------------------------------
       .get(
         "/profile-account",
@@ -405,7 +425,7 @@ export function createInternalGraphRoutes(
             set,
             run,
             AUDIENCE,
-            SCOPE_GRAPH_READ,
+            SCOPE_RESOLVE_ACCOUNT,
           );
           if (!caller) return { error: "Unauthorized" };
 

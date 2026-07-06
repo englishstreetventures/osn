@@ -24,6 +24,7 @@ import {
   metricEventUpdated,
   metricEventValidationFailure,
   metricEventsListed,
+  withEventCreateDuration,
 } from "../metrics";
 import {
   getCloseFriendIdsForViewer,
@@ -613,7 +614,7 @@ export const createEvent = (
     const result = yield* applyTransition(inserted[0]!);
     metricEventCreated(result.category, result.endTime !== null);
     return result;
-  }).pipe(Effect.withSpan("events.create"));
+  }).pipe(withEventCreateDuration, Effect.withSpan("events.create"));
 
 export const updateEvent = (
   id: string,

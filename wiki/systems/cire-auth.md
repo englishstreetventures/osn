@@ -9,7 +9,7 @@ related:
   - "[[data-map]]"
   - "[[access-control]]"
   - "[[arc-tokens]]"
-last-reviewed: 2026-07-04
+last-reviewed: 2026-07-05
 ---
 
 # Cire two-system auth
@@ -151,7 +151,7 @@ An invitee may **optionally** attach their seat to a real OSN/Pulse account so t
 | Table | `guest_account_links` (`@cire/db`) — **per invitee** (`guests` row), not per family |
 | Stored id | `osn_account_id` (account-level, so any of the user's OSN profiles can see the invitation) + `osn_profile_id` (audit). Opaque cross-DB references, no FK — same rule as `weddings.owner_osn_profile_id`. |
 
-**The bind.** `POST /api/account/link` carries `{ guestId }`. `sessionAuth()` proves the household (`familyId`); the `guestId` must belong to that family (else **403**). `osnAuth()` proves the OSN identity (`osnProfileId = sub`). The profile is resolved to its **account id** server-to-server over [[arc-tokens|ARC]] (`GET /graph/internal/profile-account`, `graph:read`) — account id is S2S-only and never returned to the client. The link row staples `guestId → osn_account_id`.
+**The bind.** `POST /api/account/link` carries `{ guestId }`. `sessionAuth()` proves the household (`familyId`); the `guestId` must belong to that family (else **403**). `osnAuth()` proves the OSN identity (`osnProfileId = sub`). The profile is resolved to its **account id** server-to-server over [[arc-tokens|ARC]] (`GET /graph/internal/profile-account`, dedicated `graph:resolve-account` scope — the endpoint rejects plain `graph:read` since S-M1 pulse-onboarding, 2026-07-05; cire-api's prod key registration must carry `graph:read,graph:resolve-account`, see [[production-deploy]] §6) — account id is S2S-only and never returned to the client. The link row staples `guestId → osn_account_id`.
 
 **Uniqueness.** One link per invitee (`guest_id` unique); one OSN account can't claim two seats in the same household (`(family_id, osn_account_id)` unique); the *same* account linking across different weddings is allowed (one person, many invitations). Conflicts → generic **409 `already_linked`** (no enumeration).
 

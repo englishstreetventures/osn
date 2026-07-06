@@ -19,7 +19,6 @@ import type {
   DeletionCompletedSource,
   DeletionPhase,
   EventStatus,
-  JwksCacheResult,
   Result,
 } from "@shared/observability/metrics";
 import { Effect } from "effect";
@@ -50,8 +49,6 @@ export const PULSE_METRICS = {
   eventAccessDenied: "pulse.events.access.denied",
   // Pulse user settings
   settingsUpdated: "pulse.settings.updated",
-  // JWKS public key cache
-  authJwksCacheLookups: "pulse.auth.jwks_cache.lookups",
   // Recurring event series
   seriesCreated: "pulse.series.created",
   seriesUpdated: "pulse.series.updated",
@@ -259,12 +256,6 @@ type EventAccessDeniedAttrs = {
 type SettingsUpdatedAttrs = {
   field: "attendance_visibility";
   result: Result;
-};
-
-// --- JWKS cache ---
-
-type JwksCacheLookupAttrs = {
-  result: JwksCacheResult;
 };
 
 // --- Recurring event series ---
@@ -658,17 +649,6 @@ export const metricEventAccessDenied = (
 export const metricSettingsUpdated = (field: "attendance_visibility", result: Result): void =>
   settingsUpdated.inc({ field, result });
 
-// --- JWKS cache ---
-
-const authJwksCacheLookups = createCounter<JwksCacheLookupAttrs>({
-  name: PULSE_METRICS.authJwksCacheLookups,
-  description: "JWKS public key cache lookups by result (hit/miss/refresh)",
-  unit: "{lookup}",
-});
-
-export const metricJwksCacheLookup = (result: JwksCacheResult): void =>
-  authJwksCacheLookups.inc({ result });
-
 // --- Series instruments ---
 
 const seriesCreated = createCounter<SeriesCreatedAttrs>({
@@ -1052,6 +1032,19 @@ const measureSecondsHelper =
         Effect.tapError(() => Effect.sync(() => onDuration((Date.now() - start) / 1_000, "error"))),
       );
     });
+
+/**
+ * Records `pulse.events.create.duration` around the event-create service
+ * effect. Validation failures land under result="error" alongside DB
+ * errors — the histogram answers "how slow is create", not "why did it
+ * fail" (the validation-failure counter covers that).
+ */
+export const withEventCreateDuration = <A, E, Ctx>(
+  effect: Effect.Effect<A, E, Ctx>,
+): Effect.Effect<A, E, Ctx> =>
+  effect.pipe(
+    measureSecondsHelper((seconds, outcome) => metricEventCreateDuration(seconds, outcome)),
+  );
 
 export const withPulseAccountDeletion =
   (phase: DeletionPhase) =>

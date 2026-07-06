@@ -65,6 +65,14 @@ export async function loadJwtKeyPair(env: EnvRecord) {
 
   if (rawPriv && rawPub) {
     const privateKey = await importKeyFromJwk(JSON.parse(atob(rawPriv)) as Record<string, unknown>);
+    // S-M4: a JWK without the private scalar (e.g. the PUBLIC key pasted into
+    // the private slot) imports fine but with verify-only usages — every token
+    // mint would then fail at request time. Catch the misconfiguration at boot.
+    if (!privateKey.usages.includes("sign")) {
+      throw new Error(
+        'OSN_JWT_PRIVATE_KEY does not import as a signing key (missing "sign" usage — is it the public JWK?)',
+      );
+    }
     const publicKey = await importKeyFromJwk(JSON.parse(atob(rawPub)) as Record<string, unknown>);
     const kid = await thumbprintKid(publicKey);
     const jwtPublicKeyJwk = (await exportJWK(publicKey)) as Record<string, unknown>;
@@ -201,6 +209,15 @@ export async function buildAppDeps(env: EnvRecord, parts: BuildParts): Promise<B
   // Non-local always sets OSN_ISSUER_URL explicitly, so the localhost default
   // only ever applies to local dev (Bun :4000 / `wrangler dev` :8787).
   const issuerUrl = env.OSN_ISSUER_URL || "http://localhost:4000";
+
+  // S-L5: mirror the CORS boot assertion (`assertCorsOriginsConfigured`) for
+  // the WebAuthn origin. A non-local deploy that forgets OSN_ORIGIN would
+  // otherwise silently fall back to the localhost dev origin below and every
+  // real passkey ceremony would fail closed — login broken, no boot-time
+  // signal. Fail loudly at startup instead.
+  if (envNonLocal && !env.OSN_ORIGIN) {
+    throw new Error("OSN_ORIGIN must be set in non-local environments (WebAuthn origin allowlist)");
+  }
 
   const authConfig = {
     rpId: env.OSN_RP_ID || "localhost",

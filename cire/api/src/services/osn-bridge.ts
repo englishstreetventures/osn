@@ -19,14 +19,21 @@ import { instrumentedFetch } from "@shared/observability/fetch";
  * Key distribution: cire holds a stable ES256 private key (the
  * `CIRE_API_ARC_PRIVATE_KEY` wrangler secret); the matching public key is
  * pre-registered in osn-api's `service_accounts` table under serviceId
- * `cire-api` with the `graph:read` scope. Workers have no long-lived process,
- * so the ephemeral-key + startup self-registration + rotation dance that
- * pulse-api uses does not apply here — see `[[wiki/systems/cire-auth]]`.
+ * `cire-api` with the `graph:read,graph:resolve-account` scopes. Workers have
+ * no long-lived process, so the ephemeral-key + startup self-registration +
+ * rotation dance that pulse-api uses does not apply here — see
+ * `[[wiki/systems/cire-auth]]`.
  */
 
 const ARC_ISSUER = "cire-api";
 const ARC_AUDIENCE = "osn-api";
 const ARC_SCOPE = "graph:read";
+/**
+ * Dedicated scope for the profileId → accountId lookup — osn-api's
+ * `/graph/internal/profile-account` rejects plain `graph:read` (S-M1
+ * pulse-onboarding: least privilege on the multi-account privacy invariant).
+ */
+const ARC_RESOLVE_ACCOUNT_SCOPE = "graph:resolve-account";
 
 /** Outcome of resolving an OSN profile id to its owning account id. */
 export type OsnAccountResolution =
@@ -63,7 +70,7 @@ export function createArcAccountResolver(config: ArcResolverConfig): OsnAccountR
     const token = await signArcToken(config.arcPrivateKey, {
       iss: ARC_ISSUER,
       aud: ARC_AUDIENCE,
-      scope: ARC_SCOPE,
+      scope: ARC_RESOLVE_ACCOUNT_SCOPE,
       kid: config.arcKeyId,
     });
 

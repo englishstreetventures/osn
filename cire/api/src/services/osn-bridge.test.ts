@@ -44,6 +44,15 @@ describe("createArcAccountResolver", () => {
     // ARC scheme (not Bearer) with a JWT payload.
     expect(seen?.auth?.startsWith("ARC ")).toBe(true);
     expect(seen?.auth?.split(".")).toHaveLength(3);
+    // T-U1: the token must claim the DEDICATED resolve scope — osn-api's
+    // /profile-account rejects plain graph:read (S-M1 pulse-onboarding). A
+    // silent regression here would only surface as production 401s, because
+    // cire's key is manually pre-registered.
+    const payloadSegment = seen!.auth!.slice("ARC ".length).split(".")[1]!;
+    const payload = JSON.parse(Buffer.from(payloadSegment, "base64url").toString("utf8")) as {
+      scope?: string;
+    };
+    expect(payload.scope).toBe("graph:resolve-account");
   });
 
   it("returns profile_not_found on a 404", async () => {

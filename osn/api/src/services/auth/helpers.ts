@@ -151,8 +151,11 @@ export function sessionHandleFromHash(sessionHash: string): string {
   return sessionHash.slice(0, 16);
 }
 
+// Copenhagen Book M3: cap length at 255 (the practical RFC 5321 mailbox
+// ceiling) BEFORE the regex runs — rejects absurd payloads outright and
+// keeps the stored `accounts.email` column bounded.
 export const EmailSchema = Schema.String.pipe(
-  Schema.filter((s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s), {
+  Schema.filter((s) => s.length <= 255 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s), {
     message: () => "Invalid email",
   }),
 );

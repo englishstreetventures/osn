@@ -108,6 +108,24 @@ describe("registerProfile", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  // Copenhagen Book M3: emails longer than 255 chars are rejected even when
+  // they match the format regex.
+  it.effect("fails with an email longer than 255 characters", () =>
+    Effect.gen(function* () {
+      const tooLong = `${"a".repeat(244)}@example.com`; // 256 chars total
+      const error = yield* Effect.flip(auth.registerProfile(tooLong, "myhandle"));
+      expect(error._tag).toBe("ValidationError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("accepts an email of exactly 255 characters", () =>
+    Effect.gen(function* () {
+      const atLimit = `${"a".repeat(243)}@example.com`; // 255 chars total
+      const user = yield* auth.registerProfile(atLimit, "limithandle");
+      expect(user.handle).toBe("limithandle");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
   it.effect("fails with invalid handle format (uppercase)", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(auth.registerProfile("eve@example.com", "Eve"));

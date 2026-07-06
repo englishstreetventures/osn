@@ -101,8 +101,17 @@ export async function importKeyFromJwk(jwk: string | Record<string, unknown>): P
 /** Default ARC token TTL — 5 minutes. */
 export const ARC_DEFAULT_TTL_SECONDS = 300;
 
-/** Scopes are lowercase identifiers with `:` / `_` separators (e.g. `graph:read`). */
-const SCOPE_PATTERN = /^[a-z0-9_:]+$/;
+/**
+ * Scopes are lowercase identifiers with `:` / `_` / `-` separators
+ * (e.g. `graph:read`, `step-up:verify`, `app-enrollment:write`).
+ *
+ * The hyphen matters: the deployed scope taxonomy (osn-api
+ * `PERMITTED_SCOPES`) contains hyphenated scopes, and until 2026-07 this
+ * pattern rejected them — every Flow B leave-app token mint
+ * (`pulse/api/src/lib/osn-bridge.ts`) threw `Invalid scope format` at
+ * runtime. Regression-tested in `tests/jwk-sign.test.ts`.
+ */
+const SCOPE_PATTERN = /^[a-z0-9_:-]+$/;
 
 export interface ArcTokenClaims {
   readonly iss: string;

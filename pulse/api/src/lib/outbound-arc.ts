@@ -4,17 +4,27 @@ import { instrumentedFetch } from "@shared/observability";
 /**
  * Pulse-api outbound ARC issuer for the leave-app flow.
  *
- * graphBridge.ts already registers a key with `graph:read` scope. We use a
- * SEPARATE key here registered with the leave-app scopes
- * (`step-up:verify`, `app-enrollment:write`) so a graph-bridge key
- * compromise can't be replayed at the more sensitive enrolment surface.
+ * A SEPARATE key from graphBridge's so the two surfaces don't share signing
+ * material. ⚠ Note this does NOT (yet) buy scope isolation between the keys:
+ * osn-api authorises scopes per SERVICE (`service_accounts.allowedScopes`,
+ * upsert = full replace), not per key, so both pulse-api registrations must
+ * carry the identical scope union or they clobber each other on every boot
+ * race / rotation (S-H1, prep-pr review 2026-07-05). Keep `ALLOWED_SCOPES`
+ * in lockstep with `services/graphBridge.ts` `REGISTERED_SCOPES`. Per-key
+ * scope storage (restoring the key-compromise blast-radius separation this
+ * file originally claimed) is tracked in wiki/TODO.md.
+ *
+ * Tokens minted here still carry only the minimal per-call scope
+ * (`arcAuthHeader(audience, scope)`).
  *
  * Key shape mirrors graphBridge so the rotation lifecycle is uniform.
  */
 
 const OSN_API_URL = process.env.OSN_API_URL ?? "http://localhost:4000";
 const KEY_TTL_MS = parseFloat(process.env.PULSE_LEAVE_ARC_KEY_TTL_HOURS ?? "24") * 3_600 * 1_000;
-const ALLOWED_SCOPES = "step-up:verify,app-enrollment:write";
+// Full pulse-api scope union — see the header comment (must equal
+// graphBridge's REGISTERED_SCOPES).
+const ALLOWED_SCOPES = "graph:read,graph:resolve-account,step-up:verify,app-enrollment:write";
 
 interface KeyInit {
   privateKey: CryptoKey;
