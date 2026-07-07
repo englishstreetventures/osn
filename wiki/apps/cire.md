@@ -132,7 +132,8 @@ Longer term, the ambition is to grow the organiser portal into a full wedding
 **management platform** (withjoy-class), starting with a gift **registry** and
 extending to budget / vendors / seating / timeline. The multi-tenant `weddings`
 root means this is a product build-out, not a migration. Tracked under the Cire +
-Landing sections of `wiki/TODO.md`.
+Landing sections of `wiki/TODO.md`. For how we position against Withjoy and where
+the revenue comes from, see [[cire-business-model]].
 
 ## Future integrations
 
