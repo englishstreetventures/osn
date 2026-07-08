@@ -167,6 +167,45 @@ export const HandleSchema = Schema.String.pipe(
 );
 
 /**
+ * Registration birthdate (C-H8). Accepts a strict `YYYY-MM-DD` calendar date
+ * that round-trips (rejecting non-dates like `2021-02-30`) and is not in the
+ * future. This is a FORMAT gate only — the under-13 age check is applied
+ * separately in `beginRegistration` so a valid-but-too-young date returns the
+ * COPPA-specific 422 rather than a generic 400. The value is never persisted.
+ * See [[compliance/coppa]].
+ */
+export const BirthdateSchema = Schema.String.pipe(
+  Schema.filter(
+    (s) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+      const d = new Date(`${s}T00:00:00.000Z`);
+      if (Number.isNaN(d.getTime())) return false;
+      // Reject dates that don't round-trip (e.g. 2021-02-30 → 2021-03-02).
+      if (d.toISOString().slice(0, 10) !== s) return false;
+      // A birthdate in the future is nonsensical.
+      return d.getTime() <= Date.now();
+    },
+    { message: () => "Invalid birthdate" },
+  ),
+);
+
+/**
+ * Whole years elapsed from a `YYYY-MM-DD` birthdate to `at` (UTC), the way a
+ * person counts their age: the birthday must have already passed this year.
+ * Used only for the C-H8 registration gate; the input is expected to have
+ * already passed `BirthdateSchema`.
+ */
+export function ageInYears(birthdate: string, at: Date = new Date()): number {
+  const b = new Date(`${birthdate}T00:00:00.000Z`);
+  let age = at.getUTCFullYear() - b.getUTCFullYear();
+  const monthDelta = at.getUTCMonth() - b.getUTCMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && at.getUTCDate() < b.getUTCDate())) {
+    age -= 1;
+  }
+  return age;
+}
+
+/**
  * User-chosen free-text nickname for a passkey. Trimmed client-side and here;
  * upper-bounded at 64 chars so a stored label fits inside any reasonable
  * settings-row display without having to `LIKE …%` truncate at read time.

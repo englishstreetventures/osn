@@ -1,9 +1,12 @@
+import { eventRsvps } from "@pulse/db/schema";
+import { Db } from "@pulse/db/service";
 import { exportKeyToJwk, generateArcKeyPair, signArcToken } from "@shared/crypto/jwk";
+import { Effect } from "effect";
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 
 import { _resetServiceKeysForTests } from "../../src/lib/arc-middleware";
 import { createInternalRoutes } from "../../src/routes/internal";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, seedCloseFriend, seedEvent } from "../helpers/db";
 
 /**
  * Route-level coverage for the `/internal` group (T-R1): the shared-secret
@@ -150,5 +153,133 @@ describe("internal routes — ARC-gated account-deleted purge", () => {
     );
     // requireArc reports every failure as an opaque 401 (no scope oracle).
     expect(res.status).toBe(401);
+  });
+});
+
+const seedRsvp = (
+  eventId: string,
+  profileId: string,
+  extra: { status?: "going" | "maybe" | "not_going" | "invited"; shareSourceFirst?: string } = {},
+): Effect.Effect<void, never, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    yield* Effect.promise(() =>
+      db.insert(eventRsvps).values({
+        id: "rsvp_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+        eventId,
+        profileId,
+        status: extra.status ?? "going",
+        shareSourceFirst: extra.shareSourceFirst ?? null,
+        createdAt: new Date(),
+      }),
+    );
+  });
+
+describe("internal routes — ARC-gated account-export", () => {
+  async function registerExportKey(app: ReturnType<typeof createInternalRoutes>) {
+    const reg = await post(
+      app,
+      "/internal/register-service",
+      { ...registerBody(), allowedScopes: "account:export" },
+      `Bearer ${SECRET}`,
+    );
+    expect(reg.status).toBe(200);
+  }
+
+  function exportToken(scope: string) {
+    return signArcToken(privateKey, { iss: "osn-api", aud: "pulse-api", scope, kid: KID });
+  }
+
+  it("returns 401 without an ARC token", async () => {
+    const res = await post(createInternalRoutes(createTestLayer()), "/internal/account-export", {
+      account_id: "acc_x",
+      profile_ids: ["usr_x"],
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects an ARC token with the wrong scope", async () => {
+    const app = createInternalRoutes(createTestLayer());
+    await post(
+      app,
+      "/internal/register-service",
+      { ...registerBody(), allowedScopes: "account:erase" },
+      `Bearer ${SECRET}`,
+    );
+    const arc = await exportToken("account:erase");
+    const res = await post(
+      app,
+      "/internal/account-export",
+      { account_id: "acc_x", profile_ids: ["usr_x"] },
+      `ARC ${arc}`,
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("streams NDJSON lines for seeded rsvps / events / close-friends", async () => {
+    const layer = createTestLayer();
+    const app = createInternalRoutes(layer);
+    await registerExportKey(app);
+
+    const event = await Effect.runPromise(
+      seedEvent({
+        title: "Rooftop Session",
+        startTime: "2030-06-01T10:00:00.000Z",
+        createdByProfileId: "usr_export",
+      }).pipe(Effect.provide(layer)),
+    );
+    await Effect.runPromise(
+      seedRsvp(event.id, "usr_export", { shareSourceFirst: "instagram" }).pipe(
+        Effect.provide(layer),
+      ),
+    );
+    await Effect.runPromise(
+      seedCloseFriend("usr_export", "usr_friend").pipe(Effect.provide(layer)),
+    );
+
+    const arc = await exportToken("account:export");
+    const res = await post(
+      app,
+      "/internal/account-export",
+      { account_id: "acc_export", profile_ids: ["usr_export"] },
+      `ARC ${arc}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/x-ndjson");
+
+    const text = await res.text();
+    const lines = text
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
+    const sections = lines.map((l) => l.section);
+    expect(sections).toContain("pulse.rsvps");
+    expect(sections).toContain("pulse.events_hosted");
+    expect(sections).toContain("pulse.close_friends");
+
+    const rsvp = lines.find((l) => l.section === "pulse.rsvps");
+    expect(rsvp.record.eventId).toBe(event.id);
+    expect(rsvp.record.shareSourceFirst).toBe("instagram");
+
+    const hosted = lines.find((l) => l.section === "pulse.events_hosted");
+    expect(hosted.record.id).toBe(event.id);
+    expect(hosted.record.title).toBe("Rooftop Session");
+
+    const cf = lines.find((l) => l.section === "pulse.close_friends");
+    expect(cf.record.friendId).toBe("usr_friend");
+  });
+
+  it("returns 200 with an empty body when profile_ids is empty", async () => {
+    const app = createInternalRoutes(createTestLayer());
+    await registerExportKey(app);
+    const arc = await exportToken("account:export");
+    const res = await post(
+      app,
+      "/internal/account-export",
+      { account_id: "acc_none", profile_ids: [] },
+      `ARC ${arc}`,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("");
   });
 });

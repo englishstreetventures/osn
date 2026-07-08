@@ -10,6 +10,7 @@ import {
   createDefaultZapRateLimiters,
   type ZapRateLimiters,
 } from "./routes/chats";
+import { createInternalRoutes } from "./routes/internal";
 
 export const SERVICE_NAME = "zap-api";
 
@@ -63,6 +64,7 @@ export function createApp(options: AppOptions = {}) {
       .use(healthRoutes({ serviceName: SERVICE_NAME }))
       .get("/", () => ({ status: "ok", service: SERVICE_NAME }))
       .use(createChatsRoutes(dbLayer, jwksUrl, undefined, rateLimiters))
+      .use(createInternalRoutes(dbLayer))
   );
 }
 

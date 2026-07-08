@@ -6,7 +6,7 @@ related:
   - "[[scope-matrix]]"
   - "[[identity-model]]"
   - "[[cire]]"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-07-07
 ---
 
 # COPPA
@@ -57,7 +57,7 @@ not because it needs work today. See [[data-map]] (cire section) and [[cire]].
 
 Tracked with `C-` IDs:
 
-1. **Date-of-birth field on registration** — TypeBox `birthdate: Date` schema; validate ≥13 years before today; reject before email OTP send. ID: **C-H8**.
+1. **Date-of-birth field on registration** — TypeBox `birthdate: Date` schema; validate ≥13 years before today; reject before email OTP send. ID: **C-H8**. ✅ **Shipped (2026-07-07).** `/register/begin` now requires `birthdate` (`YYYY-MM-DD`); `beginRegistration` validates format (`BirthdateSchema`) then hard-rejects under-13 via `AgeRestrictionError` → HTTP 422 `{ error: "age_restricted", message: "OSN is for users 13 and older" }`, **before** any collision probe or OTP send. The birthdate is a transient function argument — never written to any store or table (no rejected/accepted DOB retained). Client mirrors the gate for UX (`osn/ui` `Register.tsx`); server is authoritative. The legacy test/seed-only `registerProfile` is unrouted and intentionally ungated.
 2. **"Under-13 detected" account-deletion runbook** — when support discovers a minor account, immediate delete + parent notification. ID: **C-M13**.
 3. **Annual COPPA self-assessment** — short doc, 30 minutes, confirms the design has not drifted toward a child audience. ID: **C-L11**.
 

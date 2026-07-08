@@ -183,7 +183,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("happy path: begin → complete creates user and returns session", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("verify@example.com", "verifyme", "Verify Me");
+      yield* svc.beginRegistration("verify@example.com", "verifyme", "1990-01-01", "Verify Me");
       expect(captured.code).toMatch(/^\d{6}$/);
 
       const result = yield* svc.completeRegistration("verify@example.com", captured.code!);
@@ -205,7 +205,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("S-H3: email is normalised to lowercase across the pipeline", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("MixedCase@Example.com", "mixedcase");
+      yield* svc.beginRegistration("MixedCase@Example.com", "mixedcase", "1990-01-01");
       // The OTP is captured from the email body which is sent to the
       // lowercased address; complete must also accept the lowercased form.
       const result = yield* svc.completeRegistration("MixedCase@Example.com", captured.code!);
@@ -220,7 +220,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("does not create the user before the OTP is verified", () => {
     const { svc, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("pending@example.com", "pendinguser");
+      yield* svc.beginRegistration("pending@example.com", "pendinguser", "1990-01-01");
 
       // No DB row yet.
       const found = yield* svc.findProfileByEmail("pending@example.com");
@@ -234,7 +234,9 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("rejects begin with ValidationError on bad email", () => {
     const { svc, layer } = makeAuth();
     return Effect.gen(function* () {
-      const error = yield* Effect.flip(svc.beginRegistration("not-an-email", "okhandle"));
+      const error = yield* Effect.flip(
+        svc.beginRegistration("not-an-email", "okhandle", "1990-01-01"),
+      );
       expect(error._tag).toBe("ValidationError");
     }).pipe(Effect.provide(layer));
   });
@@ -242,7 +244,9 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("rejects begin with ValidationError on bad handle format", () => {
     const { svc, layer } = makeAuth();
     return Effect.gen(function* () {
-      const error = yield* Effect.flip(svc.beginRegistration("ok@example.com", "Bad Handle!"));
+      const error = yield* Effect.flip(
+        svc.beginRegistration("ok@example.com", "Bad Handle!", "1990-01-01"),
+      );
       expect(error._tag).toBe("ValidationError");
     }).pipe(Effect.provide(layer));
   });
@@ -250,9 +254,68 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("rejects begin with AuthError on a reserved handle", () => {
     const { svc, layer } = makeAuth();
     return Effect.gen(function* () {
-      const error = yield* Effect.flip(svc.beginRegistration("ok@example.com", "admin"));
+      const error = yield* Effect.flip(
+        svc.beginRegistration("ok@example.com", "admin", "1990-01-01"),
+      );
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("reserved");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("C-H8: begin rejects an under-13 birthdate with AgeRestrictionError", () => {
+    const { svc, captured, layer } = makeAuth();
+    return Effect.gen(function* () {
+      // Ten years ago today — comfortably under 13.
+      const tenYearsAgo = new Date();
+      tenYearsAgo.setUTCFullYear(tenYearsAgo.getUTCFullYear() - 10);
+      const dob = tenYearsAgo.toISOString().slice(0, 10);
+      const error = yield* Effect.flip(
+        svc.beginRegistration("child@example.com", "childuser", dob),
+      );
+      expect(error._tag).toBe("AgeRestrictionError");
+      // No OTP is sent and no personal information is collected.
+      expect(captured.code).toBeUndefined();
+      const found = yield* svc.findProfileByEmail("child@example.com");
+      expect(found).toBeNull();
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("C-H8: begin accepts a birthdate exactly on the 13th birthday", () => {
+    const { svc, captured, layer } = makeAuth();
+    return Effect.gen(function* () {
+      const thirteenToday = new Date();
+      thirteenToday.setUTCFullYear(thirteenToday.getUTCFullYear() - 13);
+      const dob = thirteenToday.toISOString().slice(0, 10);
+      const result = yield* svc.beginRegistration("teen@example.com", "teenuser", dob);
+      expect(result.sent).toBe(true);
+      expect(captured.code).toMatch(/^\d{6}$/);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("C-H8: rejects when the 13th birthday has not yet occurred this year", () => {
+    const { svc, captured, layer } = makeAuth();
+    return Effect.gen(function* () {
+      // Born ~13 years ago but the birthday is still ~2 days away ⇒ age 12.
+      // Exercises the `monthDelta < 0 || day-not-reached` branch of ageInYears.
+      const d = new Date();
+      d.setUTCFullYear(d.getUTCFullYear() - 13);
+      d.setUTCDate(d.getUTCDate() + 2);
+      const dob = d.toISOString().slice(0, 10);
+      const error = yield* Effect.flip(
+        svc.beginRegistration("almost13@example.com", "almost13", dob),
+      );
+      expect(error._tag).toBe("AgeRestrictionError");
+      expect(captured.code).toBeUndefined();
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("C-H8: begin rejects a malformed birthdate with ValidationError", () => {
+    const { svc, layer } = makeAuth();
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        svc.beginRegistration("bad@example.com", "baddob", "2021-02-30"),
+      );
+      expect(error._tag).toBe("ValidationError");
     }).pipe(Effect.provide(layer));
   });
 
@@ -262,7 +325,7 @@ describe("beginRegistration + completeRegistration", () => {
       yield* svc.registerProfile("taken@example.com", "takenuser");
       // No throw — and crucially, no email sent (otherwise enumeration is
       // possible via timing or via observing outbound mail).
-      const result = yield* svc.beginRegistration("taken@example.com", "newhandle");
+      const result = yield* svc.beginRegistration("taken@example.com", "newhandle", "1990-01-01");
       expect(result.sent).toBe(true);
       expect(captured.code).toBeUndefined();
     }).pipe(Effect.provide(layer));
@@ -272,7 +335,7 @@ describe("beginRegistration + completeRegistration", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
       yield* svc.registerProfile("first@example.com", "duphandle");
-      const result = yield* svc.beginRegistration("second@example.com", "duphandle");
+      const result = yield* svc.beginRegistration("second@example.com", "duphandle", "1990-01-01");
       expect(result.sent).toBe(true);
       expect(captured.code).toBeUndefined();
     }).pipe(Effect.provide(layer));
@@ -281,12 +344,12 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("S-M2: begin refuses to overwrite a non-expired pending entry", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("dup@example.com", "dupuser");
+      yield* svc.beginRegistration("dup@example.com", "dupuser", "1990-01-01");
       const firstCode = captured.code;
       captured.reset();
       // Second call within the TTL should not send another email and should
       // not change the stored OTP.
-      yield* svc.beginRegistration("dup@example.com", "differenthandle");
+      yield* svc.beginRegistration("dup@example.com", "differenthandle", "1990-01-01");
       expect(captured.code).toBeUndefined();
       // The original code must still verify.
       const result = yield* svc.completeRegistration("dup@example.com", firstCode!);
@@ -297,7 +360,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("complete fails with AuthError when the OTP is wrong", () => {
     const { svc, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("wrong@example.com", "wronguser");
+      yield* svc.beginRegistration("wrong@example.com", "wronguser", "1990-01-01");
       const error = yield* Effect.flip(svc.completeRegistration("wrong@example.com", "000000"));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Invalid or expired code");
@@ -318,7 +381,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("complete is single-use: a replayed code fails", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("replay@example.com", "replayuser");
+      yield* svc.beginRegistration("replay@example.com", "replayuser", "1990-01-01");
       yield* svc.completeRegistration("replay@example.com", captured.code!);
 
       // Second call with the same code must fail — pending entry was deleted.
@@ -332,7 +395,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("S-H1: brute-force is capped — pending entry is wiped after 5 wrong guesses", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("brute@example.com", "bruteuser");
+      yield* svc.beginRegistration("brute@example.com", "bruteuser", "1990-01-01");
       // 5 wrong guesses
       for (let i = 0; i < 5; i++) {
         const err = yield* Effect.flip(svc.completeRegistration("brute@example.com", "000000"));
@@ -348,7 +411,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("S-H4: a TOCTOU loss against the legacy /register doesn't burn the OTP", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("toctou@example.com", "toctouuser");
+      yield* svc.beginRegistration("toctou@example.com", "toctouuser", "1990-01-01");
       // Simulate someone winning the race via the legacy registerProfile path.
       yield* svc.registerProfile("toctou@example.com", "toctouuser");
       // Our complete fails (handle/email taken) but the pending entry must
@@ -371,7 +434,9 @@ describe("beginRegistration + completeRegistration", () => {
       });
       const layer = Layer.merge(createTestLayer(), failingEmailLayer);
       return Effect.gen(function* () {
-        const err = yield* Effect.flip(auth.beginRegistration("fail@example.com", "failmail"));
+        const err = yield* Effect.flip(
+          auth.beginRegistration("fail@example.com", "failmail", "1990-01-01"),
+        );
         expect(err._tag).toBe("AuthError");
         expect(err.message).toContain("dispatch_failed");
       }).pipe(Effect.provide(layer));
@@ -786,7 +851,7 @@ describe("LogEmailLive local-mode behaviour", () => {
     const { captured: logLines, loggerLayer } = captureLogs();
     return Effect.gen(function* () {
       yield* svc
-        .beginRegistration("dev@example.com", "devuser", "Dev User")
+        .beginRegistration("dev@example.com", "devuser", "1990-01-01", "Dev User")
         .pipe(Effect.provide(loggerLayer), Logger.withMinimumLogLevel(LogLevel.Debug));
 
       // Log line: template + subject + to, no OTP code.

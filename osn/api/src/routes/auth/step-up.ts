@@ -89,6 +89,7 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             purpose: t.Optional(
               t.Union([
                 t.Literal("account_delete"),
+                t.Literal("account_export"),
                 t.Literal("pulse_app_delete"),
                 t.Literal("zap_app_delete"),
                 t.Literal("recovery_generate"),
@@ -174,6 +175,7 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             purpose: t.Optional(
               t.Union([
                 t.Literal("account_delete"),
+                t.Literal("account_export"),
                 t.Literal("pulse_app_delete"),
                 t.Literal("zap_app_delete"),
                 t.Literal("recovery_generate"),

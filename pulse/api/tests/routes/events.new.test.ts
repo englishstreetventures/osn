@@ -3,7 +3,8 @@ import { Effect } from "effect";
 import { SignJWT } from "jose";
 import { describe, it, expect, beforeEach, beforeAll, vi } from "vitest";
 
-import { createEventsRoutes, createSettingsRoutes } from "../../src/routes/events";
+import { createEventsRoutes } from "../../src/routes/events";
+import { createSettingsRoutes } from "../../src/routes/settings";
 import type { ProfileDisplay } from "../../src/services/graphBridge";
 import { createTestLayer } from "../helpers/db";
 

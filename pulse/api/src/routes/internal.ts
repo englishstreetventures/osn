@@ -10,9 +10,11 @@ import {
   revokeServiceKey,
 } from "../lib/arc-middleware";
 import * as accountErasure from "../services/accountErasure";
+import * as accountExport from "../services/accountExport";
 
 const AUDIENCE = "pulse-api";
 const SCOPE_ACCOUNT_ERASE = "account:erase";
+const SCOPE_ACCOUNT_EXPORT = "account:export";
 
 function isTimingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -141,6 +143,51 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<Db> = DbLive) => {
           body: t.Object({
             accountId: t.String({ minLength: 1 }),
             profileIds: t.Array(t.String({ minLength: 1 }), { maxItems: 50 }),
+          }),
+        },
+      )
+      // ------------------------------------------------------------------
+      // ARC-gated `/internal/account-export` — called by osn-api when
+      // fanning out a DSAR (Art.15) export. Returns this account's
+      // Pulse-scoped data as NDJSON (one `{ section, record }` object per
+      // line). osn-api streams these through its own export envelope, so no
+      // header/terminator lines are emitted here.
+      // ------------------------------------------------------------------
+      .post(
+        "/account-export",
+        async ({ body, headers, set }) => {
+          const caller = await requireArc(
+            headers.authorization,
+            set,
+            AUDIENCE,
+            SCOPE_ACCOUNT_EXPORT,
+          );
+          if (!caller) return { error: "Unauthorized" };
+          try {
+            const lines = await runtime.runPromise(
+              accountExport.collectExport(body.profile_ids) as Effect.Effect<
+                accountExport.ExportLine[],
+                accountExport.PulseExportDbError,
+                Db
+              >,
+            );
+            const text = lines.map((line) => JSON.stringify(line)).join("\n");
+            // Buffered NDJSON: each line ends in "\n" (including the last),
+            // and an empty export yields an empty body (osn-api adds the
+            // terminator).
+            const responseBody = text.length > 0 ? text + "\n" : "";
+            return new Response(responseBody, {
+              headers: { "content-type": "application/x-ndjson" },
+            });
+          } catch {
+            set.status = 500;
+            return { error: "internal_error" };
+          }
+        },
+        {
+          body: t.Object({
+            account_id: t.String(),
+            profile_ids: t.Array(t.String()),
           }),
         },
       )

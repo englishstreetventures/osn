@@ -65,6 +65,7 @@ describe("createAuthRoutes — injected shared runtime", () => {
         body: JSON.stringify({
           email: "runtime-user@example.com",
           handle: "runtimeuser",
+          birthdate: "1990-01-01",
           displayName: "Runtime User",
         }),
       }),

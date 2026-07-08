@@ -191,5 +191,6 @@ export async function requireArc(
  */
 export const PERMITTED_INBOUND_SCOPES = new Set([
   "account:erase",
+  "account:export", // C-H1 DSAR export fan-out from osn-api
   "graph:read", // future-proofing for an osn-api fan-out that needs profile lookups
 ]);

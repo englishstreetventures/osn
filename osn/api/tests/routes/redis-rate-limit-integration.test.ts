@@ -59,6 +59,7 @@ describe("auth routes with Redis-backed rate limiters", () => {
           body: JSON.stringify({
             email: "test@example.com",
             handle: "testuser",
+            birthdate: "1990-01-01",
           }),
         }),
       );
@@ -115,7 +116,7 @@ describe("auth routes with Redis-backed rate limiters", () => {
             "Content-Type": "application/json",
             "X-Forwarded-For": "10.0.0.1",
           },
-          body: JSON.stringify({ email: "a@b.com", handle: "a" }),
+          body: JSON.stringify({ email: "a@b.com", handle: "a", birthdate: "1990-01-01" }),
         }),
       );
     }
@@ -128,7 +129,7 @@ describe("auth routes with Redis-backed rate limiters", () => {
           "Content-Type": "application/json",
           "X-Forwarded-For": "10.0.0.2",
         },
-        body: JSON.stringify({ email: "b@b.com", handle: "b" }),
+        body: JSON.stringify({ email: "b@b.com", handle: "b", birthdate: "1990-01-01" }),
       }),
     );
     expect(res.status).not.toBe(429);

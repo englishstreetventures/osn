@@ -444,6 +444,28 @@ export function createStepUpModule(ctx: AuthContext) {
     });
 
   /**
+   * Step-up verifier for `GET /account/export` (C-H1 — DSAR Art. 15 / 20
+   * data export). Reuses the recovery-AMR allowlist (passkey OR OTP), same
+   * rationale as account-delete: exporting is a sensitive read that must
+   * survive the user having lost their last passkey.
+   *
+   * Requires the token's `purpose` claim to be `"account_export"` so a token
+   * minted for delete (or any other ceremony) cannot be replayed to export.
+   */
+  const verifyStepUpForAccountExport = (
+    accountId: string,
+    stepUpToken: string,
+  ): Effect.Effect<void, AuthError> =>
+    Effect.gen(function* () {
+      yield* verifyStepUpToken(
+        stepUpToken,
+        accountId,
+        recoveryGenerateAllowedAmr,
+        "account_export",
+      );
+    });
+
+  /**
    * Cross-service step-up verifier — called by Pulse / Zap via the
    * ARC-gated `/internal/step-up/verify` endpoint. Requires a matching
    * {@link StepUpPurpose} so a token minted for one app cannot be
@@ -480,6 +502,7 @@ export function createStepUpModule(ctx: AuthContext) {
     verifyStepUpForPasskeyRegister,
     verifyStepUpForRecoveryGenerate,
     verifyStepUpForAccountDelete,
+    verifyStepUpForAccountExport,
     verifyStepUpForExternalPurpose,
   };
 }

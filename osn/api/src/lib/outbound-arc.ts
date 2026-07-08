@@ -15,6 +15,15 @@ import { Effect } from "effect";
  * Pulse uses to register with osn-api). Rotated automatically.
  */
 
+/**
+ * Comma-separated scopes osn-api registers with each downstream (Pulse + Zap)
+ * when it uploads its ARC public key. `account:erase` drives the C-H2 delete
+ * fan-out; `account:export` drives the C-H1 DSAR export fan-out. A downstream
+ * only accepts an inbound token whose scope is in the key's registered set, so
+ * both must be registered here for either fan-out to authenticate.
+ */
+const DOWNSTREAM_SCOPES = "account:erase,account:export";
+
 const KEY_TTL_MS = parseFloat(process.env.OSN_ARC_KEY_TTL_HOURS ?? "24") * 3_600 * 1_000;
 const KEY_ROTATION_BUFFER_MS =
   parseFloat(process.env.OSN_ARC_KEY_ROTATION_BUFFER_HOURS ?? "2") * 3_600 * 1_000;
@@ -83,6 +92,40 @@ export async function arcPostJson<T>(
       throw new Error(`outbound ARC POST ${url} returned ${res.status}`);
     }
     return (await res.json()) as T;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Like `arcPostJson` but returns the raw {@link Response} so the caller can
+ * stream the body (used by the DSAR export fan-out to pipe a downstream's
+ * NDJSON sub-bundle line-by-line into the outer envelope without buffering
+ * it). Throws on a non-2xx status. The abort timer bounds time-to-headers;
+ * the streaming body read is the caller's responsibility.
+ */
+export async function arcFetchStream(
+  url: string,
+  body: unknown,
+  options: { audience: string; scope: string; timeoutMs?: number },
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutMs = options.timeoutMs ?? 10_000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs).unref?.();
+  try {
+    const res = await instrumentedFetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: await arcAuthHeader(options.audience, options.scope),
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`outbound ARC POST ${url} returned ${res.status}`);
+    }
+    return res;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
@@ -174,8 +217,8 @@ export async function startOutboundKeyRotation(opts: {
   const osnEnv = opts.osnEnv ?? process.env.OSN_ENV;
   const internalServiceSecret = opts.internalServiceSecret ?? process.env.INTERNAL_SERVICE_SECRET;
   const services = [
-    { url: opts.pulseApiUrl, selfId: "osn-api" as const, scopes: "account:erase" },
-    { url: opts.zapApiUrl, selfId: "osn-api" as const, scopes: "account:erase" },
+    { url: opts.pulseApiUrl, selfId: "osn-api" as const, scopes: DOWNSTREAM_SCOPES },
+    { url: opts.zapApiUrl, selfId: "osn-api" as const, scopes: DOWNSTREAM_SCOPES },
   ].filter((s): s is { url: string; selfId: "osn-api"; scopes: string } => Boolean(s.url));
 
   for (const s of services) {
@@ -245,8 +288,8 @@ export async function registerOutboundKeysOnce(opts: {
   const osnEnv = opts.osnEnv ?? process.env.OSN_ENV;
   const internalServiceSecret = opts.internalServiceSecret ?? process.env.INTERNAL_SERVICE_SECRET;
   const services = [
-    { url: opts.pulseApiUrl, selfId: "osn-api" as const, scopes: "account:erase" },
-    { url: opts.zapApiUrl, selfId: "osn-api" as const, scopes: "account:erase" },
+    { url: opts.pulseApiUrl, selfId: "osn-api" as const, scopes: DOWNSTREAM_SCOPES },
+    { url: opts.zapApiUrl, selfId: "osn-api" as const, scopes: DOWNSTREAM_SCOPES },
   ].filter((s): s is { url: string; selfId: "osn-api"; scopes: string } => Boolean(s.url));
 
   if (services.length === 0) return false;

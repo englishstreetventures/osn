@@ -98,6 +98,8 @@ export const OSN_METRICS = {
   profileSwitchAttempts: "osn.auth.profile_switch.attempts",
   profileCrudOps: "osn.profile.crud.operations",
   profileCrudDuration: "osn.profile.crud.duration",
+  // C-H1 — account data export (DSAR Art. 15 / 20)
+  accountExportRequested: "osn.account.export.requested",
   // C-H2 — account deletion (Flow A)
   accountDeletionRequested: "osn.account.deletion.requested",
   accountDeletionCompleted: "osn.account.deletion.completed",
@@ -912,6 +914,14 @@ export const withCrossDeviceOp =
 // ---------------------------------------------------------------------------
 
 type DeletionRequestedAttrs = { result: DeletionRequestResult };
+/** Bounded outcome enum for the C-H1 export endpoint. */
+export type ExportRequestResult =
+  | "ok"
+  | "unauthorized"
+  | "step_up_failed"
+  | "rate_limited"
+  | "error";
+type ExportRequestedAttrs = { result: ExportRequestResult };
 type DeletionCompletedAttrs = {
   result: DeletionCompletedResult;
   source: DeletionCompletedSource;
@@ -967,6 +977,15 @@ const appEnrollmentLeft = createCounter<AppEnrollmentLeftAttrs>({
   description: "App enrollments closed (Flow B leave-app or Flow A cascade)",
   unit: "{enrollment}",
 });
+
+const accountExportRequested = createCounter<ExportRequestedAttrs>({
+  name: OSN_METRICS.accountExportRequested,
+  description: "Account data-export request attempts (C-H1 — DSAR Art. 15 / 20)",
+  unit: "{request}",
+});
+
+export const metricAccountExportRequested = (result: ExportRequestResult): void =>
+  accountExportRequested.inc({ result });
 
 export const metricAccountDeletionRequested = (result: DeletionRequestResult): void =>
   accountDeletionRequested.inc({ result });

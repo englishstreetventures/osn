@@ -9,6 +9,14 @@ export const CDL_TTL_SECONDS = 300; // 5 min
 
 // Max OTP guesses against a single pending entry before it is wiped.
 export const MAX_OTP_ATTEMPTS = 5;
+
+/**
+ * COPPA hard age gate (C-H8). Registration rejects anyone under this age
+ * before any personal information is collected (before the OTP is sent), so
+ * OSN never gains "actual knowledge" of an under-13 user. The birthdate is
+ * validated transiently and NEVER persisted. See [[compliance/coppa]].
+ */
+export const MIN_AGE_YEARS = 13;
 // O3: short TTL for WebAuthn challenge entries (passkey register / login /
 // step-up). 120s matches the previous inline `Date.now() + 120_000`.
 export const CHALLENGE_TTL_MS = 120_000;

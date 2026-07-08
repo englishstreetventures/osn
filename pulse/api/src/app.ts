@@ -8,10 +8,11 @@ import { Elysia } from "elysia";
 import { makeMemoryRateLimiters, type PulseRateLimiters } from "./redis";
 import { createAccountRoutes } from "./routes/account";
 import { createCloseFriendsRoutes } from "./routes/closeFriends";
-import { createEventsRoutes, createSettingsRoutes } from "./routes/events";
+import { createEventsRoutes } from "./routes/events";
 import { createInternalRoutes } from "./routes/internal";
 import { createOnboardingRoutes } from "./routes/onboarding";
 import { createSeriesRoutes } from "./routes/series";
+import { createSettingsRoutes } from "./routes/settings";
 import { createVenuesRoutes } from "./routes/venues";
 
 export const SERVICE_NAME = "pulse-api";

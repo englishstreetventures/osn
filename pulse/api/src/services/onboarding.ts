@@ -7,8 +7,10 @@ import { Db } from "@pulse/db/service";
 import { eq } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
+import { notifyAppJoined } from "../lib/osn-bridge";
 import {
   metricOnboardingCompleted,
+  metricOnboardingEnrollmentNotify,
   metricOnboardingProfileAccountResolved,
   metricOnboardingStatusFetched,
 } from "../metrics";
@@ -301,6 +303,29 @@ export const completeOnboarding = (
       locationPerm: finalStatus.locationPerm,
       interestsCount: finalStatus.interests.length,
     });
+
+    // First onboarding completion for this account ⇒ signal osn-api that the
+    // account has JOINED Pulse (mirrors the leave-side `notifyAppLeft`). This
+    // inserts the `app_enrollments` row that osn-api's full-account-delete
+    // fan-out reads to know it must reach Pulse — without it, deleting an OSN
+    // account would silently skip the user's Pulse data. `joinApp` is
+    // idempotent, so a retry (or a stray double-fire) is harmless.
+    //
+    // Fired as a best-effort daemon so a slow/unavailable osn-api never blocks
+    // onboarding completion; errors are swallowed to a metric. `forkDaemon`
+    // (not `fork`) so the call outlives this request's fiber on the shared
+    // ManagedRuntime. Residual gap: there is no join-side retry sweeper yet
+    // (unlike the leave side), so a transient failure here leaves the
+    // enrollment row uncreated until the next completion — acceptable for a
+    // first wiring; see [[s2s-patterns]].
+    yield* notifyAppJoined(accountId).pipe(
+      Effect.tap(() => Effect.sync(() => metricOnboardingEnrollmentNotify("ok"))),
+      Effect.catchAll(() => {
+        metricOnboardingEnrollmentNotify("error");
+        return Effect.void;
+      }),
+      Effect.forkDaemon,
+    );
 
     return finalStatus;
   }).pipe(

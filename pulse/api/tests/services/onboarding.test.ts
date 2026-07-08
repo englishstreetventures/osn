@@ -23,10 +23,21 @@ vi.mock("../../src/services/graphBridge", () => ({
   getAccountIdForProfile: vi.fn(() => Effect.succeed("acc_default")),
 }));
 
+vi.mock("../../src/lib/osn-bridge", () => ({
+  OsnBridgeError: class OsnBridgeError {
+    _tag = "OsnBridgeError";
+    constructor(public args: { cause: unknown }) {}
+  },
+  notifyAppJoined: vi.fn(() => Effect.succeed({ enrolled: true } as const)),
+}));
+
+import * as osnBridge from "../../src/lib/osn-bridge";
 import * as bridge from "../../src/services/graphBridge";
 
 beforeEach(() => {
   vi.mocked(bridge.getAccountIdForProfile).mockReturnValue(Effect.succeed("acc_alice"));
+  vi.mocked(osnBridge.notifyAppJoined).mockClear();
+  vi.mocked(osnBridge.notifyAppJoined).mockReturnValue(Effect.succeed({ enrolled: true } as const));
 });
 
 // ---------------------------------------------------------------------------
@@ -171,6 +182,30 @@ describe("completeOnboarding", () => {
       expect(second.completedAt?.getTime()).toBe(first.completedAt?.getTime());
       expect(second.interests).toEqual(["music"]);
       expect(second.notificationsOptIn).toBe(false);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("signals osn-api that the account joined Pulse on first completion only", () =>
+    Effect.gen(function* () {
+      yield* completeOnboarding("usr_alice", {
+        interests: [],
+        notificationsOptIn: false,
+        eventRemindersOptIn: false,
+        notificationsPerm: "prompt",
+        locationPerm: "prompt",
+      });
+      expect(vi.mocked(osnBridge.notifyAppJoined)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(osnBridge.notifyAppJoined)).toHaveBeenCalledWith("acc_alice");
+
+      // The idempotent repeat returns before the join line — no second signal.
+      yield* completeOnboarding("usr_alice", {
+        interests: ["food"],
+        notificationsOptIn: true,
+        eventRemindersOptIn: true,
+        notificationsPerm: "granted",
+        locationPerm: "granted",
+      });
+      expect(vi.mocked(osnBridge.notifyAppJoined)).toHaveBeenCalledTimes(1);
     }).pipe(Effect.provide(createTestLayer())),
   );
 

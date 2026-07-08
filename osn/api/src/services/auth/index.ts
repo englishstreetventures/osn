@@ -123,6 +123,7 @@ export function createAuthService(config: AuthConfig) {
     verifyStepUpForPasskeyDelete: stepUp.verifyStepUpForPasskeyDelete,
     verifyStepUpForPasskeyRegister: stepUp.verifyStepUpForPasskeyRegister,
     verifyStepUpForAccountDelete: stepUp.verifyStepUpForAccountDelete,
+    verifyStepUpForAccountExport: stepUp.verifyStepUpForAccountExport,
     verifyStepUpForExternalPurpose: stepUp.verifyStepUpForExternalPurpose,
     issueStepUpToken: stepUp.issueStepUpToken,
     listAccountSessions: sessions.listAccountSessions,

@@ -18,6 +18,7 @@ import type {
 import type { createRedisRotatedSessionStore } from "./lib/rotated-session-store";
 import type { createRedisJtiStore } from "./lib/step-up-jti-store";
 import { createAccountErasureRoutes } from "./routes/account-erasure";
+import { createAccountExportRoutes } from "./routes/account-export";
 import { createAuthRoutes } from "./routes/auth";
 import { createGraphRoutes } from "./routes/graph";
 import { createInternalGraphRoutes } from "./routes/graph-internal";
@@ -225,6 +226,17 @@ export function createApp(deps: AppDeps) {
         observabilityLayer,
         undefined,
         cookieConfig,
+        clientIpConfig,
+        appRuntime,
+      ),
+    )
+    .use(
+      createAccountExportRoutes(
+        authConfig,
+        DbLive,
+        observabilityLayer,
+        undefined,
+        undefined,
         clientIpConfig,
         appRuntime,
       ),

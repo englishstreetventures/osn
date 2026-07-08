@@ -73,7 +73,9 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
             return tsErr;
           }
           try {
-            return await run(auth.beginRegistration(body.email, body.handle, body.displayName));
+            return await run(
+              auth.beginRegistration(body.email, body.handle, body.birthdate, body.displayName),
+            );
           } catch (e) {
             const { status, body: errBody } = handleError(e);
             set.status = status;
@@ -84,6 +86,10 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
           body: t.Object({
             email: t.String(),
             handle: t.String(),
+            // C-H8 (COPPA): date of birth (YYYY-MM-DD). Required; the under-13
+            // gate rejects with 422 before the OTP is sent, and the value is
+            // never persisted. See [[compliance/coppa]].
+            birthdate: t.String(),
             displayName: t.Optional(t.String()),
             // Turnstile widget token. Optional at the schema level so the
             // endpoint still accepts requests when Turnstile is unconfigured;

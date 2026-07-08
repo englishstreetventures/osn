@@ -14,6 +14,21 @@ type Step = "details" | "verify" | "passkey" | "done";
 
 const HANDLE_RE = /^[a-z0-9_]{1,30}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const BIRTHDATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+// C-H8 (COPPA): mirror the server's under-13 gate for immediate feedback. The
+// server remains authoritative — it re-checks and returns 422 for under-13.
+const MIN_AGE_YEARS = 13;
+
+/** Whole years from a `YYYY-MM-DD` birthdate to now (UTC), birthday-aware. */
+function ageInYears(birthdate: string): number {
+  const b = new Date(`${birthdate}T00:00:00.000Z`);
+  if (Number.isNaN(b.getTime())) return Number.NaN;
+  const now = new Date();
+  let age = now.getUTCFullYear() - b.getUTCFullYear();
+  const monthDelta = now.getUTCMonth() - b.getUTCMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && now.getUTCDate() < b.getUTCDate())) age -= 1;
+  return age;
+}
 
 interface RegisterProps {
   client: RegistrationClient;
@@ -43,6 +58,7 @@ export function Register(props: RegisterProps) {
   const [step, setStep] = createSignal<Step>("details");
   const [email, setEmail] = createSignal("");
   const [handle, setHandle] = createSignal("");
+  const [birthdate, setBirthdate] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
   const [otp, setOtp] = createSignal("");
   const [busy, setBusy] = createSignal(false);
@@ -100,9 +116,15 @@ export function Register(props: RegisterProps) {
     }, 300);
   }
 
+  // C-H8: a birthdate that both parses and clears the under-13 gate. The
+  // server re-checks authoritatively (422 on under-13); this is UX only.
+  const birthdateOk = () =>
+    BIRTHDATE_RE.test(birthdate()) && ageInYears(birthdate()) >= MIN_AGE_YEARS;
+
   const detailsValid = () =>
     EMAIL_RE.test(email()) &&
     handleStatus() === "available" &&
+    birthdateOk() &&
     (!turnstileOn() || turnstileToken() !== null);
 
   async function submitDetails(e: Event) {
@@ -113,6 +135,7 @@ export function Register(props: RegisterProps) {
       await client.beginRegistration({
         email: email(),
         handle: handle(),
+        birthdate: birthdate(),
         displayName: displayName().trim() || undefined,
         turnstileToken: turnstileToken() ?? undefined,
       });
@@ -179,6 +202,7 @@ export function Register(props: RegisterProps) {
       await client.beginRegistration({
         email: email(),
         handle: handle(),
+        birthdate: birthdate(),
         displayName: displayName().trim() || undefined,
         // Turnstile tokens are single-use. We reset the widget after every
         // redeeming call, so the value here is a fresh, unconsumed token.
@@ -298,6 +322,26 @@ export function Register(props: RegisterProps) {
               <Show when={handleStatus() === "error"}>
                 <span class="text-destructive text-xs">
                   Couldn&apos;t check availability — try again
+                </span>
+              </Show>
+            </div>
+
+            <div class="flex flex-col gap-1">
+              <Label for="reg-birthdate">Date of birth</Label>
+              <Input
+                id="reg-birthdate"
+                type="date"
+                required
+                autocomplete="bday"
+                value={birthdate()}
+                onInput={(e) => setBirthdate(e.currentTarget.value)}
+              />
+              <Show when={BIRTHDATE_RE.test(birthdate()) && !birthdateOk()}>
+                <span class="text-destructive text-xs">OSN is for users 13 and older</span>
+              </Show>
+              <Show when={!birthdate()}>
+                <span class="text-muted-foreground text-xs">
+                  You must be 13 or older to use OSN
                 </span>
               </Show>
             </div>

@@ -88,6 +88,12 @@ function fillHandle(value: string) {
   return input;
 }
 
+function fillBirthdate(value: string) {
+  const input = screen.getByLabelText(/Date of birth/) as HTMLInputElement;
+  fireEvent.input(input, { target: { value } });
+  return input;
+}
+
 describe("Register component", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -192,11 +198,12 @@ describe("Register component", () => {
       expect(submit.disabled).toBe(true);
     });
 
-    it("submit becomes enabled once email + handle are both valid", async () => {
+    it("submit becomes enabled once email + handle + birthdate are all valid", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
       render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
       fillEmail("alice@example.com");
       fillHandle("alice");
+      fillBirthdate("1990-01-01");
       await vi.advanceTimersByTimeAsync(350);
       await waitFor(() => {
         const submit = screen.getByRole("button", {
@@ -204,6 +211,27 @@ describe("Register component", () => {
         }) as HTMLButtonElement;
         expect(submit.disabled).toBe(false);
       });
+    });
+
+    // C-H8: the client mirrors the server's under-13 gate for immediate
+    // feedback — the submit button stays disabled and the copy explains why.
+    it("keeps submit disabled and warns for an under-13 birthdate", async () => {
+      stub.checkHandle.mockResolvedValue({ available: true });
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
+      fillEmail("alice@example.com");
+      fillHandle("alice");
+      const tenYearsAgo = new Date();
+      tenYearsAgo.setUTCFullYear(tenYearsAgo.getUTCFullYear() - 10);
+      fillBirthdate(tenYearsAgo.toISOString().slice(0, 10));
+      await vi.advanceTimersByTimeAsync(350);
+      await waitFor(() => {
+        expect(screen.getByText(/13 and older/)).toBeTruthy();
+      });
+      const submit = screen.getByRole("button", {
+        name: /Send verification code/i,
+      }) as HTMLButtonElement;
+      expect(submit.disabled).toBe(true);
+      expect(stub.beginRegistration).not.toHaveBeenCalled();
     });
   });
 
@@ -214,6 +242,7 @@ describe("Register component", () => {
       render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
       fillEmail("alice@example.com");
       fillHandle("alice");
+      fillBirthdate("1990-01-01");
       await vi.advanceTimersByTimeAsync(350);
       await waitFor(() => {
         const submit = screen.getByRole("button", {
@@ -241,6 +270,7 @@ describe("Register component", () => {
       expect(stub.beginRegistration).toHaveBeenCalledWith({
         email: "alice@example.com",
         handle: "alice",
+        birthdate: "1990-01-01",
         displayName: undefined,
       });
     });
@@ -319,6 +349,7 @@ describe("Register component", () => {
       ));
       fillEmail("alice@example.com");
       fillHandle("alice");
+      fillBirthdate("1990-01-01");
       await vi.advanceTimersByTimeAsync(350);
       fireEvent.click(screen.getByRole("button", { name: /Send verification code/i }));
       await waitFor(() => screen.getByLabelText("Digit 1"));

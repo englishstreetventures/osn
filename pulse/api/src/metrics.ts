@@ -82,6 +82,9 @@ export const PULSE_METRICS = {
   onboardingCompleted: "pulse.onboarding.completed",
   onboardingInterestsSelected: "pulse.onboarding.interests.selected",
   onboardingProfileAccountResolved: "pulse.onboarding.profile_account.resolved",
+  // Pulse → osn-api app-enrollment JOIN callback, fired once on first
+  // onboarding completion (mirrors the leave-side deletion callback).
+  onboardingEnrollmentNotify: "pulse.onboarding.enrollment_notify",
   // C-H2 Flow B — leave-Pulse account erasure
   accountDeletionRequested: "pulse.account.deletion.requested",
   accountDeletionCompleted: "pulse.account.deletion.completed",
@@ -903,6 +906,12 @@ const onboardingProfileAccountResolved = createCounter<OnboardingProfileAccountR
   unit: "{resolution}",
 });
 
+const onboardingEnrollmentNotify = createCounter<EnrollmentNotifyAttrs>({
+  name: PULSE_METRICS.onboardingEnrollmentNotify,
+  description: "Pulse → osn-api enrollment-join callback outcomes (first onboarding completion)",
+  unit: "{call}",
+});
+
 /** Bucket a raw count into the closed `InterestsBucket` union (S-C3 pattern). */
 const bucketInterests = (count: number): InterestsBucket => {
   if (count <= 0) return "0";
@@ -939,6 +948,9 @@ export const metricOnboardingProfileAccountResolved = (
   source: "cache" | "bridge",
   result: Result,
 ): void => onboardingProfileAccountResolved.inc({ source, result });
+
+export const metricOnboardingEnrollmentNotify = (result: Result): void =>
+  onboardingEnrollmentNotify.inc({ result });
 
 // ---------------------------------------------------------------------------
 // Account deletion (C-H2 Flow B — leave Pulse)

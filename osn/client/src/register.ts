@@ -87,6 +87,11 @@ export interface RegistrationClient {
   beginRegistration(input: {
     email: string;
     handle: string;
+    /**
+     * Date of birth, `YYYY-MM-DD` (C-H8 / COPPA). The server hard-rejects
+     * under-13 with HTTP 422 before sending the OTP; the value is never stored.
+     */
+    birthdate: string;
     displayName?: string;
     /**
      * Cloudflare Turnstile token. Sent to `/register/begin` when the UI rendered
@@ -132,6 +137,7 @@ export function createRegistrationClient(config: RegistrationClientConfig): Regi
   const beginRegistration = (input: {
     email: string;
     handle: string;
+    birthdate: string;
     displayName?: string;
     turnstileToken?: string;
   }) => postJson<{ sent: boolean }>(`${base}/register/begin`, input);

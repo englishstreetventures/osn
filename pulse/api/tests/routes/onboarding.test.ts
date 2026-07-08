@@ -18,6 +18,14 @@ vi.mock("../../src/services/graphBridge", () => ({
   getAccountIdForProfile: vi.fn(() => Effect.succeed("acc_default")),
 }));
 
+vi.mock("../../src/lib/osn-bridge", () => ({
+  OsnBridgeError: class OsnBridgeError {
+    _tag = "OsnBridgeError";
+    constructor(public args: { cause: unknown }) {}
+  },
+  notifyAppJoined: vi.fn(() => Effect.succeed({ enrolled: true } as const)),
+}));
+
 import * as bridge from "../../src/services/graphBridge";
 
 let testPrivateKey: CryptoKey;

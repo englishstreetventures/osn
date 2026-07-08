@@ -63,7 +63,11 @@ describe("Turnstile gate — UNCONFIGURED (verifier null) is a clean no-op", () 
       new Request("http://localhost/register/begin", {
         method: "POST",
         headers,
-        body: JSON.stringify({ email: "a@example.com", handle: "noturnstile" }),
+        body: JSON.stringify({
+          email: "a@example.com",
+          handle: "noturnstile",
+          birthdate: "1990-01-01",
+        }),
       }),
     );
     expect(res.status).toBe(200);
@@ -99,6 +103,7 @@ describe("Turnstile gate — CONFIGURED enforces siteverify (fail-closed)", () =
         body: JSON.stringify({
           email: "ok@example.com",
           handle: "okhandle",
+          birthdate: "1990-01-01",
           turnstileToken: "good",
         }),
       }),
@@ -116,7 +121,11 @@ describe("Turnstile gate — CONFIGURED enforces siteverify (fail-closed)", () =
       new Request("http://localhost/register/begin", {
         method: "POST",
         headers,
-        body: JSON.stringify({ email: "x@example.com", handle: "missingtok" }),
+        body: JSON.stringify({
+          email: "x@example.com",
+          handle: "missingtok",
+          birthdate: "1990-01-01",
+        }),
       }),
     );
     expect(res.status).toBe(400);
@@ -129,7 +138,12 @@ describe("Turnstile gate — CONFIGURED enforces siteverify (fail-closed)", () =
       new Request("http://localhost/register/begin", {
         method: "POST",
         headers,
-        body: JSON.stringify({ email: "y@example.com", handle: "badtok", turnstileToken: "nope" }),
+        body: JSON.stringify({
+          email: "y@example.com",
+          handle: "badtok",
+          birthdate: "1990-01-01",
+          turnstileToken: "nope",
+        }),
       }),
     );
     expect(res.status).toBe(400);
@@ -145,6 +159,7 @@ describe("Turnstile gate — CONFIGURED enforces siteverify (fail-closed)", () =
         body: JSON.stringify({
           email: "ip@example.com",
           handle: "iphandle",
+          birthdate: "1990-01-01",
           turnstileToken: "good",
         }),
       }),

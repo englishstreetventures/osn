@@ -59,7 +59,7 @@ async function registerAndGetAccessToken(
     new Request("http://localhost/register/begin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, handle }),
+      body: JSON.stringify({ email, handle, birthdate: "1990-01-01" }),
     }),
   );
   const completeRes = await freshApp.handle(
@@ -178,6 +178,7 @@ describe("auth routes", () => {
           body: JSON.stringify({
             email: "verify-me@example.com",
             handle: "verifyme",
+            birthdate: "1990-01-01",
             displayName: "Verify Me",
           }),
         }),
@@ -234,7 +235,11 @@ describe("auth routes", () => {
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "wrong-otp@example.com", handle: "wrongotp" }),
+          body: JSON.stringify({
+            email: "wrong-otp@example.com",
+            handle: "wrongotp",
+            birthdate: "1990-01-01",
+          }),
         }),
       );
       expect(beginRes.status).toBe(200);
@@ -267,7 +272,11 @@ describe("auth routes", () => {
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "taken@example.com", handle: "newhandle" }),
+          body: JSON.stringify({
+            email: "taken@example.com",
+            handle: "newhandle",
+            birthdate: "1990-01-01",
+          }),
         }),
       );
       expect(res.status).toBe(200);
@@ -286,7 +295,11 @@ describe("auth routes", () => {
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "second@example.com", handle: "duphandle" }),
+          body: JSON.stringify({
+            email: "second@example.com",
+            handle: "duphandle",
+            birthdate: "1990-01-01",
+          }),
         }),
       );
       expect(res.status).toBe(200);
@@ -298,9 +311,53 @@ describe("auth routes", () => {
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "ok@example.com", handle: "Bad Handle!" }),
+          body: JSON.stringify({
+            email: "ok@example.com",
+            handle: "Bad Handle!",
+            birthdate: "1990-01-01",
+          }),
         }),
       );
+      expect(res.status).toBe(400);
+    });
+
+    it("C-H8: rejects an under-13 birthdate with 422 and a generic message", async () => {
+      const capture = buildEmailCapture(layer);
+      const gatedApp = createAuthRoutes(config, capture.layer);
+      const twelveYearsAgo = new Date();
+      twelveYearsAgo.setUTCFullYear(twelveYearsAgo.getUTCFullYear() - 12);
+      const res = await gatedApp.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: "kid@example.com",
+            handle: "kiduser",
+            birthdate: twelveYearsAgo.toISOString().slice(0, 10),
+          }),
+        }),
+      );
+      expect(res.status).toBe(422);
+      const json = (await res.json()) as { error: string; message?: string };
+      expect(json.error).toBe("age_restricted");
+      expect(json.message).toBe("OSN is for users 13 and older");
+      // No OTP was dispatched to the under-13 registrant.
+      expect(capture.code()).toBeUndefined();
+    });
+
+    it("C-H8: rejects a malformed birthdate with 400 (not 422) on the wire", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: "baddob-route@example.com",
+            handle: "baddobroute",
+            birthdate: "2021-02-30", // not a real calendar date
+          }),
+        }),
+      );
+      // Format failure is a ValidationError → 400, distinct from the under-13 422.
       expect(res.status).toBe(400);
     });
 
@@ -323,7 +380,11 @@ describe("auth routes", () => {
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "replay-route@example.com", handle: "replayroute" }),
+          body: JSON.stringify({
+            email: "replay-route@example.com",
+            handle: "replayroute",
+            birthdate: "1990-01-01",
+          }),
         }),
       );
 
@@ -416,7 +477,11 @@ describe("auth routes", () => {
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "reuse-route@example.com", handle: "reuseroute" }),
+          body: JSON.stringify({
+            email: "reuse-route@example.com",
+            handle: "reuseroute",
+            birthdate: "1990-01-01",
+          }),
         }),
       );
       const completeRes = await verifiedApp.handle(
@@ -485,7 +550,11 @@ describe("auth routes", () => {
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "cookie-only@example.com", handle: "cookieonly" }),
+          body: JSON.stringify({
+            email: "cookie-only@example.com",
+            handle: "cookieonly",
+            birthdate: "1990-01-01",
+          }),
         }),
       );
       const completeRes = await cookieOnlyApp.handle(
@@ -1094,7 +1163,11 @@ describe("auth routes", () => {
           new Request("http://localhost/register/begin", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-forwarded-for": "5.5.5.5" },
-            body: JSON.stringify({ email: `u${i}@example.com`, handle: `u${i}` }),
+            body: JSON.stringify({
+              email: `u${i}@example.com`,
+              handle: `u${i}`,
+              birthdate: "1990-01-01",
+            }),
           }),
         );
       }
@@ -1102,7 +1175,11 @@ describe("auth routes", () => {
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-forwarded-for": "5.5.5.5" },
-          body: JSON.stringify({ email: "extra@example.com", handle: "extra" }),
+          body: JSON.stringify({
+            email: "extra@example.com",
+            handle: "extra",
+            birthdate: "1990-01-01",
+          }),
         }),
       );
       expect(blocked.status).toBe(429);
@@ -1230,7 +1307,11 @@ describe("auth routes", () => {
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-forwarded-for": "8.8.8.8" },
-          body: JSON.stringify({ email: "async@example.com", handle: "async" }),
+          body: JSON.stringify({
+            email: "async@example.com",
+            handle: "async",
+            birthdate: "1990-01-01",
+          }),
         }),
       );
       expect(res.status).toBe(429);
@@ -1287,6 +1368,7 @@ describe("auth routes", () => {
           body: JSON.stringify({
             email: "profiles@example.com",
             handle: "profilelist",
+            birthdate: "1990-01-01",
             displayName: "Profile List",
           }),
         }),
@@ -1356,6 +1438,7 @@ describe("auth routes", () => {
           body: JSON.stringify({
             email: "switch@example.com",
             handle: "switchrt",
+            birthdate: "1990-01-01",
             displayName: "Switch Test",
           }),
         }),
@@ -1462,6 +1545,7 @@ describe("auth routes", () => {
           body: JSON.stringify({
             email: "recovery-user@example.com",
             handle: "recoveryuser",
+            birthdate: "1990-01-01",
             displayName: "Recovery User",
           }),
         }),
@@ -1786,7 +1870,11 @@ describe("auth routes", () => {
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "sess-route@example.com", handle: "sessroute" }),
+          body: JSON.stringify({
+            email: "sess-route@example.com",
+            handle: "sessroute",
+            birthdate: "1990-01-01",
+          }),
         }),
       );
       const completeRes = await freshApp.handle(
@@ -1923,7 +2011,11 @@ describe("auth routes", () => {
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "ec-route@example.com", handle: "ecroute" }),
+          body: JSON.stringify({
+            email: "ec-route@example.com",
+            handle: "ecroute",
+            birthdate: "1990-01-01",
+          }),
         }),
       );
       const completeRes = await freshApp.handle(
@@ -2052,7 +2144,11 @@ describe("auth routes", () => {
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "sev-route@example.com", handle: "sevroute" }),
+          body: JSON.stringify({
+            email: "sev-route@example.com",
+            handle: "sevroute",
+            birthdate: "1990-01-01",
+          }),
         }),
       );
       const completeRes = await freshApp.handle(

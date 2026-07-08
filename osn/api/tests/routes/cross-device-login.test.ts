@@ -39,7 +39,7 @@ async function registerAndGetAccessToken(
     new Request("http://localhost/register/begin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, handle }),
+      body: JSON.stringify({ email, handle, birthdate: "1990-01-01" }),
     }),
   );
   const completeRes = await app.handle(

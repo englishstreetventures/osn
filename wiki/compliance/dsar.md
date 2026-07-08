@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-06-12
+last-reviewed: 2026-07-07
 ---
 
 # DSAR Runbook
@@ -22,7 +22,7 @@ runbook, two regimes, because the operational steps overlap.
 
 | Channel | Who uses it | Where it lands | SLA |
 |---|---|---|---|
-| `GET /account/export` (planned C-H1) | The account holder, self-service | `@osn/api` — streams JSON | Immediate |
+| `GET /account/export` (**shipped** C-H1) | The account holder, self-service | `@osn/api` — streams NDJSON | Immediate |
 | `DELETE /account` (osn-api, C-H2) | The account holder, self-service | `@osn/api` — soft delete, then hard delete in 7 d | 7 d |
 | `DELETE /account` (pulse-api, Flow B) | Leave Pulse without losing OSN | `@pulse/api` — soft delete + hosted-event 14-day cancellation window | 7 d (account) / 14 d (events) |
 | `dsar@osn.example` (planned, alias on landing) | Anyone via email | Identity team inbox | 30 d (GDPR) / 45 d (CCPA) |
@@ -46,6 +46,15 @@ runbook, two regimes, because the operational steps overlap.
 ## Per-right execution
 
 ### Art. 15 — Right of access
+
+Status: **shipped** (C-H1, 2026-07-07). `GET /account/export` — bearer +
+`x-step-up-token` (purpose `account_export`) gated, 1 export / 24 h / account,
+streams the NDJSON bundle below. Implementation: `osn/api/src/routes/account-export.ts`
++ `osn/api/src/services/account-export.ts`; the `pulse.*` / `zap.*` sections are
+fetched over ARC (scope `account:export`) from each app's
+`POST /internal/account-export` and streamed through line-by-line, degrading to a
+`{"degraded":...}` line if a bridge fails. Building Zap's inbound-ARC stack for
+this also closed the gap where Zap had no `/internal` ARC surface at all.
 
 Use `GET /account/export`. The endpoint returns a JSON bundle:
 

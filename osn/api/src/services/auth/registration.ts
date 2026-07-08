@@ -13,10 +13,12 @@ import { Effect, Schema } from "effect";
 
 import { timingSafeEqualString } from "../../lib/timing-safe";
 import { metricAuthHandleCheck, metricAuthOtpSent, withAuthRegister } from "../../metrics";
-import { MAX_OTP_ATTEMPTS, RESERVED_HANDLES } from "./constants";
+import { MAX_OTP_ATTEMPTS, MIN_AGE_YEARS, RESERVED_HANDLES } from "./constants";
 import type { AuthContext } from "./context";
-import { AuthError, DatabaseError, ValidationError } from "./errors";
+import { AgeRestrictionError, AuthError, DatabaseError, ValidationError } from "./errors";
 import {
+  ageInYears,
+  BirthdateSchema,
   EmailSchema,
   genId,
   genOtpCode,
@@ -162,10 +164,11 @@ export function createRegistrationModule(
   const beginRegistration = (
     email: string,
     handle: string,
+    birthdate: string,
     displayName?: string,
   ): Effect.Effect<
     { sent: boolean },
-    AuthError | ValidationError | DatabaseError,
+    AgeRestrictionError | AuthError | ValidationError | DatabaseError,
     Db | EmailService
   > =>
     Effect.gen(function* () {
@@ -175,6 +178,18 @@ export function createRegistrationModule(
       yield* Schema.decodeUnknown(HandleSchema)(handle).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
+      yield* Schema.decodeUnknown(BirthdateSchema)(birthdate).pipe(
+        Effect.mapError((cause) => new ValidationError({ cause })),
+      );
+
+      // C-H8 (COPPA): hard-reject under-13 BEFORE any personal information is
+      // collected — before the OTP is sent and before we even probe for
+      // email/handle collisions. The birthdate is used transiently here and is
+      // never written to any store or table, so a rejected (or accepted)
+      // registration leaves no date-of-birth behind. See [[compliance/coppa]].
+      if (ageInYears(birthdate) < MIN_AGE_YEARS) {
+        return yield* Effect.fail(new AgeRestrictionError());
+      }
 
       if (RESERVED_HANDLES.has(handle)) {
         return yield* Effect.fail(new AuthError({ message: "Handle is reserved" }));

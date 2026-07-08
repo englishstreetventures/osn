@@ -93,6 +93,7 @@ describe("createRegistrationClient", () => {
       const result = await client.beginRegistration({
         email: "alice@example.com",
         handle: "alice",
+        birthdate: "1990-01-01",
         displayName: "Alice",
       });
       expect(result).toEqual({ sent: true });
@@ -101,6 +102,7 @@ describe("createRegistrationClient", () => {
       expect(JSON.parse(calls[0].init?.body as string)).toEqual({
         email: "alice@example.com",
         handle: "alice",
+        birthdate: "1990-01-01",
         displayName: "Alice",
       });
     });
@@ -108,7 +110,11 @@ describe("createRegistrationClient", () => {
     it("propagates the server error message", async () => {
       stubFetch(() => jsonResponse({ error: "Email already registered" }, { status: 400 }));
       await expect(
-        client.beginRegistration({ email: "taken@example.com", handle: "taken" }),
+        client.beginRegistration({
+          email: "taken@example.com",
+          handle: "taken",
+          birthdate: "1990-01-01",
+        }),
       ).rejects.toThrow("Email already registered");
     });
   });

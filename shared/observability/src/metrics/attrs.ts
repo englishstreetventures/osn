@@ -91,6 +91,7 @@ export type StepUpPurpose =
   | "email_change"
   | "security_event_ack"
   | "account_delete"
+  | "account_export"
   | "pulse_app_delete"
   | "zap_app_delete";
 
