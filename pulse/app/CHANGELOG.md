@@ -1,5 +1,16 @@
 # @osn/pulse
 
+## 0.16.2
+
+### Patch Changes
+
+- Updated dependencies [6b14961]
+- Updated dependencies [6b14961]
+- Updated dependencies [6b14961]
+  - @pulse/api@0.24.0
+  - @osn/client@2.5.0
+  - @osn/ui@1.5.0
+
 ## 0.16.1
 
 ### Patch Changes

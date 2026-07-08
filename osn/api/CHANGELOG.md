@@ -1,5 +1,66 @@
 # @osn/osn
 
+## 3.9.0
+
+### Minor Changes
+
+- 6b14961: C-H1 — account data export (`GET /account/export`, DSAR Art. 15 / 20 + CCPA).
+
+  Self-service, step-up gated (new `account_export` step-up purpose), rate-limited
+  to 1 export / 24 h / account. Streams the locked NDJSON bundle
+  (`{"version":1,...}` header → `{"section","record"}` lines → `{"end":true}`
+  terminator) via a `ReadableStream`, so the response never materialises the full
+  dataset. osn's own sections (account, profiles, passkeys, sessions,
+  security_events, recovery_codes counts, email_changes, connections, blocks,
+  organisations) are read with keyset pagination (`LIMIT 500 WHERE id > :cursor`,
+  no OFFSET). The internal `accountId` is never emitted (P6 invariant).
+
+  The `pulse.*` / `zap.*` sections are fetched over ARC (new `account:export`
+  scope, registered downstream alongside `account:erase`) from a new
+  `POST /internal/account-export` on each app and streamed through the outer
+  envelope line-by-line; a failing bridge degrades to a `{"degraded":...}` line
+  rather than breaking the stream. Pulse returns rsvps / events-hosted /
+  close-friends; Zap returns chat memberships only (message ciphertext excluded).
+
+  Also builds Zap's inbound-ARC infrastructure from scratch (it previously had
+  none): `zap/api` gains an `arc-middleware` (`requireArc` + key registry +
+  `register-service` bootstrap) mirroring Pulse's, closing the latent gap where
+  osn's cross-service fan-out targeted a Zap `/internal` surface that did not
+  exist.
+
+  `@shared/observability` adds the `account_export` value to the `StepUpPurpose`
+  metric-attribute union.
+
+- 6b14961: C-H8: COPPA under-13 age gate on registration.
+
+  `POST /register/begin` now requires a `birthdate` (`YYYY-MM-DD`). The
+  registration service validates the date format (`BirthdateSchema`) and then
+  hard-rejects any registrant under 13 with a new `AgeRestrictionError` →
+  HTTP 422 `{ error: "age_restricted", message: "OSN is for users 13 and older" }`
+  — **before** any collision probe or OTP dispatch, so OSN never gains "actual
+  knowledge" of a child's data. The birthdate is a transient argument and is
+  never written to any store or table (no rejected or accepted DOB retained).
+
+  The client SDK's `beginRegistration` gains a required `birthdate` field, and
+  `@osn/ui`'s `Register` form adds a date-of-birth input that mirrors the gate
+  client-side for immediate feedback (the server remains authoritative). The
+  legacy, unrouted `registerProfile` seed helper is intentionally left ungated.
+
+  Also hardens `publicError`: `Effect.runPromise` rejects with a `FiberFailure`
+  that stores the tagged error under a symbol-keyed `Cause`, which the previous
+  walker never traversed — so every Effect failure silently fell through to the
+  default 400. The walker now descends through all own keys (including symbols)
+  and skips Effect's internal Cause tags, so tagged errors like
+  `AgeRestrictionError` (422) map to their real status.
+
+### Patch Changes
+
+- Updated dependencies [6b14961]
+  - @shared/observability@0.12.0
+  - @shared/crypto@0.8.5
+  - @shared/email@0.3.3
+  - @shared/turnstile@0.2.3
+
 ## 3.8.10
 
 ### Patch Changes

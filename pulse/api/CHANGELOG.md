@@ -1,5 +1,61 @@
 # @osn/api
 
+## 0.24.0
+
+### Minor Changes
+
+- 6b14961: C-H1 — account data export (`GET /account/export`, DSAR Art. 15 / 20 + CCPA).
+
+  Self-service, step-up gated (new `account_export` step-up purpose), rate-limited
+  to 1 export / 24 h / account. Streams the locked NDJSON bundle
+  (`{"version":1,...}` header → `{"section","record"}` lines → `{"end":true}`
+  terminator) via a `ReadableStream`, so the response never materialises the full
+  dataset. osn's own sections (account, profiles, passkeys, sessions,
+  security_events, recovery_codes counts, email_changes, connections, blocks,
+  organisations) are read with keyset pagination (`LIMIT 500 WHERE id > :cursor`,
+  no OFFSET). The internal `accountId` is never emitted (P6 invariant).
+
+  The `pulse.*` / `zap.*` sections are fetched over ARC (new `account:export`
+  scope, registered downstream alongside `account:erase`) from a new
+  `POST /internal/account-export` on each app and streamed through the outer
+  envelope line-by-line; a failing bridge degrades to a `{"degraded":...}` line
+  rather than breaking the stream. Pulse returns rsvps / events-hosted /
+  close-friends; Zap returns chat memberships only (message ciphertext excluded).
+
+  Also builds Zap's inbound-ARC infrastructure from scratch (it previously had
+  none): `zap/api` gains an `arc-middleware` (`requireArc` + key registry +
+  `register-service` bootstrap) mirroring Pulse's, closing the latent gap where
+  osn's cross-service fan-out targeted a Zap `/internal` surface that did not
+  exist.
+
+  `@shared/observability` adds the `account_export` value to the `StepUpPurpose`
+  metric-attribute union.
+
+- 6b14961: Wire the `notifyAppJoined` enrollment bridge and split `createSettingsRoutes`
+  out of `routes/events.ts`.
+
+  `completeOnboarding` now fires `notifyAppJoined(accountId)` on the
+  first-completion branch as a best-effort `forkDaemon` (new
+  `pulse.onboarding.enrollment_notify{result}` counter). This inserts the
+  `app_enrollments` row that osn-api's full-account-delete fan-out reads to know
+  it must reach Pulse — previously that row was never created for real users, so
+  deleting an OSN account silently skipped the user's Pulse data. `joinApp` is
+  idempotent, so a repeat or stray fire is harmless. (Residual gap: no join-side
+  retry sweeper yet, unlike the leave side — a transient osn-api outage during
+  onboarding leaves the row uncreated until the next completion.)
+
+  `createSettingsRoutes` (`PATCH /me/settings`) moved verbatim to
+  `routes/settings.ts`; it was already a distinct `/me`-prefixed factory. No
+  behaviour change. The discovery/share/exposure extraction remains open (those
+  routes share closures mid-chain with the events builder).
+
+### Patch Changes
+
+- Updated dependencies [6b14961]
+  - @shared/observability@0.12.0
+  - @shared/crypto@0.8.5
+  - @shared/osn-auth-client@0.2.5
+
 ## 0.23.6
 
 ### Patch Changes
