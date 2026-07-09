@@ -90,6 +90,16 @@ export function foldLine(line: string): string {
 }
 
 /**
+ * Resolve the instant a calendar entry should end at. `endAt: ""` means the
+ * event has no stated end (End is optional in the organiser's events sheet) —
+ * fall back to the start so the entry is zero-duration rather than inventing a
+ * finish time (or emitting an Invalid Date).
+ */
+function effectiveEnd(event: Pick<EventSummary, "startAt" | "endAt">): string {
+  return event.endAt.trim().length > 0 ? event.endAt : event.startAt;
+}
+
+/**
  * Build a Google Calendar "render" URL for the given event.
  *
  * Google's `dates` parameter is UTC basic format only — convert from event.startAt /
@@ -98,7 +108,7 @@ export function foldLine(line: string): string {
  */
 export function googleCalendarUrl(event: EventSummary, siteUrl: string): string {
   const start = utcBasic(new Date(event.startAt));
-  const end = utcBasic(new Date(event.endAt));
+  const end = utcBasic(new Date(effectiveEnd(event)));
 
   const params = new URLSearchParams({
     action: "TEMPLATE",
@@ -120,7 +130,7 @@ export function googleCalendarUrl(event: EventSummary, siteUrl: string): string 
 export function icsBlob(event: EventSummary, siteUrl: string): Blob {
   const tz = event.timezone;
   const dtStart = localBasic(new Date(event.startAt), tz);
-  const dtEnd = localBasic(new Date(event.endAt), tz);
+  const dtEnd = localBasic(new Date(effectiveEnd(event)), tz);
   const dtStamp = utcBasic(new Date());
   const location = event.address ?? "";
 

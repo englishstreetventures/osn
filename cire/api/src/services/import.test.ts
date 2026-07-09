@@ -592,3 +592,66 @@ describe("applyImport: empty-DB insert end-to-end", () => {
     expect(sharedDb.select().from(guestEvents).all().length).toBeGreaterThan(0);
   });
 });
+
+describe("applyImport: optional End + Location → Address fallback", () => {
+  // End and Location are optional in the events sheet: a blank End stores the
+  // "" no-stated-end sentinel, and a Location venue name fills in for a blank
+  // Address so the value reaches the invite's "Where" instead of being dropped.
+  const MINIMAL_EVENTS_CSV = [
+    "Event Name,Start,Timezone,Location,Address",
+    "Ceremony,2026-10-31T10:00:00+11:00,Australia/Sydney,Example Parish,",
+    "Reception,2026-10-31T18:00:00+11:00,Australia/Sydney,Sample House,126 Example Road",
+    "Afterparty,2026-11-01T00:00:00+11:00,Australia/Sydney,,",
+  ].join("\n");
+
+  it("stores endAt '' and falls back Location → address only when Address is blank", async () => {
+    const ev = await Effect.runPromise(parseEventsCsv(MINIMAL_EVENTS_CSV));
+    const sharedDb = createDb(":memory:");
+    seedBootstrapWedding(sharedDb);
+    const sharedLayer = Layer.succeed(DbService, sharedDb);
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const plan = yield* diffAgainstDb(ev, [], BOOTSTRAP_WEDDING_ID);
+        yield* applyImport("imp-minimal", plan, BOOTSTRAP_WEDDING_ID);
+      }).pipe(Effect.provide(sharedLayer)),
+    );
+    const rows = sharedDb.select().from(events).all();
+    const ceremony = rows.find((r) => r.name === "Ceremony")!;
+    const reception = rows.find((r) => r.name === "Reception")!;
+    const afterparty = rows.find((r) => r.name === "Afterparty")!;
+    expect(ceremony.endAt).toBe("");
+    expect(ceremony.address).toBe("Example Parish");
+    expect(reception.address).toBe("126 Example Road");
+    // Neither Address nor Location ⇒ null (invite hides the "Where" affordances).
+    expect(afterparty.address).toBeNull();
+  });
+
+  it("update path applies the same fallback to an existing event", async () => {
+    const sharedDb = createDb(":memory:");
+    seedBootstrapWedding(sharedDb);
+    const sharedLayer = Layer.succeed(DbService, sharedDb);
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const { ev, fam } = yield* Effect.promise(() => parsedFromCsv());
+        const seedPlan = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
+        yield* applyImport("imp-seed", seedPlan, BOOTSTRAP_WEDDING_ID);
+        // Re-import the Catholic Ceremony with a blank Address but a Location.
+        const updated = yield* parseEventsCsv(
+          [
+            "Event Name,Start,Timezone,Location,Address",
+            "Catholic Ceremony,2026-10-31T10:00:00+11:00,Australia/Sydney,Example Parish,",
+          ].join("\n"),
+        );
+        const plan2 = yield* diffAgainstDb(updated, [], BOOTSTRAP_WEDDING_ID);
+        yield* applyImport("imp-update", plan2, BOOTSTRAP_WEDDING_ID);
+      }).pipe(Effect.provide(sharedLayer)),
+    );
+    const row = sharedDb
+      .select()
+      .from(events)
+      .all()
+      .find((r) => r.name === "Catholic Ceremony")!;
+    expect(row.address).toBe("Example Parish");
+    expect(row.endAt).toBe("");
+  });
+});

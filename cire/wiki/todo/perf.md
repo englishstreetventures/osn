@@ -4,12 +4,17 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-05
+last-reviewed: 2026-07-08
 ---
 
 # Performance Backlog
 
 See [[review-findings]] for severity prefix conventions.
+
+### Optional End/Location CSV spec — review findings (wedding-management-platform branch)
+
+- [ ] **CSV2-P-I1** — the retention sweep's `HAVING max(max(end_at, start_at))` is an unindexable expression aggregate (full `events` scan per daily sweep). No regression — the previous `max(end_at)` was equally unindexed — and the table is tiny; if events ever grow enough to matter against D1 read quotas, materialise an `effective_end_at` column rather than reverting the scalar-max fix (it is load-bearing: prevents open-ended weddings aggregating to `""` and being swept immediately).
+- [ ] **CSV2-P-I2** — `EventTable.formatRange` constructs two `Intl.DateTimeFormat` instances per row render (pre-existing pattern; the branch only rewrote the body). Negligible at a handful of events; optional fix is a module-scope formatter cache keyed by timezone.
 
 ### Welcome theme section — review findings (invite-code-theme branch)
 

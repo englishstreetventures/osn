@@ -6,7 +6,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[overview]]"
   - "[[contributing]]"
-last-reviewed: 2026-06-10
+last-reviewed: 2026-07-08
 ---
 
 # Cire TODO
@@ -25,6 +25,7 @@ This file is a thin index. **All tracked items live in per-area shards under `wi
 | [[wiki/todo/security]]           | H/M/L security findings                                  |
 | [[wiki/todo/perf]]               | Performance concerns                                     |
 | [[wiki/todo/deferred]]           | Open architectural decisions + Resolved log              |
+| [[wiki/todo/platform]]           | Wedding-management platform build-out (phased checklist) |
 | [[wiki/todo/future]]             | Vague post-MVP ideas                                     |
 
 ## How to update

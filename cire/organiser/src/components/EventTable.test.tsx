@@ -274,3 +274,53 @@ describe("EventTable events CSV export", () => {
     expect(downloadBlobMock).not.toHaveBeenCalled();
   });
 });
+
+describe("EventTable open-ended events (endAt '')", () => {
+  afterEach(() => {
+    cleanup();
+    __resetEventsCache();
+    authFetchMock.mockReset();
+  });
+
+  it("renders just the start time when endAt is the '' no-stated-end sentinel", async () => {
+    authFetchMock.mockResolvedValueOnce(json([{ ...EVENT, endAt: "" }]));
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+
+    await waitFor(() => screen.getByText("Reception"));
+    const body = document.body.textContent ?? "";
+    // Start time shows; no dangling "– end" and no Invalid Date fallback.
+    expect(body).toContain("6:00 pm");
+    expect(body).not.toContain("6:00 pm –");
+    expect(body).not.toContain("Invalid Date");
+  });
+
+  it("still renders the full start–end range when endAt is set", async () => {
+    authFetchMock.mockResolvedValueOnce(json([EVENT]));
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+
+    await waitFor(() => screen.getByText("Reception"));
+    expect(document.body.textContent ?? "").toContain("6:00 pm – 11:00 pm");
+  });
+
+  it("drops the end label for a non-empty but unparseable endAt (no Invalid Date)", async () => {
+    authFetchMock.mockResolvedValueOnce(json([{ ...EVENT, endAt: "not-a-date" }]));
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+
+    await waitFor(() => screen.getByText("Reception"));
+    const body = document.body.textContent ?? "";
+    expect(body).toContain("6:00 pm");
+    expect(body).not.toContain("6:00 pm –");
+    expect(body).not.toContain("Invalid Date");
+  });
+
+  it("falls back to the bare start (no dangling dash) when the timezone is bad and endAt is ''", async () => {
+    authFetchMock.mockResolvedValueOnce(json([{ ...EVENT, endAt: "", timezone: "Not/AZone" }]));
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+
+    await waitFor(() => screen.getByText("Reception"));
+    const body = document.body.textContent ?? "";
+    // The catch path returns the raw startAt without a range dash.
+    expect(body).toContain(EVENT.startAt);
+    expect(body).not.toContain(`${EVENT.startAt} –`);
+  });
+});

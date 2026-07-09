@@ -11,9 +11,11 @@ export type PaletteSwatch = Schema.Schema.Type<typeof PaletteSwatch>;
 export const ParsedEvent = Schema.Struct({
   name: Schema.String,
   startAt: Schema.String,
+  /** Optional in the sheet; "" ⇒ no stated end (matches the DB's "" sentinel). */
   endAt: Schema.String,
   timezone: Schema.String,
-  location: Schema.String,
+  /** Optional venue name; only used as the address fallback at import-write time. */
+  location: Schema.NullOr(Schema.String),
   address: Schema.NullOr(Schema.String),
   dressCodeDescription: Schema.NullOr(Schema.String),
   dressCodePalette: Schema.Array(PaletteSwatch),

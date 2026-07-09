@@ -235,7 +235,7 @@ domain-migration plan in [[cire-landing]].
 ### Platform roadmap (withjoy parity)
 
 - [ ] **Gift registry** — first-class registry surface (parity with withjoy).
-- [ ] **Wedding-management platform** — budget, vendors, seating, timeline, guest comms — built out from the organiser dashboard (`host.cireweddings.com`). Multi-tenant `weddings` root already in place. See [[cire]].
+- [ ] **Wedding-management platform** — budget, vendors + availability + location search, pricing estimates, seating, checklist/timeline, guest comms — built out from the organiser dashboard (`host.cireweddings.com`), with guests/events decoupled from the invite as their own sources of truth. Multi-tenant `weddings` root already in place. **Phased build plan shipped 2026-07-08**: `cire/wiki/architecture/platform-plan.md` (architecture + schema sketches) + `cire/wiki/todo/platform.md` (checklist). Phase 0 (invite decoupling + wedding profile + roles) is the entry point; it also closes the co-host **roles** item in the Cire section above. See [[cire]].
 - [ ] **Marketing depth** — pricing page, case studies, blog/SEO content; flip testimonials live once permissioned.
 
 ---

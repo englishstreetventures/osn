@@ -177,6 +177,10 @@ export const events = sqliteTable(
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
     startAt: text("start_at").notNull(),
+    // "" = no stated end (End is optional in the events sheet). Kept NOT NULL
+    // with the empty-string sentinel so no table rebuild was needed; consumers
+    // (invite display, calendar links, retention sweep) treat "" as end-less
+    // and fall back to startAt where an instant is required.
     endAt: text("end_at").notNull(),
     timezone: text("timezone").notNull(),
     address: text("address"),

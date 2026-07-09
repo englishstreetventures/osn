@@ -4,7 +4,7 @@ tags: [architecture, api, web, db]
 related:
   - "[[index]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-07-05
+last-reviewed: 2026-07-08
 ---
 
 # Invite Builder
@@ -61,27 +61,39 @@ driven by the **same** emptiness logic (mirrored in
 code). The badge updates **live** as the organiser types, so they know exactly
 what a guest will see before saving. Keep the two predicate files in lockstep.
 
-## Required event fields (Location + Start)
+## Required event fields (Name + Start + Timezone)
 
-The event/guest source of truth is the CSV import, not the builder — but the
-invite depends on every event having a **place** and a **start time**. The "Where"
-section + the Open-in-Maps affordance both derive from the location, and the
-"When" section + the calendar invite both derive from the start. So the spreadsheet
-parser (`cire/api/src/services/spreadsheet.ts`, `parseEventsCsv`) treats **Event
-Name, Start, End, Timezone, AND Location** as the required set
-(`REQUIRED_EVENT_COLUMNS`):
+The event/guest source of truth is the CSV import, not the builder. The required
+set (`REQUIRED_EVENT_COLUMNS` in `cire/api/src/services/spreadsheet.ts`,
+`parseEventsCsv`) is the minimum to render and order an event on the invite:
+**Event Name, Start, Timezone**.
 
 - The **header row** must contain every required column ⇒ otherwise
-  `MissingRequiredColumn` (the import preview surfaces e.g. _"Location is
-  missing"_).
-- Each **data row** must have a non-empty (non-whitespace) value for Name, Start,
-  End, Timezone, and Location ⇒ otherwise `MalformedSpreadsheet` with a specific
-  reason + 1-indexed row/column (e.g. _"Location is required"_, _"Start is
-  required"_), shown in `ImportPanel.tsx` rather than a generic failure.
+  `MissingRequiredColumn`; each **data row** must have a non-empty
+  (non-whitespace) value for them ⇒ otherwise `MalformedSpreadsheet` with a
+  specific reason + 1-indexed row/column (e.g. _"Start is required"_), shown in
+  `ImportPanel.tsx` rather than a generic failure.
+
+**End and Location are optional** (2026-07-08; previously both were required —
+Location since `feat/invite-conditional-segments`):
+
+- A blank/absent **End** stores the `""` no-stated-end sentinel in
+  `events.end_at` (column stays `NOT NULL`, no rebuild). Consumers handle it:
+  the invite's time range shows just the start (`formatTimeRange`), the
+  organiser `EventTable` drops the "– end" suffix, calendar links fall back to
+  a zero-duration entry (`calendar.ts` `effectiveEnd`), and the **retention
+  sweep** compares `max(max(end_at, start_at))` so an all-open-ended wedding
+  is aged by its start dates, never by `max("")`.
+- **Location** was parsed-then-discarded (there is no `events.location` column —
+  the "Where" + Open-in-Maps derive from **Address**, see
+  `cire/web/src/components/event-details.ts`). It is now optional and, when
+  provided with a blank Address, is written into `events.address` at
+  import-apply time so the venue name actually reaches the invite.
 
 The organiser-facing template mirror (`cire/organiser/src/lib/import-templates.ts`,
-`EVENT_REQUIRED_HEADERS`) lists Location under the **required** chips, kept in
-lockstep with the parser by `import-templates.test.ts`.
+`EVENT_REQUIRED_HEADERS` / `EVENT_OPTIONAL_HEADERS`) lists End + Location under
+the **optional** chips, kept in lockstep with the parser by
+`import-templates.test.ts`.
 
 ## Theme (per-section fonts + colours)
 

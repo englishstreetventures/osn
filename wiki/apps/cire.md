@@ -17,7 +17,7 @@ related:
   - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-07-03
+last-reviewed: 2026-07-08
 ---
 
 # Cire
@@ -129,10 +129,15 @@ hosts: marketing (apex) · invites (`invite.cireweddings.com`) · organiser
 (`host.cireweddings.com`).
 
 Longer term, the ambition is to grow the organiser portal into a full wedding
-**management platform** (withjoy-class), starting with a gift **registry** and
-extending to budget / vendors / seating / timeline. The multi-tenant `weddings`
-root means this is a product build-out, not a migration. Tracked under the Cire +
-Landing sections of `wiki/TODO.md`.
+**management platform** (withjoy-class): guests + events promoted to
+invite-independent sources of truth (the invite becomes one module), vendor
+discovery with availability + location search, context-aware pricing estimates,
+budget, checklist, seating, and guest comms. The multi-tenant `weddings` root
+means this is a product build-out, not a migration. **A phased build plan now
+exists**: architecture + schema sketches in
+`cire/wiki/architecture/platform-plan.md`, actionable checklist in
+`cire/wiki/todo/platform.md`; also tracked under the Cire + Landing sections of
+`wiki/TODO.md`.
 
 ## Future integrations
 

@@ -79,14 +79,18 @@ export const retentionService = {
    * wedding/events shell is intentionally **kept** — it carries no guest PII and
    * deleting it would orphan the published invite + slug.
    *
-   * Selection: `events.end_at` is an ISO-8601 string that begins with a
-   * zero-padded `YYYY-MM-DD` date, so the latest event is `MAX(end_at)` and
-   * "final event > 1 year ago" is `MAX(end_at) < cutoff` (strict — a wedding
-   * whose final event is *exactly* at the cutoff is kept one more day; the
-   * `YYYY-MM-DD` cutoff sorts before any same-day instant). A wedding with **no
-   * events** is never selected (the group/having drops the empty group) — we
-   * cannot prove its window has lapsed, so the safe default is to keep it; this
-   * is also the in-progress-setup case.
+   * Selection: `events.end_at` / `events.start_at` are ISO-8601 strings that
+   * begin with a zero-padded `YYYY-MM-DD` date, so lexical comparison against a
+   * `YYYY-MM-DD` cutoff is exact. Each event's **effective end** is `end_at`,
+   * falling back to `start_at` when `end_at` is the `""` no-stated-end sentinel
+   * (End is optional in the events sheet) — `""` sorts before every date, so
+   * the scalar `max(end_at, start_at)` picks the right one. The latest event is
+   * the aggregate MAX of that, and "final event > 1 year ago" is `< cutoff`
+   * (strict — a wedding whose final event is *exactly* at the cutoff is kept
+   * one more day; the `YYYY-MM-DD` cutoff sorts before any same-day instant). A
+   * wedding with **no events** is never selected (the group/having drops the
+   * empty group) — we cannot prove its window has lapsed, so the safe default
+   * is to keep it; this is also the in-progress-setup case.
    *
    * R2 reaping (IB-S-L2 / C-H1): the deleted `imports` rows reference
    * personal-data R2 objects that D1's `ON DELETE cascade` can NEVER reach — the
@@ -115,13 +119,18 @@ export const retentionService = {
       const db = yield* DbService;
       const cutoff = cutoffDateString(now);
 
-      // Weddings whose latest event date is strictly before the cutoff.
+      // Weddings whose latest event date is strictly before the cutoff. The
+      // inner two-arg max() is SQLite's SCALAR max — it picks each row's
+      // effective end (end_at, or start_at when end_at is the "" no-stated-end
+      // sentinel, since "" sorts lexically before any ISO date). Without it a
+      // wedding whose events are all open-ended would aggregate to max("") = ""
+      // < cutoff and be swept immediately.
       const expired = yield* dbQuery(() =>
         db
           .select({ weddingId: events.weddingId })
           .from(events)
           .groupBy(events.weddingId)
-          .having(lt(sql`max(${events.endAt})`, cutoff))
+          .having(lt(sql`max(max(${events.endAt}, ${events.startAt}))`, cutoff))
           .all(),
       );
       const weddingIds = expired.map((r) => r.weddingId);

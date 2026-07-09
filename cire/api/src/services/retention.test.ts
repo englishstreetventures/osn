@@ -61,12 +61,15 @@ function createDeleteStub(
  * collides with the bootstrap seed.
  */
 function makeWedding(opts: {
-  eventDates: string[];
+  /** ISO days; an object entry marks that one event open-ended (endAt ""). */
+  eventDates: (string | { date: string; openEnded: boolean })[];
   withImport?: boolean;
   /** Add a `wedding_invite_customisations` row with hero/story image keys. */
   withInviteImages?: boolean;
   /** Give the FIRST event an `event_image_key`. */
   withEventImage?: boolean;
+  /** Store the "" no-stated-end sentinel instead of a real endAt on every event. */
+  openEnded?: boolean;
 }): Effect.Effect<
   {
     weddingId: string;
@@ -123,7 +126,9 @@ function makeWedding(opts: {
       .run();
 
     const assetKeys: string[] = [];
-    opts.eventDates.forEach((date, i) => {
+    opts.eventDates.forEach((entry, i) => {
+      const date = typeof entry === "string" ? entry : entry.date;
+      const openEnded = typeof entry === "string" ? (opts.openEnded ?? false) : entry.openEnded;
       const eventImageKey =
         opts.withEventImage && i === 0 ? `assets/${weddingId}/event-${crypto.randomUUID()}` : null;
       if (eventImageKey) assetKeys.push(eventImageKey);
@@ -134,7 +139,7 @@ function makeWedding(opts: {
           slug: `${weddingId}-ev-${i}`,
           name: `Event ${i}`,
           startAt: `${date}T10:00:00+11:00`,
-          endAt: `${date}T12:00:00+11:00`,
+          endAt: openEnded ? "" : `${date}T12:00:00+11:00`,
           timezone: "Australia/Sydney",
           eventImageKey,
         })
@@ -263,6 +268,85 @@ describe("retentionService.sweepExpiredGuestData", () => {
 
         expect(db.select().from(guests).where(eq(guests.id, guestId)).all().length).toBe(1);
         expect(db.select().from(rsvps).where(eq(rsvps.id, rsvpId)).all().length).toBe(1);
+      }),
+    ),
+  );
+
+  it(
+    "keeps a RECENT wedding whose events are all open-ended (endAt '' falls back to startAt)",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        // Final event 2 months ago, but every endAt is the "" sentinel — a naive
+        // max(end_at) would aggregate to "" < cutoff and sweep it immediately.
+        const { guestId, rsvpId } = yield* makeWedding({
+          eventDates: ["2026-03-01", "2026-04-15"],
+          openEnded: true,
+        });
+
+        yield* retentionService.sweepExpiredGuestData(now);
+
+        expect(db.select().from(guests).where(eq(guests.id, guestId)).all().length).toBe(1);
+        expect(db.select().from(rsvps).where(eq(rsvps.id, rsvpId)).all().length).toBe(1);
+      }),
+    ),
+  );
+
+  it(
+    "keeps a MIXED wedding: old dated event + recent open-ended event (per-row effective end)",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        // A wrong implementation that aggregates end_at and start_at separately
+        // (max(max(end_at), max(start_at))) or drops ''-end rows passes the
+        // all-dated and all-open-ended tests but diverges here: the dated event
+        // ended >1 year ago, and only the open-ended event's RECENT start keeps
+        // the wedding alive.
+        const { guestId, rsvpId } = yield* makeWedding({
+          eventDates: ["2025-04-01", { date: "2026-04-15", openEnded: true }],
+        });
+
+        yield* retentionService.sweepExpiredGuestData(now);
+
+        expect(db.select().from(guests).where(eq(guests.id, guestId)).all().length).toBe(1);
+        expect(db.select().from(rsvps).where(eq(rsvps.id, rsvpId)).all().length).toBe(1);
+      }),
+    ),
+  );
+
+  it(
+    "sweeps a MIXED wedding once every per-row effective end is past the cutoff",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        const { guestId } = yield* makeWedding({
+          eventDates: ["2025-03-01", { date: "2025-04-15", openEnded: true }],
+        });
+
+        yield* retentionService.sweepExpiredGuestData(now);
+
+        expect(db.select().from(guests).where(eq(guests.id, guestId)).all().length).toBe(0);
+      }),
+    ),
+  );
+
+  it(
+    "still sweeps an EXPIRED wedding whose events are all open-ended (startAt >1 year ago)",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        const { guestId } = yield* makeWedding({
+          eventDates: ["2025-04-01"],
+          openEnded: true,
+        });
+
+        yield* retentionService.sweepExpiredGuestData(now);
+
+        expect(db.select().from(guests).where(eq(guests.id, guestId)).all().length).toBe(0);
       }),
     ),
   );

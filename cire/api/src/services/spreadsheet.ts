@@ -28,9 +28,10 @@ export type MalformedSpreadsheetReason =
   // Required per-row event fields.
   | "Event Name is required"
   | "Start is required"
-  | "End is required"
   | "Timezone is required"
-  | "Location is required"
+  // Timestamp-shape rejections (see isIsoTimestamp).
+  | "Start must be an ISO-8601 timestamp"
+  | "End must be an ISO-8601 timestamp"
   // URL-cell scheme rejections.
   | "Pinterest URL must be an http(s) URL"
   | "Maps URL must be an http(s) URL"
@@ -316,6 +317,21 @@ function nullableString(s: string): string | null {
 }
 
 /**
+ * Validate a Start/End cell as an ISO-8601 timestamp: a zero-padded
+ * `YYYY-MM-DDTHH:MM` prefix AND parseable by `Date`. The prefix check is
+ * load-bearing beyond display: `events.start_at`/`end_at` are compared
+ * LEXICALLY against a `YYYY-MM-DD` cutoff by the guest-data retention sweep
+ * (`services/retention.ts`), so a free-text date like "1st Nov 2026" (sorts
+ * below any `2…` cutoff) would make an upcoming wedding aggregate as expired
+ * and have its guest PII deleted, while "TBD" (sorts above) would never
+ * expire. Enforcing the shape at the sole ingest point makes the sweep's
+ * documented invariant actually true.
+ */
+function isIsoTimestamp(s: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) && !Number.isNaN(new Date(s).getTime());
+}
+
+/**
  * Parse a URL cell into a trimmed http(s) string, or null when blank.
  * Returns `undefined` for present-but-non-http(s) values so the caller
  * can emit a {@link MalformedSpreadsheet} with row/column context — a
@@ -334,12 +350,15 @@ function parseHttpUrl(raw: string): string | null | undefined {
 
 // ── Parsers ──────────────────────────────────────────────────────────────────
 
-// Location joins Event Name / Start / End / Timezone as a hard requirement: an
-// event with no place to be is unusable on the invite (the "Where" section + the
-// Open-in-Maps affordance both derive from it). Enforced both as a required
-// column (header must exist) and a required per-row value (cell must be non-empty)
-// below.
-const REQUIRED_EVENT_COLUMNS = ["Event Name", "Start", "End", "Timezone", "Location"] as const;
+// Only Event Name / Start / Timezone are hard requirements — the minimum to
+// render and order an event on the invite. `End` is optional (column and cell):
+// an open-ended event stores `endAt: ""` (the DB column is NOT NULL with the ""
+// sentinel meaning "no stated end"; display + calendar + retention all handle
+// it). `Location` is optional too — the invite's "Where" + Open-in-Maps derive
+// from `Address` (see `cire/web/src/components/event-details.ts`), and a
+// provided Location is only used as the address fallback at import-write time
+// when Address is blank (see `services/import.ts`).
+const REQUIRED_EVENT_COLUMNS = ["Event Name", "Start", "Timezone"] as const;
 
 export function parseEventsCsv(
   content: string,
@@ -386,9 +405,9 @@ export function parseEventsCsv(
 
       const name = (row[idxName] ?? "").trim();
       const startAt = (row[idxStart] ?? "").trim();
-      const endAt = (row[idxEnd] ?? "").trim();
+      // Optional: "" = no stated end (column may be absent entirely).
+      const endAt = idxEnd === -1 ? "" : (row[idxEnd] ?? "").trim();
       const timezone = (row[idxTz] ?? "").trim();
-      const location = (row[idxLocation] ?? "").trim();
 
       if (name.length === 0) {
         return yield* Effect.fail(
@@ -408,15 +427,6 @@ export function parseEventsCsv(
           }),
         );
       }
-      if (endAt.length === 0) {
-        return yield* Effect.fail(
-          new MalformedSpreadsheet({
-            reason: "End is required",
-            row: r + 1,
-            column: idxEnd + 1,
-          }),
-        );
-      }
       if (timezone.length === 0) {
         return yield* Effect.fail(
           new MalformedSpreadsheet({
@@ -426,12 +436,21 @@ export function parseEventsCsv(
           }),
         );
       }
-      if (location.length === 0) {
+      if (!isIsoTimestamp(startAt)) {
         return yield* Effect.fail(
           new MalformedSpreadsheet({
-            reason: "Location is required",
+            reason: "Start must be an ISO-8601 timestamp",
             row: r + 1,
-            column: idxLocation + 1,
+            column: idxStart + 1,
+          }),
+        );
+      }
+      if (endAt.length > 0 && !isIsoTimestamp(endAt)) {
+        return yield* Effect.fail(
+          new MalformedSpreadsheet({
+            reason: "End must be an ISO-8601 timestamp",
+            row: r + 1,
+            column: idxEnd + 1,
           }),
         );
       }
@@ -462,7 +481,7 @@ export function parseEventsCsv(
         startAt,
         endAt,
         timezone,
-        location,
+        location: idxLocation === -1 ? null : nullableString(row[idxLocation] ?? ""),
         address: idxAddress === -1 ? null : nullableString(row[idxAddress] ?? ""),
         dressCodeDescription: idxDressDesc === -1 ? null : nullableString(row[idxDressDesc] ?? ""),
         dressCodePalette: idxPalette === -1 ? [] : parseDressCodePalette(row[idxPalette] ?? ""),

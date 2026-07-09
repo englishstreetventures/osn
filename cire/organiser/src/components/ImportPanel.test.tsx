@@ -183,7 +183,7 @@ describe("ImportPanel — CSV format help", () => {
   it("documents the events timestamp + dress-code palette formats", () => {
     render(() => <ImportPanel weddingId="wed_a" />);
     const body = document.body.textContent ?? "";
-    expect(body).toContain("2026-11-14T15:00:+11:00");
+    expect(body).toContain("2026-11-14T15:00+11:00");
     expect(body).toContain("DisplayName:#RGB");
   });
 });
@@ -196,7 +196,7 @@ describe("ImportPanel — download templates", () => {
     await waitFor(() => expect(createdBlobs.length).toBeGreaterThan(0));
     const text = await blobText(createdBlobs[0]!);
     expect(text.split("\r\n")[0]).toBe(
-      "Event Name,Start,End,Timezone,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
+      "Event Name,Start,Timezone,End,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
     );
     expect(createdBlobs[0]!.type).toContain("text/csv");
   });

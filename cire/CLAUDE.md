@@ -30,6 +30,7 @@ Each shard tracks one area. Edit only the shard your diff touches — keeps PRs 
 | `wiki/todo/security.md`           | H/M/L security findings                                  |
 | `wiki/todo/perf.md`               | Performance concerns                                     |
 | `wiki/todo/deferred.md`           | Open architectural decisions + Resolved log              |
+| `wiki/todo/platform.md`           | Wedding-management platform build-out (phased checklist) |
 | `wiki/todo/future.md`             | Vague post-MVP ideas                                     |
 
 Update the relevant shard when: a task is completed, a new concern is discovered, a deferred decision is resolved, or priorities shift. Bump that shard's `last-reviewed` to today. Do **not** add tracked items to `wiki/TODO.md` — it's an index only.

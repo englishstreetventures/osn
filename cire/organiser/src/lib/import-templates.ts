@@ -15,19 +15,20 @@
 
 /**
  * Required event columns, in parser order. MUST match `REQUIRED_EVENT_COLUMNS`
- * in `cire/api/src/services/spreadsheet.ts` — Location is required because an
- * event needs a place (it drives the invite's "Where" + Open-in-Maps).
+ * in `cire/api/src/services/spreadsheet.ts` — the minimum to render and order
+ * an event on the invite.
  */
-export const EVENT_REQUIRED_HEADERS = [
-  "Event Name",
-  "Start",
-  "End",
-  "Timezone",
-  "Location",
-] as const;
+export const EVENT_REQUIRED_HEADERS = ["Event Name", "Start", "Timezone"] as const;
 
-/** Optional event columns, exact labels the parser looks up. */
+/**
+ * Optional event columns, exact labels the parser looks up. `End` may be blank
+ * (or omitted) for an open-ended event; `Location` is a venue name that fills
+ * in for a blank `Address` (the invite's "Where" + Open-in-Maps derive from
+ * Address).
+ */
 export const EVENT_OPTIONAL_HEADERS = [
+  "End",
+  "Location",
   "Address",
   "Dress Code Description",
   "Dress Code Palette",
@@ -78,7 +79,8 @@ function toCsv(rows: readonly (readonly string[])[]): string {
 
 /**
  * Events starter CSV: header row + two illustrative rows showing the ISO-8601
- * offset Start/End, an IANA Timezone, a quoted multi-part Address, and the
+ * offset Start (and optional End — the second row leaves it blank for an
+ * open-ended event), an IANA Timezone, a quoted multi-part Address, and the
  * `Name:#hex|Name:#hex` dress-code palette format the parser splits on.
  */
 export function buildEventsTemplateCsv(): string {
@@ -87,8 +89,8 @@ export function buildEventsTemplateCsv(): string {
     [
       "Ceremony",
       "2026-11-14T15:00:00+11:00",
-      "2026-11-14T16:00:00+11:00",
       "Australia/Sydney",
+      "2026-11-14T16:00:00+11:00",
       "St Mary's Cathedral",
       "St Marys Rd, Sydney NSW 2000, Australia",
       "Formal — suits and cocktail dresses",
@@ -96,11 +98,12 @@ export function buildEventsTemplateCsv(): string {
       "https://pinterest.com/example/ceremony",
       "https://maps.google.com/?q=St+Marys+Cathedral+Sydney",
     ],
+    // Second row shows the optional End left blank — an open-ended event.
     [
       "Reception",
       "2026-11-14T18:00:00+11:00",
-      "2026-11-14T23:30:00+11:00",
       "Australia/Sydney",
+      "",
       "The Grounds of Alexandria",
       "7A/2 Huntley St, Alexandria NSW 2015, Australia",
       "Black tie",

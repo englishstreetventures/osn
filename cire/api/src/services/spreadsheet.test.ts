@@ -95,35 +95,88 @@ describe("parseEventsCsv", () => {
     expect((error as MissingRequiredColumn).column).toBe("Start");
   });
 
-  it("fails when the Location column header is missing (now required)", async () => {
+  it("parses a sheet with no Location column (optional) — location is null", async () => {
     const csv = [
       "Event Name,Start,End,Timezone",
       "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney",
     ].join("\n");
-    const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
-    expect(error).toBeInstanceOf(MissingRequiredColumn);
-    expect((error as MissingRequiredColumn).column).toBe("Location");
+    const events = await Effect.runPromise(parseEventsCsv(csv));
+    expect(events).toHaveLength(1);
+    expect(events[0]!.location).toBeNull();
+    expect(events[0]!.endAt).toBe("2026-09-18T22:00:00+10:00");
   });
 
-  it("rejects an event row with an empty Location cell", async () => {
+  it("treats an empty or whitespace-only Location cell as null", async () => {
     const csv = [
       EVENTS_HEADER,
       "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,,,,,,",
+      "Sangeet,2026-09-19T16:00:00+10:00,2026-09-19T22:00:00+10:00,Australia/Sydney,   ,,,,,",
     ].join("\n");
-    const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
-    expect(error).toBeInstanceOf(MalformedSpreadsheet);
-    expect((error as MalformedSpreadsheet).reason).toBe("Location is required");
-    expect((error as MalformedSpreadsheet).row).toBe(2);
+    const events = await Effect.runPromise(parseEventsCsv(csv));
+    expect(events).toHaveLength(2);
+    expect(events[0]!.location).toBeNull();
+    expect(events[1]!.location).toBeNull();
   });
 
-  it("rejects an event row whose Location is whitespace-only", async () => {
+  it("parses a populated Location cell into `location`", async () => {
     const csv = [
       EVENTS_HEADER,
-      "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,   ,,,,,",
+      "Mehndi,2026-09-18T16:00:00+10:00,2026-09-18T22:00:00+10:00,Australia/Sydney,Home,,,,,",
+    ].join("\n");
+    const events = await Effect.runPromise(parseEventsCsv(csv));
+    expect(events[0]!.location).toBe("Home");
+  });
+
+  it("parses a sheet with no End column (optional) — endAt is the '' sentinel", async () => {
+    const csv = [
+      "Event Name,Start,Timezone",
+      "Mehndi,2026-09-18T16:00:00+10:00,Australia/Sydney",
+    ].join("\n");
+    const events = await Effect.runPromise(parseEventsCsv(csv));
+    expect(events).toHaveLength(1);
+    expect(events[0]!.endAt).toBe("");
+  });
+
+  it("treats an empty End cell as the '' no-stated-end sentinel", async () => {
+    const csv = [
+      EVENTS_HEADER,
+      "Mehndi,2026-09-18T16:00:00+10:00,,Australia/Sydney,Home,,,,,",
+    ].join("\n");
+    const events = await Effect.runPromise(parseEventsCsv(csv));
+    expect(events[0]!.endAt).toBe("");
+    expect(events[0]!.startAt).toBe("2026-09-18T16:00:00+10:00");
+  });
+
+  // Start/End shape is load-bearing: retention compares the stored strings
+  // LEXICALLY against a YYYY-MM-DD cutoff (see isIsoTimestamp in spreadsheet.ts).
+  for (const bad of ["1st Nov 2026", "TBD", "18/09/2026 4pm"]) {
+    it(`rejects a non-ISO Start cell (${JSON.stringify(bad)})`, async () => {
+      const csv = [EVENTS_HEADER, `Mehndi,${bad},,Australia/Sydney,Home,,,,,`].join("\n");
+      const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
+      expect(error).toBeInstanceOf(MalformedSpreadsheet);
+      expect((error as MalformedSpreadsheet).reason).toBe("Start must be an ISO-8601 timestamp");
+      expect((error as MalformedSpreadsheet).row).toBe(2);
+    });
+  }
+
+  it("rejects a non-blank, non-ISO End cell (blank stays legal)", async () => {
+    const csv = [
+      EVENTS_HEADER,
+      "Mehndi,2026-09-18T16:00:00+10:00,late,Australia/Sydney,Home,,,,,",
     ].join("\n");
     const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
     expect(error).toBeInstanceOf(MalformedSpreadsheet);
-    expect((error as MalformedSpreadsheet).reason).toBe("Location is required");
+    expect((error as MalformedSpreadsheet).reason).toBe("End must be an ISO-8601 timestamp");
+  });
+
+  it("accepts ISO timestamps without seconds (the explainer's documented shape)", async () => {
+    const csv = [
+      EVENTS_HEADER,
+      "Mehndi,2026-11-14T15:00+11:00,2026-11-14T22:00+11:00,Australia/Sydney,Home,,,,,",
+    ].join("\n");
+    const events = await Effect.runPromise(parseEventsCsv(csv));
+    expect(events[0]!.startAt).toBe("2026-11-14T15:00+11:00");
+    expect(events[0]!.endAt).toBe("2026-11-14T22:00+11:00");
   });
 
   it("rejects an event row with an empty Start cell (start is required)", async () => {
@@ -192,6 +245,26 @@ describe("parseEventsCsv", () => {
       expect((error as MalformedSpreadsheet).reason).toBe("Maps URL must be an http(s) URL");
     });
   }
+
+  it("round-trips the organiser starter template (header parity + blank-End example)", async () => {
+    // Byte-for-byte copy of `buildEventsTemplateCsv()` output from
+    // cire/organiser/src/lib/import-templates.ts (pinned exactly there by
+    // import-templates.test.ts — if the template changes, that test fails and
+    // this copy must be updated in the same PR). Feeding it through the parser
+    // guarantees the shipped starter CSV can never fail its own import.
+    const template = [
+      "Event Name,Start,Timezone,End,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
+      'Ceremony,2026-11-14T15:00:00+11:00,Australia/Sydney,2026-11-14T16:00:00+11:00,St Mary\'s Cathedral,"St Marys Rd, Sydney NSW 2000, Australia",Formal — suits and cocktail dresses,Blush:#f4c2c2|Sage:#b2ac88,https://pinterest.com/example/ceremony,https://maps.google.com/?q=St+Marys+Cathedral+Sydney',
+      'Reception,2026-11-14T18:00:00+11:00,Australia/Sydney,,The Grounds of Alexandria,"7A/2 Huntley St, Alexandria NSW 2015, Australia",Black tie,Midnight:#191970|Gold:#d4af37,https://pinterest.com/example/reception,https://maps.google.com/?q=The+Grounds+of+Alexandria',
+    ].join("\r\n");
+    const events = await Effect.runPromise(parseEventsCsv(template));
+    expect(events).toHaveLength(2);
+    expect(events[0]!.endAt).toBe("2026-11-14T16:00:00+11:00");
+    expect(events[1]!.endAt).toBe(""); // the template's open-ended example row
+    expect(events[0]!.location).toBe("St Mary's Cathedral");
+    expect(events[1]!.location).toBe("The Grounds of Alexandria");
+    expect(events[0]!.address).toBe("St Marys Rd, Sydney NSW 2000, Australia");
+  });
 
   it("accepts http and https URLs", async () => {
     const csv = [

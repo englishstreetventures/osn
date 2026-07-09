@@ -485,7 +485,10 @@ export function applyImport(
           startAt: ec.event.startAt,
           endAt: ec.event.endAt,
           timezone: ec.event.timezone,
-          address: ec.event.address,
+          // The sheet's venue-name Location has no column of its own — it fills
+          // in for a blank Address so the value still reaches the invite's
+          // "Where" instead of being silently dropped.
+          address: ec.event.address ?? ec.event.location,
           dressCodeDescription: ec.event.dressCodeDescription,
           dressCodePalette: JSON.stringify(ec.event.dressCodePalette),
           pinterestUrl: pinFor(ec.id, ec.event.pinterestUrl),
@@ -505,7 +508,8 @@ export function applyImport(
             startAt: eu.event.startAt,
             endAt: eu.event.endAt,
             timezone: eu.event.timezone,
-            address: eu.event.address,
+            // Same Location → Address fallback as the create path above.
+            address: eu.event.address ?? eu.event.location,
             dressCodeDescription: eu.event.dressCodeDescription,
             dressCodePalette: JSON.stringify(eu.event.dressCodePalette),
             pinterestUrl: pinFor(eu.id, eu.event.pinterestUrl),

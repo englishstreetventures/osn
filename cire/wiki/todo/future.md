@@ -4,19 +4,20 @@ tags: [todo, future]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-06-19
+  - "[[platform-plan]]"
+last-reviewed: 2026-07-08
 ---
 
 # Future
 
 Vague post-MVP ideas. Promote into a sibling shard (`web`, `api`, `db`, etc.) when an idea graduates to actionable work.
 
+> **Promoted 2026-07-08:** "Platformise as multi-tenant SaaS" and "General wedding planning — guest list management, seating charts" graduated into the wedding-management platform build-out — architecture in [[platform-plan]], phased checklist in [[platform]]. Wishing well, guest photos, and Wallet passes stay here (referenced by the plan's Phase 4 as later work).
+
 - Astro → Solid Start migration for the guest-facing app (post-platformisation, only if SaaS path is taken)
 - Apple Wallet pass generation for each event
 - Magic link email fallback (Resend)
 - D1 migration + wrangler deploy path
-- Platformise as multi-tenant wedding invite SaaS
-- General wedding planning — guest list management, seating charts
 - Physical + digital hybrid: QR codes on printed invites linking to digital counterparts
 - Wishing well with payment processing
 - Photo collection and guest photo uploads

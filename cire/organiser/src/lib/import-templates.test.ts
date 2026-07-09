@@ -21,18 +21,18 @@ const lines = (csv: string) => csv.split("\r\n");
 describe("events template", () => {
   it("emits the required + optional event headers, in parser order, as the first row", () => {
     expect(firstLine(buildEventsTemplateCsv())).toBe(
-      "Event Name,Start,End,Timezone,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
+      "Event Name,Start,Timezone,End,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
     );
   });
 
-  it("starts with the five REQUIRED parser columns (Location now mandatory)", () => {
-    expect(EVENT_TEMPLATE_HEADERS.slice(0, 5)).toEqual([
-      "Event Name",
-      "Start",
-      "End",
-      "Timezone",
-      "Location",
-    ]);
+  it("starts with the three REQUIRED parser columns (End + Location are optional)", () => {
+    expect(EVENT_TEMPLATE_HEADERS.slice(0, 3)).toEqual(["Event Name", "Start", "Timezone"]);
+  });
+
+  it("shows a blank optional End cell in one example row (open-ended event)", () => {
+    const rows = lines(buildEventsTemplateCsv());
+    // Row 2 (Reception) leaves End blank: "...,Australia/Sydney,,The Grounds..."
+    expect(rows[2]).toContain("Australia/Sydney,,");
   });
 
   it("includes at least one illustrative example row with an ISO-8601 offset start", () => {

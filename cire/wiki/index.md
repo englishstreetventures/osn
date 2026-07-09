@@ -3,7 +3,7 @@ title: "Cire Wiki — Map of Content"
 tags: [index]
 aliases: [home, map of content, MOC]
 related: []
-last-reviewed: 2026-06-15
+last-reviewed: 2026-07-08
 ---
 
 # Cire Wiki
@@ -18,6 +18,7 @@ Map of Content for the Cire wedding invite project.
 
 - [[monorepo-structure]] — cire/web, cire/organiser, cire/api, cire/db layout and dependency flow (inside the OSN monorepo)
 - [[invite-builder]] — organiser-editable invite images + copy (slots, storage, API, guest rendering)
+- [[platform-plan]] — build plan for the wedding-management platform (guests/events decoupled from the invite, vendors + availability, pricing estimates, budget, checklist, seating, comms)
 
 ## Observability
 

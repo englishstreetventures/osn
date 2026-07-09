@@ -70,6 +70,12 @@ describe("googleCalendarUrl", () => {
     const url = new URL(googleCalendarUrl(sydneyEvent, SITE_URL));
     expect(url.searchParams.get("details")).toBe(`An evening of henna\n\nInvite: ${SITE_URL}`);
   });
+
+  it("falls back to a zero-duration entry when endAt is the '' no-stated-end sentinel", () => {
+    const url = new URL(googleCalendarUrl({ ...sydneyEvent, endAt: "" }, SITE_URL));
+    // end == start — never an Invalid Date / NaN in the dates param.
+    expect(url.searchParams.get("dates")).toBe("20260918T060000Z/20260918T060000Z");
+  });
 });
 
 describe("foldLine", () => {
@@ -204,6 +210,14 @@ describe("icsBlob", () => {
   it("returns a Blob with the correct mime type", () => {
     const blob = icsBlob(sydneyEvent, SITE_URL);
     expect(blob.type).toBe("text/calendar;charset=utf-8");
+  });
+
+  it("sets DTEND to DTSTART when endAt is the '' no-stated-end sentinel", async () => {
+    const text = await blobText(icsBlob({ ...sydneyEvent, endAt: "" }, SITE_URL));
+    const unfolded = text.replace(/\r\n /g, "");
+    expect(unfolded).toContain("DTSTART;TZID=Australia/Sydney:20260918T160000");
+    expect(unfolded).toContain("DTEND;TZID=Australia/Sydney:20260918T160000");
+    expect(unfolded).not.toContain("NaN");
   });
 });
 

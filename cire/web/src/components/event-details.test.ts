@@ -69,6 +69,13 @@ describe("formatTimeRange", () => {
     expect(out).toMatch(/4:00\s*pm/i);
     expect(out).not.toContain("–");
   });
+
+  it("shows just the start for the '' no-stated-end sentinel (End optional in the sheet)", () => {
+    const out = formatTimeRange({ ...base, endAt: "" });
+    expect(out).toMatch(/4:00\s*pm/i);
+    expect(out).not.toContain("–");
+    expect(out).not.toContain("Invalid");
+  });
 });
 
 describe("timezoneLabel", () => {

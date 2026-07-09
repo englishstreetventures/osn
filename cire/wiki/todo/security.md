@@ -5,12 +5,17 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-05
+last-reviewed: 2026-07-08
 ---
 
 # Security Backlog
 
 See [[overview]] for observability rules that apply to all security-sensitive code paths. See [[review-findings]] for severity prefix conventions.
+
+### Optional End/Location CSV spec — review findings (wedding-management-platform branch)
+
+- [x] **CSV2-S-M1** (fixed in the same PR) — the retention sweep compares `events.start_at`/`end_at` **lexically** against a `YYYY-MM-DD` cutoff, but the parser validated Start only as non-empty (and End not at all), so a free-text date like `1st Nov 2026` (sorts below any `2…` cutoff) would make an upcoming wedding aggregate as expired → guest PII (incl. special-category dietary) deleted on the next sweep, while `TBD` would never expire (Art. 5(1)(e)). Making End optional made `start_at` newly load-bearing for blank-End rows. Fixed: `isIsoTimestamp` gate in `parseEventsCsv` — Start (always) and End (when non-blank) must match a zero-padded `YYYY-MM-DDTHH:MM` prefix AND parse as a real `Date`; two new **static** reasons in the closed `MalformedSpreadsheetReason` union. Also fixed the import explainer's example format, which was itself an Invalid-Date shape (`…T15:00:+11:00`).
+- [x] **CSV2-C-L1** (fixed in the same PR, documentation-only) — root `[[wiki/compliance/retention]]` still described the guest-data sweep as keyed on the final event's end; updated to the new **effective end** definition (end, falling back to start for open-ended events) so the audit-facing record matches the enforced rule.
 
 Completed findings are archived in `[[changelog/security-fixes]]` (Migrated from security.md, 2026-06-21) — including the host-preview-code branch findings, the Critical/High/Medium tiers, the image-crop + per-event-image validation surfaces, and the invite-builder / account-linking / observability review findings. Only OPEN findings live below.
 

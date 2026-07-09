@@ -29,7 +29,6 @@ interface EventTableProps {
 function formatRange(startAt: string, endAt: string, timezone: string): string {
   try {
     const start = new Date(startAt);
-    const end = new Date(endAt);
     const dateFmt = new Intl.DateTimeFormat("en-AU", {
       weekday: "short",
       day: "numeric",
@@ -43,9 +42,12 @@ function formatRange(startAt: string, endAt: string, timezone: string): string {
       hour12: true,
       timeZone: timezone,
     });
-    return `${dateFmt.format(start)} · ${timeFmt.format(start)} – ${timeFmt.format(end)}`;
+    // endAt "" = no stated end — show just the start time.
+    const end = endAt.trim().length === 0 ? null : new Date(endAt);
+    const endLabel = end === null || Number.isNaN(end.getTime()) ? "" : ` – ${timeFmt.format(end)}`;
+    return `${dateFmt.format(start)} · ${timeFmt.format(start)}${endLabel}`;
   } catch {
-    return `${startAt} – ${endAt}`;
+    return endAt.trim().length === 0 ? startAt : `${startAt} – ${endAt}`;
   }
 }
 
