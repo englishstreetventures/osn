@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[platform-plan]]"
   - "[[future]]"
-last-reviewed: 2026-07-08
+last-reviewed: 2026-07-09
 ---
 
 # Platform
@@ -18,7 +18,7 @@ Build-out of the organiser portal into a full wedding management platform. Archi
 
 PR slicing + dependency order in [[platform-plan]] §3.6 (PRs 0–2 parallel; IA shell lands **early** so CRUD is built into its module home).
 
-- [ ] **PR 0 — T-S1 lockstep test** — migration/DDL mirror test **before** the `families` rebuild lands (the rebuild is the riskiest artifact — `__keep_*` snapshot/restore idiom under D1's enforced cascades)
+- [x] **PR 0 — T-S1 lockstep test** — `cire/api/src/db/ddl-lockstep.test.ts` replays the full migration chain (filename order, as `wrangler d1 migrations apply` does) against the `setup.ts` DDL **and** the Drizzle schema (`getTableConfig`) via a normalised structural snapshot diff. Fixed four setup.ts drifts it surfaced (events `DEFAULT ''`s, missing `guest_events_event_id_idx`, stale guests index, invented rsvps CHECK) and deleted the `schema.test.ts` mini-mirror (now runs on `createDb()`). The `families` rebuild (PR 4) is unblocked.
 - [ ] **PR 1 — Wedding profile** — add `wedding_date`, `location_name`, `location_lat`/`location_lng`, `pricing_region`, `guest_count_estimate`, `currency`, `budget_total_minor` to `weddings`; Settings view with **key-optional Geocoding API** (no key ⇒ manual lat/lng fallback); `pricing_region` from geocoded locality via checked-in mapping; subprocessor + data-map rows
 - [ ] **PR 2 — Roles** — `wedding_hosts.role` `editor`/`viewer` + `weddingEditor()` gate; data `UPDATE 'host' → 'editor'` (no CHECK constraint, no rebuild); closes the root-TODO co-host-roles item
 - [ ] **PR 3 — Portal IA shell** — module sidebar + Overview home (countdown, RSVP totals, task/budget snapshots); extend `dashboard-route.ts` to `#/w/:weddingId/:module/:sub`; `GettingStarted` becomes Overview empty-state; fold in the P-I3 fetch-lifting fix

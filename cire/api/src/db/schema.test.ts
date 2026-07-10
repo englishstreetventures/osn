@@ -1,80 +1,19 @@
-import { Database } from "bun:sqlite";
 import { describe, it, expect } from "bun:test";
 
 import * as schema from "@cire/db";
 import { families, guestAccountLinks, guests, weddingHosts } from "@cire/db";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 
-// LOCKSTEP CONTRACT: hand-maintained mini-mirror of @cire/db schema —
-// keep in sync with schema.ts + migrations (primary mirror: setup.ts).
-const DDL = `
-CREATE TABLE weddings (
-  id TEXT PRIMARY KEY,
-  slug TEXT NOT NULL UNIQUE,
-  display_name TEXT NOT NULL,
-  owner_osn_profile_id TEXT NOT NULL,
-  code_style TEXT NOT NULL DEFAULT 'secure',
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-CREATE TABLE wedding_hosts (
-  id TEXT PRIMARY KEY,
-  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
-  osn_profile_id TEXT NOT NULL,
-  added_by_osn_profile_id TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'host',
-  created_at INTEGER NOT NULL
-);
-CREATE UNIQUE INDEX wedding_hosts_wedding_profile_uniq ON wedding_hosts(wedding_id, osn_profile_id);
-CREATE INDEX wedding_hosts_profile_idx ON wedding_hosts(osn_profile_id);
-CREATE INDEX wedding_hosts_wedding_idx ON wedding_hosts(wedding_id);
-CREATE TABLE families (
-  id TEXT PRIMARY KEY,
-  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
-  public_id TEXT NOT NULL UNIQUE,
-  family_name TEXT NOT NULL,
-  kind TEXT NOT NULL DEFAULT 'guest',
-  code_shared_at INTEGER,
-  first_opened_at INTEGER,
-  deactivated_at INTEGER,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-CREATE UNIQUE INDEX families_one_host_per_wedding ON families(wedding_id) WHERE kind = 'host';
-CREATE TABLE guests (
-  id TEXT PRIMARY KEY,
-  family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
-  first_name TEXT NOT NULL,
-  last_name TEXT NOT NULL DEFAULT '',
-  nickname TEXT,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  external_id TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-CREATE TABLE guest_account_links (
-  id TEXT PRIMARY KEY,
-  guest_id TEXT NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
-  family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
-  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
-  osn_account_id TEXT NOT NULL,
-  osn_profile_id TEXT NOT NULL,
-  linked_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-CREATE UNIQUE INDEX guest_account_links_guest_uniq ON guest_account_links(guest_id);
-CREATE UNIQUE INDEX guest_account_links_family_account_uniq ON guest_account_links(family_id, osn_account_id);
-CREATE INDEX guest_account_links_account_idx ON guest_account_links(osn_account_id);
-CREATE INDEX guest_account_links_family_idx ON guest_account_links(family_id);
-INSERT INTO weddings VALUES ('wed_bootstrap', 'cire-wedding', 'Cire Wedding', 'usr_unclaimed_bootstrap', 'secure', 0, 0);
-`;
+import { createDb, seedBootstrapWedding } from "./setup";
 
+// Constraint-behaviour tests for the schema (uniques, FKs, cascades,
+// defaults). Runs on the primary setup.ts DDL mirror — the mini-mirror DDL
+// that used to live here was a fourth lockstep surface and is gone; the
+// mirror itself is pinned to the migration chain by ddl-lockstep.test.ts.
 function makeDb() {
-  const sqlite = new Database(":memory:");
-  sqlite.exec("PRAGMA foreign_keys = ON;");
-  sqlite.exec(DDL);
-  return drizzle(sqlite, { schema });
+  const db = createDb();
+  seedBootstrapWedding(db);
+  return db;
 }
 
 const now = new Date();

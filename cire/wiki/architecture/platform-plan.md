@@ -6,7 +6,7 @@ related:
   - "[[invite-builder]]"
   - "[[monorepo-structure]]"
   - "[[platform]]"
-last-reviewed: 2026-07-08
+last-reviewed: 2026-07-09
 ---
 
 # Platform Plan — from digital invite to wedding management platform
@@ -247,7 +247,7 @@ the phase's checklist in [[platform]] + the phase's section above; skim the rest
 | Services | `cire/api/src/services/` | Return `Effect.Effect<A, E>` with `Data.TaggedError` errors; routes unwrap via `runCire`. No logic in handlers; Drizzle only, no raw SQL. |
 | Validation | `cire/api/src/schemas/` | Effect Schema per domain. |
 | Metrics | `cire/api/src/metrics.ts` | Typed `cire.*` counters/histograms; bounded attribute cardinality only (closed enums). |
-| DB schema | `cire/db/src/schema.ts` | **Three-way DDL mirror**: schema.ts + `cire/db/migrations/*.sql` + the test DDL in `cire/api/src/db/setup.ts` must stay in lockstep by hand (T-S1 test pending). Parent-table rebuilds need the `__keep_*` snapshot/restore idiom (`0006_multi_tenant.sql`) — D1 enforces FKs and DROP TABLE cascades. |
+| DB schema | `cire/db/src/schema.ts` | **Three-way DDL mirror**: schema.ts + `cire/db/migrations/*.sql` + the test DDL in `cire/api/src/db/setup.ts` — mechanically enforced by `cire/api/src/db/ddl-lockstep.test.ts` (T-S1): it replays the migration chain and diffs a normalised snapshot against both mirrors, so a change to any surface fails until all three agree. Parent-table rebuilds need the `__keep_*` snapshot/restore idiom (`0006_multi_tenant.sql`) — D1 enforces FKs and DROP TABLE cascades. |
 | Organiser portal | `cire/organiser/src/` | SolidJS islands in an Astro static shell; single root island `components/OrganiserApp.tsx`; hash routing in `lib/dashboard-route.ts`; per-wedding module tabs in `components/DashboardTabs.tsx` (Phase 0 replaces with sidebar); API calls via `authFetch` + `lib/api.ts`. |
 | Guest site | `cire/web/src/` | Only touched when a module changes what guests see (RSVP, invite render). |
 | Tests | co-located `*.test.ts` | `bun:test` (api) / vitest (organiser, web). Route tests build `createApp(createDb(":memory:"))`; osnAuth accepts an injected `osnTestKey`. |

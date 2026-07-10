@@ -179,6 +179,23 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
+    "returns 400 for a status outside the closed literal set",
+    eff(
+      Effect.gen(function* () {
+        // The schema literal is the ONLY status guard — production D1 has no
+        // CHECK constraint on rsvps.status (see ddl-lockstep.test.ts), so a
+        // loosened literal would let arbitrary strings straight into the DB.
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        const res = yield* post(
+          { rsvps: [{ guestId: sharmaGuestId, eventId: HINDU_ID, status: "going" }] },
+          cookie,
+        );
+        expect(res.status).toBe(400);
+      }),
+    ),
+  );
+
+  it(
     "returns 200 when RSVPing to an invited event (S-M1)",
     eff(
       Effect.gen(function* () {

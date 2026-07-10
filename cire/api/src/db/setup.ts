@@ -19,7 +19,9 @@ export { DEV_OWNER_PROFILE_ID };
 // @cire/db's schema.ts + the latest migration in cire/db/migrations/.
 // Tests run against THIS string, not the migration files — any schema
 // change must update all three together or tests will pass on a shape
-// production rejects. (A second mirror lives in src/db/schema.test.ts.)
+// production rejects. Enforced mechanically by src/db/ddl-lockstep.test.ts
+// (T-S1), which diffs this DDL and the Drizzle schema against the full
+// migration chain.
 export const DDL = `
 CREATE TABLE IF NOT EXISTS weddings (
   id TEXT PRIMARY KEY,
@@ -71,7 +73,7 @@ CREATE TABLE IF NOT EXISTS guests (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS guests_family_id_idx ON guests(family_id);
+CREATE INDEX IF NOT EXISTS guests_family_id_sort_idx ON guests(family_id, sort_order);
 
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
@@ -79,9 +81,9 @@ CREATE TABLE IF NOT EXISTS events (
   slug TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
-  start_at TEXT NOT NULL DEFAULT '',
-  end_at TEXT NOT NULL DEFAULT '',
-  timezone TEXT NOT NULL DEFAULT '',
+  start_at TEXT NOT NULL,
+  end_at TEXT NOT NULL,
+  timezone TEXT NOT NULL,
   address TEXT,
   dress_code_description TEXT,
   dress_code_palette TEXT,
@@ -98,12 +100,13 @@ CREATE TABLE IF NOT EXISTS guest_events (
   event_id TEXT NOT NULL REFERENCES events(id),
   PRIMARY KEY (guest_id, event_id)
 );
+CREATE INDEX IF NOT EXISTS guest_events_event_id_idx ON guest_events(event_id);
 
 CREATE TABLE IF NOT EXISTS rsvps (
   id TEXT PRIMARY KEY,
   guest_id TEXT NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
   event_id TEXT NOT NULL REFERENCES events(id),
-  status TEXT NOT NULL CHECK(status IN ('attending', 'declined', 'maybe')),
+  status TEXT NOT NULL,
   dietary TEXT NOT NULL DEFAULT '',
   dietary_consent_at INTEGER,
   dietary_consent_version TEXT,
