@@ -78,6 +78,17 @@ export interface InviteCustomisation {
     imageUrl: string | null;
     imageCrop: ImageCrop | null;
   };
+  // Events ("details") section header copy (migration 0028). `null` ⇒ the guest
+  // site's built-in "Celebrate With Us" / "Your Events" defaults.
+  details: {
+    eyebrow: string | null;
+    heading: string | null;
+  };
+  // Post-claim welcome greeting (migration 0028). `null` ⇒ the built-in
+  // "We are delighted to invite you to celebrate with us." default.
+  welcome: {
+    message: string | null;
+  };
   heroDisplay: HeroDisplay;
   theme: InviteTheme;
   // Optional host override for the first line of the copyable invite message
@@ -106,6 +117,8 @@ const DEFAULT_HERO_DISPLAY: HeroDisplay = {
 const EMPTY: InviteCustomisation = {
   hero: { title: null, subtitle: null, imageUrl: null, imageCrop: null },
   story: { eyebrow: null, heading: null, body: null, imageUrl: null, imageCrop: null },
+  details: { eyebrow: null, heading: null },
+  welcome: { message: null },
   heroDisplay: DEFAULT_HERO_DISPLAY,
   theme: EMPTY_THEME,
   inviteMessage: null,
@@ -132,6 +145,9 @@ function toCustomisation(
     storyEyebrow: string | null;
     storyHeading: string | null;
     storyBody: string | null;
+    detailsEyebrow: string | null;
+    detailsHeading: string | null;
+    welcomeMessage: string | null;
     heroImageKey: string | null;
     storyImageKey: string | null;
     heroImageCrop: string | null;
@@ -153,9 +169,15 @@ function toCustomisation(
     welcomeSurfaceColor: string | null;
     inviteMessage: string | null;
     updatedAt: Date | null;
+    imagesUpdatedAt: Date | null;
   },
 ): InviteCustomisation {
-  const version = c.updatedAt ? c.updatedAt.getTime() : 0;
+  // The image URLs' ?v= cache-buster tracks the IMAGE version, not the row
+  // version — a copy/colour save must not bust the guest image caches
+  // (WT-P-I1). `imagesUpdatedAt` is null only for rows that predate any image
+  // write; coalesce to `updatedAt` as a safety net.
+  const imageVersion = c.imagesUpdatedAt ?? c.updatedAt;
+  const version = imageVersion ? imageVersion.getTime() : 0;
   return {
     hero: {
       title: c.heroTitle,
@@ -173,6 +195,8 @@ function toCustomisation(
       imageUrl: c.storyImageKey ? imagePath(slug, "story", version) : null,
       imageCrop: c.storyImageKey ? decodeCrop(c.storyImageCrop) : null,
     },
+    details: { eyebrow: c.detailsEyebrow, heading: c.detailsHeading },
+    welcome: { message: c.welcomeMessage },
     heroDisplay: {
       // Persisted values already passed the clamp-on-write validation; a null
       // (no row / LEFT JOIN miss) falls back to the today's-look default so an
@@ -246,6 +270,9 @@ export const inviteService = {
             storyEyebrow: weddingInviteCustomisations.storyEyebrow,
             storyHeading: weddingInviteCustomisations.storyHeading,
             storyBody: weddingInviteCustomisations.storyBody,
+            detailsEyebrow: weddingInviteCustomisations.detailsEyebrow,
+            detailsHeading: weddingInviteCustomisations.detailsHeading,
+            welcomeMessage: weddingInviteCustomisations.welcomeMessage,
             heroImageKey: weddingInviteCustomisations.heroImageKey,
             storyImageKey: weddingInviteCustomisations.storyImageKey,
             heroImageCrop: weddingInviteCustomisations.heroImageCrop,
@@ -265,6 +292,7 @@ export const inviteService = {
             welcomeSurfaceColor: weddingInviteCustomisations.welcomeSurfaceColor,
             inviteMessage: weddingInviteCustomisations.inviteMessage,
             updatedAt: weddingInviteCustomisations.updatedAt,
+            imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
           })
           .from(weddings)
           .leftJoin(
@@ -293,10 +321,13 @@ export const inviteService = {
 
   /**
    * Resolve the R2 key backing a slug's image slot (for serving) PLUS the row's
-   * `updatedAt` — the authoritative content version — and the per-wedding
+   * IMAGE version (`imagesUpdatedAt`, coalesced to `updatedAt` for legacy rows;
+   * migration 0029) — the authoritative content version — and the per-wedding
    * `heroBlur`. The serve route derives its edge-cache key from this server-side
-   * `updatedAt` (not the client `?v=`), so an attacker can't loop distinct `?v=`
-   * values to force unbounded, per-call-billed transforms (S-M1). `updatedAt` is
+   * version (not the client `?v=`), so an attacker can't loop distinct `?v=`
+   * values to force unbounded, per-call-billed transforms (S-M1); and because
+   * the version only moves on image upload/remove/crop + hero-blur changes,
+   * copy/colour saves leave the transform cache warm (WT-P-I1). The version is
    * null when the wedding exists but has no customisation row yet (LEFT JOIN
    * miss) — the slot key is then null too, so the route 404s before it ever
    * builds a cache key.
@@ -311,7 +342,7 @@ export const inviteService = {
     slug: string,
     slot: InviteImageSlot,
   ): Effect.Effect<
-    { key: string | null; updatedAt: Date | null; heroBlur: number },
+    { key: string | null; imageVersion: Date | null; heroBlur: number },
     WeddingNotFound,
     DbService
   > {
@@ -328,6 +359,7 @@ export const inviteService = {
             storyImageKey: weddingInviteCustomisations.storyImageKey,
             heroBlur: weddingInviteCustomisations.heroBlur,
             updatedAt: weddingInviteCustomisations.updatedAt,
+            imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
           })
           .from(weddings)
           .leftJoin(
@@ -339,7 +371,11 @@ export const inviteService = {
       );
       if (!row) return yield* Effect.fail(new WeddingNotFound({ slug }));
       const key = slot === "hero" ? row.heroImageKey : row.storyImageKey;
-      return { key, updatedAt: row.updatedAt, heroBlur: row.heroBlur ?? HERO_BLUR_DEFAULT };
+      return {
+        key,
+        imageVersion: row.imagesUpdatedAt ?? row.updatedAt,
+        heroBlur: row.heroBlur ?? HERO_BLUR_DEFAULT,
+      };
     }).pipe(Effect.withSpan("cire.invite.imageKeyForSlug"));
   },
 
@@ -353,6 +389,9 @@ export const inviteService = {
         storyEyebrow: normaliseCopy(fields.storyEyebrow),
         storyHeading: normaliseCopy(fields.storyHeading),
         storyBody: normaliseCopy(fields.storyBody),
+        detailsEyebrow: normaliseCopy(fields.detailsEyebrow),
+        detailsHeading: normaliseCopy(fields.detailsHeading),
+        welcomeMessage: normaliseCopy(fields.welcomeMessage),
         inviteMessage: normaliseCopy(fields.inviteMessage),
       };
       yield* dbQuery(() =>
@@ -379,6 +418,22 @@ export const inviteService = {
   upsertTheme(weddingId: string, fields: InviteThemeBody): Effect.Effect<void, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
+
+      // Does this save change the served image bytes? Only `heroBlur` does (it
+      // parameterises the `hero-bg` transform) — fonts/colours are pure CSS.
+      // Bump the IMAGE version (`imagesUpdatedAt`, the ?v= + transform cache
+      // key) only then, so a colour/font-only save leaves the guest image
+      // caches warm instead of forcing fresh per-call-billed transforms
+      // (WT-P-I1). A missing row counts as changed (first write seeds it).
+      const [existing] = yield* dbQuery(() =>
+        db
+          .select({ heroBlur: weddingInviteCustomisations.heroBlur })
+          .from(weddingInviteCustomisations)
+          .where(eq(weddingInviteCustomisations.weddingId, weddingId))
+          .all(),
+      );
+      const heroBlurChanged = !existing || existing.heroBlur !== fields.heroBlur;
+
       const values = {
         themeHeadingFont: fields.headingFont,
         themeBodyFont: fields.bodyFont,
@@ -391,12 +446,11 @@ export const inviteService = {
         welcomeAccentColor: fields.welcomeAccentColor,
         welcomeSurfaceColor: fields.welcomeSurfaceColor,
         // Hero display sliders (already clamped into range by the schema decode).
-        // Persisting these bumps `updatedAt` below — critical because the hero
-        // image cache version derives from `updatedAt`, so changing `heroBlur`
-        // must bust the served `hero-bg` transform cache.
         heroBlur: fields.heroBlur,
         heroTitleBackdropOpacity: fields.titleBackdropOpacity,
         heroTitleBackdropBlur: fields.titleBackdropBlur,
+        // Conditional image-version bump — see heroBlurChanged above.
+        ...(heroBlurChanged ? { imagesUpdatedAt: new Date() } : {}),
       };
       yield* dbQuery(() =>
         db
@@ -449,10 +503,16 @@ export const inviteService = {
       yield* dbQuery(() =>
         db
           .insert(weddingInviteCustomisations)
-          .values({ weddingId, [keyColumn]: newKey, [cropColumn]: null, updatedAt: now })
+          .values({
+            weddingId,
+            [keyColumn]: newKey,
+            [cropColumn]: null,
+            updatedAt: now,
+            imagesUpdatedAt: now,
+          })
           .onConflictDoUpdate({
             target: weddingInviteCustomisations.weddingId,
-            set: { [keyColumn]: newKey, [cropColumn]: null, updatedAt: now },
+            set: { [keyColumn]: newKey, [cropColumn]: null, updatedAt: now, imagesUpdatedAt: now },
           })
           .run(),
       );
@@ -503,7 +563,12 @@ export const inviteService = {
           // Clear the crop alongside the key — the slot is back to its default, so
           // a later re-upload starts full-frame, not with a stale crop.
           .update(weddingInviteCustomisations)
-          .set({ [keyColumn]: null, [cropColumn]: null, updatedAt: new Date() })
+          .set({
+            [keyColumn]: null,
+            [cropColumn]: null,
+            updatedAt: new Date(),
+            imagesUpdatedAt: new Date(),
+          })
           .where(eq(weddingInviteCustomisations.weddingId, weddingId))
           .run(),
       );
@@ -540,10 +605,10 @@ export const inviteService = {
       yield* dbQuery(() =>
         db
           .insert(weddingInviteCustomisations)
-          .values({ weddingId, [keyColumn]: encoded, updatedAt: now })
+          .values({ weddingId, [keyColumn]: encoded, updatedAt: now, imagesUpdatedAt: now })
           .onConflictDoUpdate({
             target: weddingInviteCustomisations.weddingId,
-            set: { [keyColumn]: encoded, updatedAt: now },
+            set: { [keyColumn]: encoded, updatedAt: now, imagesUpdatedAt: now },
           })
           .run(),
       );

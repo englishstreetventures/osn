@@ -32,6 +32,29 @@ describe("AnimatedModal", () => {
     expect(getByRole("dialog", { name: "Mehndi" })).toBe(dialog);
   });
 
+  it("applies allow-listed themeVars to the dialog panel and drops stray keys", () => {
+    const { getByRole } = render(() => (
+      <AnimatedModal
+        onClose={() => {}}
+        label="Event details"
+        themeVars={{
+          "--invite-accent": "#abcdef",
+          "--color-gold": "var(--invite-accent, oklch(74.99% 0.0854 82.08))",
+          // NOT in the theme-variable allow-list — must never reach the DOM
+          // (the prop is a style sink; the component enforces the contract).
+          "background-image": "url(https://evil.example/x)",
+        }}
+      >
+        <p>body</p>
+      </AnimatedModal>
+    ));
+
+    const dialog = getByRole("dialog");
+    expect(dialog.style.getPropertyValue("--invite-accent")).toBe("#abcdef");
+    expect(dialog.style.getPropertyValue("--color-gold")).toContain("--invite-accent");
+    expect(dialog.style.getPropertyValue("background-image")).toBe("");
+  });
+
   it("falls back to an aria-label when no labelledBy is supplied", () => {
     const { getByRole } = render(() => (
       <AnimatedModal onClose={() => {}} label="Event details">

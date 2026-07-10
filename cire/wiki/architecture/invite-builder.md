@@ -4,7 +4,7 @@ tags: [architecture, api, web, db]
 related:
   - "[[index]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-07-08
+last-reviewed: 2026-07-10
 ---
 
 # Invite Builder
@@ -21,10 +21,17 @@ image + text + theme overrides on top of the wedding root.
 The customisable surface is a fixed, closed union — not a generic page builder.
 Single source of truth: `cire/api/src/schemas/invite.ts`.
 
-| Section   | Image slot | Text fields                                  |
-| --------- | ---------- | -------------------------------------------- |
-| Hero      | `hero`     | `heroTitle`, `heroSubtitle`                   |
-| Our Story | `story`    | `storyEyebrow`, `storyHeading`, `storyBody`  |
+| Section              | Image slot | Text fields                                  |
+| -------------------- | ---------- | -------------------------------------------- |
+| Hero                 | `hero`     | `heroTitle`, `heroSubtitle`                   |
+| Our Story            | `story`    | `storyEyebrow`, `storyHeading`, `storyBody`  |
+| Code Entry & Welcome | —          | `welcomeMessage` (post-claim greeting line)   |
+| Events ("details")   | —          | `detailsEyebrow`, `detailsHeading`            |
+
+The `details`/`welcome` copy fields landed in migration
+`0028_details_welcome_copy.sql` — they closed the last hardcoded guest-facing
+copy (the "Celebrate With Us" / "Your Events" events header and the
+"We are delighted to invite you…" greeting).
 
 Image slots: `INVITE_IMAGE_SLOTS = ["hero", "story"]`. The same union bounds the
 `:slot` route param, the R2 key namespace, and the observability span/log
@@ -50,8 +57,13 @@ fill a field). The single source of truth for these predicates is
 | **Event → Inspiration**       | the event has a `pinterestUrl`                             | `DetailsModal.tsx` (`hasPinterest`)     |
 | **Event → Dress Code**        | the event has a dress-code description **OR** a palette swatch | `DetailsModal.tsx` (`hasDressCode`) |
 
-Image-only or title-only heroes are valid (the empty default "V & R" only renders
-as a fallback **inside** an otherwise-shown hero). The Our-Story eyebrow is a
+Image-only or title-only heroes are valid (the neutral "You're Invited" fallback
+title only renders **inside** an otherwise-shown hero). All built-in fallback
+copy is deliberately NEUTRAL: the original bespoke defaults (the "V & R"
+monogram and the couple's personal story text) were replaced 2026-07-10 — a
+multi-tenant product must never default to one couple's content. A deployed
+wedding that silently relied on those defaults must save its own copy via the
+builder (the old values live in the PR #248 description). The Our-Story eyebrow is a
 label, not content — it does not keep the section alive on its own.
 
 **Builder reflection (no surprises):** `InviteBuilder.tsx` shows a per-section
@@ -140,7 +152,9 @@ partially-themed) invite renders exactly as before.
 FK ⇒ 1:1). Nullable text columns + nullable `hero_image_key` / `story_image_key` +
 nullable theme columns (`theme_heading_font`, `theme_body_font`, and
 `{hero,story,details,welcome}_{accent,surface}_color` — the `welcome` pair
-landed in `0027_welcome_theme.sql`) + the two **hero display** columns
+landed in `0027_welcome_theme.sql`) + the nullable copy columns
+`details_eyebrow` / `details_heading` / `welcome_message`
+(`0028_details_welcome_copy.sql`) + the two **hero display** columns
 `hero_image_style` (`blurred | regular`, **NOT NULL DEFAULT `blurred`**) and
 `hero_title_backdrop` (`none | solid`, **NOT NULL DEFAULT `none`**). The two
 hero-display columns are NOT NULL with defaults that reproduce today's look, so a
@@ -357,16 +371,25 @@ from `InviteHeader`'s resource; the "details"/events **and** "welcome" (code
 entry + welcome banner) sections read the live theme from `InvitePage`'s own
 resource (both override the build-time snapshot above).
 
-> **Welcome section token bridge.** `LoginSection`'s states (input focus border,
-> submit-button hover fill) live in Tailwind pseudo-class utilities that inline
-> styles can't reach, so instead of per-element `var(--invite-accent, …)`
-> styles the section wrapper **re-points the scoped Tailwind tokens** at the
-> validated variables: `--color-gold: var(--invite-accent, <gold literal>)`,
-> `--font-display`/`--font-body` likewise, and `background-color:
-> var(--invite-surface, transparent)`. Every gold/font utility inside the
-> section — including hover/focus — then follows the organiser's pick, and an
-> unset variable falls through to the literal built-in token (a var()
+> **Scoped token bridge (`sectionTokenBridge`).** Section states (input focus
+> border, button hover fill, event-card date lines) live in Tailwind
+> pseudo-class utilities that inline styles can't reach, so instead of
+> per-element `var(--invite-accent, …)` styles the section wrapper
+> **re-points the scoped Tailwind tokens** at the validated variables:
+> `--color-gold: var(--invite-accent, <gold literal>)`, plus `--color-gold-dim`
+> (a `color-mix` at the original 0.35 alpha), `--color-surface`,
+> `--font-display` and `--font-body`. Every gold/surface/font utility inside
+> the wrapper — including hover/focus — then follows the organiser's pick, and
+> an unset variable falls through to the literal built-in token (a var()
 > self-reference would be a cycle, hence the literals).
+> `sectionTokenBridge(theme, section)` in `invite-theme.ts` is the shared
+> helper; it styles the **welcome** wrapper (`LoginSection`, which keeps its
+> `transparent` background default), the **events/details** wrapper in
+> `InvitePage` (this is what makes the details accent reach the `EventCard`
+> buttons — previously only the section header was themed), and — via the
+> `AnimatedModal.themeVars` prop — the RSVP + event-details modals, which
+> paint outside any themed section wrapper and would otherwise stay on the
+> built-in tokens.
 
 > **Render-boundary resilience.** `sectionThemeVars` reads the section sub-object
 > defensively (`theme[section]?` → fall back to the built-in tokens) and never
@@ -381,23 +404,57 @@ renders (default `cire-wedding`, the bootstrap wedding slug).
 
 ## Organiser UI
 
-`cire/organiser/src/components/InviteBuilder.tsx`, mounted as a new **"Invite"**
-tab in `DashboardTabs.tsx`. Text inputs + per-slot image pickers (with preview +
-remove) drive the organiser endpoints via `useAuth().authFetch`; `solid-toast`
-for feedback, `isAuthExpired` / `redirectToLogin` for 401 handling — same
-patterns as `ImportPanel`. A **Theme** fieldset adds two font `<select>`s (closed
-`FONT_OPTIONS` mirror of the server enum) and, per section, two popover
-accent/surface pickers (`ColorPicker.tsx`, Kobalte ColorArea + hue slider +
-labelled hex field) each with a "Use default" clear (null ⇒ built-in token).
-The picker only emits a full `#rrggbb` (never partial input, and never
-mid-typing: the hex field commits only on a complete 6-digit value — 3/4-digit
-shorthand would otherwise parse and hijack the colour after three keystrokes —
-while shorthand still commits on blur via Kobalte's normalisation), so the UI
-can never submit a colour the server allow-list would reject. The **Hero** fieldset
-also carries two segmented toggles (`ToggleField`, a small `radiogroup`) — **Hero
-image** (Blurred / Regular) and **Title backdrop** (None / Solid). All of these —
-fonts, colours, **and the two hero display toggles** — are saved together via a
-single `PUT /invite/theme` ("Save theme" button) independent of the copy save.
+`cire/organiser/src/components/InviteBuilder.tsx`, mounted as the **"Invite"**
+tab in `DashboardTabs.tsx`. `useAuth().authFetch` drives the organiser
+endpoints; `solid-toast` for feedback, `isAuthExpired` / `redirectToLogin` for
+401 handling — same patterns as `ImportPanel`.
+
+**Structure (2026-07-10 restructure): one card per guest-page section, in the
+order guests scroll them, each owning everything about its section.** A global
+**Typography** fieldset (two font `<select>`s, closed `FONT_OPTIONS` mirror of
+the server enum) comes first, then **Hero** (image + crop, title/subtitle,
+accent + background pickers, the three hero-display sliders, and one WYSIWYG
+preview compositing all of it), **Our Story** (image, eyebrow/heading/body,
+colours, preview), **Code Entry & Welcome** (welcome greeting, colours,
+preview), **Events Section** (eyebrow/heading, colours, preview), and finally
+the copyable **Invite message** (explicitly flagged as not part of the guest
+page). Each section preview (`SectionPreview`) is wired with the same
+`--invite-*` variables the guest consumes (`lib/invite-theme-preview`) and is
+driven by the live copy buffers, so copy AND colour changes are visible
+instantly; the hero's preview additionally composites the uploaded photo, a
+client-side CSS blur (never a Cloudflare Images call) and the title panel,
+tinted by the picked Background colour (falling back to the guest's black
+panel default, not the surface token).
+
+**One save, dirty-checked per half.** A sticky bottom bar carries a single
+**"Save invite"** button (plus the error message, so a failure surfaces next
+to the action that caused it). Each half is compared against the last
+server-acknowledged snapshot (seeded on load, refreshed per successful PUT)
+and **skipped when unchanged**: a copy-only edit PUTs only `/invite/text`, a
+colour-only edit only `/invite/theme`, and a no-op save makes no network call.
+This keeps writes proportional to actual changes (P-W1) and pairs with the
+server-side decoupling below: since migration `0029` the guest image-cache
+version is a dedicated `images_updated_at` column — bumped only by image
+upload/remove/crop and a `heroBlur` change (the one theme field that alters
+the served bytes), backfilled from `updated_at`, coalesced to it when NULL —
+so copy/colour saves never bust the per-variant transform cache or force
+guests to re-download the hero (WT-P-I1; transforms are the metered resource,
+see the root `[[wiki/runbooks/free-tier-limits]]`). Dirty halves run sequentially (text
+then theme), mutating the loaded data after each success — the API's
+two-endpoint split is an implementation detail the organiser never sees.
+(Before the restructure the builder had separate "Save copy" / "Save theme"
+buttons with the hero sliders saved by the distant theme button — the source
+of a "saved but didn't stick" class of confusion.) A text-half failure stops
+before the theme PUT and shows that error; a theme-half failure shows its own.
+
+Per-section colours use the popover accent/surface pickers (`ColorPicker.tsx`,
+Kobalte ColorArea + hue slider + labelled hex field) each with a "Use default"
+clear (null ⇒ built-in token). The picker only emits a full `#rrggbb` (never
+partial input, and never mid-typing: the hex field commits only on a complete
+6-digit value — 3/4-digit shorthand would otherwise parse and hijack the
+colour after three keystrokes — while shorthand still commits on blur via
+Kobalte's normalisation), so the UI can never submit a colour the server
+allow-list would reject.
 
 **Crop editor.** Per-slot "Crop" opens `ImageCropModal.tsx` (cropperjs **v2**
 web components wrapped by the `Cropper` class). Two v1→v2 behaviour gaps are

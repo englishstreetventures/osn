@@ -178,6 +178,15 @@ export const InviteTextBody = Schema.Struct({
   storyEyebrow: copyField(80),
   storyHeading: copyField(160),
   storyBody: copyField(4000),
+  // Events ("details") section header — the eyebrow + heading above the guest's
+  // event cards (defaults "Celebrate With Us" / "Your Events"). Same caps as the
+  // story eyebrow/heading — they render in the same visual slots.
+  detailsEyebrow: copyField(80),
+  detailsHeading: copyField(160),
+  // Post-claim welcome greeting — the line under the family/guest name (default
+  // "We are delighted to invite you to celebrate with us."). A short personal
+  // sentence or two, so a modest cap.
+  welcomeMessage: copyField(300),
   // Optional host override for the FIRST line of the copyable invite message
   // (the line above the guest-site URL + family code). A free-text string capped
   // at 600 chars — a couple of short sentences, enough for a warm personal note

@@ -4,12 +4,18 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-08
+last-reviewed: 2026-07-10
 ---
 
 # Performance Backlog
 
 See [[review-findings]] for severity prefix conventions.
+
+### Invite customisation + builder restructure — review findings (cire-invite-customization branch)
+
+- [x] **IC-P-W1** (fixed in the same PR) — the restructured builder's single "Save invite" fired both PUTs unconditionally, so a copy-only (or no-op) save bumped `updatedAt` and busted the guest image-transform caches for zero visual change. Fixed: per-half dirty-check against a server-acknowledged snapshot — clean halves are skipped, a no-op save makes no network call. The server-side residual (a genuine colour-only change still busts the image caches) is the pre-existing [[perf|WT-P-I1]] below.
+- [ ] **IC-P-I1** — a save touching both halves is two sequential round-trips (text → theme); deliberate for the partial-failure story. If save latency ever matters, the fix is a single combined `PUT /invite` endpoint doing one upsert (which would also collapse the double `updatedAt` bump), not `Promise.all`. (invite-customization branch review)
+- [x] **IC-P-I2** (fixed in the same PR) — `detailsVars`/`welcomeVars` in the guest `InvitePage` were plain derived functions recomputed at each of their JSX consumers; now `createMemo` (single evaluation per theme change, stable object identity).
 
 ### Optional End/Location CSV spec — review findings (wedding-management-platform branch)
 
@@ -18,7 +24,7 @@ See [[review-findings]] for severity prefix conventions.
 
 ### Welcome theme section — review findings (invite-code-theme branch)
 
-- [ ] **WT-P-I1** — theme-only saves still bust the hero/story **image** edge cache: `upsertTheme` bumps `wedding_invite_customisations.updatedAt`, which doubles as the image cache version, so a colour/font-only save (touching no image) forces fresh Cloudflare Images transforms on the next guest loads. Deliberate today (`heroBlur` needs it) and low-frequency, but the coupling widens with every theme field (the welcome pair makes 8 image-irrelevant columns on the row). Fix direction if the theme surface keeps growing: a dedicated `imagesUpdatedAt` bumped only by image upload/remove/crop + `heroBlur`, leaving colour-only saves cache-neutral. Transforms are the metered resource — see root `[[wiki/runbooks/free-tier-limits]]`. (welcome-theme branch review)
+- [x] **WT-P-I1** — _fixed on `claude/cire-invite-customization-na91kv` (migration `0029_images_updated_at`)_: the image cache version is now a dedicated `images_updated_at` column bumped only by image upload/remove/crop + a `heroBlur` change (backfilled from `updated_at`; reads coalesce NULL); copy/colour saves are image-cache-neutral. Original finding: theme-only saves bust the hero/story **image** edge cache: `upsertTheme` bumps `wedding_invite_customisations.updatedAt`, which doubles as the image cache version, so a colour/font-only save (touching no image) forces fresh Cloudflare Images transforms on the next guest loads. Deliberate today (`heroBlur` needs it) and low-frequency, but the coupling widens with every theme field (the welcome pair makes 8 image-irrelevant columns on the row). Fix direction if the theme surface keeps growing: a dedicated `imagesUpdatedAt` bumped only by image upload/remove/crop + `heroBlur`, leaving colour-only saves cache-neutral. Transforms are the metered resource — see root `[[wiki/runbooks/free-tier-limits]]`. (welcome-theme branch review)
 - [x] **WT-P-I2** (no change — deliberate) — `InviteBuilder`'s `accent`/`surface` are record-valued signals, so one picker edit re-evaluates all four `SectionColors` + preview cards per input event (O(sections) per keystroke/hue-drag, defeating Solid fine-grained reactivity). Well under a millisecond at 4 sections; the diff merely extends the pre-existing 3-section pattern. Revisit (switch to `createStore` with path-level tracking) only if sections multiply or the preview cards grow heavier. (welcome-theme branch review)
 
 ### Guests/events CSV exports — review findings (cire-csv-download-buttons branch)

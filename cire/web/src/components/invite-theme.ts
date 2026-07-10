@@ -86,3 +86,70 @@ export function sectionThemeVars(
 
   return vars;
 }
+
+/**
+ * Scoped token bridge: re-points the global design tokens the Tailwind utility
+ * classes consume (`text-gold`, `bg-gold/5`, `hover:border-gold-dim`,
+ * `font-display`, `font-body`, `bg-surface`, …) at the validated `--invite-*`
+ * variables, so applying this map to a section (or modal) wrapper themes EVERY
+ * descendant — including hover/focus/selected states and opacity-modified
+ * utilities, which per-element inline styles cannot reach.
+ *
+ * Each fallback is the built-in token's literal value (a self-reference like
+ * `--color-gold: var(--invite-accent, var(--color-gold))` would be a var()
+ * cycle, which CSS resolves to *invalid* — not the outer value), so an
+ * un-themed invite renders exactly as before. Must stay in sync with the
+ * `@theme` tokens in `styles/global.css`.
+ */
+const TOKEN_BRIDGE: Record<string, string> = {
+  "--color-gold": "var(--invite-accent, oklch(74.99% 0.0854 82.08))",
+  // The original gold-dim is gold at 0.35 alpha; color-mix reproduces that for
+  // any picked accent (and collapses to the same value for the default).
+  "--color-gold-dim":
+    "color-mix(in oklab, var(--invite-accent, oklch(74.99% 0.0854 82.08)) 35%, transparent)",
+  "--color-surface": "var(--invite-surface, oklch(22.7% 0.0275 152.78))",
+  "--font-display": 'var(--invite-heading, "Cormorant Garamond", Georgia, serif)',
+  "--font-body": 'var(--invite-body, "Lato", system-ui, sans-serif)',
+};
+
+/**
+ * A section's `--invite-*` variables PLUS the token bridge above, as one style
+ * map for the section wrapper. This is what makes a themed accent reach the
+ * event cards' buttons, date lines and modal contents rather than just the
+ * elements that carry a hand-written inline `var(--invite-…)` style.
+ */
+export function sectionTokenBridge(
+  theme: InviteTheme | null | undefined,
+  section: ThemeSection,
+): Record<string, string> {
+  return { ...sectionThemeVars(theme, section), ...TOKEN_BRIDGE };
+}
+
+/**
+ * The only style keys a theme-vars map may carry: the four validated
+ * `--invite-*` variables plus the fixed bridge tokens. Components that spread a
+ * theme map into a `style` attribute (AnimatedModal) filter through this set,
+ * so a future caller wiring unvalidated data into the prop can never smuggle an
+ * arbitrary CSS property (e.g. `background-image`) into the DOM — the sink
+ * enforces the contract instead of relying on every caller remembering it
+ * (S-L1).
+ */
+const ALLOWED_THEME_VAR_KEYS: ReadonlySet<string> = new Set([
+  "--invite-accent",
+  "--invite-surface",
+  "--invite-heading",
+  "--invite-body",
+  ...Object.keys(TOKEN_BRIDGE),
+]);
+
+/** Drop any key outside the theme-variable allow-list (undefined stays undefined). */
+export function filterThemeVars(
+  vars: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!vars) return undefined;
+  const safe: Record<string, string> = {};
+  for (const [key, value] of Object.entries(vars)) {
+    if (ALLOWED_THEME_VAR_KEYS.has(key)) safe[key] = value;
+  }
+  return safe;
+}

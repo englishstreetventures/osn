@@ -104,6 +104,9 @@ const emptyText = JSON.stringify({
   storyEyebrow: null,
   storyHeading: null,
   storyBody: null,
+  detailsEyebrow: null,
+  detailsHeading: null,
+  welcomeMessage: null,
   inviteMessage: null,
 });
 
@@ -148,6 +151,9 @@ describe("PUT /invite/text (organiser)", () => {
     storyEyebrow: null,
     storyHeading: "Where it started",
     storyBody: "  ", // whitespace ⇒ cleared to default
+    detailsEyebrow: null,
+    detailsHeading: null,
+    welcomeMessage: null,
     inviteMessage: null,
   };
 
@@ -197,6 +203,84 @@ describe("PUT /invite/text (organiser)", () => {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
       body: JSON.stringify({ ...payload, heroTitle: "x".repeat(200) }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("saves the details header + welcome greeting and surfaces them on the public read", async () => {
+    const { app } = buildApp();
+    const put = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({
+        ...payload,
+        detailsEyebrow: "Join The Celebration",
+        detailsHeading: "The Festivities",
+        welcomeMessage: "  So happy you're here!  ", // trimmed on save
+      }),
+    });
+    expect(put.status).toBe(200);
+
+    const pub = await appRequest(app, `/api/invite/${SLUG}`);
+    const body = (await pub.json()) as {
+      details: { eyebrow: string | null; heading: string | null };
+      welcome: { message: string | null };
+    };
+    expect(body.details.eyebrow).toBe("Join The Celebration");
+    expect(body.details.heading).toBe("The Festivities");
+    expect(body.welcome.message).toBe("So happy you're here!");
+  });
+
+  it("reports null details/welcome copy for an uncustomised wedding (built-in defaults)", async () => {
+    const { app } = buildApp();
+    const pub = await appRequest(app, `/api/invite/${SLUG}`);
+    const body = (await pub.json()) as {
+      details: { eyebrow: string | null; heading: string | null };
+      welcome: { message: string | null };
+    };
+    expect(body.details.eyebrow).toBeNull();
+    expect(body.details.heading).toBeNull();
+    expect(body.welcome.message).toBeNull();
+  });
+
+  it("rejects an over-long welcome greeting with 400 (cap 300)", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...payload, welcomeMessage: "x".repeat(301) }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts an exactly-at-cap welcome greeting (300 chars)", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...payload, welcomeMessage: "x".repeat(300) }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  // Per-field caps are arguments to the shared copyField factory — pin each new
+  // field's specific cap so a transposed/typo'd limit can't slip through (T-S2).
+  it("rejects an over-long details eyebrow with 400 (cap 80)", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...payload, detailsEyebrow: "x".repeat(81) }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an over-long details heading with 400 (cap 160)", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...payload, detailsHeading: "x".repeat(161) }),
     });
     expect(res.status).toBe(400);
   });
@@ -276,6 +360,9 @@ describe("co-host invite access (weddingMember)", () => {
         storyEyebrow: null,
         storyHeading: null,
         storyBody: null,
+        detailsEyebrow: null,
+        detailsHeading: null,
+        welcomeMessage: null,
         inviteMessage: null,
       }),
     });
@@ -753,13 +840,14 @@ describe("invite image transforms — Cache API short-circuit", () => {
       expect(images.widths).toEqual([1600]); // binding ran once
       expect(cache.store.size).toBe(1);
 
-      // Simulate a re-upload by advancing the wedding's stored `updatedAt`. After
-      // the S-M1 fix the cache version is derived from this DB value (NOT the
-      // client ?v=), so a bump must mint a fresh key — the new image can't be
-      // served the stale cached transform.
+      // Simulate a re-upload by advancing the wedding's stored `imagesUpdatedAt`
+      // (what setImage bumps; migration 0029 made it the image cache version).
+      // After the S-M1 fix the cache version is derived from this DB value (NOT
+      // the client ?v=), so a bump must mint a fresh key — the new image can't
+      // be served the stale cached transform.
       built.db
         .update(weddingInviteCustomisations)
-        .set({ updatedAt: new Date(Date.now() + 60_000) })
+        .set({ imagesUpdatedAt: new Date(Date.now() + 60_000) })
         .where(eq(weddingInviteCustomisations.weddingId, BOOTSTRAP_WEDDING_ID))
         .run();
 
@@ -1151,6 +1239,82 @@ describe("hero display sliders (migration 0018)", () => {
     // hero-bg ⇒ 1600px width WITH the stored blur (7), not VARIANT_BLUR default.
     expect(images.widths).toEqual([1600]);
     expect(images.blurs).toEqual([7]);
+  });
+
+  it("a copy-only save keeps the image URL version AND the transform cache warm (WT-P-I1)", async () => {
+    const cache = createCacheStub();
+    await withCaches(cache.caches, async () => {
+      const images = createImagesStub();
+      const { app } = buildApp({ images });
+      await uploadHero(app);
+      const accept = { accept: "image/webp,*/*" };
+
+      // Capture the image URL (?v=) and prime the transform cache.
+      const before = (await (await appRequest(app, `/api/invite/${SLUG}`)).json()) as {
+        hero: { imageUrl: string };
+      };
+      const first = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero`, {
+        headers: accept,
+      });
+      expect(first.status).toBe(200);
+      expect(images.widths.length).toBe(1);
+      expect(cache.store.size).toBe(1);
+
+      // A copy-only save (bumps `updatedAt`, NOT `imagesUpdatedAt`)…
+      const put = await appRequest(app, `${orgBase}/text`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: emptyText,
+      });
+      expect(put.status).toBe(200);
+
+      // …must leave the image URL version unchanged (guests keep their browser
+      // cache) and the next serve a cache HIT (no re-billed transform).
+      const after = (await (await appRequest(app, `/api/invite/${SLUG}`)).json()) as {
+        hero: { imageUrl: string };
+      };
+      expect(after.hero.imageUrl).toBe(before.hero.imageUrl);
+
+      const second = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero`, {
+        headers: accept,
+      });
+      expect(second.status).toBe(200);
+      expect(images.widths.length).toBe(1); // still exactly one transform
+      expect(cache.store.size).toBe(1); // no new cache entry
+    });
+  });
+
+  it("a colour/font-only theme save (heroBlur unchanged) keeps the transform cache warm (WT-P-I1)", async () => {
+    const cache = createCacheStub();
+    await withCaches(cache.caches, async () => {
+      const images = createImagesStub();
+      const { app } = buildApp({ images });
+      await uploadHero(app);
+      const accept = { accept: "image/webp,*/*" };
+
+      const first = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero-bg`, {
+        headers: accept,
+      });
+      expect(first.status).toBe(200);
+      expect(images.widths.length).toBe(1);
+      expect(cache.store.size).toBe(1);
+
+      // Theme save with the SAME heroBlur (28, the seeded default) — colours
+      // are pure CSS, so the served bytes are unchanged.
+      const put = await appRequest(app, `${orgBase}/theme`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify({ ...validTheme, heroAccentColor: "#d4af37" }),
+      });
+      expect(put.status).toBe(200);
+
+      const second = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero-bg`, {
+        headers: accept,
+      });
+      expect(second.status).toBe(200);
+      expect(images.widths.length).toBe(1); // cache hit — binding not re-run
+      expect(cache.store.size).toBe(1);
+    });
   });
 
   it("a blur change busts the served hero-bg cache (re-runs the binding, new entry)", async () => {

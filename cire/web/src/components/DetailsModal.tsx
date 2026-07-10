@@ -13,6 +13,11 @@ interface DetailsModalProps {
   event: EventSummary;
   /** Origin used to stamp the calendar invite's "Invite:" link. */
   siteUrl: string;
+  /**
+   * "Details"-section theme map (`sectionTokenBridge(theme, "details")`) so this
+   * sheet follows the events section it expands — see AnimatedModal.themeVars.
+   */
+  themeVars?: Record<string, string>;
   onClose: () => void;
 }
 
@@ -45,7 +50,7 @@ export function DetailsModal(props: DetailsModalProps) {
   const titleId = createUniqueId();
 
   return (
-    <AnimatedModal onClose={props.onClose} labelledBy={titleId}>
+    <AnimatedModal onClose={props.onClose} labelledBy={titleId} themeVars={props.themeVars}>
       <header class="mb-7">
         <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">Details</p>
         <h3

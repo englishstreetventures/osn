@@ -1,11 +1,11 @@
 import { AuthProvider } from "@osn/client/solid";
-import { createResource, createSignal, Show, For } from "solid-js";
+import { createMemo, createResource, createSignal, Show, For } from "solid-js";
 import { Toaster } from "solid-toast";
 
 import { OSN_ISSUER_URL } from "../lib/osn";
 import { DetailsModal } from "./DetailsModal";
 import { EventCard } from "./EventCard";
-import { type InviteTheme, sectionThemeVars } from "./invite-theme";
+import { type InviteTheme, sectionTokenBridge } from "./invite-theme";
 import { LoginSection } from "./LoginSection";
 import { PulseAccountLink } from "./PulseAccountLink";
 import { RsvpModal } from "./RsvpModal";
@@ -16,10 +16,35 @@ import type { ClaimResult, EventSummary, RsvpSummary } from "./types";
 // flow's TurnstileWidget; reused here for the OSN sign-in ceremony.
 const TURNSTILE_SITEKEY = import.meta.env.PUBLIC_TURNSTILE_SITEKEY;
 
-/** Shape of the public invite endpoint we consume — only the theme matters here. */
+/** Events ("details") section header copy. `null` ⇒ the built-in defaults. */
+export interface DetailsCopy {
+  eyebrow: string | null;
+  heading: string | null;
+}
+
+/**
+ * Shape of the public invite endpoint we consume — the theme plus the copy this
+ * island renders (the details-section header and the post-claim welcome
+ * greeting). `details`/`welcome` are optional on the wire so a mid-deploy
+ * payload from an older API simply keeps the built-in copy.
+ */
 interface InviteCustomisationResponse {
   theme?: InviteTheme | null;
+  details?: DetailsCopy | null;
+  welcome?: { message: string | null } | null;
 }
+
+/** The slice of the invite customisation this island renders. */
+interface LiveInvite {
+  theme: InviteTheme | null;
+  details: DetailsCopy | null;
+  welcomeMessage: string | null;
+}
+
+// Built-in default copy, used when the organiser hasn't overridden it — the
+// pre-customisation hardcoded strings, so an un-customised invite is unchanged.
+const DEFAULT_DETAILS_EYEBROW = "Celebrate With Us";
+const DEFAULT_DETAILS_HEADING = "Your Events";
 
 interface InvitePageProps {
   apiUrl: string;
@@ -38,6 +63,16 @@ interface InvitePageProps {
    * overrides it with the latest saved theme.
    */
   theme?: InviteTheme | null;
+  /**
+   * Events-section header copy, resolved server-side like `theme`. Absent/null
+   * fields fall back to the built-in defaults.
+   */
+  details?: DetailsCopy | null;
+  /**
+   * Post-claim welcome greeting override, resolved server-side like `theme`.
+   * Absent/null ⇒ the built-in default greeting.
+   */
+  welcomeMessage?: string | null;
 }
 
 export default function InvitePage(props: InvitePageProps) {
@@ -49,34 +84,52 @@ export default function InvitePage(props: InvitePageProps) {
     props.siteUrl ?? (typeof window !== "undefined" ? window.location.origin : "");
 
   // Revalidate the invite customisation on mount so the events section reflects
-  // the organiser's latest saved theme. The static guest site bakes the build-
-  // time theme into the prop; without this re-fetch a theme change made after the
-  // last build would never reach guests until a rebuild (the bug this fixes). The
-  // build-time `theme` seeds the resource so first paint is immediate and the
-  // no-JS fallback still renders the SSR'd theme. Only fetches when a slug is
-  // present; a non-OK / failed revalidation keeps the already-painted theme.
-  const [liveTheme] = createResource<InviteTheme | null>(
+  // the organiser's latest saved theme + copy. The static guest site bakes the
+  // build-time values into the props; without this re-fetch a change made after
+  // the last build would never reach guests until a rebuild (the bug this fixes).
+  // The build-time props seed the resource so first paint is immediate and the
+  // no-JS fallback still renders the SSR'd values. Only fetches when a slug is
+  // present; a non-OK / failed revalidation keeps the already-painted values.
+  const propInvite = (): LiveInvite => ({
+    theme: props.theme ?? null,
+    details: props.details ?? null,
+    welcomeMessage: props.welcomeMessage ?? null,
+  });
+  const [liveInvite] = createResource<LiveInvite>(
     async () => {
-      if (!props.slug) return props.theme ?? null;
+      if (!props.slug) return propInvite();
       try {
         const res = await fetch(`${props.apiUrl}/api/invite/${props.slug}`, {
           cache: "no-store",
         });
-        if (!res.ok) return props.theme ?? null;
+        if (!res.ok) return propInvite();
         const body = (await res.json()) as InviteCustomisationResponse;
-        return body.theme ?? null;
+        return {
+          theme: body.theme ?? null,
+          details: body.details ?? null,
+          welcomeMessage: body.welcome?.message ?? null,
+        };
       } catch {
-        return props.theme ?? null;
+        return propInvite();
       }
     },
-    { initialValue: props.theme ?? null },
+    { initialValue: propInvite() },
   );
 
-  // Validated CSS-variable maps per section; an unset field falls through to the
-  // built-in token via the var() fallbacks below. "welcome" styles the invite-code
-  // entry form + post-claim welcome banner inside LoginSection.
-  const detailsVars = () => sectionThemeVars(liveTheme() ?? null, "details");
-  const welcomeVars = () => sectionThemeVars(liveTheme() ?? null, "welcome");
+  // Validated per-section CSS-variable maps PLUS the scoped token bridge, so the
+  // theme reaches every descendant (event-card buttons, hover states, modal
+  // contents) — not just elements with a hand-written inline style. An unset
+  // field falls through to the built-in token via the var() fallbacks. "welcome"
+  // styles the invite-code entry form + post-claim welcome banner inside
+  // LoginSection.
+  // Memoised: each map has several consumers (section wrapper + both modals),
+  // so compute once per theme change and share a stable object identity.
+  const detailsVars = createMemo(() => sectionTokenBridge(liveInvite().theme, "details"));
+  const welcomeVars = createMemo(() => sectionTokenBridge(liveInvite().theme, "welcome"));
+
+  // Organiser copy overrides with the built-in defaults as fallback.
+  const detailsEyebrow = () => liveInvite().details?.eyebrow ?? DEFAULT_DETAILS_EYEBROW;
+  const detailsHeading = () => liveInvite().details?.heading ?? DEFAULT_DETAILS_HEADING;
 
   let loginFormRef: HTMLDivElement;
   let welcomeRef: HTMLDivElement;
@@ -103,6 +156,7 @@ export default function InvitePage(props: InvitePageProps) {
         formRef={(el) => (loginFormRef = el)}
         welcomeRef={(el) => (welcomeRef = el)}
         themeVars={welcomeVars()}
+        welcomeMessage={liveInvite().welcomeMessage}
       />
 
       <Show when={claimResult()}>
@@ -110,23 +164,19 @@ export default function InvitePage(props: InvitePageProps) {
           <section
             ref={eventsSectionRef}
             class="border-border bg-surface border-y px-6 py-16 opacity-0 md:px-8 md:py-20"
-            style={{
-              ...detailsVars(),
-              "background-color": "var(--invite-surface, var(--color-surface))",
-            }}
+            // The token bridge in detailsVars re-points --color-surface /
+            // --color-gold / --font-* inside this section, so the `bg-surface`,
+            // `text-gold`, `font-display` (etc.) utility classes on the header
+            // AND on every EventCard descendant resolve the organiser's theme —
+            // no per-element inline styles needed.
+            style={detailsVars()}
           >
             <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
-              <p
-                class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase"
-                style={{ color: "var(--invite-accent, var(--color-gold))" }}
-              >
-                Celebrate With Us
+              <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+                {detailsEyebrow()}
               </p>
-              <h2
-                class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic"
-                style={{ "font-family": "var(--invite-heading, var(--font-display))" }}
-              >
-                Your Events
+              <h2 class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic">
+                {detailsHeading()}
               </h2>
               <div class="flex flex-col gap-5 text-left">
                 <For each={data().events}>
@@ -180,6 +230,10 @@ export default function InvitePage(props: InvitePageProps) {
             apiUrl={props.apiUrl}
             // Host preview keeps the RSVP interactive but makes submit a no-op.
             preview={claimResult()!.preview}
+            // The RSVP dialog is the events section's expanded surface — it
+            // follows the "details" theme (the modal renders outside the themed
+            // section wrapper, so the vars must be re-applied on its panel).
+            themeVars={detailsVars()}
             onClose={() => setRsvpEvent(null)}
             onSubmitted={(updated: RsvpSummary[]) => {
               const current = claimResult();
@@ -192,7 +246,14 @@ export default function InvitePage(props: InvitePageProps) {
 
       <Show when={detailsEvent()}>
         {(event) => (
-          <DetailsModal event={event()} siteUrl={siteUrl()} onClose={() => setDetailsEvent(null)} />
+          <DetailsModal
+            event={event()}
+            siteUrl={siteUrl()}
+            // Same reasoning as RsvpModal — the event-details sheet follows the
+            // "details" section theme.
+            themeVars={detailsVars()}
+            onClose={() => setDetailsEvent(null)}
+          />
         )}
       </Show>
     </>

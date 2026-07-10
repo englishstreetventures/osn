@@ -64,4 +64,37 @@ describe("LoginSection greeting", () => {
     expect(text).toContain("Dear");
     expect(text).toContain("Chidi");
   });
+
+  it("shows the built-in greeting line when no override is set", () => {
+    const { container } = render(() => (
+      <LoginSection apiUrl="http://x" result={result([member("Chidi")])} onClaimed={noop} />
+    ));
+    expect(container.textContent).toContain("We are delighted to invite you to celebrate with us.");
+  });
+
+  it("renders the organiser's welcome greeting override for both family and individual codes", () => {
+    const greeting = "Nau mai, haere mai — we can't wait to see you!";
+    const family = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={result([member("Chidi"), member("Ada")])}
+        onClaimed={noop}
+        welcomeMessage={greeting}
+      />
+    ));
+    expect(family.container.textContent).toContain(greeting);
+    expect(family.container.textContent).not.toContain("We are delighted to invite you");
+    cleanup();
+
+    const individual = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={result([member("Chidi")])}
+        onClaimed={noop}
+        welcomeMessage={greeting}
+      />
+    ));
+    expect(individual.container.textContent).toContain(greeting);
+    expect(individual.container.textContent).not.toContain("We are delighted to invite you");
+  });
 });

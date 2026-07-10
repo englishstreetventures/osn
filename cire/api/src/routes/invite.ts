@@ -232,7 +232,7 @@ export const createInvitePublicRoutes = (
           // By design this DB read now runs on EVERY request — it's cheap and is
           // the source of the authoritative version; the expensive work (R2 read
           // + Images binding call) is still skipped on a cache hit below.
-          const { key, updatedAt, heroBlur } = yield* inviteService.imageKeyForSlug(
+          const { key, imageVersion, heroBlur } = yield* inviteService.imageKeyForSlug(
             params.slug,
             slot,
           );
@@ -240,10 +240,11 @@ export const createInvitePublicRoutes = (
             set.status = 404;
             return { error: "Not found" };
           }
-          // Server-derived version: the row's `updatedAt` epoch ms. A re-upload
-          // (or a hero-blur change — both bump `updatedAt`) mints a new cache key
-          // (fresh entry) so the new image is never served stale from the old.
-          const version = updatedAt ? String(updatedAt.getTime()) : undefined;
+          // Server-derived IMAGE version (`imagesUpdatedAt`, migration 0029):
+          // a re-upload / crop / hero-blur change mints a new cache key (fresh
+          // entry) so the new image is never served stale — while copy/colour
+          // saves leave it untouched, keeping the transform cache warm (WT-P-I1).
+          const version = imageVersion ? String(imageVersion.getTime()) : undefined;
 
           // Per-wedding hero backdrop blur (migration 0018). It applies ONLY to
           // the blurred `hero-bg` variant of the `hero` slot; every other

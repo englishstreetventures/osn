@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-07-04
+last-reviewed: 2026-07-10
 ---
 
 # Data Map
@@ -118,7 +118,7 @@ organiser-initiated wedding administration.
 | `guest_account_links.osn_account_id`, `osn_profile_id` (+ `guest_id`/`family_id`/`wedding_id`) | **Cross-database linkage** — binds a cire household invitee (`guests` row) to a real OSN/Pulse account so the invitation can be surfaced inside Pulse and the linked invitee can (with their household) see family members' RSVPs. `osn_account_id` is the OSN *account* principal resolved server-to-server over ARC from the access token's profile id; `osn_profile_id` records which profile performed the link (audit only). Opt-in + additive — the family claim-code session stays the primary guest credential. | Art. 6(1)(a) — **consent / opt-in** (the guest explicitly links their own account via the dual-credential `POST /api/account/link`, which requires BOTH a valid guest session AND an OSN access token). | Tied to wedding lifecycle — **`ON DELETE cascade`** from `guests`/`families`/`weddings` covers guest/family/wedding erasure (incl. the 1-year guest-data sweep, which deletes the parent `guests` row). **`osn_account_id`/`osn_profile_id` are opaque cross-DB references with NO foreign key** (cire's D1 ≠ osn's D1), so an **OSN-side account deletion does NOT fan out to cire** — the link row is orphaned (holds a stale `osn_account_id` that resolves to a deleted account). See the orphan note below + [[dsar]] (C-M1). | `@cire/api` + the wedding owner; the linked `osn_account_id` is shared with `@pulse/api` (planned invitation-surfacing) | [[cire-auth]] |
 | `imports` table rows (organiser spreadsheet import metadata + parsed guest/event data) | Bulk guest-list onboarding | Art. 6(1)(f) — wedding administration | **Retained indefinitely, including across reverts — no purge (C-H1)** | `@cire/api` + wedding owner | [[cire]] |
 | R2 `imports/<id>/{events,guests}.csv` (raw organiser uploads) | Source-of-truth for re-import / audit of an import | Art. 6(1)(f) — wedding administration | **Retained indefinitely, including across reverts — no lifecycle/TTL (C-H1)** | `@cire/api` (R2 bucket `cire-sheets`) + wedding owner | [[cire]] |
-| `wedding_invite_customisations` text (hero/story copy, couple names) | Organiser-authored invite presentation copy (invite builder) | Art. 6(1)(f) — wedding administration (organiser-controlled) | Tied to wedding lifecycle — D1 `ON DELETE cascade` from `weddings` (C-H1) | `@cire/api` + wedding owner + **public guest site** (rendered on the invite) | [[cire]] |
+| `wedding_invite_customisations` text (hero/story/events-header copy, couple names, welcome greeting) | Organiser-authored invite presentation copy (invite builder) | Art. 6(1)(f) — wedding administration (organiser-controlled) | Tied to wedding lifecycle — D1 `ON DELETE cascade` from `weddings` (C-H1) | `@cire/api` + wedding owner + **public guest site** (rendered on the invite) | [[cire]] |
 | R2 `assets/<weddingId>/<slot>-<uuid>` invite images (hero/story **photos**) | Organiser-uploaded invite imagery (invite builder) | Art. 6(1)(f) — wedding administration | **Retained indefinitely — the D1 row's cascade does NOT reach R2; only best-effort delete on re-upload/remove; no lifecycle/sweeper (C-H1 / IB-S-L2)** | `@cire/api` (R2 bucket `cire-assets`) + **public guest site** | [[cire]] |
 
 **Controller / processor note.** For guest data the organiser is the

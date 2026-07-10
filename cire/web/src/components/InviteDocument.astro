@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css'
+import { inviteTitle } from '../lib/invite-title'
 import InviteHeader, { type InviteCustomisation } from './InviteHeader'
 import InvitePage from './InvitePage'
 import SiteFooter from './SiteFooter.astro'
@@ -24,6 +25,10 @@ const { apiUrl, slug, initialInvite, siteUrl } = Astro.props
 // variant it will pick. Mirrors the bounded variant allowlist in cire/api
 // (thumb/card/hero → 320/800/1600w).
 const heroBase = initialInvite?.hero.imageUrl ? `${apiUrl}${initialInvite.hero.imageUrl}` : null
+
+// Tab title follows the couple's hero title when they've set one (e.g.
+// "Anita & Ben — You're Invited"); the built-in default otherwise.
+const pageTitle = inviteTitle(initialInvite?.hero.title)
 const heroSep = heroBase?.includes('?') ? '&' : '?'
 const preloadHeroSrcset = heroBase
   ? `${heroBase}${heroSep}variant=thumb 320w, ${heroBase}${heroSep}variant=card 800w, ${heroBase}${heroSep}variant=hero 1600w`
@@ -36,7 +41,7 @@ const preloadHeroSrcset = heroBase
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     {/* S-L1: keep the ?code= preview credential out of cross-origin Referer headers. */}
     <meta name="referrer" content="strict-origin-when-cross-origin" />
-    <title>You're Invited</title>
+    <title>{pageTitle}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -66,6 +71,8 @@ const preloadHeroSrcset = heroBase
       slug={slug}
       siteUrl={siteUrl}
       theme={initialInvite?.theme ?? null}
+      details={initialInvite?.details ?? null}
+      welcomeMessage={initialInvite?.welcome?.message ?? null}
     />
     <SiteFooter />
   </body>

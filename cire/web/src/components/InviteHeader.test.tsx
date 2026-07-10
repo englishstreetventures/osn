@@ -232,6 +232,52 @@ describe("InviteHeader render", () => {
     expect(container.querySelectorAll("section")).toHaveLength(1);
   });
 
+  it("falls back to the neutral 'You're Invited' hero title (never a bespoke monogram)", async () => {
+    // A shown hero with no couple title must render neutral fallback copy — a
+    // multi-tenant product can't default to one couple's initials ("V & R").
+    const initial: InviteCustomisation = {
+      hero: { title: null, subtitle: null, imageUrl: "/api/invite/s/image/hero?v=1" },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { getByText, queryByText, container } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    await waitFor(() => expect(getByText("You're Invited")).toBeTruthy());
+    expect(queryByText("V")).toBeNull();
+    expect(queryByText("R")).toBeNull();
+    expect(container.querySelectorAll("section")).toHaveLength(1);
+  });
+
+  it("falls back to neutral story copy (never the bespoke couple's story)", async () => {
+    // A shown story with no body (heading-only) renders the neutral fallback.
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: "How It Began", body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { getByText, queryByText } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    await waitFor(() => expect(getByText(/Every love story is beautiful/)).toBeTruthy());
+    expect(queryByText(/three and a half years/)).toBeNull();
+    expect(queryByText(/Alex/)).toBeNull();
+  });
+
   it("hides the Our Story section when heading, body and image are all empty", async () => {
     const initial: InviteCustomisation = {
       hero: { title: "A & B", subtitle: null, imageUrl: null },

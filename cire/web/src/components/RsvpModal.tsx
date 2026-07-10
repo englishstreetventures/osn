@@ -15,6 +15,12 @@ interface RsvpModalProps {
    * own RSVP data. A banner makes the no-op explicit.
    */
   preview?: boolean;
+  /**
+   * "Details"-section theme map (`sectionTokenBridge(theme, "details")`) so the
+   * RSVP sheet follows the events section it belongs to — see
+   * AnimatedModal.themeVars.
+   */
+  themeVars?: Record<string, string>;
   onClose: () => void;
   onSubmitted?: (updated: RsvpSummary[]) => void;
 }
@@ -182,7 +188,7 @@ export function RsvpModal(props: RsvpModalProps) {
   }
 
   return (
-    <AnimatedModal onClose={props.onClose} labelledBy={titleId}>
+    <AnimatedModal onClose={props.onClose} labelledBy={titleId} themeVars={props.themeVars}>
       <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">Respond</p>
       <h3
         id={titleId}

@@ -11,12 +11,21 @@ interface LoginSectionProps {
   formRef?: (el: HTMLDivElement) => void;
   welcomeRef?: (el: HTMLDivElement) => void;
   /**
-   * Validated `--invite-*` CSS-variable map for the "welcome" theme section
-   * (`sectionThemeVars(theme, "welcome")`), covering the code-entry form and the
-   * post-claim welcome banner. Empty/absent ⇒ the built-in tokens, unchanged.
+   * Validated CSS-variable map for the "welcome" theme section
+   * (`sectionTokenBridge(theme, "welcome")` — the `--invite-*` variables plus
+   * the scoped token bridge), covering the code-entry form and the post-claim
+   * welcome banner. Empty/absent ⇒ the built-in tokens, unchanged.
    */
   themeVars?: Record<string, string>;
+  /**
+   * Organiser override for the post-claim greeting line shown under the family
+   * or guest name. Absent/null ⇒ the built-in default greeting.
+   */
+  welcomeMessage?: string | null;
 }
+
+// The built-in post-claim greeting, used when the organiser hasn't overridden it.
+const DEFAULT_WELCOME_MESSAGE = "We are delighted to invite you to celebrate with us.";
 
 export function LoginSection(props: LoginSectionProps) {
   const [code, setCode] = createSignal("");
@@ -114,20 +123,16 @@ export function LoginSection(props: LoginSectionProps) {
     <section
       class="border-border border-b px-6 py-16 md:px-8 md:py-20"
       style={{
-        ...props.themeVars,
-        // Scoped token bridge: every gold/font utility inside this section (the
+        // themeVars carries the scoped token bridge (see sectionTokenBridge in
+        // invite-theme.ts): every gold/font utility inside this section (the
         // eyebrow labels, headings, the input's focus border, the submit button
-        // and its hover fill, the preview-mode chip) resolves `var(--color-gold)`
-        // / `var(--font-*)`, so re-pointing those tokens at the validated
-        // `--invite-*` variables themes ALL states — including hover/focus, which
-        // per-element inline styles cannot reach. Each fallback is the built-in
-        // token's literal value (self-reference would be a var() cycle), so an
-        // un-themed invite renders exactly as before. The section has no
-        // background by default — `transparent` keeps the body backdrop showing
-        // through unless the organiser picks a surface colour.
-        "--color-gold": "var(--invite-accent, oklch(74.99% 0.0854 82.08))",
-        "--font-display": 'var(--invite-heading, "Cormorant Garamond", Georgia, serif)',
-        "--font-body": 'var(--invite-body, "Lato", system-ui, sans-serif)',
+        // and its hover fill, the preview-mode chip) resolves the re-pointed
+        // `var(--color-gold)` / `var(--font-*)` tokens, so the theme reaches ALL
+        // states — including hover/focus, which per-element inline styles cannot.
+        ...props.themeVars,
+        // The section has no background by default — `transparent` keeps the
+        // body backdrop showing through unless the organiser picks a surface
+        // colour (deliberately NOT the bridge's `--color-surface` default).
         "background-color": "var(--invite-surface, transparent)",
       }}
     >
@@ -200,7 +205,7 @@ export function LoginSection(props: LoginSectionProps) {
                   The {props.result?.familyName} Family
                 </h2>
                 <p class="text-text-muted mb-2 text-[0.92rem] leading-[1.6] font-light">
-                  We are delighted to invite you to celebrate with us.
+                  {props.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE}
                 </p>
                 <p class="text-text mb-8 text-[0.88rem] leading-[1.6] font-light">
                   <For each={props.result?.members}>
@@ -221,7 +226,7 @@ export function LoginSection(props: LoginSectionProps) {
               {individualName()}
             </h2>
             <p class="text-text-muted mb-8 text-[0.92rem] leading-[1.6] font-light">
-              We are delighted to invite you to celebrate with us.
+              {props.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE}
             </p>
           </Show>
         </div>

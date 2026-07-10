@@ -144,6 +144,9 @@ CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
   story_eyebrow TEXT,
   story_heading TEXT,
   story_body TEXT,
+  details_eyebrow TEXT,
+  details_heading TEXT,
+  welcome_message TEXT,
   hero_image_key TEXT,
   story_image_key TEXT,
   hero_image_crop TEXT,
@@ -162,7 +165,8 @@ CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
   welcome_accent_color TEXT,
   welcome_surface_color TEXT,
   invite_message TEXT,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  images_updated_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS imports (

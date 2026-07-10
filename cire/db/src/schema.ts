@@ -338,6 +338,15 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   storyEyebrow: text("story_eyebrow"),
   storyHeading: text("story_heading"),
   storyBody: text("story_body"),
+  // Events ("details") section header copy (migration 0028) — the eyebrow +
+  // heading above the guest's event cards, previously hardcoded to
+  // "Celebrate With Us" / "Your Events" while the hero/story copy was editable.
+  detailsEyebrow: text("details_eyebrow"),
+  detailsHeading: text("details_heading"),
+  // Post-claim welcome greeting (migration 0028) — the line under the family /
+  // guest name, previously hardcoded to "We are delighted to invite you to
+  // celebrate with us." NULL ⇒ the built-in default copy.
+  welcomeMessage: text("welcome_message"),
   heroImageKey: text("hero_image_key"),
   storyImageKey: text("story_image_key"),
   // JSON-encoded normalised crop rectangle `{x,y,w,h}` in SOURCE FRACTIONS (0..1)
@@ -396,6 +405,11 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   // collapses empty/whitespace to NULL, and bounds its length on write.
   inviteMessage: text("invite_message"),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  // The guest IMAGE cache version (migration 0029) — bumped ONLY by image
+  // upload/remove/crop and a hero-blur change, never by copy/theme-colour
+  // saves, so those stay image-cache-neutral (WT-P-I1). NULL (a row that has
+  // only ever seen copy saves) coalesces to `updated_at` at read time.
+  imagesUpdatedAt: integer("images_updated_at", { mode: "timestamp" }),
 });
 
 // Tracks every spreadsheet upload through the organiser portal so we can

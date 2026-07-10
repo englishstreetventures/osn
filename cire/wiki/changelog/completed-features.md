@@ -2,12 +2,16 @@
 title: "Completed Features"
 tags: [changelog]
 related: [[TODO]], [[index]]
-last-reviewed: 2026-06-21
+last-reviewed: 2026-07-09
 ---
 
 # Completed Features
 
 Archive of completed feature work, moved here from [[TODO]] (and the per-area `wiki/todo/` shards) as PRs merge.
+
+### Invite customisation gaps closed — theme reaches everything, last hardcoded copy editable (`claude/cire-invite-customization-na91kv`)
+
+- [x] **Invite customisation gaps closed** (`claude/cire-invite-customization-na91kv`) — organiser reports that "parts of the invite themes can't be customised" traced to three gaps, all closed. (1) **Details theme never reached the event cards**: the events section applied `--invite-*` vars only as inline styles on its eyebrow/heading, while `EventCard`'s buttons, date lines and hover states use `text-gold`/`font-display` utilities resolving the *global* tokens — so a saved "Event Details" accent changed the tiny eyebrow and nothing else. The welcome section's token-bridge technique was extracted into a shared `sectionTokenBridge` (`cire/web/src/components/invite-theme.ts`) re-pointing `--color-gold`/`--color-gold-dim`/`--color-surface`/`--font-display`/`--font-body` at the validated `--invite-*` vars; it now wraps the events section, and — via a new `AnimatedModal.themeVars` prop — the RSVP + event-details modals, which paint outside any themed wrapper and were stuck on built-in gold. (2) **Hardcoded copy**: the events header ("Celebrate With Us" / "Your Events") and the post-claim greeting ("We are delighted to invite you…") are now editable — migration `0028_details_welcome_copy.sql` (`details_eyebrow`, `details_heading`, `welcome_message`, all nullable ⇒ built-in defaults), `InviteTextBody` caps 80/160/300, invite payload carries `details`/`welcome` objects, builder gains "Events Section" + "Code Entry & Welcome" copy fields on the existing Save copy action. (3) **Tab title**: the guest page `<title>` follows the couple's hero title ("Anita & Ben — You're Invited") instead of the fixed "You're Invited". See [[invite-builder]].
 
 ## Migrated from web.md (archived 2026-06-21)
 

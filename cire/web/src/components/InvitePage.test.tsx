@@ -21,6 +21,18 @@ vi.mock("./RsvpModal", () => ({
   },
 }));
 
+// Capture-stub DetailsModal too, so the themeVars wiring to BOTH modals is
+// asserted — the two <Show> blocks are edited independently, and a copy-paste
+// slip on one would otherwise pass every test.
+const detailsModalProps: { value: Record<string, unknown> | null } = { value: null };
+
+vi.mock("./DetailsModal", () => ({
+  DetailsModal: (props: Record<string, unknown>) => {
+    detailsModalProps.value = props;
+    return <div data-testid="details-modal-stub" />;
+  },
+}));
+
 // The PulseAccountLink island pulls in @osn/client + @osn/ui (real auth +
 // passkey deps). Stub it to a marker so InvitePage's tests assert only the
 // mount wiring (post-claim, non-preview) without exercising the OSN stack — the
@@ -70,6 +82,7 @@ describe("InvitePage", () => {
   afterEach(() => {
     cleanup();
     capturedProps.value = null;
+    detailsModalProps.value = null;
     vi.restoreAllMocks();
     window.history.replaceState(null, "", "/");
   });
@@ -145,6 +158,103 @@ describe("InvitePage", () => {
     const section = getByText("Your Events").closest("section") as HTMLElement;
     expect(section.style.getPropertyValue("--invite-accent")).toBe("#abcdef");
     expect(section.style.getPropertyValue("--invite-surface")).toBe("oklch(30% 0.02 150)");
+    // The scoped token bridge re-points the global tokens on the same wrapper,
+    // so the theme reaches the EventCard utility classes (buttons, date lines)
+    // and not just the inline-styled header.
+    expect(section.style.getPropertyValue("--color-gold")).toContain("--invite-accent");
+    expect(section.style.getPropertyValue("--font-display")).toContain("--invite-heading");
+  });
+
+  it("renders the organiser's events-section header copy, and the defaults when unset", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ...claim, preview: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { getByText, queryByText } = render(() => (
+      <InvitePage
+        apiUrl="https://api.test"
+        details={{ eyebrow: "Join The Celebration", heading: "The Festivities" }}
+      />
+    ));
+
+    await waitFor(() => expect(getByText("The Festivities")).toBeTruthy(), { timeout: 2000 });
+    expect(getByText("Join The Celebration")).toBeTruthy();
+    // The built-in defaults are fully replaced, not rendered alongside.
+    expect(queryByText("Your Events")).toBeNull();
+    expect(queryByText("Celebrate With Us")).toBeNull();
+  });
+
+  it("threads the details theme into the RSVP modal so the sheet follows the section", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ...claim, preview: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { getByRole, getByTestId } = render(() => (
+      <InvitePage
+        apiUrl="https://api.test"
+        theme={{
+          headingFont: null,
+          bodyFont: null,
+          hero: { accentColor: null, surfaceColor: null },
+          story: { accentColor: null, surfaceColor: null },
+          details: { accentColor: "#abcdef", surfaceColor: null },
+        }}
+      />
+    ));
+
+    await waitFor(() => expect(getByRole("button", { name: /Respond/i })).toBeTruthy(), {
+      timeout: 2000,
+    });
+    fireEvent.click(getByRole("button", { name: /Respond/i }));
+    await waitFor(() => expect(getByTestId("rsvp-modal-stub")).toBeTruthy());
+
+    const themeVars = capturedProps.value?.themeVars as Record<string, string>;
+    expect(themeVars["--invite-accent"]).toBe("#abcdef");
+    expect(themeVars["--color-gold"]).toContain("--invite-accent");
+  });
+
+  it("threads the details theme into the event-details modal (both modal consumers)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ...claim, preview: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { getByRole, getByTestId } = render(() => (
+      <InvitePage
+        apiUrl="https://api.test"
+        theme={{
+          headingFont: null,
+          bodyFont: null,
+          hero: { accentColor: null, surfaceColor: null },
+          story: { accentColor: null, surfaceColor: null },
+          details: { accentColor: "#abcdef", surfaceColor: null },
+        }}
+      />
+    ));
+
+    await waitFor(() => expect(getByRole("button", { name: /View Event/i })).toBeTruthy(), {
+      timeout: 2000,
+    });
+    fireEvent.click(getByRole("button", { name: /View Event/i }));
+    await waitFor(() => expect(getByTestId("details-modal-stub")).toBeTruthy());
+
+    const themeVars = detailsModalProps.value?.themeVars as Record<string, string>;
+    expect(themeVars["--invite-accent"]).toBe("#abcdef");
+    expect(themeVars["--color-gold"]).toContain("--invite-accent");
   });
 
   it("applies the validated welcome-section theme to the code entry + welcome banner", () => {
@@ -267,14 +377,17 @@ describe("InvitePage", () => {
     expect(section.style.getPropertyValue("--invite-accent")).toBe("");
   });
 
-  it("revalidates the details theme at runtime, overriding the stale build-time prop", async () => {
-    // The build-time prop carries an OLD accent; the live /api/invite/:slug
-    // response carries the organiser's NEW accent. With a slug present, the
-    // on-mount revalidation must win — this is the live-customisation fix: a
-    // theme change reaches guests without a static rebuild.
+  it("revalidates the details theme + copy at runtime, overriding the stale build-time props", async () => {
+    // The build-time props carry an OLD accent and copy; the live
+    // /api/invite/:slug response carries the organiser's NEW values. With a
+    // slug present, the on-mount revalidation must win — this is the
+    // live-customisation fix: a theme OR copy change reaches guests without a
+    // static rebuild.
     const liveInvite = {
       hero: { title: null, subtitle: null, imageUrl: null },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      details: { eyebrow: "Join The Celebration", heading: "The Festivities" },
+      welcome: { message: null },
       theme: {
         headingFont: null,
         bodyFont: null,
@@ -305,7 +418,7 @@ describe("InvitePage", () => {
     vi.stubGlobal("fetch", fetchMock);
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
 
-    const { getByText } = render(() => (
+    const { getByText, queryByText } = render(() => (
       <InvitePage
         apiUrl="https://api.test"
         slug="cire-wedding"
@@ -317,11 +430,18 @@ describe("InvitePage", () => {
           // Stale build-time accent — must be overridden by the live fetch.
           details: { accentColor: "#abcdef", surfaceColor: null },
         }}
+        // Stale build-time copy — must be overridden by the live fetch.
+        details={{ eyebrow: "Old Eyebrow", heading: "Old Heading" }}
       />
     ));
 
-    await waitFor(() => expect(getByText("Your Events")).toBeTruthy(), { timeout: 2000 });
-    const section = getByText("Your Events").closest("section") as HTMLElement;
+    // The live copy wins over both the build-time prop and the defaults.
+    await waitFor(() => expect(getByText("The Festivities")).toBeTruthy(), { timeout: 2000 });
+    expect(getByText("Join The Celebration")).toBeTruthy();
+    expect(queryByText("Old Heading")).toBeNull();
+    expect(queryByText("Your Events")).toBeNull();
+
+    const section = getByText("The Festivities").closest("section") as HTMLElement;
     await waitFor(() => expect(section.style.getPropertyValue("--invite-accent")).toBe("#00ff00"));
   });
 
@@ -354,13 +474,15 @@ describe("InvitePage", () => {
           story: { accentColor: null, surfaceColor: null },
           details: { accentColor: "#abcdef", surfaceColor: null },
         }}
+        details={{ eyebrow: "SSR Eyebrow", heading: "SSR Heading" }}
       />
     ));
 
-    await waitFor(() => expect(getByText("Your Events")).toBeTruthy(), { timeout: 2000 });
-    const section = getByText("Your Events").closest("section") as HTMLElement;
-    // The failed revalidation must leave the build-time accent untouched.
+    await waitFor(() => expect(getByText("SSR Heading")).toBeTruthy(), { timeout: 2000 });
+    const section = getByText("SSR Heading").closest("section") as HTMLElement;
+    // The failed revalidation must leave the build-time accent AND copy untouched.
     expect(section.style.getPropertyValue("--invite-accent")).toBe("#abcdef");
+    expect(getByText("SSR Eyebrow")).toBeTruthy();
   });
 
   it("mounts the Pulse account-link affordance post-claim (non-preview only)", async () => {

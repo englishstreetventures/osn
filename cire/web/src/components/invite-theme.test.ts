@@ -1,6 +1,15 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, it, expect } from "vitest";
 
-import { fontStack, sectionThemeVars, type InviteTheme } from "./invite-theme";
+import {
+  filterThemeVars,
+  fontStack,
+  sectionThemeVars,
+  sectionTokenBridge,
+  type InviteTheme,
+} from "./invite-theme";
 
 const fullTheme: InviteTheme = {
   headingFont: "cormorant",
@@ -109,5 +118,81 @@ describe("sectionThemeVars", () => {
     const vars = sectionThemeVars(theme, "hero");
     expect(vars["--invite-accent"]).toBeUndefined();
     expect(vars["--invite-surface"]).toBeUndefined();
+  });
+});
+
+describe("sectionTokenBridge", () => {
+  it("includes the section's --invite-* vars plus the re-pointed global tokens", () => {
+    const vars = sectionTokenBridge(fullTheme, "hero");
+    // The section vars are still present…
+    expect(vars["--invite-accent"]).toBe("#d4af37");
+    // …and the bridge re-points every themed global token at them, so utility
+    // classes (`text-gold`, `font-display`, `bg-surface`, …) inside the section
+    // resolve the organiser's theme too.
+    expect(vars["--color-gold"]).toBe("var(--invite-accent, oklch(74.99% 0.0854 82.08))");
+    expect(vars["--color-gold-dim"]).toContain("color-mix");
+    expect(vars["--color-surface"]).toBe("var(--invite-surface, oklch(22.7% 0.0275 152.78))");
+    expect(vars["--font-display"]).toContain("var(--invite-heading");
+    expect(vars["--font-body"]).toContain("var(--invite-body");
+  });
+
+  it("still emits the bridge for an un-themed invite (fallbacks reproduce the built-ins)", () => {
+    // With no --invite-* vars set, each bridged token resolves its literal
+    // fallback — the original token value — so an un-themed invite is unchanged.
+    const vars = sectionTokenBridge(null, "details");
+    expect(vars["--invite-accent"]).toBeUndefined();
+    expect(vars["--color-gold"]).toContain("oklch(74.99% 0.0854 82.08)");
+    expect(vars["--font-display"]).toContain("Cormorant Garamond");
+  });
+
+  it("never uses a self-referencing var() fallback (that would resolve to invalid, not the outer value)", () => {
+    for (const [name, value] of Object.entries(sectionTokenBridge(fullTheme, "details"))) {
+      expect(value, `${name} must not reference itself`).not.toContain(`var(${name}`);
+    }
+  });
+
+  it("stays in lockstep with the @theme tokens in styles/global.css (T-S1)", () => {
+    // The bridge's fallbacks are hand-copied literals of the global tokens (a
+    // self-referencing var() would be a cycle). If a designer retunes a token in
+    // global.css without updating the bridge, every UN-themed invite would
+    // silently render the stale colour inside bridged sections/modals only — a
+    // split-token bug no behavioural test can catch. Enforce the comment-only
+    // contract mechanically, same spirit as cire/api's ddl-lockstep test.
+    // vitest runs with the package root as cwd; import.meta.url is not a
+    // file: URL under this transform, so resolve from cwd instead.
+    const css = readFileSync(resolve(process.cwd(), "src/styles/global.css"), "utf8");
+    const token = (name: string): string => {
+      const match = css.match(new RegExp(`${name}:\\s*([^;]+);`));
+      expect(match, `${name} must exist in global.css @theme`).not.toBeNull();
+      return match![1].trim();
+    };
+
+    const bridge = sectionTokenBridge(null, "hero");
+    expect(bridge["--color-gold"]).toContain(token("--color-gold"));
+    expect(bridge["--color-gold-dim"]).toContain(token("--color-gold"));
+    expect(bridge["--color-surface"]).toContain(token("--color-surface"));
+    expect(bridge["--font-display"]).toContain(token("--font-display"));
+    expect(bridge["--font-body"]).toContain(token("--font-body"));
+  });
+});
+
+describe("filterThemeVars", () => {
+  it("passes through the full bridge map unchanged", () => {
+    const bridge = sectionTokenBridge(fullTheme, "details");
+    expect(filterThemeVars(bridge)).toEqual(bridge);
+  });
+
+  it("drops keys outside the theme-variable allow-list (the style-sink gate)", () => {
+    const filtered = filterThemeVars({
+      "--invite-accent": "#abcdef",
+      "background-image": "url(https://evil.example/x)",
+      color: "red",
+      "--not-a-theme-var": "x",
+    });
+    expect(filtered).toEqual({ "--invite-accent": "#abcdef" });
+  });
+
+  it("keeps undefined as undefined (absent prop stays absent)", () => {
+    expect(filterThemeVars(undefined)).toBeUndefined();
   });
 });
