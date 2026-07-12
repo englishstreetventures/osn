@@ -1,5 +1,12 @@
 import { Effect, Data } from "effect";
 
+import {
+  EVENT_SHEET_REQUIRED_HEADERS,
+  FAMILY_CODE_HEADER,
+  GUEST_ID_HEADER,
+  GUEST_NICKNAME_HEADER,
+  GUEST_SHEET_FIXED_HEADERS,
+} from "../lib/sheet-headers";
 import { bucketParseReason, metricImportParseRejected } from "../metrics";
 import type { ParsedEvent, ParsedFamily, ParsedGuest, PaletteSwatch } from "../schemas/import";
 
@@ -358,7 +365,7 @@ function parseHttpUrl(raw: string): string | null | undefined {
 // from `Address` (see `cire/web/src/components/event-details.ts`), and a
 // provided Location is only used as the address fallback at import-write time
 // when Address is blank (see `services/import.ts`).
-const REQUIRED_EVENT_COLUMNS = ["Event Name", "Start", "Timezone"] as const;
+const REQUIRED_EVENT_COLUMNS = EVENT_SHEET_REQUIRED_HEADERS;
 
 export function parseEventsCsv(
   content: string,
@@ -498,12 +505,7 @@ export function parseEventsCsv(
   );
 }
 
-const REQUIRED_GUEST_COLUMNS = [
-  "Family ID",
-  "Family Name",
-  "Guest First Name",
-  "Guest Last Name",
-] as const;
+const REQUIRED_GUEST_COLUMNS = GUEST_SHEET_FIXED_HEADERS;
 
 export function parseGuestsCsv(
   content: string,
@@ -536,7 +538,9 @@ export function parseGuestsCsv(
     const idxFirst = indexOf("Guest First Name");
     const idxLast = indexOf("Guest Last Name");
     // Optional: an informal name for the single-guest greeting. Absent ⇒ -1.
-    const idxNickname = indexOf("Guest Nickname");
+    const idxNickname = indexOf(GUEST_NICKNAME_HEADER);
+    // Fixed (non-event) columns. Absent lookups are -1, which
+    // `fixedCols.has(c)` (c ≥ 0) never matches.
     const fixedCols = new Set([
       indexOf("Family ID"),
       idxFamilyName,
@@ -548,9 +552,34 @@ export function parseGuestsCsv(
     // Map event-column index → canonical event name. Strict match — any
     // unmatched event column surfaces as `UnmatchedEventColumn`.
     const eventByNorm = new Map(events.map((e) => [normaliseName(e.name), e.name]));
+
+    // Full-fidelity export/snapshot columns (Guest ID / Family Code) are
+    // accepted-and-IGNORED here (the E2 ID-aware diff starts honouring them).
+    // An event may legitimately share one of these labels, making its
+    // attendance column ambiguous — resolve deterministically, biased against
+    // silently dropping invitations: when the label is ALSO a known event
+    // name, only the LAST occurrence is fidelity metadata (the exporter
+    // appends fidelity columns after the event columns), and a single
+    // occurrence stays the event's attendance column. A label that matches no
+    // event is fidelity metadata at every occurrence.
+    const fidelityCols = new Set<number>();
+    for (const label of [GUEST_ID_HEADER, FAMILY_CODE_HEADER]) {
+      const norm = normaliseName(label);
+      const indices: number[] = [];
+      headerNorm.forEach((h, i) => {
+        if (h === norm) indices.push(i);
+      });
+      if (indices.length === 0) continue;
+      if (eventByNorm.has(norm)) {
+        if (indices.length >= 2) fidelityCols.add(indices[indices.length - 1]!);
+      } else {
+        for (const i of indices) fidelityCols.add(i);
+      }
+    }
+
     const eventColumns: { idx: number; eventName: string }[] = [];
     for (let c = 0; c < header.length; c += 1) {
-      if (fixedCols.has(c)) continue;
+      if (fixedCols.has(c) || fidelityCols.has(c)) continue;
       const colHeader = header[c]!;
       if (colHeader.length === 0) continue;
       const matched = eventByNorm.get(normaliseName(colHeader));

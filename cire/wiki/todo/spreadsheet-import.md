@@ -5,10 +5,20 @@ related:
   - "[[index]]"
   - "[[api]]"
   - "[[db]]"
-last-reviewed: 2026-07-08
+  - "[[guest-event-editor]]"
+last-reviewed: 2026-07-12
 ---
 
 # Organiser Spreadsheet Import
+
+## Guest + event editor (E1–E6, see [[guest-event-editor]])
+
+- [x] **E1 — round-trip export** (`claude/events-guests-ui-plan-aewfd3`) — `GET .../export/{events,guests}.csv` serialise the wedding's CURRENT state in the **import template schema** (`services/state-export.ts`), so a download can be edited in a spreadsheet tool and re-uploaded through the import — export → import is a tested fixpoint (parse + re-diff yields no creates/removes/deltas). Canonical header labels extracted to `lib/sheet-headers.ts` (parser + exporter share them by construction; organiser `import-templates.ts` mirror pinned by tests on both sides). `?fidelity=full` appends the snapshot columns (`Event ID`, `Guest ID`, `Family Code`, internal `Family ID`) that the E3 checkpoint writer will use — the parser **accepts-and-ignores** them for now (added to `fixedCols`; honouring is E2) — and therefore contains live claim codes; the default import-fidelity export deliberately carries **no** codes (`Family ID` = neutral `fam-001` keys). Events export in `sortOrder` order and guests in family-name/`sortOrder` order so re-imported ordering is stable; URLs pass the http(s) guard so a legacy bad URL can't make the sheet un-importable. Routes are `weddingMember()`-gated with the same attachment/no-store contract as the reporting exports; ImportPanel gains "Download current events/guests" buttons. **Next: E2** (validation extraction + ID-aware diff).
+- [ ] **E2 — validation extraction + ID-aware diff** — shared `lib/guest-event-validation.ts`, DesiredState schema, parser honours the fidelity ID columns, diff matches by id before name (renames become updates)
+- [ ] **E3 — change history + before-image revert** — `imports` additive migration (`kind`, before-keys), checkpoint-on-apply via the state exporter, before-image revert + legacy fallback, keep-10 prune
+- [ ] **E4 — provenance + `changes/*` endpoints** — `source` column, provenance-aware diff default + toggle, `changes/{preview,apply,revert,list}` + one-release `/import/*` aliases
+- [ ] **E5 — Guests editor UI** — draft store, household/guest editing, attendance matrix, save→preview flow
+- [ ] **E6 — Events editor UI + ChangeHistory** — event drawer editing, re-order, history rebrand, explainer updates
 
 Source spreadsheet has these columns: `Family ID, Guest First Name, Guest Last Name, Family Name, Catholic Wedding, Hindu Wedding, Reception, Mehndi`. Row grouping is by `Family Name`; only the last row of each family carries a Family ID in the source sheet (we ignore that — Cire generates its own `publicId`). Each guest row has booleans per event.
 

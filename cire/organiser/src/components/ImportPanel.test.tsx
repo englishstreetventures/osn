@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const authFetchMock = vi.fn();
+const redirectToLoginMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@osn/client/solid", () => ({
   useAuth: () => ({ authFetch: authFetchMock }),
@@ -19,7 +20,7 @@ vi.mock("@osn/client/solid", () => ({
 vi.mock("../lib/api", () => ({
   apiUrl: (path: string) => `https://api.test${path}`,
   isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
-  redirectToLogin: () => undefined,
+  redirectToLogin: redirectToLoginMock,
 }));
 
 import ImportPanel from "./ImportPanel";
@@ -49,6 +50,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   authFetchMock.mockReset();
+  redirectToLoginMock.mockReset();
   URL.createObjectURL = realCreate;
   URL.revokeObjectURL = realRevoke;
 });
@@ -216,5 +218,53 @@ describe("ImportPanel — download templates", () => {
     render(() => <ImportPanel weddingId="wed_a" />);
     fireEvent.click(screen.getByRole("button", { name: /download events template/i }));
     await waitFor(() => expect(revoked.length).toBeGreaterThan(0));
+  });
+});
+
+describe("ImportPanel — download current data (round-trip export)", () => {
+  it("fetches the server export and downloads its bytes", async () => {
+    const csv = "Event Name,Start,Timezone\r\nCeremony,2026-11-14T15:00:00+11:00,Australia/Sydney";
+    authFetchMock.mockResolvedValueOnce(
+      new Response(csv, { status: 200, headers: { "Content-Type": "text/csv" } }),
+    );
+    render(() => <ImportPanel weddingId="wed_a" />);
+    fireEvent.click(screen.getByRole("button", { name: /download current events/i }));
+
+    await waitFor(() => expect(createdBlobs.length).toBeGreaterThan(0));
+    expect(authFetchMock).toHaveBeenCalledWith(
+      "https://api.test/api/organiser/weddings/wed_a/export/events.csv",
+    );
+    expect(await blobText(createdBlobs[0]!)).toBe(csv);
+  });
+
+  it("hits the guests export URL for the guests button", async () => {
+    authFetchMock.mockResolvedValueOnce(new Response("Family ID", { status: 200 }));
+    render(() => <ImportPanel weddingId="wed_a" />);
+    fireEvent.click(screen.getByRole("button", { name: /download current guests/i }));
+
+    await waitFor(() =>
+      expect(authFetchMock).toHaveBeenCalledWith(
+        "https://api.test/api/organiser/weddings/wed_a/export/guests.csv",
+      ),
+    );
+  });
+
+  it("redirects to login on a 401 export instead of surfacing an error", async () => {
+    authFetchMock.mockResolvedValueOnce(new Response("unauthorised", { status: 401 }));
+    render(() => <ImportPanel weddingId="wed_a" />);
+    fireEvent.click(screen.getByRole("button", { name: /download current events/i }));
+
+    await waitFor(() => expect(redirectToLoginMock).toHaveBeenCalled());
+    expect(createdBlobs).toHaveLength(0);
+    expect(screen.queryByText(/export failed/i)).toBeNull();
+  });
+
+  it("surfaces a failed export inline instead of downloading", async () => {
+    authFetchMock.mockResolvedValueOnce(new Response("nope", { status: 500 }));
+    render(() => <ImportPanel weddingId="wed_a" />);
+    fireEvent.click(screen.getByRole("button", { name: /download current events/i }));
+
+    await waitFor(() => expect(screen.getByText(/export failed \(500\)/i)).toBeTruthy());
+    expect(createdBlobs).toHaveLength(0);
   });
 });

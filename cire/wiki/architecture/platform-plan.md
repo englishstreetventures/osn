@@ -6,7 +6,8 @@ related:
   - "[[invite-builder]]"
   - "[[monorepo-structure]]"
   - "[[platform]]"
-last-reviewed: 2026-07-10
+  - "[[guest-event-editor]]"
+last-reviewed: 2026-07-12
 ---
 
 # Platform Plan — from digital invite to wedding management platform
@@ -74,12 +75,11 @@ Make `families.publicId` **nullable** (partial unique index `WHERE public_id IS 
 - Alternative considered: extracting a 1:1 `family_invites` table. Cleaner conceptually, but the migration + join tax across ~10 services isn't justified when three nullable columns and a partial index express the same thing. Revisit only if invite-channel state grows (e.g. per-channel delivery tracking).
 - UI language: "Households" in the Guests module; "families" stays as the table name (rename cost > benefit).
 
-### 3.3 Direct guest + event CRUD
+### 3.3 Direct guest + event editing
 
-The import stays (it's a strength) but stops being the only writer:
+The import stays (it's a strength) but stops being the only writer.
 
-- `POST/PATCH/DELETE .../guests/households`, `.../guests/households/:familyId/guests`, per-guest `PUT .../attendance` (replaces direct `guest_events` manipulation), household notes/tags.
-- `POST/PATCH/DELETE .../schedule/events` with the same fields the import writes today.
+**Endpoint shape amended 2026-07-12 — batch draft-save, not per-row CRUD** (full design in [[guest-event-editor]]; [[deferred]] Resolved): the editor accumulates changes client-side and submits a whole desired state through the SAME preview → warnings → apply pipeline the import uses (`POST .../changes/{preview,apply,revert}` + `GET .../changes/list`), with an ID-aware diff so editor renames are updates rather than remove+create. Preview-diff, impact warnings, checkpointing, and revert are shared with the import instead of rebuilt per endpoint, and a save session produces one checkpoint. Per-row endpoints may land later as sugar over the same reconcile. The original sketch this supersedes was `POST/PATCH/DELETE .../guests/households`, `.../guests/households/:familyId/guests`, per-guest `PUT .../attendance`, and `POST/PATCH/DELETE .../schedule/events`; household notes/tags are still wanted, now as draft fields.
 - **Organiser-recorded RSVPs**: `PUT .../guests/:guestId/rsvps/:eventId` — phone/paper RSVPs land in the same `rsvps` table the invite writes to. Add `consent_source` (`'guest' | 'organiser_attested'`) so dietary free-text keeps its Art. 9 story (§10), and record the writer so organiser-entered answers stay distinguishable from (and visibly overwrite) guest-submitted ones.
 - **Provenance column (decided 2026-07-08)**: `source: 'import' | 'manual'` on `families` + `guests`. Once organisers can hand-add rows, a re-applied sheet that lacks them would otherwise propose deleting them — `diffAgainstDb` reconciles the whole wedding. The diff manages `import`-sourced rows only by default, with an explicit "also remove manual rows" toggle; free "added by hand" badge in the UI. (`guests.externalId` already half-anticipated this.)
 - **Un-invite guard**: deleting a `guest_events` row for a pair that has an RSVP gets the same explicit state-loss confirm the import preview shows — no silent discarding of real answers.
@@ -111,7 +111,7 @@ Existing co-hosts map to `editor` (they already have import + invite-builder wri
 | 2 | Roles (`editor`/`viewer` + `weddingEditor()`) | — |
 | 3 | Portal IA shell (sidebar, Overview, hash routes; existing tabs rehomed; P-I3 fetch lift) | 1 (Settings home) |
 | 4 | Households ≠ codes (`families` rebuild + invite-module code issuance) | 0 |
-| 5 | Guest/event CRUD + organiser RSVPs + provenance | 3, 4 |
+| 5 | Guest/event editing (batch draft-save — design + E1–E6 slicing in [[guest-event-editor]]) + organiser RSVPs + provenance | 3, 4 (soft — editor-created households auto-mint codes until 4 lands) |
 
 PRs 0–2 are parallelisable. The IA shell deliberately lands **early** (not last) so CRUD is built directly into its module home instead of into the old tabs and moved later.
 

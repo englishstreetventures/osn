@@ -1127,3 +1127,91 @@ describe("GET /api/organiser/weddings/:weddingId/rsvps (read-only JSON view)", (
     expect(res.status).toBe(200);
   });
 });
+
+describe("GET /api/organiser/weddings/:weddingId/export/{events,guests}.csv", () => {
+  const COHOST = "usr_cohost_stateexport";
+  const eventsPath = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/export/events.csv`;
+  const guestsPath = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/export/guests.csv`;
+
+  function seedCohost(db: Db) {
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_stateexport",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: COHOST,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "host",
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  it("returns 401 without a token", async () => {
+    const { app } = buildApp();
+    expect((await get(app, eventsPath)).status).toBe(401);
+    expect((await get(app, guestsPath)).status).toBe(401);
+  });
+
+  it("returns 403 for a non-member (neither owner nor co-host)", async () => {
+    const { app } = buildApp();
+    expect((await get(app, eventsPath, OTHER_OWNER)).status).toBe(403);
+    expect((await get(app, guestsPath, OTHER_OWNER)).status).toBe(403);
+  });
+
+  it("returns 404 for an unknown wedding", async () => {
+    const { app } = buildApp();
+    const res = await get(
+      app,
+      "/api/organiser/weddings/wed_nope/export/events.csv",
+      BOOTSTRAP_OWNER,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("serves the events sheet in the import schema with the download contract", async () => {
+    const { app } = buildApp();
+    const res = await get(app, eventsPath, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/csv");
+    const disposition = res.headers.get("content-disposition") ?? "";
+    expect(disposition).toContain("attachment");
+    expect(disposition).toContain("cire-export-events-cire-wedding.csv");
+    expect(res.headers.get("cache-control")).toContain("no-store");
+    const body = await res.text();
+    expect(body.split("\r\n")[0]).toBe(
+      "Event Name,Start,Timezone,End,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
+    );
+    // Scoped to THIS wedding only.
+    expect(body).not.toContain("Other Party");
+  });
+
+  it("serves the guests sheet scoped to the wedding, without claim codes at import fidelity", async () => {
+    const { db, app } = buildApp();
+    const res = await get(app, guestsPath, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("Ada");
+    expect(body).not.toContain("Olive");
+    const codes = db
+      .select({ publicId: families.publicId })
+      .from(families)
+      .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+      .all();
+    for (const c of codes) expect(body).not.toContain(c.publicId);
+  });
+
+  it("appends the snapshot columns under ?fidelity=full", async () => {
+    const { app } = buildApp();
+    const eventsRes = await get(app, `${eventsPath}?fidelity=full`, BOOTSTRAP_OWNER);
+    expect((await eventsRes.text()).split("\r\n")[0]!.endsWith(",Event ID")).toBe(true);
+    const guestsRes = await get(app, `${guestsPath}?fidelity=full`, BOOTSTRAP_OWNER);
+    expect((await guestsRes.text()).split("\r\n")[0]!.endsWith(",Family Code,Guest ID")).toBe(true);
+  });
+
+  it("serves both sheets for a co-host too (weddingMember gate)", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db);
+    expect((await get(app, eventsPath, COHOST)).status).toBe(200);
+    expect((await get(app, guestsPath, COHOST)).status).toBe(200);
+  });
+});

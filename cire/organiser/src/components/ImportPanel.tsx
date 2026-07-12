@@ -3,7 +3,7 @@ import type { JSX } from "solid-js";
 import { createSignal, createUniqueId, Show, For } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
-import { downloadCsv } from "../lib/download";
+import { downloadBlob, downloadCsv } from "../lib/download";
 import { invalidateEvents } from "../lib/events-store";
 import {
   EVENT_REQUIRED_HEADERS,
@@ -72,6 +72,7 @@ export default function ImportPanel(props: { weddingId: string }) {
   const [eventsFile, setEventsFile] = createSignal<File | null>(null);
   const [guestsFile, setGuestsFile] = createSignal<File | null>(null);
   const [busy, setBusy] = createSignal(false);
+  const [exporting, setExporting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [preview, setPreview] = createSignal<PreviewResponse | null>(null);
   const [applied, setApplied] = createSignal<ApplyResponse["summary"] | null>(null);
@@ -149,6 +150,33 @@ export default function ImportPanel(props: { weddingId: string }) {
     setError(null);
   }
 
+  /**
+   * Download the wedding's CURRENT events/guests as a re-importable sheet (the
+   * import template schema, built server-side) — the "export current state"
+   * half of the round trip: edit the file in any spreadsheet tool, then upload
+   * it back through this panel.
+   */
+  async function downloadCurrent(kind: "events" | "guests") {
+    // In-flight guard (P-I3): a double-click must not fire duplicate export
+    // fetches — same shape as EventTable's export button.
+    if (exporting()) return;
+    setExporting(true);
+    setError(null);
+    try {
+      const res = await authFetch(
+        apiUrl(`/api/organiser/weddings/${props.weddingId}/export/${kind}.csv`),
+      );
+      if (res.status === 401) return redirectToLogin();
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      downloadBlob(`cire-export-${kind}.csv`, await res.blob());
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      setError(err instanceof Error ? err.message : "Export failed.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <details open class="border-border bg-surface/30 group/import rounded-sm border open:pb-6">
       <summary class="flex cursor-pointer flex-col gap-1 p-6 select-none [&::-webkit-details-marker]:hidden">
@@ -189,6 +217,31 @@ export default function ImportPanel(props: { weddingId: string }) {
             class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition"
           >
             Download guests template
+          </button>
+        </div>
+
+        {/* Round-trip export: the current data in the same format the import
+            reads, so it can be tweaked in a spreadsheet tool and re-uploaded. */}
+        <div class="flex flex-wrap items-center gap-3">
+          <span class="font-body text-text-muted text-[0.82rem]">
+            Already imported? Download your current data in the same format — edit it and upload it
+            straight back.
+          </span>
+          <button
+            type="button"
+            onClick={() => void downloadCurrent("events")}
+            disabled={exporting()}
+            class="border-border font-body text-text-muted hover:border-gold hover:text-gold rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+          >
+            Download current events
+          </button>
+          <button
+            type="button"
+            onClick={() => void downloadCurrent("guests")}
+            disabled={exporting()}
+            class="border-border font-body text-text-muted hover:border-gold hover:text-gold rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+          >
+            Download current guests
           </button>
         </div>
 

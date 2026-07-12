@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[platform-plan]]"
   - "[[future]]"
-last-reviewed: 2026-07-10
+last-reviewed: 2026-07-12
 ---
 
 # Platform
@@ -23,7 +23,7 @@ PR slicing + dependency order in [[platform-plan]] §3.6 (PRs 0–2 parallel; IA
 - [ ] **PR 2 — Roles** — `wedding_hosts.role` `editor`/`viewer` + `weddingEditor()` gate; data `UPDATE 'host' → 'editor'` (no CHECK constraint, no rebuild); closes the root-TODO co-host-roles item
 - [ ] **PR 3 — Portal IA shell** — module sidebar + Overview home (countdown, RSVP totals, task/budget snapshots); extend `dashboard-route.ts` to `#/w/:weddingId/:module/:sub`; `GettingStarted` becomes Overview empty-state; fold in the P-I3 fetch-lifting fix
 - [ ] **PR 4 — Households ≠ claim codes** — `families.publicId` nullable via `__keep_*` table rebuild + partial unique index; households creatable without a code; "issue invite" (single + bulk via existing re-mint) from the Invite module; **import keeps auto-minting** (decided); deactivation stays invite-only
-- [ ] **PR 5a — Guest + household + event CRUD** — organiser create/edit/delete for households, guests, events; per-guest attendance editing with **state-loss confirm** when un-inviting over an existing RSVP; **`source: 'import'|'manual'` provenance** on families/guests, import diff manages import-sourced rows only by default
+- [ ] **PR 5a — Guest + household + event CRUD** — organiser create/edit/delete for households, guests, events; per-guest attendance editing with **state-loss confirm** when un-inviting over an existing RSVP; **`source: 'import'|'manual'` provenance** on families/guests, import diff manages import-sourced rows only by default. **Detailed design in [[guest-event-editor]]** (signed off 2026-07-12): desired-state reconcile shared with the import, ID-aware diff, round-trip export, before-image checkpoints/revert (keep last 10), E1–E6 slicing. **Decided**: batch draft-save endpoints instead of per-row CRUD (amends [[platform-plan]] §3.3); editor-created households auto-mint codes until PR 4 lands — see [[deferred]] Resolved
 - [ ] **PR 5b — Organiser-recorded RSVPs** — `PUT .../guests/:guestId/rsvps/:eventId`; `consent_source` (`guest`/`organiser_attested`) + writer recorded (compliance delta, [[platform-plan]] §10)
 - [ ] **Module routers** (with PR 3/5) — reorganise `/api/organiser/weddings/:weddingId/*` into `guests|schedule|invite|…|settings` factories; **one-release alias layer** at the old prefixes (decided), delete next release
 

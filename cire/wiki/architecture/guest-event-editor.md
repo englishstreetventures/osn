@@ -1,0 +1,138 @@
+---
+title: "Guest + Event Editor — interactive UI alongside the CSV schema (plan)"
+tags: [architecture, plan, organiser, guests, events, spreadsheet]
+related:
+  - "[[platform-plan]]"
+  - "[[spreadsheet-import]]"
+  - "[[invite-builder]]"
+last-reviewed: 2026-07-12
+---
+
+# Guest + Event Editor — plan
+
+Build plan for an interactive events + guests UI in the organiser portal that coexists with the CSV schema as an equal citizen. Expands [[platform-plan]] §3.3 (PR 5a) into a concrete design. Four requirements drive it:
+
+1. **In-app editor** — organisers create/edit/delete events, households, guests, and per-guest attendance directly.
+2. **CSV import stays** — the spreadsheet remains a first-class writer; editor and import are interchangeable.
+3. **Export current state at any point** — a re-importable CSV pair in the import schema (round-trip), not just the reporting exports.
+4. **Revert + pre-save checks** — every applied change (import *or* editor save) is revertable, and every write passes the same validation + impact-warning gate the import preview has today.
+
+## 1. Current state (what exists)
+
+- **Import pipeline** (`cire/api/src/services/{spreadsheet,import,revert,r2-imports}.ts`, routes in `routes/organiser-import.ts`): parse (RFC 4180, formula-injection guard, required columns, per-cell rules with row/column-scoped errors) → `diffAgainstDb` (name-matched reconcile, wedding-scoped through the families join, RSVP-loss warnings) → preview row in `imports` + R2 snapshot of the **uploaded** sheets → `applyImport` (FK-ordered write set, ≤50-statement D1 batches) → `revertImport` (re-applies the *previous applied import's* sheets).
+- **Read surfaces**: `EventTable` / `GuestTable` (read-only rows + code management), `ImportPanel` (upload → preview diff → apply), `ImportHistory` (list + revert).
+- **Reporting exports**: `guests.csv` / `events.csv` / `rsvps.csv` (`services/table-export.ts`, `rsvp-export.ts`) — dashboard-shaped headers, **not** re-importable.
+- **Decided in [[platform-plan]]** (2026-07-08): direct CRUD lands (PR 5a); `source: 'import' | 'manual'` provenance on `families`/`guests`; un-invite state-loss confirm; import keeps auto-minting codes.
+
+## 2. Gaps against the requirements
+
+| # | Gap |
+|---|---|
+| G1 | No editor — the import is the only writer of events/guests. |
+| G2 | Exports aren't round-trippable: headers differ from the import schema, so "export → tweak in Excel → re-import" doesn't work, and there is no way to capture "current state" as a sheet. |
+| G3 | **Revert semantics break under interleaved edits.** `revertImport` re-applies the *previous import's uploaded sheets*. Once editor saves exist, reverting import N would also silently wipe every editor change made since import N−1 — and editor saves themselves would have no revert at all. |
+| G4 | **Rename-safety.** `diffAgainstDb` matches by name. In a sheet that's tolerable; in an editor, renaming a household or fixing a first-name typo must NOT become remove+create (that rotates the family's claim code, drops RSVPs, and drops event images). |
+| G5 | Validation lives inside the CSV parser; the editor needs the same rules without CSV framing, or the two writers drift. |
+
+## 3. Core design — one reconcile pipeline, two front doors
+
+Unify both writers around a **desired-state reconcile**:
+
+```
+CSV upload ──parse──▶
+                      DesiredState ──▶ diff (ID-aware) ──▶ preview ──▶ apply
+Editor draft ─build─▶                      │                            │
+                                      warnings + plan            checkpoint (before-image)
+```
+
+- **`DesiredState`** = `{ events: DesiredEvent[], families: DesiredFamily[] }` — the existing `ParsedEvent`/`ParsedFamily` shapes (`schemas/import.ts`) extended with **optional stable ids** (`eventId`, `familyId`, `guestId`) and optional `publicId`.
+- **CSV import**: `parseEventsCsv`/`parseGuestsCsv` → DesiredState (ids absent → name matching, exactly today's behaviour).
+- **Editor save**: the UI accumulates edits client-side into a draft and submits the whole DesiredState (ids present for existing rows, absent for new ones).
+- **`diffAgainstDb` becomes ID-aware** (fixes G4): match by id when present, fall back to normalised-name matching. A rename with an id is an *update*; the existing name-matched path is untouched. This also finally implements the long-anticipated optional `Guest ID` sheet column (`guests.externalId`, see [[spreadsheet-import]]) plus optional `Family ID` / `Event ID` columns — honoured when present, never required.
+- **Apply is unchanged**: same FK-ordered write set, same chunked `db.batch` commits, same partial-apply-reconciled-by-revert tradeoff.
+
+**Why batch reconcile instead of per-row CRUD endpoints** (amendment to [[platform-plan]] §3.3's `POST/PATCH/DELETE` sketch — **decided 2026-07-12**, see [[deferred]]): (a) preview-diff, impact warnings, and checkpointing fall out of the one pipeline instead of being rebuilt per endpoint; (b) one checkpoint per save session rather than per keystroke; (c) attendance-matrix edits are naturally batchy (tick 12 boxes, save once); (d) per-row CRUD can still be added later as sugar that compiles to a one-row reconcile. Everything else in §3.3 (provenance, un-invite guard, organiser-recorded RSVPs) stands — organiser RSVPs (PR 5b) stay a separate follow-up since RSVPs are deliberately outside the reconcile's blast radius (§5).
+
+## 4. Checkpoints + revert — before-image model (fixes G3)
+
+Generalise `imports` into a **change history**:
+
+- **Additive migration** on `imports`: `kind: 'import' | 'editor'` (default `'import'` backfills legacy rows), `before_events_r2_key` + `before_guests_r2_key` (nullable — legacy rows lack them).
+- **At apply time**, serialise the wedding's *current DB state* to the canonical snapshot CSVs (§5's serialiser) and store them as the change's **before-image** alongside the uploaded/derived after-sheets.
+- **Revert change N** = run the reconcile with N's before-image as the DesiredState. This restores exactly the pre-N state regardless of what interleaved between imports and editor saves. The current "re-apply the previous import's sheets" heuristic survives only as the fallback for legacy rows without a before-image.
+- **Snapshot fidelity**: the snapshot CSV is the organiser schema **plus fidelity columns** — `Family Code` (`publicId`, so a revert restores codes instead of re-minting), `Family ID` / `Guest ID` / `Event ID` (id-exact restore, rename-proof), `Source` (provenance survives the round trip). The parser accepts these as optional columns; the organiser-facing template (`import-templates.ts`) is unchanged.
+- **Explicit non-goals, surfaced as preview warnings**: a revert never *restores* deleted RSVPs (cascade deletes are gone — same as today) and cannot restore an image/crop/location of an event it re-creates. Id-matched updates leave those columns untouched, so the common cases (rename, time change) are safe.
+- **Retention** (**decided 2026-07-12**): snapshots are small text objects, but unbounded per-save growth needs a cap on the Free tier — prune before-images beyond the most recent **10** changes per wedding (constant, revisit with `[[free-tier-limits]]` if 10 proves too shallow for real editing sessions). The history list keeps all rows; only old R2 before-images (and thus their revertability) age out, marked in the UI.
+
+## 5. Round-trip export (fixes G2)
+
+- `GET .../export/events.csv` + `GET .../export/guests.csv` — current DB state in the **import template schema**: exact headers from `import-templates.ts`, one attendance column per event (truthy `x`), host families excluded, formula-sanitised via the shared `lib/csv.ts` serialiser.
+- `?fidelity=full` adds the snapshot fidelity columns (§4) — the "backup my wedding" export.
+- **One serialiser** (`cire/api/src/services/state-export.ts`) is used by both the export routes and the checkpoint writer, with a lockstep test against `EVENT_TEMPLATE_HEADERS`/`GUEST_TEMPLATE_FIXED_HEADERS` so export ↔ import ↔ snapshot can never drift.
+- The existing reporting exports stay; UI labels disambiguate: "Guest list (re-importable)" vs "RSVP report".
+- Deliberate consequence: **export → edit in Excel → import** becomes a fully supported third editing mode for free.
+
+## 6. Pre-save checks (fixes G5)
+
+Extract the parser's semantic rules into a shared module `cire/api/src/lib/guest-event-validation.ts`, consumed by both `spreadsheet.ts` (cell-level, with row/column error coords) and the DesiredState schema decode (field-level, with entity paths):
+
+- **Field-level**: required Event Name / Start / Timezone; ISO-8601-with-offset timestamps; `""` end sentinel preserved; end ≥ start when both present (new rule — warn, don't reject, matching sheet leniency); palette `Name:#rgb` entries against the theme colour allow-list; http(s)-only Pinterest/Maps URLs; length bounds; non-empty household + guest names.
+- **Cross-record**: duplicate event names (case/whitespace-insensitive) rejected; duplicate guest first names within a household rejected (first-name is still the fallback match key); attendance may reference only events present in the same DesiredState; empty household ⇒ warning.
+- **Impact warnings** (server-computed at preview, confirm-gated — extends today's RSVP-loss warnings): deleting a guest/household/event or un-inviting a pair discards existing RSVPs (enumerate per guest, as today; add the event-delete enumeration); deleting a household kills its already-shared claim code (`codeSharedAt` known); deleting an event drops its uploaded image; a CSV import that lacks manually-added rows follows the provenance default (below).
+- **Provenance default** ([[platform-plan]] decided): the diff manages `source = 'import'` rows only by default; an explicit "also remove manually-added rows" toggle widens it. Editor saves manage everything they were shown (the draft is the whole truth). "Added by hand" badge in the UI comes free.
+- **Concurrency guard**: the preview response carries `baseRevision` (latest applied change id). Apply re-diffs against the live DB (today's TOCTOU defence) and additionally 409s "state changed — re-preview" when the head moved, so two co-hosts editing simultaneously get a clean conflict instead of a silent last-writer-wins.
+- **Client mirror**: the organiser app re-implements the field-level rules for inline feedback (shared constants where practical); the server stays authoritative.
+
+## 7. API surface
+
+Gated `weddingMember()` today; flip to `weddingEditor()` when platform PR 2 (roles) lands.
+
+| Route | Purpose |
+|---|---|
+| `POST .../changes/preview` | Body: DesiredState JSON **or** `{eventsCsv, guestsCsv}` — both funnel into the one pipeline. Returns `{changeId, plan, warnings, baseRevision}`. |
+| `POST .../changes/apply` | `{changeId}` — re-diff, 409 on stale `baseRevision`, checkpoint, apply. |
+| `POST .../changes/revert` | `{changeId}` — before-image restore (§4). |
+| `GET .../changes/list` | Paginated history (imports + editor saves), as `/import/list` today. |
+| `GET .../export/{events,guests}.csv` | Round-trip export (§5), `?fidelity=full` optional. |
+
+The existing `/import/{preview,apply,revert,list}` routes stay mounted as a **one-release alias** over the same factories (the repo's decided route-move convention), then get deleted.
+
+## 8. Frontend (cire/organiser)
+
+- **Draft store** (`lib/guest-event-draft.ts`): load server state → SolidJS store draft; dirty tracking; id-stable rows; client-side edit stack giving in-session undo and "discard draft" for free (no server round-trips while editing).
+- **Events tab**: `EventTable` gains an edit mode — add/edit via a drawer form (name, start/end + timezone, address, dress-code description, palette editor reusing `ColorPicker`, Pinterest/Maps URLs), delete with impact confirm, re-order (writes `sortOrder`).
+- **Guests tab**: household-grouped editable list — add household, add/rename guest (id-preserving), nickname, per-guest × per-event **attendance checkbox matrix**, delete guest/household.
+- **Save flow**: sticky unsaved-changes bar → Save posts the draft to `changes/preview` → modal renders the plan + warnings (extract `ImportPanel`'s plan-rendering into a shared component) → confirm applies → refetch + toast. Field-invalid drafts can't be submitted; errors render inline.
+- **`ImportPanel`**: flow unchanged; gains "Download current list" export buttons; the explainer notes the export/import round trip.
+- **`ImportHistory` → `ChangeHistory`**: entries labelled "Spreadsheet import" / "In-app edit" with the same human summaries; Revert on any applied entry with a usable before-image.
+- **IA**: build into the existing Events/Guests tabs — they are the future module homes either way; nothing here blocks on (or waits for) platform PR 3's sidebar.
+
+## 9. Testing
+
+- **Unit**: every validation rule + a parser-parity test (sheet path and editor path reject/accept identically); serialiser round-trip (state → CSV → parse → identical DesiredState); ID-aware diff (rename-by-id ⇒ update; no-id path byte-identical to today's plans); checkpoint prune.
+- **Service**: interleaved import/editor/revert sequences restore exact before-state; publicId preserved through revert via `Family Code`; provenance filtering incl. the toggle; multi-tenant isolation mirrored from `import.test.ts`.
+- **Route**: authz (guest session rejected, member accepted), 409 on stale `baseRevision`, alias routes serve both prefixes.
+- **Component**: draft editing, inline validation, attendance matrix, preview modal, history revert (happy-dom harness as today).
+- **D1 integration**: editor-save write sets respect the ≤50-statement chunking (extend `d1-integration.test.ts`).
+
+## 10. PR slicing
+
+Each PR lands green with a changeset; order matters (later PRs consume earlier machinery):
+
+| # | PR | Contents | Schema change |
+|---|---|---|---|
+| E1 ✅ | Round-trip export (**shipped 2026-07-12**) | Canonical serialiser (`services/state-export.ts`) + `lib/sheet-headers.ts` + `export/{events,guests}.csv` routes (`?fidelity=full`) + ImportPanel buttons + round-trip fixpoint tests. Deltas from this page: the parser **ignores** the fidelity columns for now (honouring is E2's job), and the import-fidelity `Family ID` column carries neutral `fam-001` keys — claim codes appear only under `fidelity=full`. Parser contract E2 must preserve (T-S1): when an event name collides with a reserved fidelity label (`Guest ID` / `Family Code`), only the LAST header occurrence is fidelity metadata (the exporter appends fidelity columns after the event columns) and a single occurrence stays the event's attendance column — biased against silently dropping invitations. | — |
+| E2 | Validation + ID-aware diff | Extract `guest-event-validation.ts`; DesiredState schema; optional ID/fidelity columns in parser; diff id-matching | — |
+| E3 | Change history + revert fix | `imports` additive migration (`kind`, before-keys); checkpoint-on-apply; before-image revert + legacy fallback; prune | additive |
+| E4 | Provenance + changes endpoints | `source` column migration; provenance-aware diff default + toggle; `changes/{preview,apply,revert,list}` + aliases | additive |
+| E5 | Guests editor UI | Draft store, household/guest editing, attendance matrix, save/preview flow | — |
+| E6 | Events editor UI + history | Event drawer editing, re-order, `ChangeHistory` rebrand, explainer updates | — |
+
+**Dependencies on platform PRs: none hard.** Platform PR 4 (code-less households) is orthogonal — until it lands, editor-created households auto-mint codes exactly like the import (consistent with the decided "import keeps auto-minting"); PR 2 (roles) just flips the gate; PR 3 (IA shell) rehomes the tabs without touching this machinery.
+
+## 11. Decisions (resolved 2026-07-12, product owner sign-off)
+
+1. **Endpoint shape: batch draft-save (reconcile).** [[platform-plan]] §3.3's per-row `POST/PATCH/DELETE` sketch is amended; per-row CRUD may land later as sugar over the same reconcile.
+2. **Checkpoint retention: keep the last 10 before-images** per wedding; older history rows stay listed but lose revertability (marked in the UI).
+3. **Revert vs manual rows**: stands as designed — the before-image model does a literal "restore the previous state", so reverting an import also restores manual rows that import deleted (via the provenance toggle).
+4. **Editor-created households auto-mint claim codes**, exactly like the import, until platform PR 4 (code-less households) lands — at which point manual creation switches to code-less per the decided §3.2 model.

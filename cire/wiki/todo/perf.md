@@ -4,12 +4,18 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-10
+last-reviewed: 2026-07-12
 ---
 
 # Performance Backlog
 
 See [[review-findings]] for severity prefix conventions.
+
+### Round-trip state export — review findings (guest-event-editor E1, `claude/events-guests-ui-plan-aewfd3`)
+
+- [ ] **RT-P-I1** — `stateExportService.guestsCsv` issues its three wedding-scoped reads (events, guests⋈families, guest_events links) sequentially where `Effect.all { concurrency: 3 }` would collapse them to ~1 D1 round-trip. Deliberately left matching the identical sequential shape in the sibling `table-export.ts` + `rsvp-export.ts` — fix all three consistently (one small PR) or leave consistently; a lone fix would just fork the pattern. Manual, low-frequency endpoint, so pure wall-time, no quota impact. See [[guest-event-editor]] §5.
+- [ ] **RT-P-I2** — the state export is unbounded while the import parser caps sheets at `MAX_ROWS = 5000`, so a wedding grown past 5000 guests (imports + future manual adds are not jointly capped) would export a file the import refuses — silently breaking the round-trip contract. No pagination (it would break snapshot semantics); the proportionate fix is observability: log/span-attribute the exported row count when it exceeds `MAX_ROWS` so the case is visible before an organiser hits it. Revisit with E3 (checkpoints re-parse these files). See [[guest-event-editor]] §5.
+- [x] **RT-P-I3** (fixed in the same PR) — the ImportPanel "Download current events/guests" buttons had no in-flight guard, so a double-click fired duplicate export fetches (~5 D1 queries + a full CSV build each). Fixed with an `exporting` signal + `disabled` on both buttons — the same shape as `EventTable`'s export button.
 
 ### Invite customisation + builder restructure — review findings (cire-invite-customization branch)
 

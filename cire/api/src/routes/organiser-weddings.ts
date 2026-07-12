@@ -18,6 +18,7 @@ import { markSharedService } from "../services/mark-shared";
 import { regenerateCodeService } from "../services/regenerate-code";
 import { remintCodesService } from "../services/remint-codes";
 import { rsvpExportService, toCsv } from "../services/rsvp-export";
+import { stateExportService } from "../services/state-export";
 import { tableExportService } from "../services/table-export";
 import { weddingsService } from "../services/weddings";
 
@@ -188,6 +189,57 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
             }).pipe(
               Effect.provideService(DbService, db),
               Effect.catchAllDefect(() => exportDefect(set, "events.csv", weddingId)),
+            ),
+          );
+        })
+        // Round-trip exports — the wedding's CURRENT events/guests serialised
+        // in the IMPORT template schema, so the download can be edited in a
+        // spreadsheet tool and re-uploaded through the import (unlike the
+        // reporting exports above). `?fidelity=full` appends the snapshot
+        // ID/code columns (the parser ignores them today; E2 honours them) —
+        // and therefore contains live claim codes. Same weddingMember() gate +
+        // attachment/no-store contract as the reporting exports.
+        .get("/export/events.csv", ({ weddingId, query, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          const fidelity = query.fidelity === "full" ? "full" : "import";
+          return runCire(
+            Effect.gen(function* () {
+              const [csv, slug] = yield* Effect.all(
+                [
+                  stateExportService.eventsCsv(weddingId, fidelity),
+                  weddingsService.slugOf(weddingId),
+                ],
+                { concurrency: 2 },
+              );
+              return csvAttachment(csv, `cire-export-events-${slug ?? weddingId}.csv`);
+            }).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchAllDefect(() => exportDefect(set, "export/events.csv", weddingId)),
+            ),
+          );
+        })
+        .get("/export/guests.csv", ({ weddingId, query, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          const fidelity = query.fidelity === "full" ? "full" : "import";
+          return runCire(
+            Effect.gen(function* () {
+              const [csv, slug] = yield* Effect.all(
+                [
+                  stateExportService.guestsCsv(weddingId, fidelity),
+                  weddingsService.slugOf(weddingId),
+                ],
+                { concurrency: 2 },
+              );
+              return csvAttachment(csv, `cire-export-guests-${slug ?? weddingId}.csv`);
+            }).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchAllDefect(() => exportDefect(set, "export/guests.csv", weddingId)),
             ),
           );
         })
