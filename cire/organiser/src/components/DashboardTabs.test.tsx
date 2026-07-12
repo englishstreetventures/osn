@@ -33,6 +33,12 @@ vi.mock("./RemintPanel", () => ({
 vi.mock("./HostsPanel", () => ({
   default: (p: { weddingId: string }) => <div data-testid="hosts">{p.weddingId}</div>,
 }));
+vi.mock("./EventLocationsPanel", () => ({
+  default: (p: { weddingId: string }) => <div data-testid="event-locations">{p.weddingId}</div>,
+}));
+vi.mock("./SettingsPanel", () => ({
+  default: (p: { weddingId: string }) => <div data-testid="settings">{p.weddingId}</div>,
+}));
 
 import DashboardTabs from "./DashboardTabs";
 
@@ -73,6 +79,16 @@ describe("DashboardTabs", () => {
     renderTabs(false);
     expect(screen.queryByRole("tab", { name: /Codes/ })).toBeNull();
     expect(screen.getByRole("tab", { name: /Hosts/ })).toBeTruthy();
+  });
+
+  it("shows the Settings tab to a co-host and renders its panel (read-only inside)", () => {
+    // Settings stays VISIBLE to co-hosts — the panel gates editing on
+    // canManage, and the API's save is owner-only. A deep link must not fall
+    // back to the default tab the way owner-only Codes does.
+    renderTabs(false, "settings");
+    expect(screen.getByRole("tab", { name: /Settings/ })).toBeTruthy();
+    expect(screen.getByTestId("settings")).toBeTruthy();
+    expect(screen.queryByTestId("events")).toBeNull();
   });
 
   it("reports a tab switch up via onTab when a tab is clicked", () => {

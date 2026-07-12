@@ -1,12 +1,14 @@
 import { For, Show } from "solid-js";
 
 import { type DashboardTab, DEFAULT_TAB } from "../lib/dashboard-route";
+import EventLocationsPanel from "./EventLocationsPanel";
 import EventTable from "./EventTable";
 import GuestTable from "./GuestTable";
 import HostsPanel from "./HostsPanel";
 import InviteBuilder from "./InviteBuilder";
 import RemintPanel from "./RemintPanel";
 import RsvpView from "./RsvpView";
+import SettingsPanel from "./SettingsPanel";
 
 type Tab = DashboardTab;
 
@@ -26,6 +28,9 @@ interface DashboardTabsProps {
   tab: Tab;
   /** Report a tab switch up to the parent so it can update the hash. */
   onTab: (tab: Tab) => void;
+  /** Report a saved name/slug (Settings tab) up so the header + wedding list
+   *  stay current without a refetch. */
+  onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
 }
 
 /** A tab's nav entry. The glyph is a small leading mark that makes the row
@@ -57,6 +62,14 @@ const HOSTS_TAB: TabDef = {
   glyph: "♔",
   hint: "Share editing with a co-host",
 };
+// `Settings` stays visible to co-hosts (read-only — the panel itself gates the
+// form on `canManage`, and the API's save is owner-only).
+const SETTINGS_TAB: TabDef = {
+  id: "settings",
+  label: "Settings",
+  glyph: "✧",
+  hint: "Date, location, guest count, and budget",
+};
 
 /**
  * Resolve the visible tab from the controlled `tab` prop. The owner-only Codes
@@ -73,7 +86,9 @@ export default function DashboardTabs(props: DashboardTabsProps) {
   const active = () => visibleTab(props.tab, props.canManage);
 
   const tabs = () =>
-    props.canManage ? [...BASE_TABS, ...OWNER_TABS, HOSTS_TAB] : [...BASE_TABS, HOSTS_TAB];
+    props.canManage
+      ? [...BASE_TABS, ...OWNER_TABS, HOSTS_TAB, SETTINGS_TAB]
+      : [...BASE_TABS, HOSTS_TAB, SETTINGS_TAB];
 
   return (
     <div class="flex flex-col gap-6">
@@ -102,7 +117,13 @@ export default function DashboardTabs(props: DashboardTabsProps) {
       </nav>
 
       <Show when={active() === "events"}>
-        <EventTable weddingId={props.weddingId} weddingSlug={props.weddingSlug} />
+        <div class="flex flex-col gap-6">
+          <EventTable weddingId={props.weddingId} weddingSlug={props.weddingSlug} />
+          {/* Per-event planning locations (member-editable, like the import).
+              Location is event-scoped — one wedding can celebrate across
+              countries — so it lives with the schedule, not in Settings. */}
+          <EventLocationsPanel weddingId={props.weddingId} />
+        </div>
       </Show>
       <Show when={active() === "guests"}>
         <GuestTable
@@ -122,6 +143,13 @@ export default function DashboardTabs(props: DashboardTabsProps) {
       </Show>
       <Show when={active() === "hosts"}>
         <HostsPanel weddingId={props.weddingId} canManage={props.canManage} />
+      </Show>
+      <Show when={active() === "settings"}>
+        <SettingsPanel
+          weddingId={props.weddingId}
+          canManage={props.canManage}
+          onWeddingUpdated={props.onWeddingUpdated}
+        />
       </Show>
     </div>
   );

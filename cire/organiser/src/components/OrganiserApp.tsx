@@ -76,6 +76,9 @@ function WeddingDashboard(props: {
   tab: () => DashboardTab;
   onTab: (tab: DashboardTab) => void;
   onBack: () => void;
+  /** A Settings save changed the name/slug — bubble it up so the wedding list
+   *  (and this header) reflect it without a refetch. */
+  onWeddingUpdated: (patch: { displayName: string; slug: string }) => void;
 }) {
   const isOwner = () => props.wedding.role === "owner";
 
@@ -146,6 +149,7 @@ function WeddingDashboard(props: {
           canManage={isOwner()}
           tab={props.tab()}
           onTab={props.onTab}
+          onWeddingUpdated={props.onWeddingUpdated}
         />
       </div>
     </div>
@@ -277,6 +281,12 @@ function Dashboard() {
     if (!list.some((w) => w.id === r.weddingId)) setRoute(LIST_ROUTE, "replace");
   });
 
+  /** A Settings save renamed the selected wedding (or moved its slug) — patch
+   *  the local list so the header, list, and invite-message copy stay current. */
+  function handleWeddingUpdated(weddingId: string, patch: { displayName: string; slug: string }) {
+    setWeddings((prev) => (prev ?? []).map((w) => (w.id === weddingId ? { ...w, ...patch } : w)));
+  }
+
   function handleCreated(wedding: WeddingSummary) {
     setWeddings((prev) => [...(prev ?? []), wedding]);
     // Open the new wedding straight away — the organiser just made it to fill
@@ -354,6 +364,7 @@ function Dashboard() {
                     }}
                     onTab={selectTab}
                     onBack={backToList}
+                    onWeddingUpdated={(patch) => handleWeddingUpdated(wedding().id, patch)}
                   />
                 )}
               </Show>

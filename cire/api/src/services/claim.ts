@@ -295,6 +295,9 @@ export const claimService = {
       mapsUrl: string | null;
       imageUrl: string | null;
       imageCrop: ImageCrop | null;
+      locationLat: number | null;
+      locationLng: number | null;
+      pricingRegion: string | null;
     }[],
     never,
     DbService
@@ -333,6 +336,10 @@ export const claimService = {
           mapsUrl: safeHttpUrl(row.mapsUrl),
           imageUrl: eventImageUrl(weddingSlug, row.id, row.eventImageKey),
           imageCrop: eventImageCrop(row.eventImageKey, row.eventImageCrop),
+          // Planning-only location (organiser dashboard; never on the invite).
+          locationLat: row.locationLat,
+          locationLng: row.locationLng,
+          pricingRegion: row.pricingRegion,
         };
       });
     }).pipe(Effect.withSpan("cire.claim.listEvents"));

@@ -7,6 +7,7 @@ import { createApp } from "./app";
 import { createD1Db, DbService } from "./db";
 import { setExecutionCtx } from "./lib/execution-ctx";
 import { assetReconcileService } from "./services/asset-reconcile";
+import { createGoogleGeocoder } from "./services/geocode";
 import {
   createAccountResolverFromEnv,
   createHandleResolverFromEnv,
@@ -52,6 +53,14 @@ export interface Env {
   // RSVP endpoints require a valid Turnstile token (fail-closed); unset ⇒ those
   // gates are skipped. `wrangler secret put TURNSTILE_SECRET_KEY`.
   TURNSTILE_SECRET_KEY?: string;
+  // Google Geocoding API key (KEY-OPTIONAL, fail-soft). When set, the
+  // organiser event-location editor can geocode a venue address server-side;
+  // unset ⇒ the geocode endpoint answers `unavailable` and the editor falls
+  // back to manual lat/lng entry. `wrangler secret put GOOGLE_GEOCODING_API_KEY`.
+  // BEFORE SETTING: restrict the key to the Geocoding API AND set a daily
+  // quota cap in the Google console (S-L2) — the per-IP limiter bounds each
+  // caller, but only a Google-side cap bounds aggregate spend across IPs.
+  GOOGLE_GEOCODING_API_KEY?: string;
 }
 
 // P-W1: the Elysia app graph (root + cors + route factories + auth plugins) is
@@ -155,6 +164,11 @@ const handler: ExportedHandler<Env> = {
       // claim + rsvp gates are skipped. The secret is read here and never
       // logged or placed anywhere but Cloudflare's siteverify endpoint.
       const turnstileVerifier = createTurnstileVerifier(env.TURNSTILE_SECRET_KEY);
+      // Settings geocoder (KEY-OPTIONAL, fail-soft). Unset secret ⇒ null ⇒ the
+      // geocode endpoint answers `unavailable` and the Settings form degrades
+      // to manual lat/lng entry. The key is read here and never logged or sent
+      // anywhere but Google's Geocoding endpoint.
+      const geocoder = createGoogleGeocoder(env.GOOGLE_GEOCODING_API_KEY);
       cached = {
         dbBinding: env.DB,
         app: createApp(db, {
@@ -163,6 +177,9 @@ const handler: ExportedHandler<Env> = {
           claimLimiter: edgeLimiter,
           accountLinkLimiter: edgeLimiter,
           inviteLimiter: edgeLimiter,
+          // Geocode rides the same shared edge budget — it's a billed upstream
+          // amplifier, same class as the invite R2 writes.
+          geocodeLimiter: edgeLimiter,
           r2: env.SHEETS,
           assets: env.ASSETS,
           images: env.IMAGES,
@@ -173,6 +190,7 @@ const handler: ExportedHandler<Env> = {
           resolveOsnProfileDisplays,
           resolveOsnHandleSearch,
           turnstileVerifier,
+          geocoder,
         }),
       };
     }

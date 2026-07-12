@@ -18,6 +18,7 @@ import {
   createOrganiserHostsWriteRoutes,
 } from "./routes/organiser-hosts";
 import { createOrganiserImportRoutes } from "./routes/organiser-import";
+import { createOrganiserSettingsRoutes } from "./routes/organiser-settings";
 import {
   createOrganiserPreviewRoutes,
   createOrganiserRemintRoutes,
@@ -26,6 +27,7 @@ import {
 } from "./routes/organiser-weddings";
 import { createPrimaryWeddingRoutes } from "./routes/primary-wedding";
 import { createRsvpRoutes } from "./routes/rsvp";
+import type { Geocoder } from "./services/geocode";
 import type { AssetsBucket } from "./services/invite-assets";
 import type { ImagesBindingLike } from "./services/invite-image-transform";
 import type {
@@ -85,6 +87,13 @@ const defaultHostLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000
  */
 const defaultHandleSearchLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 /**
+ * Default per-IP limiter for the Settings geocode endpoint. Member-gated
+ * (owner OR co-host — it serves the member-editable event locations), so this
+ * just caps the billed upstream Geocoding calls an authenticated organiser can
+ * drive; 20/min is generous for hand-looking-up a handful of event venues.
+ */
+const defaultGeocodeLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
+/**
  * Default per-IP limiter for the PUBLIC CSP report collector. The endpoint is
  * unauthenticated (browsers POST here with no creds), so this is a generous
  * bucket purely to cap a log-spam DoS — a real visitor emits a handful of
@@ -116,6 +125,16 @@ export interface AppOptions {
   handleSearchLimiter?: RateLimiterBackend;
   /** Override the public CSP-report collector rate limiter (useful for testing). */
   cspReportLimiter?: RateLimiterBackend;
+  /** Override the Settings geocode rate limiter (useful for testing). */
+  geocodeLimiter?: RateLimiterBackend;
+  /**
+   * Key-optional server-side geocoder for the wedding Settings form.
+   * `null`/omitted ⇒ the `GOOGLE_GEOCODING_API_KEY` secret is unset and the
+   * geocode endpoint answers `unavailable` — the form falls back to manual
+   * lat/lng entry, so the profile works with no third-party flow at all.
+   * Built once per isolate in `index.ts`; tests inject a stub.
+   */
+  geocoder?: Geocoder | null;
   /** R2 bucket binding for the organiser import flow. */
   r2?: R2Bucket;
   /** R2 bucket binding for invite-builder images (separate from `r2`). */
@@ -185,6 +204,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
     hostLimiter = defaultHostLimiter,
     handleSearchLimiter = defaultHandleSearchLimiter,
     cspReportLimiter = defaultCspReportLimiter,
+    geocodeLimiter = defaultGeocodeLimiter,
+    geocoder = null,
     r2,
     assets,
     images,
@@ -297,6 +318,12 @@ export function createApp(db: Db, options: AppOptions = {}) {
         ),
       )
       .use(createOrganiserImportRoutes(db, r2, osnAuthOptions))
+      // Wedding-profile Settings + per-event locations (platform Phase 0).
+      // Reads admit owner OR co-host; the profile save is owner-only; the
+      // event-location PUT and the geocode POST are member-level (location is
+      // schedule data, like the import), with the geocode behind a per-IP
+      // limiter (billed upstream call).
+      .use(createOrganiserSettingsRoutes(db, osnAuthOptions, { geocoder, geocodeLimiter }))
       // Invite builder. Public reads (guest site) + organiser writes split into
       // sibling instances so the guest GET isn't behind osnAuth.
       .use(createInvitePublicRoutes(db, assets, images))

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DASHBOARD_TABS,
   type DashboardRoute,
   DEFAULT_TAB,
   isDashboardTab,
@@ -37,7 +38,9 @@ describe("dashboard-route", () => {
     });
 
     it("parses every known tab", () => {
-      for (const tab of ["events", "guests", "rsvps", "invite", "codes", "hosts"] as const) {
+      // Driven by DASHBOARD_TABS itself so a newly added tab is covered
+      // automatically instead of silently falling back to the default.
+      for (const tab of DASHBOARD_TABS) {
         expect(parseRoute(`#/weddings/wed_1/${tab}`).tab).toBe(tab);
       }
     });
@@ -146,7 +149,7 @@ describe("dashboard-route", () => {
 
   describe("isDashboardTab", () => {
     it("accepts the known tabs and rejects everything else", () => {
-      for (const tab of ["events", "guests", "rsvps", "invite", "codes", "hosts"]) {
+      for (const tab of DASHBOARD_TABS) {
         expect(isDashboardTab(tab)).toBe(true);
       }
       expect(isDashboardTab("weddings")).toBe(false);

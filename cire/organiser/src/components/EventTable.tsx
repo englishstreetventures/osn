@@ -5,11 +5,11 @@ import { toast } from "solid-toast";
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { downloadBlob } from "../lib/download";
 import {
+  ensureEventsLoaded,
   type EventRow,
   eventsAccessor,
   hasCachedEvents,
   patchCachedEvent,
-  setCachedEvents,
 } from "../lib/events-store";
 import {
   CROP_ASPECT,
@@ -66,17 +66,19 @@ export default function EventTable(props: EventTableProps) {
   const [exporting, setExporting] = createSignal(false);
 
   onMount(async () => {
-    // Cache hit: a previous mount already loaded this wedding's events. Reuse
-    // them — no second request on a tab flip back to Events.
-    if (hasCachedEvents(props.weddingId)) {
-      setLoading(false);
-      return;
-    }
+    // ensureEventsLoaded resolves immediately on a cache hit and dedupes an
+    // in-flight fetch with any sibling panel (EventLocationsPanel) mounting in
+    // the same tick — one request per wedding either way.
     try {
-      const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) throw new Error("Failed to load");
-      setCachedEvents(props.weddingId, (await res.json()) as EventRow[]);
+      await ensureEventsLoaded(props.weddingId, async () => {
+        const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
+        if (res.status === 401) {
+          redirectToLogin();
+          throw new Error("unauthenticated");
+        }
+        if (!res.ok) throw new Error("Failed to load");
+        return (await res.json()) as EventRow[];
+      });
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setError("Could not load events. Is the API running?");

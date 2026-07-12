@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS weddings (
   display_name TEXT NOT NULL,
   owner_osn_profile_id TEXT NOT NULL,
   code_style TEXT NOT NULL DEFAULT 'secure',
+  wedding_date TEXT,
+  guest_count_estimate INTEGER,
+  currency TEXT NOT NULL DEFAULT 'AUD',
+  budget_total_minor INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -91,7 +95,10 @@ CREATE TABLE IF NOT EXISTS events (
   maps_url TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   event_image_key TEXT,
-  event_image_crop TEXT
+  event_image_crop TEXT,
+  location_lat REAL,
+  location_lng REAL,
+  pricing_region TEXT
 );
 CREATE INDEX IF NOT EXISTS events_wedding_id_sort_idx ON events(wedding_id, sort_order);
 

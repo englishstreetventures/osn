@@ -6,7 +6,7 @@ related:
   - "[[invite-builder]]"
   - "[[monorepo-structure]]"
   - "[[platform]]"
-last-reviewed: 2026-07-09
+last-reviewed: 2026-07-10
 ---
 
 # Platform Plan — from digital invite to wedding management platform
@@ -56,6 +56,10 @@ Everything else builds on this. No new product surface; pure re-foundation.
 Add to `weddings`: `wedding_date` (nullable — engaged couples often don't have one yet), `location_name`, `location_lat` / `location_lng` (nullable REAL, canonical point for vendor search), `pricing_region` (nullable key into the checked-in pricing dataset, §6), `guest_count_estimate` (nullable int), `currency` (ISO 4217, default `AUD`), `budget_total_minor` (nullable int). New Settings view in the portal (name, slug, profile fields). The profile drives vendor radius search, pricing estimates, and checklist lead-time seeding.
 
 **Location capture (decided 2026-07-08): key-optional Geocoding API now.** The Settings form geocodes the organiser-typed address to lat/lng + locality server-side (Google Geocoding, same key-optional fail-soft pattern as Maps Embed / Turnstile: no key ⇒ manual lat/lng entry fallback, form still works). `pricing_region` derives from the geocoded state/locality via a checked-in mapping (`lib/pricing-regions.ts`), so Phase 3 needs no second lookup. Compliance: Geocoding is a new subprocessor + data-map row (§10).
+
+**Shipped (PR 1, 2026-07-10) — with one revision: location is EVENT-scoped, not wedding-scoped.** A wedding is not a place — its events are (a Sydney reception + Jaipur ceremonies is one wedding in two countries), so `location_lat`/`location_lng` + `pricing_region` landed on `events` (the venue text stays in the existing `events.address`), edited per event on the Events tab (`EventLocationsPanel`, member-level like the import — `PUT .../events/:eventId/location`). The wedding keeps ONE main `currency` + `budget_total_minor` — the currency the couple thinks in, whatever countries the events land in. Downstream consequences: Phase 2 vendor radius search is **per event** (search near the event you're planning, which is what you actually want); Phase 3 estimates group by event region (the "wedding's region" is derivable — e.g. the modal region across events — at estimate time, not stored).
+
+Other implementation notes: `pricing_region` is **state-granular** (`au-nsw` … `au-nt`, `au-other`, `international`) — Google's `locality` is the suburb, not the metro area, so a metro/regional split can't be derived reliably from one geocode; state level is defensible for a hand-curated v1 dataset and the enum widens with the Phase 3 dataset work (versioned via `PRICING_REGIONS_VERSION`). The profile save is `PUT` with PATCH semantics (the app's CORS method list has no PATCH). The **slug is read-only** in Settings — a rename frees the old slug for another organiser to claim while printed invite links still point at it (WP-S-M1 in [[security]]); renames stay unshipped until a slug-tombstone design exists. The Settings tab is visible to co-hosts read-only, the profile save is owner-only, and the geocode POST is member-level (it serves the member-editable event locations) behind a per-IP limiter (billed upstream call).
 
 ### 3.2 Households ≠ claim codes
 
@@ -135,6 +139,8 @@ payments:     id, budget_item_id FK↘, label ('deposit'|'balance'|free text), a
 ```
 
 All money in **minor units** + the wedding's `currency` (no FX). Views: per-category rollup vs `budget_total_minor`, upcoming-payments list (feeds Overview + Checklist nudges). "Estimate" column is seeded by the pricing engine (§6) when available, hand-editable always.
+
+**Multi-currency note (2026-07-10, follows the event-scoped-location decision in §3.1):** weddings can span countries, so foreign vendors (the Jaipur caterer) will quote/invoice in a currency other than the wedding's main one. **v1 stays single-currency on purpose** — every stored figure is in the wedding's MAIN `currency` (the one the couple budgets in), and the organiser converts a foreign quote when entering it. The rollup maths, the total comparison, and the pricing-engine seeding all stay trivial. If real multi-country weddings want more, the v2 extension is additive: optional `original_currency` + `original_amount_minor` (+ entered rate) on `budget_items`/`payments`, display-only — the converted main-currency figure stays the canonical amount every view sums. Tracked in [[deferred]]; do NOT build v2 speculatively.
 
 ### 4.3 Service-category enum
 

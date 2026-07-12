@@ -47,6 +47,12 @@ export interface EventRow {
   /** Normalised crop rectangle the guest site applies (or null for the default
    * centre crop). */
   imageCrop: ImageCrop | null;
+  /** Planning-only location (organiser dashboard; never on the invite).
+   * Event-scoped — a wedding can span countries. Both halves set or both null. */
+  locationLat: number | null;
+  locationLng: number | null;
+  /** Pricing-region key (closed enum, validated server-side) or null. */
+  pricingRegion: string | null;
 }
 
 /** A cached wedding's events plus the setter the owning `EventTable` uses to
@@ -105,7 +111,37 @@ export function invalidateEvents(weddingId: string): void {
   cache.delete(weddingId);
 }
 
+/** In-flight loads, keyed by weddingId, so two panels mounting in the same
+ *  tick (EventTable + EventLocationsPanel on the Events tab) share ONE fetch
+ *  instead of racing two identical requests at the empty cache. */
+const inflight = new Map<string, Promise<void>>();
+
+/**
+ * Load a wedding's events into the cache exactly once. A cache hit returns
+ * immediately; concurrent callers await the same in-flight fetch. `fetcher`
+ * is caller-supplied so each panel keeps its own auth/redirect handling — a
+ * fetcher that throws rejects every waiter and caches nothing (the next mount
+ * retries).
+ */
+export function ensureEventsLoaded(
+  weddingId: string,
+  fetcher: () => Promise<EventRow[]>,
+): Promise<void> {
+  if (hasCachedEvents(weddingId)) return Promise.resolve();
+  let pending = inflight.get(weddingId);
+  if (!pending) {
+    pending = fetcher()
+      .then((rows) => {
+        setCachedEvents(weddingId, rows);
+      })
+      .finally(() => inflight.delete(weddingId));
+    inflight.set(weddingId, pending);
+  }
+  return pending;
+}
+
 /** Test-only: clear the whole cache so each test starts cold. */
 export function __resetEventsCache(): void {
   cache.clear();
+  inflight.clear();
 }
