@@ -5,12 +5,16 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-10
+last-reviewed: 2026-07-15
 ---
 
 # Security Backlog
 
 See [[overview]] for observability rules that apply to all security-sensitive code paths. See [[review-findings]] for severity prefix conventions.
+
+### Claim rate-limiter fail-closed (re-port of closed PR #235)
+
+- [x] **RL-S-M1** (fixed) — `cire/api/src/index.ts` read the native Workers `CLAIM_RATE_LIMITER` binding and, when absent, **silently fell back to a per-isolate in-memory limiter**. Because an in-memory limiter is per-isolate it gives almost no cross-request protection, so a misconfigured/missing binding silently downgraded the pre-auth claim-code brute-force defence (small keyspace) with no signal — the wrangler foot-gun where named envs don't inherit the top-level `[[unsafe.bindings]]`. Now **fail-closed in any deployed tier**: when the binding is absent and the tier (from `OSN_ENV` via `@shared/observability` `loadConfig`) is `dev`/`staging`/`production`, the edge handler `Effect.logError`s and refuses with a 503 (`missing CLAIM_RATE_LIMITER binding`) on every cold isolate — matching the Turnstile / `weddingMember` fail-closed convention. The `local` tier keeps the in-memory fallback so `bun run dev` / bun:sqlite tests boot without the binding. The prod Worker declares the binding under `[env.production.unsafe.bindings]` in `wrangler.toml`, so the guard never trips on a correctly-configured prod. Regression tests in `index.test.ts` cover all three paths (local→fallback, deployed→503, binding→native).
 
 ### Optional End/Location CSV spec — review findings (wedding-management-platform branch)
 

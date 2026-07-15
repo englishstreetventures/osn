@@ -1,3 +1,4 @@
+import { loadConfig } from "@shared/observability/config";
 import { createWorkersRateLimiter } from "@shared/rate-limit";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
 import { createTurnstileVerifier } from "@shared/turnstile";
@@ -6,6 +7,7 @@ import { Effect, Layer } from "effect";
 import { createApp } from "./app";
 import { createD1Db, DbService } from "./db";
 import { setExecutionCtx } from "./lib/execution-ctx";
+import { runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
 import { createGoogleGeocoder } from "./services/geocode";
 import {
@@ -46,8 +48,13 @@ export interface Env {
   CIRE_API_ARC_PRIVATE_KEY?: string;
   CIRE_API_ARC_KEY_ID?: string;
   // Native Workers Rate Limiting binding (C1/C4). When present, the claim
-  // limiter is the global, atomic edge limiter; absent (local `wrangler dev`
-  // without the binding, or non-Workers runtimes) ⇒ the in-memory fallback.
+  // limiter is the global, atomic edge limiter. Absent ⇒ the per-isolate
+  // in-memory fallback — allowed ONLY in the `local` tier (`bun run dev` /
+  // bun:sqlite tests). In any deployed tier (dev/staging/production) a missing
+  // binding is a fail-closed 503 at the edge (see the guard in `fetch`), because
+  // a per-isolate limiter is no real cross-request brute-force defence and the
+  // downgrade would otherwise be silent. Optional here so the missing-binding
+  // case surfaces as that explicit 503, not a type lie.
   CLAIM_RATE_LIMITER?: WorkersRateLimitBinding;
   // Turnstile bot-protection secret (KEY-OPTIONAL). When set, the guest claim +
   // RSVP endpoints require a valid Turnstile token (fail-closed); unset ⇒ those
@@ -76,6 +83,17 @@ const misconfigured = (detail: string) =>
     status: 503,
     headers: { "Content-Type": "application/json" },
   });
+
+// Is this a *deployed* tier (dev/staging/production) rather than `local`? Reuse
+// the canonical four-tier signal — `OSN_ENV`, parsed by `@shared/observability`'s
+// `loadConfig` into local|dev|staging|production (the same value that drives the
+// log level in observability.ts). On workerd `nodejs_compat` populates
+// `process.env` from wrangler `[vars]`/secrets; in bun:sqlite/local dev it's
+// native. Using `loadConfig` rather than an ad-hoc "https WEB_ORIGIN" heuristic
+// keeps the tier decision drift-proof: it is the ONE place the repo decides the
+// environment, so this guard can never disagree with the logger about which tier
+// we're in.
+const isDeployedTier = (): boolean => loadConfig({ serviceName: "cire-api" }).env !== "local";
 
 const handler: ExportedHandler<Env> = {
   async fetch(request, env, ctx) {
@@ -107,6 +125,31 @@ const handler: ExportedHandler<Env> = {
       return misconfigured(
         `WEB_ORIGIN entry "${badOrigin}" must be https:// (or http://localhost in dev)`,
       );
+    }
+
+    // C1/C4 (fail-closed): in a *deployed* tier the native Workers rate-limit
+    // binding is MANDATORY. createApp otherwise silently falls back to a
+    // per-isolate in-memory limiter, so the pre-auth claim-code brute-force
+    // guard (small keyspace) would reset per cold isolate with NO signal — a
+    // silent downgrade of the only cross-request throttle on the guest claim
+    // endpoint. This is the wrangler foot-gun the config warns about: named
+    // envs do NOT inherit the top-level `[[unsafe.bindings]]`, so a missing
+    // `[[env.production.unsafe.bindings]]` block would ship prod with the
+    // limiter unbound. Fail closed instead — mirrors the Turnstile /
+    // weddingMember fail-closed convention and the other pre-cache boot checks
+    // above (so it fires on every cold isolate, not only the first app build).
+    // In `local` (the four-tier local dev / bun:sqlite tier) the in-memory
+    // fallback is kept so `bun run dev` works without the binding. The real prod
+    // Worker HAS the binding declared under `[env.production.unsafe.bindings]`
+    // in wrangler.toml, so this only ever trips on a genuine misconfiguration.
+    if (!env.CLAIM_RATE_LIMITER && isDeployedTier()) {
+      await runCire(
+        Effect.logError("CLAIM_RATE_LIMITER binding missing in a deployed tier", {
+          detail:
+            "refusing to serve with the per-isolate in-memory claim limiter as the only brute-force defence",
+        }),
+      );
+      return misconfigured("missing CLAIM_RATE_LIMITER binding");
     }
 
     if (!cached || cached.dbBinding !== env.DB) {

@@ -21,10 +21,18 @@ let savedOsnEnv: string | undefined;
 
 const MF_HOOK_TIMEOUT_MS = 30_000;
 
+// A stand-in for the native Workers rate-limit binding — matches
+// `WorkersRateLimitBinding` (`{ limit({ key }): Promise<{ success }> }`).
+// `success: true` = never limited, which is all these boot tests need.
+const fakeRateLimiter = { limit: async () => ({ success: true }) };
+
 const BASE_ENV = {
   WEB_ORIGIN: "https://app.example.com",
   OSN_JWKS_URL: "https://id.example.com/.well-known/jwks.json",
   OSN_AUDIENCE: "osn-access",
+  // Deployed-tier boots now REQUIRE the claim rate-limit binding (fail-closed);
+  // supply it so these tests exercise the happy boot path, not the guard.
+  CLAIM_RATE_LIMITER: fakeRateLimiter,
 };
 
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as ExecutionContext;
@@ -82,6 +90,7 @@ describe("Worker boot (no bootstrap-owner config)", () => {
       DB,
       OSN_JWKS_URL: BASE_ENV.OSN_JWKS_URL,
       OSN_AUDIENCE: BASE_ENV.OSN_AUDIENCE,
+      CLAIM_RATE_LIMITER: fakeRateLimiter,
     } as unknown as Parameters<typeof handler.fetch>[1];
     const res = await handler.fetch!(
       new Request("https://api.example.com/api/organiser/weddings"),
@@ -89,5 +98,59 @@ describe("Worker boot (no bootstrap-owner config)", () => {
       ctx,
     );
     expect(res.status).toBe(503);
+  });
+});
+
+// C1/C4 fail-closed guard: the native claim rate-limit binding is MANDATORY in
+// any deployed tier. Absent, createApp would silently fall back to a per-isolate
+// in-memory limiter — no real cross-request brute-force defence on the guest
+// claim endpoint. The guard 503s at the edge in a deployed tier, but keeps the
+// in-memory fallback in `local` so `bun run dev` / tests boot without it.
+// Tier is read from OSN_ENV (via @shared/observability loadConfig), so these
+// tests drive it by toggling process.env.OSN_ENV inside each case.
+describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
+  const runFetch = (env: Record<string, unknown>) =>
+    handler.fetch!(
+      new Request("https://api.example.com/api/organiser/weddings"),
+      { DB, ...env } as unknown as Parameters<typeof handler.fetch>[1],
+      ctx,
+    );
+
+  it("fail-closes 503 in a deployed tier when the binding is absent", async () => {
+    process.env.OSN_ENV = "production";
+    const { CLAIM_RATE_LIMITER: _omit, ...withoutBinding } = BASE_ENV;
+    void _omit;
+    const res = await runFetch(withoutBinding);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({
+      error: "Worker misconfigured: missing CLAIM_RATE_LIMITER binding",
+    });
+  });
+
+  it("also fail-closes 503 in the `dev` deployed tier when the binding is absent", async () => {
+    process.env.OSN_ENV = "dev";
+    const { CLAIM_RATE_LIMITER: _omit, ...withoutBinding } = BASE_ENV;
+    void _omit;
+    const res = await runFetch(withoutBinding);
+    expect(res.status).toBe(503);
+  });
+
+  it("boots (in-memory fallback) in the `local` tier when the binding is absent", async () => {
+    process.env.OSN_ENV = "local";
+    const { CLAIM_RATE_LIMITER: _omit, ...withoutBinding } = BASE_ENV;
+    void _omit;
+    const res = await runFetch(withoutBinding);
+    // Not the guard's 503 — the app boots and the route's own auth gate answers
+    // 401 (no token), proving the in-memory fallback path was taken locally.
+    expect(res.status).not.toBe(503);
+    expect(res.status).toBe(401);
+  });
+
+  it("boots (native binding) in a deployed tier when the binding is present", async () => {
+    process.env.OSN_ENV = "production";
+    const res = await runFetch(BASE_ENV);
+    // Binding present ⇒ no guard 503; app boots and the route answers 401.
+    expect(res.status).not.toBe(503);
+    expect(res.status).toBe(401);
   });
 });
