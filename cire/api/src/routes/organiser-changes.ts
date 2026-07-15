@@ -9,22 +9,16 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { runCire } from "../observability";
-import { ApplyBody, PreviewBody, RevertBody } from "../schemas/import";
+import { ApplyBody, DesiredState, RevertBody } from "../schemas/import";
 import type { ImportPlan, ParsedFamily } from "../schemas/import";
+import { decodeChangeBody, GENESIS_REVISION, headRevision } from "../services/changes";
 import { captureBeforeImage, pruneBeforeImages } from "../services/checkpoint";
 import { applyImport, diffAgainstDb } from "../services/import";
 import type { DeletableBucket } from "../services/r2-cleanup";
 import { R2Service, fetchUpload, storeUpload } from "../services/r2-imports";
 import type { R2Bucket } from "../services/r2-imports";
 import { revertImport } from "../services/revert";
-import {
-  parseEventsCsv,
-  parseGuestsCsv,
-  FormulaInjectionDetected,
-  MissingRequiredColumn,
-  UnmatchedEventColumn,
-  MalformedSpreadsheet,
-} from "../services/spreadsheet";
+import { parseEventsCsv, parseGuestsCsv } from "../services/spreadsheet";
 
 const ONE_MB = 1 * 1024 * 1024;
 
@@ -34,47 +28,100 @@ const ONE_MB = 1 * 1024 * 1024;
 const manualParse = { parse: () => ({}) };
 
 /**
- * Organiser import routes, mounted under
- * /api/organiser/weddings/:weddingId/import. osnAuth() gates every request and
- * weddingEditor() proves the caller is the OWNER **or** an EDITOR co-host of
- * the :weddingId in the path (404 for unknown weddings, 403 for non-members,
- * 403 `read_only_role` for viewer co-hosts), deriving `weddingId`. Editors are
- * trusted co-organisers (a partner or hired planner), so they get full import
- * access (preview / apply / revert / list) — the spreadsheet is the primary way
- * a wedding's guests + events are populated, and locking it to the owner
- * defeated co-hosting. Viewers are read-only and the import surface is
- * write-shaped end to end (even preview persists an import row), so the whole
- * subtree sits behind the editor gate. The owner-only surface stays narrow:
- * deleting the wedding and managing the co-host list (see organiser-hosts /
- * weddings routes). Every import operation is scoped to that wedding — a
- * member who organises several weddings picks the target explicitly in the URL.
- *
- * `r2` mirrors the previous app-level optional binding: a deployment without
- * the SHEETS bucket fails at first use, not at startup.
+ * The change persisted-state summary carries the optimistic-concurrency token +
+ * provenance toggle captured at PREVIEW, alongside the diff counts. Read back at
+ * apply so the re-diff uses the same `removeManual` and the 409 guard compares
+ * against the `baseRevision` the previewer saw.
  */
-export const createOrganiserImportRoutes = (
+interface ChangeSummary {
+  baseRevision: string;
+  removeManual: boolean;
+  eventCreates: number;
+  eventUpdates: number;
+  eventRemoves: number;
+  familyCreates: number;
+  familyRemoves: number;
+  guestCreates: number;
+  guestRemoves: number;
+  guestUpdates: number;
+}
+
+/**
+ * Re-derive the DesiredState an apply must re-diff, from the change row's stored
+ * inputs. Both front doors persist their input at preview under the row's
+ * `eventsR2Key`/`guestsR2Key`:
+ *  - `kind = 'import'` — the two uploaded CSVs (re-parsed, exactly the import).
+ *  - `kind = 'editor'` — the DesiredState JSON in the events key (guests key is
+ *    an empty sentinel); JSON-decoded back to a DesiredState.
+ * Re-reading at apply is the TOCTOU defence: the DB may have shifted since
+ * preview, so the plan is always freshly diffed against live state.
+ */
+function desiredStateFromRow(row: {
+  kind: "import" | "editor";
+  eventsR2Key: string;
+  guestsR2Key: string;
+}) {
+  return Effect.gen(function* () {
+    if (row.kind === "editor") {
+      const json = yield* fetchUpload(row.eventsR2Key);
+      return yield* Schema.decodeUnknown(Schema.parseJson(DesiredState))(json);
+    }
+    const eventsCsv = yield* fetchUpload(row.eventsR2Key);
+    const guestsCsv = yield* fetchUpload(row.guestsR2Key);
+    const events = yield* parseEventsCsv(eventsCsv);
+    const families = yield* parseGuestsCsv(guestsCsv, events);
+    return { events, families: families as ParsedFamily[] };
+  });
+}
+
+/**
+ * The general change route factory (guest+event editor E4,
+ * [[guest-event-editor]] §7). Mounted at TWO path segments off the same code:
+ * `changes` (the general API) and `import` (the one-release alias for existing
+ * clients, deleted next release — see [[api]] TODO). Both serve identically.
+ *
+ * osnAuth() gates every request; weddingEditor() proves the caller is the OWNER
+ * or an EDITOR co-host of the :weddingId (404 unknown, 403 non-member, 403
+ * `read_only_role` viewer), deriving `weddingId`. Every operation is
+ * wedding-scoped through the path.
+ *
+ * The four verbs:
+ *  - `preview` — accepts EITHER a DesiredState JSON (editor draft-save) OR
+ *    `{eventsCsv, guestsCsv}` (spreadsheet upload). Both funnel through
+ *    `decodeChangeBody` → the one reconcile: DesiredState → `diffAgainstDb` →
+ *    plan. Persists a `preview` change row (input in R2, `baseRevision` +
+ *    `removeManual` in the summary). Returns `{changeId, plan, warnings,
+ *    baseRevision}`.
+ *  - `apply` — `{changeId}`. Re-reads the head revision and 409s if it moved
+ *    since preview (optimistic concurrency — a co-host applied in between).
+ *    Re-diffs against live state (TOCTOU), checkpoints the before-image (E3),
+ *    applies, prunes.
+ *  - `revert` — `{changeId}`. Before-image restore (E3).
+ *  - `list` — paginated change history (imports + editor saves).
+ */
+export const createOrganiserChangeRoutes = (
   db: Db,
   r2: R2Bucket | undefined,
   osnAuthOptions: OsnAuthOptions,
+  /** Path segment to mount under: `"changes"` (canonical) or `"import"` (alias). */
+  segment: "changes" | "import",
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
-    .group("/weddings/:weddingId/import", (group) =>
+    .group(`/weddings/:weddingId/${segment}`, (group) =>
       group
         .use(weddingEditor(db))
         .post(
           "/preview",
           async ({ request, weddingId, set }) => {
-            // weddingEditor() always derives this; the guard keeps a future remount
-            // without the plugin from compiling into an unscoped insert.
             if (!weddingId) {
               set.status = 500;
               return { error: "Internal error" };
             }
 
-            // Content-Length pre-check — reject obviously-oversized payloads BEFORE
-            // we pay the cost of parsing JSON. We keep the post-parse byte check
-            // below as a backup since some CDNs strip / lie about Content-Length.
+            // Content-Length pre-check — reject obviously-oversized payloads
+            // BEFORE paying to parse JSON. The post-parse byte check below is a
+            // backup (some CDNs strip / lie about Content-Length).
             const contentLengthHeader = request.headers.get("content-length");
             if (contentLengthHeader) {
               const declared = Number.parseInt(contentLengthHeader, 10);
@@ -88,68 +135,86 @@ export const createOrganiserImportRoutes = (
 
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(PreviewBody)(raw);
+                // Capture the head BEFORE diffing so a concurrent apply between
+                // this read and the client's later apply is what trips the 409,
+                // never our own diff reads.
+                const baseRevision = yield* headRevision(weddingId);
 
+                const decoded = yield* decodeChangeBody(raw);
+
+                // Persist the change's input for the apply-time re-diff. Import:
+                // the two uploaded CSVs. Editor: the DesiredState JSON in the
+                // events slot (guests slot empty), with a byte cap on both.
+                const changeId = crypto.randomUUID();
+                const eventsPayload =
+                  decoded.uploadedCsv?.eventsCsv ?? JSON.stringify(decoded.desiredState);
+                const guestsPayload = decoded.uploadedCsv?.guestsCsv ?? "";
                 const totalBytes =
-                  new TextEncoder().encode(body.eventsCsv).length +
-                  new TextEncoder().encode(body.guestsCsv).length;
+                  new TextEncoder().encode(eventsPayload).length +
+                  new TextEncoder().encode(guestsPayload).length;
                 if (totalBytes > ONE_MB) {
                   set.status = 413;
                   return { error: "Upload too large (max 1MB total)" };
                 }
-
-                const importId = crypto.randomUUID();
                 const { eventsKey, guestsKey } = yield* storeUpload(
-                  body.eventsCsv,
-                  body.guestsCsv,
-                  importId,
+                  eventsPayload,
+                  guestsPayload,
+                  changeId,
                 );
 
-                const parsedEvents = yield* parseEventsCsv(body.eventsCsv);
-                const parsedFamilies = yield* parseGuestsCsv(body.guestsCsv, parsedEvents);
                 const plan: ImportPlan = yield* diffAgainstDb(
-                  parsedEvents,
-                  parsedFamilies as ParsedFamily[],
+                  decoded.desiredState.events,
+                  decoded.desiredState.families as ParsedFamily[],
                   weddingId,
+                  { removeManual: decoded.removeManual },
                 );
+
+                const summary: ChangeSummary = {
+                  baseRevision,
+                  removeManual: decoded.removeManual,
+                  eventCreates: plan.eventCreates.length,
+                  eventUpdates: plan.eventUpdates.length,
+                  eventRemoves: plan.eventRemoves.length,
+                  familyCreates: plan.familyCreates.length,
+                  familyRemoves: plan.familyRemoves.length,
+                  guestCreates: plan.guestCreates.length,
+                  guestRemoves: plan.guestRemoves.length,
+                  guestUpdates: plan.guestUpdates.length,
+                };
 
                 const dbService = yield* DbService;
                 yield* dbQuery(() =>
                   dbService
                     .insert(imports)
                     .values({
-                      id: importId,
-                      // Scoped to the :weddingId in the path (weddingEditor plugin).
+                      id: changeId,
                       weddingId,
                       uploadedAt: Date.now(),
                       format: "csv",
                       eventsR2Key: eventsKey,
                       guestsR2Key: guestsKey,
-                      summary: JSON.stringify({
-                        eventCreates: plan.eventCreates.length,
-                        eventUpdates: plan.eventUpdates.length,
-                        eventRemoves: plan.eventRemoves.length,
-                        familyCreates: plan.familyCreates.length,
-                        familyRemoves: plan.familyRemoves.length,
-                        guestCreates: plan.guestCreates.length,
-                        guestUpdates: plan.guestUpdates.length,
-                        guestRemoves: plan.guestRemoves.length,
-                      }),
+                      summary: JSON.stringify(summary),
                       status: "preview",
+                      kind: decoded.kind,
                     })
                     .run(),
                 );
 
                 yield* Effect.logInfo(
-                  `import preview accepted: families=${parsedFamilies.length} guests=${parsedFamilies.reduce((n, f) => n + f.guests.length, 0)} events=${parsedEvents.length}`,
-                  { importId },
+                  `change preview accepted: kind=${decoded.kind} families=${decoded.desiredState.families.length} events=${decoded.desiredState.events.length} removeManual=${decoded.removeManual}`,
+                  { changeId },
                 );
 
                 return {
-                  importId,
+                  changeId,
+                  // One-release alias compatibility: legacy `/import/*` clients
+                  // read `importId` from the preview response and echo it to
+                  // apply. Return it alongside `changeId` (same value) so both
+                  // prefixes serve identically until the alias is deleted.
+                  importId: changeId,
+                  baseRevision,
                   plan: {
                     ...plan,
-                    // Force readonly arrays into plain arrays for JSON.
                     eventCreates: [...plan.eventCreates],
                     eventUpdates: [...plan.eventUpdates],
                     eventRemoves: [...plan.eventRemoves],
@@ -173,13 +238,12 @@ export const createOrganiserImportRoutes = (
                     return { error: "Missing or invalid fields" };
                   }),
                 ),
-                Effect.catchTag("FormulaInjectionDetected", (e: FormulaInjectionDetected) =>
+                Effect.catchTag("FormulaInjectionDetected", (e) =>
                   Effect.gen(function* () {
                     yield* Effect.logWarning(`formula injection rejected`, {
                       row: e.row,
                       column: e.column,
                     });
-                    // Surface coords but NOT contents. Snippet stays in logs only.
                     set.status = 422;
                     return {
                       error: "Formula-injection guard tripped",
@@ -188,19 +252,19 @@ export const createOrganiserImportRoutes = (
                     };
                   }),
                 ),
-                Effect.catchTag("MissingRequiredColumn", (e: MissingRequiredColumn) =>
+                Effect.catchTag("MissingRequiredColumn", (e) =>
                   Effect.sync(() => {
                     set.status = 422;
                     return { error: "Missing required column", column: e.column };
                   }),
                 ),
-                Effect.catchTag("UnmatchedEventColumn", (e: UnmatchedEventColumn) =>
+                Effect.catchTag("UnmatchedEventColumn", (e) =>
                   Effect.sync(() => {
                     set.status = 422;
                     return { error: "Unmatched event column", column: e.column };
                   }),
                 ),
-                Effect.catchTag("MalformedSpreadsheet", (e: MalformedSpreadsheet) =>
+                Effect.catchTag("MalformedSpreadsheet", (e) =>
                   Effect.sync(() => {
                     set.status = 422;
                     return { error: "Malformed spreadsheet", reason: e.reason, row: e.row ?? null };
@@ -229,42 +293,60 @@ export const createOrganiserImportRoutes = (
 
             return runCire(
               Effect.gen(function* () {
-                const { importId } = yield* Schema.decodeUnknown(ApplyBody)(raw);
+                const { importId: changeId } = yield* Schema.decodeUnknown(ApplyBody)(raw);
                 const dbService = yield* DbService;
 
                 const [row] = yield* dbQuery(() =>
-                  dbService.select().from(imports).where(eq(imports.id, importId)).all(),
+                  dbService.select().from(imports).where(eq(imports.id, changeId)).all(),
                 );
-                // A foreign wedding's import is indistinguishable from a missing one.
+                // A foreign wedding's change is indistinguishable from a missing one.
                 if (!row || row.weddingId !== weddingId) {
                   set.status = 404;
-                  return { error: "Import not found" };
+                  return { error: "Change not found" };
                 }
                 if (row.status !== "preview") {
                   set.status = 409;
-                  return { error: "Import is not in preview status" };
+                  return { error: "Change is not in preview status" };
                 }
 
-                // Re-fetch CSV from R2 and re-diff (TOCTOU defence — DB may have shifted
-                // since the preview snapshot).
-                const eventsCsv = yield* fetchUpload(row.eventsR2Key);
-                const guestsCsv = yield* fetchUpload(row.guestsR2Key);
+                // ── Optimistic concurrency (§6) ─────────────────────────────
+                // The `baseRevision` the previewer saw is stamped on the row.
+                // If the wedding's head moved since (a co-host applied in
+                // between), 409 so the organiser re-previews against fresh
+                // state instead of silently over-writing the other edit.
+                const stored = (() => {
+                  try {
+                    return JSON.parse(row.summary) as Partial<ChangeSummary>;
+                  } catch {
+                    return {} as Partial<ChangeSummary>;
+                  }
+                })();
+                const baseRevision = stored.baseRevision ?? GENESIS_REVISION;
+                const currentHead = yield* headRevision(weddingId);
+                if (currentHead !== baseRevision) {
+                  set.status = 409;
+                  return {
+                    error: "State changed — re-preview",
+                    baseRevision,
+                    currentRevision: currentHead,
+                  };
+                }
 
-                const parsedEvents = yield* parseEventsCsv(eventsCsv);
-                const parsedFamilies = yield* parseGuestsCsv(guestsCsv, parsedEvents);
+                // Re-derive the desired state from the row's stored input and
+                // re-diff against LIVE state (TOCTOU defence), honouring the
+                // provenance toggle captured at preview.
+                const desired = yield* desiredStateFromRow(row);
                 const plan = yield* diffAgainstDb(
-                  parsedEvents,
-                  parsedFamilies as ParsedFamily[],
+                  desired.events,
+                  desired.families as ParsedFamily[],
                   weddingId,
+                  { removeManual: stored.removeManual ?? false },
                 );
 
-                // E3 checkpoint: BEFORE mutating, snapshot the wedding's current
-                // state at full fidelity into R2 as this change's before-image,
-                // and record its keys on the row. Revert then restores exactly
-                // this pre-change state (codes + ids preserved, rename-proof).
-                const before = yield* captureBeforeImage(importId, weddingId);
-
-                const summary = yield* applyImport(importId, plan, weddingId);
+                // E3 checkpoint: snapshot the pre-change state at full fidelity
+                // as this change's before-image, then apply, then prune.
+                const before = yield* captureBeforeImage(changeId, weddingId);
+                const summary = yield* applyImport(changeId, plan, weddingId);
 
                 yield* dbQuery(() =>
                   dbService
@@ -275,13 +357,10 @@ export const createOrganiserImportRoutes = (
                       beforeEventsR2Key: before.eventsKey,
                       beforeGuestsR2Key: before.guestsKey,
                     })
-                    .where(eq(imports.id, importId))
+                    .where(eq(imports.id, changeId))
                     .run(),
                 );
 
-                // Prune before-images beyond the most recent 10 changes for this
-                // wedding: reap the stale R2 objects + NULL their keys (rows stay
-                // listed but lose revertability). Best-effort; never fails apply.
                 yield* pruneBeforeImages(weddingId, r2 as DeletableBucket | undefined);
 
                 return { summary };
@@ -300,13 +379,13 @@ export const createOrganiserImportRoutes = (
                     return { error: "Formula-injection guard tripped" };
                   }),
                 ),
-                Effect.catchTag("MissingRequiredColumn", (e: MissingRequiredColumn) =>
+                Effect.catchTag("MissingRequiredColumn", (e) =>
                   Effect.sync(() => {
                     set.status = 422;
                     return { error: "Missing required column", column: e.column };
                   }),
                 ),
-                Effect.catchTag("UnmatchedEventColumn", (e: UnmatchedEventColumn) =>
+                Effect.catchTag("UnmatchedEventColumn", (e) =>
                   Effect.sync(() => {
                     set.status = 422;
                     return { error: "Unmatched event column", column: e.column };
@@ -326,7 +405,7 @@ export const createOrganiserImportRoutes = (
                 ),
                 Effect.catchTag("ImportError", () =>
                   Effect.gen(function* () {
-                    yield* Effect.logError("import apply failed");
+                    yield* Effect.logError("change apply failed");
                     set.status = 500;
                     return { error: "Apply failed" };
                   }),
@@ -348,8 +427,8 @@ export const createOrganiserImportRoutes = (
 
             return runCire(
               Effect.gen(function* () {
-                const { importId } = yield* Schema.decodeUnknown(RevertBody)(raw);
-                const summary = yield* revertImport(importId, weddingId);
+                const { importId: changeId } = yield* Schema.decodeUnknown(RevertBody)(raw);
+                const summary = yield* revertImport(changeId, weddingId);
                 return { summary };
               }).pipe(
                 Effect.provideService(DbService, db),
@@ -363,7 +442,7 @@ export const createOrganiserImportRoutes = (
                 Effect.catchTag("NoPriorImport", () =>
                   Effect.sync(() => {
                     set.status = 409;
-                    return { error: "No prior applied import to revert to" };
+                    return { error: "No prior applied change to revert to" };
                   }),
                 ),
                 Effect.catchTag("R2Error", () =>
@@ -380,7 +459,7 @@ export const createOrganiserImportRoutes = (
                 ),
                 Effect.catchTag("ImportError", () =>
                   Effect.gen(function* () {
-                    yield* Effect.logError("import revert failed");
+                    yield* Effect.logError("change revert failed");
                     set.status = 500;
                     return { error: "Revert failed" };
                   }),
@@ -396,12 +475,9 @@ export const createOrganiserImportRoutes = (
             return { error: "Internal error" };
           }
 
-          // Pagination — `?limit=N` (default 50, clamped 1..100) and `?cursor=<ms>`.
-          // The cursor is the `uploadedAt` of the last row from the previous page;
-          // we ask for `uploadedAt < cursor` and return `nextCursor` so the client
-          // can keep walking. Backed by the composite `imports_wedding_uploaded_at_idx`
-          // (wedding_id, uploaded_at) index — covers the wedding scope + the
-          // uploaded_at cursor/order in one b-tree (P-W1).
+          // Pagination — `?limit=N` (default 50, clamped 1..100) and
+          // `?cursor=<ms>` (the `uploadedAt` of the last row of the previous
+          // page). Backed by the composite (wedding_id, uploaded_at) index.
           const limitParam = query.limit;
           const parsedLimit = limitParam ? Number.parseInt(limitParam, 10) : NaN;
           const limit = Number.isFinite(parsedLimit) ? Math.min(100, Math.max(1, parsedLimit)) : 50;
@@ -424,13 +500,17 @@ export const createOrganiserImportRoutes = (
             rows.length > limit ? (page[page.length - 1]?.uploadedAt ?? null) : null;
 
           return {
+            // The history list is exposed under both `imports` (legacy clients)
+            // and `changes` (new clients) so both prefixes serve identically.
             imports: page.map((r) => ({
               id: r.id,
               uploadedAt: r.uploadedAt,
               format: r.format,
               status: r.status,
+              kind: r.kind,
               appliedAt: r.appliedAt,
               revertedAt: r.revertedAt,
+              revertable: Boolean(r.beforeEventsR2Key && r.beforeGuestsR2Key),
               summary: (() => {
                 try {
                   return JSON.parse(r.summary);

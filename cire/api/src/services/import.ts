@@ -77,14 +77,40 @@ function mintEventSlug(name: string): string {
  * `WHERE wedding_id = ?` couldn't scope the link table and would read a second
  * wedding's links as removals. applyImport then deletes only by id within this
  * scoped set, so the two halves stay tenant-consistent.
+ *
+ * PROVENANCE (E4, [[guest-event-editor]] §6 "Provenance default"): a family/
+ * guest carries a `source` of `'import'` (spreadsheet-created) or `'manual'`
+ * (editor-created). By default a CSV import manages ONLY `source = 'import'`
+ * rows — a manually-added household/guest that is absent from the sheet is left
+ * INTACT, never removed. `options.removeManual = true` widens the diff to manage
+ * everything (restoring "the sheet is the whole truth"), which is what the
+ * editor's DesiredState front door and the toggle both pass. The filter only
+ * affects the REMOVAL decision for an UNMATCHED existing row: a manual row that
+ * IS present in the desired state still matches (by id or name) and updates
+ * normally. Events carry no provenance (the sheet is authoritative for the
+ * schedule), so `removeManual` never touches event removals.
  */
+export interface DiffOptions {
+  /**
+   * When `false` (default — a CSV import), an unmatched existing family/guest is
+   * removed ONLY if its `source = 'import'`; a `'manual'` (editor-created) row is
+   * preserved. When `true` (the "also remove manually-added rows" toggle, and
+   * every editor save via the DesiredState front door), unmatched rows are
+   * removed regardless of source — the desired state is the whole truth.
+   */
+  readonly removeManual?: boolean;
+}
+
 export function diffAgainstDb(
   parsedEvents: readonly ParsedEvent[],
   parsedFamilies: readonly ParsedFamily[],
   weddingId: string,
+  options: DiffOptions = {},
 ): Effect.Effect<ImportPlan, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
+    // Default: manage only import-created rows (leave hand-added rows intact).
+    const removeManual = options.removeManual ?? false;
 
     // C1: the wedding's claim-code tier drives every NEW family code minted by
     // this import. Read once; default to `secure` if the row is somehow absent
@@ -193,9 +219,11 @@ export function diffAgainstDb(
       }
     });
     for (const existing of existingFamilies) {
-      if (!matchedFamilyIds.has(existing.id)) {
-        familyRemoves.push({ id: existing.id, familyName: existing.familyName });
-      }
+      if (matchedFamilyIds.has(existing.id)) continue;
+      // Provenance default: an unmatched MANUAL household is preserved unless the
+      // caller opted to manage manual rows too (the toggle / editor front door).
+      if (!removeManual && existing.source === "manual") continue;
+      familyRemoves.push({ id: existing.id, familyName: existing.familyName });
     }
 
     // ── Guests ──────────────────────────────────────────────────────────────
@@ -210,6 +238,7 @@ export function diffAgainstDb(
           lastName: guests.lastName,
           nickname: guests.nickname,
           sortOrder: guests.sortOrder,
+          source: guests.source,
         })
         .from(guests)
         .innerJoin(families, eq(guests.familyId, families.id))
@@ -311,9 +340,11 @@ export function diffAgainstDb(
       // first-name change is a remove + create at this layer, as before).
       if (!isNewFamily) {
         for (const existing of existingGuestMap.values()) {
-          if (!matchedGuestIds.has(existing.id)) {
-            guestRemoves.push({ id: existing.id, firstName: existing.firstName });
-          }
+          if (matchedGuestIds.has(existing.id)) continue;
+          // Provenance default: a manually-added guest absent from the sheet is
+          // preserved (unless the toggle / editor front door manages manual too).
+          if (!removeManual && existing.source === "manual") continue;
+          guestRemoves.push({ id: existing.id, firstName: existing.firstName });
         }
       }
     });

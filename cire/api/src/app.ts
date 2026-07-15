@@ -12,12 +12,12 @@ import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/ac
 import { createClaimRoutes } from "./routes/claim";
 import { createCspReportRoutes } from "./routes/csp-report";
 import { createInviteOrganiserRoutes, createInvitePublicRoutes } from "./routes/invite";
+import { createOrganiserChangeRoutes } from "./routes/organiser-changes";
 import { createOrganiserHandleSearchRoutes } from "./routes/organiser-handle-search";
 import {
   createOrganiserHostsReadRoutes,
   createOrganiserHostsWriteRoutes,
 } from "./routes/organiser-hosts";
-import { createOrganiserImportRoutes } from "./routes/organiser-import";
 import { createOrganiserSettingsRoutes } from "./routes/organiser-settings";
 import {
   createOrganiserPreviewRoutes,
@@ -317,7 +317,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
           resolveOsnHandleSearch,
         ),
       )
-      .use(createOrganiserImportRoutes(db, r2, osnAuthOptions))
+      // General change API (guest+event editor E4). Both front doors
+      // (DesiredState JSON + `{eventsCsv, guestsCsv}`) funnel into one pipeline.
+      // Mounted at TWO prefixes over the same factory: `changes` (canonical) and
+      // `import` (a one-release alias so existing clients keep working; deleted
+      // next release — see [[api]] TODO). Both serve identically.
+      .use(createOrganiserChangeRoutes(db, r2, osnAuthOptions, "changes"))
+      .use(createOrganiserChangeRoutes(db, r2, osnAuthOptions, "import"))
       // Wedding-profile Settings + per-event locations (platform Phase 0).
       // Reads admit owner OR co-host; the profile save is owner-only; the
       // event-location PUT and the geocode POST are member-level (location is

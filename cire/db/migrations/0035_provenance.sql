@@ -1,0 +1,27 @@
+-- Provenance (guest+event editor E4, [[guest-event-editor]] §6 "Provenance
+-- default").
+--
+-- Record HOW each family + guest row came to exist: `'import'` (created by a
+-- spreadsheet upload) or `'manual'` (created by the in-app editor, E5/E6). This
+-- lets a CSV re-import manage ONLY the rows it owns by default: a sheet that
+-- lacks a manually-added household must NOT silently delete it. An explicit
+-- "also remove manually-added rows" toggle widens the diff back to "the sheet is
+-- the whole truth". An editor save (the DesiredState front door) always manages
+-- everything it was shown, so it ignores provenance.
+--
+-- Two ADDITIVE columns (pure `ADD COLUMN`, no table rebuild — D1/sqlite allows
+-- `ADD COLUMN` in place; neither changes a constraint or drops NOT NULL):
+--
+--  1. `families.source`  — `'import' | 'manual'`, NOT NULL DEFAULT 'import'.
+--  2. `guests.source`    — `'import' | 'manual'`, NOT NULL DEFAULT 'import'.
+--
+-- The DEFAULT back-fills every legacy row as `'import'` (they were all created
+-- by the spreadsheet import, the only writer before the editor lands), which is
+-- the correct provenance for existing data and makes the column addable in
+-- place. The import write path keeps the default; the editor create paths
+-- (E5/E6) stamp `'manual'`.
+--
+-- Forward-only, additive; no down migration needed (nothing to undo
+-- structurally and the defaults are safe).
+ALTER TABLE `families` ADD COLUMN `source` text DEFAULT 'import' NOT NULL;--> statement-breakpoint
+ALTER TABLE `guests` ADD COLUMN `source` text DEFAULT 'import' NOT NULL;

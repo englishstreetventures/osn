@@ -158,6 +158,16 @@ export const families = sqliteTable(
     // are untouched, so the data survives and a re-activated code works again.
     // Host-preview families (`kind === "host"`) are never deactivated by this.
     deactivatedAt: integer("deactivated_at", { mode: "timestamp" }),
+    // Provenance (guest+event editor E4, migration 0035). `'import'` = created
+    // by a spreadsheet upload; `'manual'` = created by the in-app editor
+    // (E5/E6). DEFAULT 'import' back-fills legacy rows (all import-created). A
+    // CSV re-import manages only `source = 'import'` households by default (a
+    // sheet must not silently delete a hand-added household); an explicit
+    // "remove manual too" toggle widens it, and an editor save manages
+    // everything it was shown regardless of source (see the import diff).
+    source: text("source", { enum: ["import", "manual"] })
+      .notNull()
+      .default("import"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
@@ -191,6 +201,14 @@ export const guests = sqliteTable(
     // ID column (see PR-C). Surfacing this now means re-imports won't churn
     // data when that column lands.
     externalId: text("external_id"),
+    // Provenance (guest+event editor E4, migration 0035). Mirrors
+    // `families.source`: `'import'` (spreadsheet-created) | `'manual'`
+    // (editor-created, E5/E6), DEFAULT 'import' back-fills legacy rows. A CSV
+    // re-import removes only `source = 'import'` guests by default; the editor
+    // manages all shown guests. See the import diff's provenance filter.
+    source: text("source", { enum: ["import", "manual"] })
+      .notNull()
+      .default("import"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },

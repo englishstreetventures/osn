@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS families (
   code_shared_at INTEGER,
   first_opened_at INTEGER,
   deactivated_at INTEGER,
+  source TEXT NOT NULL DEFAULT 'import',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -74,6 +75,7 @@ CREATE TABLE IF NOT EXISTS guests (
   nickname TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   external_id TEXT,
+  source TEXT NOT NULL DEFAULT 'import',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
