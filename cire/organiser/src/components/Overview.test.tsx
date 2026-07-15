@@ -141,6 +141,19 @@ describe("Overview", () => {
 
     // Countdown: ~30 days out (allow ±1 for the local-midnight rounding boundary).
     await waitFor(() => expect(screen.getByText(/days to go/i)).toBeTruthy());
+    // The day count is shown ONCE (a headline number + a "days to go" label) —
+    // no second line repeating the same figure (product-owner de-dupe). The exact
+    // count floats ±1 across the local-midnight boundary, so read whatever the
+    // headline renders and assert no OTHER element on the page holds that same
+    // bare number (the old markup printed it twice: a big "30" + "30 days to go").
+    const headline = screen
+      .getByText(/days to go/i)
+      .closest("div")!
+      .querySelector(".tabular-nums")!;
+    const count = headline.textContent!.trim();
+    expect(count).toMatch(/^\d+$/);
+    // getAllByText(exact) matches only elements whose OWN text is exactly `count`.
+    expect(screen.getAllByText(count, { exact: true })).toHaveLength(1);
     // RSVP roll-up: attending = 6 + 4 = 10 across 2 events.
     expect(screen.getByText(/attending across 2 events/i)).toBeTruthy();
     // Households deduped from the repeated-per-member rows: fam_a + fam_b = 2.

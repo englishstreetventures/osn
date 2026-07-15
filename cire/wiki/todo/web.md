@@ -4,7 +4,7 @@ tags: [todo, web]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-07-05
+last-reviewed: 2026-07-15
 ---
 
 # cire/web
@@ -27,6 +27,7 @@ Completed feature history is archived in `[[changelog/completed-features]]` (Mig
 
 Full history in `[[changelog/completed-features]]`.
 
+- [x] **Overview countdown de-dupe + themed Settings date picker** (`fix/cire-overview-dedupe-date-picker`) — two product-owner IA-review tweaks: (1) the Overview countdown printed the day count twice (a big number *and* a "N days to go" line); collapsed to a single presentation — the big number with "days to go"/"days ago" as its label, keeping the "No date yet" empty-state + Today!/Tomorrow! + past-date edge cases. (2) SettingsPanel's plain `<input type="date">` is replaced by a new custom `DatePicker.tsx` — a themed month-grid calendar built on the existing Kobalte `Popover` primitive (Kobalte 0.13 has no DatePicker; **no new dependency**), mirroring `ColorPicker.tsx`'s trigger+panel shape and the portal's gold/bordered tokens. Keeps the `YYYY-MM-DD | null` contract (no `buildBody()`/PUT change); keyboard-navigable (`role="grid"`, arrow keys wrap across weeks/months, Enter/Space selects, Esc closes, focus lands on selected/today on open); co-hosts get the read-only formatted-date view. Tests: `DatePicker.test.tsx` (open, pick→emit, keyboard nav incl. month boundary, clear/null, unset, read-only), Overview count-once assertion, SettingsPanel save-through-picker. **Wants a real-browser eyeball** — the popover calendar + gold styling render in a real browser, not happy-dom.
 - [x] **Guest event card renders date + venue purely from canonical fields** (`refactor/cire-retire-deprecated-event-cols`) — `EventCard.tsx` no longer reads the deprecated `EventSummary.date` / `.location` (both removed from the type + the `/api/claim` response). The day now comes from `formatEventDay(startAt, timezone)` and the venue from `venueLine(address)` (rendered inside a `<Show>` so a venue-less event simply omits the line). `event-details.ts` `venueLine` / `resolveMapsUrl` / `resolveMapsEmbedUrl` dropped their `location` fallback (address-only); `calendar.ts` ICS/Google `location` now derives from `address`; the dead `formatDate` util + its tests were removed. `EventCard.test.tsx` proves the render is from `startAt`/`address` (and omits the line when address is null). See `[[db]]`.
 
 - [x] **Personalised greeting — individuals vs families** (`feat/cire-individual-greeting`) — the post-claim greeting in `LoginSection.tsx` now branches on household size: a code covering exactly ONE guest is greeted as an individual ("Dear {name}") instead of "The {familyName} Family"; multi-guest codes keep the family greeting + member list. An optional "Guest Nickname" CSV column (→ `guests.nickname`, migration 0022) overrides the displayed first name for the individual case (blank/whitespace ⇒ first name). Threaded CSV → schema → import diff → `/api/claim` members → `FamilyMember.nickname`. New `LoginSection.test.tsx` covers family vs individual vs nickname vs blank-nickname. See `[[db]]` + `[[spreadsheet-import]]` + `[[api]]`.

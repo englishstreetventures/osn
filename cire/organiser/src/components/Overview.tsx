@@ -248,21 +248,35 @@ export default function Overview(props: {
                     >
                       {(() => {
                         const days = countdown()!;
-                        const label =
-                          days > 1
-                            ? `${days} days to go`
-                            : days === 1
-                              ? "Tomorrow!"
-                              : days === 0
-                                ? "Today!"
-                                : `${Math.abs(days)} ${Math.abs(days) === 1 ? "day" : "days"} ago`;
-                        return (
-                          <>
-                            <p class="font-display text-gold text-[2rem] leading-none font-light tabular-nums">
-                              {days >= 0 ? days : `+${Math.abs(days)}`}
+                        // Show the count ONCE: a headline number/word with a single
+                        // label beneath it (no separate "N days to go" line that
+                        // repeats the same figure). "Tomorrow!"/"Today!" and past
+                        // dates read as words with no redundant numeral above them.
+                        if (days === 0) {
+                          return (
+                            <p class="font-display text-gold text-[2rem] leading-none font-light">
+                              Today!
                             </p>
-                            <p class="font-body text-text text-[0.9rem]">{label}</p>
-                          </>
+                          );
+                        }
+                        if (days === 1) {
+                          return (
+                            <p class="font-display text-gold text-[2rem] leading-none font-light">
+                              Tomorrow!
+                            </p>
+                          );
+                        }
+                        const abs = Math.abs(days);
+                        const unit = abs === 1 ? "day" : "days";
+                        return (
+                          <div class="flex flex-col gap-0.5">
+                            <p class="font-display text-gold text-[2rem] leading-none font-light tabular-nums">
+                              {abs}
+                            </p>
+                            <p class="font-body text-text text-[0.9rem]">
+                              {days > 0 ? `${unit} to go` : `${unit} ago`}
+                            </p>
+                          </div>
                         );
                       })()}
                     </Show>

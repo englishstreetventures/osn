@@ -3,6 +3,7 @@ import { createSignal, onMount, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import DatePicker from "./DatePicker";
 import SectionIntro from "./SectionIntro";
 
 /** The wedding profile as the settings API reads/writes it. Location is
@@ -212,19 +213,20 @@ export default function SettingsPanel(props: SettingsPanelProps) {
               </span>
             </div>
 
-            <label class="flex flex-col gap-1.5">
-              <span class={labelClass}>Wedding date</span>
-              <input
-                type="date"
-                value={weddingDate()}
-                onInput={(e) => setWeddingDate(e.currentTarget.value)}
-                disabled={disabled()}
-                class={inputClass}
+            <div class="flex flex-col gap-1.5">
+              <DatePicker
+                label="Wedding date"
+                value={weddingDate() || null}
+                onChange={(v) => setWeddingDate(v ?? "")}
+                readOnly={readOnly()}
+                disabled={saving()}
               />
-              <span class={hintClass}>
-                Leave this empty if you haven&apos;t set a date yet — you can add it any time.
-              </span>
-            </label>
+              <Show when={!readOnly()}>
+                <span class={hintClass}>
+                  Leave this empty if you haven&apos;t set a date yet — you can add it any time.
+                </span>
+              </Show>
+            </div>
 
             <label class="flex flex-col gap-1.5">
               <span class={labelClass}>Expected guests</span>
