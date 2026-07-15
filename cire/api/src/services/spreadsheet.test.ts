@@ -420,6 +420,146 @@ describe("parseGuestsCsv", () => {
   });
 });
 
+describe("fidelity columns (E2 — honoured, not just ignored)", () => {
+  const events = [
+    {
+      name: "Mehndi",
+      startAt: "x",
+      endAt: "x",
+      timezone: "x",
+      location: "",
+      address: null,
+      dressCodeDescription: null,
+      dressCodePalette: [],
+      pinterestUrl: null,
+      mapsUrl: null,
+      sortOrder: 0,
+    },
+    {
+      name: "Wedding Ceremony",
+      startAt: "x",
+      endAt: "x",
+      timezone: "x",
+      location: "",
+      address: null,
+      dressCodeDescription: null,
+      dressCodePalette: [],
+      pinterestUrl: null,
+      mapsUrl: null,
+      sortOrder: 1,
+    },
+  ];
+
+  it("honours the Event ID column into ParsedEvent.id (absent ⇒ id is undefined)", async () => {
+    const withId = [
+      "Event Name,Start,Timezone,Event ID",
+      "Mehndi,2026-09-18T16:00:00+10:00,Australia/Sydney,evt_abc",
+    ].join("\n");
+    const [ev] = await Effect.runPromise(parseEventsCsv(withId));
+    expect(ev!.id).toBe("evt_abc");
+
+    const noId = [
+      "Event Name,Start,Timezone",
+      "Mehndi,2026-09-18T16:00:00+10:00,Australia/Sydney",
+    ].join("\n");
+    const [ev2] = await Effect.runPromise(parseEventsCsv(noId));
+    expect(ev2!.id).toBeUndefined();
+  });
+
+  it("a blank Event ID cell leaves the event id-less (manually-added row)", async () => {
+    const csv = [
+      "Event Name,Start,Timezone,Event ID",
+      "Mehndi,2026-09-18T16:00:00+10:00,Australia/Sydney,",
+    ].join("\n");
+    const [ev] = await Effect.runPromise(parseEventsCsv(csv));
+    expect(ev!.id).toBeUndefined();
+  });
+
+  it("honours Guest ID + Family Code + internal Family ID at full fidelity", async () => {
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Wedding Ceremony,Family Code,Guest ID",
+      "fam_internal,Testfamily,Ada,Testfamily,yes,yes,SUNSET-4210,gst_ada",
+      "fam_internal,Testfamily,Bo,Testfamily,no,yes,SUNSET-4210,gst_bo",
+    ].join("\n");
+    const families = await Effect.runPromise(parseGuestsCsv(csv, events));
+    expect(families).toHaveLength(1);
+    expect(families[0]!.id).toBe("fam_internal");
+    expect(families[0]!.publicId).toBe("SUNSET-4210");
+    expect(families[0]!.guests[0]!.id).toBe("gst_ada");
+    expect(families[0]!.guests[1]!.id).toBe("gst_bo");
+    // Fidelity columns are NOT mistaken for event columns.
+    expect(families[0]!.guests[0]!.eventNames).not.toContain("Family Code");
+    expect(families[0]!.guests[0]!.eventNames).not.toContain("Guest ID");
+  });
+
+  it("does NOT honour a neutral fam-NNN Family ID absent a Family Code column (standard export)", async () => {
+    // The standard export writes fam-NNN grouping keys — NOT stable ids. Without
+    // the full-fidelity Family Code marker column, Family ID must stay ignored so
+    // the id-less name-matched path is byte-identical to today.
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi",
+      "fam-001,Testfamily,Ada,Testfamily,yes",
+    ].join("\n");
+    const families = await Effect.runPromise(parseGuestsCsv(csv, events));
+    expect(families[0]!.id).toBeUndefined();
+    expect(families[0]!.publicId).toBeUndefined();
+  });
+
+  it("a lone Guest ID cell is still honoured even if Family Code is absent", async () => {
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Guest ID",
+      "1,Testfamily,Ada,Testfamily,yes,gst_ada",
+    ].join("\n");
+    const families = await Effect.runPromise(parseGuestsCsv(csv, events));
+    expect(families[0]!.guests[0]!.id).toBe("gst_ada");
+    // But Family ID stays neutral (no Family Code column present).
+    expect(families[0]!.id).toBeUndefined();
+  });
+
+  // ── Collision contract (T-S1 — must NOT change) ─────────────────────────────
+  // When an event is NAMED after a reserved fidelity label, only the LAST header
+  // occurrence is fidelity metadata (the exporter appends it after the event
+  // columns); a SINGLE occurrence stays the event's attendance column — biased
+  // against silently dropping invitations.
+
+  it("keeps a lone 'Guest ID' column as an event attendance column when an event is so named", async () => {
+    const collidingEvents = [
+      { ...events[0]!, name: "Guest ID" },
+      { ...events[1]!, name: "Wedding Ceremony" },
+    ];
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest ID,Wedding Ceremony",
+      "1,Testfamily,Ada,Testfamily,yes,yes",
+    ].join("\n");
+    const families = await Effect.runPromise(parseGuestsCsv(csv, collidingEvents));
+    // The single 'Guest ID' column is the event's attendance, NOT metadata.
+    expect([...families[0]!.guests[0]!.eventNames].toSorted()).toEqual(
+      ["Guest ID", "Wedding Ceremony"].toSorted(),
+    );
+    // …and no guest id was read from it.
+    expect(families[0]!.guests[0]!.id).toBeUndefined();
+  });
+
+  it("treats only the LAST 'Guest ID' occurrence as metadata when the name also collides", async () => {
+    const collidingEvents = [
+      { ...events[0]!, name: "Guest ID" },
+      { ...events[1]!, name: "Wedding Ceremony" },
+    ];
+    // First 'Guest ID' = the event attendance column; last = appended fidelity.
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest ID,Wedding Ceremony,Guest ID",
+      "1,Testfamily,Ada,Testfamily,yes,yes,gst_ada",
+    ].join("\n");
+    const families = await Effect.runPromise(parseGuestsCsv(csv, collidingEvents));
+    // The attendance column (first occurrence) still counts as the invite.
+    expect([...families[0]!.guests[0]!.eventNames].toSorted()).toEqual(
+      ["Guest ID", "Wedding Ceremony"].toSorted(),
+    );
+    // The LAST occurrence supplied the guest id.
+    expect(families[0]!.guests[0]!.id).toBe("gst_ada");
+  });
+});
+
 describe("formula-injection trim-resilience", () => {
   it("rejects ' =SUM(A1:A2)' (leading whitespace bypass) on the events sheet", async () => {
     const csv = [

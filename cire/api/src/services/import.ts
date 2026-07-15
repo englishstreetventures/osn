@@ -51,12 +51,24 @@ function mintEventSlug(name: string): string {
 /**
  * Compute a fully-deterministic plan to reconcile parsed CSV data against the
  * current DB, scoped to a single `weddingId`. Match rules:
- *  - Events: by `Event Name` (case-insensitive). Existing not in sheet → remove.
- *    New → create.
- *  - Families: by `family_name` (case-insensitive trim). Different name = remove
- *    + create (no rename detection).
- *  - Guests within matched family: by `(family, firstName)`. Last-name change OK
- *    (→ guestUpdate); first-name change = remove + create.
+ *  - Events: by stable `id` when the parsed event carries one (from the
+ *    `Event ID` fidelity column), else by `Event Name` (case-insensitive).
+ *    Existing not in sheet → remove. New → create.
+ *  - Families: by stable `id` when present (full-fidelity `Family ID`), else by
+ *    `family_name` (case-insensitive trim). A name-only sheet keeps the "different
+ *    name = remove + create" behaviour; an id-carrying sheet turns a rename into
+ *    an in-place keep (the row + its claim code survive).
+ *  - Guests within matched family: by stable `id` when present (`Guest ID`), else
+ *    by `(family, firstName)`. Last-name / nickname change OK (→ guestUpdate);
+ *    an id-less first-name change is remove + create, an id-carrying one is an
+ *    update (rename-safe).
+ *
+ * ID-AWARE MATCHING (E2): ids are OPTIONAL and per-record. When present, they
+ * are matched first (a rename ⇒ update); an id that resolves to no existing row
+ * falls back to name matching, then to create. When ABSENT the code paths below
+ * are byte-identical to the pre-E2 name-only diff — the existing import and its
+ * tests are not perturbed. A stable id only ever RESOLVES a match; it never
+ * changes which write ops are emitted for an already-name-matched record.
  *
  * Tenant scoping: every read is constrained to `weddingId`. `events` and
  * `families` carry the column directly; `guests` and `guest_events` do not, so
@@ -91,20 +103,30 @@ export function diffAgainstDb(
       db.select().from(events).where(eq(events.weddingId, weddingId)).all(),
     );
     const existingEventByNorm = new Map(existingEvents.map((e) => [normaliseName(e.name), e]));
-    const parsedEventByNorm = new Map(parsedEvents.map((e) => [normaliseName(e.name), e]));
+    const existingEventById = new Map(existingEvents.map((e) => [e.id, e]));
 
     const eventCreates: EventCreate[] = [];
     const eventUpdates: EventUpdate[] = [];
     const eventRemoves: EventRemove[] = [];
     /** Map normalised event name → resolved event id (for guest-event links). */
     const eventIdByNorm = new Map<string, string>();
+    /** Existing event ids consumed by a match (by id or name) — everything else
+     *  is a removal. Replaces the name-only "is it in the parsed set?" scan so
+     *  an id-matched RENAME doesn't also read as a remove of the old name. When
+     *  no parsed event carries an id this set holds exactly the name-matched ids,
+     *  so the removal list is identical to the pre-E2 name-only diff. */
+    const matchedEventIds = new Set<string>();
 
     for (const parsed of parsedEvents) {
       const norm = normaliseName(parsed.name);
-      const existing = existingEventByNorm.get(norm);
+      // Prefer id match (rename-safe); fall back to name; else create.
+      const existing =
+        (parsed.id !== undefined ? existingEventById.get(parsed.id) : undefined) ??
+        existingEventByNorm.get(norm);
       if (existing) {
         eventUpdates.push({ id: existing.id, event: parsed });
         eventIdByNorm.set(norm, existing.id);
+        matchedEventIds.add(existing.id);
       } else {
         const id = crypto.randomUUID();
         eventCreates.push({ id, event: parsed });
@@ -112,7 +134,10 @@ export function diffAgainstDb(
       }
     }
     for (const existing of existingEvents) {
-      if (!parsedEventByNorm.has(normaliseName(existing.name))) {
+      // No-id path: `matchedEventIds` == the set whose normalised name is in the
+      // parsed sheet, so this is byte-identical to the old `parsedEventByNorm`
+      // check. Id path: a renamed event is matched by id, so it is NOT removed.
+      if (!matchedEventIds.has(existing.id)) {
         eventRemoves.push({ id: existing.id, name: existing.name });
       }
     }
@@ -132,31 +157,43 @@ export function diffAgainstDb(
     const existingFamilyByNorm = new Map(
       existingFamilies.map((f) => [normaliseName(f.familyName), f]),
     );
-    const parsedFamilyByNorm = new Map(parsedFamilies.map((f) => [normaliseName(f.familyName), f]));
+    const existingFamilyById = new Map(existingFamilies.map((f) => [f.id, f]));
 
     const familyCreates: FamilyCreate[] = [];
     const familyRemoves: FamilyRemove[] = [];
 
-    /** norm-family-name → resolved family id (existing or newly minted). */
-    const familyIdByNorm = new Map<string, string>();
+    /** Resolved family id per parsed family, in parsedFamilies order — the guest
+     *  + link passes below re-resolve the same family, and an id-matched RENAME
+     *  changes the family's normalised name so a name-keyed lookup would miss.
+     *  Keying by array index is rename-stable. */
+    const familyIdByParsedIndex: string[] = [];
+    /** Existing family ids consumed by a match (by id or name). Same role as
+     *  `matchedEventIds`: with no ids present it equals the name-matched set, so
+     *  the removal list stays byte-identical to the pre-E2 diff. */
+    const matchedFamilyIds = new Set<string>();
 
-    for (const parsed of parsedFamilies) {
+    parsedFamilies.forEach((parsed, i) => {
       const norm = normaliseName(parsed.familyName);
-      const existing = existingFamilyByNorm.get(norm);
+      const existing =
+        (parsed.id !== undefined ? existingFamilyById.get(parsed.id) : undefined) ??
+        existingFamilyByNorm.get(norm);
       if (existing) {
-        familyIdByNorm.set(norm, existing.id);
+        familyIdByParsedIndex[i] = existing.id;
+        matchedFamilyIds.add(existing.id);
       } else {
         const id = crypto.randomUUID();
         familyCreates.push({
           id,
-          publicId: generateFamilyCode(parsed.familyName, codeStyle),
+          // Preserve the sheet's claim code when a full-fidelity round trip
+          // carries one; else mint per the wedding's code style (unchanged).
+          publicId: parsed.publicId ?? generateFamilyCode(parsed.familyName, codeStyle),
           familyName: parsed.familyName,
         });
-        familyIdByNorm.set(norm, id);
+        familyIdByParsedIndex[i] = id;
       }
-    }
+    });
     for (const existing of existingFamilies) {
-      if (!parsedFamilyByNorm.has(normaliseName(existing.familyName))) {
+      if (!matchedFamilyIds.has(existing.id)) {
         familyRemoves.push({ id: existing.id, familyName: existing.familyName });
       }
     }
@@ -182,6 +219,8 @@ export function diffAgainstDb(
 
     /** Per-family map: normFirstName → existing guest row. */
     const guestsByFamily = new Map<string, Map<string, (typeof existingGuests)[number]>>();
+    /** Global id → existing guest row, for `Guest ID`-keyed matching. */
+    const existingGuestById = new Map(existingGuests.map((g) => [g.id, g]));
     for (const g of existingGuests) {
       let m = guestsByFamily.get(g.familyId);
       if (!m) {
@@ -203,30 +242,52 @@ export function diffAgainstDb(
       `${familyId}::${normaliseName(firstName)}`;
 
     // Matched + new families
-    for (const parsedFamily of parsedFamilies) {
-      const familyNorm = normaliseName(parsedFamily.familyName);
-      const familyId = familyIdByNorm.get(familyNorm)!;
-      const isNewFamily = !existingFamilyByNorm.has(familyNorm);
+    parsedFamilies.forEach((parsedFamily, familyIndex) => {
+      const familyId = familyIdByParsedIndex[familyIndex]!;
+      // A family is "new" iff it was NOT matched to an existing row. With no ids
+      // this equals `!existingFamilyByNorm.has(norm)` (byte-identical); with ids
+      // a renamed family stays existing so its guests reconcile in place.
+      const isNewFamily = !matchedFamilyIds.has(familyId);
       const existingGuestMap = isNewFamily
         ? new Map<string, (typeof existingGuests)[number]>()
         : (guestsByFamily.get(familyId) ?? new Map());
 
-      const seenFirstNames = new Set<string>();
+      /** Existing guest ids in THIS family consumed by a match — unmatched ones
+       *  are removals. Replaces the `seenFirstNames` scan so an id-matched guest
+       *  RENAME (old first name absent) isn't also flagged for removal. With no
+       *  ids present, a guest is matched by first name exactly as before, so this
+       *  set == the old "seen first names" set and removals are byte-identical. */
+      const matchedGuestIds = new Set<string>();
+
       parsedFamily.guests.forEach((parsedGuest, sortOrder) => {
-        const norm = normaliseName(parsedGuest.firstName);
-        seenFirstNames.add(norm);
-        const existing = existingGuestMap.get(norm);
+        // Prefer `Guest ID` (rename-safe); the id must belong to THIS family, so
+        // a stray cross-family id falls back to name matching. Then match by
+        // first name within the family (today's behaviour).
+        const candidateById =
+          parsedGuest.id !== undefined ? existingGuestById.get(parsedGuest.id) : undefined;
+        const matchedById = candidateById !== undefined && candidateById.familyId === familyId;
+        const existing = matchedById
+          ? candidateById
+          : existingGuestMap.get(normaliseName(parsedGuest.firstName));
         if (existing) {
+          matchedGuestIds.add(existing.id);
           guestIdByKey.set(keyOf(familyId, parsedGuest.firstName), existing.id);
-          // last-name / nickname / sort-order change is an update; first-name
-          // match means same row.
+          // A first-name change is only meaningful on the id-matched path — a
+          // name match means the first name is unchanged by definition, so we
+          // never write `firstName` through there (keeps the no-id plan
+          // byte-identical, incl. case-only differences that name matching
+          // already folds together). On the id-matched path a genuine rename
+          // becomes an update carrying the new firstName.
+          const firstNameChanged = matchedById && existing.firstName !== parsedGuest.firstName;
           if (
+            firstNameChanged ||
             existing.lastName !== parsedGuest.lastName ||
             existing.nickname !== parsedGuest.nickname ||
             existing.sortOrder !== sortOrder
           ) {
             guestUpdates.push({
               id: existing.id,
+              ...(firstNameChanged ? { firstName: parsedGuest.firstName } : {}),
               lastName: parsedGuest.lastName,
               nickname: parsedGuest.nickname,
               sortOrder,
@@ -246,16 +307,16 @@ export function diffAgainstDb(
         }
       });
 
-      // Existing guests in this family not in sheet → remove (first-name change
-      // is a remove + create at this layer).
+      // Existing guests in this family not matched → remove (an id-less
+      // first-name change is a remove + create at this layer, as before).
       if (!isNewFamily) {
-        for (const [norm, existing] of existingGuestMap) {
-          if (!seenFirstNames.has(norm)) {
+        for (const existing of existingGuestMap.values()) {
+          if (!matchedGuestIds.has(existing.id)) {
             guestRemoves.push({ id: existing.id, firstName: existing.firstName });
           }
         }
       }
-    }
+    });
 
     // Guests in removed families → also removed.
     for (const g of existingGuests) {
@@ -280,9 +341,8 @@ export function diffAgainstDb(
     /** Track desired (guestId, eventId) pairs after import. */
     const desiredLinks = new Set<string>();
 
-    for (const parsedFamily of parsedFamilies) {
-      const familyNorm = normaliseName(parsedFamily.familyName);
-      const familyId = familyIdByNorm.get(familyNorm)!;
+    parsedFamilies.forEach((parsedFamily, familyIndex) => {
+      const familyId = familyIdByParsedIndex[familyIndex]!;
       for (const parsedGuest of parsedFamily.guests) {
         const guestId = guestIdByKey.get(keyOf(familyId, parsedGuest.firstName))!;
         for (const eventName of parsedGuest.eventNames) {
@@ -295,7 +355,7 @@ export function diffAgainstDb(
           }
         }
       }
-    }
+    });
 
     // Existing links whose guest is being removed (or whose event is being
     // removed) are implicitly handled by the cascade DELETE on guests + the
@@ -560,12 +620,15 @@ export function applyImport(
       );
     }
 
-    // 8. guest updates
+    // 8. guest updates. `firstName` is set through only on an id-matched rename
+    // (the field is absent otherwise), so a no-id import writes exactly the same
+    // columns as before.
     for (const gu of plan.guestUpdates) {
       statements.push(
         db
           .update(guests)
           .set({
+            ...(gu.firstName === undefined ? {} : { firstName: gu.firstName }),
             lastName: gu.lastName,
             nickname: gu.nickname,
             sortOrder: gu.sortOrder,

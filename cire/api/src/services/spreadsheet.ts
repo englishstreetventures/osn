@@ -1,6 +1,7 @@
 import { Effect, Data } from "effect";
 
 import {
+  EVENT_ID_HEADER,
   EVENT_SHEET_REQUIRED_HEADERS,
   FAMILY_CODE_HEADER,
   GUEST_ID_HEADER,
@@ -8,7 +9,16 @@ import {
   GUEST_SHEET_FIXED_HEADERS,
 } from "../lib/sheet-headers";
 import { bucketParseReason, metricImportParseRejected } from "../metrics";
-import type { ParsedEvent, ParsedFamily, ParsedGuest, PaletteSwatch } from "../schemas/import";
+import type { ParsedEvent, ParsedFamily, ParsedGuest } from "../schemas/import";
+import {
+  FORMULA_MARKERS,
+  isIsoTimestamp,
+  isTruthy,
+  normaliseName,
+  nullableString,
+  parseDressCodePalette,
+  parseHttpUrl,
+} from "./guest-event-validation";
 
 // ── Tagged errors ────────────────────────────────────────────────────────────
 
@@ -261,15 +271,10 @@ export function parseCsvBounded(content: string): CsvParseResult {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-const FORMULA_MARKERS = new Set(["=", "+", "-", "@"]);
-
-/**
- * Normalise a header / event-name for case+whitespace-insensitive matching.
- */
-function normaliseName(s: string): string {
-  return s.trim().replace(/\s+/g, " ").toLowerCase();
-}
+// The pure cell-value + name-matching rules live in `guest-event-validation.ts`
+// so the DesiredState front door shares them verbatim (parser-parity invariant);
+// this file keeps only the CSV-framing concerns (row/column coords, injection
+// scan over a 2D grid).
 
 function detectFormulaInjection(
   rows: string[][],
@@ -295,64 +300,6 @@ function detectFormulaInjection(
     }
   }
   return null;
-}
-
-function parseDressCodePalette(raw: string): PaletteSwatch[] {
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return [];
-  const out: PaletteSwatch[] = [];
-  for (const pair of trimmed.split("|")) {
-    const colonIdx = pair.indexOf(":");
-    if (colonIdx === -1) continue;
-    const name = pair.slice(0, colonIdx).trim();
-    const color = pair.slice(colonIdx + 1).trim();
-    if (name.length === 0 || color.length === 0) continue;
-    out.push({ name, color });
-  }
-  return out;
-}
-
-const TRUTHY = new Set(["true", "yes", "1", "x"]);
-
-function isTruthy(s: string): boolean {
-  return TRUTHY.has(s.trim().toLowerCase());
-}
-
-function nullableString(s: string): string | null {
-  const trimmed = s.trim();
-  return trimmed.length === 0 ? null : trimmed;
-}
-
-/**
- * Validate a Start/End cell as an ISO-8601 timestamp: a zero-padded
- * `YYYY-MM-DDTHH:MM` prefix AND parseable by `Date`. The prefix check is
- * load-bearing beyond display: `events.start_at`/`end_at` are compared
- * LEXICALLY against a `YYYY-MM-DD` cutoff by the guest-data retention sweep
- * (`services/retention.ts`), so a free-text date like "1st Nov 2026" (sorts
- * below any `2…` cutoff) would make an upcoming wedding aggregate as expired
- * and have its guest PII deleted, while "TBD" (sorts above) would never
- * expire. Enforcing the shape at the sole ingest point makes the sweep's
- * documented invariant actually true.
- */
-function isIsoTimestamp(s: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) && !Number.isNaN(new Date(s).getTime());
-}
-
-/**
- * Parse a URL cell into a trimmed http(s) string, or null when blank.
- * Returns `undefined` for present-but-non-http(s) values so the caller
- * can emit a {@link MalformedSpreadsheet} with row/column context — a
- * `javascript:` href would otherwise reach the organiser UI and XSS.
- */
-function parseHttpUrl(raw: string): string | null | undefined {
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return null;
-  try {
-    const u = new URL(trimmed);
-    return u.protocol === "http:" || u.protocol === "https:" ? trimmed : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 // ── Parsers ──────────────────────────────────────────────────────────────────
@@ -403,6 +350,11 @@ export function parseEventsCsv(
     const idxPalette = indexOf("Dress Code Palette");
     const idxPinterest = indexOf("Pinterest URL");
     const idxMaps = indexOf("Maps URL");
+    // Optional fidelity column (appended by `?fidelity=full` + the E3 snapshot
+    // writer). Absent ⇒ -1 ⇒ id-less events ⇒ the diff matches by name exactly
+    // as today. Present ⇒ each event carries its stable id, so the ID-aware diff
+    // treats a rename as an update rather than remove+create.
+    const idxEventId = indexOf(EVENT_ID_HEADER);
 
     const out: ParsedEvent[] = [];
     for (let r = 1; r < rows.length; r += 1) {
@@ -483,7 +435,14 @@ export function parseEventsCsv(
         );
       }
 
+      // Fidelity id — honoured only when the column is present AND the cell is
+      // non-blank. A blank cell (e.g. a manually-added row in a full-fidelity
+      // sheet) leaves the event id-less, so it falls back to name matching.
+      const id =
+        idxEventId === -1 ? undefined : (nullableString(row[idxEventId] ?? "") ?? undefined);
+
       out.push({
+        ...(id === undefined ? {} : { id }),
         name,
         startAt,
         endAt,
@@ -534,6 +493,7 @@ export function parseGuestsCsv(
       }
     }
 
+    const idxFamilyId = indexOf("Family ID");
     const idxFamilyName = indexOf("Family Name");
     const idxFirst = indexOf("Guest First Name");
     const idxLast = indexOf("Guest Last Name");
@@ -541,28 +501,44 @@ export function parseGuestsCsv(
     const idxNickname = indexOf(GUEST_NICKNAME_HEADER);
     // Fixed (non-event) columns. Absent lookups are -1, which
     // `fixedCols.has(c)` (c ≥ 0) never matches.
-    const fixedCols = new Set([
-      indexOf("Family ID"),
-      idxFamilyName,
-      idxFirst,
-      idxLast,
-      idxNickname,
-    ]);
+    const fixedCols = new Set([idxFamilyId, idxFamilyName, idxFirst, idxLast, idxNickname]);
 
     // Map event-column index → canonical event name. Strict match — any
     // unmatched event column surfaces as `UnmatchedEventColumn`.
     const eventByNorm = new Map(events.map((e) => [normaliseName(e.name), e.name]));
 
-    // Full-fidelity export/snapshot columns (Guest ID / Family Code) are
-    // accepted-and-IGNORED here (the E2 ID-aware diff starts honouring them).
-    // An event may legitimately share one of these labels, making its
-    // attendance column ambiguous — resolve deterministically, biased against
-    // silently dropping invitations: when the label is ALSO a known event
-    // name, only the LAST occurrence is fidelity metadata (the exporter
-    // appends fidelity columns after the event columns), and a single
-    // occurrence stays the event's attendance column. A label that matches no
-    // event is fidelity metadata at every occurrence.
+    // Full-fidelity export/snapshot columns (Guest ID / Family Code). E1 parsed
+    // these accepted-and-IGNORED; E2 HONOURS them (feeds the ID-aware diff) while
+    // preserving E1's collision contract EXACTLY.
+    //
+    // COLLISION CONTRACT (T-S1 — must not change): an event may legitimately be
+    // named after one of these reserved labels, making its attendance column
+    // ambiguous. Resolve deterministically, biased against silently dropping
+    // invitations: when the label is ALSO a known event name, only the LAST
+    // header occurrence is fidelity metadata (the exporter appends fidelity
+    // columns after the event columns), and a SINGLE occurrence stays the
+    // event's attendance column. A label that matches no event is fidelity
+    // metadata at every occurrence. `chosenFidelityIndex` records exactly which
+    // occurrence we treat as metadata (or -1), so the honoured cell reads from
+    // the same column the collision rule excludes from event matching.
     const fidelityCols = new Set<number>();
+    const chosenFidelityIndex = (label: string): number => {
+      const norm = normaliseName(label);
+      const indices: number[] = [];
+      headerNorm.forEach((h, i) => {
+        if (h === norm) indices.push(i);
+      });
+      if (indices.length === 0) return -1;
+      if (eventByNorm.has(norm)) {
+        // Collision: only the last occurrence is metadata, and only when there
+        // are ≥2 (a lone occurrence stays the event's attendance column).
+        return indices.length >= 2 ? indices[indices.length - 1]! : -1;
+      }
+      // No collision: the (first) occurrence is metadata; mark all as fidelity.
+      return indices[0]!;
+    };
+    const idxGuestId = chosenFidelityIndex(GUEST_ID_HEADER);
+    const idxFamilyCode = chosenFidelityIndex(FAMILY_CODE_HEADER);
     for (const label of [GUEST_ID_HEADER, FAMILY_CODE_HEADER]) {
       const norm = normaliseName(label);
       const indices: number[] = [];
@@ -576,6 +552,14 @@ export function parseGuestsCsv(
         for (const i of indices) fidelityCols.add(i);
       }
     }
+
+    // The `Family ID` fixed column carries an INTERNAL family id only under full
+    // fidelity; the standard export writes neutral `fam-NNN` grouping keys the
+    // parser must NOT treat as a stable id. Presence of the `Family Code`
+    // fidelity column is the full-fidelity marker, so gate honouring `Family ID`
+    // on it — a hand-authored or standard-export sheet (no Family Code column)
+    // keeps the id-less, name-matched behaviour byte-identical to today.
+    const honourFamilyId = idxFamilyId !== -1 && idxFamilyCode !== -1;
 
     const eventColumns: { idx: number; eventName: string }[] = [];
     for (let c = 0; c < header.length; c += 1) {
@@ -629,15 +613,40 @@ export function parseGuestsCsv(
       }
 
       const nickname = idxNickname === -1 ? null : nullableString(row[idxNickname] ?? "");
-      const guest: ParsedGuest = { firstName, lastName, nickname, eventNames };
+      // Fidelity ids — honoured only when their column is present AND the cell is
+      // non-blank (a blank cell = a manually-added row in a full-fidelity sheet,
+      // which must stay id-less so it name-matches / creates). See the collision
+      // + honourFamilyId gating above.
+      const guestId =
+        idxGuestId === -1 ? undefined : (nullableString(row[idxGuestId] ?? "") ?? undefined);
+      const familyId = honourFamilyId
+        ? (nullableString(row[idxFamilyId] ?? "") ?? undefined)
+        : undefined;
+      const publicId =
+        idxFamilyCode === -1 ? undefined : (nullableString(row[idxFamilyCode] ?? "") ?? undefined);
+
+      const guest: ParsedGuest = {
+        ...(guestId === undefined ? {} : { id: guestId }),
+        firstName,
+        lastName,
+        nickname,
+        eventNames,
+      };
       const norm = normaliseName(familyName);
       let family = familyByNorm.get(norm);
       if (!family) {
-        family = { familyName, guests: [guest] };
+        family = {
+          ...(familyId === undefined ? {} : { id: familyId }),
+          ...(publicId === undefined ? {} : { publicId }),
+          familyName,
+          guests: [guest],
+        };
         familyByNorm.set(norm, family);
         families.push(family);
       } else {
         // Mutate in place — the array reference is the same one in `families`.
+        // The family's id/publicId come from its FIRST row; subsequent rows only
+        // append guests, matching how the exporter writes one code per family.
         (family.guests as ParsedGuest[]).push(guest);
       }
     }
