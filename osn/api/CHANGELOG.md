@@ -1,5 +1,66 @@
 # @osn/osn
 
+## 3.9.1
+
+### Patch Changes
+
+- f569c7c: Harden ARC S2S auth: bind the public-key cache to `(issuer, kid)` and fix Origin-guard S2S drift.
+
+  The ARC public-key cache was keyed by `kid` alone, so a cache hit returned the
+  key for whatever `issuer` the caller passed — silently skipping the
+  `serviceId == issuer` DB binding that only runs on the miss path. The same
+  forged-`iss` token was therefore rejected on a cold cache but accepted on a warm
+  one. The cache is now keyed by `(issuer, kid)` so the binding holds on both
+  paths; `evictPublicKeyCacheEntry` scans the composite keys. `verifyArcToken` now
+  requires `exp`/`iat`/`iss`/`aud` via jose `requiredClaims` so a token minted
+  without `exp` can never be treated as non-expiring.
+
+  The Origin-guard's hardcoded S2S exemption list had drifted from the real
+  internal route prefixes (`/internal/*` was unlisted and `/organisation-internal`
+  matched no route), so in production every ARC POST to `/internal/*` was 403'd
+  before ARC verification ran. The guard now exempts on the `Authorization: ARC`
+  header (immune to route renames) with segment-boundary path matching as a
+  secondary signal.
+
+- f569c7c: Harden deployment posture and the Pulse Worker's JWKS scheme check.
+
+  - Pulse's Workers entry now fails closed when `OSN_JWKS_URL` is missing or
+    plaintext `http://` in a non-local env (mirrors zap-api), so a misconfigured
+    JWKS URL can't let a network attacker serve a forged key set.
+  - `workers_dev = false` on the top-level (env-less) wrangler configs for osn-api
+    and cire-api, and the `deploy` scripts are now `wrangler deploy --env
+production`. A bare `wrangler deploy` (which binds the production D1 with a
+    local security posture) now fails loudly instead of publishing a public shadow
+    Worker. Real deploys go through `--env production`; CI migrations are
+    unaffected.
+
+- f569c7c: Close org privilege-escalation via add/remove and gate the member roster.
+
+  The owner-only role gate (`updateMemberRole`) was bypassable: `addMember` let
+  any admin insert a target as `admin`, and `removeMember` let any admin remove
+  other admins — so an admin could mint or strip admins via remove+add. Granting
+  `admin` now requires the owner, and removing an admin now requires the owner;
+  admins may still add and remove plain members.
+
+  `GET /:handle/members` returned the full roster (handles, display names, roles)
+  to any authenticated user with no membership check. It is now restricted to
+  members of the org. If public org pages are desired later, gate on an explicit
+  `organisations.visibility` flag rather than dropping the check.
+
+- f569c7c: Make refresh-token rotation atomic (compare-and-swap on the old session).
+
+  `refreshTokens` verified the session then deleted-old/inserted-new in a batch.
+  Two concurrent refreshes presenting the same token both passed verification and
+  both inserted a new session, leaving two live sessions in one family with reuse
+  detection never firing. The old-session DELETE is now the CAS gate: rotation
+  proceeds only while the old row still exists (rows-affected == 1); a 0-rows
+  result means the token was already rotated out (concurrent refresh or replay),
+  which is treated as C2 reuse — the whole family is revoked instead of minting a
+  sibling session. Mirrors the recovery-code CAS already in this file.
+
+- Updated dependencies [f569c7c]
+  - @shared/crypto@0.8.6
+
 ## 3.9.0
 
 ### Minor Changes
