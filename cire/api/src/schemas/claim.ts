@@ -91,13 +91,9 @@ export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>;
 export const OrganiserGuestRow = Schema.Struct({
   guestId: Schema.String,
   // The family DB id (`families.id`) — the organiser dashboard targets the
-  // per-family `regenerate-code` / `mark-shared` / `issue-invite` endpoints by
-  // this id (household actions key off the id, NOT the code, since a code-less
-  // household has none).
+  // per-family `regenerate-code` / `mark-shared` endpoints by this id.
   familyId: Schema.String,
-  // The household's claim code, or `null` for a CODE-LESS household (PR 4 —
-  // a manually-created household has no claimable invite until one is issued).
-  publicId: Schema.NullOr(Schema.String),
+  publicId: Schema.String,
   familyName: Schema.String,
   firstName: Schema.String,
   lastName: Schema.String,

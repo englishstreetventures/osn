@@ -13,18 +13,14 @@ import {
   ensureGuestsLoaded,
   guestsAccessor,
   hasCachedGuests,
-  invalidateGuests,
   type OrganiserGuestRow,
-  peekCachedGuests,
-  setCachedGuests,
 } from "../lib/guests-store";
 import { buildInviteMessage, copyToClipboard } from "../lib/invite-message";
 import SectionIntro from "./SectionIntro";
 
 interface FamilyGroup {
   familyId: string;
-  /** The household's claim code, or `null` when it's CODE-LESS (PR 4). */
-  publicId: string | null;
+  publicId: string;
   familyName: string;
   codeSharedAt: number | null;
   firstOpenedAt: number | null;
@@ -100,21 +96,11 @@ export default function GuestTable(props: GuestTableProps) {
   // Per-family in-flight + confirm state for the deactivate/reactivate toggle.
   const [togglingId, setTogglingId] = createSignal<string | null>(null);
   const [confirmingId, setConfirmingId] = createSignal<string | null>(null);
-  // "Issue invite" (PR 4): mint a code onto a code-less household. `issuedNow`
-  // maps familyId → the freshly-minted code so the row shows it immediately
-  // (optimistic over the server row until the next fetch). `issuingId` guards the
-  // single button; `issuingAll` guards the bulk action.
-  const [issuedNow, setIssuedNow] = createSignal<Map<string, string>>(new Map());
-  const [issuingId, setIssuingId] = createSignal<string | null>(null);
-  const [issuingAll, setIssuingAll] = createSignal(false);
 
   const families = createMemo(() => {
-    // Key by familyId, NOT publicId: a code-less household (PR 4) has a NULL
-    // publicId, so keying on the code would collapse every code-less household
-    // into one bogus group.
     const map = new Map<string, FamilyGroup>();
     for (const guest of guests()) {
-      let family = map.get(guest.familyId);
+      let family = map.get(guest.publicId);
       if (!family) {
         family = {
           familyId: guest.familyId,
@@ -125,7 +111,7 @@ export default function GuestTable(props: GuestTableProps) {
           deactivatedAt: guest.deactivatedAt,
           members: [],
         };
-        map.set(guest.familyId, family);
+        map.set(guest.publicId, family);
       }
       family.members.push({
         firstName: guest.firstName,
@@ -136,19 +122,8 @@ export default function GuestTable(props: GuestTableProps) {
     return Array.from(map.values());
   });
 
-  // The household's effective code, blending the server row with the optimistic
-  // just-issued override (PR 4) so a freshly-issued code shows at once.
-  const codeOf = (family: FamilyGroup): string | null =>
-    issuedNow().get(family.familyId) ?? family.publicId;
-
-  // A code-less household (PR 4): no claim code yet (server or optimistic), so no
-  // copy/share/deactivate apply — only "Issue invite" does.
-  const isCodeless = (family: FamilyGroup) => codeOf(family) === null;
-
-  const codelessCount = () => families().filter(isCodeless).length;
-
   const isShared = (family: FamilyGroup) =>
-    family.codeSharedAt !== null || sharedNow().has(family.familyId);
+    family.codeSharedAt !== null || sharedNow().has(family.publicId);
 
   /** Resolve a family's deactivation, blending the server row with the local
    *  optimistic override so a just-toggled row reflects the new state at once. */
@@ -203,7 +178,7 @@ export default function GuestTable(props: GuestTableProps) {
   /** Best-effort: tell the API the family's code was just shared. Never blocks
    *  or surfaces an error to the organiser — the copy already succeeded. */
   function markShared(family: FamilyGroup) {
-    setSharedNow((prev) => new Set(prev).add(family.familyId));
+    setSharedNow((prev) => new Set(prev).add(family.publicId));
     void authFetch(
       apiUrl(`/api/organiser/weddings/${props.weddingId}/families/${family.familyId}/mark-shared`),
       { method: "POST" },
@@ -270,94 +245,6 @@ export default function GuestTable(props: GuestTableProps) {
   }
 
   /**
-   * Issue an invite (mint a claim code) for ONE code-less household (PR 4).
-   * Owner-only (the API gates it with weddingOwner(); the button is hidden
-   * otherwise). On success the freshly-minted code is stashed in `issuedNow` so
-   * the row shows it immediately, and the shared guests cache is patched so a tab
-   * switch keeps the code.
-   */
-  async function issueInvite(family: FamilyGroup) {
-    if (issuingId() === family.familyId || !isCodeless(family)) return;
-    setIssuingId(family.familyId);
-    setError(null);
-    try {
-      const res = await authFetch(
-        apiUrl(
-          `/api/organiser/weddings/${props.weddingId}/families/${family.familyId}/issue-invite`,
-        ),
-        { method: "POST" },
-      );
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) {
-        toast.error(`Could not issue an invite for ${family.familyName}. Please try again.`);
-        return;
-      }
-      const body = (await res.json()) as { publicId: string };
-      setIssuedNow((prev) => new Map(prev).set(family.familyId, body.publicId));
-      patchCachedCode(family.familyId, body.publicId);
-      toast.success(`Issued an invite for ${family.familyName}`);
-    } catch (err) {
-      if (isAuthExpired(err)) return redirectToLogin();
-      setError("Could not issue the invite. Is the API running?");
-    } finally {
-      setIssuingId(null);
-    }
-  }
-
-  /**
-   * Bulk "Issue all codes" (PR 4): mint a code for every code-less household at
-   * once (reuses the server's bulk path). Owner-only. Refetches the guest list
-   * afterwards so every newly-issued code lands from the server (the response
-   * only carries the count).
-   */
-  async function issueAllInvites() {
-    if (issuingAll() || codelessCount() === 0) return;
-    setIssuingAll(true);
-    setError(null);
-    try {
-      const res = await authFetch(
-        apiUrl(`/api/organiser/weddings/${props.weddingId}/issue-invites`),
-        {
-          method: "POST",
-        },
-      );
-      if (res.status === 401) return redirectToLogin();
-      if (!res.ok) {
-        toast.error("Could not issue the invites. Please try again.");
-        return;
-      }
-      const body = (await res.json()) as { issued: number };
-      toast.success(`Issued ${body.issued} ${body.issued === 1 ? "invite" : "invites"}`);
-      // Refetch so the server's minted codes replace the code-less rows.
-      invalidateGuests(props.weddingId);
-      await ensureGuestsLoaded(props.weddingId, async () => {
-        const guestsRes = await authFetch(
-          apiUrl(`/api/organiser/weddings/${props.weddingId}/guests`),
-        );
-        if (!guestsRes.ok) throw new Error("Failed to reload");
-        return (await guestsRes.json()) as OrganiserGuestRow[];
-      });
-      setIssuedNow(new Map());
-    } catch (err) {
-      if (isAuthExpired(err)) return redirectToLogin();
-      setError("Could not issue the invites. Is the API running?");
-    } finally {
-      setIssuingAll(false);
-    }
-  }
-
-  /** Patch a household's code in the shared guests cache so an optimistic issue
-   *  survives a tab switch (mirrors the store's in-place mutation contract). */
-  function patchCachedCode(familyId: string, publicId: string) {
-    const rows = peekCachedGuests(props.weddingId);
-    if (!rows) return;
-    setCachedGuests(
-      props.weddingId,
-      rows.map((r) => (r.familyId === familyId ? { ...r, publicId } : r)),
-    );
-  }
-
-  /**
    * Download one of the wedding's CSV exports — the RSVP grid (`rsvps.csv`) or
    * the guest roster (`guests.csv`). Both are built (and formula-sanitised)
    * server-side; the response Blob is handed to the shared download helper.
@@ -384,9 +271,6 @@ export default function GuestTable(props: GuestTableProps) {
   }
 
   async function copyMessage(family: FamilyGroup) {
-    // Guard: a code-less household has no message to copy (the button is hidden
-    // for it, but never build a message with a null code).
-    if (family.publicId === null) return;
     const message = buildInviteMessage(
       props.weddingName,
       family.publicId,
@@ -412,22 +296,6 @@ export default function GuestTable(props: GuestTableProps) {
         description="Everyone you're inviting, grouped into households. Copy a household's invite message to send their link and code, and download replies any time."
         actions={
           <Show when={!loading() && !error() && hasGuests()}>
-            {/* Bulk "Issue codes" (PR 4): mint a code for every code-less
-                household at once. Owner-only, shown only when some household is
-                still code-less. */}
-            <Show when={props.canManage && codelessCount() > 0}>
-              <button
-                type="button"
-                onClick={() => void issueAllInvites()}
-                disabled={issuingAll()}
-                class="border-gold bg-gold font-body text-bg hover:bg-gold-dim rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-                title="Give every household without a code a fresh claim code."
-              >
-                {issuingAll()
-                  ? "Issuing…"
-                  : `Issue ${codelessCount()} ${codelessCount() === 1 ? "code" : "codes"}`}
-              </button>
-            </Show>
             <button
               type="button"
               onClick={() => void exportCsv("guests")}
@@ -545,89 +413,69 @@ export default function GuestTable(props: GuestTableProps) {
                             </Show>
                           </span>
                           <div class="flex flex-wrap items-center gap-2">
-                            {/* Code-less household (PR 4): the only action is
-                                "Issue invite" (owner-only) — there's no code to
-                                copy or deactivate yet. */}
-                            <Show when={isCodeless(family)}>
-                              <Show when={props.canManage}>
-                                <button
-                                  type="button"
-                                  onClick={() => void issueInvite(family)}
-                                  disabled={issuingId() === family.familyId}
-                                  class="border-gold bg-gold font-body text-bg hover:bg-gold-dim rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-                                  title="Mint a claim code so this household can open the invite and RSVP."
-                                >
-                                  {issuingId() === family.familyId ? "Issuing…" : "Issue invite"}
-                                </button>
-                              </Show>
-                            </Show>
-                            {/* A household WITH a code: copy the message + the
-                                owner-only deactivate/reactivate controls. */}
-                            <Show when={!isCodeless(family)}>
-                              <button
-                                type="button"
-                                onClick={() => void copyMessage(family)}
-                                class="font-body text-text-muted hover:text-gold hover:border-gold border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors"
-                              >
-                                Copy message
-                              </button>
-                              {/* Deactivate is confirm-gated (cuts off a live code);
+                            <button
+                              type="button"
+                              onClick={() => void copyMessage(family)}
+                              class="font-body text-text-muted hover:text-gold hover:border-gold border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors"
+                            >
+                              Copy message
+                            </button>
+                            {/* Deactivate is confirm-gated (cuts off a live code);
                                 Reactivate is a direct restore. Owner-only —
                                 code management sits above editor writes. */}
-                              <Show when={props.canManage}>
-                                <Show
-                                  when={isDeactivated(family)}
-                                  fallback={
-                                    <Show
-                                      when={confirmingId() === family.familyId}
-                                      fallback={
-                                        <button
-                                          type="button"
-                                          onClick={() => setConfirmingId(family.familyId)}
-                                          disabled={togglingId() === family.familyId}
-                                          class="font-body text-text-muted hover:text-error hover:border-error/60 border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
-                                          title="Disable this household's code (e.g. a withdrawn invite). Reversible — their guests and RSVPs are kept."
-                                        >
-                                          Deactivate
-                                        </button>
-                                      }
-                                    >
-                                      <span class="font-body text-text-muted text-[0.7rem] tracking-[0.05em]">
-                                        Disable this code?
-                                      </span>
+                            <Show when={props.canManage}>
+                              <Show
+                                when={isDeactivated(family)}
+                                fallback={
+                                  <Show
+                                    when={confirmingId() === family.familyId}
+                                    fallback={
                                       <button
                                         type="button"
-                                        onClick={() => void toggleDeactivated(family, true)}
+                                        onClick={() => setConfirmingId(family.familyId)}
                                         disabled={togglingId() === family.familyId}
-                                        class="border-error bg-error font-body text-bg rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition hover:opacity-90 disabled:opacity-40"
+                                        class="font-body text-text-muted hover:text-error hover:border-error/60 border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
+                                        title="Disable this household's code (e.g. a withdrawn invite). Reversible — their guests and RSVPs are kept."
                                       >
-                                        {togglingId() === family.familyId
-                                          ? "Deactivating…"
-                                          : "Confirm"}
+                                        Deactivate
                                       </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setConfirmingId(null)}
-                                        disabled={togglingId() === family.familyId}
-                                        class="font-body text-text-muted text-[0.7rem] underline-offset-4 hover:underline disabled:opacity-40"
-                                      >
-                                        Cancel
-                                      </button>
-                                    </Show>
-                                  }
-                                >
-                                  <button
-                                    type="button"
-                                    onClick={() => void toggleDeactivated(family, false)}
-                                    disabled={togglingId() === family.familyId}
-                                    class="font-body text-gold hover:border-gold border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
-                                    title="Re-enable this household's code — their guests and RSVPs were kept."
+                                    }
                                   >
-                                    {togglingId() === family.familyId
-                                      ? "Reactivating…"
-                                      : "Reactivate"}
-                                  </button>
-                                </Show>
+                                    <span class="font-body text-text-muted text-[0.7rem] tracking-[0.05em]">
+                                      Disable this code?
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => void toggleDeactivated(family, true)}
+                                      disabled={togglingId() === family.familyId}
+                                      class="border-error bg-error font-body text-bg rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition hover:opacity-90 disabled:opacity-40"
+                                    >
+                                      {togglingId() === family.familyId
+                                        ? "Deactivating…"
+                                        : "Confirm"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmingId(null)}
+                                      disabled={togglingId() === family.familyId}
+                                      class="font-body text-text-muted text-[0.7rem] underline-offset-4 hover:underline disabled:opacity-40"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </Show>
+                                }
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => void toggleDeactivated(family, false)}
+                                  disabled={togglingId() === family.familyId}
+                                  class="font-body text-gold hover:border-gold border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
+                                  title="Re-enable this household's code — their guests and RSVPs were kept."
+                                >
+                                  {togglingId() === family.familyId
+                                    ? "Reactivating…"
+                                    : "Reactivate"}
+                                </button>
                               </Show>
                             </Show>
                           </div>
@@ -658,18 +506,7 @@ export default function GuestTable(props: GuestTableProps) {
                             </div>
                           </td>
                           <td class="border-border text-text-muted border-b px-4 py-3 align-middle font-mono text-[0.82rem] tracking-[0.06em]">
-                            <Show when={index() === 0}>
-                              <Show
-                                when={codeOf(family) !== null}
-                                fallback={
-                                  <span class="text-text-muted/70 font-body text-[0.78rem] tracking-normal italic">
-                                    No code yet
-                                  </span>
-                                }
-                              >
-                                {codeOf(family)}
-                              </Show>
-                            </Show>
+                            <Show when={index() === 0}>{family.publicId}</Show>
                           </td>
                         </tr>
                       )}

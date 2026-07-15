@@ -15,14 +15,11 @@
  * additionally verifies `familyId` belongs to `weddingId` before writing, so a
  * member of wedding A can't toggle a family that lives under wedding B. Host
  * preview families (`kind === "host"`) are refused — they're the organiser's own
- * preview, never a withdrawable guest invite. CODE-LESS households (PR 4 —
- * `public_id IS NULL`) are ALSO refused: deactivation is strictly an invite
- * concept (it cuts off a claim code), so a household with no code has nothing to
- * deactivate.
+ * preview, never a withdrawable guest invite.
  */
 
 import { families, sessions } from "@cire/db";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Data, Effect } from "effect";
 
@@ -60,12 +57,10 @@ export const familyDeactivateService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      // Scope + kind + code check in one query: a row only comes back when the
-      // family lives under this exact wedding, is a real guest family, AND has a
-      // claim code. Host-preview families (kind='host') are excluded (never the
-      // organiser's own preview), and code-less households (public_id IS NULL,
-      // PR 4) are excluded because deactivation cuts off a code — there's nothing
-      // to cut off without one.
+      // Scope + kind check in one query: a row only comes back when the family
+      // lives under this exact wedding AND is a real guest family. Host-preview
+      // families (kind='host') are excluded, so the route can never deactivate
+      // the organiser's own preview.
       const [row] = yield* dbQuery(() =>
         db
           .select({ id: families.id })
@@ -75,7 +70,6 @@ export const familyDeactivateService = {
               eq(families.id, familyId),
               eq(families.weddingId, weddingId),
               eq(families.kind, "guest"),
-              isNotNull(families.publicId),
             ),
           )
           .all(),

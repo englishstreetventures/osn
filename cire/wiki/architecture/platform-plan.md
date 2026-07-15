@@ -9,6 +9,7 @@ related:
   - "[[guest-event-editor]]"
 last-reviewed: 2026-07-15
 pr4-shipped: 2026-07-15
+pr4-reversed: 2026-07-15
 ---
 
 # Platform Plan — from digital invite to wedding management platform
@@ -65,9 +66,9 @@ Other implementation notes: `pricing_region` is **state-granular** (`au-nsw` …
 
 ### 3.2 Households ≠ claim codes
 
-**Shipped (PR 4, 2026-07-15) — as designed, no deviations.** Migration `0032_households_nullable_code.sql` rebuilt `families` via the `__keep_*` idiom (public_id nullable, partial unique index `families_public_id_uniq WHERE public_id IS NOT NULL`), ids copied verbatim so the cascade subtree (guests/sessions/guest_events/rsvps/guest_account_links) kept every FK — proven by `db/migration-0032.test.ts` (zero orphans). Three DDL surfaces mirrored, T-S1 green. New `services/households.ts` (create a code-less household, `weddingEditor()`) + `services/issue-invite.ts` (mint a code single/bulk, `weddingOwner()`, reusing `generateFamilyCode`); import auto-mint unchanged; deactivate now refuses code-less households; claim path excludes NULLs. Organiser `GuestTable` groups by familyId, shows "No code yet" + per-row/bulk "Issue invite".
+**REVERSED (2026-07-15, product-owner decision): households always carry a code.** There is **no code-less path**. PR 4 shipped then was rolled back the same day: migration `0033_households_require_code.sql` rebuilt `families` back to `public_id text NOT NULL` + a full column-level UNIQUE (dropping 0032's partial `families_public_id_uniq` index) via the same `__keep_*` FK-preserving idiom — ids copied verbatim so the cascade subtree (guests/sessions/guest_events/rsvps/guest_account_links) kept every FK, proven by `db/migration-0033.test.ts` (zero orphans), T-S1 green. **0032 is KEPT in history** (it already ran on prod D1; deleting it would desync a fresh D1) — 0033 is a forward reversing migration, not a `git revert`. It **fails loud** if any code-less household (`public_id IS NULL`) still exists (the NOT NULL rebuild naturally rejects a NULL row — a human must mint that household a real code first, no silent coercion). The PR-4 `services/households.ts` + `services/issue-invite.ts` + their routes/metrics/schemas were deleted; `family-deactivate` no longer special-cases code-less households; the organiser `GuestTable` is back to grouping by `publicId` with no "No code yet" / "Issue invite" UI. Import auto-mint (`generateFamilyCode`, `services/import.ts:152`) is unchanged — it always minted a code per family. The editor (E5, §3.3) creates households with an **auto-minted code** (no code-less path). The strikethrough design below is **retained for historical context only**.
 
-Make `families.publicId` **nullable** (partial unique index `WHERE public_id IS NOT NULL`), and move code lifecycle semantics into the invite module:
+~~Make `families.publicId` **nullable** (partial unique index `WHERE public_id IS NOT NULL`), and move code lifecycle semantics into the invite module:~~
 
 - A household can be created with **no code**; the Guests module creates/edits households and guests directly.
 - "Issue invite" (per household or bulk = the existing re-mint machinery in `services/remint-codes.ts`) mints the code — this is the moment a guest-list record acquires an invite credential.
@@ -113,8 +114,8 @@ Existing co-hosts map to `editor` (they already have import + invite-builder wri
 | 1 | Wedding profile (schema + Settings view + key-optional geocoding) | — |
 | 2 | ✅ Roles (`editor`/`viewer` + `weddingEditor()`) — shipped 2026-07-12 | — |
 | 3 | Portal IA shell (sidebar, Overview, hash routes; existing tabs rehomed; P-I3 fetch lift) | 1 (Settings home) |
-| 4 | ✅ Households ≠ codes (`families` rebuild + invite-module code issuance) — shipped 2026-07-15 | 0 |
-| 5 | Guest/event editing (batch draft-save — design + E1–E6 slicing in [[guest-event-editor]]) + organiser RSVPs + provenance | 3, 4 (soft — editor-created households auto-mint codes until 4 lands) |
+| 4 | ⛔ Households ≠ codes — shipped then **REVERSED 2026-07-15** (product-owner: every household carries a code; migration 0033 restores `public_id NOT NULL` + full unique) | 0 |
+| 5 | Guest/event editing (batch draft-save — design + E1–E6 slicing in [[guest-event-editor]]) + organiser RSVPs + provenance | 3 (E5 editor-created households **auto-mint a code** — there is no code-less path) |
 
 PRs 0–2 are parallelisable. The IA shell deliberately lands **early** (not last) so CRUD is built directly into its module home instead of into the old tabs and moved later.
 
