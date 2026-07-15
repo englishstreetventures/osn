@@ -5,6 +5,7 @@ import { createSignal, createUniqueId, Show, For } from "solid-js";
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { downloadBlob, downloadCsv } from "../lib/download";
 import { invalidateEvents } from "../lib/events-store";
+import { invalidateGuests } from "../lib/guests-store";
 import {
   EVENT_REQUIRED_HEADERS,
   EVENT_OPTIONAL_HEADERS,
@@ -133,8 +134,11 @@ export default function ImportPanel(props: { weddingId: string }) {
       // this wedding is now stale — drop it so the Events tab refetches fresh
       // rows on its next mount (rather than reusing the pre-import cache).
       invalidateEvents(props.weddingId);
-      // Refresh the guest table (not cached) — a full reload also re-mounts the
-      // Events tab, which now refetches because the cache above was invalidated.
+      // An apply also changes households/guests, so drop the guest cache too
+      // (both are lifted to weddingId-keyed stores now — P-I3). The reload below
+      // re-mounts every module fresh; invalidating keeps the caches honest even
+      // if the reload is ever removed.
+      invalidateGuests(props.weddingId);
       window.location.reload();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();

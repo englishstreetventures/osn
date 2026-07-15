@@ -7,7 +7,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[platform]]"
   - "[[guest-event-editor]]"
-last-reviewed: 2026-07-12
+last-reviewed: 2026-07-15
 ---
 
 # Platform Plan — from digital invite to wedding management platform
@@ -87,8 +87,8 @@ The import stays (it's a strength) but stops being the only writer.
 ### 3.4 API + portal re-organisation
 
 - Module routers under `/api/organiser/weddings/:weddingId/{guests|schedule|invite|vendors|budget|tasks|seating|settings}`; guest-site public routes untouched. **Alias layer for one release (decided 2026-07-08)**: mount the same factories at old + new prefixes, delete the old prefix next release. Lockstep-only was rejected — the Worker and Pages bundles deploy in one CI run but not atomically, and organisers hold cached portal bundles after the Worker flips, so a lockstep move guarantees a broken window.
-- Portal IA: replace the flat `DashboardTabs` with a **module sidebar** — Overview (new home: countdown, RSVP totals, open tasks, budget snapshot), Guests, Schedule, Invite, Vendors, Budget, Checklist, Settings. Extend `lib/dashboard-route.ts` hash routing to `#/w/:weddingId/:module/:sub`. `GettingStarted` becomes the Overview's empty-state.
-- Fix P-I3 (root Performance Backlog) as part of this: lift guests/events fetches to the dashboard shell so module navigation doesn't refetch.
+- Portal IA: replace the flat `DashboardTabs` with a **module sidebar** — Overview (new home: countdown, RSVP totals, open tasks, budget snapshot), Guests, Schedule, Invite, Vendors, Budget, Checklist, Settings. Extend `lib/dashboard-route.ts` hash routing to `#/w/:weddingId/:module/:sub`. `GettingStarted` becomes the Overview's empty-state. **Shipped (PR 3, 2026-07-15)** — with one scope note: only the modules whose surfaces exist today are on the rail (Overview / Schedule / Guests / Invite / Settings); Vendors / Budget / Checklist are **not** shown as empty nav entries (they'd mislead pre-Phase-1) — they live as honest "coming soon" snapshot cards on Overview and get promoted to rail modules when their tables ship. `ModuleShell` + `ModuleSidebar` + `Overview` are the new components; existing tabs rehomed into modules + per-module sub-tabs (Guests: Households/RSVPs; Invite: Design/Codes; Settings: Profile/Co-hosts). Legacy `#/weddings/:id/:tab` bookmarks alias to the new (module, sub) for one release (delete next release) — same one-release-alias spirit as the API prefix move above. Overview snapshots use no fabricated data (the no-mock-data rule): the Checklist/Budget cards read as promises, and a dateless wedding shows "No date yet", not a fake countdown.
+- Fix P-I3 (root Performance Backlog) as part of this: lift guests/events fetches to the dashboard shell so module navigation doesn't refetch. **Shipped (PR 3)**: added `lib/guests-store.ts` (a weddingId-keyed guest cache, the sibling of the existing `events-store.ts`); `GuestTable` now reads guests from it and its event-name chip map from the shared events cache, dropping the duplicate `/events` fetch it used to fire only to build that map. `ImportPanel`'s apply invalidates both caches.
 
 ### 3.5 Roles
 

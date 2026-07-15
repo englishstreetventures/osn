@@ -4,20 +4,19 @@ import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { downloadBlob } from "../lib/download";
+import {
+  ensureEventsLoaded,
+  type EventRow as CachedEventRow,
+  eventsAccessor,
+} from "../lib/events-store";
+import {
+  ensureGuestsLoaded,
+  guestsAccessor,
+  hasCachedGuests,
+  type OrganiserGuestRow,
+} from "../lib/guests-store";
 import { buildInviteMessage, copyToClipboard } from "../lib/invite-message";
 import SectionIntro from "./SectionIntro";
-
-interface OrganiserGuestRow {
-  familyId: string;
-  publicId: string;
-  familyName: string;
-  firstName: string;
-  lastName: string;
-  events: string[];
-  codeSharedAt: number | null;
-  firstOpenedAt: number | null;
-  deactivatedAt: number | null;
-}
 
 interface FamilyGroup {
   familyId: string;
@@ -61,22 +60,25 @@ interface GuestTableProps {
   weddingSlug: string;
 }
 
-interface EventRow {
-  id: string;
-  name: string;
-  slug: string;
-  sortOrder: number;
-}
-
 export default function GuestTable(props: GuestTableProps) {
   const { authFetch } = useAuth();
-  const [guests, setGuests] = createSignal<OrganiserGuestRow[]>([]);
-  const [eventNameById, setEventNameById] = createSignal<Map<string, string>>(new Map());
+  // Guest rows live in a module-scoped, weddingId-keyed cache (`guests-store`,
+  // the P-I3 fetch-lift sibling of `events-store`) so this fetch fires once per
+  // wedding and is reused when the module shell unmounts/remounts us on a
+  // Guests ↔ Schedule switch. An import apply invalidates the entry.
+  const guests = () => guestsAccessor(props.weddingId)() ?? [];
+  // The event id→name chip map reads the SHARED events cache instead of a second
+  // `/events` fetch (the other half of P-I3): a Schedule visit already populated
+  // it, and if not we `ensureEventsLoaded` it once below.
+  const eventNameById = createMemo(
+    () => new Map((eventsAccessor(props.weddingId)() ?? []).map((e) => [e.id, e.name])),
+  );
   // Optional host override for the first line of the copied invite message. Read
   // from the same invite-customisation endpoint the Invite builder writes; `null`
   // ⇒ buildInviteMessage falls back to its default prose.
   const [inviteMessage, setInviteMessage] = createSignal<string | null>(null);
-  const [loading, setLoading] = createSignal(true);
+  // Skip the skeleton on a cache hit — a remount already has rows to paint.
+  const [loading, setLoading] = createSignal(!hasCachedGuests(props.weddingId));
   const [error, setError] = createSignal<string | null>(null);
   // Optimistic "Sent" state keyed by family public_id — flips the instant a
   // copy succeeds, so the indicator updates without a reload while the
@@ -133,18 +135,32 @@ export default function GuestTable(props: GuestTableProps) {
 
   onMount(async () => {
     try {
-      const [guestsRes, eventsRes, inviteRes] = await Promise.all([
-        authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/guests`)),
-        authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`)),
+      // Guests + events both flow through their shared caches (one fetch each per
+      // wedding, deduped across module switches — P-I3). Events are needed only
+      // for the chip map; a Schedule visit may already have them. The invite
+      // message is a light per-mount read (no store — it's tiny + non-essential).
+      const [, , inviteRes] = await Promise.all([
+        ensureGuestsLoaded(props.weddingId, async () => {
+          const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/guests`));
+          if (res.status === 401) {
+            redirectToLogin();
+            throw new Error("unauthenticated");
+          }
+          if (!res.ok) throw new Error("Failed to load");
+          return (await res.json()) as OrganiserGuestRow[];
+        }),
+        ensureEventsLoaded(props.weddingId, async () => {
+          const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
+          if (res.status === 401) {
+            redirectToLogin();
+            throw new Error("unauthenticated");
+          }
+          if (!res.ok) throw new Error("Failed to load");
+          return (await res.json()) as CachedEventRow[];
+        }),
         authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/invite`)),
       ]);
-      if (guestsRes.status === 401 || eventsRes.status === 401 || inviteRes.status === 401)
-        return redirectToLogin();
-      if (!guestsRes.ok || !eventsRes.ok) throw new Error("Failed to load");
-      const guestData = (await guestsRes.json()) as OrganiserGuestRow[];
-      const eventData = (await eventsRes.json()) as EventRow[];
-      setGuests(guestData);
-      setEventNameById(new Map(eventData.map((e) => [e.id, e.name])));
+      if (inviteRes.status === 401) return redirectToLogin();
       // The custom invite message is non-essential to the table — if it fails to
       // load, fall back to the default prose rather than breaking the guest list.
       if (inviteRes.ok) {

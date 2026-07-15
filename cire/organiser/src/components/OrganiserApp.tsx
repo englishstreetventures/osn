@@ -13,17 +13,16 @@ import { Toaster } from "solid-toast";
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import {
   type DashboardRoute,
-  type DashboardTab,
-  isDashboardTab,
+  DEFAULT_MODULE,
+  defaultSub,
   LIST_ROUTE,
+  type Module,
   parseRoute,
   serializeRoute,
 } from "../lib/dashboard-route";
 import { OSN_ISSUER_URL } from "../lib/osn";
 import type { WeddingSummary } from "./CreateWeddingForm";
-import DashboardTabs from "./DashboardTabs";
-import GettingStarted from "./GettingStarted";
-import ImportPanel from "./ImportPanel";
+import ModuleShell from "./ModuleShell";
 import PreviewInviteButton from "./PreviewInviteButton";
 import SecurityPanel from "./SecurityPanel";
 import WeddingList from "./WeddingList";
@@ -58,24 +57,27 @@ function RequireAuth(props: ParentProps) {
   );
 }
 
-/** The chosen wedding's dashboard — the context header, the Getting-started
- *  checklist, the spreadsheet import, and the tabbed events/guests/invite view,
- *  scoped to whichever wedding the organiser opened. Access follows the caller's
- *  role: EDITOR co-hosts get the full read/edit dashboard, including the
- *  spreadsheet import (the API gates writes with weddingEditor); VIEWER co-hosts
- *  get the read dashboard only (`canEdit` hides the write surfaces). The
- *  owner-only management actions (managing co-hosts, re-minting codes,
- *  deactivating household codes) stay gated on `isOwner` via `canManage`.
+/** The chosen wedding's dashboard — the context header plus the module shell
+ *  (left module rail + panel), scoped to whichever wedding the organiser opened.
+ *  Access follows the caller's role: EDITOR co-hosts get the full read/edit
+ *  dashboard (import, invite design, event locations — the API gates writes with
+ *  weddingEditor); VIEWER co-hosts get the read views only (`canEdit` hides the
+ *  write surfaces). The owner-only management actions (co-hosts, re-minting
+ *  codes, deactivating household codes, settings save) stay gated on `isOwner`
+ *  via `canManage`.
  *
- *  The active tab is fully controlled by the parent (URL-hash driven) so a deep
- *  link / hard refresh restores the exact tab; the dashboard reports tab changes
- *  back up via `onTab`, and offers a checklist jump that switches tab + scrolls. */
+ *  The active module + sub are fully controlled by the parent (URL-hash driven)
+ *  so a deep link / hard refresh restores the exact view; the shell reports
+ *  navigation back up via `onModule` / `onSub`. Getting-started (now the Overview
+ *  empty-state) and the import both moved into their modules. */
 function WeddingDashboard(props: {
   wedding: WeddingSummary;
-  /** Active tab as an accessor so it stays reactive across hash changes even
-   *  while the same wedding object stays selected. */
-  tab: () => DashboardTab;
-  onTab: (tab: DashboardTab) => void;
+  /** Active module + sub as accessors so they stay reactive across hash changes
+   *  even while the same wedding object stays selected. */
+  module: () => Module;
+  sub: () => string;
+  onModule: (module: Module) => void;
+  onSub: (sub: string) => void;
   onBack: () => void;
   /** A Settings save changed the name/slug — bubble it up so the wedding list
    *  (and this header) reflect it without a refetch. */
@@ -97,20 +99,8 @@ function WeddingDashboard(props: {
   };
   const roleBadge = () => ROLE_BADGE[props.wedding.role] ?? ROLE_BADGE.editor!;
 
-  /** Move to a tab from the Getting-started checklist: switch the panel (via the
-   *  parent's hash update) and scroll the tab strip into view. */
-  function jumpToTab(tab: string) {
-    if (!isDashboardTab(tab)) return;
-    props.onTab(tab);
-    if (typeof document !== "undefined") {
-      document
-        .getElementById("wedding-tabs")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }
-
   return (
-    <div class="flex flex-col gap-10">
+    <div class="flex flex-col gap-8">
       {/* ── Wedding context header — "which wedding am I editing" + the two
           things every organiser wants up top: preview it, share it. ───────── */}
       <header class="flex flex-col gap-4">
@@ -142,30 +132,18 @@ function WeddingDashboard(props: {
         </div>
       </header>
 
-      {/* The progress checklist — the dashboard's "what next". Reflects real
-          state and links straight to the relevant tab. */}
-      <GettingStarted weddingId={props.wedding.id} onJump={jumpToTab} />
-
-      {/* Import is a WRITE surface (the API gates it with weddingEditor()), so
-          viewers don't see it at all. Tucked in a collapsible so it's
-          front-and-centre for a new wedding (open it from a checklist nudge) but
-          doesn't crowd the dashboard once the list is populated. */}
-      <Show when={canEdit()}>
-        <ImportPanel weddingId={props.wedding.id} />
-      </Show>
-
-      <div id="wedding-tabs" class="scroll-mt-6">
-        <DashboardTabs
-          weddingId={props.wedding.id}
-          weddingName={props.wedding.displayName}
-          weddingSlug={props.wedding.slug}
-          canManage={isOwner()}
-          canEdit={canEdit()}
-          tab={props.tab()}
-          onTab={props.onTab}
-          onWeddingUpdated={props.onWeddingUpdated}
-        />
-      </div>
+      <ModuleShell
+        weddingId={props.wedding.id}
+        weddingName={props.wedding.displayName}
+        weddingSlug={props.wedding.slug}
+        canManage={isOwner()}
+        canEdit={canEdit()}
+        module={props.module()}
+        sub={props.sub()}
+        onModule={props.onModule}
+        onSub={props.onSub}
+        onWeddingUpdated={props.onWeddingUpdated}
+      />
     </div>
   );
 }
@@ -232,22 +210,49 @@ function Dashboard() {
   const view = () => route().view;
 
   function selectView(next: "weddings" | "security") {
-    if (next === "security") setRoute({ view: "security", weddingId: null, tab: "events" }, "push");
+    if (next === "security")
+      setRoute(
+        {
+          view: "security",
+          weddingId: null,
+          module: DEFAULT_MODULE,
+          sub: defaultSub(DEFAULT_MODULE),
+        },
+        "push",
+      );
     else setRoute(LIST_ROUTE, "push");
   }
 
   function selectWedding(wedding: WeddingSummary) {
-    setRoute({ view: "weddings", weddingId: wedding.id, tab: "events" }, "push");
+    setRoute(
+      {
+        view: "weddings",
+        weddingId: wedding.id,
+        module: DEFAULT_MODULE,
+        sub: defaultSub(DEFAULT_MODULE),
+      },
+      "push",
+    );
   }
 
   function backToList() {
     setRoute(LIST_ROUTE, "push");
   }
 
-  function selectTab(tab: DashboardTab) {
+  /** Switch module — resets the sub to that module's default (push, so the
+   *  module change is a Back-able history entry). */
+  function selectModule(module: Module) {
     const r = route();
     if (r.view !== "weddings" || r.weddingId === null) return;
-    setRoute({ view: "weddings", weddingId: r.weddingId, tab }, "replace");
+    setRoute({ view: "weddings", weddingId: r.weddingId, module, sub: defaultSub(module) }, "push");
+  }
+
+  /** Switch sub within the current module (replace — a sub flip shouldn't pile
+   *  up history entries, matching the old tab behaviour). */
+  function selectSub(sub: string) {
+    const r = route();
+    if (r.view !== "weddings" || r.weddingId === null) return;
+    setRoute({ view: "weddings", weddingId: r.weddingId, module: r.module, sub }, "replace");
   }
 
   const [loaded] = createResource<WeddingsState>(async () => {
@@ -372,11 +377,16 @@ function Dashboard() {
                 {(wedding) => (
                   <WeddingDashboard
                     wedding={wedding()}
-                    tab={() => {
+                    module={() => {
                       const r = route();
-                      return r.view === "weddings" ? r.tab : "events";
+                      return r.view === "weddings" ? r.module : DEFAULT_MODULE;
                     }}
-                    onTab={selectTab}
+                    sub={() => {
+                      const r = route();
+                      return r.view === "weddings" ? r.sub : defaultSub(DEFAULT_MODULE);
+                    }}
+                    onModule={selectModule}
+                    onSub={selectSub}
                     onBack={backToList}
                     onWeddingUpdated={(patch) => handleWeddingUpdated(wedding().id, patch)}
                   />

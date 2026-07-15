@@ -4,9 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
  * OrganiserApp's Dashboard owns the glue the child components don't: mapping the
- * weddings-list fetch into load/error/ready states, and the create → auto-open
- * flow. The OSN auth context + the leaf components (WeddingList, the dashboard
- * tabs) are stubbed so this asserts only that glue.
+ * weddings-list fetch into load/error/ready states, the create → auto-open flow,
+ * and the module IA hash routing (`#/w/:id/:module/:sub`, with the pre-IA
+ * `#/weddings/:id/:tab` bookmarks aliased forward for one release). The OSN auth
+ * context + the leaf components (WeddingList, the module shell) are stubbed so
+ * this asserts only that glue.
  */
 
 const authFetchMock = vi.fn();
@@ -58,38 +60,32 @@ vi.mock("./WeddingList", () => ({
   ),
 }));
 
-// The tab bar is controlled now: it gets the active `tab` + an `onTab` callback.
-// Surface both so the suite can assert the hash-driven tab and exercise a tab
-// switch (which the parent mirrors into the URL hash).
-vi.mock("./DashboardTabs", () => ({
+// The module shell is controlled now: it gets the active `module` + `sub` and an
+// `onModule` / `onSub` callback pair. Surface all four so the suite can assert
+// the hash-driven module/sub and exercise a module switch (which the parent
+// mirrors into the URL hash). It also owns the import + Overview internally now,
+// so those aren't separately mounted at the dashboard level.
+vi.mock("./ModuleShell", () => ({
   default: (props: {
     weddingId: string;
     canManage: boolean;
     canEdit: boolean;
-    tab: string;
-    onTab: (t: string) => void;
+    module: string;
+    sub: string;
+    onModule: (m: string) => void;
+    onSub: (s: string) => void;
   }) => (
     <div
-      data-testid="dashboard-tabs"
+      data-testid="module-shell"
       data-can-manage={String(props.canManage)}
       data-can-edit={String(props.canEdit)}
-      data-tab={props.tab}
+      data-module={props.module}
+      data-sub={props.sub}
     >
       {props.weddingId}
-      <button onClick={() => props.onTab("guests")}>go-guests</button>
+      <button onClick={() => props.onModule("guests")}>go-guests</button>
+      <button onClick={() => props.onSub("rsvps")}>go-rsvps</button>
     </div>
-  ),
-}));
-vi.mock("./ImportPanel", () => ({
-  default: (props: { weddingId: string }) => (
-    <div data-testid="import-panel">{props.weddingId}</div>
-  ),
-}));
-// GettingStarted fetches its own events/guests/invite snapshot — stub it so this
-// suite stays on the Dashboard's view glue rather than the checklist's fetches.
-vi.mock("./GettingStarted", () => ({
-  default: (props: { weddingId: string }) => (
-    <div data-testid="getting-started">{props.weddingId}</div>
   ),
 }));
 vi.mock("./PreviewInviteButton", () => ({
@@ -154,13 +150,14 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
 
     fireEvent.click(screen.getByText("select-first"));
-    expect(screen.getByTestId("dashboard-tabs").textContent).toContain("wed_a");
-    // Owner ⇒ management enabled + the import panel rendered.
-    expect(screen.getByTestId("dashboard-tabs").getAttribute("data-can-manage")).toBe("true");
-    expect(screen.getByTestId("import-panel").textContent).toBe("wed_a");
+    expect(screen.getByTestId("module-shell").textContent).toContain("wed_a");
+    // Owner ⇒ management enabled (the shell gates the owner-only sub-views).
+    expect(screen.getByTestId("module-shell").getAttribute("data-can-manage")).toBe("true");
+    // Lands on the Overview module by default.
+    expect(screen.getByTestId("module-shell").getAttribute("data-module")).toBe("overview");
   });
 
-  it("disables owner-only management but still surfaces import for an editor co-host", async () => {
+  it("passes editor edit rights (no owner management) through to the module shell", async () => {
     authFetchMock.mockResolvedValue(
       listResponse([{ id: "wed_c", slug: "c", displayName: "Co-hosted", role: "editor" }]),
     );
@@ -168,16 +165,15 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
 
     fireEvent.click(screen.getByText("select-first"));
-    expect(screen.getByTestId("dashboard-tabs").textContent).toContain("wed_c");
-    // Editor ⇒ owner-only management disabled (threaded into the Hosts/Codes
-    // tabs), but the spreadsheet import is available — editors are trusted
-    // co-organisers (gated server-side by weddingEditor).
-    expect(screen.getByTestId("dashboard-tabs").getAttribute("data-can-manage")).toBe("false");
-    expect(screen.getByTestId("dashboard-tabs").getAttribute("data-can-edit")).toBe("true");
-    expect(screen.getByTestId("import-panel").textContent).toBe("wed_c");
+    expect(screen.getByTestId("module-shell").textContent).toContain("wed_c");
+    // Editor ⇒ owner-only management disabled but write surfaces enabled — the
+    // shell decides which sub-views to expose (import, invite design), gated
+    // server-side by weddingEditor.
+    expect(screen.getByTestId("module-shell").getAttribute("data-can-manage")).toBe("false");
+    expect(screen.getByTestId("module-shell").getAttribute("data-can-edit")).toBe("true");
   });
 
-  it("hides the import panel and disables edit for a viewer co-host", async () => {
+  it("passes viewer read-only rights through to the module shell", async () => {
     authFetchMock.mockResolvedValue(
       listResponse([{ id: "wed_v", slug: "v", displayName: "Viewed", role: "viewer" }]),
     );
@@ -185,11 +181,9 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
 
     fireEvent.click(screen.getByText("select-first"));
-    expect(screen.getByTestId("dashboard-tabs").textContent).toContain("wed_v");
-    expect(screen.getByTestId("dashboard-tabs").getAttribute("data-can-manage")).toBe("false");
-    expect(screen.getByTestId("dashboard-tabs").getAttribute("data-can-edit")).toBe("false");
-    // The import is a pure write surface — a viewer doesn't see it at all.
-    expect(screen.queryByTestId("import-panel")).toBeNull();
+    expect(screen.getByTestId("module-shell").textContent).toContain("wed_v");
+    expect(screen.getByTestId("module-shell").getAttribute("data-can-manage")).toBe("false");
+    expect(screen.getByTestId("module-shell").getAttribute("data-can-edit")).toBe("false");
     // The header badge says Viewer.
     expect(screen.getByText("Viewer")).toBeTruthy();
   });
@@ -202,7 +196,7 @@ describe("OrganiserApp Dashboard", () => {
     fireEvent.click(screen.getByText("create"));
     // The new wedding is selected (its dashboard renders) and the list now
     // carries it.
-    expect(screen.getByTestId("dashboard-tabs").textContent).toContain("wed_new");
+    expect(screen.getByTestId("module-shell").textContent).toContain("wed_new");
   });
 
   it("toggles to the Security (devices / passkeys) panel from the nav", async () => {
@@ -225,32 +219,49 @@ describe("OrganiserApp Dashboard", () => {
 
   // ── Deep-linking + refresh persistence (the headline ask) ───────────────────
 
-  it("restores a wedding + tab from the URL hash on load (survives a hard refresh)", async () => {
-    // Simulate landing with a deep link / a hard refresh on a wedding tab.
-    history.replaceState(null, "", "#/weddings/wed_a/guests");
+  it("restores a wedding + module/sub from the URL hash on load (survives a hard refresh)", async () => {
+    // Simulate landing with a canonical IA deep link / a hard refresh.
+    history.replaceState(null, "", "#/w/wed_a/guests/rsvps");
     authFetchMock.mockResolvedValue(
       listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
     );
     render(() => <OrganiserApp />);
 
-    // It opens straight to the wedding's dashboard on the deep-linked tab — no
-    // bounce back to the list.
-    await waitFor(() => expect(screen.getByTestId("dashboard-tabs")).toBeTruthy());
+    // It opens straight to the wedding's dashboard on the deep-linked module/sub
+    // — no bounce back to the list.
+    await waitFor(() => expect(screen.getByTestId("module-shell")).toBeTruthy());
     expect(screen.queryByTestId("wedding-list")).toBeNull();
-    expect(screen.getByTestId("dashboard-tabs").getAttribute("data-tab")).toBe("guests");
+    expect(screen.getByTestId("module-shell").getAttribute("data-module")).toBe("guests");
+    expect(screen.getByTestId("module-shell").getAttribute("data-sub")).toBe("rsvps");
+  });
+
+  it("aliases a pre-IA bookmark (#/weddings/:id/:tab) forward to the new module route", async () => {
+    // A bookmark from before the IA shell — the legacy `rsvps` tab aliases to the
+    // guests module's rsvps sub, and the hash migrates to the canonical `#/w/…`.
+    history.replaceState(null, "", "#/weddings/wed_a/rsvps");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+
+    await waitFor(() => expect(screen.getByTestId("module-shell")).toBeTruthy());
+    expect(screen.getByTestId("module-shell").getAttribute("data-module")).toBe("guests");
+    expect(screen.getByTestId("module-shell").getAttribute("data-sub")).toBe("rsvps");
+    // The old bookmark was rewritten to the canonical IA form on mount.
+    expect(window.location.hash).toBe("#/w/wed_a/guests/rsvps");
   });
 
   it("falls back to the list for a hash naming a wedding the organiser can't load", async () => {
     // Deep link to a wedding that isn't in the loaded list (not owner/host, or
     // gone) — it must not hang; it drops to the list.
-    history.replaceState(null, "", "#/weddings/wed_missing/invite");
+    history.replaceState(null, "", "#/w/wed_missing/invite");
     authFetchMock.mockResolvedValue(
       listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
     );
     render(() => <OrganiserApp />);
 
     await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
-    expect(screen.queryByTestId("dashboard-tabs")).toBeNull();
+    expect(screen.queryByTestId("module-shell")).toBeNull();
     // And the hash was corrected to the canonical list route.
     expect(window.location.hash).toBe("#/weddings");
   });
@@ -263,12 +274,18 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
 
     fireEvent.click(screen.getByText("select-first"));
-    expect(window.location.hash).toBe("#/weddings/wed_a");
+    // Opens on the default (overview) module — left implicit in the canonical URL.
+    expect(window.location.hash).toBe("#/w/wed_a");
 
-    // Switching tabs reflects in the hash (shareable / refresh-safe).
+    // Switching module reflects in the hash (shareable / refresh-safe).
     fireEvent.click(screen.getByText("go-guests"));
-    expect(window.location.hash).toBe("#/weddings/wed_a/guests");
-    expect(screen.getByTestId("dashboard-tabs").getAttribute("data-tab")).toBe("guests");
+    expect(window.location.hash).toBe("#/w/wed_a/guests");
+    expect(screen.getByTestId("module-shell").getAttribute("data-module")).toBe("guests");
+
+    // Switching sub within the module appends it to the hash.
+    fireEvent.click(screen.getByText("go-rsvps"));
+    expect(window.location.hash).toBe("#/w/wed_a/guests/rsvps");
+    expect(screen.getByTestId("module-shell").getAttribute("data-sub")).toBe("rsvps");
 
     // Back to all weddings clears the wedding from the hash.
     fireEvent.click(screen.getByRole("button", { name: /All weddings/i }));
@@ -284,10 +301,10 @@ describe("OrganiserApp Dashboard", () => {
     await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
 
     // Simulate the browser navigating the hash (Back/Forward, or a manual edit).
-    window.location.hash = "#/weddings/wed_a/invite";
+    window.location.hash = "#/w/wed_a/invite";
     window.dispatchEvent(new HashChangeEvent("hashchange"));
 
-    await waitFor(() => expect(screen.getByTestId("dashboard-tabs")).toBeTruthy());
-    expect(screen.getByTestId("dashboard-tabs").getAttribute("data-tab")).toBe("invite");
+    await waitFor(() => expect(screen.getByTestId("module-shell")).toBeTruthy());
+    expect(screen.getByTestId("module-shell").getAttribute("data-module")).toBe("invite");
   });
 });

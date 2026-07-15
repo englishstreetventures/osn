@@ -1,19 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  DASHBOARD_TABS,
   type DashboardRoute,
-  DEFAULT_TAB,
-  isDashboardTab,
+  DEFAULT_MODULE,
+  defaultSub,
+  isModule,
+  isSubOf,
   LIST_ROUTE,
+  MODULES,
   parseRoute,
   serializeRoute,
 } from "./dashboard-route";
 
 /**
  * The hash-route helper is the contract the dashboard's deep-linking + refresh-
- * persistence rests on: it must parse every shape the app produces (and fall
- * unknown shapes back to the list), and round-trip its own serialisations.
+ * persistence rests on. Post-IA (PR 3) the shape is `#/w/:id/:module/:sub`: it
+ * must parse every shape the app produces (falling unknown shapes back to the
+ * list), round-trip its own serialisations, and keep pre-IA `#/weddings/:id/:tab`
+ * bookmarks working for one release via the legacy-tab alias.
  */
 describe("dashboard-route", () => {
   describe("parseRoute", () => {
@@ -21,27 +25,40 @@ describe("dashboard-route", () => {
       expect(parseRoute("#/weddings")).toEqual(LIST_ROUTE);
     });
 
-    it("parses a wedding with the default tab", () => {
-      expect(parseRoute("#/weddings/wed_1")).toEqual({
+    it("parses a wedding with the default module + sub", () => {
+      expect(parseRoute("#/w/wed_1")).toEqual({
         view: "weddings",
         weddingId: "wed_1",
-        tab: DEFAULT_TAB,
+        module: DEFAULT_MODULE,
+        sub: defaultSub(DEFAULT_MODULE),
       });
     });
 
-    it("parses a wedding + a specific tab", () => {
-      expect(parseRoute("#/weddings/wed_1/guests")).toEqual({
+    it("parses a wedding + a specific module (default sub)", () => {
+      expect(parseRoute("#/w/wed_1/guests")).toEqual({
         view: "weddings",
         weddingId: "wed_1",
-        tab: "guests",
+        module: "guests",
+        sub: defaultSub("guests"),
       });
     });
 
-    it("parses every known tab", () => {
-      // Driven by DASHBOARD_TABS itself so a newly added tab is covered
-      // automatically instead of silently falling back to the default.
-      for (const tab of DASHBOARD_TABS) {
-        expect(parseRoute(`#/weddings/wed_1/${tab}`).tab).toBe(tab);
+    it("parses a wedding + module + sub", () => {
+      expect(parseRoute("#/w/wed_1/guests/rsvps")).toEqual({
+        view: "weddings",
+        weddingId: "wed_1",
+        module: "guests",
+        sub: "rsvps",
+      });
+    });
+
+    it("parses every known module to its default sub", () => {
+      // Driven by MODULES itself so a newly added module is covered automatically
+      // instead of silently falling back to the default.
+      for (const module of MODULES) {
+        const r = parseRoute(`#/w/wed_1/${module}`);
+        expect(r.module).toBe(module);
+        expect(r.sub).toBe(defaultSub(module));
       }
     });
 
@@ -49,15 +66,17 @@ describe("dashboard-route", () => {
       expect(parseRoute("#/security")).toEqual({
         view: "security",
         weddingId: null,
-        tab: DEFAULT_TAB,
+        module: DEFAULT_MODULE,
+        sub: defaultSub(DEFAULT_MODULE),
       });
     });
 
     it("decodes a wedding id with reserved characters", () => {
-      expect(parseRoute("#/weddings/wed%2F1/invite")).toEqual({
+      expect(parseRoute("#/w/wed%2F1/invite")).toEqual({
         view: "weddings",
         weddingId: "wed/1",
-        tab: "invite",
+        module: "invite",
+        sub: defaultSub("invite"),
       });
     });
 
@@ -72,29 +91,68 @@ describe("dashboard-route", () => {
     });
 
     it("falls back to the list when a wedding id is missing", () => {
-      expect(parseRoute("#/weddings/")).toEqual(LIST_ROUTE);
+      expect(parseRoute("#/w/")).toEqual(LIST_ROUTE);
+      expect(parseRoute("#/w")).toEqual(LIST_ROUTE);
     });
 
-    it("falls an unknown tab back to the default tab (keeps the wedding)", () => {
-      expect(parseRoute("#/weddings/wed_1/bogus")).toEqual({
+    it("falls an unknown module back to the default module (keeps the wedding)", () => {
+      expect(parseRoute("#/w/wed_1/bogus")).toEqual({
         view: "weddings",
         weddingId: "wed_1",
-        tab: DEFAULT_TAB,
+        module: DEFAULT_MODULE,
+        sub: defaultSub(DEFAULT_MODULE),
       });
     });
 
-    it("tolerates legacy bare hashes", () => {
-      // The legacy top-level `#security` hash still resolves to the security
-      // view (the segment matches), so a pre-scheme bookmark keeps working.
-      expect(parseRoute("#security")).toEqual({
-        view: "security",
-        weddingId: null,
-        tab: DEFAULT_TAB,
+    it("falls an unknown sub back to the module's default sub (keeps the module)", () => {
+      expect(parseRoute("#/w/wed_1/invite/bogus")).toEqual({
+        view: "weddings",
+        weddingId: "wed_1",
+        module: "invite",
+        sub: defaultSub("invite"),
       });
-      // A legacy bare tab hash (`#guests`) is not a recognised top segment, so
-      // it degrades to the list rather than erroring. (OrganiserApp normalises
-      // the canonical `#/…` form on mount.)
-      expect(parseRoute("#guests")).toEqual(LIST_ROUTE);
+    });
+
+    describe("legacy pre-IA aliases (kept for one release)", () => {
+      // The flat `#/weddings/:id/:tab` bookmarks must still open to the right
+      // module/sub so an organiser's saved link doesn't break silently.
+      const cases: Array<[string, { module: string; sub: string }]> = [
+        ["events", { module: "schedule", sub: "index" }],
+        ["guests", { module: "guests", sub: "list" }],
+        ["rsvps", { module: "guests", sub: "rsvps" }],
+        ["invite", { module: "invite", sub: "design" }],
+        ["codes", { module: "invite", sub: "codes" }],
+        ["hosts", { module: "settings", sub: "hosts" }],
+        ["settings", { module: "settings", sub: "wedding" }],
+      ];
+      for (const [tab, expected] of cases) {
+        it(`aliases #/weddings/wed_1/${tab} → ${expected.module}/${expected.sub}`, () => {
+          expect(parseRoute(`#/weddings/wed_1/${tab}`)).toEqual({
+            view: "weddings",
+            weddingId: "wed_1",
+            module: expected.module,
+            sub: expected.sub,
+          });
+        });
+      }
+
+      it("lands a bare #/weddings/:id on the default module", () => {
+        expect(parseRoute("#/weddings/wed_1")).toEqual({
+          view: "weddings",
+          weddingId: "wed_1",
+          module: DEFAULT_MODULE,
+          sub: defaultSub(DEFAULT_MODULE),
+        });
+      });
+
+      it("still resolves the legacy bare #security hash", () => {
+        expect(parseRoute("#security")).toEqual({
+          view: "security",
+          weddingId: null,
+          module: DEFAULT_MODULE,
+          sub: defaultSub(DEFAULT_MODULE),
+        });
+      });
     });
   });
 
@@ -103,41 +161,65 @@ describe("dashboard-route", () => {
       expect(serializeRoute(LIST_ROUTE)).toBe("#/weddings");
     });
 
-    it("omits the default tab for a short, canonical wedding link", () => {
-      expect(serializeRoute({ view: "weddings", weddingId: "wed_1", tab: DEFAULT_TAB })).toBe(
-        "#/weddings/wed_1",
-      );
+    it("omits the default module + sub for a short, canonical wedding link", () => {
+      expect(
+        serializeRoute({
+          view: "weddings",
+          weddingId: "wed_1",
+          module: DEFAULT_MODULE,
+          sub: defaultSub(DEFAULT_MODULE),
+        }),
+      ).toBe("#/w/wed_1");
     });
 
-    it("appends a non-default tab", () => {
-      expect(serializeRoute({ view: "weddings", weddingId: "wed_1", tab: "codes" })).toBe(
-        "#/weddings/wed_1/codes",
-      );
+    it("appends a non-default module on its default sub", () => {
+      expect(
+        serializeRoute({ view: "weddings", weddingId: "wed_1", module: "guests", sub: "list" }),
+      ).toBe("#/w/wed_1/guests");
+    });
+
+    it("appends module + sub for a non-default sub", () => {
+      expect(
+        serializeRoute({ view: "weddings", weddingId: "wed_1", module: "guests", sub: "rsvps" }),
+      ).toBe("#/w/wed_1/guests/rsvps");
     });
 
     it("serialises security", () => {
-      expect(serializeRoute({ view: "security", weddingId: null, tab: DEFAULT_TAB })).toBe(
-        "#/security",
-      );
+      expect(
+        serializeRoute({
+          view: "security",
+          weddingId: null,
+          module: DEFAULT_MODULE,
+          sub: defaultSub(DEFAULT_MODULE),
+        }),
+      ).toBe("#/security");
     });
 
     it("encodes a wedding id with reserved characters", () => {
-      expect(serializeRoute({ view: "weddings", weddingId: "wed/1", tab: "invite" })).toBe(
-        "#/weddings/wed%2F1/invite",
-      );
+      expect(
+        serializeRoute({ view: "weddings", weddingId: "wed/1", module: "invite", sub: "design" }),
+      ).toBe("#/w/wed%2F1/invite");
     });
   });
 
   describe("round-trip", () => {
     const routes: DashboardRoute[] = [
       LIST_ROUTE,
-      { view: "weddings", weddingId: "wed_1", tab: "events" },
-      { view: "weddings", weddingId: "wed_1", tab: "guests" },
-      { view: "weddings", weddingId: "wed_1", tab: "invite" },
-      { view: "weddings", weddingId: "wed_1", tab: "codes" },
-      { view: "weddings", weddingId: "wed_1", tab: "hosts" },
-      { view: "weddings", weddingId: "wed/with spaces", tab: "guests" },
-      { view: "security", weddingId: null, tab: DEFAULT_TAB },
+      { view: "weddings", weddingId: "wed_1", module: "overview", sub: "index" },
+      { view: "weddings", weddingId: "wed_1", module: "schedule", sub: "index" },
+      { view: "weddings", weddingId: "wed_1", module: "guests", sub: "list" },
+      { view: "weddings", weddingId: "wed_1", module: "guests", sub: "rsvps" },
+      { view: "weddings", weddingId: "wed_1", module: "invite", sub: "design" },
+      { view: "weddings", weddingId: "wed_1", module: "invite", sub: "codes" },
+      { view: "weddings", weddingId: "wed_1", module: "settings", sub: "wedding" },
+      { view: "weddings", weddingId: "wed_1", module: "settings", sub: "hosts" },
+      { view: "weddings", weddingId: "wed/with spaces", module: "guests", sub: "rsvps" },
+      {
+        view: "security",
+        weddingId: null,
+        module: DEFAULT_MODULE,
+        sub: defaultSub(DEFAULT_MODULE),
+      },
     ];
 
     it("parse(serialize(route)) === route for every producible route", () => {
@@ -147,14 +229,20 @@ describe("dashboard-route", () => {
     });
   });
 
-  describe("isDashboardTab", () => {
-    it("accepts the known tabs and rejects everything else", () => {
-      for (const tab of DASHBOARD_TABS) {
-        expect(isDashboardTab(tab)).toBe(true);
-      }
-      expect(isDashboardTab("weddings")).toBe(false);
-      expect(isDashboardTab("")).toBe(false);
-      expect(isDashboardTab("EVENTS")).toBe(false);
+  describe("isModule / isSubOf", () => {
+    it("accepts the known modules and rejects everything else", () => {
+      for (const module of MODULES) expect(isModule(module)).toBe(true);
+      expect(isModule("weddings")).toBe(false);
+      expect(isModule("")).toBe(false);
+      expect(isModule("OVERVIEW")).toBe(false);
+    });
+
+    it("validates a sub against its module", () => {
+      expect(isSubOf("guests", "list")).toBe(true);
+      expect(isSubOf("guests", "rsvps")).toBe(true);
+      expect(isSubOf("guests", "codes")).toBe(false);
+      expect(isSubOf("invite", "codes")).toBe(true);
+      expect(isSubOf("overview", "index")).toBe(true);
     });
   });
 });

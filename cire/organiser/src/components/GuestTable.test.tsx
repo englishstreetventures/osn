@@ -38,6 +38,8 @@ vi.mock("../lib/download", () => ({
   downloadCsv: vi.fn(),
 }));
 
+import { __resetEventsCache } from "../lib/events-store";
+import { __resetGuestsCache } from "../lib/guests-store";
 import GuestTable from "./GuestTable";
 
 function json(body: unknown, status = 200) {
@@ -93,6 +95,10 @@ describe("GuestTable", () => {
     toastError.mockReset();
     writeText.mockReset();
     downloadBlobMock.mockReset();
+    // GuestTable reads guests + events from module-scoped caches (P-I3); clear
+    // them so each test starts cold and its mocked fetch sequence is honoured.
+    __resetGuestsCache();
+    __resetEventsCache();
   });
 
   function withClipboard() {
