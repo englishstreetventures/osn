@@ -8,7 +8,9 @@ export interface R2Bucket {
   get(
     key: string,
   ): Promise<{ text(): Promise<string> } | null> | { text(): Promise<string> } | null;
-  delete(key: string): Promise<unknown> | unknown;
+  // Cloudflare R2 accepts a single key or an array (multi-key delete); the
+  // shared reaper (`r2-cleanup.ts`) prefers the array form and falls back.
+  delete(keys: string | string[]): Promise<unknown> | unknown;
 }
 
 export class R2Service extends Context.Tag("R2Service")<R2Service, R2Bucket>() {}
@@ -25,6 +27,47 @@ function eventsKey(importId: string): string {
 
 function guestsKey(importId: string): string {
   return `imports/${importId}/guests.csv`;
+}
+
+// Before-image snapshot keys (guest+event editor E3, [[guest-event-editor]] §4):
+// the wedding's current-state CSVs captured at apply time, before the change
+// mutates anything. Kept under a distinct `before/` prefix so they never collide
+// with the uploaded/derived after-sheets and so a bucket listing can tell them
+// apart.
+function beforeEventsKey(importId: string): string {
+  return `imports/${importId}/before/events.csv`;
+}
+
+function beforeGuestsKey(importId: string): string {
+  return `imports/${importId}/before/guests.csv`;
+}
+
+/**
+ * Store a change's before-image — the wedding's current-state snapshot CSVs,
+ * serialised at full fidelity by `state-export.ts` — under the `before/` prefix
+ * for `importId`. Returns the two keys to record on the change row
+ * (`beforeEventsR2Key` / `beforeGuestsR2Key`). See [[guest-event-editor]] §4.
+ */
+export function storeBeforeImage(
+  eventsCsv: string,
+  guestsCsv: string,
+  importId: string,
+): Effect.Effect<{ eventsKey: string; guestsKey: string }, R2Error, R2Service> {
+  return Effect.gen(function* () {
+    const r2 = yield* R2Service;
+    const ek = beforeEventsKey(importId);
+    const gk = beforeGuestsKey(importId);
+
+    yield* Effect.tryPromise({
+      try: async () => {
+        await Promise.resolve(r2.put(ek, eventsCsv));
+        await Promise.resolve(r2.put(gk, guestsCsv));
+      },
+      catch: (cause) => new R2Error({ reason: "before-image store failed", cause }),
+    });
+
+    return { eventsKey: ek, guestsKey: gk };
+  });
 }
 
 export function storeUpload(
@@ -91,8 +134,12 @@ export function createR2Stub(): R2Bucket & { _store: Map<string, string> } {
       if (v === undefined) return null;
       return { text: () => Promise.resolve(v) };
     },
-    delete(key: string) {
-      store.delete(key);
+    // Accept BOTH the single-key and the array (multi-key) delete form, so the
+    // stub matches Cloudflare R2 (which the shared best-effort reaper prefers)
+    // as well as a single-key binding.
+    delete(key: string | string[]) {
+      if (Array.isArray(key)) for (const k of key) store.delete(k);
+      else store.delete(key);
       return Promise.resolve();
     },
   };

@@ -11,7 +11,9 @@ import { weddingEditor } from "../middleware/wedding-editor";
 import { runCire } from "../observability";
 import { ApplyBody, PreviewBody, RevertBody } from "../schemas/import";
 import type { ImportPlan, ParsedFamily } from "../schemas/import";
+import { captureBeforeImage, pruneBeforeImages } from "../services/checkpoint";
 import { applyImport, diffAgainstDb } from "../services/import";
+import type { DeletableBucket } from "../services/r2-cleanup";
 import { R2Service, fetchUpload, storeUpload } from "../services/r2-imports";
 import type { R2Bucket } from "../services/r2-imports";
 import { revertImport } from "../services/revert";
@@ -256,15 +258,31 @@ export const createOrganiserImportRoutes = (
                   weddingId,
                 );
 
+                // E3 checkpoint: BEFORE mutating, snapshot the wedding's current
+                // state at full fidelity into R2 as this change's before-image,
+                // and record its keys on the row. Revert then restores exactly
+                // this pre-change state (codes + ids preserved, rename-proof).
+                const before = yield* captureBeforeImage(importId, weddingId);
+
                 const summary = yield* applyImport(importId, plan, weddingId);
 
                 yield* dbQuery(() =>
                   dbService
                     .update(imports)
-                    .set({ status: "applied", appliedAt: Date.now() })
+                    .set({
+                      status: "applied",
+                      appliedAt: Date.now(),
+                      beforeEventsR2Key: before.eventsKey,
+                      beforeGuestsR2Key: before.guestsKey,
+                    })
                     .where(eq(imports.id, importId))
                     .run(),
                 );
+
+                // Prune before-images beyond the most recent 10 changes for this
+                // wedding: reap the stale R2 objects + NULL their keys (rows stay
+                // listed but lose revertability). Best-effort; never fails apply.
+                yield* pruneBeforeImages(weddingId, r2 as DeletableBucket | undefined);
 
                 return { summary };
               }).pipe(

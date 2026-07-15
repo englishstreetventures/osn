@@ -483,6 +483,18 @@ export const imports = sqliteTable(
     }).notNull(),
     appliedAt: integer("applied_at"),
     revertedAt: integer("reverted_at"),
+    // Change-history kind (guest+event editor E3, [[guest-event-editor]] §4).
+    // `'import'` = a spreadsheet upload (the only writer today); `'editor'` = an
+    // in-app editor save (E5/E6). DEFAULT 'import' back-fills legacy rows.
+    kind: text("kind", { enum: ["import", "editor"] })
+      .notNull()
+      .default("import"),
+    // Before-image snapshot keys (E3): the R2 keys of the wedding's current-state
+    // CSVs captured at apply time, BEFORE this change mutated anything. NULLABLE
+    // — legacy rows predate the before-image, so revert falls back to the old
+    // "re-apply the previous import's sheets" heuristic for them.
+    beforeEventsR2Key: text("before_events_r2_key"),
+    beforeGuestsR2Key: text("before_guests_r2_key"),
   },
   (t) => [
     // P-W1: import-list pagination is `WHERE wedding_id = ? [AND uploaded_at <

@@ -186,7 +186,10 @@ CREATE TABLE IF NOT EXISTS imports (
   summary TEXT NOT NULL,
   status TEXT NOT NULL,
   applied_at INTEGER,
-  reverted_at INTEGER
+  reverted_at INTEGER,
+  kind TEXT NOT NULL DEFAULT 'import',
+  before_events_r2_key TEXT,
+  before_guests_r2_key TEXT
 );
 CREATE INDEX IF NOT EXISTS imports_wedding_uploaded_at_idx ON imports(wedding_id, uploaded_at);
 `;
