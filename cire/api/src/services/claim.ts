@@ -358,6 +358,7 @@ export const claimService = {
             familyId: families.id,
             firstName: guests.firstName,
             lastName: guests.lastName,
+            nickname: guests.nickname,
             publicId: families.publicId,
             familyName: families.familyName,
             codeSharedAt: families.codeSharedAt,
@@ -389,6 +390,7 @@ export const claimService = {
             familyName: row.familyName,
             firstName: row.firstName,
             lastName: row.lastName,
+            nickname: row.nickname,
             events: [],
             // Drizzle decodes the `timestamp`-mode column to a `Date | null`;
             // surface epoch-ms (or null) so the JSON wire stays a plain number.

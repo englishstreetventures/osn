@@ -15,6 +15,7 @@ import {
   buildEventsTemplateCsv,
   buildGuestsTemplateCsv,
 } from "../lib/import-templates";
+import { PlanCounts } from "./ChangePreview";
 import ImportHistory from "./ImportHistory";
 
 interface ImportPlan {
@@ -352,74 +353,6 @@ export default function ImportPanel(props: { weddingId: string }) {
         <ImportHistory weddingId={props.weddingId} />
       </div>
     </details>
-  );
-}
-
-function PlanCounts(props: { plan: ImportPlan }) {
-  const rows: { label: string; create: number; update: number; remove: number }[] = [
-    {
-      label: "events",
-      create: props.plan.eventCreates.length,
-      update: props.plan.eventUpdates.length,
-      remove: props.plan.eventRemoves.length,
-    },
-    {
-      label: "families",
-      create: props.plan.familyCreates.length,
-      update: 0,
-      remove: props.plan.familyRemoves.length,
-    },
-    {
-      label: "guests",
-      create: props.plan.guestCreates.length,
-      update: props.plan.guestUpdates.length,
-      remove: props.plan.guestRemoves.length,
-    },
-    {
-      label: "invitations",
-      create: props.plan.eventLinkCreates.length,
-      update: 0,
-      remove: props.plan.eventLinkRemoves.length,
-    },
-  ];
-
-  return (
-    <table class="font-body w-full border-collapse text-[0.88rem]">
-      <thead>
-        <tr>
-          <th class="border-border text-gold border-b px-3 py-2 text-left text-[0.72rem] font-normal tracking-[0.1em] uppercase">
-            <span class="sr-only">Record type</span>
-          </th>
-          <th class="border-border text-gold border-b px-3 py-2 text-right text-[0.72rem] font-normal tracking-[0.1em] uppercase">
-            Create
-          </th>
-          <th class="border-border text-gold border-b px-3 py-2 text-right text-[0.72rem] font-normal tracking-[0.1em] uppercase">
-            Update
-          </th>
-          <th class="border-border text-gold border-b px-3 py-2 text-right text-[0.72rem] font-normal tracking-[0.1em] uppercase">
-            Remove
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <For each={rows}>
-          {(r) => (
-            <tr>
-              <td class="border-border text-text border-b px-3 py-2">{r.label}</td>
-              <td class="border-border text-text-muted border-b px-3 py-2 text-right font-mono">
-                {r.create}
-              </td>
-              <td class="border-border text-text-muted border-b px-3 py-2 text-right font-mono">
-                {r.update}
-              </td>
-              <td class="border-border text-text-muted border-b px-3 py-2 text-right font-mono">
-                {r.remove}
-              </td>
-            </tr>
-          )}
-        </For>
-      </tbody>
-    </table>
   );
 }
 

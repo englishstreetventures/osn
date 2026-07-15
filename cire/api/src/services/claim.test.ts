@@ -185,6 +185,20 @@ describe("claimService.getAllGuests", () => {
   );
 
   it(
+    "each row exposes a nickname field (null when unset) so the editor can preserve it",
+    withDb(
+      Effect.gen(function* () {
+        const rows = yield* claimService.getAllGuests(BOOTSTRAP_WEDDING_ID);
+        for (const row of rows) {
+          // The column is nullable; the wire shape must be `string | null`, never
+          // undefined — the editor round-trips this through DesiredState.
+          expect(row.nickname === null || typeof row.nickname === "string").toBe(true);
+        }
+      }),
+    ),
+  );
+
+  it(
     "each row exposes its familyId and a null codeSharedAt by default",
     withDb(
       Effect.gen(function* () {

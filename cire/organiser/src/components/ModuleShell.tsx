@@ -3,6 +3,7 @@ import { For, Show } from "solid-js";
 import { defaultSub, isSubOf, type Module } from "../lib/dashboard-route";
 import EventLocationsPanel from "./EventLocationsPanel";
 import EventTable from "./EventTable";
+import GuestsEditor from "./GuestsEditor";
 import GuestTable from "./GuestTable";
 import HostsPanel from "./HostsPanel";
 import ImportPanel from "./ImportPanel";
@@ -50,6 +51,7 @@ interface SubDef {
 const MODULE_SUB_TABS: Partial<Record<Module, SubDef[]>> = {
   guests: [
     { id: "list", label: "Households" },
+    { id: "edit", label: "Edit", edit: true },
     { id: "rsvps", label: "RSVPs" },
   ],
   invite: [
@@ -170,6 +172,11 @@ export default function ModuleShell(props: ModuleShellProps) {
                 weddingSlug={props.weddingSlug}
               />
             </div>
+          </Show>
+          {/* Interactive editor (E5) — a pure write surface, editor-gated (the
+              API also gates changes/* with weddingEditor()). */}
+          <Show when={active() === "edit" && props.canEdit}>
+            <GuestsEditor weddingId={props.weddingId} />
           </Show>
           <Show when={active() === "rsvps"}>
             <RsvpView weddingId={props.weddingId} />

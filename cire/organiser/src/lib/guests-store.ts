@@ -19,11 +19,18 @@ import { type Accessor, createSignal, type Setter } from "solid-js";
 /** One guest row as the organiser API returns it (repeats per family member —
  *  the table dedupes to households). */
 export interface OrganiserGuestRow {
+  /** The guest DB id (`guests.id`). Stable across renames — the editor draft
+   *  (E5) keeps it so a first-name/nickname fix is an UPDATE, not remove+create
+   *  (which would rotate nothing on guests but drop the guest's RSVPs). */
+  guestId: string;
   familyId: string;
   publicId: string;
   familyName: string;
   firstName: string;
   lastName: string;
+  /** Optional single-guest greeting name; `null` ⇒ use firstName. Carried so a
+   *  draft-save preserves it instead of blanking it. */
+  nickname: string | null;
   events: string[];
   codeSharedAt: number | null;
   firstOpenedAt: number | null;

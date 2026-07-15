@@ -97,6 +97,12 @@ export const OrganiserGuestRow = Schema.Struct({
   familyName: Schema.String,
   firstName: Schema.String,
   lastName: Schema.String,
+  // Optional informal name used only to greet a SINGLE-guest household on its
+  // invite ("Dear {nickname}"); `null` ⇒ fall back to firstName. Exposed on the
+  // organiser read so the guest+event editor (E5) can display AND preserve it —
+  // a draft-save round-trips the whole guest through DesiredState, so without
+  // this an untouched nickname would be blanked on the next save.
+  nickname: Schema.NullOr(Schema.String),
   events: Schema.Array(Schema.String),
   // Epoch-ms timestamp the organiser last copied this family's invite message
   // (the per-family "Copy message" button), or `null` if never shared. Drives

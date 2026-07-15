@@ -43,7 +43,9 @@ export function isModule(value: string): value is Module {
  */
 export const MODULE_SUBS: Record<Module, readonly string[]> = {
   overview: ["index"],
-  guests: ["list", "rsvps"],
+  // `edit` is the interactive guest+event editor (E5), an editor-only sub the
+  // shell hides from read-only viewers (the parser can't see the role).
+  guests: ["list", "edit", "rsvps"],
   schedule: ["index"],
   invite: ["design", "codes"],
   settings: ["wedding", "hosts"],
