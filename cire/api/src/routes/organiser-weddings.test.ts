@@ -1252,3 +1252,253 @@ describe("GET /api/organiser/weddings/:weddingId/export/{events,guests}.csv", ()
     expect((await get(app, guestsPath, COHOST)).status).toBe(200);
   });
 });
+
+// ── Households ≠ claim codes (platform Phase 0 PR 4) ─────────────────────────
+describe("PR 4: households ≠ claim codes", () => {
+  const EDITOR = "usr_pr4_editor";
+  const VIEWER = "usr_pr4_viewer";
+
+  // A dedicated app with a generous remint limiter (the households routes ride
+  // it) so the shared-IP cases in this block don't bleed into a 429.
+  function buildPr4App() {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const app = createApp(db, {
+      osnTestKey: auth.key,
+      remintLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
+    });
+    return { db, app };
+  }
+
+  function seedEditor(db: Db) {
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_pr4_editor",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: EDITOR,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "editor",
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  function seedViewer(db: Db) {
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_pr4_viewer",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: VIEWER,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "viewer",
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  async function createHousehold(
+    app: ReturnType<typeof buildPr4App>["app"],
+    weddingId: string,
+    body: unknown,
+    profileId?: string,
+  ) {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (profileId) headers.Authorization = `Bearer ${await auth.sign(profileId)}`;
+    return appRequest(app, `/api/organiser/weddings/${weddingId}/households`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  }
+
+  async function postAt(
+    app: ReturnType<typeof buildPr4App>["app"],
+    path: string,
+    profileId?: string,
+  ) {
+    const headers: Record<string, string> = {};
+    if (profileId) headers.Authorization = `Bearer ${await auth.sign(profileId)}`;
+    return appRequest(app, path, { method: "POST", headers });
+  }
+
+  const codelessFamilies = (db: Db) =>
+    db
+      .select({ id: families.id, publicId: families.publicId })
+      .from(families)
+      .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+      .all()
+      .filter((f) => f.publicId === null);
+
+  describe("POST .../households (create code-less, editor-gated)", () => {
+    it("401 without a token", async () => {
+      const { app } = buildPr4App();
+      const res = await createHousehold(app, BOOTSTRAP_WEDDING_ID, { familyName: "X" });
+      expect(res.status).toBe(401);
+    });
+
+    it("403 read_only_role for a viewer co-host", async () => {
+      const { db, app } = buildPr4App();
+      seedViewer(db);
+      const res = await createHousehold(app, BOOTSTRAP_WEDDING_ID, { familyName: "X" }, VIEWER);
+      expect(res.status).toBe(403);
+      expect((await res.json()).error).toBe("read_only_role");
+    });
+
+    it("403 for a non-member", async () => {
+      const { app } = buildPr4App();
+      const res = await createHousehold(
+        app,
+        BOOTSTRAP_WEDDING_ID,
+        { familyName: "X" },
+        OTHER_OWNER,
+      );
+      expect(res.status).toBe(403);
+    });
+
+    it("400 for a missing/blank name", async () => {
+      const { app } = buildPr4App();
+      const res = await createHousehold(
+        app,
+        BOOTSTRAP_WEDDING_ID,
+        { familyName: "  " },
+        BOOTSTRAP_OWNER,
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("201 + code-less household for the owner", async () => {
+      const { db, app } = buildPr4App();
+      const res = await createHousehold(
+        app,
+        BOOTSTRAP_WEDDING_ID,
+        { familyName: "Nguyen" },
+        BOOTSTRAP_OWNER,
+      );
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { household: { familyId: string; publicId: null } };
+      expect(body.household.publicId).toBeNull();
+      const stored = db
+        .select()
+        .from(families)
+        .where(eq(families.id, body.household.familyId))
+        .all()[0];
+      expect(stored!.publicId).toBeNull();
+    });
+
+    it("201 for an editor co-host (a code-less household is a module write)", async () => {
+      const { db, app } = buildPr4App();
+      seedEditor(db);
+      const res = await createHousehold(
+        app,
+        BOOTSTRAP_WEDDING_ID,
+        { familyName: "Editor Made" },
+        EDITOR,
+      );
+      expect(res.status).toBe(201);
+    });
+  });
+
+  describe("POST .../families/:id/issue-invite (single, owner-gated)", () => {
+    it("403 for an editor co-host (issuing a code is owner-only)", async () => {
+      const { db, app } = buildPr4App();
+      seedEditor(db);
+      const created = await createHousehold(app, BOOTSTRAP_WEDDING_ID, { familyName: "H" }, EDITOR);
+      const familyId = (await created.json()).household.familyId as string;
+      const res = await postAt(
+        app,
+        `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/families/${familyId}/issue-invite`,
+        EDITOR,
+      );
+      expect(res.status).toBe(403);
+    });
+
+    it("owner issues a valid code onto a code-less household", async () => {
+      const { db, app } = buildPr4App();
+      const created = await createHousehold(
+        app,
+        BOOTSTRAP_WEDDING_ID,
+        { familyName: "Sharma" },
+        BOOTSTRAP_OWNER,
+      );
+      const familyId = (await created.json()).household.familyId as string;
+      const res = await postAt(
+        app,
+        `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/families/${familyId}/issue-invite`,
+        BOOTSTRAP_OWNER,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { publicId: string };
+      expect(body.publicId.split("-")).toHaveLength(4);
+      const stored = db.select().from(families).where(eq(families.id, familyId)).all()[0];
+      expect(stored!.publicId).toBe(body.publicId);
+    });
+
+    it("404 (not_codeless_family) for a household that already has a code", async () => {
+      const { db, app } = buildPr4App();
+      const fam = db
+        .select({ id: families.id })
+        .from(families)
+        .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+        .all()[0]!;
+      const res = await postAt(
+        app,
+        `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/families/${fam.id}/issue-invite`,
+        BOOTSTRAP_OWNER,
+      );
+      expect(res.status).toBe(404);
+      expect((await res.json()).error).toBe("not_codeless_family");
+    });
+  });
+
+  describe("POST .../issue-invites (bulk, owner-gated)", () => {
+    it("403 for an editor", async () => {
+      const { db, app } = buildPr4App();
+      seedEditor(db);
+      const res = await postAt(
+        app,
+        `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/issue-invites`,
+        EDITOR,
+      );
+      expect(res.status).toBe(403);
+    });
+
+    it("owner issues codes for all code-less households", async () => {
+      const { db, app } = buildPr4App();
+      await createHousehold(app, BOOTSTRAP_WEDDING_ID, { familyName: "A" }, BOOTSTRAP_OWNER);
+      await createHousehold(app, BOOTSTRAP_WEDDING_ID, { familyName: "B" }, BOOTSTRAP_OWNER);
+      expect(codelessFamilies(db)).toHaveLength(2);
+
+      const res = await postAt(
+        app,
+        `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/issue-invites`,
+        BOOTSTRAP_OWNER,
+      );
+      expect(res.status).toBe(200);
+      expect((await res.json()).issued).toBe(2);
+      expect(codelessFamilies(db)).toHaveLength(0);
+    });
+  });
+
+  describe("deactivate is invite-only (code-less households refused)", () => {
+    it("404 deactivating a code-less household (no code to cut off)", async () => {
+      const { db, app } = buildPr4App();
+      const created = await createHousehold(
+        app,
+        BOOTSTRAP_WEDDING_ID,
+        { familyName: "NoCode" },
+        BOOTSTRAP_OWNER,
+      );
+      const familyId = (await created.json()).household.familyId as string;
+      const res = await postAt(
+        app,
+        `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/families/${familyId}/deactivate`,
+        BOOTSTRAP_OWNER,
+      );
+      expect(res.status).toBe(404);
+      // Untouched — still code-less, still active.
+      const stored = db.select().from(families).where(eq(families.id, familyId)).all()[0];
+      expect(stored!.publicId).toBeNull();
+      expect(stored!.deactivatedAt).toBeNull();
+    });
+  });
+});

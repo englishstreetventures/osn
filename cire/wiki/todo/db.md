@@ -5,12 +5,14 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-07-10
+last-reviewed: 2026-07-15
 ---
 
 # cire/db
 
 Schema and migration work. See [[monorepo-structure]] for how this package fits into the dependency graph.
+
+- [x] **`families.public_id` made NULLABLE + partial unique index** (migration `0032_households_nullable_code.sql`, platform Phase 0 PR 4) — SQLite can't ALTER away NOT NULL or change a UNIQUE constraint in place, so this is a full **`families` REBUILD** via the `__keep_*` snapshot/restore idiom (same as 0006). D1 enforces FKs unconditionally and `DROP TABLE` fires `ON DELETE CASCADE`, so the WHOLE families cascade subtree is snapshotted before the drop and restored after: `guests`, `sessions`, `guest_account_links` (direct `family_id` FKs) **and** `guest_events`, `rsvps` (via `guests`). **FK-preservation proof**: the copy is `INSERT … SELECT id, … FROM families` — every `families.id` is carried across VERBATIM, so every child FK still resolves; `db/migration-0032.test.ts` seeds all five child tables, runs the rebuild, and asserts zero orphans + the rsvp→guest→family chain intact. The column-level `UNIQUE` is replaced by a **partial unique index** `families_public_id_uniq ON families(public_id) WHERE public_id IS NOT NULL`: codes stay globally unique, but any number of code-less households (`public_id NULL`) coexist because NULL is exempt from a UNIQUE index (tested: 3 NULLs coexist, a duplicate non-NULL code is rejected). All three DDL surfaces mirrored (schema.ts: `.unique()` → nullable `text` + the partial `uniqueIndex … .where(sql\`public_id IS NOT NULL\`)`; the `0032` migration; `setup.ts` DDL) — **T-S1 lockstep green**, migration chain 0001…0032 applies to a fresh D1 with no `__keep_*` scratch tables left behind. **Forward-only** (a table rebuild has no down migration). See `[[platform]]` + `[[api]]`.
 
 - [x] **T-S1 — migration SQL is never executed by any test (DDL-mirror drift risk)** — **closed by platform PR 0 (#247)**: `cire/api/src/db/ddl-lockstep.test.ts` replays the full migration chain (filename order, as `wrangler d1 migrations apply` does) against both the `setup.ts` DDL and the Drizzle schema via a normalised structural snapshot diff, so a change to any of the three surfaces fails until all agree. The `schema.test.ts` mini-mirror was deleted (its suite now runs on `createDb()`). Tracked in `[[platform]]` (Phase 0, PR 0). See `[[api]]`.
 

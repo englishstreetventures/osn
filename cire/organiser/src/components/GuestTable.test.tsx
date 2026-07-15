@@ -439,4 +439,95 @@ describe("GuestTable", () => {
     // The row is NOT muted (no optimistic flip on failure).
     expect(screen.queryByText(/Deactivated — code disabled/i)).toBeNull();
   });
+
+  // ── Households ≠ claim codes (PR 4) ────────────────────────────────────────
+  const CODELESS_GUESTS = [
+    {
+      familyId: "fam_a",
+      publicId: "SHARMA-WIDGET-AB3K9-X7QPM",
+      familyName: "Sharma",
+      firstName: "Ada",
+      lastName: "Sharma",
+      events: ["evt_1"],
+      codeSharedAt: null,
+      firstOpenedAt: null,
+      deactivatedAt: null,
+    },
+    {
+      // A CODE-LESS household (publicId null) — manually created, no invite yet.
+      familyId: "fam_c",
+      publicId: null,
+      familyName: "Codeless",
+      firstName: "Cy",
+      lastName: "Codeless",
+      events: [],
+      codeSharedAt: null,
+      firstOpenedAt: null,
+      deactivatedAt: null,
+    },
+  ];
+
+  function primeCodeless(inviteMessage: string | null = null) {
+    authFetchMock
+      .mockResolvedValueOnce(json(CODELESS_GUESTS))
+      .mockResolvedValueOnce(json(EVENTS))
+      .mockResolvedValueOnce(json({ inviteMessage }));
+  }
+
+  it("renders 'No code yet' + an Issue invite button for a code-less household (owner)", async () => {
+    primeCodeless();
+    render(() => (
+      <GuestTable weddingId="wed_a" canManage weddingName="N & S" weddingSlug="ns-abc" />
+    ));
+    await waitFor(() => expect(screen.getByText("Codeless")).toBeTruthy());
+
+    expect(screen.getByText(/No code yet/i)).toBeTruthy();
+    // The bulk "Issue 1 code" action + the per-row "Issue invite" button.
+    expect(screen.getByRole("button", { name: /Issue 1 code/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Issue invite$/i })).toBeTruthy();
+    // The code-less row has NO Copy message / Deactivate control.
+    const copyButtons = screen.getAllByRole("button", { name: /Copy message/i });
+    expect(copyButtons).toHaveLength(1); // only the coded Sharma row
+  });
+
+  it("hides the Issue controls from a non-owner (canManage false)", async () => {
+    primeCodeless();
+    render(() => (
+      <GuestTable weddingId="wed_a" canManage={false} weddingName="N & S" weddingSlug="ns-abc" />
+    ));
+    await waitFor(() => expect(screen.getByText("Codeless")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Issue invite/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Issue 1 code/i })).toBeNull();
+    // The code cell still reads "No code yet".
+    expect(screen.getByText(/No code yet/i)).toBeTruthy();
+  });
+
+  it("issues a code for one household and shows it in the row", async () => {
+    primeCodeless();
+    authFetchMock.mockResolvedValueOnce(
+      json({ familyId: "fam_c", publicId: "CODELESS-OAK-AB3K9-X7QPM" }),
+    );
+
+    render(() => (
+      <GuestTable weddingId="wed_a" canManage weddingName="N & S" weddingSlug="ns-abc" />
+    ));
+    await waitFor(() => expect(screen.getByText("Codeless")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /^Issue invite$/i }));
+
+    // Fires the single issue-invite POST for that family.
+    await waitFor(() =>
+      expect(
+        authFetchMock.mock.calls.some(
+          (c) =>
+            String(c[0]) ===
+              "https://api.test/api/organiser/weddings/wed_a/families/fam_c/issue-invite" &&
+            (c[1] as RequestInit | undefined)?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    // The freshly-minted code now shows in the row (optimistic override).
+    await waitFor(() => expect(screen.getByText("CODELESS-OAK-AB3K9-X7QPM")).toBeTruthy());
+    expect(toastSuccess).toHaveBeenCalled();
+  });
 });

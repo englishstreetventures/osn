@@ -20,6 +20,7 @@ import {
 import { createOrganiserImportRoutes } from "./routes/organiser-import";
 import { createOrganiserSettingsRoutes } from "./routes/organiser-settings";
 import {
+  createOrganiserHouseholdsRoutes,
   createOrganiserPreviewRoutes,
   createOrganiserRemintRoutes,
   createOrganiserWeddingCreateRoute,
@@ -300,6 +301,11 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createOrganiserWeddingCreateRoute(db, osnAuthOptions, weddingCreateLimiter))
       .use(createOrganiserPreviewRoutes(db, osnAuthOptions, previewLimiter))
       .use(createOrganiserRemintRoutes(db, osnAuthOptions, remintLimiter))
+      // Households ≠ claim codes (PR 4): create a code-less household (editor)
+      // + issue an invite code single/bulk (owner). Reuses the remint limiter —
+      // same write-amplifier class. Sibling instance so its gates/limiter don't
+      // sit in front of the dashboard reads.
+      .use(createOrganiserHouseholdsRoutes(db, osnAuthOptions, remintLimiter))
       // Co-host management. Reads (list hosts) admit owner OR co-host; writes
       // (add/remove) are owner-only and behind a per-IP limiter — split into
       // sibling instances so the read isn't gated by the write limiter.

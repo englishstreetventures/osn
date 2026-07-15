@@ -20,7 +20,9 @@ import { type Accessor, createSignal, type Setter } from "solid-js";
  *  the table dedupes to households). */
 export interface OrganiserGuestRow {
   familyId: string;
-  publicId: string;
+  /** The household's claim code, or `null` for a CODE-LESS household (PR 4 —
+   *  no claimable invite until one is issued). */
+  publicId: string | null;
   familyName: string;
   firstName: string;
   lastName: string;

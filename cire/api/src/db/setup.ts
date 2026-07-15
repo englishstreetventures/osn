@@ -53,7 +53,7 @@ CREATE INDEX IF NOT EXISTS wedding_hosts_wedding_idx ON wedding_hosts(wedding_id
 CREATE TABLE IF NOT EXISTS families (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
-  public_id TEXT NOT NULL UNIQUE,
+  public_id TEXT,
   family_name TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'guest',
   code_shared_at INTEGER,
@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS families (
 );
 CREATE INDEX IF NOT EXISTS families_family_name_idx ON families(family_name);
 CREATE INDEX IF NOT EXISTS families_wedding_idx ON families(wedding_id);
+CREATE UNIQUE INDEX IF NOT EXISTS families_public_id_uniq ON families(public_id) WHERE public_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS families_one_host_per_wedding ON families(wedding_id) WHERE kind = 'host';
 
 CREATE TABLE IF NOT EXISTS guests (

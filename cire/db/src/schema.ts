@@ -114,7 +114,16 @@ export const families = sqliteTable(
     weddingId: text("wedding_id")
       .notNull()
       .references(() => weddings.id, { onDelete: "cascade" }),
-    publicId: text("public_id").notNull().unique(),
+    // The household's claim code (`SURNAME-WORD-HASH`), or NULL for a code-less
+    // household (platform Phase 0 PR 4 — a manually-created guest-list record has
+    // guests + can be edited, but no claimable invite until an organiser "issues"
+    // one). Uniqueness is a PARTIAL unique index (`families_public_id_uniq`,
+    // `WHERE public_id IS NOT NULL`) rather than a column-level UNIQUE, so codes
+    // stay globally unique while many code-less households coexist (NULL never
+    // matches NULL in a UNIQUE index). CSV import still auto-mints a code for
+    // every imported family (`services/import.ts` — the sheet IS the invite list);
+    // only hand-created households start code-less.
+    publicId: text("public_id"),
     familyName: text("family_name").notNull(),
     // Distinguishes a real invited household ("guest") from the synthetic
     // per-wedding "host" preview family. A wedding has at most one host family:
@@ -157,6 +166,14 @@ export const families = sqliteTable(
   (t) => [
     index("families_family_name_idx").on(t.familyName),
     index("families_wedding_idx").on(t.weddingId),
+    // Claim codes stay globally unique, but code-less households (public_id NULL)
+    // are exempt: a PARTIAL unique index (`WHERE public_id IS NOT NULL`) enforces
+    // uniqueness only over rows that actually have a code, so many NULLs coexist
+    // (platform Phase 0 PR 4 — migration 0032). This replaces the old
+    // column-level `.unique()` on `publicId`.
+    uniqueIndex("families_public_id_uniq")
+      .on(t.publicId)
+      .where(sql`public_id IS NOT NULL`),
     // At most one host family per wedding. A partial unique index makes the
     // host-code find-or-create race-safe at the DB layer.
     uniqueIndex("families_one_host_per_wedding")

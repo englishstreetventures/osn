@@ -7,13 +7,17 @@ import type { Db } from "../db";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
+import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
+import { CreateHouseholdBody } from "../schemas/household";
 import { CreateWeddingBody, RemintBody } from "../schemas/wedding";
 import { claimService } from "../services/claim";
 import { familyDeactivateService } from "../services/family-deactivate";
 import { hostCodeService } from "../services/host-code";
+import { householdsService } from "../services/households";
+import { issueInviteService } from "../services/issue-invite";
 import { markSharedService } from "../services/mark-shared";
 import { regenerateCodeService } from "../services/regenerate-code";
 import { remintCodesService } from "../services/remint-codes";
@@ -600,3 +604,152 @@ export const createOrganiserRemintRoutes = (
           );
         }),
     );
+
+/**
+ * Households ≠ claim codes (platform Phase 0 PR 4). Two authorisation tiers,
+ * split into their own instance behind the remint per-IP limiter (the writes are
+ * the same amplifier class — an insert + code-mint batch):
+ *
+ *  - CREATE a CODE-LESS household — `weddingEditor()` (owner OR editor co-host).
+ *    A code-less household is guest-list data, a module write, not code
+ *    management: an editor can build the roster; issuing the credential is
+ *    owner-only below.
+ *  - "ISSUE INVITE" (single + bulk) — `weddingOwner()`. Minting a claim code is
+ *    code management (roles matrix, platform-plan §3.5), owner-only, same tier as
+ *    regenerate / remint / deactivate.
+ *
+ * Two sibling Elysia instances on the same prefix so each gate applies to its own
+ * routes (mirrors the account-link GET/POST split). Both run osnAuth + the
+ * limiter.
+ */
+export const createOrganiserHouseholdsRoutes = (
+  db: Db,
+  osnAuthOptions: OsnAuthOptions,
+  limiter: RateLimiterBackend,
+) => {
+  const createHousehold = new Elysia({ prefix: "/api/organiser" })
+    .use(osnAuth(osnAuthOptions))
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingEditor(db))
+        .use(rateLimitMiddleware(limiter))
+        // Create a household with NO claim code (owner/editor-gated). It has
+        // guests + can be edited, but no claimable invite until a code is issued.
+        .post(
+          "/households",
+          async ({ weddingId, request, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknown(CreateHouseholdBody)(raw);
+                const household = yield* householdsService.create(weddingId, body.familyName);
+                set.status = 201;
+                return { household };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("ParseError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
+                Effect.catchTag("WeddingNotFound", () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "wedding_not_found" };
+                  }),
+                ),
+                Effect.catchTag("HouseholdCreateError", () =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Could not create household" };
+                  }),
+                ),
+                Effect.catchAllDefect(() =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
+              ),
+            );
+          },
+          manualParse,
+        ),
+    );
+
+  const issueInvite = new Elysia({ prefix: "/api/organiser" })
+    .use(osnAuth(osnAuthOptions))
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingOwner(db))
+        .use(rateLimitMiddleware(limiter))
+        // Issue an invite (mint a code) for ONE code-less household. 404 if the
+        // family isn't a code-less guest family under :weddingId (already has a
+        // code, host-preview, or cross-tenant). Reuses the SURNAME-WORD-HASH
+        // generator — code generation is not reinvented.
+        .post("/families/:familyId/issue-invite", ({ weddingId, params, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            issueInviteService.issueForFamily(weddingId, params.familyId).pipe(
+              Effect.provideService(DbService, db),
+              Effect.map((r) => ({ familyId: r.familyId, publicId: r.publicId })),
+              Effect.catchTags({
+                NotCodelessFamily: () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "not_codeless_family" };
+                  }),
+                IssueInviteWriteError: () =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Could not issue invite" };
+                  }),
+              }),
+              Effect.catchAllDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        })
+        // Bulk: issue a code for EVERY code-less household in the wedding at once
+        // (reuses the bulk re-mint path's atomic batch). Idempotent-ish — nothing
+        // to do returns { issued: 0 }.
+        .post("/issue-invites", ({ weddingId, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            issueInviteService.issueForAllCodeless(weddingId).pipe(
+              Effect.provideService(DbService, db),
+              Effect.map((r) => ({ issued: r.issued })),
+              Effect.catchTag("IssueInviteWriteError", () =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Could not issue invites" };
+                }),
+              ),
+              Effect.catchAllDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        }),
+    );
+
+  return new Elysia().use(createHousehold).use(issueInvite);
+};

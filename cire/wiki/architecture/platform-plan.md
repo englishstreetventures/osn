@@ -8,6 +8,7 @@ related:
   - "[[platform]]"
   - "[[guest-event-editor]]"
 last-reviewed: 2026-07-15
+pr4-shipped: 2026-07-15
 ---
 
 # Platform Plan — from digital invite to wedding management platform
@@ -64,6 +65,8 @@ Other implementation notes: `pricing_region` is **state-granular** (`au-nsw` …
 
 ### 3.2 Households ≠ claim codes
 
+**Shipped (PR 4, 2026-07-15) — as designed, no deviations.** Migration `0032_households_nullable_code.sql` rebuilt `families` via the `__keep_*` idiom (public_id nullable, partial unique index `families_public_id_uniq WHERE public_id IS NOT NULL`), ids copied verbatim so the cascade subtree (guests/sessions/guest_events/rsvps/guest_account_links) kept every FK — proven by `db/migration-0032.test.ts` (zero orphans). Three DDL surfaces mirrored, T-S1 green. New `services/households.ts` (create a code-less household, `weddingEditor()`) + `services/issue-invite.ts` (mint a code single/bulk, `weddingOwner()`, reusing `generateFamilyCode`); import auto-mint unchanged; deactivate now refuses code-less households; claim path excludes NULLs. Organiser `GuestTable` groups by familyId, shows "No code yet" + per-row/bulk "Issue invite".
+
 Make `families.publicId` **nullable** (partial unique index `WHERE public_id IS NOT NULL`), and move code lifecycle semantics into the invite module:
 
 - A household can be created with **no code**; the Guests module creates/edits households and guests directly.
@@ -110,7 +113,7 @@ Existing co-hosts map to `editor` (they already have import + invite-builder wri
 | 1 | Wedding profile (schema + Settings view + key-optional geocoding) | — |
 | 2 | ✅ Roles (`editor`/`viewer` + `weddingEditor()`) — shipped 2026-07-12 | — |
 | 3 | Portal IA shell (sidebar, Overview, hash routes; existing tabs rehomed; P-I3 fetch lift) | 1 (Settings home) |
-| 4 | Households ≠ codes (`families` rebuild + invite-module code issuance) | 0 |
+| 4 | ✅ Households ≠ codes (`families` rebuild + invite-module code issuance) — shipped 2026-07-15 | 0 |
 | 5 | Guest/event editing (batch draft-save — design + E1–E6 slicing in [[guest-event-editor]]) + organiser RSVPs + provenance | 3, 4 (soft — editor-created households auto-mint codes until 4 lands) |
 
 PRs 0–2 are parallelisable. The IA shell deliberately lands **early** (not last) so CRUD is built directly into its module home instead of into the old tabs and moved later.

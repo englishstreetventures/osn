@@ -83,6 +83,11 @@ export const CIRE_METRICS = {
   // host-preview excluded) — the reliable "Opened" signal, distinct from
   // `familyCodeShared` (the false-positive-prone organiser-copied "Sent").
   inviteOpened: "cire.invite.opened",
+  // Manually-created (code-less) household (platform PR 4 — households ≠ codes).
+  householdCreated: "cire.household.created",
+  // "Issue invite" — mint a claim code onto a code-less household (PR 4), single
+  // or bulk.
+  inviteIssued: "cire.invite.issued",
   // Organiser wedding creation (multi-wedding portal).
   weddingCreated: "cire.wedding.created",
   // Organiser wedding-profile (Settings) saves.
@@ -161,6 +166,14 @@ export type FamilyDeactivateAction = "deactivate" | "reactivate";
 
 /** Outcome of recording a first guest open of an invite (best-effort write). */
 export type InviteOpenedResult = "ok" | "error";
+
+/** Outcome of creating a code-less household (PR 4). */
+export type HouseholdCreatedResult = "ok" | "error";
+
+/** Outcome of issuing an invite code onto a code-less household (PR 4). `mode`
+ *  distinguishes the single-household path from the bulk "issue all" path. */
+export type InviteIssuedResult = "ok" | "error";
+export type InviteIssueMode = "single" | "bulk";
 
 /** Outcome of an organiser wedding creation. */
 export type WeddingCreatedResult = "ok" | "error";
@@ -262,6 +275,8 @@ type WeddingRemintedAttrs = { result: WeddingRemintResult; style: "simple" | "se
 type FamilyCodeSharedAttrs = { result: FamilyCodeSharedResult };
 type FamilyDeactivatedAttrs = { action: FamilyDeactivateAction; result: FamilyDeactivatedResult };
 type InviteOpenedAttrs = { result: InviteOpenedResult };
+type HouseholdCreatedAttrs = { result: HouseholdCreatedResult };
+type InviteIssuedAttrs = { mode: InviteIssueMode; result: InviteIssuedResult };
 type WeddingCreatedAttrs = { result: WeddingCreatedResult };
 type WeddingSettingsSavedAttrs = { result: WeddingSettingsSavedResult };
 type EventLocationSavedAttrs = { result: EventLocationSavedResult };
@@ -444,6 +459,20 @@ const inviteOpened = createCounter<InviteOpenedAttrs>({
   description:
     "First real guest opens of a family invite (an actual claim, host-preview excluded), by outcome — the reliable 'Opened' signal distinct from the organiser-copied 'Sent'",
   unit: "{open}",
+});
+
+const householdCreated = createCounter<HouseholdCreatedAttrs>({
+  name: CIRE_METRICS.householdCreated,
+  description:
+    "Manually-created (code-less) households (PR 4 — households ≠ claim codes), by outcome",
+  unit: "{household}",
+});
+
+const inviteIssued = createCounter<InviteIssuedAttrs>({
+  name: CIRE_METRICS.inviteIssued,
+  description:
+    "Invite codes issued onto code-less households (PR 4), by mode (single/bulk) + outcome — a bulk success increment is the number of households issued a code",
+  unit: "{issue}",
 });
 
 const weddingCreated = createCounter<WeddingCreatedAttrs>({
@@ -632,6 +661,18 @@ export const metricFamilyDeactivated = (
  *  (the claim itself still succeeded). Host-preview opens are never recorded. */
 export const metricInviteOpened = (result: InviteOpenedResult): void =>
   inviteOpened.inc({ result });
+
+export const metricHouseholdCreated = (result: HouseholdCreatedResult): void =>
+  householdCreated.inc({ result });
+
+/** Record an "issue invite". `single` increments by one; `bulk` on success
+ *  records `count` (the number of households issued a code), so the counter sum
+ *  tracks codes minted this way; a failed bulk records a single `error`. */
+export const metricInviteIssued = (
+  mode: InviteIssueMode,
+  result: InviteIssuedResult,
+  count = 1,
+): void => inviteIssued.add(mode === "bulk" && result === "ok" ? count : 1, { mode, result });
 
 export const metricWeddingCreated = (result: WeddingCreatedResult): void =>
   weddingCreated.inc({ result });
