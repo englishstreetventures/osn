@@ -4,12 +4,33 @@ import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
 
+/**
+ * A co-host's role. `editor` gets full module writes (guests, schedule,
+ * invite, import — a partner or hired planner); `viewer` is read-only. The
+ * owner is never rowed into `wedding_hosts`, so "owner" is not a stored role.
+ */
+export type HostRole = "editor" | "viewer";
+
+/**
+ * Map a stored role onto the app-layer {@link HostRole}. `host` is the legacy
+ * pre-roles value (and still the column's DDL DEFAULT — unchangeable without a
+ * table rebuild): migration 0031 rewrote all rows to `editor`, but a stray
+ * legacy value degrades to `editor` (what every pre-roles co-host effectively
+ * was). Anything ELSE — an unknown or corrupted value no code path writes —
+ * degrades to `viewer`, the least-privilege role, so the gate chain never
+ * fails open (S-L1).
+ */
+export function normaliseHostRole(role: string): HostRole {
+  if (role === "editor" || role === "host") return "editor";
+  return "viewer";
+}
+
 /** A co-host row surfaced to the management panel. Never echoes the account id —
  *  only the profile id (which the organiser typed a handle for) + when it was added. */
 export interface WeddingHostRow {
   id: string;
   osnProfileId: string;
-  role: "host";
+  role: HostRole;
   createdAt: Date;
 }
 
@@ -21,8 +42,13 @@ export class HostConflict extends Data.TaggedError("HostConflict")<{
 
 /** A host row could not be written/removed (driver error). */
 export class HostWriteError extends Data.TaggedError("HostWriteError")<{
-  op: "insert" | "delete";
+  op: "insert" | "update" | "delete";
   reason: string;
+}> {}
+
+/** A role change targeted a profile that isn't a co-host of the wedding. */
+export class HostNotFound extends Data.TaggedError("HostNotFound")<{
+  weddingId: string;
 }> {}
 
 /**
@@ -38,18 +64,20 @@ export function hostConflictReason(message: string): HostConflict["reason"] | nu
 
 export const hostsService = {
   /**
-   * Add `osnProfileId` as a co-host of `weddingId`. The caller (route) has
-   * already proven, via `weddingOwner()`, that `addedByOsnProfileId` owns the
-   * wedding and passes the wedding's `ownerOsnProfileId` so we can reject adding
-   * the owner themselves (they're already implicitly a host — rowing them in
-   * would let a later "remove host" appear to strip the owner). A repeat add is
-   * caught from the unique index as `already_host`, never a duplicate seat.
+   * Add `osnProfileId` as a co-host of `weddingId` with the given role. The
+   * caller (route) has already proven, via `weddingOwner()`, that
+   * `addedByOsnProfileId` owns the wedding and passes the wedding's
+   * `ownerOsnProfileId` so we can reject adding the owner themselves (they're
+   * already implicitly a host — rowing them in would let a later "remove host"
+   * appear to strip the owner). A repeat add is caught from the unique index as
+   * `already_host`, never a duplicate seat.
    */
   add(input: {
     weddingId: string;
     osnProfileId: string;
     addedByOsnProfileId: string;
     ownerOsnProfileId: string;
+    role: HostRole;
   }): Effect.Effect<WeddingHostRow, HostConflict | HostWriteError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
@@ -71,7 +99,7 @@ export const hostsService = {
                 weddingId: input.weddingId,
                 osnProfileId: input.osnProfileId,
                 addedByOsnProfileId: input.addedByOsnProfileId,
-                role: "host",
+                role: input.role,
                 createdAt: now,
               })
               .run(),
@@ -91,7 +119,7 @@ export const hostsService = {
         ),
       );
 
-      return { id, osnProfileId: input.osnProfileId, role: "host" as const, createdAt: now };
+      return { id, osnProfileId: input.osnProfileId, role: input.role, createdAt: now };
     }).pipe(Effect.withSpan("cire.host.add"));
   },
 
@@ -115,8 +143,59 @@ export const hostsService = {
           .limit(200)
           .all(),
       );
-      return rows;
+      return rows.map((row) => ({ ...row, role: normaliseHostRole(row.role) }));
     }).pipe(Effect.withSpan("cire.host.list"));
+  },
+
+  /**
+   * Change a co-host's role. Scoped to `(weddingId, osnProfileId)` — the
+   * route's `weddingOwner()` proved ownership, so this can't retarget another
+   * wedding's seat. Fails `HostNotFound` when the profile isn't a co-host
+   * (which also covers the owner: they're never rowed in). Setting the role a
+   * host already has succeeds (idempotent).
+   */
+  setRole(input: {
+    weddingId: string;
+    osnProfileId: string;
+    role: HostRole;
+  }): Effect.Effect<WeddingHostRow, HostNotFound | HostWriteError, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      // Single round trip (P-I1): the UPDATE is scoped to the (wedding, profile)
+      // pair and RETURNING reports whether a seat existed — zero rows maps to
+      // HostNotFound with no separate existence SELECT (D1 bills per query).
+      const [updated] = yield* Effect.tryPromise({
+        try: () =>
+          Promise.resolve(
+            db
+              .update(weddingHosts)
+              .set({ role: input.role })
+              .where(
+                and(
+                  eq(weddingHosts.weddingId, input.weddingId),
+                  eq(weddingHosts.osnProfileId, input.osnProfileId),
+                ),
+              )
+              .returning({ id: weddingHosts.id, createdAt: weddingHosts.createdAt })
+              .all(),
+          ),
+        catch: (e) => new HostWriteError({ op: "update", reason: String(e) }),
+      }).pipe(
+        Effect.tapError((err) =>
+          Effect.logError("host role update failed", { reason: err.reason }),
+        ),
+      );
+      if (!updated) {
+        return yield* Effect.fail(new HostNotFound({ weddingId: input.weddingId }));
+      }
+
+      return {
+        id: updated.id,
+        osnProfileId: input.osnProfileId,
+        role: input.role,
+        createdAt: updated.createdAt,
+      };
+    }).pipe(Effect.withSpan("cire.host.setRole"));
   },
 
   /**
@@ -151,17 +230,23 @@ export const hostsService = {
   },
 
   /**
-   * Is `osnProfileId` allowed to reach `weddingId`'s dashboard? True when they
-   * own it OR co-host it. Returns the owner id too so the caller (the
-   * `weddingMember()` gate) can distinguish owner from co-host for the
-   * owner-only management actions, in a single round-trip. `null` owner means
-   * the wedding doesn't exist (caller maps to 404).
+   * Is `osnProfileId` allowed to reach `weddingId`'s dashboard, and at what
+   * level? True when they own it OR co-host it. Returns the owner id too so the
+   * caller (the `weddingMember()` / `weddingEditor()` gates) can distinguish
+   * owner from co-host — and, via `role`, editor from viewer — in a single
+   * round-trip. `null` result means the wedding doesn't exist (caller maps to
+   * 404); `role` is `null` when the caller is neither owner nor host.
    */
   authorize(
     weddingId: string,
     osnProfileId: string,
   ): Effect.Effect<
-    { ownerOsnProfileId: string; isOwner: boolean; isHost: boolean } | null,
+    {
+      ownerOsnProfileId: string;
+      isOwner: boolean;
+      isHost: boolean;
+      role: "owner" | HostRole | null;
+    } | null,
     never,
     DbService
   > {
@@ -178,12 +263,17 @@ export const hostsService = {
 
       const isOwner = owner.owner === osnProfileId;
       if (isOwner) {
-        return { ownerOsnProfileId: owner.owner, isOwner: true, isHost: false };
+        return {
+          ownerOsnProfileId: owner.owner,
+          isOwner: true,
+          isHost: false,
+          role: "owner" as const,
+        };
       }
 
       const [host] = yield* dbQuery(() =>
         db
-          .select({ id: weddingHosts.id })
+          .select({ id: weddingHosts.id, role: weddingHosts.role })
           .from(weddingHosts)
           .where(
             and(eq(weddingHosts.weddingId, weddingId), eq(weddingHosts.osnProfileId, osnProfileId)),
@@ -191,7 +281,12 @@ export const hostsService = {
           .limit(1)
           .all(),
       );
-      return { ownerOsnProfileId: owner.owner, isOwner: false, isHost: Boolean(host) };
+      return {
+        ownerOsnProfileId: owner.owner,
+        isOwner: false,
+        isHost: Boolean(host),
+        role: host ? normaliseHostRole(host.role) : null,
+      };
     }).pipe(Effect.withSpan("cire.host.authorize"));
   },
 };

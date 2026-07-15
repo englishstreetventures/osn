@@ -14,6 +14,7 @@ import type { OsnTestAuth } from "../test-helpers/osn-token";
 
 const OWNER = "usr_dev_bootstrap_owner";
 const CO_HOST = "usr_cohost";
+const VIEWER = "usr_viewer";
 const STRANGER = "usr_stranger";
 const OTHER_EVENT_ID = "evt_other";
 
@@ -51,7 +52,18 @@ function buildApp(options: { geocoder?: Geocoder | null } = {}) {
       weddingId: BOOTSTRAP_WEDDING_ID,
       osnProfileId: CO_HOST,
       addedByOsnProfileId: OWNER,
+      // Legacy pre-0031 value — normalised to editor by the gates.
       role: "host",
+      createdAt: now,
+    })
+    .run();
+  db.insert(weddingHosts)
+    .values({
+      id: "whost_viewer",
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      osnProfileId: VIEWER,
+      addedByOsnProfileId: OWNER,
+      role: "viewer",
       createdAt: now,
     })
     .run();
@@ -149,6 +161,12 @@ describe("GET /api/organiser/weddings/:weddingId/settings", () => {
       budgetTotalMinor: null,
     });
     expect(body.geocodingAvailable).toBe(false);
+  });
+
+  it("admits a VIEWER co-host on the settings read (member-level)", async () => {
+    const { app } = buildApp();
+    const res = await req(app, "GET", SETTINGS_PATH, VIEWER);
+    expect(res.status).toBe(200);
   });
 
   it("admits a co-host and reports geocoding availability", async () => {
@@ -292,7 +310,17 @@ describe("PUT /api/organiser/weddings/:weddingId/events/:eventId/location", () =
     expect(other?.locationLat).toBeNull();
   });
 
-  it("saves a location as a MEMBER (schedule-level write, like the import)", async () => {
+  it("403s a VIEWER co-host with read_only_role (location is an editor write)", async () => {
+    const { app, db } = buildApp();
+    const eventId = firstEventId(db);
+    const res = await req(app, "PUT", locationPath(eventId), VIEWER, POINT);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "read_only_role" });
+    const row = db.select().from(events).where(eq(events.id, eventId)).get();
+    expect(row?.locationLat).toBeNull();
+  });
+
+  it("saves a location as an EDITOR (schedule-level write, like the import)", async () => {
     const { app, db } = buildApp();
     const eventId = firstEventId(db);
     const res = await req(app, "PUT", locationPath(eventId), CO_HOST, POINT);
@@ -386,7 +414,14 @@ describe("POST /api/organiser/weddings/:weddingId/settings/geocode", () => {
     expect((await req(app, "POST", GEOCODE_PATH, STRANGER, { query: "Sydney" })).status).toBe(403);
   });
 
-  it("admits a co-host (geocode serves the member-editable event locations)", async () => {
+  it("403s a VIEWER co-host with read_only_role (billed upstream is editor-gated)", async () => {
+    const { app } = buildApp({ geocoder: stubGeocoder });
+    const res = await req(app, "POST", GEOCODE_PATH, VIEWER, { query: "Sydney NSW" });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "read_only_role" });
+  });
+
+  it("admits a co-host (geocode serves the editor-writable event locations)", async () => {
     const { app } = buildApp({ geocoder: stubGeocoder });
     const res = await req(app, "POST", GEOCODE_PATH, CO_HOST, { query: "Sydney NSW" });
     expect(res.status).toBe(200);

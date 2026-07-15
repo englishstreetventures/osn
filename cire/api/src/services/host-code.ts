@@ -69,8 +69,9 @@ export const hostCodeService = {
    * event list — including events added by a later spreadsheet import (which
    * deliberately skips host families).
    *
-   * weddingId is caller-supplied and already ownership-checked by
-   * `weddingOwner()` upstream; this method does not re-authorise.
+   * weddingId is caller-supplied and already membership-checked by
+   * `weddingMember()` upstream (any role — previewing is the read experience);
+   * this method does not re-authorise.
    */
   ensureForWedding(
     weddingId: string,
@@ -79,7 +80,7 @@ export const hostCodeService = {
       const db = yield* DbService;
       const now = new Date();
 
-      // The wedding's slug for the path-routed preview link. weddingOwner()
+      // The wedding's slug for the path-routed preview link. weddingMember()
       // already proved the wedding exists, so a missing row here is a real
       // invariant break — surface it as a HostCodeError, not a silent default.
       const [wedding] = yield* dbQuery(() =>

@@ -59,10 +59,14 @@ const exportDefect = (set: { status?: number | string }, exportName: string, wed
  * Wedding-scoped organiser routes, mounted under /api/organiser. osnAuth()
  * gates every route in this instance (osnProfileId derived on every request).
  *
- * The per-wedding subtree splits by authorisation level:
- *  - DASHBOARD READS (`/guests`, `/events`) use `weddingMember()` — owner OR
- *    co-host. Co-hosts get the read dashboard, nothing destructive.
- *  - DESTRUCTIVE actions (`regenerate-code`) use `weddingOwner()` — owner only.
+ * The per-wedding subtree splits by authorisation level (roles matrix,
+ * platform-plan §3.5):
+ *  - DASHBOARD READS (`/guests`, `/events`, the CSV exports, `/rsvps`) use
+ *    `weddingMember()` — owner OR any co-host (editor AND viewer). Co-hosts
+ *    get the read dashboard, nothing destructive.
+ *  - CODE MANAGEMENT (`regenerate-code`, family deactivate/reactivate) uses
+ *    `weddingOwner()` — claim codes are the guest credential, so cutting one
+ *    off or rotating it is owner-only.
  */
 export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
   new Elysia({ prefix: "/api/organiser" })
@@ -269,15 +273,20 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
               ),
             ),
           );
-        })
+        }),
+    )
+    // Code management — owner only (weddingOwner): claim codes are the guest
+    // credential, so anything that mints, rotates, or cuts one off is the
+    // owner's call (roles matrix, platform-plan §3.5).
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingOwner(db))
         // Cut off a withdrawn invite: deactivate a family so its claim code stops
         // working (the guest claim path rejects it like an unknown code), WITHOUT
         // deleting the family/guests/RSVPs. Reversible via `.../reactivate`.
-        // weddingMember() gate (owner OR co-host) — same level as the guest reads
-        // + import a co-host already drives; this is reversible household
-        // housekeeping, not a destructive rotation. The service re-checks family ∈
+        // The service re-checks family ∈
         // wedding AND kind='guest', so a host-preview family can't be deactivated
-        // and a member of wedding A can't touch wedding B's family.
+        // and an owner of wedding A can't touch wedding B's family.
         .post("/families/:familyId/deactivate", ({ weddingId, params, set }) => {
           if (!weddingId) {
             set.status = 500;
@@ -309,7 +318,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
           );
         })
         // Restore a deactivated family: clear the marker so its code claims again
-        // (the data was never deleted). Same weddingMember() gate + cross-tenant /
+        // (the data was never deleted). Same weddingOwner() gate + cross-tenant /
         // kind guard as deactivate.
         .post("/families/:familyId/reactivate", ({ weddingId, params, set }) => {
           if (!weddingId) {
@@ -446,9 +455,13 @@ export const createOrganiserWeddingCreateRoute = (
 /**
  * Host preview-code provisioning, split into its own instance so the per-IP
  * rate limiter gates only this mutating route (the find-or-create + event-relink
- * amplifier — S-M2) and not the dashboard's read endpoints above. Same
- * osnAuth + weddingOwner ownership gate; same sibling-instance pattern as the
- * account-link POST. The organiser dashboard opens the guest invite with
+ * amplifier — S-M2) and not the dashboard's read endpoints above. Gated
+ * osnAuth + weddingMember (any role): previewing the invite is the read
+ * experience — it's the only way a co-host, including a read-only viewer, sees
+ * the invite as a guest would — and the minted code is the wedding's synthetic
+ * host-preview family (idempotent find-or-create, blocked from submitting
+ * RSVPs), not a guest credential, so the owner-only code-management rule
+ * doesn't apply. The organiser dashboard opens the guest invite with
  * `?code=<publicId>` so the host sees every event.
  */
 export const createOrganiserPreviewRoutes = (
@@ -460,7 +473,7 @@ export const createOrganiserPreviewRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingOwner(db))
+        .use(weddingMember(db))
         .use(rateLimitMiddleware(limiter))
         .post("/preview-code", ({ weddingId, set }) => {
           if (!weddingId) {

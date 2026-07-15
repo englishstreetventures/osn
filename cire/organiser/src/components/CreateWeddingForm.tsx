@@ -7,9 +7,10 @@ export interface WeddingSummary {
   id: string;
   slug: string;
   displayName: string;
-  /** Whether the signed-in organiser owns this wedding or only co-hosts it.
-   *  Owners can manage hosts + destructive actions; co-hosts get read access. */
-  role: "owner" | "host";
+  /** The signed-in organiser's role on this wedding. Owners manage hosts,
+   *  codes, settings + destructive actions; editors get full module writes
+   *  (import, invite builder, event locations); viewers are read-only. */
+  role: "owner" | "editor" | "viewer";
 }
 
 /** Claim-code style, mirroring the API's `weddings.code_style` enum. */

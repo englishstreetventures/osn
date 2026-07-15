@@ -50,6 +50,10 @@ const isOpened = (family: FamilyGroup) => family.firstOpenedAt !== null;
 
 interface GuestTableProps {
   weddingId: string;
+  /** True when the signed-in organiser OWNS this wedding. Claim codes are the
+   *  guest credential, so cutting one off (deactivate/reactivate) is owner-only
+   *  — the API gates it with weddingOwner(), this just hides the buttons. */
+  canManage: boolean;
   /** Display name of the wedding — used in the copied invite message. */
   weddingName: string;
   /** URL slug of the wedding — the copied invite message links to this wedding's
@@ -401,55 +405,62 @@ export default function GuestTable(props: GuestTableProps) {
                               Copy message
                             </button>
                             {/* Deactivate is confirm-gated (cuts off a live code);
-                                Reactivate is a direct restore. */}
-                            <Show
-                              when={isDeactivated(family)}
-                              fallback={
-                                <Show
-                                  when={confirmingId() === family.familyId}
-                                  fallback={
+                                Reactivate is a direct restore. Owner-only —
+                                code management sits above editor writes. */}
+                            <Show when={props.canManage}>
+                              <Show
+                                when={isDeactivated(family)}
+                                fallback={
+                                  <Show
+                                    when={confirmingId() === family.familyId}
+                                    fallback={
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmingId(family.familyId)}
+                                        disabled={togglingId() === family.familyId}
+                                        class="font-body text-text-muted hover:text-error hover:border-error/60 border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
+                                        title="Disable this household's code (e.g. a withdrawn invite). Reversible — their guests and RSVPs are kept."
+                                      >
+                                        Deactivate
+                                      </button>
+                                    }
+                                  >
+                                    <span class="font-body text-text-muted text-[0.7rem] tracking-[0.05em]">
+                                      Disable this code?
+                                    </span>
                                     <button
                                       type="button"
-                                      onClick={() => setConfirmingId(family.familyId)}
+                                      onClick={() => void toggleDeactivated(family, true)}
                                       disabled={togglingId() === family.familyId}
-                                      class="font-body text-text-muted hover:text-error hover:border-error/60 border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
-                                      title="Disable this household's code (e.g. a withdrawn invite). Reversible — their guests and RSVPs are kept."
+                                      class="border-error bg-error font-body text-bg rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition hover:opacity-90 disabled:opacity-40"
                                     >
-                                      Deactivate
+                                      {togglingId() === family.familyId
+                                        ? "Deactivating…"
+                                        : "Confirm"}
                                     </button>
-                                  }
-                                >
-                                  <span class="font-body text-text-muted text-[0.7rem] tracking-[0.05em]">
-                                    Disable this code?
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => void toggleDeactivated(family, true)}
-                                    disabled={togglingId() === family.familyId}
-                                    class="border-error bg-error font-body text-bg rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition hover:opacity-90 disabled:opacity-40"
-                                  >
-                                    {togglingId() === family.familyId ? "Deactivating…" : "Confirm"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmingId(null)}
-                                    disabled={togglingId() === family.familyId}
-                                    class="font-body text-text-muted text-[0.7rem] underline-offset-4 hover:underline disabled:opacity-40"
-                                  >
-                                    Cancel
-                                  </button>
-                                </Show>
-                              }
-                            >
-                              <button
-                                type="button"
-                                onClick={() => void toggleDeactivated(family, false)}
-                                disabled={togglingId() === family.familyId}
-                                class="font-body text-gold hover:border-gold border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
-                                title="Re-enable this household's code — their guests and RSVPs were kept."
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmingId(null)}
+                                      disabled={togglingId() === family.familyId}
+                                      class="font-body text-text-muted text-[0.7rem] underline-offset-4 hover:underline disabled:opacity-40"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </Show>
+                                }
                               >
-                                {togglingId() === family.familyId ? "Reactivating…" : "Reactivate"}
-                              </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void toggleDeactivated(family, false)}
+                                  disabled={togglingId() === family.familyId}
+                                  class="font-body text-gold hover:border-gold border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
+                                  title="Re-enable this household's code — their guests and RSVPs were kept."
+                                >
+                                  {togglingId() === family.familyId
+                                    ? "Reactivating…"
+                                    : "Reactivate"}
+                                </button>
+                              </Show>
                             </Show>
                           </div>
                         </div>

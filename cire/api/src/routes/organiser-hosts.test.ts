@@ -175,6 +175,34 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     expect(res.status).toBe(400);
   });
 
+  it("defaults a roleless add to editor (pre-roles portal builds keep working)", async () => {
+    const { db, app } = buildApp();
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { host: { role: string } };
+    expect(body.host.role).toBe("editor");
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row!.role).toBe("editor");
+  });
+
+  it("persists an explicit viewer role on add", async () => {
+    const { db, app } = buildApp();
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob", role: "viewer" });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { host: { role: string } };
+    expect(body.host.role).toBe("viewer");
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row!.role).toBe("viewer");
+  });
+
+  it("rejects an unknown role value with 400 (closed enum — no 'owner', no legacy 'host')", async () => {
+    const { app } = buildApp();
+    for (const role of ["owner", "host", "admin"]) {
+      const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob", role });
+      expect(res.status).toBe(400);
+    }
+  });
+
   it("returns 503 when the ARC bridge is unconfigured (fail closed)", async () => {
     const { app } = buildApp({ resolveOsnProfileByHandle: undefined });
     const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
@@ -361,6 +389,73 @@ describe("DELETE /api/organiser/weddings/:weddingId/hosts/:osnProfileId (remove)
   });
 });
 
+describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/role", () => {
+  function seedCohost(db: Db, role?: "editor" | "viewer") {
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_bob",
+        weddingId: WEDDING_ID,
+        osnProfileId: COHOST,
+        addedByOsnProfileId: OWNER,
+        ...(role ? { role } : {}),
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  const rolePath = `${hostsPath}/${COHOST}/role`;
+
+  it("returns 401 without a token", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db, "editor");
+    const res = await req(app, "PUT", rolePath, undefined, { role: "viewer" });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 when a co-host tries to change a role (owner-only)", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db, "editor");
+    const res = await req(app, "PUT", rolePath, COHOST, { role: "viewer" });
+    expect(res.status).toBe(403);
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row!.role).toBe("editor");
+  });
+
+  it("flips editor → viewer for the owner and persists it", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db, "editor");
+    const res = await req(app, "PUT", rolePath, OWNER, { role: "viewer" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { host: { osnProfileId: string; role: string } };
+    expect(body.host).toMatchObject({ osnProfileId: COHOST, role: "viewer" });
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row!.role).toBe("viewer");
+  });
+
+  it("flips viewer → editor for the owner", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db, "viewer");
+    const res = await req(app, "PUT", rolePath, OWNER, { role: "editor" });
+    expect(res.status).toBe(200);
+    const [row] = db.select().from(weddingHosts).where(eq(weddingHosts.osnProfileId, COHOST)).all();
+    expect(row!.role).toBe("editor");
+  });
+
+  it("returns 404 host_not_found for a profile that isn't a co-host", async () => {
+    const { app } = buildApp();
+    const res = await req(app, "PUT", `${hostsPath}/usr_ghost/role`, OWNER, { role: "viewer" });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "host_not_found" });
+  });
+
+  it("returns 400 for a bad role value", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db, "editor");
+    const res = await req(app, "PUT", rolePath, OWNER, { role: "owner" });
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("co-host dashboard access (weddingMember)", () => {
   function seedCohostAndGuest(db: Db) {
     const now = new Date();
@@ -420,7 +515,29 @@ describe("co-host dashboard access (weddingMember)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { weddings: { id: string; role: string }[] };
     expect(body.weddings).toEqual([
-      { id: WEDDING_ID, slug: "hosts-wedding", displayName: "Hosts Wedding", role: "host" },
+      // The seed omits `role`, landing on the legacy DDL default 'host'
+      // (pre-0031 shape) — readers normalise it to 'editor'.
+      { id: WEDDING_ID, slug: "hosts-wedding", displayName: "Hosts Wedding", role: "editor" },
+    ]);
+  });
+
+  it("tags a viewer seat's wedding role:viewer in the list (the string the portal gates UI on)", async () => {
+    const { db, app } = buildApp();
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_list_viewer",
+        weddingId: WEDDING_ID,
+        osnProfileId: "usr_list_viewer",
+        addedByOsnProfileId: OWNER,
+        role: "viewer",
+        createdAt: new Date(),
+      })
+      .run();
+    const res = await req(app, "GET", "/api/organiser/weddings", "usr_list_viewer");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { weddings: { id: string; role: string }[] };
+    expect(body.weddings).toEqual([
+      { id: WEDDING_ID, slug: "hosts-wedding", displayName: "Hosts Wedding", role: "viewer" },
     ]);
   });
 });

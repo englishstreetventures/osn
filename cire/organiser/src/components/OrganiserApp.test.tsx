@@ -65,12 +65,14 @@ vi.mock("./DashboardTabs", () => ({
   default: (props: {
     weddingId: string;
     canManage: boolean;
+    canEdit: boolean;
     tab: string;
     onTab: (t: string) => void;
   }) => (
     <div
       data-testid="dashboard-tabs"
       data-can-manage={String(props.canManage)}
+      data-can-edit={String(props.canEdit)}
       data-tab={props.tab}
     >
       {props.weddingId}
@@ -102,7 +104,12 @@ vi.mock("./SecurityPanel", () => ({
 import OrganiserApp from "./OrganiserApp";
 
 function listResponse(
-  weddings: { id: string; slug: string; displayName: string; role?: "owner" | "host" }[],
+  weddings: {
+    id: string;
+    slug: string;
+    displayName: string;
+    role?: "owner" | "editor" | "viewer";
+  }[],
 ) {
   return new Response(
     JSON.stringify({ weddings: weddings.map((w) => ({ role: "owner", ...w })) }),
@@ -153,20 +160,38 @@ describe("OrganiserApp Dashboard", () => {
     expect(screen.getByTestId("import-panel").textContent).toBe("wed_a");
   });
 
-  it("disables owner-only management but still surfaces import when only co-hosting", async () => {
+  it("disables owner-only management but still surfaces import for an editor co-host", async () => {
     authFetchMock.mockResolvedValue(
-      listResponse([{ id: "wed_c", slug: "c", displayName: "Co-hosted", role: "host" }]),
+      listResponse([{ id: "wed_c", slug: "c", displayName: "Co-hosted", role: "editor" }]),
     );
     render(() => <OrganiserApp />);
     await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
 
     fireEvent.click(screen.getByText("select-first"));
     expect(screen.getByTestId("dashboard-tabs").textContent).toContain("wed_c");
-    // Co-host ⇒ owner-only management disabled (threaded into the Hosts/Codes
-    // tabs), but the spreadsheet import is available — co-hosts are trusted
-    // co-organisers (gated server-side by weddingMember).
+    // Editor ⇒ owner-only management disabled (threaded into the Hosts/Codes
+    // tabs), but the spreadsheet import is available — editors are trusted
+    // co-organisers (gated server-side by weddingEditor).
     expect(screen.getByTestId("dashboard-tabs").getAttribute("data-can-manage")).toBe("false");
+    expect(screen.getByTestId("dashboard-tabs").getAttribute("data-can-edit")).toBe("true");
     expect(screen.getByTestId("import-panel").textContent).toBe("wed_c");
+  });
+
+  it("hides the import panel and disables edit for a viewer co-host", async () => {
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_v", slug: "v", displayName: "Viewed", role: "viewer" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("select-first"));
+    expect(screen.getByTestId("dashboard-tabs").textContent).toContain("wed_v");
+    expect(screen.getByTestId("dashboard-tabs").getAttribute("data-can-manage")).toBe("false");
+    expect(screen.getByTestId("dashboard-tabs").getAttribute("data-can-edit")).toBe("false");
+    // The import is a pure write surface — a viewer doesn't see it at all.
+    expect(screen.queryByTestId("import-panel")).toBeNull();
+    // The header badge says Viewer.
+    expect(screen.getByText("Viewer")).toBeTruthy();
   });
 
   it("auto-opens a freshly created wedding's dashboard", async () => {

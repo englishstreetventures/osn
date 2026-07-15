@@ -110,7 +110,12 @@ describe("GuestTable", () => {
     authFetchMock.mockResolvedValueOnce(json({ familyId: "fam_a", codeSharedAt: 1 }));
 
     render(() => (
-      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
     ));
     await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
 
@@ -145,7 +150,12 @@ describe("GuestTable", () => {
     authFetchMock.mockResolvedValueOnce(json({ familyId: "fam_a", codeSharedAt: 1 }));
 
     render(() => (
-      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
     ));
     await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
 
@@ -168,7 +178,12 @@ describe("GuestTable", () => {
     );
 
     render(() => (
-      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
     ));
     await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
 
@@ -196,7 +211,12 @@ describe("GuestTable", () => {
     );
 
     render(() => (
-      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
     ));
     await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
 
@@ -221,7 +241,12 @@ describe("GuestTable", () => {
     authFetchMock.mockResolvedValueOnce(new Response("nope", { status: 500 })); // export fails
 
     render(() => (
-      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
     ));
     await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
 
@@ -236,7 +261,12 @@ describe("GuestTable", () => {
     withClipboard();
     primeLoad();
     render(() => (
-      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
     ));
     await waitFor(() => expect(screen.getByText("Jones")).toBeTruthy());
     // fam_b (Jones) came back with a non-null codeSharedAt → "Sent" badge.
@@ -249,7 +279,12 @@ describe("GuestTable", () => {
     withClipboard();
     primeLoad();
     render(() => (
-      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
     ));
     await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
     // fam_a (Sharma): codeSharedAt null + firstOpenedAt null → nothing. The only
@@ -266,7 +301,12 @@ describe("GuestTable", () => {
       .mockResolvedValueOnce(json(EVENTS))
       .mockResolvedValueOnce(json({ inviteMessage: null }));
     render(() => (
-      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
     ));
     await waitFor(() => expect(screen.getByText("Jones")).toBeTruthy());
 
@@ -282,7 +322,12 @@ describe("GuestTable", () => {
     (document as unknown as { execCommand: () => boolean }).execCommand = () => false;
     primeLoad();
     render(() => (
-      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
     ));
     await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
 
@@ -298,7 +343,12 @@ describe("GuestTable", () => {
       json({ familyId: "fam_a", deactivatedAt: 1_700_000_900_000 }),
     );
     render(() => (
-      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
     ));
     await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
 
@@ -335,7 +385,12 @@ describe("GuestTable", () => {
       .mockResolvedValueOnce(json({ familyId: "fam_a", deactivatedAt: null }));
 
     render(() => (
-      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
     ));
     await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
     // fam_a starts deactivated → the label is shown + a Reactivate button exists.
@@ -362,7 +417,12 @@ describe("GuestTable", () => {
     primeLoad();
     authFetchMock.mockResolvedValueOnce(json({ error: "boom" }, 500));
     render(() => (
-      <GuestTable weddingId="wed_a" weddingName="Nadia & Sam" weddingSlug="nadia-sam-abc123" />
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
     ));
     await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
 

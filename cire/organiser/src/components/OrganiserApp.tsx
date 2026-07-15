@@ -60,11 +60,12 @@ function RequireAuth(props: ParentProps) {
 
 /** The chosen wedding's dashboard — the context header, the Getting-started
  *  checklist, the spreadsheet import, and the tabbed events/guests/invite view,
- *  scoped to whichever wedding the organiser opened. Co-hosts are trusted
- *  co-organisers: they get the full read/edit dashboard, including the
- *  spreadsheet import (the API gates it with weddingMember). Only the owner-only
- *  management actions (managing co-hosts, re-minting codes) stay gated on
- *  `isOwner` — passed down via `canManage`.
+ *  scoped to whichever wedding the organiser opened. Access follows the caller's
+ *  role: EDITOR co-hosts get the full read/edit dashboard, including the
+ *  spreadsheet import (the API gates writes with weddingEditor); VIEWER co-hosts
+ *  get the read dashboard only (`canEdit` hides the write surfaces). The
+ *  owner-only management actions (managing co-hosts, re-minting codes,
+ *  deactivating household codes) stay gated on `isOwner` via `canManage`.
  *
  *  The active tab is fully controlled by the parent (URL-hash driven) so a deep
  *  link / hard refresh restores the exact tab; the dashboard reports tab changes
@@ -81,6 +82,20 @@ function WeddingDashboard(props: {
   onWeddingUpdated: (patch: { displayName: string; slug: string }) => void;
 }) {
   const isOwner = () => props.wedding.role === "owner";
+  // Editors (and owners) get the write surfaces; viewers are read-only — the
+  // API enforces this with weddingEditor()/weddingOwner(); the flags just keep
+  // the portal from offering actions that would 403.
+  const canEdit = () => props.wedding.role !== "viewer";
+
+  const ROLE_BADGE: Record<string, { label: string; title: string }> = {
+    owner: { label: "Owner", title: "You created this wedding and manage who hosts it" },
+    editor: { label: "Editor", title: "You can view and edit this wedding" },
+    viewer: {
+      label: "Viewer",
+      title: "You can view this wedding — ask the owner for editor access to make changes",
+    },
+  };
+  const roleBadge = () => ROLE_BADGE[props.wedding.role] ?? ROLE_BADGE.editor!;
 
   /** Move to a tab from the Getting-started checklist: switch the panel (via the
    *  parent's hash update) and scroll the tab strip into view. */
@@ -117,13 +132,9 @@ function WeddingDashboard(props: {
               </h1>
               <span
                 class="border-gold/40 text-gold font-body rounded-sm border px-2 py-0.5 text-[0.62rem] tracking-[0.16em] uppercase"
-                title={
-                  isOwner()
-                    ? "You created this wedding and manage who hosts it"
-                    : "You can view and edit this wedding"
-                }
+                title={roleBadge().title}
               >
-                {isOwner() ? "Owner" : "Co-host"}
+                {roleBadge().label}
               </span>
             </div>
           </div>
@@ -135,11 +146,13 @@ function WeddingDashboard(props: {
           state and links straight to the relevant tab. */}
       <GettingStarted weddingId={props.wedding.id} onJump={jumpToTab} />
 
-      {/* Import is available to every member (owner or co-host) — the API
-          authorises it with weddingMember(). Tucked in a collapsible so it's
+      {/* Import is a WRITE surface (the API gates it with weddingEditor()), so
+          viewers don't see it at all. Tucked in a collapsible so it's
           front-and-centre for a new wedding (open it from a checklist nudge) but
           doesn't crowd the dashboard once the list is populated. */}
-      <ImportPanel weddingId={props.wedding.id} />
+      <Show when={canEdit()}>
+        <ImportPanel weddingId={props.wedding.id} />
+      </Show>
 
       <div id="wedding-tabs" class="scroll-mt-6">
         <DashboardTabs
@@ -147,6 +160,7 @@ function WeddingDashboard(props: {
           weddingName={props.wedding.displayName}
           weddingSlug={props.wedding.slug}
           canManage={isOwner()}
+          canEdit={canEdit()}
           tab={props.tab()}
           onTab={props.onTab}
           onWeddingUpdated={props.onWeddingUpdated}

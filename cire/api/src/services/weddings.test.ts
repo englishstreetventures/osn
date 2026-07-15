@@ -143,7 +143,7 @@ describe("weddingsService.listForMember", () => {
     expect(list).toEqual([]);
   });
 
-  it("includes co-hosted weddings tagged role:host, after owned ones (T-U2)", async () => {
+  it("includes co-hosted weddings with their seat role, after owned ones (T-U2)", async () => {
     const db = createDb(":memory:");
     const now = Date.now();
     // One owned by the member.
@@ -181,7 +181,35 @@ describe("weddingsService.listForMember", () => {
     const list = await run(db, weddingsService.listForMember("usr_member"));
     expect(list.map((w) => [w.id, w.role])).toEqual([
       ["wed_owned", "owner"],
-      ["wed_cohosted", "host"],
+      // The seed omitted `role` → legacy DDL default 'host' → normalised.
+      ["wed_cohosted", "editor"],
     ]);
+  });
+
+  it("surfaces a viewer seat's role in the list", async () => {
+    const db = createDb(":memory:");
+    const now = Date.now();
+    db.insert(weddings)
+      .values({
+        id: "wed_viewed",
+        slug: "viewed",
+        displayName: "Viewed",
+        ownerOsnProfileId: "usr_other_owner",
+        createdAt: new Date(now),
+        updatedAt: new Date(now),
+      })
+      .run();
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_v",
+        weddingId: "wed_viewed",
+        osnProfileId: "usr_member",
+        addedByOsnProfileId: "usr_other_owner",
+        role: "viewer",
+        createdAt: new Date(now),
+      })
+      .run();
+    const list = await run(db, weddingsService.listForMember("usr_member"));
+    expect(list.map((w) => [w.id, w.role])).toEqual([["wed_viewed", "viewer"]]);
   });
 });

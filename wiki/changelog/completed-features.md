@@ -17,6 +17,10 @@ last-reviewed: 2026-06-18
 
 Archived completed feature work from [[TODO]]. For open work see [[TODO]].
 
+## Cire co-host roles — editor / viewer (2026-07-12)
+
+Cire platform **Phase 0 PR 2** (see `cire/wiki/architecture/platform-plan.md` §3.5): `wedding_hosts.role` split into `editor` (full module writes — a partner or hired planner) and `viewer` (read-only), with a new `weddingEditor()` authz gate between `weddingMember()` and `weddingOwner()`. Migration `0031` is a data-only `UPDATE 'host' → 'editor'` (no CHECK constraint, no table rebuild; readers normalise a stray legacy `'host'` to `editor`). Routes re-gated to the signed-off matrix: spreadsheet import, invite-builder writes, and event-location/geocode moved to the editor gate (viewers get 403 `read_only_role`); family deactivate/reactivate moved up to owner-only (code management); `preview-code` moved down to member so viewer co-hosts can preview the invite. Owner-gated `POST /hosts` now takes `role` (default `editor`) and a new `PUT /hosts/:osnProfileId/role` flips a seat (`cire.host.role_changed` metric). The portal shows an Owner/Editor/Viewer badge, hides write surfaces from viewers, and gives the owner a role picker + per-host Make editor/viewer control. Closes the root-TODO "Co-host roles" item. See [[cire-auth]].
+
 ## Production launch + cire/osn hardening batch (2026-06-18)
 
 The stack went **live on `cireweddings.com`**, all on Cloudflare Free tier, and a batch of cire + osn-api features landed alongside the cut-over. See [[cire]], [[cire-auth]], [[turnstile]], [[free-tier-limits]], [[production-deploy]].

@@ -5,14 +5,16 @@ import { Data, Effect } from "effect";
 import { DbService, dbQuery } from "../db";
 import { metricWeddingCreated } from "../metrics";
 import type { CodeStyle } from "./family-code";
+import { normaliseHostRole } from "./hosts";
 
 export type WeddingSummary = {
   id: string;
   slug: string;
   displayName: string;
-  /** True when the caller co-hosts (rather than owns) this wedding. Lets the
-   *  portal label co-hosted weddings and hide owner-only management. */
-  role: "owner" | "host";
+  /** The caller's role on this wedding: `owner` (created it, full management),
+   *  `editor` (co-host with module writes) or `viewer` (read-only co-host).
+   *  Lets the portal label each wedding and gate write/management surfaces. */
+  role: "owner" | "editor" | "viewer";
 };
 
 /** Raised when a new wedding row cannot be persisted (slug collisions are
@@ -54,10 +56,11 @@ export const weddingsService = {
   /**
    * Every wedding the given OSN profile can reach: the ones they OWN plus the
    * ones they CO-HOST, oldest-owned-first then oldest-hosted. Owned rows are
-   * tagged `role: "owner"`, co-hosted rows `role: "host"` so the portal can
-   * label them and gate owner-only management. A profile can't both own and
-   * co-host the same wedding (the owner is never rowed into `wedding_hosts`), so
-   * no dedupe is needed.
+   * tagged `role: "owner"`, co-hosted rows carry the seat's stored role
+   * (`editor`/`viewer`, legacy `host` normalised to `editor`) so the portal can
+   * label them and gate write + management surfaces. A profile can't both own
+   * and co-host the same wedding (the owner is never rowed into
+   * `wedding_hosts`), so no dedupe is needed.
    */
   listForMember(osnProfileId: string): Effect.Effect<WeddingSummary[], never, DbService> {
     return Effect.gen(function* () {
@@ -84,6 +87,7 @@ export const weddingsService = {
             id: weddings.id,
             slug: weddings.slug,
             displayName: weddings.displayName,
+            role: weddingHosts.role,
           })
           .from(weddingHosts)
           .innerJoin(weddings, eq(weddingHosts.weddingId, weddings.id))
@@ -97,7 +101,12 @@ export const weddingsService = {
         summaries.push({ id: w.id, slug: w.slug, displayName: w.displayName, role: "owner" });
       }
       for (const w of hosted) {
-        summaries.push({ id: w.id, slug: w.slug, displayName: w.displayName, role: "host" });
+        summaries.push({
+          id: w.id,
+          slug: w.slug,
+          displayName: w.displayName,
+          role: normaliseHostRole(w.role),
+        });
       }
       return summaries;
     }).pipe(Effect.withSpan("cire.wedding.listForMember"));

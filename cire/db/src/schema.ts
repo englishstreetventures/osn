@@ -75,9 +75,12 @@ export const weddings = sqliteTable(
 // and osn's D1 are separate databases). It's resolved from a typed handle via a
 // server-to-server ARC call to osn-api's `/graph/internal/profile-by-handle`
 // (cire never sees the handle→id mapping otherwise). `added_by_osn_profile_id`
-// records which owner added the host (audit only). `role` is a forward-looking
-// column — only `host` exists today, but the column pins the shape for a future
-// editor/viewer split without another migration.
+// records which owner added the host (audit only). `role` splits co-hosts into
+// `editor` (full module writes — a partner or hired planner) and `viewer`
+// (read-only). `host` is LEGACY: migration 0031 rewrote every 'host' row to
+// 'editor' and the app only ever writes editor/viewer, but the value stays in
+// the enum because the column's DDL DEFAULT 'host' can't change without a
+// table rebuild — readers normalise a stray 'host' to 'editor'.
 export const weddingHosts = sqliteTable(
   "wedding_hosts",
   {
@@ -87,7 +90,7 @@ export const weddingHosts = sqliteTable(
       .references(() => weddings.id, { onDelete: "cascade" }),
     osnProfileId: text("osn_profile_id").notNull(),
     addedByOsnProfileId: text("added_by_osn_profile_id").notNull(),
-    role: text("role", { enum: ["host"] })
+    role: text("role", { enum: ["host", "editor", "viewer"] })
       .notNull()
       .default("host"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),

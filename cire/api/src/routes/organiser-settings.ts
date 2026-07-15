@@ -9,6 +9,7 @@ import { metricGeocodeRequest } from "../metrics";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
+import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
@@ -34,14 +35,16 @@ export interface SettingsRouteOptions {
  * Wedding-profile Settings + per-event location routes (platform Phase 0,
  * PR 1), mounted under /api/organiser/weddings/:weddingId. Siblings by
  * authorisation level, mirroring the organiser-weddings factory:
- *  - GET /settings — weddingMember() (owner OR co-host; read-only).
+ *  - GET /settings — weddingMember() (any role incl. viewer; read-only).
  *  - PUT /settings — weddingOwner() (wedding identity + money are owner-only
  *    in the roles matrix — see platform-plan §3.5).
- *  - PUT /events/:eventId/location — weddingMember(): location is SCHEDULE
- *    data (event-scoped — a wedding can span countries), and members already
- *    write the schedule via the spreadsheet import, so the same level applies.
- *  - POST /settings/geocode — weddingMember() + per-IP limiter (it serves the
- *    member-editable event locations; billed upstream call).
+ *  - PUT /events/:eventId/location — weddingEditor(): location is SCHEDULE
+ *    data (event-scoped — a wedding can span countries), and editors already
+ *    write the schedule via the spreadsheet import, so the same level applies;
+ *    viewers get 403 read_only_role.
+ *  - POST /settings/geocode — weddingEditor() + per-IP limiter (it serves the
+ *    editor-writable event locations; billed upstream call, so viewers don't
+ *    get to spend it either).
  */
 export const createOrganiserSettingsRoutes = (
   db: Db,
@@ -53,36 +56,38 @@ export const createOrganiserSettingsRoutes = (
   return new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
-      group
-        .use(weddingMember(db))
-        .get("/settings", ({ weddingId, set }) => {
-          if (!weddingId) {
-            set.status = 500;
-            return { error: "Internal error" };
-          }
-          return runCire(
-            weddingSettingsService.get(weddingId).pipe(
-              Effect.provideService(DbService, db),
-              // `geocodingAvailable` tells the location forms whether "Look
-              // up" exists or the manual lat/lng fallback should render.
-              Effect.map((wedding) => ({ wedding, geocodingAvailable: geocoder !== null })),
-              Effect.catchTag("WeddingNotFound", () =>
-                Effect.sync(() => {
-                  set.status = 404;
-                  return { error: "wedding_not_found" };
-                }),
-              ),
-              Effect.catchAllDefect(() =>
-                Effect.sync(() => {
-                  set.status = 500;
-                  return { error: "Internal error" };
-                }),
-              ),
+      group.use(weddingMember(db)).get("/settings", ({ weddingId, set }) => {
+        if (!weddingId) {
+          set.status = 500;
+          return { error: "Internal error" };
+        }
+        return runCire(
+          weddingSettingsService.get(weddingId).pipe(
+            Effect.provideService(DbService, db),
+            // `geocodingAvailable` tells the location forms whether "Look
+            // up" exists or the manual lat/lng fallback should render.
+            Effect.map((wedding) => ({ wedding, geocodingAvailable: geocoder !== null })),
+            Effect.catchTag("WeddingNotFound", () =>
+              Effect.sync(() => {
+                set.status = 404;
+                return { error: "wedding_not_found" };
+              }),
             ),
-          );
-        })
+            Effect.catchAllDefect(() =>
+              Effect.sync(() => {
+                set.status = 500;
+                return { error: "Internal error" };
+              }),
+            ),
+          ),
+        );
+      }),
+    )
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingEditor(db))
         // Set/clear one event's planning location (point + pricing region).
-        // Member-level: schedule data, same as the import that writes events.
+        // Editor-level: schedule data, same as the import that writes events.
         .put(
           "/events/:eventId/location",
           async ({ weddingId, params, request, set }) => {
@@ -178,7 +183,7 @@ export const createOrganiserSettingsRoutes = (
     )
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingMember(db))
+        .use(weddingEditor(db))
         .use(rateLimitMiddleware(options.geocodeLimiter))
         .post(
           "/settings/geocode",

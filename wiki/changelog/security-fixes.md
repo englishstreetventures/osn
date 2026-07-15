@@ -7,12 +7,19 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-07-05
+last-reviewed: 2026-07-12
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## Cire co-host roles — prep-pr review round (2026-07-12)
+
+Findings raised by the roles PR's own security review — fixed before merge.
+
+- **S-L1 (cire-role-normalise)** — **Issue:** `normaliseHostRole` (`cire/api/src/services/hosts.ts`) mapped *any* stored value that wasn't `"viewer"` — the legacy `"host"`, but also empty/garbage — to `"editor"`, a fail-open authz default: the column's DDL DEFAULT is still `'host'`, so a future insert path omitting `role`, or a corrupted D1 row, would silently grant module-write access. **Why:** OWASP A01 fail-open default in the gate chain; impact bounded to viewer→editor for an existing seat holder, hence Low. **Solution:** only the known legacy `host` normalises to `editor`; every other unknown value degrades to `viewer` (least privilege), unit-tested against `""`/`"admin"`/`"EDITOR"`. **Rationale:** preserves the deliberate pre-0031 legacy mapping while making the unknown-value default least-privilege — the only fail-open edge in the three-gate chain. See [[cire-auth]].
+- **C-M1 (cire-roles-access-control)** — **Issue:** the roles PR introduced a new in-product access mechanism (editor/viewer seats, `weddingEditor()` gate, role-change endpoint) but [[access-control]] still described cire organiser access as owner-only. **Why:** SOC 2 CC6/CC8 — the access matrix must reflect the deployed authz model. **Solution:** the in-product auth row + "Cire access expectations" now name the three gates, the role tiers, per-request DB-checked roles (immediate demotion), and the least-privilege unknown-role degradation. **Rationale:** doc-only; keeps the quarterly access review authoritative.
 
 ## TODO-backlog hardening sweep (2026-07-05)
 

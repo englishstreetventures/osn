@@ -9,6 +9,7 @@ import { metricImageTransform } from "../metrics";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
+import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
 import { runCire } from "../observability";
 import {
@@ -354,13 +355,18 @@ export const createInvitePublicRoutes = (
 
 /**
  * Organiser invite-builder routes, a sibling instance under /api/organiser.
- * osnAuth() gates every request; weddingMember() additionally gates the
- * per-wedding subtree (404 unknown wedding, 403 for callers who are neither
- * owner nor co-host — never 401, which would make @osn/client discard a valid
- * session). Co-hosts are trusted co-organisers, so they can both view and
- * customise the invite (text, theme, images) just like the owner; the
- * owner-only surface is limited to deleting the wedding and managing the
- * co-host list.
+ * osnAuth() gates every request; the per-wedding subtree splits by role (404
+ * unknown wedding, 403 for callers who are neither owner nor co-host — never
+ * 401, which would make @osn/client discard a valid session):
+ *
+ *  - the READ (`GET /invite`) sits behind `weddingMember()` — every role,
+ *    including viewer co-hosts, can see the current customisation;
+ *  - the WRITES (text, theme, images) sit behind `weddingEditor()` — owner or
+ *    editor co-host; a viewer gets 403 `read_only_role`.
+ *
+ * Editor co-hosts are trusted co-organisers (a partner or hired planner), so
+ * they customise the invite just like the owner; the owner-only surface is
+ * limited to deleting the wedding and managing the co-host list.
  *
  *   GET    /weddings/:weddingId/invite             → current customisation
  *   PUT    /weddings/:weddingId/invite/text        → text overrides
@@ -384,31 +390,35 @@ export const createInviteOrganiserRoutes = (
     .use(rateLimitMiddleware(limiter))
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
-      group
-        .use(weddingMember(db))
-        .get("/invite", ({ weddingId, set }) => {
-          if (!weddingId) {
-            set.status = 500;
-            return { error: "Internal error" };
-          }
-          return runCire(
-            inviteService.getForWeddingId(weddingId).pipe(
-              Effect.provideService(DbService, db),
-              Effect.catchTag("WeddingNotFound", () =>
-                Effect.sync(() => {
-                  set.status = 404;
-                  return { error: "Not found" };
-                }),
-              ),
-              Effect.catchAllDefect(() =>
-                Effect.sync(() => {
-                  set.status = 500;
-                  return { error: "Internal error" };
-                }),
-              ),
+      group.use(weddingMember(db)).get("/invite", ({ weddingId, set }) => {
+        if (!weddingId) {
+          set.status = 500;
+          return { error: "Internal error" };
+        }
+        return runCire(
+          inviteService.getForWeddingId(weddingId).pipe(
+            Effect.provideService(DbService, db),
+            Effect.catchTag("WeddingNotFound", () =>
+              Effect.sync(() => {
+                set.status = 404;
+                return { error: "Not found" };
+              }),
             ),
-          );
-        })
+            Effect.catchAllDefect(() =>
+              Effect.sync(() => {
+                set.status = 500;
+                return { error: "Internal error" };
+              }),
+            ),
+          ),
+        );
+      }),
+    )
+    // Invite WRITES — owner or editor co-host (weddingEditor). Viewers keep the
+    // read above; any mutation answers 403 read_only_role.
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingEditor(db))
         .put(
           "/invite/text",
           async ({ request, weddingId, set }) => {
@@ -657,9 +667,9 @@ export const createInviteOrganiserRoutes = (
           manualParse,
         )
         // Per-event image upload (one optional image per event; re-upload
-        // REPLACES). Same controls as the wedding-slot upload above: weddingMember
-        // gate (owner OR co-host), per-IP rate limit, 5 MB cap (declared + post-
-        // read), magic-byte JPEG/PNG/WebP sniff. The service additionally checks
+        // REPLACES). Same controls as the wedding-slot upload above: weddingEditor
+        // gate (owner OR editor co-host), per-IP rate limit, 5 MB cap (declared +
+        // post-read), magic-byte JPEG/PNG/WebP sniff. The service additionally checks
         // the event belongs to :weddingId (EventNotFound → 404) so an organiser
         // can't write an image onto another wedding's event.
         .post(

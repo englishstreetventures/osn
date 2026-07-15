@@ -64,6 +64,28 @@ describe("weddingMember", () => {
     expect(await res.json()).toEqual({ weddingId: WEDDING_ID, weddingIsOwner: false });
   });
 
+  it("admits a VIEWER co-host too (reads are role-agnostic)", async () => {
+    const db = buildDb();
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_viewer",
+        weddingId: WEDDING_ID,
+        osnProfileId: "usr_viewer",
+        addedByOsnProfileId: OWNER,
+        role: "viewer",
+        createdAt: new Date(),
+      })
+      .run();
+    const app = new Elysia({ aot: false })
+      .derive(() => ({ osnProfileId: "usr_viewer" }))
+      .group("/weddings/:weddingId", (group) =>
+        group.use(weddingMember(db)).get("/probe", ({ weddingRole }) => ({ weddingRole })),
+      );
+    const res = await appRequest(app, `/weddings/${WEDDING_ID}/probe`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ weddingRole: "viewer" });
+  });
+
   it("returns 403 for a stranger (neither owner nor host)", async () => {
     const app = buildApp("usr_mallory");
     const res = await appRequest(app, `/weddings/${WEDDING_ID}/probe`);

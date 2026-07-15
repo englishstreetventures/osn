@@ -94,6 +94,8 @@ export const CIRE_METRICS = {
   // Co-host management (add/remove a wedding host by OSN handle).
   hostAdded: "cire.host.added",
   hostRemoved: "cire.host.removed",
+  // Co-host role changes (owner flips a host between editor and viewer).
+  hostRoleChanged: "cire.host.role_changed",
   // S2S osn-api handle→profile resolve latency (the ARC call for add-host).
   hostResolveDuration: "cire.host.resolve.duration",
   // CSP violation reports posted by guests' browsers to the public collector
@@ -188,6 +190,9 @@ export type HostAddResult =
 /** Outcome of removing a co-host. */
 export type HostRemoveResult = "ok" | "error";
 
+/** Outcome of changing a co-host's role (editor ↔ viewer). */
+export type HostRoleChangeResult = "ok" | "not_found" | "error";
+
 /**
  * The CSP directive a violation report names, reduced to a BOUNDED label so it
  * is safe as a metric attribute (CSP directive names are a small fixed set; a
@@ -263,6 +268,7 @@ type EventLocationSavedAttrs = { result: EventLocationSavedResult };
 type GeocodeRequestsAttrs = { result: GeocodeRequestResult };
 type HostAddedAttrs = { result: HostAddResult };
 type HostRemovedAttrs = { result: HostRemoveResult };
+type HostRoleChangedAttrs = { result: HostRoleChangeResult };
 type HostResolveDurationAttrs = { result: ResolveResult };
 type CspReportAttrs = { effectiveDirective: CspDirective };
 
@@ -477,6 +483,12 @@ const hostRemoved = createCounter<HostRemovedAttrs>({
   unit: "{host}",
 });
 
+const hostRoleChanged = createCounter<HostRoleChangedAttrs>({
+  name: CIRE_METRICS.hostRoleChanged,
+  description: "Co-host role changes (editor ↔ viewer), by outcome",
+  unit: "{host}",
+});
+
 const hostResolveDuration = createHistogram<HostResolveDurationAttrs>({
   name: CIRE_METRICS.hostResolveDuration,
   description: "S2S osn-api handle→profile resolve latency (the ARC call for add-host)",
@@ -636,6 +648,9 @@ export const metricGeocodeRequest = (result: GeocodeRequestResult): void =>
 export const metricHostAdded = (result: HostAddResult): void => hostAdded.inc({ result });
 
 export const metricHostRemoved = (result: HostRemoveResult): void => hostRemoved.inc({ result });
+
+export const metricHostRoleChanged = (result: HostRoleChangeResult): void =>
+  hostRoleChanged.inc({ result });
 
 /** The bounded CSP directive labels, as a runtime Set for `bucketCspDirective`. */
 const CSP_DIRECTIVE_LABELS = new Set<CspDirective>([

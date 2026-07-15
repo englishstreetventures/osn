@@ -53,6 +53,7 @@ function renderTabs(canManage: boolean, initial: DashboardTab = "events") {
       weddingName="V & R"
       weddingSlug="v-and-r"
       canManage={canManage}
+      canEdit
       tab={tab()}
       onTab={onTab}
     />

@@ -361,3 +361,48 @@ describe("T-S1 lockstep: Drizzle schema.ts ↔ migrated D1 shape", () => {
     });
   }
 });
+
+// ── Data migrations ──────────────────────────────────────────────────────────
+// Structural diffing above can't see a data-only migration's effect; replay the
+// chain around it with seeded rows so the UPDATE itself is exercised.
+
+describe("data migration 0031: wedding_hosts role 'host' → 'editor'", () => {
+  it("rewrites pre-0031 seats to editor and leaves editor/viewer untouched", () => {
+    const db = new Database(":memory:");
+    db.exec("PRAGMA foreign_keys = ON;");
+    const files = migrationFiles();
+    const cut = files.indexOf("0031_wedding_host_roles.sql");
+    expect(cut).toBeGreaterThan(0);
+
+    for (const file of files.slice(0, cut)) {
+      db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
+    }
+    // A pre-0031 world: one legacy seat on the column's DDL DEFAULT 'host',
+    // plus explicit rows proving the WHERE clause doesn't over-rewrite.
+    db.exec(
+      "INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, created_at, updated_at)" +
+        " VALUES ('wed_m', 'm', 'M', 'usr_o', 0, 0);",
+    );
+    db.exec(
+      "INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, created_at)" +
+        " VALUES ('whost_legacy', 'wed_m', 'usr_a', 'usr_o', 0);",
+    );
+    db.exec(
+      "INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, created_at)" +
+        " VALUES ('whost_v', 'wed_m', 'usr_b', 'usr_o', 'viewer', 0);",
+    );
+
+    for (const file of files.slice(cut)) {
+      db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
+    }
+    const roles = db.query("SELECT id, role FROM wedding_hosts ORDER BY id").all() as Array<{
+      id: string;
+      role: string;
+    }>;
+    db.close();
+    expect(roles).toEqual([
+      { id: "whost_legacy", role: "editor" },
+      { id: "whost_v", role: "viewer" },
+    ]);
+  });
+});

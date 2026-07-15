@@ -5,14 +5,31 @@ import { toast } from "solid-toast";
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import SectionIntro from "./SectionIntro";
 
+/** A co-host's role — mirrors the API's closed enum (`editor` writes modules,
+ *  `viewer` is read-only). Legacy `host` rows are normalised server-side. */
+type HostRole = "editor" | "viewer";
+
 interface HostRow {
   osnProfileId: string;
   /** Present only on a freshly-added host (the add response echoes the handle);
    *  the list endpoint returns ids only, so existing rows show the id. */
   handle?: string;
-  role: "host";
+  role: HostRole;
   createdAt: number;
 }
+
+const ROLE_OPTIONS: { value: HostRole; label: string; hint: string }[] = [
+  {
+    value: "editor",
+    label: "Editor",
+    hint: "Can edit guests, events, and the invite — a partner or planner.",
+  },
+  {
+    value: "viewer",
+    label: "Viewer",
+    hint: "Can see everything but change nothing.",
+  },
+];
 
 /** One autocomplete suggestion from `GET /api/organiser/handle-search`. */
 interface HandleSuggestion {
@@ -49,8 +66,11 @@ export default function HostsPanel(props: HostsPanelProps) {
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   const [handle, setHandle] = createSignal("");
+  const [role, setRole] = createSignal<HostRole>("editor");
   const [adding, setAdding] = createSignal(false);
   const [addError, setAddError] = createSignal<string | null>(null);
+  // Profile id of the host whose role change is in flight (disables its button).
+  const [roleBusyId, setRoleBusyId] = createSignal<string | null>(null);
 
   // --- Handle autocomplete state ---------------------------------------------
   const [suggestions, setSuggestions] = createSignal<HandleSuggestion[]>([]);
@@ -186,7 +206,7 @@ export default function HostsPanel(props: HostsPanelProps) {
       const res = await authFetch(endpoint(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handle: value }),
+        body: JSON.stringify({ handle: value, role: role() }),
       });
       if (res.status === 401) return redirectToLogin();
       if (res.status === 404) {
@@ -213,8 +233,13 @@ export default function HostsPanel(props: HostsPanelProps) {
       const body = (await res.json()) as { host: HostRow };
       setHosts((prev) => [...prev, body.host]);
       setHandle("");
+      setRole("editor");
       setSuggestions([]);
-      toast.success(`Added ${body.host.handle ? `@${body.host.handle}` : "host"} as a host.`);
+      toast.success(
+        `Added ${body.host.handle ? `@${body.host.handle}` : "host"} as ${
+          body.host.role === "viewer" ? "a viewer" : "an editor"
+        }.`,
+      );
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setAddError("Could not add that host. Is the API running?");
@@ -242,6 +267,33 @@ export default function HostsPanel(props: HostsPanelProps) {
     }
   }
 
+  /** Flip a host between editor and viewer (owner-only; the API re-checks). */
+  async function changeRole(host: HostRow, nextRole: HostRole) {
+    const label = host.handle ? `@${host.handle}` : host.osnProfileId;
+    setRoleBusyId(host.osnProfileId);
+    try {
+      const res = await authFetch(`${endpoint()}/${encodeURIComponent(host.osnProfileId)}/role`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: nextRole }),
+      });
+      if (res.status === 401) return redirectToLogin();
+      if (!res.ok) {
+        toast.error("Could not change that host's role. Please try again.");
+        return;
+      }
+      setHosts((prev) =>
+        prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h, role: nextRole } : h)),
+      );
+      toast.success(`${label} is now ${nextRole === "viewer" ? "a viewer" : "an editor"}.`);
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      toast.error("Could not change that host's role. Is the API running?");
+    } finally {
+      setRoleBusyId(null);
+    }
+  }
+
   return (
     <div class="flex flex-col gap-8">
       <SectionIntro
@@ -249,8 +301,8 @@ export default function HostsPanel(props: HostsPanelProps) {
         title="Share this wedding's dashboard"
         description={
           props.canManage
-            ? "Invite a partner or planner to help. Add them by their OSN handle — co-hosts can view and edit everything here, but only you, the owner, can manage who hosts it."
-            : "These organisers can view and edit this wedding. The owner manages who's on this list."
+            ? "Invite a partner or planner to help. Add them by their OSN handle — editors can change everything here, viewers can only look around, and only you, the owner, manage who hosts it."
+            : "These organisers help host this wedding — editors can make changes, viewers can only look around. The owner manages who's on this list."
         }
       />
 
@@ -344,6 +396,41 @@ export default function HostsPanel(props: HostsPanelProps) {
               </button>
             </div>
           </div>
+
+          <fieldset class="m-0 flex flex-col gap-1.5 border-0 p-0">
+            <legend class="font-body text-text-muted mb-1.5 text-[0.72rem] tracking-[0.1em] uppercase">
+              Access
+            </legend>
+            <div class="flex flex-col gap-2 sm:flex-row">
+              <For each={ROLE_OPTIONS}>
+                {(option) => (
+                  <label
+                    class={`flex flex-1 cursor-pointer flex-col gap-1 rounded-sm border p-3 transition-colors ${
+                      role() === option.value
+                        ? "border-gold bg-gold/5"
+                        : "border-border bg-bg hover:border-gold/50"
+                    } ${adding() ? "opacity-40" : ""}`}
+                  >
+                    <span class="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="hostRole"
+                        value={option.value}
+                        checked={role() === option.value}
+                        disabled={adding()}
+                        onChange={() => setRole(option.value)}
+                        class="accent-gold"
+                      />
+                      <span class="font-body text-text text-[0.9rem]">{option.label}</span>
+                    </span>
+                    <span class="font-body text-text-muted pl-6 text-[0.78rem] leading-snug">
+                      {option.hint}
+                    </span>
+                  </label>
+                )}
+              </For>
+            </div>
+          </fieldset>
           <Show when={addError()}>
             <p
               id="host-handle-error"
@@ -389,7 +476,7 @@ export default function HostsPanel(props: HostsPanelProps) {
             <For each={hosts()}>
               {(host) => (
                 <li class="border-border bg-surface/30 flex items-center justify-between gap-4 rounded-sm border px-4 py-3">
-                  <span class="font-body text-text text-[0.92rem]">
+                  <span class="font-body text-text flex flex-wrap items-center gap-3 text-[0.92rem]">
                     {host.handle ? (
                       <span class="text-gold-dim">@{host.handle}</span>
                     ) : (
@@ -400,16 +487,45 @@ export default function HostsPanel(props: HostsPanelProps) {
                         {host.osnProfileId}
                       </span>
                     )}
+                    <span
+                      class="border-gold/40 text-gold font-body rounded-sm border px-2 py-0.5 text-[0.62rem] tracking-[0.16em] uppercase"
+                      title={
+                        host.role === "viewer"
+                          ? "Can see everything but change nothing"
+                          : "Can edit guests, events, and the invite"
+                      }
+                    >
+                      {host.role === "viewer" ? "Viewer" : "Editor"}
+                    </span>
                   </span>
                   <Show when={props.canManage}>
-                    <button
-                      type="button"
-                      onClick={() => void remove(host)}
-                      class="font-body text-text-muted hover:text-error text-[0.72rem] tracking-[0.1em] uppercase underline-offset-4 transition hover:underline"
-                      aria-label={`Remove ${host.handle ? `@${host.handle}` : "host"}`}
-                    >
-                      Remove
-                    </button>
+                    <span class="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void changeRole(host, host.role === "viewer" ? "editor" : "viewer")
+                        }
+                        disabled={roleBusyId() === host.osnProfileId}
+                        class="font-body text-text-muted hover:text-gold text-[0.72rem] tracking-[0.1em] uppercase underline-offset-4 transition hover:underline disabled:opacity-40"
+                        aria-label={`Make ${host.handle ? `@${host.handle}` : "host"} ${
+                          host.role === "viewer" ? "an editor" : "a viewer"
+                        }`}
+                      >
+                        {roleBusyId() === host.osnProfileId
+                          ? "Saving…"
+                          : host.role === "viewer"
+                            ? "Make editor"
+                            : "Make viewer"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void remove(host)}
+                        class="font-body text-text-muted hover:text-error text-[0.72rem] tracking-[0.1em] uppercase underline-offset-4 transition hover:underline"
+                        aria-label={`Remove ${host.handle ? `@${host.handle}` : "host"}`}
+                      >
+                        Remove
+                      </button>
+                    </span>
                   </Show>
                 </li>
               )}

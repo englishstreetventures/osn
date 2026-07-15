@@ -374,6 +374,49 @@ describe("co-host invite access (weddingMember)", () => {
     const res = await appRequest(app, orgBase, { headers: await authHeaders("usr_stranger") });
     expect(res.status).toBe(403);
   });
+
+  it("lets a VIEWER co-host read the invite but 403s their writes (read_only_role)", async () => {
+    const { app, db } = buildApp();
+    const VIEWER = "usr_invite_viewer";
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_invite_viewer",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: VIEWER,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "viewer",
+        createdAt: new Date(),
+      })
+      .run();
+
+    const read = await appRequest(app, orgBase, { headers: await authHeaders(VIEWER) });
+    expect(read.status).toBe(200);
+
+    const write = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(VIEWER)) },
+      body: JSON.stringify({
+        heroTitle: "Viewer edit",
+        heroSubtitle: null,
+        storyEyebrow: null,
+        storyHeading: null,
+        storyBody: null,
+        detailsEyebrow: null,
+        detailsHeading: null,
+        welcomeMessage: null,
+        inviteMessage: null,
+      }),
+    });
+    expect(write.status).toBe(403);
+    expect(await write.json()).toEqual({ error: "read_only_role" });
+
+    const image = await appRequest(app, `${orgBase.replace("/invite", "")}/invite/image/hero`, {
+      method: "POST",
+      headers: { "Content-Type": "image/png", ...(await authHeaders(VIEWER)) },
+      body: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    });
+    expect(image.status).toBe(403);
+  });
 });
 
 describe("invite image upload + serve + remove", () => {

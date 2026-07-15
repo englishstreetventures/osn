@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -78,8 +78,71 @@ describe("HostsPanel", () => {
     const [url, init] = authFetchMock.mock.calls[1]!;
     expect(String(url)).toBe("https://api.test/api/organiser/weddings/wed_a/hosts");
     expect((init as RequestInit).method).toBe("POST");
-    expect(JSON.parse(String((init as RequestInit).body))).toEqual({ handle: "@bob" });
+    // Role defaults to editor unless the owner picks viewer in the form.
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({
+      handle: "@bob",
+      role: "editor",
+    });
     expect(toastSuccess).toHaveBeenCalled();
+  });
+
+  it("sends role viewer when the owner picks the viewer option", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [] })); // initial load
+    authFetchMock.mockResolvedValueOnce(
+      json({ host: { osnProfileId: "usr_bob", handle: "bob", role: "viewer", createdAt: 2 } }, 201),
+    );
+    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
+
+    typeHandle("@bob");
+    fireEvent.click(screen.getByRole("radio", { name: /Viewer/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Add host/i }));
+
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+    const [, init] = authFetchMock.mock.calls[1]!;
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({
+      handle: "@bob",
+      role: "viewer",
+    });
+    // The freshly-added row carries a Viewer badge (scoped to the list — the
+    // add form's radio label also says "Viewer").
+    expect(within(screen.getByRole("listitem")).getByText("Viewer")).toBeTruthy();
+  });
+
+  it("changes a host's role via the Make viewer control (PUT …/role)", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 }] }),
+    );
+    authFetchMock.mockResolvedValueOnce(
+      json({ host: { osnProfileId: "usr_bob", role: "viewer", createdAt: 1 } }),
+    );
+    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /Make @bob a viewer/i }));
+
+    await waitFor(() =>
+      expect(within(screen.getByRole("listitem")).getByText("Viewer")).toBeTruthy(),
+    );
+    const [url, init] = authFetchMock.mock.calls[1]!;
+    expect(String(url)).toBe("https://api.test/api/organiser/weddings/wed_a/hosts/usr_bob/role");
+    expect((init as RequestInit).method).toBe("PUT");
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({ role: "viewer" });
+    expect(toastSuccess).toHaveBeenCalled();
+    // The control now offers the reverse flip.
+    expect(screen.getByRole("button", { name: /Make @bob an editor/i })).toBeTruthy();
+  });
+
+  it("hides the role + remove controls from a non-owner", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 }] }),
+    );
+    render(() => <HostsPanel weddingId="wed_a" canManage={false} />);
+    await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Make @bob/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Remove/i })).toBeNull();
+    // The role badge still shows.
+    expect(screen.getByText("Editor", { selector: "span" })).toBeTruthy();
   });
 
   it("shows a not-found message when the handle resolves to nobody (404)", async () => {

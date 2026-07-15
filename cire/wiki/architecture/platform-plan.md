@@ -92,7 +92,7 @@ The import stays (it's a strength) but stops being the only writer.
 
 ### 3.5 Roles
 
-Implement `wedding_hosts.role` `editor`/`viewer` + a `weddingEditor()` gate (between `weddingMember` and `weddingOwner`). Target matrix:
+**Shipped (PR 2, 2026-07-12).** `wedding_hosts.role` `editor`/`viewer` + the `weddingEditor()` gate (between `weddingMember` and `weddingOwner`) landed as designed; the matrix below is now live (enforcement notes in `[[wiki/systems/cire-auth]]`, root wiki). Implementation deltas beyond the sketch: `PUT /hosts/:osnProfileId/role` (owner-gated role flip, `cire.host.role_changed` metric), `POST /hosts` takes an optional `role` (default `editor`), the wedding list tags rows `owner|editor|viewer`, family `deactivate`/`reactivate` moved up to `weddingOwner()` per the Codes row, and `preview-code` moved *down* to `weddingMember()` so viewer co-hosts can preview the invite (it was owner-only — a pre-existing gap since the header's Preview button renders for every member). Matrix:
 
 | Capability | viewer | editor | owner |
 |---|---|---|---|
@@ -108,7 +108,7 @@ Existing co-hosts map to `editor` (they already have import + invite-builder wri
 |---|---|---|
 | 0 | T-S1 migration-lockstep test | — |
 | 1 | Wedding profile (schema + Settings view + key-optional geocoding) | — |
-| 2 | Roles (`editor`/`viewer` + `weddingEditor()`) | — |
+| 2 | ✅ Roles (`editor`/`viewer` + `weddingEditor()`) — shipped 2026-07-12 | — |
 | 3 | Portal IA shell (sidebar, Overview, hash routes; existing tabs rehomed; P-I3 fetch lift) | 1 (Settings home) |
 | 4 | Households ≠ codes (`families` rebuild + invite-module code issuance) | 0 |
 | 5 | Guest/event editing (batch draft-save — design + E1–E6 slicing in [[guest-event-editor]]) + organiser RSVPs + provenance | 3, 4 (soft — editor-created households auto-mint codes until 4 lands) |

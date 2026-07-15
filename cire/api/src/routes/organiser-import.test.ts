@@ -218,11 +218,12 @@ describe("POST /api/organiser/weddings/:weddingId/import/apply", () => {
   });
 });
 
-describe("co-host import access (weddingMember)", () => {
+describe("co-host import access (weddingEditor)", () => {
   const COHOST = "usr_cohost_bob";
 
-  // Seed COHOST as a co-host of the bootstrap wedding so weddingMember() admits
-  // them. Mirrors the production add path (wedding_hosts row, role "host").
+  // Seed COHOST as a co-host of the bootstrap wedding so weddingEditor() admits
+  // them. Omits `role` (legacy DDL default 'host') to pin the pre-0031 seat
+  // shape normalising to editor.
   function seedCohost(db: ReturnType<typeof buildApp>["db"]) {
     db.insert(weddingHosts)
       .values({
@@ -230,6 +231,19 @@ describe("co-host import access (weddingMember)", () => {
         weddingId: BOOTSTRAP_WEDDING_ID,
         osnProfileId: COHOST,
         addedByOsnProfileId: "usr_dev_bootstrap_owner",
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  function seedViewer(db: ReturnType<typeof buildApp>["db"], profileId: string) {
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_import_viewer",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: profileId,
+        addedByOsnProfileId: "usr_dev_bootstrap_owner",
+        role: "viewer",
         createdAt: new Date(),
       })
       .run();
@@ -290,6 +304,29 @@ describe("co-host import access (weddingMember)", () => {
     });
     // COHOST not seeded → not a member → forbidden.
     expect(res.status).toBe(403);
+  });
+
+  it("403s a VIEWER co-host with read_only_role on every import surface", async () => {
+    const { app, db } = buildApp();
+    const VIEWER = "usr_import_viewer";
+    seedViewer(db, VIEWER);
+
+    const previewRes = await appRequest(app, `${IMPORT_BASE}/preview`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${await auth.sign(VIEWER)}`,
+      },
+      body: JSON.stringify({ eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV }),
+    });
+    expect(previewRes.status).toBe(403);
+    expect(await previewRes.json()).toEqual({ error: "read_only_role" });
+
+    const list = await appRequest(app, `${IMPORT_BASE}/list`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${await auth.sign(VIEWER)}` },
+    });
+    expect(list.status).toBe(403);
   });
 });
 

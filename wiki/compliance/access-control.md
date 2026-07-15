@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[cire-auth]]"
   - "[[cire]]"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-07-12
 ---
 
 # Access Control
@@ -28,7 +28,7 @@ Already strong; documented elsewhere.
 | Recovery | 64-bit single-use codes (Copenhagen Book M2) | [[recovery-codes]] |
 | Service-to-service | ARC tokens (ES256, scoped, kid-pinned, revocable, scope-validated on cache hit) | [[arc-tokens]] |
 | Org admin (Zap M3) | Role-gated `org_agents.role = "admin"` | [[zap]] |
-| Cire organiser | OSN access JWT (`aud: "osn-access"`) verified via `@shared/osn-auth-client`, then **wedding-owner** authz against `weddings.owner_osn_profile_id` (`weddingOwner()` / `ownedWedding()`) | [[cire-auth]] |
+| Cire organiser | OSN access JWT (`aud: "osn-access"`) verified via `@shared/osn-auth-client`, then per-wedding **role authz** — three tiers: `weddingOwner()` (owner: code management, settings, host management, delete), `weddingEditor()` (owner or `editor` co-host: module writes — import, invite, locations; viewers get 403 `read_only_role`), `weddingMember()` (any role incl. `viewer`: reads + invite preview). Roles live in `wedding_hosts.role` (`editor`/`viewer`), checked per-request from the DB (demotion is immediate, never embedded in the JWT); only the owner assigns roles. | [[cire-auth]] |
 | Cire guest | **Guest-session credential class** — family claim code (`families.public_id`) → opaque 256-bit `cire_session` (SHA-256 at rest), family-scoped, gates `/api/rsvp` only. Never an OSN account. | [[cire-auth]] |
 
 ## Production console access (the SOC 2 gap)
@@ -142,8 +142,14 @@ grant in the matrix above. Expectations:
   a secret (redacted in logs, C-M2), not a public identifier — do not paste
   codes into tickets or logs.
 - **The wedding owner is not an operator.** Organiser access to their own
-  wedding is in-product authz (OSN JWT → `weddingOwner()`), not console
-  access; it grants no visibility into other weddings.
+  wedding is in-product authz (OSN JWT → the `weddingOwner()` /
+  `weddingEditor()` / `weddingMember()` role gates), not console access; it
+  grants no visibility into other weddings.
+- **Co-host roles are least-privilege in-product grants.** A wedding's owner
+  may seat other OSN accounts as `editor` (module writes) or `viewer`
+  (read-only) co-hosts (`wedding_hosts.role`); only the owner grants, changes,
+  or revokes a seat, and an unknown/corrupted stored role degrades to
+  `viewer`, never upward. See the roles capability matrix in [[cire-auth]].
 
 ## Project changes required
 

@@ -4,14 +4,19 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
-import { measureHostResolve, metricHostAdded, metricHostRemoved } from "../metrics";
+import {
+  measureHostResolve,
+  metricHostAdded,
+  metricHostRemoved,
+  metricHostRoleChanged,
+} from "../metrics";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
-import { AddHostBody } from "../schemas/host";
+import { AddHostBody, UpdateHostRoleBody } from "../schemas/host";
 import { hostsService } from "../services/hosts";
 import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../services/osn-bridge";
 
@@ -85,7 +90,7 @@ export const createOrganiserHostsReadRoutes = (
     );
 
 /**
- * Co-host ADD / REMOVE — owner only (weddingOwner). Split into its own instance
+ * Co-host ADD / REMOVE / ROLE CHANGE — owner only (weddingOwner). Split into its own instance
  * so the per-IP rate limiter gates the ARC-sign + S2S handle-resolve amplifier
  * on the add (and the host-management churn on remove) without touching the
  * dashboard reads. The handle is resolved to a profile id server-to-server over
@@ -145,6 +150,7 @@ export const createOrganiserHostsWriteRoutes = (
                   osnProfileId: resolution.profileId,
                   addedByOsnProfileId: ownerProfileId,
                   ownerOsnProfileId: ownerProfileId,
+                  role: body.role,
                 });
 
                 yield* Effect.sync(() => metricHostAdded("ok"));
@@ -192,6 +198,68 @@ export const createOrganiserHostsWriteRoutes = (
                       metricHostAdded("error");
                       set.status = 500;
                       return { error: "Could not add host" };
+                    }),
+                }),
+                Effect.catchAllDefect(() =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
+              ),
+            );
+          },
+          // Sentinel parse hook: stops Elysia consuming the body so the handler
+          // parses it by hand — malformed JSON degrades to the schema's 400.
+          { parse: () => ({}) },
+        )
+        // Flip a co-host between editor and viewer. Owner-gated like add/remove
+        // — role assignment IS host management. 404 when the profile isn't a
+        // co-host of this wedding (covers the owner too: never rowed in).
+        .put(
+          "/hosts/:osnProfileId/role",
+          async ({ request, weddingId, params, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknown(UpdateHostRoleBody)(raw);
+                const host = yield* hostsService.setRole({
+                  weddingId,
+                  osnProfileId: params.osnProfileId,
+                  role: body.role,
+                });
+                yield* Effect.sync(() => metricHostRoleChanged("ok"));
+                return {
+                  host: {
+                    osnProfileId: host.osnProfileId,
+                    role: host.role,
+                    createdAt: host.createdAt.getTime(),
+                  },
+                };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTags({
+                  ParseError: () =>
+                    Effect.sync(() => {
+                      metricHostRoleChanged("error");
+                      set.status = 400;
+                      return { error: "Missing or invalid fields" };
+                    }),
+                  HostNotFound: () =>
+                    Effect.sync(() => {
+                      metricHostRoleChanged("not_found");
+                      set.status = 404;
+                      return { error: "host_not_found" };
+                    }),
+                  HostWriteError: () =>
+                    Effect.sync(() => {
+                      metricHostRoleChanged("error");
+                      set.status = 500;
+                      return { error: "Could not change role" };
                     }),
                 }),
                 Effect.catchAllDefect(() =>

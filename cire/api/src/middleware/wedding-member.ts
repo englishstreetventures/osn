@@ -5,31 +5,39 @@ import { DbService } from "../db";
 import type { Db } from "../db";
 import { runCire } from "../observability";
 import { hostsService } from "../services/hosts";
+import type { HostRole } from "../services/hosts";
 
 interface GateError {
   status: number;
   body: { error: string };
 }
 
+/** The caller's effective role on the wedding, derived by the member gate. */
+export type WeddingRole = "owner" | HostRole;
+
 const fail = (status: number, error: string) => ({
   weddingId: undefined as string | undefined,
   weddingIsOwner: false,
+  weddingRole: undefined as WeddingRole | undefined,
   weddingGateError: { status, body: { error } } as GateError | undefined,
 });
 
-const pass = (weddingId: string, isOwner: boolean) => ({
+const pass = (weddingId: string, role: WeddingRole) => ({
   weddingId: weddingId as string | undefined,
-  weddingIsOwner: isOwner,
+  weddingIsOwner: role === "owner",
+  weddingRole: role as WeddingRole | undefined,
   weddingGateError: undefined as GateError | undefined,
 });
 
 /**
  * Authz gate for /api/organiser/weddings/:weddingId/* — admits the wedding's
- * OWNER **or** a CO-HOST. Requires osnAuth() upstream (osnProfileId derived).
- * 404 for unknown weddings, 403 for callers who are neither owner nor host.
- * Derives `weddingId` (on success) and `weddingIsOwner` so a route can keep an
- * owner-only action (e.g. host management) gated even though co-hosts reach the
- * shared dashboard reads — co-hosts get read access, never management.
+ * OWNER **or** a CO-HOST (editor or viewer). Requires osnAuth() upstream
+ * (osnProfileId derived). 404 for unknown weddings, 403 for callers who are
+ * neither owner nor host. Derives `weddingId` (on success), `weddingIsOwner`,
+ * and `weddingRole` so a route can keep an owner-only action (e.g. host
+ * management) gated even though co-hosts reach the shared dashboard reads.
+ * Viewers pass this gate — routes that WRITE must sit behind `weddingEditor()`
+ * (see `wedding-editor.ts`) or `weddingOwner()` instead.
  *
  * Mirrors `weddingOwner()`'s lifecycle: the derive runs before osnAuth's
  * onBeforeHandle fires, so it tolerates an unauthenticated request (records the
@@ -52,8 +60,8 @@ export function weddingMember(db: Db) {
       );
 
       if (!result) return fail(404, "wedding_not_found");
-      if (!result.isOwner && !result.isHost) return fail(403, "forbidden");
-      return pass(weddingId, result.isOwner);
+      if (!result.role) return fail(403, "forbidden");
+      return pass(weddingId, result.role);
     })
     .onBeforeHandle({ as: "scoped" }, ({ weddingGateError, set }) => {
       if (weddingGateError) {

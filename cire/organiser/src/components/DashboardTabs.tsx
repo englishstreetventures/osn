@@ -20,9 +20,14 @@ interface DashboardTabsProps {
   /** URL slug of the wedding — passed to the guest list so the copyable invite
    *  message links to this wedding's path (`CIRE_WEB_URL/<slug>`). */
   weddingSlug: string;
-  /** Owner of this wedding? Owners can manage co-hosts + re-mint codes; co-hosts
-   *  see the list read-only and don't get the destructive Codes tab. */
+  /** Owner of this wedding? Owners can manage co-hosts + re-mint codes +
+   *  deactivate household codes; co-hosts see the list read-only and don't get
+   *  the destructive Codes tab. */
   canManage: boolean;
+  /** Owner or editor co-host? Editors get the module write surfaces (invite
+   *  builder, event locations); a viewer co-host is read-only — the API
+   *  enforces it (weddingEditor()), these flags just hide the forms. */
+  canEdit: boolean;
   /** Active tab — controlled by the parent, which owns the URL hash so a deep
    *  link / hard refresh restores the exact tab. */
   tab: Tab;
@@ -119,15 +124,19 @@ export default function DashboardTabs(props: DashboardTabsProps) {
       <Show when={active() === "events"}>
         <div class="flex flex-col gap-6">
           <EventTable weddingId={props.weddingId} weddingSlug={props.weddingSlug} />
-          {/* Per-event planning locations (member-editable, like the import).
+          {/* Per-event planning locations (editor-writable, like the import).
               Location is event-scoped — one wedding can celebrate across
-              countries — so it lives with the schedule, not in Settings. */}
-          <EventLocationsPanel weddingId={props.weddingId} />
+              countries — so it lives with the schedule, not in Settings. The
+              form is a pure write surface, so viewers don't get it. */}
+          <Show when={props.canEdit}>
+            <EventLocationsPanel weddingId={props.weddingId} />
+          </Show>
         </div>
       </Show>
       <Show when={active() === "guests"}>
         <GuestTable
           weddingId={props.weddingId}
+          canManage={props.canManage}
           weddingName={props.weddingName}
           weddingSlug={props.weddingSlug}
         />
@@ -136,7 +145,19 @@ export default function DashboardTabs(props: DashboardTabsProps) {
         <RsvpView weddingId={props.weddingId} />
       </Show>
       <Show when={active() === "invite"}>
-        <InviteBuilder weddingId={props.weddingId} />
+        {/* The builder is one big write surface; a viewer sees the invite
+            itself via the header's "Preview invite" (member-gated) instead. */}
+        <Show
+          when={props.canEdit}
+          fallback={
+            <p class="border-border bg-surface/30 text-text-muted rounded-sm border p-6 text-[0.88rem]">
+              You have view-only access to this wedding. Use “Preview invite” above to see the
+              invitation as guests will — ask the owner for editor access to customise it.
+            </p>
+          }
+        >
+          <InviteBuilder weddingId={props.weddingId} />
+        </Show>
       </Show>
       <Show when={props.canManage && active() === "codes"}>
         <RemintPanel weddingId={props.weddingId} />
