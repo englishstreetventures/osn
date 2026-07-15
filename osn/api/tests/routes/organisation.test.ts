@@ -449,6 +449,30 @@ describe("organisation routes", () => {
     expect(bobMember?.role).toBe("member");
   });
 
+  it("GET /organisations/:handle/members → 403 for a non-member", async () => {
+    const alice = await registerAndGetToken("alice@example.com", "alice");
+    const mallory = await registerAndGetToken("mallory@example.com", "mallory");
+
+    await orgApp.handle(
+      new Request("http://localhost/organisations", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${alice.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ handle: "acme", name: "Acme Corp" }),
+      }),
+    );
+
+    // Mallory is authenticated but not a member — the roster must not leak.
+    const res = await orgApp.handle(
+      new Request("http://localhost/organisations/acme/members", {
+        headers: { Authorization: `Bearer ${mallory.token}` },
+      }),
+    );
+    expect(res.status).toBe(403);
+  });
+
   it("POST /organisations/:handle/members/:profileHandle → 404 for unknown profile", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
 

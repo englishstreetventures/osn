@@ -3,6 +3,14 @@ main = "src/index.ts"
 compatibility_date = "2025-03-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Refuse to publish the top-level (env-less) config to a *.workers.dev URL. The
+# top-level block is the local `wrangler dev` posture (OSN_ENV=local: ephemeral
+# JWT keys, in-memory rate limiters, non-Secure cookies), so a bare
+# `wrangler deploy` would expose a public identity API in dev posture. With no
+# top-level routes a bare deploy now fails loudly. Real deploys use
+# `--env production` (custom_domain route below).
+workers_dev = false
+
 # osn-api now runs on Cloudflare Workers via `export default { fetch, scheduled }`
 # in `src/index.ts` (Phase 6). The Bun dev server (`src/local.ts`) is unchanged
 # and remains the default fast devloop (`bun run dev`); `wrangler dev` is the

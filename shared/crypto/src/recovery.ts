@@ -10,12 +10,18 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
  * # Threat model
  *
  * Recovery codes unlock a full session if all passkeys are lost. The server
- * stores only SHA-256(code) — a database leak does not expose usable codes
- * because the preimage space is 2^64, well beyond feasible brute force per
- * hash with the salt provided by the prefix. We deliberately skip a
- * memory-hard KDF here: unlike user-chosen passwords these are uniformly
- * random high-entropy secrets, so SHA-256 is appropriate (same reasoning as
- * session tokens in `[[sessions]]`).
+ * stores only SHA-256(code) — no salt, because these are uniformly random
+ * high-entropy secrets, not user-chosen passwords, so a per-code salt buys
+ * nothing against a targeted preimage search and a memory-hard KDF is
+ * unnecessary (same reasoning as session tokens in `[[sessions]]`). A DB leak
+ * does not immediately expose usable codes: the preimage space is 2^64 and
+ * every code is single-use + wiped-and-rotated on consumption.
+ *
+ * Residual risk (tracked, not yet closed): 64 bits behind a single fast hash
+ * is within reach of a well-resourced offline attacker who exfiltrates the
+ * full table and targets one account. Raising the code to 128 bits (32 hex
+ * chars) closes this at a typing-UX cost — deferred as a product decision, and
+ * partly mitigated already by the per-account recovery-code lockout counter.
  *
  * # Code format
  *

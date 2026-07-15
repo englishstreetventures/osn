@@ -176,6 +176,26 @@ describe("jwks-cache", () => {
     expect(calls.get(URL_1)).toBe(2);
   });
 
+  it("M-A: a second forced refresh for the same kid within cooldown does NOT re-fetch", async () => {
+    routes.set(URL_1, [jwkA]);
+    await resolvePublicKeyForKid("shared-kid", URL_1);
+    expect(calls.get(URL_1)).toBe(1);
+
+    // First forced refresh hits upstream (rotation pickup) and updates the cache.
+    const refreshed = await refreshPublicKeyForKid("shared-kid", URL_1);
+    expect(calls.get(URL_1)).toBe(2);
+
+    // A flood of further bad-sig-driven refreshes for the same kid within the
+    // cooldown must be throttled — no additional upstream fetches, and the
+    // cached key is returned so the caller can re-verify (and still reject a
+    // genuinely bad signature).
+    for (let i = 0; i < 20; i++) {
+      const k = await refreshPublicKeyForKid("shared-kid", URL_1);
+      expect(k).toBe(refreshed);
+    }
+    expect(calls.get(URL_1)).toBe(2);
+  });
+
   it("LRU eviction at CACHE_MAX_SIZE (256)", async () => {
     // Distinct cache keys via distinct urls; one shared kid + jwk per url.
     routes = new Map();

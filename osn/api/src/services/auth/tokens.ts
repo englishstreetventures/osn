@@ -5,7 +5,6 @@
 
 import { sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { commitBatch } from "@shared/db-utils";
 import { desc, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -425,28 +424,53 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
 
       const { db } = yield* Db;
       // Read the old session's metadata up front (D1 has no interactive
-      // transaction), then delete-old + insert-new commit as one atomic batch so
-      // the family never has zero rows mid-rotation.
+      // transaction) so the rotated-in row keeps the device's UA label + IP hash.
       const existing = yield* Effect.tryPromise({
         try: () => db.select().from(sessions).where(eq(sessions.id, oldSessionId)).limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
       const old = existing[0];
+
+      // CAS gate (S-M refresh-rotation): the old-session DELETE is the atomic
+      // compare-and-swap. Two concurrent refreshes of the same token both pass
+      // verification, but only one DELETE observes the row present (rows-affected
+      // == 1) and proceeds to insert; the loser sees 0 rows — the token was
+      // already rotated out (concurrent refresh or replay), which is treated as
+      // C2 reuse: revoke the whole family instead of minting a sibling session.
+      // Mirrors the recovery-code CAS already used in this service.
+      const delResult = yield* Effect.tryPromise({
+        try: () => db.delete(sessions).where(eq(sessions.id, oldSessionId)),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const rotated =
+        (delResult as unknown as { changes?: number; rowsAffected?: number }).changes ??
+        (delResult as unknown as { changes?: number; rowsAffected?: number }).rowsAffected ??
+        0;
+
+      if (rotated === 0) {
+        metricSessionReuseDetected();
+        yield* Effect.logWarning("Session rotation CAS lost — revoking family");
+        yield* Effect.tryPromise({
+          try: () => db.delete(sessions).where(eq(sessions.familyId, familyId)),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        yield* trackRotatedSession(oldSessionId, familyId).pipe(Effect.catchAll(() => Effect.void));
+        metricSessionFamilyRevoked();
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
+      }
+
       yield* Effect.tryPromise({
         try: () =>
-          commitBatch(db, [
-            db.delete(sessions).where(eq(sessions.id, oldSessionId)),
-            db.insert(sessions).values({
-              id: newSessionId,
-              accountId,
-              familyId,
-              expiresAt: nowSec + refreshTokenTtl,
-              createdAt: nowSec,
-              uaLabel: old?.uaLabel ?? null,
-              ipHash: old?.ipHash ?? null,
-              lastUsedAt: nowSec,
-            }),
-          ]),
+          db.insert(sessions).values({
+            id: newSessionId,
+            accountId,
+            familyId,
+            expiresAt: nowSec + refreshTokenTtl,
+            createdAt: nowSec,
+            uaLabel: old?.uaLabel ?? null,
+            ipHash: old?.ipHash ?? null,
+            lastUsedAt: nowSec,
+          }),
         catch: (cause) => new DatabaseError({ cause }),
       });
 

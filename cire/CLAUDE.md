@@ -215,7 +215,7 @@ cd cire/api && bunx wrangler d1 migrations apply cire-db            # Production
 cd cire/api && bunx wrangler types                                  # Regenerate CF binding types
 
 # Deploy
-cd cire/api && bunx wrangler deploy                                 # Deploy API worker
+cd cire/api && bunx wrangler deploy --env production                # Deploy API worker (prod env — never bare `wrangler deploy`, which the config now blocks)
 bun run --cwd cire/web build && bunx wrangler pages deploy cire/web/dist
 
 # Versioning

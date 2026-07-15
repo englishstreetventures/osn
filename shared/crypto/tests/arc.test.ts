@@ -729,6 +729,53 @@ describe("resolvePublicKey", () => {
       expect(error.message).toContain("Unknown or invalid key");
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  // S-review: a warm cache entry for (kid, ownerIss) must NOT satisfy a lookup
+  // for the SAME kid under a DIFFERENT issuer. The cache is keyed by
+  // (issuer, kid), so a cross-issuer lookup misses the cache and falls through
+  // to the `serviceId == issuer` DB binding, which finds no row → rejection.
+  // Guards against the kid-only-keyed cache defeating the kid→issuer binding.
+  effectIt.effect("cache hit for one issuer does not satisfy another issuer's lookup", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const keyPair = yield* Effect.promise(() => generateArcKeyPair());
+      const jwk = yield* Effect.promise(() => exportKeyToJwk(keyPair.publicKey));
+      const now = new Date();
+      const keyId = "shared-kid";
+
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(serviceAccounts).values({
+            serviceId: "owner-svc",
+            allowedScopes: "graph:read",
+            createdAt: now,
+            updatedAt: now,
+          }),
+        catch: (e) => new ArcTokenError({ message: "insert failed", cause: e }),
+      });
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(serviceAccountKeys).values({
+            keyId,
+            serviceId: "owner-svc",
+            publicKeyJwk: jwk,
+            registeredAt: now,
+            expiresAt: null,
+            revokedAt: null,
+          }),
+        catch: (e) => new ArcTokenError({ message: "insert key failed", cause: e }),
+      });
+
+      // Warm the cache for the legitimate owner.
+      const ownerKey = yield* resolvePublicKey(keyId, "owner-svc");
+      expect(ownerKey).toBeDefined();
+
+      // Same kid, forged issuer — must be rejected, not served from cache.
+      const error = yield* Effect.flip(resolvePublicKey(keyId, "victim-svc"));
+      expect(error._tag).toBe("ArcTokenError");
+      expect(error.message).toContain("Unknown or invalid key");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
 });
 
 // ---------------------------------------------------------------------------

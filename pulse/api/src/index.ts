@@ -72,6 +72,14 @@ const misconfigured = (detail: string): Response =>
 function buildApp(env: Env): App {
   const secure = !!env.OSN_ENV && env.OSN_ENV !== "local";
 
+  // S-H (mirrors zap-api): fetching JWKS over plaintext HTTP in a deployed env
+  // lets any process with network access serve a forged key set and mint
+  // acceptable access tokens. Fail closed on a missing/plaintext URL.
+  const jwksUrl = env.OSN_JWKS_URL;
+  if (secure && (!jwksUrl || jwksUrl.startsWith("http://"))) {
+    throw new Error("OSN_JWKS_URL must be set and use HTTPS in non-local environments");
+  }
+
   // CORS allowlist — fail closed in non-local envs where PULSE_CORS_ORIGIN is
   // unset (an empty allowlist in a secure env is a misconfiguration).
   const corsOrigins = resolveCorsOrigins({ PULSE_CORS_ORIGIN: env.PULSE_CORS_ORIGIN }, secure);
@@ -81,7 +89,7 @@ function buildApp(env: Env): App {
 
   return createApp({
     dbLayer: makeDbD1Live(env.DB as D1Database),
-    jwksUrl: env.OSN_JWKS_URL,
+    jwksUrl,
     rateLimiters,
     clientIpConfig: resolveClientIpConfig(env),
     corsOrigins,

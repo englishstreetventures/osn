@@ -113,6 +113,13 @@ export async function verifyArcToken(
     const { payload } = await jwtVerify(token, publicKey, {
       algorithms: [ARC_ALG],
       audience: expectedAudience,
+      // Defense-in-depth: require the temporal + identity claims to be present
+      // so a token minted without `exp` can never be treated as non-expiring.
+      // We deliberately keep clock tolerance at jose's default (0): ARC tokens
+      // are ≤5-min first-party S2S bearer tokens between NTP-synced Cloudflare
+      // services, so a tolerance window would only widen a stolen token's life
+      // for no real drift benefit.
+      requiredClaims: ["exp", "iat", "iss", "aud"],
       // X1: when expectedIssuer is set, jose enforces `iss` matches —
       // cryptographically binding the signed issuer to the kid→issuer DB row.
       ...(expectedIssuer ? { issuer: expectedIssuer } : {}),
@@ -172,6 +179,17 @@ const publicKeyCache = new Map<
 const publicKeyLastAccess = new Map<string, number>();
 
 /**
+ * Composite cache key. Keying by `kid` ALONE would let a cache hit return a key
+ * for whatever `issuer` the caller passed — silently skipping the
+ * `serviceId == issuer` DB binding that only runs on the miss path, so a token
+ * whose signed `iss` differs from the kid's registered owner would be rejected
+ * on a cache miss but accepted on a cache hit. Keying by `(issuer, kid)` makes
+ * the binding hold on both paths. The `\n` separator can appear in neither a
+ * kid (RFC 7638 thumbprint / UUID) nor a service id, so keys are unambiguous.
+ */
+const pkCacheKey = (issuer: string, kid: string): string => `${issuer}\n${kid}`;
+
+/**
  * Public-key cache TTL (seconds). Bounds the cross-process key-revocation
  * window (X4): an in-process call to `evictPublicKeyCacheEntry(kid)` on the
  * revoking node is immediate (S-H100), but *other* nodes that already cached
@@ -207,7 +225,8 @@ export const resolvePublicKey = (
 
     // Cache hit path — validate scopes against stored allowedScopes so we
     // never skip scope enforcement even when tokenScopes is omitted (S-M102).
-    const cached = publicKeyCache.get(kid);
+    const pkKey = pkCacheKey(issuer, kid);
+    const cached = publicKeyCache.get(pkKey);
     if (cached && cached.expiresAt > now) {
       if (tokenScopes && tokenScopes.length > 0) {
         for (const s of tokenScopes) {
@@ -223,7 +242,7 @@ export const resolvePublicKey = (
       // LRU touch: record access time in ms (P-W1). Side-map write is O(1)
       // and avoids Map delete+re-insert on the hot cache-hit path. Using
       // Date.now() (ms) gives sub-second precision for test determinism.
-      publicKeyLastAccess.set(kid, Date.now());
+      publicKeyLastAccess.set(pkKey, Date.now());
       metricArcPublicKeyCacheHit(issuer);
       return cached.key;
     }
@@ -305,12 +324,12 @@ export const resolvePublicKey = (
         publicKeyLastAccess.delete(lruKid);
       }
     }
-    publicKeyCache.set(kid, {
+    publicKeyCache.set(pkKey, {
       key,
       allowedScopes: new Set(normaliseScopes(allowedScopes)),
       expiresAt: now + PUBLIC_KEY_CACHE_TTL_SECONDS,
     });
-    publicKeyLastAccess.set(kid, Date.now());
+    publicKeyLastAccess.set(pkKey, Date.now());
 
     return key;
   });
@@ -324,13 +343,22 @@ export function clearPublicKeyCache(): void {
 }
 
 /**
- * Evicts a single entry from the public key cache by `kid`.
- * Call immediately after revoking a key so the revocation takes effect in
- * this process without waiting for the 5-minute cache TTL to expire (S-H100).
+ * Evicts every cached entry for a `kid` by scanning for the composite
+ * `(issuer, kid)` keys that end in `\n${kid}`. A kid is registered to exactly
+ * one service, so at most one entry matches — but revocation is keyed on kid
+ * only, and the cache is now keyed on `(issuer, kid)`, so we resolve the issuer
+ * side by suffix. O(n) over a ≤256-entry cache, and only on the rare
+ * revocation path. Call immediately after revoking a key so the revocation
+ * takes effect in this process without waiting for the cache TTL (S-H100).
  */
 export function evictPublicKeyCacheEntry(kid: string): void {
-  publicKeyCache.delete(kid);
-  publicKeyLastAccess.delete(kid);
+  const suffix = `\n${kid}`;
+  for (const key of publicKeyCache.keys()) {
+    if (key.endsWith(suffix)) {
+      publicKeyCache.delete(key);
+      publicKeyLastAccess.delete(key);
+    }
+  }
 }
 
 /** Returns the current public key cache size. Useful for testing. */

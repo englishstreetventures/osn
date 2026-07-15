@@ -35,6 +35,17 @@ const JWKS_FETCH_TIMEOUT_MS = 5000;
 // P-W2: realistic key-rotation scenarios will never exceed single digits;
 // cap prevents heap exhaustion from JWTs with crafted kid values.
 const CACHE_MAX_SIZE = 256;
+// S-review: the negative cache MUST also be bounded. Unknown/junk kids each
+// insert a distinct entry, so an unauthenticated flood of random-`kid` tokens
+// would otherwise grow the map without limit (heap-exhaustion DoS). FIFO-evict
+// the oldest entry once the cap is reached.
+const NEGATIVE_CACHE_MAX_SIZE = 1024;
+// S-review (M-A): minimum spacing between forced JWKS refetches for the SAME
+// kid. A valid-`kid`/bad-signature token forces a rotation refetch; because
+// kids are public, an attacker could otherwise drive one upstream fetch per
+// request. One forced refetch per kid per window is enough to pick up a genuine
+// rotation while capping the amplification factor.
+const FORCED_REFRESH_COOLDOWN_MS = NEGATIVE_TTL_MS;
 
 interface CachedKey {
   key: CryptoKey;
@@ -46,8 +57,19 @@ const cache = new Map<string, CachedKey>();
 const lastAccess = new Map<string, number>();
 /** Negative cache: cacheKey -> timestamp the negative result was recorded. */
 const negativeCache = new Map<string, number>();
+/** Forced-refresh throttle: cacheKey -> timestamp of the last forced refetch. */
+const lastForcedRefresh = new Map<string, number>();
 /** Single-flight: in-flight JWKS fetches keyed by jwksUrl. */
 const inFlight = new Map<string, Promise<unknown[]>>();
+
+/** Records a negative-cache entry, FIFO-evicting the oldest when at capacity. */
+function recordNegative(ck: string): void {
+  if (!negativeCache.has(ck) && negativeCache.size >= NEGATIVE_CACHE_MAX_SIZE) {
+    const oldest = negativeCache.keys().next().value;
+    if (oldest !== undefined) negativeCache.delete(oldest);
+  }
+  negativeCache.set(ck, Date.now());
+}
 
 /** S-M3: include jwksUrl in cache key to isolate keys by issuer. */
 function cacheKey(kid: string, jwksUrl: string): string {
@@ -103,7 +125,7 @@ async function fetchPublicKey(kid: string, jwksUrl: string): Promise<CryptoKey |
   try {
     keys = await fetchJwksKeys(jwksUrl);
   } catch {
-    negativeCache.set(cacheKey(kid, jwksUrl), Date.now());
+    recordNegative(cacheKey(kid, jwksUrl));
     return null;
   }
 
@@ -113,14 +135,14 @@ async function fetchPublicKey(kid: string, jwksUrl: string): Promise<CryptoKey |
   );
 
   if (!jwk) {
-    negativeCache.set(cacheKey(kid, jwksUrl), Date.now());
+    recordNegative(cacheKey(kid, jwksUrl));
     return null;
   }
 
   try {
     return await importKeyFromJwk(jwk);
   } catch {
-    negativeCache.set(cacheKey(kid, jwksUrl), Date.now());
+    recordNegative(cacheKey(kid, jwksUrl));
     return null;
   }
 }
@@ -179,6 +201,21 @@ export async function refreshPublicKeyForKid(
   jwksUrl: string,
 ): Promise<CryptoKey | null> {
   const ck = cacheKey(kid, jwksUrl);
+  const now = Date.now();
+
+  // S-review (M-A): throttle forced refetches per kid. A valid-`kid`/bad-sig
+  // token reaches here; without a throttle an attacker (kids are public) drives
+  // one upstream JWKS fetch per request. If we forced a refetch for this kid
+  // within the cooldown, skip the network call and return whatever is cached
+  // (the caller re-verifies; a bad-sig token still fails). A genuine rotation is
+  // still picked up by the first refetch in the window.
+  const last = lastForcedRefresh.get(ck);
+  if (last !== undefined && now - last < FORCED_REFRESH_COOLDOWN_MS) {
+    const cached = cache.get(ck);
+    return cached ? cached.key : null;
+  }
+  lastForcedRefresh.set(ck, now);
+
   negativeCache.delete(ck);
   const key = await fetchPublicKey(kid, jwksUrl);
   if (key) storeInCache(ck, key);
@@ -190,5 +227,6 @@ export function clearJwksCache(): void {
   cache.clear();
   lastAccess.clear();
   negativeCache.clear();
+  lastForcedRefresh.clear();
   inFlight.clear();
 }

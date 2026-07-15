@@ -3,9 +3,10 @@ import { describe, it, expect } from "vitest";
 import { createOriginGuard } from "../../src/lib/origin-guard";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function makeContext(method: string, url: string, origin?: string): any {
+function makeContext(method: string, url: string, origin?: string, authorization?: string): any {
   const headers = new Headers();
   if (origin) headers.set("origin", origin);
+  if (authorization) headers.set("authorization", authorization);
 
   return {
     request: new Request(url, { method, headers }),
@@ -35,10 +36,34 @@ describe("createOriginGuard", () => {
     expect(result).toBeUndefined();
   });
 
-  it("allows POST to S2S organisation-internal endpoints", () => {
-    const ctx = makeContext("POST", "http://localhost:4000/organisation-internal/members");
+  it("allows POST to S2S /organisations/internal endpoints", () => {
+    const ctx = makeContext("POST", "http://localhost:4000/organisations/internal/members");
     const result = guard(ctx);
     expect(result).toBeUndefined();
+  });
+
+  it("allows POST to S2S /internal endpoints (step-up verify, app-enrollment)", () => {
+    const ctx = makeContext("POST", "http://localhost:4000/internal/step-up/verify");
+    const result = guard(ctx);
+    expect(result).toBeUndefined();
+  });
+
+  it("exempts any POST carrying an Authorization: ARC header, regardless of path", () => {
+    const ctx = makeContext(
+      "POST",
+      "http://localhost:4000/internal/app-enrollment/leave",
+      undefined,
+      "ARC eyJhbGciOiJFUzI1NiJ9.payload.sig",
+    );
+    const result = guard(ctx);
+    expect(result).toBeUndefined();
+  });
+
+  it("does NOT exempt a look-alike route that only shares a prefix substring", () => {
+    const ctx = makeContext("POST", "http://localhost:4000/internal-looking/thing");
+    const result = guard(ctx) as { error: string };
+    expect(ctx.set.status).toBe(403);
+    expect(result.error).toBe("forbidden");
   });
 
   it("allows POST with matching Origin", () => {

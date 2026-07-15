@@ -7,7 +7,7 @@
     "dev": "bun run --watch src/local.ts",
     "dev:wrangler": "wrangler dev",
     "build": "wrangler deploy --dry-run --outdir ./dist",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler deploy --env production",
     "types": "wrangler types",
     "start": "bun run src/local.ts",
     "check": "tsc --noEmit",

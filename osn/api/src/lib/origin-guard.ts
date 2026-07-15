@@ -17,8 +17,27 @@ import { metricOriginGuardRejection } from "../metrics";
 /** HTTP methods that change state and require Origin validation. */
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-/** URL path prefixes that use S2S ARC tokens, not cookies. */
-const S2S_PREFIXES = ["/graph/internal", "/organisation-internal"];
+/**
+ * URL path prefixes that use S2S ARC tokens, not cookies. Matched on a segment
+ * boundary (prefix must be followed by `/` or end-of-path) so a future route
+ * like `/graph/internal-x` is NOT silently exempted. Kept as a secondary signal
+ * only — the load-bearing exemption is the `Authorization: ARC` header below,
+ * which cannot drift when a route is renamed.
+ *
+ * These MUST stay in sync with the internal route factories mounted in
+ * `app.ts`: `/graph/internal` (graph-internal), `/organisations/internal`
+ * (organisation-internal), `/internal` (internal-account).
+ */
+const S2S_PREFIXES = ["/graph/internal", "/organisations/internal", "/internal"];
+
+/** True when `path` equals a prefix or continues it at a segment boundary. */
+function matchesS2sPrefix(path: string): boolean {
+  return S2S_PREFIXES.some((prefix) => {
+    if (!path.startsWith(prefix)) return false;
+    const next = path.charAt(prefix.length);
+    return next === "" || next === "/" || next === "?";
+  });
+}
 
 export interface OriginGuardConfig {
   /** Allowed origins (from OSN_CORS_ORIGIN). Empty = skip validation (dev mode). */
@@ -37,11 +56,22 @@ export function createOriginGuard(config: OriginGuardConfig) {
     // Skip for non-state-changing methods (GET, HEAD, OPTIONS)
     if (!STATE_CHANGING_METHODS.has(request.method)) return;
 
-    // Skip for S2S endpoints — they use ARC tokens, not cookies.
-    // P-W1: extract pathname without full URL parse to avoid per-request allocation.
+    // Skip for S2S calls. These carry `Authorization: ARC <token>` and no
+    // cookie, so they are not a CSRF vector (a browser cannot attach the ARC
+    // header AND send our cookies cross-origin — the header forces a CORS
+    // preflight our allowlist rejects). Keying the exemption on the ARC header
+    // rather than a hardcoded path list means a renamed internal route can
+    // never silently lose its exemption (or, worse, a cookie route can never
+    // accidentally gain one). The internal routes still verify the ARC token
+    // cryptographically, so skipping Origin here grants nothing on its own.
+    const authorization = request.headers.get("authorization");
+    if (authorization && /^ARC\s/i.test(authorization)) return;
+
+    // Secondary path-based signal (segment-boundary matched). P-W1: extract
+    // pathname without a full URL parse to avoid a per-request allocation.
     const pathStart = request.url.indexOf("/", request.url.indexOf("//") + 2);
     const path = pathStart >= 0 ? request.url.slice(pathStart) : request.url;
-    if (S2S_PREFIXES.some((prefix) => path.startsWith(prefix))) return;
+    if (matchesS2sPrefix(path)) return;
 
     // In dev mode (no allowlist configured), skip validation
     if (config.allowedOrigins.size === 0) return;

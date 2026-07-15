@@ -388,6 +388,16 @@ export function createOrganisationRoutes(
           const organisation = await resolveOrg(params.handle, set);
           if (!organisation) return { error: "Organisation not found" };
 
+          // Least-privilege: the full roster (handles, display names, roles) is
+          // visible only to members of the org, not to any authenticated user.
+          // If public org pages are ever wanted, gate this on an explicit
+          // `organisations.visibility` flag rather than dropping the check.
+          const callerRole = await run(org.getMemberRole(organisation.id, caller.profileId));
+          if (!callerRole) {
+            set.status = 403;
+            return { error: "Forbidden" };
+          }
+
           try {
             const list = await run(org.listMembers(organisation.id, parsePagination(query)));
             return {

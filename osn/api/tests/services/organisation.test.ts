@@ -267,6 +267,32 @@ describe("addMember", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  it.effect("owner can grant admin", () =>
+    Effect.gen(function* () {
+      const { alice, organisation } = yield* setupOrgWithOwner;
+      const bob = yield* registerProfile("bob@example.com", "bob");
+      yield* org.addMember(organisation.id, alice.id, bob.id, "admin");
+      const role = yield* org.getMemberRole(organisation.id, bob.id);
+      expect(role).toBe("admin");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("non-owner admin cannot grant admin (owner-only role gate)", () =>
+    Effect.gen(function* () {
+      const { alice, organisation } = yield* setupOrgWithOwner;
+      const bob = yield* registerProfile("bob@example.com", "bob");
+      const carol = yield* registerProfile("carol@example.com", "carol");
+      // Owner makes bob an admin; bob then tries to mint another admin.
+      yield* org.addMember(organisation.id, alice.id, bob.id, "admin");
+      const error = yield* Effect.flip(org.addMember(organisation.id, bob.id, carol.id, "admin"));
+      expect(error._tag).toBe("OrgError");
+      expect(error.message).toContain("owner");
+      // ...but bob CAN still add a plain member.
+      yield* org.addMember(organisation.id, bob.id, carol.id, "member");
+      expect(yield* org.getMemberRole(organisation.id, carol.id)).toBe("member");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
   it.effect("fails when org does not exist", () =>
     Effect.gen(function* () {
       const alice = yield* registerProfile("alice@example.com", "alice");
@@ -320,6 +346,35 @@ describe("removeMember", () => {
       const bob = yield* registerProfile("bob@example.com", "bob");
       const error = yield* Effect.flip(org.removeMember(organisation.id, alice.id, bob.id));
       expect(error._tag).toBe("NotFoundError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("non-owner admin cannot remove another admin", () =>
+    Effect.gen(function* () {
+      const { alice, organisation } = yield* setupOrgWithOwner;
+      const bob = yield* registerProfile("bob@example.com", "bob");
+      const carol = yield* registerProfile("carol@example.com", "carol");
+      yield* org.addMember(organisation.id, alice.id, bob.id, "admin");
+      yield* org.addMember(organisation.id, alice.id, carol.id, "admin");
+      // bob (admin, not owner) tries to strip fellow admin carol.
+      const error = yield* Effect.flip(org.removeMember(organisation.id, bob.id, carol.id));
+      expect(error._tag).toBe("OrgError");
+      expect(error.message).toContain("owner");
+      // The owner still can.
+      yield* org.removeMember(organisation.id, alice.id, carol.id);
+      expect(yield* org.getMemberRole(organisation.id, carol.id)).toBeNull();
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("admin can still remove a plain member", () =>
+    Effect.gen(function* () {
+      const { alice, organisation } = yield* setupOrgWithOwner;
+      const bob = yield* registerProfile("bob@example.com", "bob");
+      const carol = yield* registerProfile("carol@example.com", "carol");
+      yield* org.addMember(organisation.id, alice.id, bob.id, "admin");
+      yield* org.addMember(organisation.id, alice.id, carol.id, "member");
+      yield* org.removeMember(organisation.id, bob.id, carol.id);
+      expect(yield* org.getMemberRole(organisation.id, carol.id)).toBeNull();
     }).pipe(Effect.provide(createTestLayer())),
   );
 

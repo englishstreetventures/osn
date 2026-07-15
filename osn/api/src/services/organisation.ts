@@ -357,6 +357,13 @@ export function createOrganisationService() {
       if (callerMember.length === 0) {
         return yield* Effect.fail(new OrgError({ message: "Only admins can add members" }));
       }
+      // Only the owner may grant admin. Without this, any admin could mint new
+      // admins (or promote a colluding account) via add — the same privilege
+      // change `updateMemberRole` restricts to the owner, so the two paths must
+      // agree or the owner-only gate is bypassable through remove+add.
+      if (role === "admin" && orgRows[0].ownerId !== callerId) {
+        return yield* Effect.fail(new OrgError({ message: "Only the owner can grant admin" }));
+      }
       if (targetRows.length === 0) {
         return yield* Effect.fail(new OrgError({ message: "Target profile not found" }));
       }
@@ -442,6 +449,13 @@ export function createOrganisationService() {
 
       if (targetMember.length === 0) {
         return yield* Effect.fail(new NotFoundError({ message: "Member not found" }));
+      }
+
+      // Only the owner may remove an admin. Without this, any admin could strip
+      // rival admins (or, paired with add, demote them) — again bypassing the
+      // owner-only role gate. Admins may still remove plain members.
+      if (targetMember[0].role === "admin" && orgRows[0].ownerId !== callerId) {
+        return yield* Effect.fail(new OrgError({ message: "Only the owner can remove an admin" }));
       }
 
       yield* Effect.tryPromise({

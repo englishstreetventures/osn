@@ -3,6 +3,15 @@ main = "src/index.ts"
 compatibility_date = "2025-03-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Refuse to publish the top-level (env-less) config to a *.workers.dev URL. This
+# block carries the PRODUCTION D1 binding but a local security posture
+# (WEB_ORIGIN=localhost, no prod secrets), so a bare `wrangler deploy` would
+# otherwise create a public shadow Worker with full read/write on prod guest
+# PII. With no top-level routes, a bare deploy now fails loudly. Real deploys go
+# through `--env production` (custom_domain routes below); CI's
+# `d1 migrations apply` still uses this block's DB binding and is unaffected.
+workers_dev = false
+
 # Scheduled expired-session sweep (C-M2/C-M15). Daily 04:00 UTC — off-peak for
 # the AU/EU guest audience, low contention with normal traffic. Sessions carry
 # a 30-day TTL so once-a-day pruning bounds the dead-row backlog to <1 day.
