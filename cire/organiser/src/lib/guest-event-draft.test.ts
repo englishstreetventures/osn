@@ -5,6 +5,7 @@ import type { EventRow } from "./events-store";
 import {
   createGuestEventDraft,
   type DesiredStateWire,
+  draftWarnings,
   toDesiredState,
   validateDraft,
 } from "./guest-event-draft";
@@ -275,6 +276,164 @@ describe("validateDraft — client mirror of the server field rules", () => {
     createRoot((dispose) => {
       const store = loaded();
       expect(validateDraft(store.draft)).toHaveLength(0);
+      dispose();
+    });
+  });
+});
+
+// ── E6: event editing on the shared draft ─────────────────────────────────────
+
+describe("createGuestEventDraft — event editing (E6)", () => {
+  it("edits an existing event id-stably (rename ⇒ UPDATE, keeps id)", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events.find((e) => e.name === "Ceremony")!.key;
+      store.updateEvent(key, { name: "Wedding Ceremony", address: "St Andrew's" });
+      const wire = store.toWire();
+      const evt = wire.events.find((e) => e.name === "Wedding Ceremony")!;
+      expect(evt.id).toBe("evt_1"); // preserved ⇒ id-matched update, no remove+create
+      expect(evt.address).toBe("St Andrew's");
+      dispose();
+    });
+  });
+
+  it("adds a new event with no id (server mints) at the end of the schedule", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.addEvent();
+      store.updateEvent(key, {
+        name: "Brunch",
+        startAt: "2026-11-15T10:00:00+11:00",
+        timezone: "Australia/Sydney",
+      });
+      const wire = store.toWire();
+      const brunch = wire.events.find((e) => e.name === "Brunch")!;
+      expect(brunch.id).toBeUndefined();
+      expect(brunch.sortOrder).toBe(2); // after Ceremony(0) + Reception(1)
+      dispose();
+    });
+  });
+
+  it("removes an event and strips its attendance from every guest", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const receptionKey = store.draft.events.find((e) => e.name === "Reception")!.key;
+      store.removeEvent(receptionKey);
+      const wire = store.toWire();
+      expect(wire.events.some((e) => e.name === "Reception")).toBe(false);
+      // No guest should still reference the removed event by name.
+      const stillInvited = wire.families
+        .flatMap((f) => f.guests)
+        .some((g) => g.eventNames.includes("Reception"));
+      expect(stillInvited).toBe(false);
+      dispose();
+    });
+  });
+
+  it("reorders events and rewrites sortOrder to the new index", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      // Ceremony(0), Reception(1) → move Reception up.
+      const receptionKey = store.draft.events.find((e) => e.name === "Reception")!.key;
+      store.moveEvent(receptionKey, -1);
+      const wire = store.toWire();
+      const reception = wire.events.find((e) => e.name === "Reception")!;
+      const ceremony = wire.events.find((e) => e.name === "Ceremony")!;
+      expect(reception.sortOrder).toBe(0);
+      expect(ceremony.sortOrder).toBe(1);
+      dispose();
+    });
+  });
+
+  it("undo reverts an event edit", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events.find((e) => e.name === "Ceremony")!.key;
+      store.updateEvent(key, { name: "Renamed" });
+      expect(store.dirty()).toBe(true);
+      store.undo();
+      expect(store.draft.events.find((e) => e.id === "evt_1")!.name).toBe("Ceremony");
+      dispose();
+    });
+  });
+});
+
+describe("validateDraft — event field rules (E6)", () => {
+  it("flags a blank name / start / timezone on a new event", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      store.addEvent(); // all-blank
+      const errors = validateDraft(store.draft);
+      expect(errors.some((e) => e.message.includes("Event name is required"))).toBe(true);
+      expect(errors.some((e) => e.message.includes("Start date & time is required"))).toBe(true);
+      expect(errors.some((e) => e.message.includes("Timezone is required"))).toBe(true);
+      dispose();
+    });
+  });
+
+  it("flags a non-ISO start and a non-http(s) URL", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.addEvent();
+      store.updateEvent(key, {
+        name: "Party",
+        startAt: "next tuesday",
+        timezone: "Australia/Sydney",
+        pinterestUrl: "javascript:alert(1)",
+      });
+      const errors = validateDraft(store.draft);
+      expect(errors.some((e) => e.message.includes("Start must be a valid"))).toBe(true);
+      expect(errors.some((e) => e.message.includes("Pinterest link must be an http(s) URL"))).toBe(
+        true,
+      );
+      dispose();
+    });
+  });
+
+  it("rejects a duplicate event name (case/space-insensitive)", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.addEvent();
+      store.updateEvent(key, {
+        name: "  ceremony ",
+        startAt: "2026-11-14T15:00:00+11:00",
+        timezone: "Australia/Sydney",
+      });
+      const errors = validateDraft(store.draft);
+      expect(errors.some((e) => e.message.includes("Another event already has this name"))).toBe(
+        true,
+      );
+      dispose();
+    });
+  });
+
+  it("rejects a palette swatch with an un-allowed colour value", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      store.updateEvent(key, {
+        dressCodePalette: [{ name: "Bad", color: "url(javascript:alert(1))" }],
+      });
+      const errors = validateDraft(store.draft);
+      expect(errors.some((e) => e.message.includes("allowed colour value"))).toBe(true);
+      dispose();
+    });
+  });
+
+  it("warns (not errors) when end is before start", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      store.updateEvent(key, {
+        startAt: "2026-11-14T18:00:00+11:00",
+        endAt: "2026-11-14T15:00:00+11:00",
+      });
+      // Not a blocking error…
+      expect(validateDraft(store.draft).some((e) => e.message.includes("ends before"))).toBe(false);
+      // …but a warning.
+      expect(draftWarnings(store.draft).some((w) => w.includes("ends before it starts"))).toBe(
+        true,
+      );
       dispose();
     });
   });

@@ -43,10 +43,12 @@ export function isModule(value: string): value is Module {
  */
 export const MODULE_SUBS: Record<Module, readonly string[]> = {
   overview: ["index"],
-  // `edit` is the interactive guest+event editor (E5), an editor-only sub the
-  // shell hides from read-only viewers (the parser can't see the role).
+  // `edit` is the interactive guest editor (E5), an editor-only sub the shell
+  // hides from read-only viewers (the parser can't see the role).
   guests: ["list", "edit", "rsvps"],
-  schedule: ["index"],
+  // Schedule gains an `edit` sub in E6 (the events editor) alongside the
+  // read-only `list` view (the old Events tab). `edit` is editor-only.
+  schedule: ["list", "edit"],
   invite: ["design", "codes"],
   settings: ["wedding", "hosts"],
 };
@@ -83,7 +85,7 @@ export const LIST_ROUTE: DashboardRoute = {
  * `#/weddings/<id>/rsvps` — still opens to the right place for one release.
  */
 const LEGACY_TAB_ALIAS: Record<string, { module: Module; sub: string }> = {
-  events: { module: "schedule", sub: "index" },
+  events: { module: "schedule", sub: "list" },
   guests: { module: "guests", sub: "list" },
   rsvps: { module: "guests", sub: "rsvps" },
   invite: { module: "invite", sub: "design" },

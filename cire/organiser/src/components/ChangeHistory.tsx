@@ -3,15 +3,16 @@ import { createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { invalidateEvents } from "../lib/events-store";
+import { invalidateGuests } from "../lib/guests-store";
 
 /**
- * One row of the import list as returned by
- * `GET /api/organiser/weddings/:weddingId/import/list`. `summary` mirrors the
- * counts the API stores at preview time (see organiser-import.ts `/preview`);
- * an older row whose summary failed to parse comes back as `{}`, so every field
- * is optional and defaulted to 0 when we render.
+ * One row of the change list as returned by
+ * `GET /api/organiser/weddings/:weddingId/changes/list` (the E4 endpoint, still
+ * mounted at the `/import` alias for one release). `summary` mirrors the counts
+ * stored at preview time; an older row whose summary failed to parse comes back
+ * as `{}`, so every count field is optional and defaulted to 0 when rendered.
  */
-interface ImportSummaryCounts {
+interface ChangeSummaryCounts {
   eventCreates?: number;
   eventUpdates?: number;
   eventRemoves?: number;
@@ -22,27 +23,41 @@ interface ImportSummaryCounts {
   guestRemoves?: number;
 }
 
-type ImportStatus = "preview" | "applied" | "reverted";
+type ChangeStatus = "preview" | "applied" | "reverted";
+type ChangeKind = "import" | "editor";
 
-interface ImportEntry {
+interface ChangeEntry {
   id: string;
   uploadedAt: number;
   format: string;
-  status: ImportStatus;
+  status: ChangeStatus;
+  /** `'import'` = spreadsheet upload, `'editor'` = in-app edit (E3/E4). */
+  kind: ChangeKind;
   appliedAt: number | null;
   revertedAt: number | null;
-  summary: ImportSummaryCounts;
+  /** True when the change still has a usable before-image (E3). A row whose
+   *  before-image aged out (prune-beyond-10) comes back false and is shown as
+   *  non-revertable with a note. Legacy `undefined` ⇒ treated as false. */
+  revertable?: boolean;
+  summary: ChangeSummaryCounts;
 }
 
 interface ListResponse {
-  imports: ImportEntry[];
+  imports: ChangeEntry[];
   nextCursor: number | null;
 }
 
-const STATUS_LABEL: Record<ImportStatus, string> = {
+const STATUS_LABEL: Record<ChangeStatus, string> = {
   preview: "Preview only",
   applied: "Applied",
   reverted: "Reverted",
+};
+
+/** The change kind, labelled for the organiser — "Spreadsheet import" vs
+ *  "In-app edit" (§8). */
+const KIND_LABEL: Record<ChangeKind, string> = {
+  import: "Spreadsheet import",
+  editor: "In-app edit",
 };
 
 function formatDate(ms: number): string {
@@ -60,7 +75,7 @@ function formatDate(ms: number): string {
  * A compact human summary of a diff, e.g. "+12 guests, −2, 3 events updated".
  * Only non-zero buckets are mentioned; an empty diff reads "No changes".
  */
-function summarise(s: ImportSummaryCounts): string {
+function summarise(s: ChangeSummaryCounts): string {
   const parts: string[] = [];
   const guestAdds = s.guestCreates ?? 0;
   const guestRemoves = s.guestRemoves ?? 0;
@@ -84,23 +99,25 @@ function summarise(s: ImportSummaryCounts): string {
 }
 
 /**
- * The past-imports list with a per-entry one-click revert. Lives behind a native
- * <details> that lazy-loads the list the first time it's opened (and on demand
- * after a revert). Revert is offered only for `applied` entries; a successful
- * revert re-applies the predecessor import server-side, so we mirror Apply's
- * post-mutation refresh — drop the events cache + full reload — and re-fetch the
- * list so the row flips to "Reverted".
+ * The change-history list (E6 rebrand of the old ImportHistory) with a per-entry
+ * one-click revert. Lists BOTH spreadsheet imports and in-app edits (labelled by
+ * `kind`) behind a native <details> that lazy-loads the list the first time it's
+ * opened (and on demand after a revert). Revert is offered only for `applied`
+ * entries that still have a usable before-image (`revertable`); an applied entry
+ * whose before-image aged out (prune-beyond-10) is shown non-revertable with a
+ * note. A successful revert restores the before-image server-side, so we drop
+ * the events + guests caches, reload, and re-fetch the list so the row flips to
+ * "Reverted".
  *
- * Authorised exactly like the rest of the import surface (OSN access JWT +
- * wedding membership) — co-hosts get history + revert too, matching the
- * weddingMember()-gated backend routes.
+ * Authorised exactly like the rest of the changes surface (OSN access JWT +
+ * wedding editor role) — the backend gates `changes/*` with `weddingEditor()`.
  */
-export default function ImportHistory(props: { weddingId: string }) {
+export default function ChangeHistory(props: { weddingId: string }) {
   const { authFetch } = useAuth();
-  const listUrl = () => apiUrl(`/api/organiser/weddings/${props.weddingId}/import/list`);
-  const revertUrl = () => apiUrl(`/api/organiser/weddings/${props.weddingId}/import/revert`);
+  const listUrl = () => apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/list`);
+  const revertUrl = () => apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/revert`);
 
-  const [entries, setEntries] = createSignal<ImportEntry[] | null>(null);
+  const [entries, setEntries] = createSignal<ChangeEntry[] | null>(null);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [revertingId, setRevertingId] = createSignal<string | null>(null);
@@ -113,14 +130,14 @@ export default function ImportHistory(props: { weddingId: string }) {
       const res = await authFetch(listUrl());
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? `Could not load import history (${res.status})`);
+        throw new Error(body.error ?? `Could not load change history (${res.status})`);
       }
       const data = (await res.json()) as ListResponse;
       setEntries(data.imports);
       setLoaded(true);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
-      setError(err instanceof Error ? err.message : "Could not load import history.");
+      setError(err instanceof Error ? err.message : "Could not load change history.");
     } finally {
       setLoading(false);
     }
@@ -133,10 +150,10 @@ export default function ImportHistory(props: { weddingId: string }) {
     }
   }
 
-  async function handleRevert(entry: ImportEntry) {
-    if (entry.status !== "applied") return;
+  async function handleRevert(entry: ChangeEntry) {
+    if (entry.status !== "applied" || !entry.revertable) return;
     const ok = window.confirm(
-      "Revert this import? This re-applies the previous import — guests, families and events will be rolled back to that state.",
+      "Revert this change? Guests, households and events are restored to exactly the state before it was applied. RSVPs discarded by the change are not restored.",
     );
     if (!ok) return;
 
@@ -146,18 +163,17 @@ export default function ImportHistory(props: { weddingId: string }) {
       const res = await authFetch(revertUrl(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ importId: entry.id }),
+        body: JSON.stringify({ changeId: entry.id, importId: entry.id }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? `Revert failed (${res.status})`);
       }
-      // Revert re-applies the predecessor import, so this wedding's events list
-      // is now stale — drop the cache (mirrors Apply) so the Events tab refetches
-      // …and a full reload re-pulls the (uncached) guest table too. We refresh
-      // the list first so, if the reload is ever a no-op, the row still flips to
-      // "Reverted".
+      // Revert restores the before-image, so this wedding's caches are stale —
+      // drop both, then a full reload re-pulls every module fresh. We refresh
+      // the list first so the row flips to "Reverted" even if the reload no-ops.
       invalidateEvents(props.weddingId);
+      invalidateGuests(props.weddingId);
       await loadList();
       window.location.reload();
     } catch (err) {
@@ -177,7 +193,7 @@ export default function ImportHistory(props: { weddingId: string }) {
         >
           ›
         </span>
-        Import history
+        Change history
       </summary>
 
       <div class="border-border/60 flex flex-col gap-4 border-t px-4 py-5">
@@ -194,7 +210,7 @@ export default function ImportHistory(props: { weddingId: string }) {
         </Show>
 
         <Show when={loaded() && (entries()?.length ?? 0) === 0}>
-          <p class="text-text-muted text-[0.85rem]">No imports yet.</p>
+          <p class="text-text-muted text-[0.85rem]">No changes yet.</p>
         </Show>
 
         <Show when={(entries()?.length ?? 0) > 0}>
@@ -202,9 +218,15 @@ export default function ImportHistory(props: { weddingId: string }) {
             <For each={entries() ?? []}>
               {(entry) => {
                 const reverting = () => revertingId() === entry.id;
+                // An applied change that can no longer be reverted (before-image
+                // pruned) shows an explanatory note instead of the button.
+                const agedOut = () => entry.status === "applied" && !entry.revertable;
                 return (
                   <li class="border-border bg-surface/30 flex flex-col gap-2 rounded-sm border p-4 sm:flex-row sm:items-center sm:justify-between">
                     <div class="flex flex-col gap-1">
+                      <span class="font-body text-gold text-[0.62rem] tracking-[0.18em] uppercase">
+                        {KIND_LABEL[entry.kind] ?? "Change"}
+                      </span>
                       <span class="font-body text-text text-[0.88rem]">
                         {formatDate(entry.uploadedAt)}
                       </span>
@@ -220,7 +242,7 @@ export default function ImportHistory(props: { weddingId: string }) {
                       </span>
                     </div>
 
-                    <Show when={entry.status === "applied"}>
+                    <Show when={entry.status === "applied" && entry.revertable}>
                       <button
                         type="button"
                         onClick={() => void handleRevert(entry)}
@@ -230,6 +252,15 @@ export default function ImportHistory(props: { weddingId: string }) {
                       >
                         {reverting() ? "Reverting…" : "Revert"}
                       </button>
+                    </Show>
+
+                    <Show when={agedOut()}>
+                      <span
+                        class="font-body text-text-muted shrink-0 self-start text-[0.72rem] italic sm:max-w-[12rem] sm:self-auto sm:text-right"
+                        title="Only the ten most recent changes keep a restore point."
+                      >
+                        Restore point no longer available
+                      </span>
                     </Show>
                   </li>
                 );

@@ -15,8 +15,8 @@ import {
   buildEventsTemplateCsv,
   buildGuestsTemplateCsv,
 } from "../lib/import-templates";
+import ChangeHistory from "./ChangeHistory";
 import { PlanCounts } from "./ChangePreview";
-import ImportHistory from "./ImportHistory";
 
 interface ImportPlan {
   eventCreates: unknown[];
@@ -69,8 +69,14 @@ function readFile(file: File): Promise<string> {
  */
 export default function ImportPanel(props: { weddingId: string }) {
   const { authFetch } = useAuth();
+  // The spreadsheet upload posts through the canonical `changes/*` front door
+  // (the CSV body shape `{eventsCsv, guestsCsv}`), same pipeline the editor uses.
+  // The legacy `/import/*` alias still serves identically for one release; the
+  // portal is now fully on `changes/*` so that alias can be deleted next release
+  // (see cire wiki/todo/api.md). The preview response echoes `importId`=changeId,
+  // so the existing preview/apply reads below are unchanged.
   const importUrl = (op: string) =>
-    apiUrl(`/api/organiser/weddings/${props.weddingId}/import/${op}`);
+    apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/${op}`);
   const [eventsFile, setEventsFile] = createSignal<File | null>(null);
   const [guestsFile, setGuestsFile] = createSignal<File | null>(null);
   const [busy, setBusy] = createSignal(false);
@@ -230,7 +236,8 @@ export default function ImportPanel(props: { weddingId: string }) {
         <div class="flex flex-wrap items-center gap-3">
           <span class="font-body text-text-muted text-[0.82rem]">
             Already imported? Download your current data in the same format — edit it and upload it
-            straight back.
+            straight back. This is the re-importable guest list, not the RSVP report (that lives on
+            the Guests tab, and is for reading replies, not re-uploading).
           </span>
           <button
             type="button"
@@ -350,7 +357,7 @@ export default function ImportPanel(props: { weddingId: string }) {
           )}
         </Show>
 
-        <ImportHistory weddingId={props.weddingId} />
+        <ChangeHistory weddingId={props.weddingId} />
       </div>
     </details>
   );

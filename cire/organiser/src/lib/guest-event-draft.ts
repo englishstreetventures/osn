@@ -25,7 +25,14 @@ import { createMemo, createSignal } from "solid-js";
 import { createStore, produce, reconcile, unwrap } from "solid-js/store";
 
 import type { EventRow } from "./events-store";
-import { isBlankName, MAX_CELL_LENGTH, normaliseName } from "./guest-validation";
+import {
+  isBlankName,
+  isHttpUrl,
+  isIsoTimestamp,
+  isPaletteColorSafe,
+  MAX_CELL_LENGTH,
+  normaliseName,
+} from "./guest-validation";
 import type { OrganiserGuestRow } from "./guests-store";
 
 // ── Draft row shapes ─────────────────────────────────────────────────────────
@@ -56,6 +63,24 @@ export interface DraftEvent {
   mapsUrl: string | null;
   sortOrder: number;
 }
+
+/** The event fields the drawer form edits (everything on {@link DraftEvent}
+ *  except the client `key`, the server `id`, and `sortOrder` — those are managed
+ *  by the store, not typed into the form). */
+export type EventPatch = Partial<
+  Pick<
+    DraftEvent,
+    | "name"
+    | "startAt"
+    | "endAt"
+    | "timezone"
+    | "address"
+    | "dressCodeDescription"
+    | "dressCodePalette"
+    | "pinterestUrl"
+    | "mapsUrl"
+  >
+>;
 
 export interface DraftGuest {
   readonly key: string;
@@ -239,17 +264,85 @@ export interface FieldError {
 /**
  * Field-level validation mirroring the server's rules (§6 "Client mirror") for
  * inline feedback — the server stays authoritative. Blocks Save when non-empty:
- *  - a household needs a non-blank name;
- *  - a guest needs a non-blank first name;
- *  - no two guests in one household share a first name (case/space-insensitive)
- *    — the fallback match key;
- *  - name/nickname length bounds.
+ *  Events —
+ *   - a non-blank Event Name / Start / Timezone (the hard requirements);
+ *   - Start (and End, when present) an ISO-8601-with-offset timestamp;
+ *   - http(s)-only Pinterest / Maps URLs;
+ *   - each palette swatch a non-blank name + a colour on the theme allow-list;
+ *   - name/field length bounds;
+ *   - no two events share a name (case/space-insensitive) — the fallback match
+ *     key.
+ *   End < Start (when both present) is a WARNING server-side (sheet leniency),
+ *   NOT a hard error — surfaced via {@link draftWarnings}, not here.
+ *  Guests —
+ *   - a household needs a non-blank name;
+ *   - a guest needs a non-blank first name;
+ *   - no two guests in one household share a first name (case/space-insensitive)
+ *     — the fallback match key;
+ *   - name/nickname length bounds.
  * Empty-household is a WARNING server-side (not blocking), so it's not returned
  * here as a hard error.
  */
 export function validateDraft(draft: DraftState): FieldError[] {
   const errors: FieldError[] = [];
   const tooLong = (s: string) => s.length > MAX_CELL_LENGTH;
+
+  // ── Events ──
+  const seenEventName = new Map<string, string>();
+  for (const evt of draft.events) {
+    if (isBlankName(evt.name)) {
+      errors.push({ key: evt.key, message: "Event name is required." });
+    } else {
+      if (tooLong(evt.name)) {
+        errors.push({ key: evt.key, message: "Event name is too long." });
+      }
+      const norm = normaliseName(evt.name);
+      if (seenEventName.has(norm)) {
+        errors.push({ key: evt.key, message: "Another event already has this name." });
+      } else {
+        seenEventName.set(norm, evt.key);
+      }
+    }
+
+    if (isBlankName(evt.startAt)) {
+      errors.push({ key: evt.key, message: "Start date & time is required." });
+    } else if (!isIsoTimestamp(evt.startAt)) {
+      errors.push({ key: evt.key, message: "Start must be a valid date, time & timezone offset." });
+    }
+    // End is optional ("" ⇒ open-ended); only shape-check a present value.
+    if (evt.endAt.trim().length > 0 && !isIsoTimestamp(evt.endAt)) {
+      errors.push({ key: evt.key, message: "End must be a valid date, time & timezone offset." });
+    }
+
+    if (isBlankName(evt.timezone)) {
+      errors.push({ key: evt.key, message: "Timezone is required." });
+    } else if (tooLong(evt.timezone)) {
+      errors.push({ key: evt.key, message: "Timezone is too long." });
+    }
+
+    if (evt.address && tooLong(evt.address)) {
+      errors.push({ key: evt.key, message: "Address is too long." });
+    }
+    if (evt.dressCodeDescription && tooLong(evt.dressCodeDescription)) {
+      errors.push({ key: evt.key, message: "Dress code description is too long." });
+    }
+    if (evt.pinterestUrl && !isHttpUrl(evt.pinterestUrl)) {
+      errors.push({ key: evt.key, message: "Pinterest link must be an http(s) URL." });
+    }
+    if (evt.mapsUrl && !isHttpUrl(evt.mapsUrl)) {
+      errors.push({ key: evt.key, message: "Maps link must be an http(s) URL." });
+    }
+    for (const swatch of evt.dressCodePalette) {
+      if (isBlankName(swatch.name)) {
+        errors.push({ key: evt.key, message: "A palette swatch needs a name." });
+      }
+      if (!isPaletteColorSafe(swatch.color)) {
+        errors.push({ key: evt.key, message: "A palette colour isn't an allowed colour value." });
+      }
+    }
+  }
+
+  // ── Guests ──
   for (const fam of draft.families) {
     if (isBlankName(fam.familyName)) {
       errors.push({ key: fam.key, message: "Household name is required." });
@@ -283,6 +376,25 @@ export function validateDraft(draft: DraftState): FieldError[] {
   return errors;
 }
 
+/**
+ * Non-blocking client warnings mirroring the server's WARN-don't-reject rules
+ * (§6). Distinct from {@link validateDraft} (which BLOCKS Save): a warning is
+ * surfaced to nudge the organiser but never disables Save — the server produces
+ * the same warning in the preview plan. Currently just End-before-Start (both
+ * present): the sheet is lenient here, so the editor is too.
+ */
+export function draftWarnings(draft: DraftState): string[] {
+  const warnings: string[] = [];
+  for (const evt of draft.events) {
+    if (evt.endAt.trim().length > 0 && isIsoTimestamp(evt.startAt) && isIsoTimestamp(evt.endAt)) {
+      if (new Date(evt.endAt).getTime() < new Date(evt.startAt).getTime()) {
+        warnings.push(`"${evt.name || "Untitled event"}" ends before it starts.`);
+      }
+    }
+  }
+  return warnings;
+}
+
 // ── The store hook ────────────────────────────────────────────────────────────
 
 export interface GuestEventDraft {
@@ -294,11 +406,22 @@ export interface GuestEventDraft {
   readonly dirty: () => boolean;
   /** Field-level validation errors (empty ⇒ Save allowed). */
   readonly errors: () => FieldError[];
+  /** Non-blocking warnings (empty ⇒ nothing to nudge). */
+  readonly warnings: () => string[];
   /** True when at least one undo step is available. */
   readonly canUndo: () => boolean;
 
   /** Replace the draft + baseline from freshly-loaded server rows. */
   load: (events: EventRow[], guests: OrganiserGuestRow[]) => void;
+
+  // Events-tab mutations (each records an undo checkpoint first). A new event's
+  // `sortOrder` lands at the end; reorder rewrites every event's `sortOrder` to
+  // its new index so the plan writes a stable schedule order.
+  addEvent: () => string;
+  updateEvent: (key: string, patch: EventPatch) => void;
+  removeEvent: (key: string) => void;
+  /** Move the event at `key` up (−1) or down (+1) one slot, rewriting sortOrder. */
+  moveEvent: (key: string, direction: -1 | 1) => void;
 
   // Guests-tab mutations (each records an undo checkpoint first).
   addFamily: () => string;
@@ -348,6 +471,7 @@ export function createGuestEventDraft(): GuestEventDraft {
 
   const dirty = createMemo(() => loaded() && fingerprint(draft) !== baseline());
   const errors = createMemo(() => (loaded() ? validateDraft(draft) : []));
+  const warnings = createMemo(() => (loaded() ? draftWarnings(draft) : []));
   const canUndo = () => undoStack().length > 0;
 
   /** Push the current state onto the undo stack BEFORE a mutation. */
@@ -364,6 +488,90 @@ export function createGuestEventDraft(): GuestEventDraft {
     setBaseline(fingerprint(built));
     setUndoStack([]);
     setLoaded(true);
+  }
+
+  function eventIndex(key: string) {
+    return draft.events.findIndex((e) => e.key === key);
+  }
+
+  /** Rewrite every event's `sortOrder` to its current array index — called after
+   *  an add/reorder so the plan writes a stable, gap-free schedule order. */
+  function renumberEvents() {
+    setDraft(
+      "events",
+      produce((events) => {
+        events.forEach((e, i) => {
+          e.sortOrder = i;
+        });
+      }),
+    );
+  }
+
+  function addEvent(): string {
+    checkpoint();
+    const key = nextKey();
+    setDraft(
+      produce((d) => {
+        d.events.push({
+          key,
+          id: null,
+          name: "",
+          startAt: "",
+          endAt: "",
+          timezone: "",
+          address: null,
+          dressCodeDescription: null,
+          dressCodePalette: [],
+          pinterestUrl: null,
+          mapsUrl: null,
+          sortOrder: d.events.length,
+        });
+      }),
+    );
+    return key;
+  }
+
+  function updateEvent(key: string, patch: EventPatch) {
+    const ei = eventIndex(key);
+    if (ei === -1) return;
+    checkpoint();
+    setDraft("events", ei, patch);
+  }
+
+  function removeEvent(key: string) {
+    const ei = eventIndex(key);
+    if (ei === -1) return;
+    checkpoint();
+    setDraft("events", (events) => events.filter((e) => e.key !== key));
+    // A removed event's key may still be referenced by a guest's attendance;
+    // strip those dangling keys so the serialiser doesn't resolve them to a name.
+    setDraft(
+      "families",
+      produce((families) => {
+        for (const fam of families) {
+          for (const g of fam.guests) {
+            g.eventKeys = g.eventKeys.filter((k) => k !== key);
+          }
+        }
+      }),
+    );
+    renumberEvents();
+  }
+
+  function moveEvent(key: string, direction: -1 | 1) {
+    const ei = eventIndex(key);
+    if (ei === -1) return;
+    const target = ei + direction;
+    if (target < 0 || target >= draft.events.length) return;
+    checkpoint();
+    setDraft(
+      "events",
+      produce((events) => {
+        const [moved] = events.splice(ei, 1);
+        events.splice(target, 0, moved!);
+      }),
+    );
+    renumberEvents();
   }
 
   function familyIndex(key: string) {
@@ -474,8 +682,13 @@ export function createGuestEventDraft(): GuestEventDraft {
     loaded,
     dirty,
     errors,
+    warnings,
     canUndo,
     load,
+    addEvent,
+    updateEvent,
+    removeEvent,
+    moveEvent,
     addFamily,
     renameFamily,
     removeFamily,

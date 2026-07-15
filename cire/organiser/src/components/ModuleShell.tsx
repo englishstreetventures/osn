@@ -2,6 +2,7 @@ import { For, Show } from "solid-js";
 
 import { defaultSub, isSubOf, type Module } from "../lib/dashboard-route";
 import EventLocationsPanel from "./EventLocationsPanel";
+import EventsEditor from "./EventsEditor";
 import EventTable from "./EventTable";
 import GuestsEditor from "./GuestsEditor";
 import GuestTable from "./GuestTable";
@@ -49,6 +50,10 @@ interface SubDef {
 }
 
 const MODULE_SUB_TABS: Partial<Record<Module, SubDef[]>> = {
+  schedule: [
+    { id: "list", label: "Events" },
+    { id: "edit", label: "Edit", edit: true },
+  ],
   guests: [
     { id: "list", label: "Households" },
     { id: "edit", label: "Edit", edit: true },
@@ -144,16 +149,23 @@ export default function ModuleShell(props: ModuleShellProps) {
           />
         </Show>
 
-        {/* ── Schedule (the old Events tab) ────────────────────────────── */}
+        {/* ── Schedule: Events (read) + Edit ───────────────────────────── */}
         <Show when={props.module === "schedule"}>
-          <div class="flex flex-col gap-6">
-            <EventTable weddingId={props.weddingId} weddingSlug={props.weddingSlug} />
-            {/* Per-event planning locations — a pure write surface, so viewers
-                don't get it (the API also gates it with weddingEditor()). */}
-            <Show when={props.canEdit}>
-              <EventLocationsPanel weddingId={props.weddingId} />
-            </Show>
-          </div>
+          <Show when={active() === "list"}>
+            <div class="flex flex-col gap-6">
+              <EventTable weddingId={props.weddingId} weddingSlug={props.weddingSlug} />
+              {/* Per-event planning locations — a pure write surface, so viewers
+                  don't get it (the API also gates it with weddingEditor()). */}
+              <Show when={props.canEdit}>
+                <EventLocationsPanel weddingId={props.weddingId} />
+              </Show>
+            </div>
+          </Show>
+          {/* Interactive events editor (E6) — a pure write surface, editor-gated
+              (the API also gates changes/* with weddingEditor()). */}
+          <Show when={active() === "edit" && props.canEdit}>
+            <EventsEditor weddingId={props.weddingId} />
+          </Show>
         </Show>
 
         {/* ── Guests: Households + RSVPs ───────────────────────────────── */}

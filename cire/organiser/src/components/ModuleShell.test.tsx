@@ -24,6 +24,12 @@ vi.mock("./EventTable", () => ({
 vi.mock("./EventLocationsPanel", () => ({
   default: (p: { weddingId: string }) => <div data-testid="event-locations">{p.weddingId}</div>,
 }));
+vi.mock("./EventsEditor", () => ({
+  default: (p: { weddingId: string }) => <div data-testid="events-editor">{p.weddingId}</div>,
+}));
+vi.mock("./GuestsEditor", () => ({
+  default: (p: { weddingId: string }) => <div data-testid="guests-editor">{p.weddingId}</div>,
+}));
 vi.mock("./GuestTable", () => ({
   default: (p: { weddingId: string }) => <div data-testid="guests">{p.weddingId}</div>,
 }));
@@ -105,6 +111,29 @@ describe("ModuleShell", () => {
     const { onModule } = renderShell({});
     fireEvent.click(screen.getByRole("button", { name: /Schedule/ }));
     expect(onModule).toHaveBeenCalledWith("schedule");
+    expect(screen.getByTestId("events")).toBeTruthy();
+  });
+
+  it("shows the Schedule sub-tabs (Events + Edit) and switches to the events editor", () => {
+    const { onSub } = renderShell({ module: "schedule", sub: "list" });
+    expect(screen.getByRole("tab", { name: /Events/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Edit/ })).toBeTruthy();
+    // The read view shows the events table.
+    expect(screen.getByTestId("events")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Edit/ }));
+    expect(onSub).toHaveBeenCalledWith("edit");
+    expect(screen.getByTestId("events-editor")).toBeTruthy();
+    expect(screen.queryByTestId("events")).toBeNull();
+  });
+
+  it("hides the Schedule Edit sub from a read-only viewer", () => {
+    // A viewer can't edit — the editor-only Edit sub is filtered out, so the
+    // sub-tab bar collapses to a single view and the editor is never reachable.
+    renderShell({ canManage: false, canEdit: false, module: "schedule", sub: "edit" });
+    expect(screen.queryByRole("tab", { name: /Edit/ })).toBeNull();
+    expect(screen.queryByTestId("events-editor")).toBeNull();
+    // Falls back to the read events table.
     expect(screen.getByTestId("events")).toBeTruthy();
   });
 

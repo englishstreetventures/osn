@@ -117,7 +117,7 @@ describe("dashboard-route", () => {
       // The flat `#/weddings/:id/:tab` bookmarks must still open to the right
       // module/sub so an organiser's saved link doesn't break silently.
       const cases: Array<[string, { module: string; sub: string }]> = [
-        ["events", { module: "schedule", sub: "index" }],
+        ["events", { module: "schedule", sub: "list" }],
         ["guests", { module: "guests", sub: "list" }],
         ["rsvps", { module: "guests", sub: "rsvps" }],
         ["invite", { module: "invite", sub: "design" }],
@@ -206,7 +206,8 @@ describe("dashboard-route", () => {
     const routes: DashboardRoute[] = [
       LIST_ROUTE,
       { view: "weddings", weddingId: "wed_1", module: "overview", sub: "index" },
-      { view: "weddings", weddingId: "wed_1", module: "schedule", sub: "index" },
+      { view: "weddings", weddingId: "wed_1", module: "schedule", sub: "list" },
+      { view: "weddings", weddingId: "wed_1", module: "schedule", sub: "edit" },
       { view: "weddings", weddingId: "wed_1", module: "guests", sub: "list" },
       { view: "weddings", weddingId: "wed_1", module: "guests", sub: "rsvps" },
       { view: "weddings", weddingId: "wed_1", module: "invite", sub: "design" },
