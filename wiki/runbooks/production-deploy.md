@@ -64,7 +64,7 @@ marked **TBD** blocks the deploy.
 | `OSN_JWT_PRIVATE_KEY` / `OSN_JWT_PUBLIC_KEY` (ES256 JWK, base64) | osn-api | **generate** (section 1) |
 | `OSN_SESSION_IP_PEPPER` (≥32 bytes) | osn-api | **generate** (section 1) |
 | `OSN_RP_ID` (WebAuthn RP ID — registrable domain) | osn-api WebAuthn | **DONE — `cireweddings.com`** (registrable apex; organiser portal is the only prod passkey surface). Unchanged by the 2026-07-16 reshuffle — RP ID stays the apex, so passkeys survive the `app.`→`host.` move. |
-| `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://host.cireweddings.com,https://app.cireweddings.com`** (organiser portal = the passkey origin; reshuffle moved it `app.`→`host.`, `app.` kept for the window then pruned). **osn-api is deployed MANUALLY — redeploy after this change.** |
+| `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://host.cireweddings.com,https://app.cireweddings.com`** (organiser portal = the passkey origin; reshuffle moved it `app.`→`host.`, `app.` kept for the window then pruned). Picked up on the next merge — **osn-api now auto-deploys via CI** (`deploy-osn-api` in `deploy.yml`, added 2026-07-16); no manual `wrangler deploy` needed. |
 | `OSN_ISSUER_URL` (public https base of osn-api) | osn-api + cire | **DONE — `https://id.cireweddings.com`** (custom-domain route in `osn/api/wrangler.toml` `[env.production]`) |
 | `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **DONE — `https://host.cireweddings.com,https://app.cireweddings.com`** (organiser portal calls osn-api; reshuffle `app.`→`host.`) |
 | `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `hello@cireweddings.com`** (Resend sender-domain verification for `cireweddings.com` still required — §1.1) |
@@ -512,6 +512,12 @@ apply all `0000`→latest cleanly after the `0002_add_user_handle` data-copy fix
 > The commands below are the manual equivalents — they document what the pipeline runs.
 
 ### 5.1 osn-api (Worker)
+
+> **CI (prod):** as of 2026-07-16 the `deploy-osn-api` job in `.github/workflows/deploy.yml`
+> auto-deploys prod osn-api on every merge to `main` — migrate (`wrangler d1 migrations
+> apply osn-db-prod --remote --env production`) then `wrangler deploy --env production`,
+> mirroring cire-api. The manual commands below stay the reference for dev/staging and for
+> what the pipeline runs; a manual prod deploy is now only needed out-of-cycle.
 
 osn-api is a Cloudflare Worker (§2.3). With the §3.1 vars in `wrangler.toml` and the
 §3.1 secrets set (`wrangler secret put … --env <env>`), and the D1 migrations applied
