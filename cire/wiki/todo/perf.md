@@ -91,3 +91,15 @@ Branch-scoped IDs (distinct from the numbered items below).
 - [x] Spreadsheet import on Workers: `applyImport` chunks its write set into ≤`MAX_STATEMENTS_PER_BATCH` (50) sequential `db.batch` calls instead of one unbounded batch, so a large diff can't exceed D1's per-invocation query cap (50 on Free / 1000 Paid — `commitWriteSet` in `services/import.ts`). Chunks are dependency-ordered and awaited serially, so a chunk boundary never runs a child insert before its parent. Atomicity is now per-chunk, not whole-import (D1 has no multi-batch transaction); a mid-import failure can partial-apply, which `services/revert.ts` already reconciles by re-diff + re-apply. Covered by a new chunk-count + cross-boundary-ordering test in `src/db/d1-integration.test.ts` (real Miniflare D1). **Still open:** a Queue-driven worker for very large diffs (≥~500 families) — chunking keeps each batch legal but the whole import still runs in one Worker invocation, so the 30s wall / 50ms CPU ceiling is the next limit. See `[[spreadsheet-import]]` ("Batch import respects 50ms CPU / 30s wall-time").
 - [x] `/list` paginated with `limit` + `uploadedAt` cursor (PR-C review)
 - [ ] Cache the parsed `ImportPlan` on the imports row to avoid re-parse + re-diff on `/apply` and `/revert` (currently re-runs both as TOCTOU defence). Consider once organiser sheet exceeds ~600 rows or revert latency becomes user-visible (PR-C review)
+
+### Overview widgets v2 — review notes (`feat/cire-overview-widgets`, PR #272)
+
+Deferred from the /prep-pr Step 6 performance review. `OV-P-W2` (agenda clock
+stale past midnight) and `OV-P-I1` (Checklist card called `openTaskCount` 3×)
+were FIXED on the branch (`dd7e50b3`). The rest are deferred — all in
+`cire/organiser/src/components/Overview.tsx`, all micro-inefficiencies at the
+current data scale (a wedding has tens of payments/tasks, not thousands):
+
+- [ ] **OV-P-W1** — Budget card calls `upcomingPayments(weddingId)` 3× per render (`.length`, `[0].label`, `[0].dueAt`); each re-filters + re-sorts the payments array. Wrap in one component-level `createMemo` when convenient. Only bites if a wedding ever holds hundreds of payment rows.
+- [ ] **OV-P-I2** — Budget card calls `spentSoFar(weddingId)` 2× per render (outer `Show` + amount format); each re-reduces all budget items. Same `createMemo` fix as OV-P-W1.
+- [ ] **OV-P-W3** — Countdown card's `daysUntil` reads a fresh `new Date()` at render, so the countdown (and its "Today!/Tomorrow!" copy) goes stale if the dashboard is left open across midnight — the same class of bug as the fixed OV-P-W2 but on the Countdown, which was outside that fix's agenda-only scope. Fix by feeding the Countdown from the same midnight-refreshing `nowMs()` signal already added for the agenda.

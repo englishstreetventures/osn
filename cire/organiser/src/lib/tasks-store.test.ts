@@ -4,6 +4,7 @@ import {
   __resetTasksCache,
   ensureTasksLoaded,
   openTaskCount,
+  taskCounts,
   type TaskRow,
   tasksAccessor,
 } from "./tasks-store";
@@ -45,5 +46,15 @@ describe("tasks-store", () => {
       row({ id: "c", status: "open" }),
     ]);
     expect(openTaskCount("wed_1")).toBe(2);
+  });
+
+  it("taskCounts returns open/done/total, null before load", async () => {
+    expect(taskCounts("wed_none")).toBeNull();
+    await ensureTasksLoaded("wed_1", async () => [
+      row({ id: "a", status: "open" }),
+      row({ id: "b", status: "done" }),
+      row({ id: "c", status: "open" }),
+    ]);
+    expect(taskCounts("wed_1")).toEqual({ open: 2, done: 1, total: 3 });
   });
 });

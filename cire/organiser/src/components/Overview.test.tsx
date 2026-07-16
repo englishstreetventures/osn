@@ -32,7 +32,7 @@ vi.mock("./GettingStarted", () => ({
 
 import { __resetBudgetCache } from "../lib/budget-store";
 import { __resetEventsCache } from "../lib/events-store";
-import { __resetGuestsCache } from "../lib/guests-store";
+import { __resetGuestsCache, setCachedGuests } from "../lib/guests-store";
 import { __resetTasksCache } from "../lib/tasks-store";
 import Overview from "./Overview";
 
@@ -99,8 +99,26 @@ const GUESTS = [
 ];
 const EVENTS = [{ id: "e1", name: "Ceremony" }];
 const RSVPS = [
-  { invited: 10, attending: 6, declined: 2, maybe: 1, responded: 9, noResponse: 1 },
-  { invited: 8, attending: 4, declined: 1, maybe: 0, responded: 5, noResponse: 3 },
+  {
+    id: "e1",
+    name: "Ceremony",
+    invited: 10,
+    attending: 6,
+    declined: 2,
+    maybe: 1,
+    responded: 9,
+    noResponse: 1,
+  },
+  {
+    id: "e2",
+    name: "Reception",
+    invited: 8,
+    attending: 4,
+    declined: 1,
+    maybe: 0,
+    responded: 5,
+    noResponse: 3,
+  },
 ];
 
 describe("Overview", () => {
@@ -195,5 +213,52 @@ describe("Overview", () => {
     expect(screen.queryByText(/Coming soon/i)).toBeNull();
     // Checklist shows the live empty state (tasks loaded, none open).
     await waitFor(() => expect(screen.getByText(/No tasks yet/i)).toBeTruthy());
+  });
+
+  it("renders the RSVP progress bar and per-event attending breakdown", async () => {
+    authFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/settings"))
+        return json({ wedding: { weddingDate: null, currency: "AUD", budgetTotalMinor: null } });
+      if (url.endsWith("/rsvps"))
+        return json({
+          events: [
+            {
+              id: "e1",
+              name: "Ceremony",
+              invited: 50,
+              attending: 42,
+              declined: 3,
+              maybe: 1,
+              responded: 46,
+              noResponse: 4,
+            },
+            {
+              id: "e2",
+              name: "Reception",
+              invited: 60,
+              attending: 48,
+              declined: 2,
+              maybe: 0,
+              responded: 50,
+              noResponse: 10,
+            },
+          ],
+        });
+      if (url.endsWith("/tasks")) return json({ tasks: [] });
+      if (url.endsWith("/events")) return json([]);
+      if (url.endsWith("/guests")) return json([]);
+      if (url.endsWith("/budget"))
+        return json({ items: [], payments: [], budgetTotalMinor: null, currency: "AUD" });
+      return json({}, 404);
+    });
+    setCachedGuests("wed_1", [{ familyId: "fam_a", firstName: "Al" } as never]);
+    render(() => <Overview weddingId="wed_1" onNavigate={() => {}} />);
+
+    // Per-event line for the Ceremony shows its attending count.
+    const ceremony = await screen.findByText("Ceremony");
+    expect(ceremony.closest("div,li,p")?.textContent).toMatch(/42/);
+    expect(screen.getByText("Reception")).toBeInTheDocument();
+    // The RSVP progress bar is present.
+    expect(screen.getAllByRole("progressbar").length).toBeGreaterThan(0);
   });
 });

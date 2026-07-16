@@ -63,6 +63,23 @@ export function openTaskCount(weddingId: string): number | null {
   return rows.filter((t) => t.status === "open").length;
 }
 
+/** Reactive open/done/total counts for the Overview completion bar: `null` until
+ *  first load. Reads without allocating a dangling signal for a never-loaded
+ *  weddingId (mirrors {@link openTaskCount}). */
+export function taskCounts(
+  weddingId: string,
+): { open: number; done: number; total: number } | null {
+  const rows = cache.get(weddingId)?.tasks() ?? null;
+  if (rows == null) return null;
+  let open = 0;
+  let done = 0;
+  for (const t of rows) {
+    if (t.status === "open") open += 1;
+    else if (t.status === "done") done += 1;
+  }
+  return { open, done, total: rows.length };
+}
+
 const inflight = new Map<string, Promise<void>>();
 
 export function ensureTasksLoaded(

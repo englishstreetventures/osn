@@ -62,6 +62,12 @@ beforeEach(() => {
 });
 
 describe("Overview checklist widget", () => {
+  it("shows the N-of-M completion line", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", status: "open" }), row({ id: "b", status: "done" })]);
+    render(() => <Overview weddingId="wed_1" onNavigate={() => {}} />);
+    expect(await screen.findByText(/1 of 2 done/i)).toBeInTheDocument();
+  });
+
   it("shows the live open-task count once tasks are cached", async () => {
     setCachedTasks("wed_1", [row({ id: "a", status: "open" }), row({ id: "b", status: "done" })]);
     render(() => <Overview weddingId="wed_1" onNavigate={() => {}} />);

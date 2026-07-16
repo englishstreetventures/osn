@@ -49,6 +49,31 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Overview budget widget", () => {
+  it("shows the over-budget tone + note when spend exceeds the cap", async () => {
+    setCachedBudget("wed_1", {
+      items: [
+        {
+          id: "b1",
+          weddingId: "wed_1",
+          category: "venue",
+          name: "Venue",
+          estimateMinor: null,
+          quotedMinor: null,
+          actualMinor: 5000000,
+          notes: null,
+          sortOrder: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      payments: [],
+      budgetTotalMinor: 4000000,
+      currency: "AUD",
+    });
+    render(() => <Overview weddingId="wed_1" onNavigate={() => {}} />);
+    expect(await screen.findByText(/over budget/i)).toBeInTheDocument();
+  });
+
   it("shows live spend once the budget is cached", async () => {
     setCachedBudget(
       "wed_1",
