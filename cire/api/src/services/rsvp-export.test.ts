@@ -19,6 +19,7 @@ function rsvp(
   eventId: string,
   status: "attending" | "declined" | "maybe",
   dietary = "",
+  consentSource: "guest" | "organiser_attested" = "guest",
 ) {
   db.insert(rsvps)
     .values({
@@ -27,6 +28,7 @@ function rsvp(
       eventId,
       status,
       dietary,
+      consentSource,
       createdAt: new Date(),
     })
     .run();
@@ -290,7 +292,7 @@ describe("rsvpExportService.build", () => {
 
 describe("rsvp-export CSV serialisation", () => {
   it(
-    "emits the fixed columns + one column per event + Dietary Requirements",
+    "emits the fixed columns + one column per event + Dietary Requirements + Recorded By",
     withDb(
       Effect.gen(function* () {
         const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
@@ -302,9 +304,37 @@ describe("rsvp-export CSV serialisation", () => {
           "Guest First Name",
           "Guest Last Name",
         ]);
-        expect(header[header.length - 1]).toBe("Dietary Requirements");
+        // Two trailing columns: dietary, then writer provenance (0037).
+        expect(header[header.length - 2]).toBe("Dietary Requirements");
+        expect(header[header.length - 1]).toBe("Recorded By");
         // One column per event sits between the fixed leading + trailing columns.
-        expect(header.length).toBe(4 + data.events.length + 1);
+        expect(header.length).toBe(4 + data.events.length + 2);
+      }),
+    ),
+  );
+
+  it(
+    "labels an organiser-attested reply 'Organiser' in the Recorded By column (0037)",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const ada = guestByName(db, "Ada");
+        const catholic = eventBySlug(db, "catholic");
+        // An organiser-recorded RSVP; a self-submitted one stays "Guest".
+        rsvp(db, ada.id, catholic.id, "attending", "", "organiser_attested");
+        const bo = guestByName(db, "Bo");
+        const reception = eventBySlug(db, "reception");
+        rsvp(db, bo.id, reception.id, "attending", "", "guest");
+        const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
+        const adaRow = data.rows.find((r) => r.firstName === "Ada");
+        const boRow = data.rows.find((r) => r.firstName === "Bo");
+        expect(adaRow?.recordedBy).toBe("organiser");
+        expect(boRow?.recordedBy).toBe("guest");
+        // Guests with no RSVP at all get a blank provenance cell.
+        const noReply = data.rows.find((r) => r.recordedBy === "");
+        expect(noReply).toBeDefined();
+        const csv = toCsv(data);
+        expect(csv).toContain("Organiser");
       }),
     ),
   );
@@ -415,6 +445,46 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
         expect(event.invited).toBeGreaterThanOrEqual(event.responded);
         expect(event.noResponse).toBe(event.invited - event.responded);
         expect(event.noResponse).toBeGreaterThanOrEqual(0);
+      }),
+    ),
+  );
+
+  it(
+    "lists invited-but-unresponded guests, dropping them once they reply (0037)",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const ada = guestByName(db, "Ada");
+        const catholic = eventBySlug(db, "catholic");
+
+        // Before any reply: Ada (invited to catholic) is in `unresponded`.
+        let view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
+        let event = view.events.find((e) => e.id === catholic.id)!;
+        expect(event.unresponded.some((g) => g.guestId === ada.id)).toBe(true);
+        expect(event.guests.some((g) => g.guestId === ada.id)).toBe(false);
+
+        // After she replies she moves out of `unresponded` into `guests`.
+        rsvp(db, ada.id, catholic.id, "attending");
+        view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
+        event = view.events.find((e) => e.id === catholic.id)!;
+        expect(event.unresponded.some((g) => g.guestId === ada.id)).toBe(false);
+        expect(event.guests.some((g) => g.guestId === ada.id)).toBe(true);
+      }),
+    ),
+  );
+
+  it(
+    "surfaces consentSource so the dashboard can badge organiser-entered replies (0037)",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const ada = guestByName(db, "Ada");
+        const catholic = eventBySlug(db, "catholic");
+        rsvp(db, ada.id, catholic.id, "attending", "", "organiser_attested");
+        const view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
+        const event = view.events.find((e) => e.id === catholic.id)!;
+        const row = event.guests.find((g) => g.guestId === ada.id)!;
+        expect(row.consentSource).toBe("organiser_attested");
       }),
     ),
   );

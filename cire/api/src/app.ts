@@ -18,6 +18,7 @@ import {
   createOrganiserHostsReadRoutes,
   createOrganiserHostsWriteRoutes,
 } from "./routes/organiser-hosts";
+import { createOrganiserRsvpRoutes } from "./routes/organiser-rsvp";
 import { createOrganiserSettingsRoutes } from "./routes/organiser-settings";
 import {
   createOrganiserPreviewRoutes,
@@ -308,6 +309,11 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // co-host; the profile save is owner-only. No event location config —
       // an event's place is its free-text `address` (the sole location source).
       .use(createOrganiserSettingsRoutes(db, osnAuthOptions))
+      // Organiser-recorded RSVPs (platform Phase 0). Editor records a
+      // phone/paper RSVP on a guest's behalf into the SAME `rsvps` table the
+      // invite writes to (upsert, last-writer-wins); stamped
+      // `consent_source='organiser_attested'`. weddingEditor()-gated.
+      .use(createOrganiserRsvpRoutes(db, osnAuthOptions))
       // Invite builder. Public reads (guest site) + organiser writes split into
       // sibling instances so the guest GET isn't behind osnAuth.
       .use(createInvitePublicRoutes(db, assets, images))

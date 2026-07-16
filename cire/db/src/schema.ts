@@ -312,6 +312,22 @@ export const rsvps = sqliteTable(
     // pins which privacy-notice/copy version they agreed to.
     dietaryConsentAt: integer("dietary_consent_at", { mode: "timestamp" }),
     dietaryConsentVersion: text("dietary_consent_version"),
+    // WHO recorded this reply AND on whose consent authority the dietary
+    // free-text is held (migration 0037; see [[wiki/compliance/dpia/cire-guest-data]]
+    // → C-H2 organiser-attested variant). `'guest'` — the guest RSVP'd
+    // themselves and gave their own Art. 9(2)(a) consent. `'organiser_attested'`
+    // — an organiser recorded a phone/paper RSVP on the guest's behalf and
+    // *attests* the guest consented to storing dietary requirements. One column
+    // carries both facts because the writer and the consent-attester are always
+    // the same principal here, so a separate `recorded_by` would be 1:1
+    // redundant. Legacy rows back-fill to `'guest'` (the form was the only
+    // writer pre-0037). The dashboard reads this to badge organiser-entered
+    // answers distinctly and show they overwrite a prior guest reply.
+    consentSource: text("consent_source", {
+      enum: ["guest", "organiser_attested"],
+    })
+      .notNull()
+      .default("guest"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [uniqueIndex("rsvps_guest_event_uniq").on(t.guestId, t.eventId)],

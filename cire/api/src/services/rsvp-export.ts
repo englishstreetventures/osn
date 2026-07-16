@@ -39,6 +39,13 @@ export interface RsvpExportRow {
   /** Dietary requirements text — blank unless the guest is attending an event
    *  with a non-empty dietary note. */
   dietary: string;
+  /** Writer provenance across this guest's replies (migration 0037):
+   *   - "guest"     — every reply was self-submitted.
+   *   - "organiser" — at least one reply was organiser-recorded
+   *     (`consent_source='organiser_attested'`), so the dietary/consent story is
+   *     organiser-attested. Surfaced so a re-report distinguishes phone/paper
+   *     RSVPs. "" when the guest has no RSVP at all. */
+  recordedBy: "" | "guest" | "organiser";
 }
 
 export interface RsvpExportEvent {
@@ -83,11 +90,28 @@ export interface RsvpViewGuest {
   familyCode: string;
   status: "attending" | "declined" | "maybe";
   dietary: string;
+  /** Provenance of this reply (migration 0037): `guest` (self-submitted) vs
+   *  `organiser_attested` (an organiser recorded a phone/paper RSVP on the
+   *  guest's behalf). The dashboard badges organiser-entered answers so an
+   *  overwrite of a guest reply is visible. */
+  consentSource: "guest" | "organiser_attested";
+}
+
+/** An invited guest with no reply yet — the pool an organiser can record a
+ *  phone/paper RSVP FOR (the guest edit control targets these + can overwrite a
+ *  responded row). */
+export interface RsvpViewInvitedGuest {
+  guestId: string;
+  firstName: string;
+  lastName: string;
+  familyName: string;
+  familyCode: string;
 }
 
 /** One event with its responded guests + a status tally. `invited` is how many
  *  guests are on this event's list; `responded` = attending + declined + maybe.
- *  `noResponse` = invited − responded (never negative). */
+ *  `noResponse` = invited − responded (never negative). `unresponded` lists the
+ *  invited guests without a reply so an editor can record one on their behalf. */
 export interface RsvpViewEvent {
   id: string;
   name: string;
@@ -98,6 +122,7 @@ export interface RsvpViewEvent {
   responded: number;
   noResponse: number;
   guests: RsvpViewGuest[];
+  unresponded: RsvpViewInvitedGuest[];
 }
 
 export interface RsvpView {
@@ -144,6 +169,7 @@ export const rsvpExportService = {
             guestId: rsvps.guestId,
             status: rsvps.status,
             dietary: rsvps.dietary,
+            consentSource: rsvps.consentSource,
             firstName: guests.firstName,
             lastName: guests.lastName,
             sortOrder: guests.sortOrder,
@@ -157,19 +183,47 @@ export const rsvpExportService = {
           .all(),
       );
 
+      // Every invitation (guest×event) for the wedding's guests, host families
+      // excluded — the pool of guests an organiser can record a reply for. We
+      // subtract the responded ids below to get the "not yet replied" list.
+      const invitedRows = yield* dbQuery(() =>
+        db
+          .select({
+            eventId: guestEvents.eventId,
+            guestId: guestEvents.guestId,
+            firstName: guests.firstName,
+            lastName: guests.lastName,
+            sortOrder: guests.sortOrder,
+            familyName: families.familyName,
+            familyCode: families.publicId,
+          })
+          .from(guestEvents)
+          .innerJoin(guests, eq(guestEvents.guestId, guests.id))
+          .innerJoin(families, eq(guests.familyId, families.id))
+          .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+          .all(),
+      );
+
       interface Acc {
         guests: (RsvpViewGuest & { sortOrder: number })[];
         attending: number;
         declined: number;
         maybe: number;
+        /** guestIds that have a reply — so `unresponded` excludes them. */
+        responded: Set<string>;
       }
       const byEvent = new Map<string, Acc>();
-      for (const row of rsvpRows) {
-        let acc = byEvent.get(row.eventId);
+      const accFor = (eventId: string): Acc => {
+        let acc = byEvent.get(eventId);
         if (!acc) {
-          acc = { guests: [], attending: 0, declined: 0, maybe: 0 };
-          byEvent.set(row.eventId, acc);
+          acc = { guests: [], attending: 0, declined: 0, maybe: 0, responded: new Set() };
+          byEvent.set(eventId, acc);
         }
+        return acc;
+      };
+      for (const row of rsvpRows) {
+        const acc = accFor(row.eventId);
+        acc.responded.add(row.guestId);
         acc.guests.push({
           guestId: row.guestId,
           firstName: row.firstName,
@@ -178,11 +232,36 @@ export const rsvpExportService = {
           familyCode: row.familyCode,
           status: row.status,
           dietary: row.dietary,
+          consentSource: row.consentSource,
           sortOrder: row.sortOrder,
         });
         if (row.status === "attending") acc.attending += 1;
         else if (row.status === "declined") acc.declined += 1;
         else acc.maybe += 1;
+      }
+
+      // Invited-but-unresponded guests, keyed by event (with sort keys so the
+      // list orders like the responded one).
+      const unrespondedByEvent = new Map<
+        string,
+        (RsvpViewInvitedGuest & { sortOrder: number })[]
+      >();
+      for (const row of invitedRows) {
+        const acc = accFor(row.eventId);
+        if (acc.responded.has(row.guestId)) continue;
+        let list = unrespondedByEvent.get(row.eventId);
+        if (!list) {
+          list = [];
+          unrespondedByEvent.set(row.eventId, list);
+        }
+        list.push({
+          guestId: row.guestId,
+          firstName: row.firstName,
+          lastName: row.lastName,
+          familyName: row.familyName,
+          familyCode: row.familyCode,
+          sortOrder: row.sortOrder,
+        });
       }
 
       const viewEvents: RsvpViewEvent[] = orderedEvents.map((e) => {
@@ -199,6 +278,13 @@ export const rsvpExportService = {
         const maybe = acc?.maybe ?? 0;
         const responded = attending + declined + maybe;
         const invited = invitedByEvent.get(e.id) ?? 0;
+        const unresponded = (unrespondedByEvent.get(e.id) ?? [])
+          .toSorted((a, b) => {
+            if (a.familyCode !== b.familyCode) return a.familyCode < b.familyCode ? -1 : 1;
+            if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+            return a.guestId < b.guestId ? -1 : a.guestId > b.guestId ? 1 : 0;
+          })
+          .map(({ sortOrder: _sortOrder, ...g }) => g);
         return {
           id: e.id,
           name: e.name,
@@ -209,6 +295,7 @@ export const rsvpExportService = {
           responded,
           noResponse: Math.max(0, invited - responded),
           guests: guestList,
+          unresponded,
         };
       });
 
@@ -306,6 +393,7 @@ export const rsvpExportService = {
             eventId: rsvps.eventId,
             status: rsvps.status,
             dietary: rsvps.dietary,
+            consentSource: rsvps.consentSource,
           })
           .from(rsvps)
           .innerJoin(guests, eq(rsvps.guestId, guests.id))
@@ -314,10 +402,17 @@ export const rsvpExportService = {
           .all(),
       );
 
-      // guestId → eventId → {status, dietary}
+      // guestId → eventId → {status, dietary, consentSource}
       const rsvpByGuest = new Map<
         string,
-        Map<string, { status: "attending" | "declined" | "maybe"; dietary: string }>
+        Map<
+          string,
+          {
+            status: "attending" | "declined" | "maybe";
+            dietary: string;
+            consentSource: "guest" | "organiser_attested";
+          }
+        >
       >();
       for (const row of rsvpRows) {
         let perGuest = rsvpByGuest.get(row.guestId);
@@ -325,7 +420,11 @@ export const rsvpExportService = {
           perGuest = new Map();
           rsvpByGuest.set(row.guestId, perGuest);
         }
-        perGuest.set(row.eventId, { status: row.status, dietary: row.dietary });
+        perGuest.set(row.eventId, {
+          status: row.status,
+          dietary: row.dietary,
+          consentSource: row.consentSource,
+        });
       }
 
       const rows: RsvpExportRow[] = [];
@@ -350,6 +449,21 @@ export const rsvpExportService = {
           }
         }
 
+        // Writer provenance across the guest's replies: "organiser" if ANY
+        // reply was organiser-recorded (so the dietary/consent is attested),
+        // "guest" if the guest has replies but all self-submitted, "" if none.
+        const perGuest = rsvpByGuest.get(g.guestId);
+        let recordedBy: "" | "guest" | "organiser" = "";
+        if (perGuest && perGuest.size > 0) {
+          recordedBy = "guest";
+          for (const rsvp of perGuest.values()) {
+            if (rsvp.consentSource === "organiser_attested") {
+              recordedBy = "organiser";
+              break;
+            }
+          }
+        }
+
         rows.push({
           familyCode: g.publicId,
           familyName: g.familyName,
@@ -357,6 +471,7 @@ export const rsvpExportService = {
           lastName: g.lastName,
           cells,
           dietary,
+          recordedBy,
         });
       }
 
@@ -379,7 +494,14 @@ export const rsvpExportService = {
 // CSV serialisation (shared guard + serialiser live in ../lib/csv)
 // ---------------------------------------------------------------------------
 
-/** Fixed leading columns, then one per event, then dietary. */
+/** Human-facing "Recorded By" cell (migration 0037 writer provenance). */
+const RECORDED_BY_LABEL: Record<RsvpExportRow["recordedBy"], string> = {
+  "": "",
+  guest: "Guest",
+  organiser: "Organiser",
+};
+
+/** Fixed leading columns, then one per event, then dietary, then recorded-by. */
 export function toCsv(data: RsvpExport): string {
   const header = [
     "Family Code",
@@ -388,6 +510,7 @@ export function toCsv(data: RsvpExport): string {
     "Guest Last Name",
     ...data.events.map((e) => e.name),
     "Dietary Requirements",
+    "Recorded By",
   ];
 
   const rows = data.rows.map((row) => [
@@ -397,6 +520,7 @@ export function toCsv(data: RsvpExport): string {
     row.lastName,
     ...row.cells.map((c) => CELL_LABEL[c]),
     row.dietary,
+    RECORDED_BY_LABEL[row.recordedBy],
   ]);
   return serialiseCsv(header, rows);
 }

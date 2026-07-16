@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS rsvps (
   dietary TEXT NOT NULL DEFAULT '',
   dietary_consent_at INTEGER,
   dietary_consent_version TEXT,
+  consent_source TEXT NOT NULL DEFAULT 'guest',
   created_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS rsvps_guest_event_uniq ON rsvps(guest_id, event_id);

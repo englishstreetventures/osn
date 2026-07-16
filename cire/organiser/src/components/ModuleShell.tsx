@@ -183,7 +183,7 @@ export default function ModuleShell(props: ModuleShellProps) {
             <GuestsEditor weddingId={props.weddingId} />
           </Show>
           <Show when={active() === "rsvps"}>
-            <RsvpView weddingId={props.weddingId} />
+            <RsvpView weddingId={props.weddingId} canEdit={props.canEdit} />
           </Show>
         </Show>
 

@@ -10,7 +10,7 @@ related:
   - "[[subprocessors]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-06-19
+last-reviewed: 2026-07-16
 ---
 
 # DPIA — Cire guest data
@@ -44,6 +44,15 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   general-adult-audience site and submit an RSVP, optionally including
   **free-text dietary requirements** (`rsvps.dietary`). See [[data-map]] for
   the full field list and [[cire-auth]] for the two-auth model.
+- **Organiser-recorded RSVPs (PR 5b).** An organiser (owner/editor co-host)
+  may ALSO record a **phone/paper RSVP on a guest's behalf** —
+  `PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId` —
+  writing the SAME `rsvps` row the guest form writes (upsert on
+  `(guest_id, event_id)`; last-writer-wins). Such rows carry
+  `rsvps.consent_source = 'organiser_attested'` (default `'guest'`); a guest's
+  own reply is `'guest'`. This is the writer attribution AND the consent-basis
+  in one column — see §2 (lawful basis) for the Art. 9 story of the
+  organiser-attested variant.
 - **Data classes.** Family + guest names, RSVP status, the guest claim code
   (a credential), the guest session, and — the focus of this DPIA — the
   free-text `rsvps.dietary` field. Raw organiser spreadsheets are stored in
@@ -76,6 +85,20 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   administration) per [[data-map]]. Explicit consent is the appropriate
   Art. 9 condition because no employment/vital-interest/substantial-public-
   interest condition applies to a wedding RSVP.
+  - **Organiser-attested variant (PR 5b).** When an organiser records a
+    phone/paper RSVP with dietary text, the guest is not present to tick the
+    form opt-in. The Art. 9(2)(a) condition is instead met by the **organiser's
+    explicit attestation** that the guest consented to storing their dietary
+    requirements: the record UI gates the dietary field behind an "I confirm the
+    guest consented…" checkbox (mirroring the guest opt-in), and the API rejects
+    (422) any non-empty dietary submitted without it — identical to the guest
+    path. The row is stamped `consent_source = 'organiser_attested'` alongside
+    the same server-set `dietary_consent_at` / `dietary_consent_version`
+    evidence, so the stored record distinguishes **guest-given** from
+    **organiser-attested** consent (who asserted it, when, which copy version).
+    The organiser (as the wedding **controller** — §1 Roles) is accountable for
+    the truth of the attestation; cire (processor) captures it. No new
+    subprocessor, no new data class beyond the `consent_source` discriminator.
 - **Retention.** Tied to the wedding lifecycle; see [[retention]]. A daily
   **1-year guest-data sweep now exists** (`retentionService.sweepExpiredGuestData`,
   PR #132): `rsvps` (incl. dietary + its consent record), `guests`, `families`,
@@ -105,7 +128,14 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   `rsvps.dietary_consent_version` (server-set to `DIETARY_CONSENT_VERSION`,
   currently `"2026-06-17"`; migration `0012_dietary_consent.sql`) — so the
   Art. 9(2)(a) condition is evidenced (who/when/which copy version). This was
-  the gating mitigation for sign-off and is now in place.
+  the gating mitigation for sign-off and is now in place. **PR 5b extends the
+  same gate to organiser-recorded RSVPs**: the record UI shows an "I confirm the
+  guest consented…" attestation checkbox gating the dietary field, the API 422s
+  a non-empty dietary without it, and the row is stamped
+  `rsvps.consent_source = 'organiser_attested'` (migration
+  `0037_rsvp_consent_source.sql`; default `'guest'` back-fills legacy rows) so
+  guest-given vs organiser-attested consent stay distinguishable in the stored
+  evidence + the RSVP report ("Recorded By" column / dashboard badge).
 - **C-H1.** Implement the wedding-lifecycle purge, the expired-`cire_session`
   sweeper, and an R2 lifecycle rule that also fires on import revert. See
   [[retention]].

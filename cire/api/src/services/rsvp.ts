@@ -8,16 +8,28 @@ import { metricRsvpUpserted } from "../metrics";
 import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
 import type { RsvpRecord } from "../schemas/rsvp";
 
+/** RSVP consent provenance = who recorded the row AND on whose consent
+ *  authority the dietary free-text is held (migration 0037). `guest` — the
+ *  guest self-submitted and gave their own Art. 9(2)(a) consent.
+ *  `organiser_attested` — an organiser recorded a phone/paper RSVP and attests
+ *  the guest consented. Defaults to `guest` for the invite write path. */
+export type ConsentSource = "guest" | "organiser_attested";
+
 /** One guest×event RSVP to upsert. */
 export interface RsvpInput {
   guestId: string;
   eventId: string;
   status: "attending" | "declined" | "maybe";
   dietary: string;
-  // True only when the guest opted in AND there is dietary text to authorise
+  // True only when consent is present AND there is dietary text to authorise
   // (the route already collapses both conditions). Stamps an Art. 9(2)(a)
   // consent record; false clears any prior record (e.g. dietary removed).
   dietaryConsent: boolean;
+  // Who recorded the row + the consent basis. Optional; defaults to `guest`
+  // (the invite write path). The organiser endpoint passes `organiser_attested`
+  // so the row is distinguishable and its dietary consent is attested, not
+  // self-given. Stamped into `rsvps.consent_source`.
+  consentSource?: ConsentSource;
 }
 
 export const rsvpService = {
@@ -63,6 +75,7 @@ export const rsvpService = {
       const statements: BatchItem<"sqlite">[] = inputs.map((input) => {
         const dietaryConsentAt = input.dietaryConsent ? now : null;
         const dietaryConsentVersion = input.dietaryConsent ? DIETARY_CONSENT_VERSION : null;
+        const consentSource: ConsentSource = input.consentSource ?? "guest";
         return db
           .insert(rsvps)
           .values({
@@ -73,6 +86,7 @@ export const rsvpService = {
             dietary: input.dietary,
             dietaryConsentAt,
             dietaryConsentVersion,
+            consentSource,
             createdAt: now,
           })
           .onConflictDoUpdate({
@@ -82,13 +96,18 @@ export const rsvpService = {
               dietary: input.dietary,
               dietaryConsentAt,
               dietaryConsentVersion,
+              // Overwrite the writer/consent provenance too: an organiser
+              // recording over a guest's reply (or vice-versa) must repoint
+              // this so the row reflects who last wrote it.
+              consentSource,
             },
           });
       });
 
       yield* dbQuery(() => commitBatch(db, statements));
       for (const input of inputs) {
-        yield* Effect.sync(() => metricRsvpUpserted(input.status, "ok"));
+        const writer = (input.consentSource ?? "guest") === "guest" ? "guest" : "organiser";
+        yield* Effect.sync(() => metricRsvpUpserted(input.status, writer, "ok"));
       }
     }).pipe(Effect.withSpan("cire.rsvp.submit"));
   },

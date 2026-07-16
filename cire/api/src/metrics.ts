@@ -219,7 +219,11 @@ type GuestDataSweptAttrs = { result: "ok" | "error" };
 export type R2BucketAttr = "sheets" | "assets";
 type R2ObjectsSweptAttrs = { bucket: R2BucketAttr; result: "ok" | "error" };
 type HostCodeEnsuredAttrs = { result: "ok" | "error" };
-type RsvpUpsertedAttrs = { status: RsvpStatus; result: "ok" | "error" };
+/** Who wrote the RSVP — bounded label, never a per-guest/organiser id.
+ *  `guest` (self-submitted via the invite) vs `organiser` (phone/paper RSVP
+ *  recorded on the guest's behalf; `consent_source='organiser_attested'`). */
+export type RsvpWriter = "guest" | "organiser";
+type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" | "error" };
 type ImportSimpleAttrs = { result: "ok" | "error" };
 type ImportRowsAttrs = { entity: ImportEntity };
 type ImportParseRejectedAttrs = { reason: ParseRejectReason };
@@ -311,7 +315,7 @@ const hostCodeEnsured = createCounter<HostCodeEnsuredAttrs>({
 
 const rsvpUpserted = createCounter<RsvpUpsertedAttrs>({
   name: CIRE_METRICS.rsvpUpserted,
-  description: "RSVP upserts (one per (guest,event) pair), by terminal status",
+  description: "RSVP upserts (one per (guest,event) pair), by terminal status + writer",
   unit: "{rsvp}",
 });
 
@@ -519,8 +523,11 @@ export const metricR2ObjectsSwept = (
 export const metricHostCodeEnsured = (result: "ok" | "error"): void =>
   hostCodeEnsured.inc({ result });
 
-export const metricRsvpUpserted = (status: RsvpStatus, result: "ok" | "error"): void =>
-  rsvpUpserted.inc({ status, result });
+export const metricRsvpUpserted = (
+  status: RsvpStatus,
+  source: RsvpWriter,
+  result: "ok" | "error",
+): void => rsvpUpserted.inc({ status, source, result });
 
 export const metricRsvpBatchSize = (size: number): void => rsvpBatchSize.record(size, {});
 

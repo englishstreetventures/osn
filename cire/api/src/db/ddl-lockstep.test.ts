@@ -366,6 +366,61 @@ describe("T-S1 lockstep: Drizzle schema.ts ↔ migrated D1 shape", () => {
 // Structural diffing above can't see a data-only migration's effect; replay the
 // chain around it with seeded rows so the UPDATE itself is exercised.
 
+describe("migration 0037: rsvps gains consent_source", () => {
+  it("adds consent_source (NOT NULL DEFAULT 'guest') to rsvps after the full chain", () => {
+    const col = migrated.tables.rsvps?.columns.consent_source;
+    expect(col).toBeDefined();
+    expect(col?.type).toBe("text");
+    expect(col?.notNull).toBe(true);
+    // Normalised default (see normalizeExpr): quotes/case stripped.
+    expect(col?.default).toBe("'guest'");
+  });
+
+  it("back-fills legacy rsvps rows as 'guest' (the guest form was the only pre-0037 writer)", () => {
+    const files = migrationFiles();
+    const cut = files.indexOf("0037_rsvp_consent_source.sql");
+    expect(cut).toBeGreaterThan(0);
+
+    const db = new Database(":memory:");
+    db.exec("PRAGMA foreign_keys = ON;");
+    // Apply everything up to (but not including) 0037.
+    for (const file of files.slice(0, cut)) {
+      db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
+    }
+    // Seed a pre-0037 RSVP (the column doesn't exist yet), tied to a real
+    // guest+event so the FKs hold under `foreign_keys = ON`.
+    db.exec(
+      "INSERT INTO weddings (id, slug, display_name, owner_osn_profile_id, created_at, updated_at)" +
+        " VALUES ('wed_r', 'r', 'R', 'usr_o', 0, 0);",
+    );
+    db.exec(
+      "INSERT INTO families (id, wedding_id, public_id, family_name, created_at, updated_at)" +
+        " VALUES ('fam_r', 'wed_r', 'RRR-AAA-0000', 'R', 0, 0);",
+    );
+    db.exec(
+      "INSERT INTO guests (id, family_id, first_name, sort_order, created_at, updated_at)" +
+        " VALUES ('g_r', 'fam_r', 'Rae', 0, 0, 0);",
+    );
+    db.exec(
+      "INSERT INTO events (id, wedding_id, slug, name, start_at, end_at, timezone, sort_order)" +
+        " VALUES ('e_r', 'wed_r', 'e', 'E', '2027-01-01T00:00:00+00:00', '2027-01-01T02:00:00+00:00', 'Australia/Sydney', 0);",
+    );
+    db.exec(
+      "INSERT INTO rsvps (id, guest_id, event_id, status, created_at)" +
+        " VALUES ('r_legacy', 'g_r', 'e_r', 'attending', 0);",
+    );
+
+    // Now apply 0037 (the ADD COLUMN with the back-filling default).
+    db.exec(readFileSync(join(MIGRATIONS_DIR, "0037_rsvp_consent_source.sql"), "utf8"));
+
+    const row = db.query("SELECT consent_source FROM rsvps WHERE id = 'r_legacy'").get() as {
+      consent_source: string;
+    } | null;
+    db.close();
+    expect(row?.consent_source).toBe("guest");
+  });
+});
+
 describe("data migration 0031: wedding_hosts role 'host' → 'editor'", () => {
   it("rewrites pre-0031 seats to editor and leaves editor/viewer untouched", () => {
     const db = new Database(":memory:");

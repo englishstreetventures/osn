@@ -1,0 +1,46 @@
+-- Organiser-recorded RSVPs (platform Phase 0, [[platform-plan]] §3.3 +
+-- §10; compliance §Art. 9 variant in [[dpia/cire-guest-data]] → C-H2).
+--
+-- An organiser must be able to record a phone/paper RSVP on a guest's behalf,
+-- into the SAME `rsvps` table the guest invite writes to (last-writer-wins on
+-- the existing `(guest_id, event_id)` unique key). Two facts about a row now
+-- need capturing that the guest-only path never had to distinguish:
+--
+--  1. WHO recorded the answer — an organiser-entered reply must stay
+--     distinguishable from (and visibly overwrite) a guest-submitted one, so
+--     the dashboard can badge provenance.
+--  2. On what CONSENT BASIS the special-category `dietary` free-text is held —
+--     a guest gives their own Art. 9(2)(a) explicit consent at the RSVP form;
+--     an organiser instead *attests* that the guest consented when they phoned
+--     it in. The stored evidence must record which of the two it was.
+--
+-- ONE column carries BOTH facts, deliberately:
+--
+--   `consent_source text NOT NULL DEFAULT 'guest'`  (`'guest' | 'organiser_attested'`)
+--
+-- In this domain the writer and the consent-attester are ALWAYS the same
+-- principal: a guest writes their own row and attests their own consent
+-- (`'guest'`); an organiser writes the row and attests the guest's consent on
+-- their behalf (`'organiser_attested'`). A separate `recorded_by` column would
+-- therefore be 1:1 redundant with `consent_source` — it could never disagree —
+-- so a second column adds a constraint to keep in sync for no new information.
+-- `consent_source` alone is the writer attribution AND the Art. 9 consent
+-- provenance. The guest write path keeps the `'guest'` default; the organiser
+-- endpoint stamps `'organiser_attested'`.
+--
+-- The `dietary_consent_at` / `dietary_consent_version` columns (0012) still
+-- record WHEN + WHICH copy version the consent pins, unchanged; `consent_source`
+-- adds WHOSE assertion authorises it. Organiser-attested dietary stamps the same
+-- consent record (the attestation is the Art. 9(2)(a) evidence) with
+-- `consent_source = 'organiser_attested'`.
+--
+-- ADDITIVE — pure `ADD COLUMN`, no table rebuild. `rsvps`' only index is the
+-- `(guest_id, event_id)` unique index; its FKs are on `guest_id` / `event_id`;
+-- there are no CHECK/generated columns. The new column touches none of them, so
+-- `ADD COLUMN` applies in place on D1/sqlite. The NOT NULL DEFAULT 'guest'
+-- back-fills every legacy row as guest-submitted — the correct provenance, since
+-- the guest RSVP form was the ONLY writer of `rsvps` before this endpoint.
+--
+-- Forward-only, additive; no down migration (nothing to undo structurally and
+-- the default is safe).
+ALTER TABLE `rsvps` ADD COLUMN `consent_source` text DEFAULT 'guest' NOT NULL;

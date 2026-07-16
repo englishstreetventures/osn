@@ -37,6 +37,20 @@ export const BulkRsvpBody = Schema.Struct({
 });
 export type BulkRsvpBody = Schema.Schema.Type<typeof BulkRsvpBody>;
 
+// Body for the organiser-recorded RSVP endpoint
+// (PUT .../guests/:guestId/rsvps/:eventId). `guestId`/`eventId` are path
+// params, so the body carries only the answer. `dietaryConsent` is the
+// organiser's ATTESTATION that the guest consented to storing the dietary
+// free-text (the Art. 9(2)(a) evidence for `consent_source='organiser_attested'`
+// — see [[wiki/compliance/dpia/cire-guest-data]] → C-H2 organiser-attested
+// variant). Same 500-char dietary cap + consent gate as the guest path.
+export const OrganiserRsvpBody = Schema.Struct({
+  status: Schema.Literal("attending", "declined", "maybe"),
+  dietary: Schema.optionalWith(DietaryText, { default: () => "" }),
+  dietaryConsent: Schema.optionalWith(Schema.Boolean, { default: () => false }),
+});
+export type OrganiserRsvpBody = Schema.Schema.Type<typeof OrganiserRsvpBody>;
+
 export const RsvpRecord = Schema.Struct({
   guestId: Schema.String,
   eventId: Schema.String,
