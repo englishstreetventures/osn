@@ -29,8 +29,8 @@ function nonLocalEnv(over: Partial<Record<string, string>> = {}): EnvRecord {
   return {
     OSN_ENV: "production",
     OSN_ISSUER_URL: "https://id.cireweddings.com",
-    OSN_CORS_ORIGIN: "https://app.cireweddings.com",
-    OSN_ORIGIN: "https://app.cireweddings.com",
+    OSN_CORS_ORIGIN: "https://host.cireweddings.com",
+    OSN_ORIGIN: "https://host.cireweddings.com",
     OSN_RP_ID: "cireweddings.com",
     OSN_JWT_PRIVATE_KEY: privB64,
     OSN_JWT_PUBLIC_KEY: pubB64,

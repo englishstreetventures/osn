@@ -169,10 +169,13 @@ Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
    *move* it off the `cire-invites` Worker — confirm).
 3. Confirm `invite.cireweddings.com` auto-provisioned on the `cire-invites` Worker
    (custom_domain on deploy).
-4. Redeploy osn-api manually (`cd osn/api && bunx wrangler deploy --env production`)
-   — it is NOT in CI — so `OSN_ORIGIN` picks up `host.`.
-5. Cleanup PR: drop apex route from the Worker config; prune `app.`/apex from the
-   allowlists.
+4. ~~Redeploy osn-api manually~~ — osn-api is now CI-deployed (`deploy-osn-api`
+   in `deploy.yml`, added 2026-07-16); `OSN_ORIGIN` picks up on the next merge.
+5. Cleanup PR — **DONE 2026-07-16**: pruned the transitional apex + `app.` from
+   cire-api `WEB_ORIGIN` and `app.` from osn-api `OSN_ORIGIN`/`OSN_CORS_ORIGIN`
+   (`cire/web`'s Worker route was already `invite.`-only, no apex route to drop).
+   **Remaining manual dashboard step:** remove the `app.cireweddings.com` custom
+   domain from the `cire-organiser` Pages project so `app.` stops resolving.
 
 ## Roadmap — toward a wedding platform
 
