@@ -30,6 +30,7 @@ vi.mock("./GettingStarted", () => ({
   default: (p: { weddingId: string }) => <div data-testid="getting-started">{p.weddingId}</div>,
 }));
 
+import { __resetBudgetCache } from "../lib/budget-store";
 import { __resetEventsCache } from "../lib/events-store";
 import { __resetGuestsCache } from "../lib/guests-store";
 import { __resetTasksCache } from "../lib/tasks-store";
@@ -107,6 +108,7 @@ describe("Overview", () => {
     cleanup();
     authFetchMock.mockReset();
     redirectSpy.mockReset();
+    __resetBudgetCache();
     __resetEventsCache();
     __resetGuestsCache();
     __resetTasksCache();
@@ -177,7 +179,7 @@ describe("Overview", () => {
     expect(screen.getByText(/Set your wedding date/i)).toBeTruthy();
   });
 
-  it("renders the Checklist live widget and Budget 'coming soon' placeholder", async () => {
+  it("renders the Checklist live widget and Budget live widget", async () => {
     routeFetch({
       settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
       rsvps: RSVPS,
@@ -186,12 +188,11 @@ describe("Overview", () => {
       tasks: [],
     });
     render(() => <Overview weddingId="wed_1" onNavigate={vi.fn()} />);
-    // Checklist card is live (no "Soon" badge, no "Coming soon" text).
+    // Both Checklist and Budget cards are live (no "Soon" badge, no "Coming soon" text).
     await waitFor(() => expect(screen.getByText("Checklist")).toBeTruthy());
     expect(screen.getByText("Budget")).toBeTruthy();
-    // Budget is still a "coming soon" placeholder.
-    expect(screen.getAllByText(/Soon/i).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText(/Coming soon/i).length).toBeGreaterThanOrEqual(1);
+    // Budget is a live widget — no "Soon" or "Coming soon".
+    expect(screen.queryByText(/Coming soon/i)).toBeNull();
     // Checklist shows the live empty state (tasks loaded, none open).
     await waitFor(() => expect(screen.getByText(/No tasks yet/i)).toBeTruthy());
   });

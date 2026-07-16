@@ -20,6 +20,7 @@ describe("ModuleSidebar", () => {
       "◈Overview",
       "◇Schedule",
       "✓Checklist",
+      "$Budget",
       "✎Guests",
       "✦Invite",
       "✧Settings",

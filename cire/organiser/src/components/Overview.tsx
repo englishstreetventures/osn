@@ -2,6 +2,13 @@ import { useAuth } from "@osn/client/solid";
 import { createMemo, createResource, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import {
+  type BudgetSnapshot,
+  ensureBudgetLoaded,
+  peekCachedBudget,
+  spentSoFar,
+  upcomingPayments,
+} from "../lib/budget-store";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
 import { ensureGuestsLoaded, guestsAccessor, type OrganiserGuestRow } from "../lib/guests-store";
 import { ensureTasksLoaded, openTaskCount, type TaskRow } from "../lib/tasks-store";
@@ -10,10 +17,11 @@ import SectionIntro from "./SectionIntro";
 
 /** The Overview home — the module shell's landing view. It answers "how's the
  *  wedding tracking?" at a glance: a countdown to the date, RSVP totals rolled
- *  up across events, and honest "coming soon" snapshot cards for the planning
- *  modules that don't exist yet (Checklist + Budget land in Phase 1). When the
- *  wedding is brand new — no events, no guests — it shows the Getting-started
- *  checklist as its empty-state instead of empty stat cards.
+ *  up across events, a Checklist card showing the live open-task count, and a
+ *  Budget card showing real spend-vs-cap and the next upcoming payment. Both
+ *  Checklist and Budget are live sidebar modules with live Overview cards.
+ *  When the wedding is brand new — no events, no guests — it shows the
+ *  Getting-started checklist as its empty-state instead of empty stat cards.
  *
  *  Data is read from the SHARED weddingId-keyed caches (events + guests stores)
  *  so opening Overview costs nothing extra once another module has loaded, and a
@@ -70,6 +78,14 @@ function daysUntil(isoDate: string): number | null {
   return Math.round((target.getTime() - today.getTime()) / MS_PER_DAY);
 }
 
+function fmtBudget(minor: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(minor / 100);
+  } catch {
+    return (minor / 100).toFixed(2);
+  }
+}
+
 function formatWeddingDate(isoDate: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
   if (!m) return isoDate;
@@ -89,7 +105,7 @@ export default function Overview(props: {
   /** Jump to another module (+ optional sub) — wired to the shell's navigation
    *  so an Overview card can send the organiser to the right place. */
   onNavigate: (
-    module: "guests" | "schedule" | "checklist" | "invite" | "settings",
+    module: "guests" | "schedule" | "checklist" | "budget" | "invite" | "settings",
     sub?: string,
   ) => void;
 }) {
@@ -128,6 +144,16 @@ export default function Overview(props: {
           }
           if (!res.ok) throw new Error(`tasks ${res.status}`);
           return ((await res.json()) as { tasks: TaskRow[] }).tasks;
+        }),
+        ensureBudgetLoaded(props.weddingId, async () => {
+          const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/budget`));
+          if (res.status === 401) {
+            redirectToLogin();
+            return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
+          }
+          // Soft-fail: a missing budget endpoint never blocks the rest of Overview.
+          if (!res.ok) return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
+          return (await res.json()) as BudgetSnapshot;
         }),
       ]);
 
@@ -194,6 +220,9 @@ export default function Overview(props: {
     const iso = weddingDate();
     return iso ? daysUntil(iso) : null;
   });
+
+  const budgetCurrency = () =>
+    peekCachedBudget(props.weddingId)?.currency ?? data()?.profile?.currency ?? "AUD";
 
   return (
     <div class="flex flex-col gap-8">
@@ -414,59 +443,59 @@ export default function Overview(props: {
               </Show>
             </button>
 
-            {/* ── Budget snapshot (Phase 1 — placeholder, NEVER fake) ─────── */}
-            <SnapshotComingSoon
-              label="Budget"
-              blurb={
-                data()?.profile?.budgetTotalMinor != null
-                  ? "Track estimates, quotes, and payments against your total. Coming soon."
-                  : "Set a total in Settings, then track spending against it here. Coming soon."
-              }
-              action={
-                data()?.profile?.budgetTotalMinor == null
-                  ? {
-                      label: "Set a budget →",
-                      onClick: () => props.onNavigate("settings", "wedding"),
-                    }
-                  : undefined
-              }
-            />
+            {/* ── Budget snapshot (Phase 1 — live spend + upcoming payments) ── */}
+            <button
+              type="button"
+              onClick={() => props.onNavigate("budget")}
+              class="border-border bg-surface/15 hover:border-gold/40 flex flex-col gap-2 rounded-sm border p-5 text-left transition-colors"
+            >
+              <p class="font-body text-gold-dim text-[0.7rem] tracking-[0.18em] uppercase">
+                Budget
+              </p>
+              <Show
+                when={spentSoFar(props.weddingId) !== null}
+                fallback={<p class="text-text-muted text-[0.82rem]">Loading your budget…</p>}
+              >
+                <Show
+                  when={
+                    (peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
+                      data()?.profile?.budgetTotalMinor) != null
+                  }
+                  fallback={
+                    <p class="text-text-muted text-[0.82rem]">
+                      {(spentSoFar(props.weddingId) ?? 0) > 0
+                        ? `${fmtBudget(spentSoFar(props.weddingId)!, budgetCurrency())} tracked — set a total →`
+                        : "No budget yet — add your first item."}
+                    </p>
+                  }
+                >
+                  <p class="text-text text-[0.95rem]">
+                    <span class="text-gold text-[1.2rem] font-semibold">
+                      {fmtBudget(spentSoFar(props.weddingId) ?? 0, budgetCurrency())}
+                    </span>{" "}
+                    <span class="text-text-muted">
+                      of{" "}
+                      {fmtBudget(
+                        (peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
+                          data()?.profile?.budgetTotalMinor)!,
+                        budgetCurrency(),
+                      )}
+                    </span>
+                  </p>
+                </Show>
+                <Show when={upcomingPayments(props.weddingId).length > 0}>
+                  <p class="text-text-muted text-[0.78rem]">
+                    Next: {upcomingPayments(props.weddingId)[0]!.label}
+                    <Show when={upcomingPayments(props.weddingId)[0]!.dueAt}>
+                      {" "}
+                      · due {upcomingPayments(props.weddingId)[0]!.dueAt}
+                    </Show>
+                  </p>
+                </Show>
+              </Show>
+            </button>
           </div>
         </Show>
-      </Show>
-    </div>
-  );
-}
-
-/** An honest "not built yet" snapshot card for a planning module that lands in a
- *  later phase. It reads as a promise, not as data — no numbers are invented (the
- *  repo's no-mock-data rule). */
-function SnapshotComingSoon(props: {
-  label: string;
-  blurb: string;
-  action?: { label: string; onClick: () => void };
-}) {
-  return (
-    <div class="border-border bg-surface/15 flex flex-col gap-2 rounded-sm border border-dashed p-5">
-      <div class="flex items-center justify-between gap-2">
-        <p class="font-body text-gold-dim text-[0.7rem] tracking-[0.18em] uppercase">
-          {props.label}
-        </p>
-        <span class="border-border text-text-muted font-body rounded-sm border px-1.5 py-0.5 text-[0.58rem] tracking-[0.14em] uppercase">
-          Soon
-        </span>
-      </div>
-      <p class="font-body text-text-muted text-[0.82rem] leading-relaxed">{props.blurb}</p>
-      <Show when={props.action}>
-        {(action) => (
-          <button
-            type="button"
-            onClick={() => action().onClick()}
-            class="font-body text-gold-dim hover:text-gold self-start text-[0.78rem] underline-offset-4 transition hover:underline"
-          >
-            {action().label}
-          </button>
-        )}
       </Show>
     </div>
   );

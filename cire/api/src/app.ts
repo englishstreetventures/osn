@@ -9,6 +9,7 @@ import type { Db } from "./db";
 import { originGuard } from "./lib/origin-guard";
 import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
+import { createBudgetReadRoutes, createBudgetWriteRoutes } from "./routes/budget";
 import { createClaimRoutes } from "./routes/claim";
 import { createCspReportRoutes } from "./routes/csp-report";
 import { createInviteOrganiserRoutes, createInvitePublicRoutes } from "./routes/invite";
@@ -321,6 +322,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // never cross-contaminates with the write gate.
       .use(createTaskReadRoutes(db, osnAuthOptions))
       .use(createTaskWriteRoutes(db, osnAuthOptions))
+      .use(createBudgetReadRoutes(db, osnAuthOptions))
+      .use(createBudgetWriteRoutes(db, osnAuthOptions))
       // Invite builder. Public reads (guest site) + organiser writes split into
       // sibling instances so the guest GET isn't behind osnAuth.
       .use(createInvitePublicRoutes(db, assets, images))

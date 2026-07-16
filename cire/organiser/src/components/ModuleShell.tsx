@@ -1,6 +1,7 @@
 import { For, Show } from "solid-js";
 
 import { defaultSub, isSubOf, type Module } from "../lib/dashboard-route";
+import BudgetView from "./BudgetView";
 import ChecklistView from "./ChecklistView";
 import EventsEditor from "./EventsEditor";
 import EventTable from "./EventTable";
@@ -164,6 +165,15 @@ export default function ModuleShell(props: ModuleShellProps) {
         {/* ── Checklist: freeform tasks by lead-time bucket ────────────── */}
         <Show when={props.module === "checklist"}>
           <ChecklistView weddingId={props.weddingId} canEdit={props.canEdit} />
+        </Show>
+
+        {/* ── Budget: per-category items + payments ────────────────────── */}
+        <Show when={props.module === "budget"}>
+          <BudgetView
+            weddingId={props.weddingId}
+            canEdit={props.canEdit}
+            canManage={props.canManage}
+          />
         </Show>
 
         {/* ── Guests: Households + RSVPs ───────────────────────────────── */}

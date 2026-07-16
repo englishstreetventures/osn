@@ -206,6 +206,31 @@ CREATE TABLE IF NOT EXISTS tasks (
   completed_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS tasks_wedding_bucket_sort_idx ON tasks(wedding_id, timeframe_bucket, sort_order);
+
+CREATE TABLE IF NOT EXISTS budget_items (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  category TEXT NOT NULL,
+  name TEXT NOT NULL,
+  estimate_minor INTEGER,
+  quoted_minor INTEGER,
+  actual_minor INTEGER,
+  notes TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS budget_items_wedding_category_sort_idx ON budget_items(wedding_id, category, sort_order);
+CREATE TABLE IF NOT EXISTS payments (
+  id TEXT PRIMARY KEY,
+  budget_item_id TEXT NOT NULL REFERENCES budget_items(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  amount_minor INTEGER NOT NULL,
+  due_at TEXT,
+  paid_at INTEGER,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS payments_item_idx ON payments(budget_item_id);
 `;
 
 export function createDb(path: string = ":memory:"): Db {

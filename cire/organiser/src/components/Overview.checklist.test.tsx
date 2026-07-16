@@ -2,6 +2,7 @@
 import { render, screen } from "@solidjs/testing-library";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { __resetBudgetCache } from "../lib/budget-store";
 import { setCachedEvents } from "../lib/events-store";
 import { setCachedGuests } from "../lib/guests-store";
 import { __resetTasksCache, setCachedTasks, type TaskRow } from "../lib/tasks-store";
@@ -21,6 +22,8 @@ const authFetch = vi.fn(async (url: string) => {
   if (url.endsWith("/tasks")) return json({ tasks: [] });
   if (url.endsWith("/events")) return json([]);
   if (url.endsWith("/guests")) return json([]);
+  if (url.endsWith("/budget"))
+    return json({ items: [], payments: [], budgetTotalMinor: null, currency: "AUD" });
   return json({}, 404);
 });
 vi.mock("@osn/client/solid", () => ({ useAuth: () => ({ authFetch }) }));
@@ -50,6 +53,7 @@ const row = (over: Partial<TaskRow>): TaskRow => ({
 });
 
 beforeEach(() => {
+  __resetBudgetCache();
   __resetTasksCache();
   authFetch.mockClear();
   // Seed events + guests so isFresh() = false and the snapshot grid renders.

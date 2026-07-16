@@ -59,7 +59,6 @@ export default function SettingsPanel(props: SettingsPanelProps) {
   const [weddingDate, setWeddingDate] = createSignal("");
   const [guestCount, setGuestCount] = createSignal("");
   const [currency, setCurrency] = createSignal("AUD");
-  const [budget, setBudget] = createSignal("");
 
   const [saving, setSaving] = createSignal(false);
 
@@ -71,7 +70,6 @@ export default function SettingsPanel(props: SettingsPanelProps) {
     setWeddingDate(profile.weddingDate ?? "");
     setGuestCount(profile.guestCountEstimate === null ? "" : String(profile.guestCountEstimate));
     setCurrency(profile.currency);
-    setBudget(profile.budgetTotalMinor === null ? "" : (profile.budgetTotalMinor / 100).toString());
   }
 
   onMount(async () => {
@@ -109,19 +107,12 @@ export default function SettingsPanel(props: SettingsPanelProps) {
       return { error: "Guest count must be a whole number between 1 and 10,000." };
     }
 
-    const budgetText = budget().trim();
-    const budgetNum = budgetText === "" ? null : Number(budgetText);
-    if (budgetNum !== null && (!Number.isFinite(budgetNum) || budgetNum < 0)) {
-      return { error: "Budget must be a positive amount." };
-    }
-
     return {
       body: {
         displayName: name,
         weddingDate: weddingDate() || null,
         guestCountEstimate: guestNum,
         currency: curr,
-        budgetTotalMinor: budgetNum === null ? null : Math.round(budgetNum * 100),
       },
     };
   }
@@ -168,7 +159,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
       <SectionIntro
         eyebrow="Settings"
         title="Wedding profile"
-        description="The facts that drive your planning tools — the date, roughly how many guests, and your budget in the currency you think in. Where each event happens is set per event on the Events tab, so celebrations across cities or countries just work. Guests never see any of this; only the name and the invite link appear on the invite."
+        description="The facts that drive your planning tools — the date and roughly how many guests, in the currency you think in. Where each event happens is set per event on the Events tab, so celebrations across cities or countries just work. Guests never see any of this; only the name and the invite link appear on the invite."
       />
 
       <Show when={loadError()}>
@@ -258,19 +249,6 @@ export default function SettingsPanel(props: SettingsPanelProps) {
                 Your main currency — the one your budget and payments are counted in, even if some
                 events happen in another country.
               </span>
-            </label>
-
-            <label class="flex flex-col gap-1.5">
-              <span class={labelClass}>Total budget ({currency() || "AUD"})</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={budget()}
-                onInput={(e) => setBudget(e.currentTarget.value)}
-                disabled={disabled()}
-                class={inputClass}
-              />
             </label>
           </div>
 

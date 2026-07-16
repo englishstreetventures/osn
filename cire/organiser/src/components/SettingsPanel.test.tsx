@@ -79,8 +79,6 @@ describe("SettingsPanel", () => {
     // the formatted date), not a native <input type="date">.
     expect(screen.getByText(/20 March 2027/)).toBeTruthy();
     expect(screen.getByDisplayValue("120")).toBeTruthy();
-    // Budget renders in whole-currency units (minor / 100).
-    expect(screen.getByDisplayValue("45000")).toBeTruthy();
   });
 
   it("PUTs the parsed form and reports the rename up", async () => {
@@ -103,7 +101,6 @@ describe("SettingsPanel", () => {
     expect(init.method).toBe("PUT");
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
     expect(body.displayName).toBe("Aisha & Benjamin");
-    expect(body.budgetTotalMinor).toBe(4_500_000);
     expect(body.currency).toBe("AUD");
     // The slug is never sent — read-only in Settings (S-M1).
     expect("slug" in body).toBe(false);
@@ -148,7 +145,6 @@ describe("SettingsPanel", () => {
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
     expect(body.weddingDate).toBeNull();
     expect(body.guestCountEstimate).toBeNull();
-    expect(body.budgetTotalMinor).toBeNull();
   });
 
   it("rejects a bad currency client-side without a request", async () => {
@@ -163,6 +159,13 @@ describe("SettingsPanel", () => {
     expect(String(toastError.mock.calls[0]?.[0])).toContain("3-letter code");
     // Only the initial GET happened — the invalid form never left the page.
     expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("no longer renders a budget field (moved to the Budget tab)", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
+    expect(screen.queryByText(/total budget/i)).not.toBeInTheDocument();
   });
 
   it("renders read-only for a co-host", async () => {

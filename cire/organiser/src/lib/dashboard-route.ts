@@ -28,6 +28,7 @@ export const MODULES = [
   "overview",
   "schedule",
   "checklist",
+  "budget",
   "guests",
   "invite",
   "settings",
@@ -54,6 +55,7 @@ export const MODULE_SUBS: Record<Module, readonly string[]> = {
   // read-only `list` view (the old Events tab). `edit` is editor-only.
   schedule: ["list", "edit"],
   checklist: ["index"],
+  budget: ["index"],
   // `edit` is the interactive guest editor (E5), an editor-only sub the shell
   // hides from read-only viewers (the parser can't see the role).
   guests: ["list", "edit", "rsvps"],

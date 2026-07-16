@@ -292,6 +292,46 @@ export const tasks = sqliteTable(
   (t) => [index("tasks_wedding_bucket_sort_idx").on(t.weddingId, t.timeframeBucket, t.sortOrder)],
 );
 
+export const budgetItems = sqliteTable(
+  "budget_items",
+  {
+    id: text("id").primaryKey(),
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    // Service category (shared enum, cire/api/src/lib/service-categories.ts).
+    category: text("category").notNull(),
+    name: text("name").notNull(),
+    // Three OPTIONAL money figures, minor units of the wedding's currency.
+    estimateMinor: integer("estimate_minor"),
+    quotedMinor: integer("quoted_minor"),
+    actualMinor: integer("actual_minor"),
+    notes: text("notes"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [index("budget_items_wedding_category_sort_idx").on(t.weddingId, t.category, t.sortOrder)],
+);
+
+export const payments = sqliteTable(
+  "payments",
+  {
+    id: text("id").primaryKey(),
+    budgetItemId: text("budget_item_id")
+      .notNull()
+      .references(() => budgetItems.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    amountMinor: integer("amount_minor").notNull(),
+    // Optional ISO date (YYYY-MM-DD) the payment is due.
+    dueAt: text("due_at"),
+    // Set when marked paid; null while outstanding.
+    paidAt: integer("paid_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [index("payments_item_idx").on(t.budgetItemId)],
+);
+
 export const guestEvents = sqliteTable(
   "guest_events",
   {

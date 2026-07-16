@@ -248,6 +248,27 @@ describe("dashboard-route", () => {
   });
 });
 
+describe("budget module route", () => {
+  it("budget is a known module", () => {
+    expect(isModule("budget")).toBe(true);
+    expect(MODULES).toContain("budget");
+  });
+
+  it("parses #/w/<id>/budget to the budget module", () => {
+    expect(parseRoute("#/w/wed_1/budget")).toMatchObject({
+      view: "weddings",
+      weddingId: "wed_1",
+      module: "budget",
+    });
+  });
+
+  it("serializes a budget route back to the canonical hash", () => {
+    expect(
+      serializeRoute({ view: "weddings", weddingId: "wed_1", module: "budget", sub: "index" }),
+    ).toBe("#/w/wed_1/budget");
+  });
+});
+
 describe("checklist module route", () => {
   it("checklist is a known module", () => {
     expect(isModule("checklist")).toBe(true);
