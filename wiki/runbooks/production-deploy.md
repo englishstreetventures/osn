@@ -9,7 +9,7 @@ related:
   - "[[database-environments]]"
   - "[[redis]]"
   - "[[email]]"
-last-reviewed: 2026-07-10
+last-reviewed: 2026-07-16
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -360,6 +360,16 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 > (Worker → Domains & Routes → Add → confirm move). A Worker→Worker rename (e.g.
 > `cire-invites` → `cire-invites`) reassigns the custom domain automatically on deploy.
 > No KV namespace or Images binding to create.
+>
+> **`legacy_env` strip (deploy foot-gun, fixed 2026-07-16):** the adapter writes a
+> top-level `"legacy_env": true` into the generated `dist/server/wrangler.json`.
+> Wrangler **4.111.0 removed** that field and hard-errors on it; since `cire/web`
+> pins no wrangler, `bunx wrangler` pulls the latest, so the `deploy-cire-web` job
+> failed on every merge from the moment 4.111 shipped (the apex stayed up on the
+> last-good build — deploys just stopped landing). The job now deletes `legacy_env`
+> from the generated config between build and deploy (behaviour-neutral: `true` was
+> already the default). If a guest-site deploy fails on a config field again, check
+> the generated `dist/server/wrangler.json` against the installed wrangler's schema.
 
 `cire/organiser` is still a **static** Pages build (`output: "static"`); cire/web's
 `PUBLIC_*` are read both **server-side per request** and by the client islands but

@@ -171,6 +171,20 @@ jobs:
           # Present ⇒ real Embed iframe; absent ⇒ CSS-card fallback (key-optional).
           PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
 
+      # `@astrojs/cloudflare` writes a top-level `"legacy_env": true` into the
+      # generated `dist/server/wrangler.json`. Wrangler 4.111+ REMOVED support for
+      # that field and hard-errors on it ("legacy_env field is no longer
+      # supported") — and because cire/web pins no wrangler, `bunx wrangler` below
+      # fetches the latest, so this broke the guest-site deploy the moment 4.111
+      # shipped (cire-api is unaffected: hand-written wrangler.toml, no legacy_env,
+      # wrangler pinned ^4.96). Removing the field is a no-op for behaviour —
+      # `legacy_env: true` WAS the default (each env deploys as its own Worker),
+      # so stripping it deploys identically. Version-proof: harmless if a future
+      # adapter stops emitting it.
+      - name: Strip unsupported legacy_env from generated config
+        run: node -e "const fs=require('fs'),f='dist/server/wrangler.json',c=JSON.parse(fs.readFileSync(f,'utf8'));delete c.legacy_env;fs.writeFileSync(f,JSON.stringify(c))"
+        working-directory: cire/web
+
       # Deploy the SSR Worker. The adapter's generated config carries `main`, the
       # ASSETS binding (→ dist/client), the worker name, and the cireweddings.com
       # custom-domain route. NOTE: this replaces the previous Pages deploy
