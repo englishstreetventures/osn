@@ -18,7 +18,9 @@ export const TIMEFRAME_BUCKETS = [
 
 export type TimeframeBucket = (typeof TIMEFRAME_BUCKETS)[number]["key"];
 
-export const TIMEFRAME_BUCKET_KEYS = TIMEFRAME_BUCKETS.map((b) => b.key);
+export const TIMEFRAME_BUCKET_KEYS: readonly TimeframeBucket[] = TIMEFRAME_BUCKETS.map(
+  (b) => b.key,
+);
 
 export function isTimeframeBucket(value: string): value is TimeframeBucket {
   return (TIMEFRAME_BUCKET_KEYS as readonly string[]).includes(value);

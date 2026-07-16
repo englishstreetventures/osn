@@ -125,3 +125,13 @@ and should be added additively:
 | Day-of → Schedule sync | Day-of tasks reference a `schedule_event_id`; surface in a run-sheet view |
 | `skipped` status | Third status alongside `open`/`done` for tasks that don't apply |
 | Cross-bucket drag | Moving a task between buckets (currently reorder is within-bucket only) |
+
+## Hardening
+
+- **Tenancy (reorder)** — `tasksService.reorder` scopes every `UPDATE` by
+  `(wedding_id, bucket)`, so foreign or wrong-bucket ids are a no-op write. A
+  regression test (`tasks.test.ts` — "reorder is wedding-scoped") proves an
+  owner of wedding B cannot shuffle wedding A's checklist. Complements the
+  existing update/delete tenancy tests.
+- **`TIMEFRAME_BUCKET_KEYS`** is annotated `readonly TimeframeBucket[]` — the
+  single source of truth for bucket keys can't be mutated by a consumer.

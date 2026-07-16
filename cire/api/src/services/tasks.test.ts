@@ -177,4 +177,33 @@ describe("tasksService", () => {
     if (!Exit.isSuccess(list)) throw new Error("list failed");
     expect(list.value.map((t) => t.title)).toEqual(["C", "A", "B"]);
   });
+
+  it("reorder is wedding-scoped: foreign ids under another wedding are a no-op (tenancy)", async () => {
+    const db = db0();
+    // Two tasks in the bootstrap wedding's "6m" bucket (sort_order 0, 1).
+    const ids: string[] = [];
+    for (const title of ["A", "B"]) {
+      const r = await run(
+        db,
+        tasksService.create({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title,
+          timeframeBucket: "6m",
+          notes: null,
+          dueAt: null,
+        }),
+      );
+      if (!Exit.isSuccess(r)) throw new Error("create failed");
+      ids.push(r.value.id);
+    }
+    // Attempt to reorder the bootstrap wedding's tasks while scoping the call to
+    // the OTHER wedding. Every UPDATE is (wedding, bucket)-scoped, so no row
+    // matches and the bootstrap order stays untouched — an owner of wedding B
+    // cannot shuffle wedding A's checklist.
+    await run(db, tasksService.reorder(OTHER, "6m", [ids[1]!, ids[0]!]));
+    const list = await run(db, tasksService.list(BOOTSTRAP_WEDDING_ID));
+    if (!Exit.isSuccess(list)) throw new Error("list failed");
+    expect(list.value.map((t) => t.title)).toEqual(["A", "B"]);
+    expect(list.value.map((t) => t.sortOrder)).toEqual([0, 1]);
+  });
 });
