@@ -31,7 +31,7 @@ PR slicing + dependency order in [[platform-plan]] §3.6 (PRs 0–2 parallel; IA
 ## Phase 1 — planning core
 
 - [ ] **Service-category enum** — closed shared enum in `cire/api/src/lib/service-categories.ts` (vendors + budget + tasks + pricing + metrics)
-- [ ] **Checklist** — `tasks` table; versioned lead-time template seeded from `wedding_date`; re-anchor incomplete seeded tasks on date change; day-of tasks link to events (run-sheet view)
+- [x] **Checklist v1 (SHIPPED 2026-07-16)** — `tasks` table (migration 0038, additive); freeform per-wedding checklist, no seeded template; lead-time buckets (12m → day-of), optional due date, `open`/`done` status, reorder within bucket; CRUD router + `ChecklistView` module + live "open tasks" Overview widget. See [[checklist-tasks]]. Deferred: seeded template from `wedding_date`, re-anchor on date change, category/assignee/vendor linkage, day-of→Schedule sync, `skipped` status.
 - [ ] **Budget v1** — `budget_items` + `payments` tables (minor units, **single currency: the wedding's main `currency`** — organiser converts foreign quotes on entry; weddings span countries but the budget is counted in the one currency the couple thinks in, see [[platform-plan]] §4.2 multi-currency note); per-category rollup vs total; upcoming-payments feed to Overview. Optional additive v2 (display-only `original_currency`/`original_amount_minor` on items/payments) is a [[deferred]] decision — don't build speculatively
 - [ ] **Overview widgets** — RSVP totals, open tasks by bucket, budget summary, payment nudges
 

@@ -28,6 +28,7 @@ import {
 } from "./routes/organiser-weddings";
 import { createPrimaryWeddingRoutes } from "./routes/primary-wedding";
 import { createRsvpRoutes } from "./routes/rsvp";
+import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
 import type { AssetsBucket } from "./services/invite-assets";
 import type { ImagesBindingLike } from "./services/invite-image-transform";
 import type {
@@ -314,6 +315,12 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // invite writes to (upsert, last-writer-wins); stamped
       // `consent_source='organiser_attested'`. weddingEditor()-gated.
       .use(createOrganiserRsvpRoutes(db, osnAuthOptions))
+      // Checklist tasks (platform Phase 1). Reads admit any member role
+      // (weddingMember); writes require editor or owner (weddingEditor; viewer
+      // gets 403 read_only_role). Split into sibling instances so the read gate
+      // never cross-contaminates with the write gate.
+      .use(createTaskReadRoutes(db, osnAuthOptions))
+      .use(createTaskWriteRoutes(db, osnAuthOptions))
       // Invite builder. Public reads (guest site) + organiser writes split into
       // sibling instances so the guest GET isn't behind osnAuth.
       .use(createInvitePublicRoutes(db, assets, images))

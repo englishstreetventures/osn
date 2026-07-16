@@ -272,6 +272,26 @@ export const events = sqliteTable(
   (t) => [index("events_wedding_id_sort_idx").on(t.weddingId, t.sortOrder)],
 );
 
+export const tasks = sqliteTable(
+  "tasks",
+  {
+    id: text("id").primaryKey(),
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    notes: text("notes"),
+    timeframeBucket: text("timeframe_bucket").notNull(),
+    // Optional ISO date (YYYY-MM-DD), independent of the bucket.
+    dueAt: text("due_at"),
+    status: text("status").notNull().default("open"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+  },
+  (t) => [index("tasks_wedding_bucket_sort_idx").on(t.weddingId, t.timeframeBucket, t.sortOrder)],
+);
+
 export const guestEvents = sqliteTable(
   "guest_events",
   {

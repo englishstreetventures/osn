@@ -247,3 +247,23 @@ describe("dashboard-route", () => {
     });
   });
 });
+
+describe("checklist module route", () => {
+  it("checklist is a known module", () => {
+    expect(isModule("checklist")).toBe(true);
+    expect(MODULES).toContain("checklist");
+  });
+
+  it("parses #/w/<id>/checklist to the checklist module", () => {
+    const r = parseRoute("#/w/wed_1/checklist");
+    expect(r.view).toBe("weddings");
+    expect(r.weddingId).toBe("wed_1");
+    expect(r.module).toBe("checklist");
+  });
+
+  it("serializes a checklist route back to the canonical hash", () => {
+    expect(
+      serializeRoute({ view: "weddings", weddingId: "wed_1", module: "checklist", sub: "index" }),
+    ).toBe("#/w/wed_1/checklist");
+  });
+});

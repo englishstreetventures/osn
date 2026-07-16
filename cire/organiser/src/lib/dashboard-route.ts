@@ -24,7 +24,14 @@
 /** The module a wedding dashboard can be showing. Order = sidebar order:
  *  land on Overview, then the day (Schedule) → the people (Guests) → the invite
  *  → housekeeping (Settings). */
-export const MODULES = ["overview", "guests", "schedule", "invite", "settings"] as const;
+export const MODULES = [
+  "overview",
+  "schedule",
+  "checklist",
+  "guests",
+  "invite",
+  "settings",
+] as const;
 
 export type Module = (typeof MODULES)[number];
 
@@ -43,12 +50,13 @@ export function isModule(value: string): value is Module {
  */
 export const MODULE_SUBS: Record<Module, readonly string[]> = {
   overview: ["index"],
-  // `edit` is the interactive guest editor (E5), an editor-only sub the shell
-  // hides from read-only viewers (the parser can't see the role).
-  guests: ["list", "edit", "rsvps"],
   // Schedule gains an `edit` sub in E6 (the events editor) alongside the
   // read-only `list` view (the old Events tab). `edit` is editor-only.
   schedule: ["list", "edit"],
+  checklist: ["index"],
+  // `edit` is the interactive guest editor (E5), an editor-only sub the shell
+  // hides from read-only viewers (the parser can't see the role).
+  guests: ["list", "edit", "rsvps"],
   invite: ["design", "codes"],
   settings: ["wedding", "hosts"],
 };

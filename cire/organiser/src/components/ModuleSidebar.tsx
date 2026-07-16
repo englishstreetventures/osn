@@ -18,6 +18,7 @@ interface ModuleDef {
 const MODULE_NAV: ModuleDef[] = [
   { id: "overview", label: "Overview", glyph: "◈", hint: "Your wedding at a glance" },
   { id: "schedule", label: "Schedule", glyph: "◇", hint: "Your ceremony, reception, and more" },
+  { id: "checklist", label: "Checklist", glyph: "✓", hint: "Your planning tasks by lead time" },
   { id: "guests", label: "Guests", glyph: "✎", hint: "Households, invites, and RSVPs" },
   { id: "invite", label: "Invite", glyph: "✦", hint: "Photos, story, colours, and codes" },
   { id: "settings", label: "Settings", glyph: "✧", hint: "Profile, budget, and co-hosts" },

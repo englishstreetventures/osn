@@ -32,6 +32,7 @@ vi.mock("./GettingStarted", () => ({
 
 import { __resetEventsCache } from "../lib/events-store";
 import { __resetGuestsCache } from "../lib/guests-store";
+import { __resetTasksCache } from "../lib/tasks-store";
 import Overview from "./Overview";
 
 function json(body: unknown, status = 200) {
@@ -41,19 +42,21 @@ function json(body: unknown, status = 200) {
   });
 }
 
-/** Route the four Overview fetches (settings, rsvps, events, guests) by URL so
+/** Route the five Overview fetches (settings, rsvps, events, guests, tasks) by URL so
  *  the order the component fires them in doesn't matter. */
 function routeFetch(opts: {
   settings?: unknown;
   rsvps?: unknown;
   events?: unknown;
   guests?: unknown;
+  tasks?: unknown;
 }) {
   authFetchMock.mockImplementation((url: string) => {
     if (url.endsWith("/settings")) return Promise.resolve(json({ wedding: opts.settings ?? {} }));
     if (url.endsWith("/rsvps")) return Promise.resolve(json({ events: opts.rsvps ?? [] }));
     if (url.endsWith("/events")) return Promise.resolve(json(opts.events ?? []));
     if (url.endsWith("/guests")) return Promise.resolve(json(opts.guests ?? []));
+    if (url.endsWith("/tasks")) return Promise.resolve(json({ tasks: opts.tasks ?? [] }));
     return Promise.resolve(json({}, 404));
   });
 }
@@ -106,6 +109,7 @@ describe("Overview", () => {
     redirectSpy.mockReset();
     __resetEventsCache();
     __resetGuestsCache();
+    __resetTasksCache();
   });
 
   it("shows the getting-started empty-state for a brand-new wedding", async () => {
@@ -173,18 +177,22 @@ describe("Overview", () => {
     expect(screen.getByText(/Set your wedding date/i)).toBeTruthy();
   });
 
-  it("renders the planning snapshots as honest 'coming soon' placeholders, not data", async () => {
+  it("renders the Checklist live widget and Budget 'coming soon' placeholder", async () => {
     routeFetch({
       settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
       rsvps: RSVPS,
       events: EVENTS,
       guests: GUESTS,
+      tasks: [],
     });
     render(() => <Overview weddingId="wed_1" onNavigate={vi.fn()} />);
+    // Checklist card is live (no "Soon" badge, no "Coming soon" text).
     await waitFor(() => expect(screen.getByText("Checklist")).toBeTruthy());
     expect(screen.getByText("Budget")).toBeTruthy();
-    // The placeholders read as "not built yet" — a "Soon" tag, never a number.
-    expect(screen.getAllByText(/Soon/i).length).toBeGreaterThanOrEqual(2);
+    // Budget is still a "coming soon" placeholder.
+    expect(screen.getAllByText(/Soon/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText(/Coming soon/i).length).toBeGreaterThanOrEqual(1);
+    // Checklist shows the live empty state (tasks loaded, none open).
+    await waitFor(() => expect(screen.getByText(/No tasks yet/i)).toBeTruthy());
   });
 });

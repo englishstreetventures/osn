@@ -16,7 +16,14 @@ describe("ModuleSidebar", () => {
   it("renders every module in workflow order", () => {
     render(() => <ModuleSidebar active="overview" onSelect={vi.fn()} />);
     const labels = screen.getAllByRole("button").map((b) => b.textContent);
-    expect(labels).toEqual(["◈Overview", "◇Schedule", "✎Guests", "✦Invite", "✧Settings"]);
+    expect(labels).toEqual([
+      "◈Overview",
+      "◇Schedule",
+      "✓Checklist",
+      "✎Guests",
+      "✦Invite",
+      "✧Settings",
+    ]);
   });
 
   it("marks the active module with aria-current and no others", () => {

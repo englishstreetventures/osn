@@ -4,6 +4,7 @@ import { createMemo, createResource, For, Show } from "solid-js";
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
 import { ensureGuestsLoaded, guestsAccessor, type OrganiserGuestRow } from "../lib/guests-store";
+import { ensureTasksLoaded, openTaskCount, type TaskRow } from "../lib/tasks-store";
 import GettingStarted from "./GettingStarted";
 import SectionIntro from "./SectionIntro";
 
@@ -87,7 +88,10 @@ export default function Overview(props: {
   weddingId: string;
   /** Jump to another module (+ optional sub) — wired to the shell's navigation
    *  so an Overview card can send the organiser to the right place. */
-  onNavigate: (module: "guests" | "schedule" | "invite" | "settings", sub?: string) => void;
+  onNavigate: (
+    module: "guests" | "schedule" | "checklist" | "invite" | "settings",
+    sub?: string,
+  ) => void;
 }) {
   const { authFetch } = useAuth();
 
@@ -115,6 +119,15 @@ export default function Overview(props: {
           }
           if (!res.ok) throw new Error("guests");
           return (await res.json()) as OrganiserGuestRow[];
+        }),
+        ensureTasksLoaded(props.weddingId, async () => {
+          const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/tasks`));
+          if (res.status === 401) {
+            redirectToLogin();
+            return [];
+          }
+          if (!res.ok) throw new Error(`tasks ${res.status}`);
+          return ((await res.json()) as { tasks: TaskRow[] }).tasks;
         }),
       ]);
 
@@ -372,11 +385,34 @@ export default function Overview(props: {
               </button>
             </div>
 
-            {/* ── Checklist snapshot (Phase 1 — placeholder, NEVER fake) ─── */}
-            <SnapshotComingSoon
-              label="Checklist"
-              blurb="Your planning tasks — venue, catering, final head-counts — laid out by how far out they're due. Coming soon."
-            />
+            {/* ── Checklist snapshot (Phase 1 — live open-task count) ─────── */}
+            <button
+              type="button"
+              onClick={() => props.onNavigate("checklist")}
+              class="border-border bg-surface/15 hover:border-gold/40 flex flex-col gap-2 rounded-sm border p-5 text-left transition-colors"
+            >
+              <p class="font-body text-gold-dim text-[0.7rem] tracking-[0.18em] uppercase">
+                Checklist
+              </p>
+              <Show
+                when={openTaskCount(props.weddingId) !== null}
+                fallback={<p class="text-text-muted text-[0.82rem]">Loading your tasks…</p>}
+              >
+                <Show
+                  when={(openTaskCount(props.weddingId) ?? 0) > 0}
+                  fallback={
+                    <p class="text-text-muted text-[0.82rem]">No tasks yet — add your first.</p>
+                  }
+                >
+                  <p class="text-text text-[0.95rem]">
+                    <span class="text-gold text-[1.3rem] font-semibold">
+                      {openTaskCount(props.weddingId)}
+                    </span>{" "}
+                    open {openTaskCount(props.weddingId) === 1 ? "task" : "tasks"}
+                  </p>
+                </Show>
+              </Show>
+            </button>
 
             {/* ── Budget snapshot (Phase 1 — placeholder, NEVER fake) ─────── */}
             <SnapshotComingSoon
