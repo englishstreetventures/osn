@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * OSN auth + api helpers + toasts are stubbed; this asserts the load/seed, the
  * PUT body (incl. cents conversion and the slug never being sent — read-only,
  * S-M1), and the co-host read-only gate. Location is deliberately NOT here —
- * it's event-scoped and lives in EventLocationsPanel (see its test).
+ * an event's place is its free-text `address` (the sole location source).
  */
 
 const authFetchMock = vi.fn();

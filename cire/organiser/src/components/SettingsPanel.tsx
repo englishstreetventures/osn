@@ -7,9 +7,9 @@ import DatePicker from "./DatePicker";
 import SectionIntro from "./SectionIntro";
 
 /** The wedding profile as the settings API reads/writes it. Location is
- *  deliberately absent — it's EVENT-scoped (a wedding can span countries), so
- *  each event's point + region are edited on the Events tab
- *  (`EventLocationsPanel`); the wedding holds one MAIN currency + budget. */
+ *  deliberately absent — an event's place is its free-text `address` (the sole
+ *  location source, shown on the invite); the wedding holds one MAIN currency
+ *  + budget. */
 interface WeddingProfile {
   id: string;
   slug: string;

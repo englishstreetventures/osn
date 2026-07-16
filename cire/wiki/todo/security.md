@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-15
+last-reviewed: 2026-07-16
 ---
 
 # Security Backlog
@@ -24,8 +24,8 @@ See [[overview]] for observability rules that apply to all security-sensitive co
 ### Wedding profile + event locations — review findings (platform PR 1 branch)
 
 - [x] **WP-S-M1** (mitigated in the same PR by removing the feature) — the Settings PUT let an owner set an arbitrary exact slug, and a rename **freed the old slug for immediate takeover** by any other organiser via the same endpoint: guest invite links are slug-only URLs on printed/QR stationery that can't be recalled, so A's guests would land on a page whose entire content B controls (phishing surface). Fixed by making the slug **read-only** — the schema strips it, the service never writes it, the UI renders it as text with a "can't be changed" note, and a route test pins that a body-supplied slug is ignored. **Slug renames stay unshipped until a tombstone design exists**: a `wedding_slug_history` table consulted by both the uniqueness check and the guest resolver (redirect-to-current is the product-correct behaviour for printed links). Revisit alongside the Phase 0 route-alias work or on organiser demand.
-- [x] **WP-S-L1** (fixed in the same PR, documentation-only) — two `app.ts` comments described the geocode POST as "owner-only"/"owner-gated" while the route is deliberately `weddingMember()` (it serves the member-editable event locations); authz-doc drift is how gate regressions pass review. Both comments corrected.
-- [x] **WP-S-L2** (addressed in the same PR) — the geocode endpoint is a billed upstream amplifier bounded only by auth + per-IP limiting, which doesn't cap aggregate spend across many IPs/accounts. Addressed: the key-setup docs (`index.ts` Env comment + `[[../../wiki/runbooks/production-deploy|production-deploy]]`) now REQUIRE restricting the key to the Geocoding API **and setting a daily quota cap** in the Google console before the secret is set, and a route test now pins the limiter wiring (second request 429s under a 1-req limiter).
+- [x] **WP-S-L1** (fixed in its PR; **now MOOT — the geocode endpoint was removed by migration 0036, 2026-07-16**) — two `app.ts` comments described the geocode POST authz; the whole route + its comments are gone, so the drift risk is retired.
+- [x] **WP-S-L2** (addressed in its PR; **now MOOT — the billed upstream amplifier was removed by migration 0036, 2026-07-16**) — the `settings/geocode` endpoint + the Google Geocoding key (`GOOGLE_GEOCODING_API_KEY`) no longer exist, so there is no upstream spend surface to bound. The key-setup requirement can be dropped from the deploy runbook when convenient.
 - [x] **WP-C-M1** (addressed in the same PR, documentation-only) — the new profile/location columns had data-map rows but no `[[../../wiki/compliance/retention|retention]]` row, and their "wedding lifecycle" claim had no enforcement path (the 1-year sweep keeps the wedding+events shell). An honest-gap retention row now states they're retained until the wedding-DELETE flow (open C-H1 remainder) lands, and the data-map rows were corrected to match.
 
 Completed findings are archived in `[[changelog/security-fixes]]` (Migrated from security.md, 2026-06-21) — including the host-preview-code branch findings, the Critical/High/Medium tiers, the image-crop + per-event-image validation surfaces, and the invite-builder / account-linking / observability review findings. Only OPEN findings live below.

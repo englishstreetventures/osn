@@ -1,7 +1,6 @@
 import { For, Show } from "solid-js";
 
 import { defaultSub, isSubOf, type Module } from "../lib/dashboard-route";
-import EventLocationsPanel from "./EventLocationsPanel";
 import EventsEditor from "./EventsEditor";
 import EventTable from "./EventTable";
 import GuestsEditor from "./GuestsEditor";
@@ -23,7 +22,7 @@ interface ModuleShellProps {
    *  (invite/codes, settings save, host management). */
   canManage: boolean;
   /** Owner or editor co-host? Editors get the module write surfaces (invite
-   *  design, import, event locations); a viewer co-host is read-only. */
+   *  design, import, events/guests editors); a viewer co-host is read-only. */
   canEdit: boolean;
   /** Active module — controlled by the parent (URL-hash driven). */
   module: Module;
@@ -152,14 +151,7 @@ export default function ModuleShell(props: ModuleShellProps) {
         {/* ── Schedule: Events (read) + Edit ───────────────────────────── */}
         <Show when={props.module === "schedule"}>
           <Show when={active() === "list"}>
-            <div class="flex flex-col gap-6">
-              <EventTable weddingId={props.weddingId} weddingSlug={props.weddingSlug} />
-              {/* Per-event planning locations — a pure write surface, so viewers
-                  don't get it (the API also gates it with weddingEditor()). */}
-              <Show when={props.canEdit}>
-                <EventLocationsPanel weddingId={props.weddingId} />
-              </Show>
-            </div>
+            <EventTable weddingId={props.weddingId} weddingSlug={props.weddingSlug} />
           </Show>
           {/* Interactive events editor (E6) — a pure write surface, editor-gated
               (the API also gates changes/* with weddingEditor()). */}

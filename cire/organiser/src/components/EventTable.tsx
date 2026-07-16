@@ -67,8 +67,8 @@ export default function EventTable(props: EventTableProps) {
 
   onMount(async () => {
     // ensureEventsLoaded resolves immediately on a cache hit and dedupes an
-    // in-flight fetch with any sibling panel (EventLocationsPanel) mounting in
-    // the same tick — one request per wedding either way.
+    // in-flight fetch with any sibling panel mounting in the same tick — one
+    // request per wedding either way.
     try {
       await ensureEventsLoaded(props.weddingId, async () => {
         const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));

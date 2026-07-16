@@ -21,9 +21,6 @@ vi.mock("./Overview", () => ({
 vi.mock("./EventTable", () => ({
   default: (p: { weddingId: string }) => <div data-testid="events">{p.weddingId}</div>,
 }));
-vi.mock("./EventLocationsPanel", () => ({
-  default: (p: { weddingId: string }) => <div data-testid="event-locations">{p.weddingId}</div>,
-}));
 vi.mock("./EventsEditor", () => ({
   default: (p: { weddingId: string }) => <div data-testid="events-editor">{p.weddingId}</div>,
 }));
@@ -172,12 +169,6 @@ describe("ModuleShell", () => {
       expect(screen.getByTestId("guests")).toBeTruthy();
       // Import is a pure write surface — a viewer doesn't see it.
       expect(screen.queryByTestId("import")).toBeNull();
-    });
-
-    it("hides the event-locations write panel on the schedule", () => {
-      renderShell({ canManage: false, canEdit: false, module: "schedule" });
-      expect(screen.getByTestId("events")).toBeTruthy();
-      expect(screen.queryByTestId("event-locations")).toBeNull();
     });
 
     it("shows a read-only fallback instead of the invite builder", () => {

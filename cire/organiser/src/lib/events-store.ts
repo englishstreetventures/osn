@@ -47,12 +47,6 @@ export interface EventRow {
   /** Normalised crop rectangle the guest site applies (or null for the default
    * centre crop). */
   imageCrop: ImageCrop | null;
-  /** Planning-only location (organiser dashboard; never on the invite).
-   * Event-scoped — a wedding can span countries. Both halves set or both null. */
-  locationLat: number | null;
-  locationLng: number | null;
-  /** Pricing-region key (closed enum, validated server-side) or null. */
-  pricingRegion: string | null;
 }
 
 /** A cached wedding's events plus the setter the owning `EventTable` uses to
@@ -111,9 +105,9 @@ export function invalidateEvents(weddingId: string): void {
   cache.delete(weddingId);
 }
 
-/** In-flight loads, keyed by weddingId, so two panels mounting in the same
- *  tick (EventTable + EventLocationsPanel on the Events tab) share ONE fetch
- *  instead of racing two identical requests at the empty cache. */
+/** In-flight loads, keyed by weddingId, so panels mounting in the same tick
+ *  share ONE fetch instead of racing two identical requests at the empty
+ *  cache. */
 const inflight = new Map<string, Promise<void>>();
 
 /**

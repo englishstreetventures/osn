@@ -57,9 +57,6 @@ const EVENTS = [
     mapsUrl: null,
     imageUrl: null,
     imageCrop: null,
-    locationLat: null,
-    locationLng: null,
-    pricingRegion: null,
   },
   {
     id: "evt_2",
@@ -77,9 +74,6 @@ const EVENTS = [
     mapsUrl: null,
     imageUrl: null,
     imageCrop: null,
-    locationLat: null,
-    locationLng: null,
-    pricingRegion: null,
   },
 ];
 

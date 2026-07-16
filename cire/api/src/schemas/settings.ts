@@ -1,6 +1,5 @@
 import { Schema } from "effect";
 
-import { PRICING_REGIONS } from "../lib/pricing-regions";
 import { MAX_DISPLAY_NAME } from "../services/weddings";
 
 /** Trim then require non-empty — same idiom as `CreateWeddingBody.displayName`. */
@@ -32,12 +31,6 @@ const WeddingDate = Schema.String.pipe(
   ),
 );
 
-const Latitude = Schema.Number.pipe(Schema.between(-90, 90));
-const Longitude = Schema.Number.pipe(Schema.between(-180, 180));
-
-/** Closed pricing-region union — single source of truth in lib/pricing-regions. */
-const PricingRegion = Schema.Literal(...PRICING_REGIONS);
-
 /** ISO 4217 alpha code. Uppercase-only — the form normalises before submit. */
 const Currency = Schema.String.pipe(Schema.pattern(/^[A-Z]{3}$/));
 
@@ -52,8 +45,9 @@ const BudgetTotalMinor = Schema.Number.pipe(Schema.int(), Schema.between(0, 100_
  * over PUT (the app's CORS method list has no PATCH): omitted fields keep
  * their stored value, an explicit `null` clears a nullable field. `displayName`
  * and `currency` are NOT NULL columns, so they can be replaced but never
- * cleared. Location is deliberately absent — it's EVENT-scoped (see
- * {@link EventLocationBody}); the wedding holds only the MAIN currency + budget.
+ * cleared. Location is deliberately absent — an event's place is its free-text
+ * `address` (the sole location source); the wedding holds only the MAIN
+ * currency + budget.
  * The SLUG is deliberately absent too (read-only in Settings): renaming frees
  * the old slug for another organiser to claim, and printed invite links can't
  * be recalled — a rename feature needs slug tombstoning first (S-M1, tracked
@@ -67,29 +61,3 @@ export const UpdateSettingsBody = Schema.Struct({
   budgetTotalMinor: Schema.optional(Schema.NullOr(BudgetTotalMinor)),
 });
 export type UpdateSettingsBody = Schema.Schema.Type<typeof UpdateSettingsBody>;
-
-/**
- * Body for `PUT .../events/:eventId/location`. The full trio is
- * required (nullable) rather than PATCH-optional — the form always submits the
- * whole location block, and requiring both halves of the coordinate in one
- * body lets the pair rule live here in the schema instead of needing a
- * merge-then-check in the service: lat and lng must be both set or both null
- * (a half coordinate is meaningless as a search point).
- */
-export const EventLocationBody = Schema.Struct({
-  locationLat: Schema.NullOr(Latitude),
-  locationLng: Schema.NullOr(Longitude),
-  pricingRegion: Schema.NullOr(PricingRegion),
-}).pipe(
-  Schema.filter((b) => (b.locationLat === null) === (b.locationLng === null), {
-    message: () => "locationLat and locationLng must be both set or both null",
-  }),
-);
-export type EventLocationBody = Schema.Schema.Type<typeof EventLocationBody>;
-
-/** Body for `POST .../settings/geocode` — the organiser-typed address. Bounded
- *  so the upstream (billed, per-request) geocode call never sees a megabyte. */
-export const GeocodeBody = Schema.Struct({
-  query: trimmed(300),
-});
-export type GeocodeBody = Schema.Schema.Type<typeof GeocodeBody>;

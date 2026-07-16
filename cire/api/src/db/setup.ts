@@ -97,10 +97,7 @@ CREATE TABLE IF NOT EXISTS events (
   maps_url TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   event_image_key TEXT,
-  event_image_crop TEXT,
-  location_lat REAL,
-  location_lng REAL,
-  pricing_region TEXT
+  event_image_crop TEXT
 );
 CREATE INDEX IF NOT EXISTS events_wedding_id_sort_idx ON events(wedding_id, sort_order);
 

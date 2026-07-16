@@ -8,9 +8,9 @@ import type { UpdateSettingsBody } from "../schemas/settings";
 
 /** The wedding profile as the Settings surface reads/writes it. Superset of
  *  `WeddingSummary` (the list shape) — everything an organiser edits here.
- *  Deliberately location-free: location is EVENT-scoped (a wedding can span
- *  countries), so the geocoded point + pricing region live on `events` and are
- *  edited via the event-location service. */
+ *  Deliberately location-free: an event's place is its free-text `address`
+ *  (the sole location source), so the wedding holds only the MAIN currency +
+ *  budget. */
 export type WeddingProfile = {
   id: string;
   slug: string;

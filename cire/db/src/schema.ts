@@ -3,7 +3,6 @@ import {
   sqliteTable,
   text,
   integer,
-  real,
   primaryKey,
   index,
   uniqueIndex,
@@ -43,9 +42,9 @@ export const weddings = sqliteTable(
     //
     // Deliberately NO location columns here: a wedding is not a place — its
     // EVENTS are (a Sydney reception + Jaipur ceremonies is one wedding in two
-    // countries), so the geocoded point + pricing region live on `events`.
-    // Money stays wedding-scoped: one MAIN currency the organiser thinks in,
-    // whatever countries the events land in.
+    // countries), and each event's place is its free-text `address` (the sole
+    // location source; see the events table). Money stays wedding-scoped: one
+    // MAIN currency the organiser thinks in, whatever countries the events land in.
     //
     // `wedding_date` is a date-only ISO string (`YYYY-MM-DD`, no time/zone —
     // the day is the planning fact; per-event timing stays on `events`).
@@ -259,22 +258,12 @@ export const events = sqliteTable(
     // (`cire/api/src/schemas/invite.ts`) and applied in CSS on the guest site, so
     // the stored bytes are untouched.
     eventImageCrop: text("event_image_crop"),
-    // ── Event location (platform Phase 0, migration 0030) ───────────────────
-    // Location is EVENT-scoped, not wedding-scoped: a wedding can span
-    // countries (Sydney reception + Jaipur ceremonies), so each event carries
-    // its own geocoded point + pricing region while money stays on `weddings`
-    // (one main currency). The free-text venue stays in `address` above; these
-    // planning columns are organiser-facing only (vendor radius search per
-    // event, per-region pricing estimates) — never rendered on the invite.
-    // Set by the key-optional server-side geocode of `address`, or typed
-    // manually when no geocoding key is configured. Both-or-neither is
-    // enforced at the API boundary (a half coordinate is meaningless).
-    locationLat: real("location_lat"),
-    locationLng: real("location_lng"),
-    // Key into the checked-in pricing dataset (Phase 3). Derived from the
-    // geocoded state/country via `cire/api/src/lib/pricing-regions.ts` — a
-    // closed enum validated at the API boundary, never free text.
-    pricingRegion: text("pricing_region"),
+    // No location config: the free-text `address` above is the SOLE location
+    // source (the only thing the guest map embed renders). The stored
+    // coordinates + pricing_region a wedding could carry (migration 0030) were
+    // dropped by 0036 — they only fed unbuilt Phase 3 planning features
+    // (vendor-radius search, per-region pricing), never the invite. If Phase 3
+    // ever needs a point it geocodes `address` on-demand then (YAGNI).
   },
   // Composite index covering the (wedding filter, sort) access pattern used by
   // every events read (migration 0026). Replaces the dead single-column
