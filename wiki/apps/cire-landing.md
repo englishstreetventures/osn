@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[production-deploy]]"
   - "[[free-tier-limits]]"
-last-reviewed: 2026-06-27
+last-reviewed: 2026-07-16
 ---
 
 # Cire Landing
@@ -142,26 +142,37 @@ allow-lists `images.unsplash.com` for `img-src`.
 
 ## Deploy + the domain migration
 
-**This pass ships to a NON-apex preview only** — a `cire-landing` Cloudflare Pages
-project (→ `cire-landing.pages.dev`, optionally `new.cireweddings.com`). The apex
-is untouched, so live invitations don't break. CI job `deploy-cire-landing` in
+**Apex cutover — done in code 2026-07-16 (domain reshuffle).** End state: apex
+`cireweddings.com` → this landing site; `invite.cireweddings.com` → guest site
+(`cire/web`); `host.cireweddings.com` → organiser portal (`cire/organiser`, moved
+off `app.cireweddings.com`). CI job `deploy-cire-landing` in
 `.github/workflows/deploy.yml` mirrors `deploy-cire-organiser` (the `cire-landing`
-Pages project must exist in the account before first run). The CI gate's
-`bun run build` + `bun run test` already cover `@cire/landing` via the `cire/*`
-turbo glob.
+Pages project must exist in the account before first run).
 
-**The apex cutover is a separate, reviewed change** (do it when ready):
+**Passkey safety:** prod `OSN_RP_ID = cireweddings.com` (the registrable apex), so
+WebAuthn credentials are scoped to the whole domain — moving the organiser portal
+`app.` → `host.` does NOT invalidate existing organiser passkeys (no
+re-registration). Only the origin allowlists gain `host.`; `app.` + the old apex
+stay in the allowlists for the switchover window, then get pruned.
 
-1. Move `cire/web` route → `invite.cireweddings.com` (+ 301 from old invite paths).
-2. Move `cire/organiser` → `host.cireweddings.com`; update its custom domain +
-   the OSN WebAuthn `OSN_ORIGIN` / CORS for the new portal host (see
-   [[production-deploy]]).
-3. Point `PUBLIC_ORGANISER_URL` at `https://host.cireweddings.com` and `SITE` at
-   `https://cireweddings.com` in the landing deploy job.
-4. Flip `cire/landing` onto the apex custom-domain route.
+The code side (this PR): `cire/web/wrangler.jsonc` route → `invite.`; deploy.yml
+`PUBLIC_SITE_URL` → `invite.`, `PUBLIC_CIRE_WEB_URL` → `invite.`,
+`PUBLIC_ORGANISER_URL` → `host.`, landing `SITE` → apex; cire-api `WEB_ORIGIN` +
+osn-api `OSN_ORIGIN`/`OSN_CORS_ORIGIN` gain `invite.`/`host.` (keep `app.`/apex for
+the window). **No apex 301 for old invite links — decided 2026-07-16 there are no
+apex-based invite links in the wild (guests use the full link).**
 
-This touches DNS/custom-domain routes and the passkey origin, so it's worth doing
-deliberately rather than in the same pass as the build.
+Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
+[[production-deploy]]:
+1. Attach `host.cireweddings.com` custom domain → `cire-organiser` Pages.
+2. Attach apex `cireweddings.com` → `cire-landing` Pages (Cloudflare offers to
+   *move* it off the `cire-invites` Worker — confirm).
+3. Confirm `invite.cireweddings.com` auto-provisioned on the `cire-invites` Worker
+   (custom_domain on deploy).
+4. Redeploy osn-api manually (`cd osn/api && bunx wrangler deploy --env production`)
+   — it is NOT in CI — so `OSN_ORIGIN` picks up `host.`.
+5. Cleanup PR: drop apex route from the Worker config; prune `app.`/apex from the
+   allowlists.
 
 ## Roadmap — toward a wedding platform
 

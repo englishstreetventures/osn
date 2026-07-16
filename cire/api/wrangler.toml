@@ -86,11 +86,15 @@ binding = "IMAGES"
 
 [env.production.vars]
 # Comma-separated allowlist (index.ts splits on "," and trims). Entry 0 is the
-# guest site; the organiser portal origin MUST also be present or organiser
-# writes to /api/organiser/* fail the CORS origin guard with 403.
-# TODO: replace <ORGANISER-ORIGIN-PLACEHOLDER> with the real organiser portal
-# production origin (cire/organiser Cloudflare Pages deployment URL).
-WEB_ORIGIN = "https://cireweddings.com,https://app.cireweddings.com"
+# guest site (`invite.cireweddings.com`); the organiser portal origin
+# (`host.cireweddings.com`) MUST also be present or organiser writes to
+# /api/organiser/* fail the CORS origin guard with 403.
+# Domain reshuffle 2026-07-16: guest → `invite.`, organiser → `host.`, apex →
+# landing. The old `cireweddings.com` (apex, while invites still answered there)
+# + `app.cireweddings.com` (old organiser origin) are kept ONLY for the cutover
+# window so nothing 403s mid-switch — prune both once the dashboard move + verify
+# are done (see [[wiki/apps/cire-landing]] cutover steps).
+WEB_ORIGIN = "https://invite.cireweddings.com,https://host.cireweddings.com,https://cireweddings.com,https://app.cireweddings.com"
 # OSN identity (osn-api) prod origin — served on the cireweddings.com zone at
 # id.cireweddings.com. OSN_ISSUER_URL MUST equal osn-api's own OSN_ISSUER_URL or
 # access-token verification fails; OSN_JWKS_URL is that origin + the JWKS path.

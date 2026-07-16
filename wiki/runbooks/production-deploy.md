@@ -41,6 +41,17 @@ last-reviewed: 2026-07-16
 below is set out-of-band with `wrangler secret put` (osn-api **and** cire-api are
 both Workers).
 
+> **🔀 Domain reshuffle (2026-07-16) — end-state supersedes older `app.`/apex
+> framing below.** Apex `cireweddings.com` → marketing **landing** site;
+> `invite.cireweddings.com` → **guest** site (`cire/web`); `host.cireweddings.com`
+> → **organiser** portal (moved off `app.cireweddings.com`); `api.` / `id.`
+> unchanged. Passkeys survive the move (`OSN_RP_ID` stays the registrable apex
+> `cireweddings.com`). The full cutover — code changes already merged + the manual
+> Cloudflare dashboard steps + the osn-api manual redeploy — is in
+> **[[cire-landing]] → "Apex cutover"**. Where a line below still says
+> `app.cireweddings.com` as the organiser origin or apex-as-guest-site, read it as
+> `host.cireweddings.com` / `invite.cireweddings.com` post-reshuffle.
+
 ---
 
 ## 0. Values to fill before deploy (read this first)
@@ -52,10 +63,10 @@ marked **TBD** blocks the deploy.
 |---|---|---|
 | `OSN_JWT_PRIVATE_KEY` / `OSN_JWT_PUBLIC_KEY` (ES256 JWK, base64) | osn-api | **generate** (section 1) |
 | `OSN_SESSION_IP_PEPPER` (≥32 bytes) | osn-api | **generate** (section 1) |
-| `OSN_RP_ID` (WebAuthn RP ID — registrable domain) | osn-api WebAuthn | **DONE — `cireweddings.com`** (registrable apex; the organiser portal `app.cireweddings.com` is the only prod passkey surface). Prod passkeys now UNBLOCKED. |
-| `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://app.cireweddings.com`** (organiser portal = the passkey origin) |
+| `OSN_RP_ID` (WebAuthn RP ID — registrable domain) | osn-api WebAuthn | **DONE — `cireweddings.com`** (registrable apex; organiser portal is the only prod passkey surface). Unchanged by the 2026-07-16 reshuffle — RP ID stays the apex, so passkeys survive the `app.`→`host.` move. |
+| `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://host.cireweddings.com,https://app.cireweddings.com`** (organiser portal = the passkey origin; reshuffle moved it `app.`→`host.`, `app.` kept for the window then pruned). **osn-api is deployed MANUALLY — redeploy after this change.** |
 | `OSN_ISSUER_URL` (public https base of osn-api) | osn-api + cire | **DONE — `https://id.cireweddings.com`** (custom-domain route in `osn/api/wrangler.toml` `[env.production]`) |
-| `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **DONE — `https://app.cireweddings.com`** (organiser portal calls osn-api) |
+| `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **DONE — `https://host.cireweddings.com,https://app.cireweddings.com`** (organiser portal calls osn-api; reshuffle `app.`→`host.`) |
 | `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `hello@cireweddings.com`** (Resend sender-domain verification for `cireweddings.com` still required — §1.1) |
 | `RESEND_API_KEY` (live email transport) | osn-api | **provision** (Resend domain verify + key — §1.1) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | optional / **legacy** (Cloudflare-email fallback transport; not used now Resend is the live path — §1.1) |
@@ -67,7 +78,7 @@ marked **TBD** blocks the deploy.
 | `INTERNAL_SERVICE_SECRET` | osn-api | needed only to register cire's ARC key (section 6.2) |
 | cire D1 `database_id` | cire-api wrangler.toml | **DONE** — `6e835474-e0a7-4db9-8883-3247c3c891cd` |
 | cire R2 buckets | cire-api | **DONE** — `cire-sheets[-preview]`, `cire-assets[-preview]` |
-| cire `WEB_ORIGIN` allowlist (guest **and** organiser origins) | cire-api | **DONE — `https://cireweddings.com,https://app.cireweddings.com`** |
+| cire `WEB_ORIGIN` allowlist (guest **and** organiser origins) | cire-api | **DONE — `https://invite.cireweddings.com,https://host.cireweddings.com,https://cireweddings.com,https://app.cireweddings.com`** (reshuffle 2026-07-16: guest→`invite.`, organiser→`host.`; old apex+`app.` kept for the cutover window then pruned) |
 | cire `OSN_JWKS_URL` / `OSN_ISSUER_URL` | cire-api | **DONE — `https://id.cireweddings.com/.well-known/jwks.json` / `https://id.cireweddings.com`** (must equal osn-api's own `OSN_ISSUER_URL`) |
 | `CIRE_API_ARC_PRIVATE_KEY` + `CIRE_API_ARC_KEY_ID` + `OSN_API_URL` | cire-api | needed only if guest account-linking is enabled (section 6.2) |
 | cire/web `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/web **SSR Worker** | **DONE — `https://api.cireweddings.com` / `https://cireweddings.com`** (set in `deploy.yml`). No `PUBLIC_WEDDING_SLUG` — wedding resolved from the path. Apex now served by the `cire-invites` Worker (custom-domain route), not the Pages project — see §3.3. |

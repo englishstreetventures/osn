@@ -152,8 +152,8 @@ jobs:
       # emits a Cloudflare Worker with Static Assets: `dist/server/entry.mjs` (the
       # SSR Worker), `dist/client/` (prerendered legal pages + JS/CSS), and a
       # generated `dist/server/wrangler.json` that EXTENDS the committed
-      # cire/web/wrangler.jsonc (worker name + cireweddings.com custom-domain
-      # route). PUBLIC_API_URL / PUBLIC_SITE_URL are read both server-side (per
+      # cire/web/wrangler.jsonc (worker name + invite.cireweddings.com
+      # custom-domain route). PUBLIC_API_URL / PUBLIC_SITE_URL are read both server-side (per
       # request) and by the client islands; they still bake in at build time.
       #   PUBLIC_GOOGLE_MAPS_EMBED_KEY is an optional referrer-restricted Embed
       #   key — wire it from a secret/var only if/when one exists.
@@ -165,7 +165,9 @@ jobs:
         run: bun run --cwd cire/web build
         env:
           PUBLIC_API_URL: https://api.cireweddings.com
-          PUBLIC_SITE_URL: https://cireweddings.com
+          # Domain reshuffle 2026-07-16: the guest site now lives on the `invite.`
+          # subdomain (apex serves the marketing landing site).
+          PUBLIC_SITE_URL: https://invite.cireweddings.com
           PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
           # Google Maps Embed API key (public, referrer-restricted to *.cireweddings.com).
           # Present ⇒ real Embed iframe; absent ⇒ CSS-card fallback (key-optional).
@@ -186,10 +188,11 @@ jobs:
         working-directory: cire/web
 
       # Deploy the SSR Worker. The adapter's generated config carries `main`, the
-      # ASSETS binding (→ dist/client), the worker name, and the cireweddings.com
-      # custom-domain route. NOTE: this replaces the previous Pages deploy
-      # (`wrangler pages deploy dist`); the Cloudflare Pages project `cire` is no
-      # longer used for the guest site — the apex now resolves to this Worker.
+      # ASSETS binding (→ dist/client), the worker name, and the
+      # invite.cireweddings.com custom-domain route. NOTE: this replaces the
+      # previous Pages deploy (`wrangler pages deploy dist`); the Cloudflare Pages
+      # project `cire` is no longer used for the guest site — invite. resolves to
+      # this Worker (the apex now serves the cire-landing marketing site).
       - name: Deploy cire/web (Worker)
         run: bunx wrangler deploy --config dist/server/wrangler.json
         working-directory: cire/web
@@ -231,7 +234,9 @@ jobs:
         env:
           PUBLIC_CIRE_API_URL: https://api.cireweddings.com
           PUBLIC_OSN_ISSUER_URL: https://id.cireweddings.com
-          PUBLIC_CIRE_WEB_URL: https://cireweddings.com
+          # Domain reshuffle 2026-07-16: the guest site (this is the organiser's
+          # "preview / view live invite" link) now lives on `invite.`.
+          PUBLIC_CIRE_WEB_URL: https://invite.cireweddings.com
           # Optional Cloudflare Turnstile sitekey (public) for organiser passkey
           # sign-in. Uncomment once the widget exists; omitted ⇒ key-optional
           # no-op. Matching TURNSTILE_SECRET_KEY is a wrangler secret on osn-api.
@@ -244,18 +249,17 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-  # ── cire landing (Astro → Cloudflare Pages, NON-APEX preview) ──────────────
+  # ── cire landing (Astro → Cloudflare Pages, APEX cireweddings.com) ─────────
   # The marketing site for the apex. Built fully static (output: "static", no
   # Cloudflare adapter) and deployed to its OWN Pages project, separate from the
-  # guest site + organiser portal. IMPORTANT: this ships to a NON-APEX preview
-  # (cire-landing.pages.dev / optionally new.cireweddings.com) — the apex
-  # cireweddings.com still serves the guest site, so live invitations are
-  # untouched. Flipping the landing site onto the apex (and moving invites →
-  # invite. / organiser → host.) is a separate, reviewed cutover — see
-  # wiki/apps/cire-landing.md. The `cire-landing` Pages project must exist in the
-  # account before first run (create once: `wrangler pages project create`).
+  # guest site + organiser portal. Domain reshuffle 2026-07-16: this now serves
+  # the APEX `cireweddings.com` (guest invites moved to `invite.`, organiser to
+  # `host.`). The apex custom domain is attached to the `cire-landing` Pages
+  # project in the Cloudflare dashboard (a Pages custom domain, not a wrangler
+  # config route) — see wiki/apps/cire-landing.md cutover steps. The
+  # `cire-landing` Pages project must exist in the account before first run.
   deploy-cire-landing:
-    name: Deploy cire/landing (Pages, preview)
+    name: Deploy cire/landing (Pages, apex)
     needs: build
     runs-on: ubuntu-latest
     environment: production
@@ -279,15 +283,14 @@ jobs:
 
       # Build-time PUBLIC_* vars (all baked in by Vite):
       #   PUBLIC_ORGANISER_URL — target of the primary "Create your invitation"
-      #     CTA. Points at the CURRENT organiser host (app.cireweddings.com) until
-      #     the cutover moves it to host.cireweddings.com — flip this then.
-      #   SITE — canonical origin for SEO meta. The preview advertises its own
-      #     URL; at apex cutover this becomes https://cireweddings.com.
+      #     CTA. Points at the organiser portal, now host.cireweddings.com
+      #     (domain reshuffle 2026-07-16, moved off app.cireweddings.com).
+      #   SITE — canonical origin for SEO meta; the apex cireweddings.com.
       - name: Build cire/landing
         run: bun run --cwd cire/landing build
         env:
-          PUBLIC_ORGANISER_URL: https://app.cireweddings.com
-          SITE: https://cire-landing.pages.dev
+          PUBLIC_ORGANISER_URL: https://host.cireweddings.com
+          SITE: https://cireweddings.com
 
       - name: Deploy cire/landing to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire-landing

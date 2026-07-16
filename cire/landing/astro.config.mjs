@@ -2,9 +2,10 @@ import solidJs from "@astrojs/solid-js";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
 
-// Pure static marketing site (apex `cireweddings.com` end-state; shipped to a
-// non-apex preview route first — see [[wiki/apps/cire-landing]]). Unlike the
-// guest site (`cire/web`, SSR Worker — it resolves a wedding per request) the
+// Pure static marketing site — serves the apex `cireweddings.com` (domain
+// reshuffle 2026-07-16; guest invites moved to `invite.`, organiser to `host.` —
+// see [[wiki/apps/cire-landing]]). Unlike the guest site (`cire/web`, SSR Worker
+// — it resolves a wedding per request) the
 // landing page is the same for everyone, so it prerenders to plain HTML and
 // deploys to Cloudflare Pages (`wrangler pages deploy dist`) exactly like the
 // organiser portal. No Cloudflare adapter is needed for a static build.

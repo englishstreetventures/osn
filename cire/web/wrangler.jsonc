@@ -13,8 +13,11 @@
   // 7-day Workers Logs retention, 100% sampling (low guest-site volume). Mirrors
   // cire-api's observability block.
   "observability": { "enabled": true },
-  // Custom-domain route: serves the guest site on the apex `cireweddings.com`.
-  // `custom_domain: true` auto-provisions DNS + edge cert because the zone lives
-  // in this Cloudflare account. Applied only by `wrangler deploy` (no named env).
-  "routes": [{ "pattern": "cireweddings.com", "custom_domain": true }],
+  // Custom-domain route: serves the guest site on `invite.cireweddings.com`.
+  // (Domain reshuffle 2026-07-16: the apex `cireweddings.com` now serves the
+  // marketing landing site; guest invites moved to the `invite.` subdomain,
+  // organisers to `host.`.) `custom_domain: true` auto-provisions DNS + edge
+  // cert because the zone lives in this Cloudflare account. Applied only by
+  // `wrangler deploy` (no named env).
+  "routes": [{ "pattern": "invite.cireweddings.com", "custom_domain": true }],
 }
