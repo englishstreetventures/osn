@@ -1,5 +1,11 @@
 # @osn/osn
 
+## 3.9.7
+
+### Patch Changes
+
+- de286e2: Allow https://vendor.cireweddings.com in OSN_ORIGIN / OSN_CORS_ORIGIN so the new vendor portal can call the /organisations API cross-origin.
+
 ## 3.9.6
 
 ### Patch Changes
