@@ -1,5 +1,5 @@
 import { useAuth } from "@osn/client/solid";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, lazy, Show, Suspense } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
@@ -15,7 +15,8 @@ import { isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
 import { previewSectionVars, resolveSectionTheme } from "../lib/invite-theme-preview";
 import type { PreviewTheme, ThemeSection } from "../lib/invite-theme-preview";
 import ColorPicker from "./ColorPicker";
-import ImageCropModal from "./ImageCropModal";
+
+const ImageCropModal = lazy(() => import("./ImageCropModal"));
 
 type ImageSlot = "hero" | "story";
 
@@ -1115,14 +1116,16 @@ function ImageField(props: {
       </div>
       <Show when={cropping() && absoluteUrl()}>
         {(url) => (
-          <ImageCropModal
-            imageUrl={url()}
-            slot={props.slot}
-            initialCrop={props.crop}
-            onSave={props.onSaveCrop}
-            onReset={() => props.onSaveCrop(null)}
-            onClose={() => setCropping(false)}
-          />
+          <Suspense>
+            <ImageCropModal
+              imageUrl={url()}
+              slot={props.slot}
+              initialCrop={props.crop}
+              onSave={props.onSaveCrop}
+              onReset={() => props.onSaveCrop(null)}
+              onClose={() => setCropping(false)}
+            />
+          </Suspense>
         )}
       </Show>
     </div>
