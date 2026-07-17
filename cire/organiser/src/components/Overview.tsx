@@ -72,10 +72,12 @@ interface OverviewData {
   guests: OrganiserGuestRow[];
 }
 
-/** Whole days from now (local midnight) to the wedding date (its local midnight),
+/** Whole days from `nowMs` (local midnight) to the wedding date (its local midnight),
  *  so "today" reads 0 and a future date reads a positive day count. Returns null
- *  for an unparseable date. */
-function daysUntil(isoDate: string): number | null {
+ *  for an unparseable date. `nowMs` defaults to `Date.now()` but callers should
+ *  pass the midnight-refreshing `nowMs()` signal value so the result stays fresh
+ *  if the dashboard is left open across midnight. */
+function daysUntil(isoDate: string, nowMs: number = Date.now()): number | null {
   // `YYYY-MM-DD` — parse as a local date (not UTC) so the countdown matches the
   // organiser's calendar rather than shifting a day across timezones.
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
@@ -83,7 +85,7 @@ function daysUntil(isoDate: string): number | null {
   const [, y, mo, d] = m;
   const target = new Date(Number(y), Number(mo) - 1, Number(d));
   if (Number.isNaN(target.getTime())) return null;
-  const now = new Date();
+  const now = new Date(nowMs);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
   return Math.round((target.getTime() - today.getTime()) / MS_PER_DAY);
@@ -289,10 +291,6 @@ export default function Overview(props: {
   const isFresh = createMemo(() => eventCount() === 0 && householdCount() === 0);
 
   const weddingDate = createMemo(() => data()?.profile?.weddingDate ?? null);
-  const countdown = createMemo(() => {
-    const iso = weddingDate();
-    return iso ? daysUntil(iso) : null;
-  });
 
   const budgetCurrency = () =>
     peekCachedBudget(props.weddingId)?.currency ?? data()?.profile?.currency ?? "AUD";
@@ -329,6 +327,13 @@ export default function Overview(props: {
     });
   }
 
+  // OV-P-W3: countdown depends on nowMs() so it recomputes at midnight rather
+  // than using a stale Date captured at render time.
+  const countdown = createMemo(() => {
+    const iso = weddingDate();
+    return iso ? daysUntil(iso, nowMs()) : null;
+  });
+
   const agenda = createMemo(() =>
     buildAgenda({
       events: (data()?.events ?? []).map((e) => ({ id: e.id, name: e.name, startAt: e.startAt })),
@@ -342,6 +347,14 @@ export default function Overview(props: {
   );
 
   const vendorCountValue = createMemo(() => vendorCount(props.weddingId));
+
+  // OV-P-W1: memoize upcomingPayments — each call re-filters + re-sorts the
+  // full payments array; three raw calls per Budget card render becomes one.
+  const upcomingPaymentsMemo = createMemo(() => upcomingPayments(props.weddingId));
+
+  // OV-P-I2: memoize spentSoFar — each call re-reduces all budget items; two
+  // raw calls per Budget card render becomes one.
+  const spentSoFarMemo = createMemo(() => spentSoFar(props.weddingId));
 
   const WhatsNext = () => (
     <div class="border-border bg-surface/20 flex flex-col gap-3 rounded-sm border p-5">
@@ -691,7 +704,7 @@ export default function Overview(props: {
                   Budget
                 </p>
                 <Show
-                  when={spentSoFar(props.weddingId) !== null}
+                  when={spentSoFarMemo() !== null}
                   fallback={<p class="text-text-muted text-[0.82rem]">Loading your budget…</p>}
                 >
                   <Show
@@ -701,15 +714,15 @@ export default function Overview(props: {
                     }
                     fallback={
                       <p class="text-text-muted text-[0.82rem]">
-                        {(spentSoFar(props.weddingId) ?? 0) > 0
-                          ? `${fmtBudget(spentSoFar(props.weddingId)!, budgetCurrency())} tracked — set a total →`
+                        {(spentSoFarMemo() ?? 0) > 0
+                          ? `${fmtBudget(spentSoFarMemo()!, budgetCurrency())} tracked — set a total →`
                           : "No budget yet — add your first item."}
                       </p>
                     }
                   >
                     <p class="text-text text-[0.95rem]">
                       <span class="text-gold text-[1.2rem] font-semibold">
-                        {fmtBudget(spentSoFar(props.weddingId) ?? 0, budgetCurrency())}
+                        {fmtBudget(spentSoFarMemo() ?? 0, budgetCurrency())}
                       </span>{" "}
                       <span class="text-text-muted">
                         of{" "}
@@ -724,7 +737,7 @@ export default function Overview(props: {
                       const cap =
                         peekCachedBudget(props.weddingId)?.budgetTotalMinor ??
                         data()?.profile?.budgetTotalMinor;
-                      const spent = spentSoFar(props.weddingId) ?? 0;
+                      const spent = spentSoFarMemo() ?? 0;
                       return (
                         <Show when={cap != null}>
                           <ProgressBar
@@ -740,12 +753,12 @@ export default function Overview(props: {
                       );
                     })()}
                   </Show>
-                  <Show when={upcomingPayments(props.weddingId).length > 0}>
+                  <Show when={upcomingPaymentsMemo().length > 0}>
                     <p class="text-text-muted text-[0.78rem]">
-                      Next: {upcomingPayments(props.weddingId)[0]!.label}
-                      <Show when={upcomingPayments(props.weddingId)[0]!.dueAt}>
+                      Next: {upcomingPaymentsMemo()[0]!.label}
+                      <Show when={upcomingPaymentsMemo()[0]!.dueAt}>
                         {" "}
-                        · due {upcomingPayments(props.weddingId)[0]!.dueAt}
+                        · due {upcomingPaymentsMemo()[0]!.dueAt}
                       </Show>
                     </p>
                   </Show>
