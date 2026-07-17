@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   consumeClaim,
-  createOrg,
   fetchClaimPreview,
   fetchListing,
   listMyOrgs,
@@ -34,26 +33,6 @@ describe("vendor-store", () => {
     expect(orgs).toHaveLength(1);
     expect(orgs[0]!.id).toBe("o1");
     expect(String(authFetch.mock.calls[0]![0])).toContain("/organisations");
-  });
-
-  it("createOrg POSTs handle+name and returns the org", async () => {
-    const authFetch = vi.fn().mockResolvedValue(
-      jsonRes({
-        id: "o2",
-        handle: "acme",
-        name: "Acme",
-        description: null,
-        avatarUrl: null,
-        ownerId: "p",
-        createdAt: "",
-        updatedAt: "",
-      }),
-    );
-    const org = await createOrg(authFetch, { handle: "acme", name: "Acme" });
-    expect(org.id).toBe("o2");
-    const init = authFetch.mock.calls[0]![1];
-    expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body)).toMatchObject({ handle: "acme", name: "Acme" });
   });
 
   it("fetchListing returns the listing on 200", async () => {

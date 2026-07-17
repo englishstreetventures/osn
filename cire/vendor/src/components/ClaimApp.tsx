@@ -75,7 +75,7 @@ function ClaimContent() {
         >
           <div class="flex flex-col gap-4">
             <h2 class="text-gold font-body text-[0.72rem] tracking-[0.2em] uppercase">
-              Choose or create the organisation that owns this listing
+              Choose the organisation that owns this listing
             </h2>
             <OrgPicker onPick={(org) => void handleClaim(org)} />
           </div>

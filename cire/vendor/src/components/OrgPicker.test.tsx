@@ -64,16 +64,17 @@ describe("OrgPicker", () => {
     );
   });
 
-  it("creates a new organisation and picks it", async () => {
+  it("shows the OSN empty-state (no create form) when the caller has no organisations", async () => {
     vi.spyOn(store, "listMyOrgs").mockResolvedValue([]);
-    const created = org("o9", "NewCo");
-    vi.spyOn(store, "createOrg").mockResolvedValue(created);
-    const onPick = vi.fn();
-    renderPicker(onPick);
-    await waitFor(() => expect(screen.getByLabelText(/handle/i)).toBeInTheDocument());
-    fireEvent.input(screen.getByLabelText(/handle/i), { target: { value: "newco" } });
-    fireEvent.input(screen.getByLabelText(/name/i), { target: { value: "NewCo" } });
-    fireEvent.click(screen.getByRole("button", { name: /create/i }));
-    await waitFor(() => expect(onPick).toHaveBeenCalledWith(created));
+    renderPicker();
+    await waitFor(() =>
+      expect(
+        screen.getByText(/no organisations are associated with your account/i),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/create one in your OSN account/i)).toBeInTheDocument();
+    // The portal must NOT offer org creation itself — that lives in OSN.
+    expect(screen.queryByLabelText(/handle/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /create organisation/i })).not.toBeInTheDocument();
   });
 });

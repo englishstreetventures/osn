@@ -2,17 +2,27 @@ import { useAuth } from "@osn/client/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { friendlyError } from "../lib/api";
-import { createOrg, listMyOrgs, type OrgSummary } from "../lib/vendor-store";
+import { listMyOrgs, type OrgSummary } from "../lib/vendor-store";
 
 interface OrgPickerProps {
   onPick: (org: OrgSummary) => void;
 }
 
+/**
+ * Lists the OSN organisations the signed-in vendor belongs to and lets them
+ * pick one. Organisation *creation* is deliberately NOT here — an organisation
+ * is an OSN account-level entity, created and managed in the OSN app, not the
+ * vendor portal. A vendor with no organisation sees the empty-state below and
+ * must create one in OSN first.
+ *
+ * Follow-up: once the OSN org-management surface is deployed to a reachable
+ * URL, turn the empty-state copy into a link to it (tracked in cire/wiki/todo).
+ */
 export default function OrgPicker(props: OrgPickerProps) {
   const { authFetch } = useAuth();
 
   const [loadError, setLoadError] = createSignal<string | null>(null);
-  const [orgs, { mutate }] = createResource(async () => {
+  const [orgs] = createResource(async () => {
     try {
       return await listMyOrgs(authFetch);
     } catch (err) {
@@ -21,41 +31,8 @@ export default function OrgPicker(props: OrgPickerProps) {
     }
   });
 
-  // Create-form state.
-  const [handle, setHandle] = createSignal("");
-  const [name, setName] = createSignal("");
-  const [description, setDescription] = createSignal("");
-  const [creating, setCreating] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
-
-  const handleCreate = async (e: Event) => {
-    e.preventDefault();
-    const h = handle().trim().toLowerCase();
-    const n = name().trim();
-    if (!h || !n) return;
-
-    setCreating(true);
-    setError(null);
-    try {
-      const desc = description().trim();
-      const created = await createOrg(authFetch, {
-        handle: h,
-        name: n,
-        description: desc || undefined,
-      });
-      // Append to local list.
-      mutate((prev) => [...(prev ?? []), created]);
-      // Reset form.
-      setHandle("");
-      setName("");
-      setDescription("");
-      props.onPick(created);
-    } catch (err) {
-      setError(friendlyError(err));
-    } finally {
-      setCreating(false);
-    }
-  };
+  // Loaded, no error, and the caller belongs to no organisations.
+  const isEmpty = () => !orgs.loading && !loadError() && (orgs() ?? []).length === 0;
 
   return (
     <div class="font-body flex flex-col gap-6">
@@ -104,78 +81,21 @@ export default function OrgPicker(props: OrgPickerProps) {
         </div>
       </Show>
 
-      {/* Create org form */}
-      <form
-        onSubmit={handleCreate}
-        class="border-border bg-surface/20 flex flex-col gap-4 rounded-sm border p-4"
-      >
-        <h2 class="text-gold font-body text-[0.68rem] tracking-[0.16em] uppercase">
-          Create a new organisation
-        </h2>
-
-        <Show when={error()}>
-          <p
-            role="alert"
-            class="border-error/40 text-error rounded-sm border px-3 py-2 text-[0.82rem]"
-          >
-            {error()}
+      {/* Empty-state: no organisations. Creation lives in OSN, not the portal. */}
+      <Show when={isEmpty()}>
+        <div class="border-border bg-surface/20 flex flex-col gap-2 rounded-sm border p-4">
+          <h2 class="text-gold font-body text-[0.68rem] tracking-[0.16em] uppercase">
+            No organisations yet
+          </h2>
+          <p class="text-text text-[0.9rem] leading-relaxed">
+            No organisations are associated with your account. Vendors publish through an OSN
+            organisation.
           </p>
-        </Show>
-
-        <label class="flex flex-col gap-1" for="org-handle">
-          <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-            Handle
-          </span>
-          <input
-            id="org-handle"
-            type="text"
-            value={handle()}
-            onInput={(e) => setHandle(e.currentTarget.value)}
-            placeholder="my-org"
-            required
-            aria-required="true"
-            class="border-border bg-bg text-text rounded-sm border px-3 py-2 text-[0.9rem]"
-          />
-        </label>
-
-        <label class="flex flex-col gap-1" for="org-name">
-          <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-            Name
-          </span>
-          <input
-            id="org-name"
-            type="text"
-            value={name()}
-            onInput={(e) => setName(e.currentTarget.value)}
-            placeholder="My Organisation"
-            required
-            aria-required="true"
-            class="border-border bg-bg text-text rounded-sm border px-3 py-2 text-[0.9rem]"
-          />
-        </label>
-
-        <label class="flex flex-col gap-1" for="org-description">
-          <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-            Description (optional)
-          </span>
-          <input
-            id="org-description"
-            type="text"
-            value={description()}
-            onInput={(e) => setDescription(e.currentTarget.value)}
-            placeholder="A short description"
-            class="border-border bg-bg text-text rounded-sm border px-3 py-2 text-[0.9rem]"
-          />
-        </label>
-
-        <button
-          type="submit"
-          disabled={creating()}
-          class="bg-gold text-bg self-start rounded-sm px-4 py-2 text-[0.82rem] tracking-[0.08em] uppercase disabled:opacity-60"
-        >
-          {creating() ? "Creating…" : "Create organisation"}
-        </button>
-      </form>
+          <p class="text-text-muted text-[0.82rem] leading-relaxed">
+            Create one in your OSN account, then return here to publish your listing.
+          </p>
+        </div>
+      </Show>
     </div>
   );
 }

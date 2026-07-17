@@ -120,7 +120,7 @@ The claim flow lets an organiser assert "this CRM entry is the same business as 
 
 2. **Organiser receives the claim link.** The link is returned in the API response — the organiser can forward it to the vendor (copy-paste, WhatsApp, email). A **fail-soft email** is also attempted: `@shared/email` `vendor-claim-invite` template fires asynchronously; if it fails (missing `RESEND_API_KEY`, unreachable Resend), the error is logged but the HTTP response is not affected.
 
-3. **Vendor consumes the claim.** The vendor navigates to `vendor.cireweddings.com/claim?token=<raw>` (PR B — not yet live), signs in with their OSN account, picks or creates an OSN org, and `POST /api/vendor/claim` is called with the raw token + their org id. cire-api:
+3. **Vendor consumes the claim.** The vendor navigates to `vendor.cireweddings.com/claim?token=<raw>` (PR B — not yet live), signs in with their OSN account, picks an OSN org they belong to (creating an org, if they have none, happens in the OSN app first — not the portal), and `POST /api/vendor/claim` is called with the raw token + their org id. cire-api:
    - Looks up `vendor_claims` by token hash (SHA-256 of the raw value presented).
    - Validates: `status = 'pending'`, `expires_at > now`.
    - Sets `directory_vendors.org_id = <their org>` (atomically in a D1 batch with the claim status update to `consumed`).
@@ -171,13 +171,13 @@ The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS
 | Screen | Path | Description |
 |---|---|---|
 | Sign-in | `/` (unauthenticated) | OSN passkey sign-in or register; handled by `SignInPanel` island |
-| Org picker | `/` (authenticated, no listing) | `OrgPicker` island — lists the vendor's existing OSN orgs or offers a "Create new org" form; on pick/create, transitions to the listing editor |
+| Org picker | `/` (authenticated, no listing) | `OrgPicker` island — lists the vendor's existing OSN orgs; on pick, transitions to the listing editor. **The portal does NOT create organisations** — an org is an OSN account-level entity created in the OSN app. A vendor with no org sees an empty-state ("No organisations are associated with your account… create one in your OSN account") and must create one in OSN first. _Follow-up: once the OSN org-management surface is deployed to a reachable URL, the empty-state becomes a link to it — tracked in [[todo/platform]]._ |
 | Listing editor | `/` (authenticated, listing found) | `ListingEditor` island — loads the vendor's directory listing via `GET /api/vendor/listing` and lets them update name, description, category, website URL; saves via `PUT /api/vendor/listing` |
 | Claim landing | `/claim` | `ClaimApp` island — renders a claim preview (listing name + organiser) from `GET /api/vendor/claim/preview?token=<raw>`; on "Accept" calls `POST /api/vendor/claim` with the raw token + selected org id; strips the token from the URL via `history.replaceState` immediately on mount (**token-strip**) |
 
 ### API surface
 
-- **osn-api** — `POST /organisations` (create org) + `GET /organisations` (list caller's orgs), called via `authFetch` with the OSN access JWT in the `Authorization` header. These are cross-origin calls (portal origin → `id.cireweddings.com`), so osn-api's `OSN_ORIGIN` / `OSN_CORS_ORIGIN` must include `vendor.cireweddings.com`.
+- **osn-api** — `GET /organisations` (list the caller's orgs) only, called via `authFetch` with the OSN access JWT in the `Authorization` header. **The portal does not call `POST /organisations`** — org creation lives in the OSN app, not the vendor portal. This is a cross-origin call (portal origin → `id.cireweddings.com`), so osn-api's `OSN_ORIGIN` / `OSN_CORS_ORIGIN` must include `vendor.cireweddings.com`.
 - **cire-api** — `/api/vendor/*` routes gated by `vendorOrgMember()` (OSN access JWT + ARC org-membership check). Called via `authFetch`. Also cross-origin (portal → `api.cireweddings.com`), so cire-api's `WEB_ORIGIN` must include `vendor.cireweddings.com`.
 
 Both allowlists are widened in this PR's `cire/api/wrangler.toml` and `osn/api/wrangler.toml` (production + local blocks) — they ship on merge via the normal CI deploy jobs.

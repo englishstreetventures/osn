@@ -89,20 +89,9 @@ export async function listMyOrgs(authFetch: AuthFetch): Promise<OrgSummary[]> {
   return body?.organisations ?? [];
 }
 
-export async function createOrg(
-  authFetch: AuthFetch,
-  data: { handle: string; name: string; description?: string },
-): Promise<OrgSummary> {
-  const res = await authFetch(ORG_BASE, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  await ensureOk(res);
-  const body = await safeJson<OrgSummary>(res);
-  if (!body) throw new Error("Invalid response creating organisation");
-  return body;
-}
+// NB: organisation *creation* intentionally has no client here. Orgs are an
+// OSN account-level entity created/managed in the OSN app, not the vendor
+// portal — the portal only reads the caller's org membership (listMyOrgs).
 
 export async function fetchListing(authFetch: AuthFetch, orgId: string): Promise<Listing | null> {
   const res = await authFetch(apiUrl(`/api/vendor/orgs/${encodeURIComponent(orgId)}/listing`));
