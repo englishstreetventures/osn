@@ -23,6 +23,7 @@ import {
 import { createOrganiserRsvpRoutes } from "./routes/organiser-rsvp";
 import { createOrganiserSettingsRoutes } from "./routes/organiser-settings";
 import {
+  createOrganiserExportRoutes,
   createOrganiserPreviewRoutes,
   createOrganiserRemintRoutes,
   createOrganiserWeddingCreateRoute,
@@ -80,6 +81,14 @@ const defaultWeddingCreateLimiter = createRateLimiter({ maxRequests: 10, windowM
  */
 const defaultRemintLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 /**
+ * Default per-USER limiter for the CSV + JSON RSVP export routes (CSV-S-L1).
+ * An authenticated organiser (or a compromised organiser token) could otherwise
+ * loop these reads and burn D1 read quota / Worker CPU on the Free tier.
+ * 10 exports/min is generous for hand-use while capping the D1 amplifier.
+ * Keys on `osnProfileId` (not IP) so each organiser has an independent bucket.
+ */
+const defaultExportLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+/**
  * Default per-IP limiter for the co-host add/remove endpoints (S-L1). Owner-gated
  * already, so this just caps the ARC-sign + S2S handle-resolve amplifier on add
  * (and the management churn / handle-probe oracle); 20/min is generous for
@@ -117,6 +126,8 @@ export interface AppOptions {
   claimLimiter?: RateLimiterBackend;
   /** Override the account-link rate limiter (useful for testing). */
   accountLinkLimiter?: RateLimiterBackend;
+  /** Override the CSV + JSON RSVP export per-user rate limiter (useful for testing). */
+  exportLimiter?: RateLimiterBackend;
   /** Override the invite-builder write rate limiter (useful for testing). */
   inviteLimiter?: RateLimiterBackend;
   /** Override the host preview-code rate limiter (useful for testing). */
@@ -215,6 +226,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     allowedOrigins,
     claimLimiter = defaultClaimLimiter,
     accountLinkLimiter = defaultAccountLinkLimiter,
+    exportLimiter = defaultExportLimiter,
     inviteLimiter = defaultInviteLimiter,
     previewLimiter = defaultPreviewLimiter,
     weddingCreateLimiter = defaultWeddingCreateLimiter,
@@ -325,6 +337,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // here is pure friction. Claim + organiser login keep the gate.
       .use(createRsvpRoutes(db))
       .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))
+      .use(createOrganiserExportRoutes(db, osnAuthOptions, exportLimiter))
       .use(createOrganiserWeddingCreateRoute(db, osnAuthOptions, weddingCreateLimiter))
       .use(createOrganiserPreviewRoutes(db, osnAuthOptions, previewLimiter))
       .use(createOrganiserRemintRoutes(db, osnAuthOptions, remintLimiter))

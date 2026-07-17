@@ -13,6 +13,7 @@ import {
   GUEST_SHEET_FIXED_HEADERS,
 } from "../lib/sheet-headers";
 import { decodePalette, safeHttpUrl } from "./claim";
+import { MAX_ROWS } from "./spreadsheet";
 
 /**
  * Round-trip exports: the wedding's CURRENT events + guests serialised in the
@@ -109,43 +110,49 @@ export const stateExportService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      const eventRows = yield* dbQuery(() =>
-        db
-          .select({ id: events.id, name: events.name })
-          .from(events)
-          .where(eq(events.weddingId, weddingId))
-          .orderBy(asc(events.sortOrder), asc(events.name))
-          .all(),
-      );
-
-      const guestRows = yield* dbQuery(() =>
-        db
-          .select({
-            guestId: guests.id,
-            firstName: guests.firstName,
-            lastName: guests.lastName,
-            nickname: guests.nickname,
-            sortOrder: guests.sortOrder,
-            familyId: families.id,
-            familyName: families.familyName,
-            publicId: families.publicId,
-          })
-          .from(guests)
-          .innerJoin(families, eq(guests.familyId, families.id))
-          .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-          .all(),
-      );
-
-      // Wedding-scoped through guests → families, mirroring the import diff —
-      // guest_events carries no wedding_id of its own.
-      const linkRows = yield* dbQuery(() =>
-        db
-          .select({ guestId: guestEvents.guestId, eventId: guestEvents.eventId })
-          .from(guestEvents)
-          .innerJoin(guests, eq(guestEvents.guestId, guests.id))
-          .innerJoin(families, eq(guests.familyId, families.id))
-          .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-          .all(),
+      // The three reads are independently wedding-scoped — collapse them to one
+      // D1 round-trip (RT-P-I1; matches the parallel shape in table-export.ts
+      // and rsvp-export.ts).
+      const [eventRows, guestRows, linkRows] = yield* Effect.all(
+        [
+          dbQuery(() =>
+            db
+              .select({ id: events.id, name: events.name })
+              .from(events)
+              .where(eq(events.weddingId, weddingId))
+              .orderBy(asc(events.sortOrder), asc(events.name))
+              .all(),
+          ),
+          dbQuery(() =>
+            db
+              .select({
+                guestId: guests.id,
+                firstName: guests.firstName,
+                lastName: guests.lastName,
+                nickname: guests.nickname,
+                sortOrder: guests.sortOrder,
+                familyId: families.id,
+                familyName: families.familyName,
+                publicId: families.publicId,
+              })
+              .from(guests)
+              .innerJoin(families, eq(guests.familyId, families.id))
+              .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+              .all(),
+          ),
+          // Wedding-scoped through guests → families, mirroring the import diff —
+          // guest_events carries no wedding_id of its own.
+          dbQuery(() =>
+            db
+              .select({ guestId: guestEvents.guestId, eventId: guestEvents.eventId })
+              .from(guestEvents)
+              .innerJoin(guests, eq(guestEvents.guestId, guests.id))
+              .innerJoin(families, eq(guests.familyId, families.id))
+              .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+              .all(),
+          ),
+        ],
+        { concurrency: 3 },
       );
       const invited = new Set(linkRows.map((l) => `${l.guestId}::${l.eventId}`));
 
@@ -193,6 +200,19 @@ export const stateExportService = {
           data.push(cells);
         }
       });
+
+      // RT-P-I2: warn when the produced guest-row count exceeds MAX_ROWS so the
+      // "export > what import re-accepts" case is visible before an organiser
+      // hits it (the import parser caps both sheets at MAX_ROWS and rejects the
+      // upload). Snapshot semantics require the full export — no pagination — so
+      // this is observability only, never a hard cap.
+      if (data.length > MAX_ROWS) {
+        yield* Effect.logWarning("state export exceeds import row cap", {
+          exportedRows: data.length,
+          importCap: MAX_ROWS,
+          weddingId,
+        });
+      }
 
       return serialiseCsv(header, data);
     }).pipe(Effect.withSpan("cire.state-export.guestsCsv"));

@@ -45,13 +45,20 @@ import type {
 const manualParse = { parse: () => ({}) };
 
 /** Shared immutable-image response headers for both the transformed + streamed-
- * original serve paths (the bytes are version-busted via the cache key / URL). */
+ * original serve paths (the bytes are version-busted via the cache key / URL).
+ *
+ * `Vary: Accept, Origin` (CROP-S-L1): the app-level CORS plugin echoes a
+ * per-request `Access-Control-Allow-Origin`, so a cached `no-cors` entry
+ * served back to a `cors`-mode consumer fails the CORS check without a network
+ * hit. Adding `Origin` to Vary ensures the browser caches CORS-mode and
+ * no-cors-mode responses separately, preventing the mode-mixing that broke the
+ * crop editor for any future cross-origin consumer. */
 function imageResponseHeaders(contentType: string): Record<string, string> {
   return {
     "Content-Type": contentType,
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": "public, max-age=31536000, immutable",
-    Vary: "Accept",
+    Vary: "Accept, Origin",
   };
 }
 

@@ -700,7 +700,7 @@ describe("invite image transforms (Cloudflare Images)", () => {
     expect(img.status).toBe(200);
     // AVIF negotiated from Accept; transformed bytes (not the original PNG).
     expect(img.headers.get("content-type")).toBe("image/avif");
-    expect(img.headers.get("vary")).toBe("Accept");
+    expect(img.headers.get("vary")).toBe("Accept, Origin"); // CROP-S-L1
     expect(new Uint8Array(await img.arrayBuffer())).toEqual(TRANSFORMED);
     // `hero` variant ⇒ 1600px render width, served SHARP (no blur).
     expect(images.widths).toEqual([1600]);

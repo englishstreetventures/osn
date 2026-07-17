@@ -142,67 +142,72 @@ export const rsvpExportService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      const eventRows = yield* dbQuery(() =>
-        db
-          .select({
-            id: events.id,
-            name: events.name,
-            startAt: events.startAt,
-            sortOrder: events.sortOrder,
-          })
-          .from(events)
-          .where(eq(events.weddingId, weddingId))
-          .all(),
+      // All four reads are independently wedding-scoped — collapse them to one
+      // D1 round-trip (RT-P-I1; matches the parallel shape in state-export.ts
+      // and table-export.ts).
+      const [eventRows, invitedByEvent, rsvpRows, invitedRows] = yield* Effect.all(
+        [
+          dbQuery(() =>
+            db
+              .select({
+                id: events.id,
+                name: events.name,
+                startAt: events.startAt,
+                sortOrder: events.sortOrder,
+              })
+              .from(events)
+              .where(eq(events.weddingId, weddingId))
+              .all(),
+          ),
+          // Invite counts per event, host families excluded — aggregated in SQL
+          // (shared with the events CSV export).
+          invitedCountsByEvent(weddingId),
+          // RSVP rows joined to guest + family for the per-event guest lists.
+          dbQuery(() =>
+            db
+              .select({
+                eventId: rsvps.eventId,
+                guestId: rsvps.guestId,
+                status: rsvps.status,
+                dietary: rsvps.dietary,
+                consentSource: rsvps.consentSource,
+                firstName: guests.firstName,
+                lastName: guests.lastName,
+                sortOrder: guests.sortOrder,
+                familyName: families.familyName,
+                familyCode: families.publicId,
+              })
+              .from(rsvps)
+              .innerJoin(guests, eq(rsvps.guestId, guests.id))
+              .innerJoin(families, eq(guests.familyId, families.id))
+              .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+              .all(),
+          ),
+          // Every invitation (guest×event) for the wedding's guests, host families
+          // excluded — the pool of guests an organiser can record a reply for. We
+          // subtract the responded ids below to get the "not yet replied" list.
+          dbQuery(() =>
+            db
+              .select({
+                eventId: guestEvents.eventId,
+                guestId: guestEvents.guestId,
+                firstName: guests.firstName,
+                lastName: guests.lastName,
+                sortOrder: guests.sortOrder,
+                familyName: families.familyName,
+                familyCode: families.publicId,
+              })
+              .from(guestEvents)
+              .innerJoin(guests, eq(guestEvents.guestId, guests.id))
+              .innerJoin(families, eq(guests.familyId, families.id))
+              .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+              .all(),
+          ),
+        ],
+        { concurrency: 4 },
       );
 
       const orderedEvents = eventRows.toSorted(compareEventsByStart);
-
-      // Invite counts per event, host families excluded — aggregated in SQL
-      // (shared with the events CSV export).
-      const invitedByEvent = yield* invitedCountsByEvent(weddingId);
-
-      // RSVP rows joined to guest + family for the per-event guest lists.
-      const rsvpRows = yield* dbQuery(() =>
-        db
-          .select({
-            eventId: rsvps.eventId,
-            guestId: rsvps.guestId,
-            status: rsvps.status,
-            dietary: rsvps.dietary,
-            consentSource: rsvps.consentSource,
-            firstName: guests.firstName,
-            lastName: guests.lastName,
-            sortOrder: guests.sortOrder,
-            familyName: families.familyName,
-            familyCode: families.publicId,
-          })
-          .from(rsvps)
-          .innerJoin(guests, eq(rsvps.guestId, guests.id))
-          .innerJoin(families, eq(guests.familyId, families.id))
-          .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-          .all(),
-      );
-
-      // Every invitation (guest×event) for the wedding's guests, host families
-      // excluded — the pool of guests an organiser can record a reply for. We
-      // subtract the responded ids below to get the "not yet replied" list.
-      const invitedRows = yield* dbQuery(() =>
-        db
-          .select({
-            eventId: guestEvents.eventId,
-            guestId: guestEvents.guestId,
-            firstName: guests.firstName,
-            lastName: guests.lastName,
-            sortOrder: guests.sortOrder,
-            familyName: families.familyName,
-            familyCode: families.publicId,
-          })
-          .from(guestEvents)
-          .innerJoin(guests, eq(guestEvents.guestId, guests.id))
-          .innerJoin(families, eq(guests.familyId, families.id))
-          .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-          .all(),
-      );
 
       interface Acc {
         guests: (RsvpViewGuest & { sortOrder: number })[];
@@ -317,45 +322,69 @@ export const rsvpExportService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      // (a) Events for the wedding, ordered by start time. `start_at` is an
-      // ISO-8601 string with offset, so lexicographic order is NOT reliable
-      // across timezones — sort in JS by parsed epoch, falling back to
-      // sort_order then id for ties / unparseable timestamps.
-      const eventRows = yield* dbQuery(() =>
-        db
-          .select({
-            id: events.id,
-            name: events.name,
-            startAt: events.startAt,
-            sortOrder: events.sortOrder,
-          })
-          .from(events)
-          .where(eq(events.weddingId, weddingId))
-          .all(),
+      // (a), (b), and (c) are all independently wedding-scoped — collapse them
+      // to one D1 round-trip (RT-P-I1; matches the parallel shape in
+      // state-export.ts and table-export.ts).
+      const [eventRows, guestRows, rsvpRows] = yield* Effect.all(
+        [
+          // (a) Events for the wedding, ordered by start time. `start_at` is an
+          // ISO-8601 string with offset, so lexicographic order is NOT reliable
+          // across timezones — sort in JS by parsed epoch, falling back to
+          // sort_order then id for ties / unparseable timestamps.
+          dbQuery(() =>
+            db
+              .select({
+                id: events.id,
+                name: events.name,
+                startAt: events.startAt,
+                sortOrder: events.sortOrder,
+              })
+              .from(events)
+              .where(eq(events.weddingId, weddingId))
+              .all(),
+          ),
+          // (b) Guests + family + their event memberships (left join → a guest with
+          // no invites still appears). Host families excluded.
+          dbQuery(() =>
+            db
+              .select({
+                guestId: guests.id,
+                firstName: guests.firstName,
+                lastName: guests.lastName,
+                sortOrder: guests.sortOrder,
+                publicId: families.publicId,
+                familyName: families.familyName,
+                eventId: guestEvents.eventId,
+              })
+              .from(guests)
+              .innerJoin(families, eq(guests.familyId, families.id))
+              .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
+              .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+              .orderBy(asc(guests.sortOrder))
+              .all(),
+          ),
+          // (c) RSVPs for the wedding's guests (scoped via the guest→family join so
+          // a host family's preview RSVPs, if any, never leak in).
+          dbQuery(() =>
+            db
+              .select({
+                guestId: rsvps.guestId,
+                eventId: rsvps.eventId,
+                status: rsvps.status,
+                dietary: rsvps.dietary,
+                consentSource: rsvps.consentSource,
+              })
+              .from(rsvps)
+              .innerJoin(guests, eq(rsvps.guestId, guests.id))
+              .innerJoin(families, eq(guests.familyId, families.id))
+              .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+              .all(),
+          ),
+        ],
+        { concurrency: 3 },
       );
 
       const orderedEvents = eventRows.toSorted(compareEventsByStart);
-
-      // (b) Guests + family + their event memberships (left join → a guest with
-      // no invites still appears). Host families excluded.
-      const guestRows = yield* dbQuery(() =>
-        db
-          .select({
-            guestId: guests.id,
-            firstName: guests.firstName,
-            lastName: guests.lastName,
-            sortOrder: guests.sortOrder,
-            publicId: families.publicId,
-            familyName: families.familyName,
-            eventId: guestEvents.eventId,
-          })
-          .from(guests)
-          .innerJoin(families, eq(guests.familyId, families.id))
-          .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
-          .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-          .orderBy(asc(guests.sortOrder))
-          .all(),
-      );
 
       interface GuestAcc {
         guestId: string;
@@ -383,24 +412,6 @@ export const rsvpExportService = {
         }
         if (row.eventId !== null) acc.invited.add(row.eventId);
       }
-
-      // (c) RSVPs for the wedding's guests (scoped via the guest→family join so
-      // a host family's preview RSVPs, if any, never leak in).
-      const rsvpRows = yield* dbQuery(() =>
-        db
-          .select({
-            guestId: rsvps.guestId,
-            eventId: rsvps.eventId,
-            status: rsvps.status,
-            dietary: rsvps.dietary,
-            consentSource: rsvps.consentSource,
-          })
-          .from(rsvps)
-          .innerJoin(guests, eq(rsvps.guestId, guests.id))
-          .innerJoin(families, eq(guests.familyId, families.id))
-          .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-          .all(),
-      );
 
       // guestId → eventId → {status, dietary, consentSource}
       const rsvpByGuest = new Map<

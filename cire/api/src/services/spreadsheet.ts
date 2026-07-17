@@ -85,8 +85,11 @@ export type SpreadsheetParseError =
 
 // ── Hand-rolled RFC 4180 CSV parser ──────────────────────────────────────────
 
-/** Hard caps on parsed CSV size. */
-const MAX_ROWS = 5000;
+/** Hard cap on imported sheet row count. Exported for observability: the state
+ *  export emits a structured warning when its row count exceeds this limit so the
+ *  "export exceeds what import re-accepts" case is visible before an organiser
+ *  hits it (RT-P-I2). */
+export const MAX_ROWS = 5000;
 const MAX_CELL_LENGTH = 10_000;
 
 export type CsvParseResult =

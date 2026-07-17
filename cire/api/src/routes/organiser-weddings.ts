@@ -6,7 +6,7 @@ import { DbService } from "../db";
 import type { Db } from "../db";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
-import { rateLimitMiddleware } from "../middleware/rate-limit";
+import { rateLimitMiddleware, rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingMember } from "../middleware/wedding-member";
 import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
@@ -61,9 +61,10 @@ const exportDefect = (set: { status?: number | string }, exportName: string, wed
  *
  * The per-wedding subtree splits by authorisation level (roles matrix,
  * platform-plan §3.5):
- *  - DASHBOARD READS (`/guests`, `/events`, the CSV exports, `/rsvps`) use
- *    `weddingMember()` — owner OR any co-host (editor AND viewer). Co-hosts
- *    get the read dashboard, nothing destructive.
+ *  - DASHBOARD READS (`/guests`, `/events`) use `weddingMember()` — owner OR
+ *    any co-host (editor AND viewer). Co-hosts get the read dashboard, nothing
+ *    destructive. The CSV exports + `/rsvps` view are in a sibling instance
+ *    (`createOrganiserExportRoutes`) behind a per-user limiter (CSV-S-L1).
  *  - CODE MANAGEMENT (`regenerate-code`, family deactivate/reactivate) uses
  *    `weddingOwner()` — claim codes are the guest credential, so cutting one
  *    off or rotating it is owner-only.
@@ -128,7 +129,149 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
               ),
             ),
           );
+        }),
+    )
+    // Code management — owner only (weddingOwner): claim codes are the guest
+    // credential, so anything that mints, rotates, or cuts one off is the
+    // owner's call (roles matrix, platform-plan §3.5).
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingOwner(db))
+        // Cut off a withdrawn invite: deactivate a family so its claim code stops
+        // working (the guest claim path rejects it like an unknown code), WITHOUT
+        // deleting the family/guests/RSVPs. Reversible via `.../reactivate`.
+        // The service re-checks family ∈
+        // wedding AND kind='guest', so a host-preview family can't be deactivated
+        // and an owner of wedding A can't touch wedding B's family.
+        .post("/families/:familyId/deactivate", ({ weddingId, params, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            familyDeactivateService.setDeactivated(weddingId, params.familyId, true).pipe(
+              Effect.provideService(DbService, db),
+              Effect.map((r) => ({ familyId: r.familyId, deactivatedAt: r.deactivatedAt })),
+              Effect.catchTags({
+                FamilyNotInWedding: () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "family_not_found" };
+                  }),
+                DeactivateWriteError: () =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Could not deactivate family" };
+                  }),
+              }),
+              Effect.catchAllDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
         })
+        // Restore a deactivated family: clear the marker so its code claims again
+        // (the data was never deleted). Same weddingOwner() gate + cross-tenant /
+        // kind guard as deactivate.
+        .post("/families/:familyId/reactivate", ({ weddingId, params, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            familyDeactivateService.setDeactivated(weddingId, params.familyId, false).pipe(
+              Effect.provideService(DbService, db),
+              Effect.map((r) => ({ familyId: r.familyId, deactivatedAt: r.deactivatedAt })),
+              Effect.catchTags({
+                FamilyNotInWedding: () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "family_not_found" };
+                  }),
+                DeactivateWriteError: () =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Could not reactivate family" };
+                  }),
+              }),
+              Effect.catchAllDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        }),
+    )
+    // Destructive — owner only (weddingOwner).
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingOwner(db))
+        // C2: rotate a family's claim code + revoke its sessions, atomically.
+        // weddingOwner() already proved the caller owns :weddingId; the service
+        // re-checks family ∈ wedding (404 FamilyNotInWedding otherwise) so an
+        // owner of wedding A can't rotate a family under wedding B.
+        .post("/families/:familyId/regenerate-code", ({ weddingId, params, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            regenerateCodeService.regenerate(weddingId, params.familyId).pipe(
+              Effect.provideService(DbService, db),
+              Effect.map((r) => ({ familyId: r.familyId, publicId: r.publicId })),
+              Effect.catchTags({
+                FamilyNotInWedding: () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "family_not_found" };
+                  }),
+                RegenerateWriteError: () =>
+                  Effect.sync(() => {
+                    set.status = 500;
+                    return { error: "Could not regenerate code" };
+                  }),
+              }),
+              Effect.catchAllDefect(() =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal error" };
+                }),
+              ),
+            ),
+          );
+        }),
+    );
+
+/**
+ * CSV + JSON RSVP export routes, split into their own instance so the per-user
+ * rate limiter (CSV-S-L1) gates only the export reads and not the dashboard's
+ * `/guests` + `/events` reads above. Any authenticated organiser can trigger
+ * these reads in a loop and burn D1 read quota / Worker CPU on the Free tier —
+ * a modest per-user cap (~10/min) bounds the amplifier while remaining
+ * transparent to normal hand-use. Same sibling-instance pattern as the preview
+ * + remint routes; same weddingMember() gate (owner OR co-host).
+ *
+ * The per-user limiter keys on `osnProfileId` (not the client IP): the caller
+ * is already authenticated and wedding-scoped, so keying on their identity
+ * rather than their edge IP is both more accurate (one person per bucket) and
+ * consistent with the Upstash per-user backend used by sibling services.
+ */
+export const createOrganiserExportRoutes = (
+  db: Db,
+  osnAuthOptions: OsnAuthOptions,
+  limiter: RateLimiterBackend,
+) =>
+  new Elysia({ prefix: "/api/organiser" })
+    .use(osnAuth(osnAuthOptions))
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingMember(db))
+        .use(rateLimitMiddlewareByUser(limiter))
         // RSVP CSV export — one row per guest (incl. guests who haven't RSVP'd),
         // one column per event, dietary requirements. Sorted by family code.
         // Same weddingMember() gate as the reads above (owner OR co-host). The
@@ -265,121 +408,6 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
                   set.headers["cache-control"] = "no-store";
                 }),
               ),
-              Effect.catchAllDefect(() =>
-                Effect.sync(() => {
-                  set.status = 500;
-                  return { error: "Internal error" };
-                }),
-              ),
-            ),
-          );
-        }),
-    )
-    // Code management — owner only (weddingOwner): claim codes are the guest
-    // credential, so anything that mints, rotates, or cuts one off is the
-    // owner's call (roles matrix, platform-plan §3.5).
-    .group("/weddings/:weddingId", (group) =>
-      group
-        .use(weddingOwner(db))
-        // Cut off a withdrawn invite: deactivate a family so its claim code stops
-        // working (the guest claim path rejects it like an unknown code), WITHOUT
-        // deleting the family/guests/RSVPs. Reversible via `.../reactivate`.
-        // The service re-checks family ∈
-        // wedding AND kind='guest', so a host-preview family can't be deactivated
-        // and an owner of wedding A can't touch wedding B's family.
-        .post("/families/:familyId/deactivate", ({ weddingId, params, set }) => {
-          if (!weddingId) {
-            set.status = 500;
-            return { error: "Internal error" };
-          }
-          return runCire(
-            familyDeactivateService.setDeactivated(weddingId, params.familyId, true).pipe(
-              Effect.provideService(DbService, db),
-              Effect.map((r) => ({ familyId: r.familyId, deactivatedAt: r.deactivatedAt })),
-              Effect.catchTags({
-                FamilyNotInWedding: () =>
-                  Effect.sync(() => {
-                    set.status = 404;
-                    return { error: "family_not_found" };
-                  }),
-                DeactivateWriteError: () =>
-                  Effect.sync(() => {
-                    set.status = 500;
-                    return { error: "Could not deactivate family" };
-                  }),
-              }),
-              Effect.catchAllDefect(() =>
-                Effect.sync(() => {
-                  set.status = 500;
-                  return { error: "Internal error" };
-                }),
-              ),
-            ),
-          );
-        })
-        // Restore a deactivated family: clear the marker so its code claims again
-        // (the data was never deleted). Same weddingOwner() gate + cross-tenant /
-        // kind guard as deactivate.
-        .post("/families/:familyId/reactivate", ({ weddingId, params, set }) => {
-          if (!weddingId) {
-            set.status = 500;
-            return { error: "Internal error" };
-          }
-          return runCire(
-            familyDeactivateService.setDeactivated(weddingId, params.familyId, false).pipe(
-              Effect.provideService(DbService, db),
-              Effect.map((r) => ({ familyId: r.familyId, deactivatedAt: r.deactivatedAt })),
-              Effect.catchTags({
-                FamilyNotInWedding: () =>
-                  Effect.sync(() => {
-                    set.status = 404;
-                    return { error: "family_not_found" };
-                  }),
-                DeactivateWriteError: () =>
-                  Effect.sync(() => {
-                    set.status = 500;
-                    return { error: "Could not reactivate family" };
-                  }),
-              }),
-              Effect.catchAllDefect(() =>
-                Effect.sync(() => {
-                  set.status = 500;
-                  return { error: "Internal error" };
-                }),
-              ),
-            ),
-          );
-        }),
-    )
-    // Destructive — owner only (weddingOwner).
-    .group("/weddings/:weddingId", (group) =>
-      group
-        .use(weddingOwner(db))
-        // C2: rotate a family's claim code + revoke its sessions, atomically.
-        // weddingOwner() already proved the caller owns :weddingId; the service
-        // re-checks family ∈ wedding (404 FamilyNotInWedding otherwise) so an
-        // owner of wedding A can't rotate a family under wedding B.
-        .post("/families/:familyId/regenerate-code", ({ weddingId, params, set }) => {
-          if (!weddingId) {
-            set.status = 500;
-            return { error: "Internal error" };
-          }
-          return runCire(
-            regenerateCodeService.regenerate(weddingId, params.familyId).pipe(
-              Effect.provideService(DbService, db),
-              Effect.map((r) => ({ familyId: r.familyId, publicId: r.publicId })),
-              Effect.catchTags({
-                FamilyNotInWedding: () =>
-                  Effect.sync(() => {
-                    set.status = 404;
-                    return { error: "family_not_found" };
-                  }),
-                RegenerateWriteError: () =>
-                  Effect.sync(() => {
-                    set.status = 500;
-                    return { error: "Could not regenerate code" };
-                  }),
-              }),
               Effect.catchAllDefect(() =>
                 Effect.sync(() => {
                   set.status = 500;

@@ -1252,3 +1252,40 @@ describe("GET /api/organiser/weddings/:weddingId/export/{events,guests}.csv", ()
     expect((await get(app, guestsPath, COHOST)).status).toBe(200);
   });
 });
+
+describe("CSV export per-user rate limit (CSV-S-L1)", () => {
+  // Mirrors the POST /weddings 429 test above: inject a tight 1-req/min limiter
+  // and verify the second export from the SAME user is 429'd, while a different
+  // user's first export is still 200 (per-user, not per-IP).
+  it("429s once the per-user export limit is exceeded", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    seedOtherWedding(db);
+    const app = createApp(db, {
+      osnTestKey: auth.key,
+      exportLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    });
+    const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/rsvps.csv`;
+    const first = await get(app, path, BOOTSTRAP_OWNER);
+    expect(first.status).toBe(200);
+    const second = await get(app, path, BOOTSTRAP_OWNER);
+    expect(second.status).toBe(429);
+  });
+
+  it("does NOT limit a different user's exports (buckets are per-user)", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    seedOtherWedding(db);
+    const app = createApp(db, {
+      osnTestKey: auth.key,
+      exportLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    });
+    const ownerPath = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/rsvps.csv`;
+    const otherPath = `/api/organiser/weddings/${OTHER_WEDDING_ID}/rsvps.csv`;
+    // Owner exhausts their 1-req bucket on the bootstrap wedding.
+    expect((await get(app, ownerPath, BOOTSTRAP_OWNER)).status).toBe(200);
+    expect((await get(app, ownerPath, BOOTSTRAP_OWNER)).status).toBe(429);
+    // The other wedding's owner (different user) still has a full bucket.
+    expect((await get(app, otherPath, OTHER_OWNER)).status).toBe(200);
+  });
+});
