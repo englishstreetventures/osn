@@ -1,5 +1,5 @@
 import { useAuth } from "@osn/client/solid";
-import { createEffect, createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { friendlyError } from "../lib/api";
@@ -43,8 +43,10 @@ export default function ListingEditor(props: ListingEditorProps) {
   // Money: displayed in major units (dollars); "" means null (no value set).
   const [priceMin, setPriceMin] = createSignal("");
   const [priceMax, setPriceMax] = createSignal("");
-  // Category keys that are currently checked.
-  const [checkedCategories, setCheckedCategories] = createSignal<string[]>([]);
+  // Per-key checked state: Record<categoryKey, boolean>.
+  // Reading `checked()[key]` inside <For> is isolated to that row — toggling one key
+  // only re-runs the expression for that checkbox (VP-P-W1).
+  const [checked, setChecked] = createSignal<Record<string, boolean>>({});
 
   const [seeded, setSeeded] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
@@ -64,7 +66,9 @@ export default function ListingEditor(props: ListingEditorProps) {
         setPriceBand(data.priceBand ?? "");
         setPriceMin(data.priceMinMinor != null ? String(data.priceMinMinor / 100) : "");
         setPriceMax(data.priceMaxMinor != null ? String(data.priceMaxMinor / 100) : "");
-        setCheckedCategories(data.categories ?? []);
+        const rec: Record<string, boolean> = {};
+        for (const key of data.categories ?? []) rec[key] = true;
+        setChecked(rec);
       }
       // data === null means no listing yet → form stays empty; mark seeded either way.
       setSeeded(true);
@@ -72,12 +76,23 @@ export default function ListingEditor(props: ListingEditorProps) {
   });
 
   // ── Category toggle ───────────────────────────────────────────────────────
-  const toggleCategory = (key: string, checked: boolean) => {
-    setCheckedCategories((prev) => (checked ? [...prev, key] : prev.filter((k) => k !== key)));
+  const toggleCategory = (key: string, isChecked: boolean) => {
+    setChecked((prev) => ({ ...prev, [key]: isChecked }));
   };
 
-  // ── Save-button disable condition ────────────────────────────────────────
-  const saveDisabled = () => saving() || name().trim() === "" || checkedCategories().length === 0;
+  // Derive the categories array for the save payload (keys where checked[key] === true).
+  const checkedCategories = createMemo(() =>
+    Object.entries(checked())
+      .filter(([, v]) => v)
+      .map(([k]) => k),
+  );
+
+  // ── Save-button disable condition (VP-P-I3) ──────────────────────────────
+  // createMemo dedupes to signal-change boundaries rather than re-running on every
+  // render pass of the button effect.
+  const saveDisabled = createMemo(
+    () => saving() || name().trim() === "" || checkedCategories().length === 0,
+  );
 
   // ── Save handler ─────────────────────────────────────────────────────────
   const handleSave = async (e: Event) => {
@@ -200,7 +215,7 @@ export default function ListingEditor(props: ListingEditorProps) {
                       <input
                         id={id}
                         type="checkbox"
-                        checked={checkedCategories().includes(cat.key)}
+                        checked={checked()[cat.key] ?? false}
                         onChange={(e) => toggleCategory(cat.key, e.currentTarget.checked)}
                         class="accent-gold h-4 w-4 cursor-pointer rounded"
                       />
