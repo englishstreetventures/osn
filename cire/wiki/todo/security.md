@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-17
+last-reviewed: 2026-07-18
 ---
 
 # Security Backlog
@@ -53,5 +53,13 @@ Deferred (platform-wide or later-slice — NOT PR B regressions):
 
 - [ ] **VP-S-L2 / VP-C-M1** — the vendor portal (like `@cire/organiser`, `@cire/web`, `@cire/landing`) loads Google Fonts from `fonts.googleapis.com`/`fonts.gstatic.com` via `<link>` (no SRI; sends visitor IP to Google LLC, a US processor). Platform-wide pre-existing pattern, not introduced here. Fix once, platform-wide: **self-host** the two families (`Cormorant Garamond` + `Lato`) under each app's `public/fonts/` (eliminates both the supply-chain/no-SRI gap and the GDPR Art. 44 transfer / subprocessor-registration need). Until then, note Google LLC (Fonts) is an undocumented subprocessor across all cire frontends. See `[[wiki/compliance/subprocessors]]`.
 - [ ] **VP-S-L3** — the vendor portal `_headers` ships the same deliberately-partial CSP as `@cire/organiser` (`frame-ancestors 'none'` only; no restrictive `script-src`/`connect-src`, which would break the passkey ceremony + `authFetch` silent-refresh + `@osn/ui`). A full hardened portal CSP (host-restricted `script-src`/`connect-src`/`font-src`, report-only first) is the same tracked follow-up as the organiser's — do both together. `cire/web` already has a structured CSP in `src/lib/security-headers.ts` to model from.
-- [ ] **VP-C-M3** — DSA Art. 30 trader-traceability: when the **consumer-facing directory browse** ships (Vendors S3+, not this slice — Slice 1 has no public browse surface), scope whether `cireweddings.com`'s vendor directory is a DSA "online platform allowing consumers to conclude distance contracts with traders". If yes, gate a listing going `live` behind collecting Art. 30 traceability fields (business name/address/phone/email/registration ID + self-declaration). File `wiki/compliance/dpia/dsa-trader-traceability.md` at that point. Not applicable while the directory is organiser-private + claim-only.
+- [ ] **VP-C-M3** — DSA Art. 30 trader-traceability: when the **consumer-facing directory browse** ships (Vendors S3+, not this slice — Slice 1 has no public browse surface), scope whether `cireweddings.com`'s vendor directory is a DSA "online platform allowing consumers to conclude distance contracts with traders". If yes, gate a listing going `live` behind collecting Art. 30 traceability fields (business name/address/phone/email/registration ID + self-declaration). File `wiki/compliance/dpia/dsa-trader-traceability.md` at that point. Not applicable while the directory is organiser-private + claim-only. **Update (2026-07-18 — Vendors S3 shipped):** S3 is organiser-only browse (access-controlled via `weddingMember()` gate; no public browse surface, no on-platform contracting). DSA Art. 30 still does not apply — the gate is revisited when public browse and/or enquiries ship.
 - [ ] **VP-C-L1** — the vendor portal registration surface (`SignInPanel` → `@osn/ui Register`) inherits the platform's pending age-gate (root `C-H8`). B2B audience → under-13 use extremely unlikely; gate the vendor portal behind the age-gate once C-H8 lands. Documentation-only.
+
+### Vendors S3 (directory browse) — /prep-pr review notes (`feat/cire-vendors-directory-browse`)
+
+**Fixed on-branch** (66fddcb2): VD-S-L1 (`javascript:` XSS — vendor `website`/`instagram` now scheme-allowlisted via `safeHref`), VD-EAA-1/2/3/4/5 (aria-labels on Added/Cancel/Load-more, `role="status"` empty-state, ESC handler moved to the `role="dialog"` element). Independent whole-branch + security review confirmed: SQL injection-safe (params + escapeLike), tenancy (browse/add/inWedding/existsForDirectory all scoped to the gated path `weddingId`; viewer add 403; non-member denied), no draft/owner_org_id leak, generic error strings.
+
+Deferred / adjudicated (not blocking):
+- **VD-S-M1 (kept per spec):** `directoryService.browse` is fail-soft — a DB defect resolves to `{listings:[],total:0}` (logged `Warning`) rather than a 500, per the user-approved spec ("never a 500 that blanks the dashboard"). Reviewer noted a real tradeoff (a transient outage renders as "no vendors match" not an error banner). Kept as spec-mandated + observable via the warning log/span; **surfaced in the PR body for the owner to reconsider** — if preferred, drop the service-level `catchAllDefect` and let the route 500 so the frontend shows its `role="alert"` error state.
+- **VD-S-M2 (skip):** missing-`weddingId` guard returns 500 not 400 — unreachable (the role gate sets `weddingId` first) and matches the existing `if(!weddingId) return internalSync(set)` pattern across all cire organiser routes; changing only these two would fork the convention.

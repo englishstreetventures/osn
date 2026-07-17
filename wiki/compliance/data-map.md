@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-07-17
+last-reviewed: 2026-07-18
 ---
 
 # Data Map
@@ -137,6 +137,8 @@ Vendor personal data arises when a vendor is a **sole trader** and their contact
 | `vendors.phone` | Organiser-captured sole-trader contact phone in the per-wedding CRM | Art. 6(1)(f) — wedding administration | Same as `vendors.email` above | Same | [[systems/vendors]] (cire wiki) |
 | `vendors.contact_name` | Organiser-captured contact person name — identifies a sole trader or named rep | Art. 6(1)(f) — wedding administration | Same as `vendors.email` above | Same | [[systems/vendors]] (cire wiki) |
 | `vendor_claims.email` | Email address the claim-invite was sent to (copied from `directory_vendors.email` at minting) — identifies the sole trader being invited to claim the listing | Art. 6(1)(f) — legit interest in binding the listing to the correct vendor org; functionally equivalent to the claim-invite verification step (Art. 6(1)(b) — entering service) | 7-day claim TTL; `status` flips to `expired`/`consumed`; `vendor_claims` rows currently retained indefinitely (no purge — add a sweeper once listing volumes warrant) | `@cire/api` only (token hash stored, email stored for audit) | [[systems/vendors]] (cire wiki) |
+
+**S3 browse surface (2026-07-18).** `directory_vendors.email` and `directory_vendors.phone` are now **displayed to a wedding's authenticated organisers** via the `GET …/directory` browse endpoint (new recipient/surface — organiser-only, access-controlled); no new data is collected and the lawful basis is unchanged (Art. 6(1)(f)).
 
 **Controller note for vendor data.** For `directory_vendors` contact data supplied initially by an organiser (before the vendor claims the listing): the organiser is the original source of entry and cire is the platform. Once the vendor claims the listing and becomes an OSN org-holder, the vendor themselves is the data subject exercising control over the listing fields (controller = cire/OSN for the platform; DSAR + right-to-erasure via standard organiser or vendor account flows).
 

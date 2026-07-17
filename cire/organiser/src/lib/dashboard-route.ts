@@ -57,7 +57,7 @@ export const MODULE_SUBS: Record<Module, readonly string[]> = {
   schedule: ["list", "edit"],
   checklist: ["index"],
   budget: ["index"],
-  vendors: ["index"],
+  vendors: ["index", "browse"],
   // `edit` is the interactive guest editor (E5), an editor-only sub the shell
   // hides from read-only viewers (the parser can't see the role).
   guests: ["list", "edit", "rsvps"],

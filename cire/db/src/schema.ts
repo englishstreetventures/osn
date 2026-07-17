@@ -353,7 +353,10 @@ export const directoryVendors = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
-  (t) => [index("directory_vendors_owner_idx").on(t.ownerOrgId)],
+  (t) => [
+    index("directory_vendors_owner_idx").on(t.ownerOrgId),
+    index("directory_vendors_listed_idx").on(t.listed),
+  ],
 );
 
 // directory_vendor_categories: many service categories per listing.
@@ -392,7 +395,12 @@ export const vendors = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
-  (t) => [index("vendors_wedding_status_idx").on(t.weddingId, t.status, t.sortOrder)],
+  (t) => [
+    index("vendors_wedding_status_idx").on(t.weddingId, t.status, t.sortOrder),
+    uniqueIndex("vendors_wedding_directory_uniq")
+      .on(t.weddingId, t.directoryVendorId)
+      .where(sql`directory_vendor_id IS NOT NULL`),
+  ],
 );
 
 // vendor_claims: email-verification claim tokens (SHA-256 hashed, single-use, TTL).

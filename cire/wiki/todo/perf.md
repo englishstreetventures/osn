@@ -112,3 +112,13 @@ Deferred from the /prep-pr Step 6 performance review. VP-P-I2 (Google Fonts `dis
 - [ ] **VP-P-W2** — the claim happy path discards the `Listing` that `consumeClaim` already returns (`vendor-store.ts`) and re-fetches it via `ListingEditor`'s `fetchListing` after the `/#/orgs/:id` redirect — one avoidable warm-edge round-trip on the welcome flow. Fix by handing the consumed listing forward (sessionStorage hint the editor seeds from) or a short `Cache-Control: max-age` on `GET /api/vendor/orgs/:orgId/listing`.
 - [ ] **VP-P-I1** — `SignInPanel.tsx` + `ClaimApp.tsx` construct their `@osn/client` auth clients at module scope, so SDK init runs eagerly on island load even when the page is about to redirect. Move construction into the component body / a lazy memo. Micro-hygiene.
 - [x] **VP-P-I3** — `ListingEditor.tsx` `saveDisabled` is a bare arrow (re-runs `name().trim()` each render pass of the button effect); make it a `createMemo` for idiomatic derived-state deduping. Micro. **Fixed (feat/cire-vendor-perf-followups):** `saveDisabled` converted to `createMemo`; condition unchanged.
+
+### Vendors S3 (directory browse) — /prep-pr perf review notes (`feat/cire-vendors-directory-browse`)
+
+**Fixed on-branch** (ede40051): VD-P-W1 — `directoryService.browse` count + page queries now run concurrently (`Effect.all {concurrency:2}`), one fewer D1 round-trip per browse. VD-P-I3 (66fddcb2) — the category `<select>` filter fetches immediately instead of through the 300ms text-input debounce.
+
+Deferred (scale-dependent, not blocking at wedding-directory scale — hundreds to low-thousands of listings):
+- [ ] **VD-P-W2** — the `inWedding` correlated EXISTS subquery relies on `vendors_wedding_directory_uniq` (partial unique on `(wedding_id, directory_vendor_id) WHERE directory_vendor_id IS NOT NULL`) to serve the equality probe. The probe values are always non-null so the partial index applies; confirm with `EXPLAIN QUERY PLAN` on staging. If ever a scan, add a plain non-partial `(wedding_id, directory_vendor_id)` index, or LEFT JOIN `vendors` once instead of the per-row subquery.
+- [ ] **VD-P-I1** — OFFSET pagination is O(offset); fine at current scale (50-row cap). Switch to a keyed cursor on `(name, id)` if the directory reaches tens of thousands.
+- [ ] **VD-P-I2** — `getLiveListingById` does fetch + fetchCategories sequentially (matches `getListingByOrg`/`consumeClaim`); low-frequency write path. Parallelize if the service is extended.
+- [ ] **VD-P-I4** — `directory_vendors_listed_idx` becomes a no-op on the hot path once most rows are `live`; a partial `WHERE listed='live'` index is the future option if a scan ever shows up.

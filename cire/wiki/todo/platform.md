@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[platform-plan]]"
   - "[[future]]"
-last-reviewed: 2026-07-17
+last-reviewed: 2026-07-18
 ---
 
 # Platform
@@ -39,6 +39,7 @@ PR slicing + dependency order in [[platform-plan]] §3.6 (PRs 0–2 parallel; IA
 
 - [x] **Vendors Slice 1 PR A (foundation + CRM + claim backend) SHIPPED 2026-07-17** — four new tables (`directory_vendors`, `directory_vendor_categories`, `vendors`, `vendor_claims`, migration 0040); wedding-scoped organiser Vendor CRM (`vendorsService` + `/api/organiser/weddings/:weddingId/vendors` routes + `VendorsView` module); directory listing + email-verification claim service (`directoryService`); vendor-portal routes `/api/vendor/*` gated by `vendorOrgMember()` (OSN org membership resolved over ARC `org:read`); fail-soft claim-invite email (`vendor-claim-invite` template in `@shared/email`). See [[systems/vendors]]. **PR B (the `vendor.cireweddings.com` portal app + infra) is next.**
 - [x] **Vendors Slice 1 PR B (`vendor.cireweddings.com` portal app + infra) SHIPPED 2026-07-17** — `@cire/vendor` Astro+SolidJS static app: sign-in → OSN org pick → listing editor → `/claim` landing; `deploy-cire-vendor` Pages job; CORS allowlist widened. See [[systems/vendors]].
+- [x] **Vendors S3 (directory browse) SHIPPED 2026-07-18** — Browse sub-tab in organiser Vendors module; `GET …/directory` (weddingMember, live-only listings, category/keyword/location filters, `inWedding` flag, pagination); `POST …/directory/:directoryVendorId/add` (weddingEditor, snapshots contact + links the listing, 409 dedup via the `vendors_wedding_directory_uniq` partial unique index); migration 0041 (index-only). See [[systems/vendors]] §Directory browse.
 - [ ] **Deploy an OSN org-management surface + wire the vendor-portal empty-state link** — org creation was removed from the vendor portal (`feat/cire-vendor-org-in-osn`): an org is an OSN account-level entity, so the portal only *lists* the caller's orgs and shows an empty-state ("create one in your OSN account") when they have none. But `@osn/social` (which has `OrganisationsPage` → `orgClient.createOrg`) is **not deployed** to any prod URL, so the empty-state currently has no working link and a vendor with zero orgs is blocked from publishing. Deploy an OSN org surface (deploy `@osn/social`, or a minimal org-create page, to a reachable URL) and turn the empty-state copy in `cire/vendor/src/components/OrgPicker.tsx` into a link to it. See [[systems/vendors]].
 - [ ] **Venue link** — `events.venue_vendor_id` so a booked venue attaches to a Schedule event
 - [ ] **Directory search** — lat/lng bounding-box prefilter + haversine order on D1, radius from the wedding's canonical point; dedicated rate limiter

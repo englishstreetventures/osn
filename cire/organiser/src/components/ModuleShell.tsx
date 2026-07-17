@@ -4,6 +4,7 @@ import { peekCachedBudget } from "../lib/budget-store";
 import { defaultSub, isSubOf, type Module } from "../lib/dashboard-route";
 import BudgetView from "./BudgetView";
 import ChecklistView from "./ChecklistView";
+import DirectoryBrowseView from "./DirectoryBrowseView";
 import EventsEditor from "./EventsEditor";
 import EventTable from "./EventTable";
 import GuestsEditor from "./GuestsEditor";
@@ -56,6 +57,10 @@ const MODULE_SUB_TABS: Partial<Record<Module, SubDef[]>> = {
   schedule: [
     { id: "list", label: "Events" },
     { id: "edit", label: "Edit", edit: true },
+  ],
+  vendors: [
+    { id: "index", label: "My vendors" },
+    { id: "browse", label: "Browse" },
   ],
   guests: [
     { id: "list", label: "Households" },
@@ -178,14 +183,19 @@ export default function ModuleShell(props: ModuleShellProps) {
           />
         </Show>
 
-        {/* ── Vendors: CRM — research → book your suppliers ────────────── */}
+        {/* ── Vendors: CRM ("My vendors") + directory Browse ──────────── */}
         <Show when={props.module === "vendors"}>
-          <VendorsView
-            weddingId={props.weddingId}
-            currency={peekCachedBudget(props.weddingId)?.currency ?? "AUD"}
-            canEdit={props.canEdit}
-            canManage={props.canManage}
-          />
+          <Show when={active() === "index"}>
+            <VendorsView
+              weddingId={props.weddingId}
+              currency={peekCachedBudget(props.weddingId)?.currency ?? "AUD"}
+              canEdit={props.canEdit}
+              canManage={props.canManage}
+            />
+          </Show>
+          <Show when={active() === "browse"}>
+            <DirectoryBrowseView weddingId={props.weddingId} canEdit={props.canEdit} />
+          </Show>
         </Show>
 
         {/* ── Guests: Households + RSVPs ───────────────────────────────── */}

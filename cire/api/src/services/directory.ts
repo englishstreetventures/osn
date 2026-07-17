@@ -19,7 +19,7 @@
  * are enforced upstream (Task 8).
  */
 import { directoryVendorCategories, directoryVendors, vendorClaims, vendors } from "@cire/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
@@ -81,6 +81,30 @@ export interface SeedFromCrmBody extends UpsertListingBody {
 
 export interface DirectoryServiceConfig {
   vendorPortalOrigin?: string;
+}
+
+export interface BrowseListingDto {
+  id: string;
+  name: string;
+  description: string | null;
+  categories: string[];
+  locationText: string | null;
+  priceBand: string | null;
+  priceMinMinor: number | null;
+  priceMaxMinor: number | null;
+  website: string | null;
+  instagram: string | null;
+  email: string | null;
+  phone: string | null;
+  inWedding: boolean;
+}
+
+export interface BrowseFilter {
+  category?: string | null;
+  q?: string | null;
+  location?: string | null;
+  limit: number;
+  offset: number;
 }
 
 // ── Internal row types ────────────────────────────────────────────────────────
@@ -232,6 +256,11 @@ function requireVendor(
     if (!row) return yield* Effect.fail(new VendorNotInWedding());
     return row as VendorRow;
   });
+}
+
+/** Escape %, _ and the escape char for a LIKE pattern (used with ESCAPE '\'). */
+function escapeLike(term: string): string {
+  return term.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
@@ -556,6 +585,157 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
         const categories = yield* fetchCategories(dvRow.id);
         return toDto(dvRow, categories);
       }).pipe(Effect.withSpan("cire.directory.consumeClaim"));
+    },
+
+    browse(
+      weddingId: string,
+      filter: BrowseFilter,
+    ): Effect.Effect<{ listings: BrowseListingDto[]; total: number }, never, DbService> {
+      return Effect.gen(function* () {
+        const db = yield* DbService;
+
+        const conds = [eq(directoryVendors.listed, "live")];
+        if (filter.q && filter.q.trim() !== "") {
+          const t = `%${escapeLike(filter.q.trim())}%`;
+          conds.push(
+            sql`(lower(${directoryVendors.name}) LIKE lower(${t}) ESCAPE '\\' OR lower(coalesce(${directoryVendors.description}, '')) LIKE lower(${t}) ESCAPE '\\')`,
+          );
+        }
+        if (filter.location && filter.location.trim() !== "") {
+          const t = `%${escapeLike(filter.location.trim())}%`;
+          conds.push(
+            sql`lower(coalesce(${directoryVendors.locationText}, '')) LIKE lower(${t}) ESCAPE '\\'`,
+          );
+        }
+        if (filter.category) {
+          conds.push(
+            sql`EXISTS (SELECT 1 FROM ${directoryVendorCategories} dvc WHERE dvc.directory_vendor_id = "directory_vendors"."id" AND dvc.category = ${filter.category})`,
+          );
+        }
+        const whereExpr = and(...conds);
+
+        // count(*) and the page SELECT share the same whereExpr but have no
+        // data dependency — run them concurrently to save one D1 round-trip.
+        const [countResult, rows] = yield* Effect.all(
+          [
+            dbQuery(() =>
+              db
+                .select({ n: sql<number>`count(*)` })
+                .from(directoryVendors)
+                .where(whereExpr)
+                .all(),
+            ),
+            dbQuery(() =>
+              db
+                .select({
+                  id: directoryVendors.id,
+                  name: directoryVendors.name,
+                  description: directoryVendors.description,
+                  locationText: directoryVendors.locationText,
+                  priceBand: directoryVendors.priceBand,
+                  priceMinMinor: directoryVendors.priceMinMinor,
+                  priceMaxMinor: directoryVendors.priceMaxMinor,
+                  website: directoryVendors.website,
+                  instagram: directoryVendors.instagram,
+                  email: directoryVendors.email,
+                  phone: directoryVendors.phone,
+                  inWedding: sql<number>`EXISTS (SELECT 1 FROM ${vendors} v WHERE v.wedding_id = ${weddingId} AND v.directory_vendor_id = "directory_vendors"."id")`,
+                })
+                .from(directoryVendors)
+                .where(whereExpr)
+                .orderBy(asc(directoryVendors.name), asc(directoryVendors.id))
+                .limit(filter.limit)
+                .offset(filter.offset)
+                .all(),
+            ),
+          ],
+          { concurrency: 2 },
+        );
+        const [countRow] = countResult;
+        const total = (countRow as { n: number } | undefined)?.n ?? 0;
+
+        const pageRows = rows as {
+          id: string;
+          name: string;
+          description: string | null;
+          locationText: string | null;
+          priceBand: string | null;
+          priceMinMinor: number | null;
+          priceMaxMinor: number | null;
+          website: string | null;
+          instagram: string | null;
+          email: string | null;
+          phone: string | null;
+          inWedding: number;
+        }[];
+
+        const ids = pageRows.map((r) => r.id);
+        const catRows =
+          ids.length === 0
+            ? []
+            : ((yield* dbQuery(() =>
+                db
+                  .select({
+                    dv: directoryVendorCategories.directoryVendorId,
+                    category: directoryVendorCategories.category,
+                  })
+                  .from(directoryVendorCategories)
+                  .where(inArray(directoryVendorCategories.directoryVendorId, ids))
+                  .all(),
+              )) as { dv: string; category: string }[]);
+        const catsById = new Map<string, string[]>();
+        for (const r of catRows) {
+          const arr = catsById.get(r.dv) ?? [];
+          arr.push(r.category);
+          catsById.set(r.dv, arr);
+        }
+
+        const listings: BrowseListingDto[] = pageRows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          categories: catsById.get(r.id) ?? [],
+          locationText: r.locationText,
+          priceBand: r.priceBand,
+          priceMinMinor: r.priceMinMinor,
+          priceMaxMinor: r.priceMaxMinor,
+          website: r.website,
+          instagram: r.instagram,
+          email: r.email,
+          phone: r.phone,
+          inWedding: Boolean(r.inWedding),
+        }));
+
+        return { listings, total };
+      }).pipe(
+        Effect.withSpan("cire.directory.browse"),
+        // Fail-soft: a query error yields empty results, never a dashboard-blanking 500.
+        Effect.catchAllDefect(() =>
+          Effect.gen(function* () {
+            yield* Effect.logWarning("cire.directory.browse failed").pipe(
+              Effect.annotateLogs({ weddingId }),
+            );
+            return { listings: [] as BrowseListingDto[], total: 0 };
+          }),
+        ),
+      );
+    },
+
+    getLiveListingById(id: string): Effect.Effect<ListingDto | null, never, DbService> {
+      return Effect.gen(function* () {
+        const db = yield* DbService;
+        const [row] = yield* dbQuery(() =>
+          db
+            .select()
+            .from(directoryVendors)
+            .where(and(eq(directoryVendors.id, id), eq(directoryVendors.listed, "live")))
+            .all(),
+        );
+        if (!row) return null;
+        const dvRow = row as DvRow;
+        const categories = yield* fetchCategories(dvRow.id);
+        return toDto(dvRow, categories);
+      }).pipe(Effect.withSpan("cire.directory.getLiveListingById"));
     },
   };
 }

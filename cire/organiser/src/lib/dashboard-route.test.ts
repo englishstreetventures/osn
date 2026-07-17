@@ -7,6 +7,7 @@ import {
   isModule,
   isSubOf,
   LIST_ROUTE,
+  MODULE_SUBS,
   MODULES,
   parseRoute,
   serializeRoute,
@@ -286,5 +287,13 @@ describe("checklist module route", () => {
     expect(
       serializeRoute({ view: "weddings", weddingId: "wed_1", module: "checklist", sub: "index" }),
     ).toBe("#/w/wed_1/checklist");
+  });
+});
+
+describe("vendors module Browse sub-tab", () => {
+  it("vendors module exposes index + browse subs", () => {
+    expect(MODULE_SUBS.vendors).toEqual(["index", "browse"]);
+    expect(isSubOf("vendors", "browse")).toBe(true);
+    expect(defaultSub("vendors")).toBe("index");
   });
 });

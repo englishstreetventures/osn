@@ -87,3 +87,8 @@ export const UpsertListingBody = Schema.Struct({
 export const ConsumeClaimBody = Schema.Struct({
   orgId: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(50)),
 });
+
+/** Organiser adds a directory listing to their wedding CRM under one category. */
+export const AddFromDirectoryBody = Schema.Struct({
+  category: CategoryKey,
+});

@@ -519,3 +519,260 @@ describe("directoryService.consumeClaim", () => {
     ).toBe(true);
   });
 });
+
+// ── browse + getLiveListingById ────────────────────────────────────────────────
+// Seed: live listing LA (categories venue+catering, Sydney, "garden venue" desc),
+//       live listing LB (photography, Melbourne, name "Bloom Photo"),
+//       draft listing LD (venue),
+//       wedding W1 (with a CRM vendor linked to LA), wedding W2 (no vendors).
+describe("directoryService.browse + getLiveListingById", () => {
+  function makeDb() {
+    const db = createDb(":memory:");
+    const now = new Date();
+
+    // Weddings W1 and W2
+    db.insert(weddings)
+      .values({
+        id: "W1",
+        slug: "wedding-w1",
+        displayName: "Wedding W1",
+        ownerOsnProfileId: "usr_w1",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(weddings)
+      .values({
+        id: "W2",
+        slug: "wedding-w2",
+        displayName: "Wedding W2",
+        ownerOsnProfileId: "usr_w2",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    // Live listing LA — venue + catering, Sydney, description contains "garden venue"
+    db.insert(directoryVendors)
+      .values({
+        id: "LA",
+        ownerOrgId: "org_la",
+        name: "Acorn Estate",
+        description: "Beautiful garden venue for weddings",
+        email: "hello@acorn.com",
+        phone: null,
+        website: null,
+        instagram: null,
+        locationText: "Sydney",
+        priceBand: null,
+        priceMinMinor: null,
+        priceMaxMinor: null,
+        listed: "live",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(directoryVendorCategories)
+      .values([
+        { directoryVendorId: "LA", category: "venue" },
+        { directoryVendorId: "LA", category: "catering" },
+      ])
+      .run();
+
+    // Live listing LB — photography, Melbourne, name "Bloom Photo"
+    db.insert(directoryVendors)
+      .values({
+        id: "LB",
+        ownerOrgId: "org_lb",
+        name: "Bloom Photo",
+        description: null,
+        email: "hi@bloom.com",
+        phone: null,
+        website: null,
+        instagram: null,
+        locationText: "Melbourne",
+        priceBand: null,
+        priceMinMinor: null,
+        priceMaxMinor: null,
+        listed: "live",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(directoryVendorCategories)
+      .values([{ directoryVendorId: "LB", category: "photography" }])
+      .run();
+
+    // Draft listing LD — venue (excluded from browse)
+    db.insert(directoryVendors)
+      .values({
+        id: "LD",
+        ownerOrgId: null,
+        name: "Draft Venue",
+        description: null,
+        email: null,
+        phone: null,
+        website: null,
+        instagram: null,
+        locationText: null,
+        priceBand: null,
+        priceMinMinor: null,
+        priceMaxMinor: null,
+        listed: "draft",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(directoryVendorCategories)
+      .values([{ directoryVendorId: "LD", category: "venue" }])
+      .run();
+
+    // CRM vendor in W1 linked to LA (so inWedding=true for LA in W1)
+    db.insert(vendors)
+      .values({
+        id: "ven_w1_la",
+        weddingId: "W1",
+        directoryVendorId: "LA",
+        name: "Acorn Estate",
+        category: "venue",
+        status: "confirmed",
+        contactName: null,
+        email: null,
+        phone: null,
+        notes: null,
+        quotedMinor: null,
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    return db;
+  }
+
+  const svc = createDirectoryService({ vendorPortalOrigin: TEST_ORIGIN });
+
+  function run<A, E>(e: Effect.Effect<A, E, DbService>) {
+    const db = makeDb();
+    return Effect.runPromise(e.pipe(Effect.provideService(DbService, db)));
+  }
+
+  it("returns only live listings", async () => {
+    const { listings, total } = await run(svc.browse("W1", { limit: 24, offset: 0 }));
+    const ids = listings.map((l) => l.id);
+    expect(ids).toContain("LA");
+    expect(ids).toContain("LB");
+    expect(ids).not.toContain("LD"); // draft excluded
+    expect(total).toBe(2);
+  });
+
+  it("filters by category", async () => {
+    const { listings } = await run(
+      svc.browse("W1", { category: "photography", limit: 24, offset: 0 }),
+    );
+    expect(listings.map((l) => l.id)).toEqual(["LB"]);
+  });
+
+  it("filters by keyword across name and description", async () => {
+    expect(
+      (await run(svc.browse("W1", { q: "garden", limit: 24, offset: 0 }))).listings.map(
+        (l) => l.id,
+      ),
+    ).toEqual(["LA"]); // description hit
+    expect(
+      (await run(svc.browse("W1", { q: "bloom", limit: 24, offset: 0 }))).listings.map((l) => l.id),
+    ).toEqual(["LB"]); // name hit, case-insensitive
+  });
+
+  it("filters by location", async () => {
+    expect(
+      (await run(svc.browse("W1", { location: "sydney", limit: 24, offset: 0 }))).listings.map(
+        (l) => l.id,
+      ),
+    ).toEqual(["LA"]);
+  });
+
+  it("paginates with a stable order and reports total", async () => {
+    const page1 = await run(svc.browse("W1", { limit: 1, offset: 0 }));
+    const page2 = await run(svc.browse("W1", { limit: 1, offset: 1 }));
+    expect(page1.total).toBe(2);
+    expect(page2.total).toBe(2);
+    expect(page1.listings[0]!.id).not.toBe(page2.listings[0]!.id);
+  });
+
+  it("sets inWedding true only for listings already in THIS wedding's CRM", async () => {
+    const w1 = await run(svc.browse("W1", { limit: 24, offset: 0 }));
+    const w2 = await run(svc.browse("W2", { limit: 24, offset: 0 }));
+    expect(w1.listings.find((l) => l.id === "LA")!.inWedding).toBe(true);
+    expect(w1.listings.find((l) => l.id === "LB")!.inWedding).toBe(false);
+    expect(w2.listings.find((l) => l.id === "LA")!.inWedding).toBe(false); // scoped to wedding
+  });
+
+  it("getLiveListingById returns a live listing with categories, null for draft/missing", async () => {
+    expect((await run(svc.getLiveListingById("LA")))!.categories.sort()).toEqual([
+      "catering",
+      "venue",
+    ]);
+    expect(await run(svc.getLiveListingById("LD"))).toBeNull(); // draft
+    expect(await run(svc.getLiveListingById("nope"))).toBeNull();
+  });
+
+  it("keyword filter treats % literally (escapeLike fires)", async () => {
+    // Seed a fresh db with two live listings whose names distinguish literal vs wildcard matching.
+    // "100% Cotton Linens" contains a literal '%'.
+    // "10000 Roses" does NOT — but an unescaped '%' in the query "100%" would act as a wildcard
+    // and match both ("100" + anything). With escapeLike the '%' is escaped so only the listing
+    // that literally contains "100%" in its name is returned.
+    const db = makeDb();
+    const now = new Date();
+    db.insert(directoryVendors)
+      .values({
+        id: "LC",
+        ownerOrgId: "org_lc",
+        name: "100% Cotton Linens",
+        description: null,
+        email: "lc@test.com",
+        phone: null,
+        website: null,
+        instagram: null,
+        locationText: null,
+        priceBand: null,
+        priceMinMinor: null,
+        priceMaxMinor: null,
+        listed: "live",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(directoryVendors)
+      .values({
+        id: "LE",
+        ownerOrgId: "org_le",
+        name: "10000 Roses",
+        description: null,
+        email: "le@test.com",
+        phone: null,
+        website: null,
+        instagram: null,
+        locationText: null,
+        priceBand: null,
+        priceMinMinor: null,
+        priceMaxMinor: null,
+        listed: "live",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    const { listings } = await Effect.runPromise(
+      svc
+        .browse("W1", { q: "100%", limit: 24, offset: 0 })
+        .pipe(Effect.provideService(DbService, db)),
+    );
+    const ids = listings.map((l) => l.id);
+    // Must match "100% Cotton Linens" (literal %)
+    expect(ids).toContain("LC");
+    // Must NOT match "10000 Roses" (a wildcard % would make "100%" match "10000...")
+    expect(ids).not.toContain("LE");
+  });
+});

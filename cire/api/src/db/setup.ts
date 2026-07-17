@@ -249,6 +249,7 @@ CREATE TABLE IF NOT EXISTS directory_vendors (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS directory_vendors_owner_idx ON directory_vendors(owner_org_id);
+CREATE INDEX IF NOT EXISTS directory_vendors_listed_idx ON directory_vendors(listed);
 CREATE TABLE IF NOT EXISTS directory_vendor_categories (
   directory_vendor_id TEXT NOT NULL REFERENCES directory_vendors(id) ON DELETE CASCADE,
   category TEXT NOT NULL,
@@ -272,6 +273,7 @@ CREATE TABLE IF NOT EXISTS vendors (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS vendors_wedding_status_idx ON vendors(wedding_id, status, sort_order);
+CREATE UNIQUE INDEX IF NOT EXISTS vendors_wedding_directory_uniq ON vendors(wedding_id, directory_vendor_id) WHERE directory_vendor_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS vendor_claims (
   id TEXT PRIMARY KEY,
   directory_vendor_id TEXT NOT NULL REFERENCES directory_vendors(id) ON DELETE CASCADE,

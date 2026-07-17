@@ -209,6 +209,25 @@ export const vendorsService = {
     }).pipe(Effect.withSpan("cire.vendors.remove"));
   },
 
+  existsForDirectory(
+    weddingId: string,
+    directoryVendorId: string,
+  ): Effect.Effect<boolean, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({ id: vendors.id })
+          .from(vendors)
+          .where(
+            and(eq(vendors.weddingId, weddingId), eq(vendors.directoryVendorId, directoryVendorId)),
+          )
+          .all(),
+      );
+      return Boolean(row);
+    }).pipe(Effect.withSpan("cire.vendors.existsForDirectory"));
+  },
+
   reorder(
     weddingId: string,
     status: string,

@@ -5,7 +5,7 @@ related:
   - "[[cire-auth]]"
   - "[[budget]]"
   - "[[checklist-tasks]]"
-last-reviewed: 2026-07-17
+last-reviewed: 2026-07-18
 ---
 
 # Vendors — directory, CRM, and email-verification claim
@@ -192,6 +192,45 @@ The `/claim?token=<raw>` URL carries a 256-bit claim secret. Two defences preven
 ### Auth flow
 
 `@osn/client/solid` `createOsnSession` hook manages the OSN access JWT + silent token refresh (HttpOnly session cookie on `id.cireweddings.com`). `authFetch` in `cire/vendor/src/lib/auth-fetch.ts` wraps `fetch` with the current access JWT and handles 401→silent-refresh→retry. No cire guest cookie is involved — the vendor portal uses OSN identity only.
+
+---
+
+## Directory browse (organiser, S3)
+
+Shipped 2026-07-18. Adds a **Browse** sub-tab inside the organiser Vendors module, backed by two new API endpoints.
+
+### `GET /api/organiser/weddings/:weddingId/directory`
+
+Gate: `weddingMember()` (any role — owner, editor, or viewer can browse).
+
+Returns **live-only** (`listed = 'live'`) directory listings. Filters:
+
+| Query param | Behaviour |
+|---|---|
+| `category` | Exact match against `directory_vendor_categories.category` (EXISTS subquery) |
+| `q` | Case-insensitive substring match on `name` + `description` (LIKE with escaped wildcards) |
+| `location` | Case-insensitive substring match on `location_text` |
+| `limit` / `offset` | Pagination (`limit` clamped 1..50 default 24; `offset` ≥0; `total` count returned) |
+
+Each listing in the response includes an `inWedding` boolean — `true` if a `vendors` CRM row already links this listing to the requesting wedding (i.e. it was previously added via the `/add` endpoint below). Organiser contact details (`email`, `phone`) from `directory_vendors` are included in the response and displayed to the wedding's authenticated organisers.
+
+Service: `directoryService.browse` in `cire/api/src/services/directory.ts`. Fail-soft: a DB error returns an empty result set rather than a 500.
+
+### `POST /api/organiser/weddings/:weddingId/directory/:directoryVendorId/add`
+
+Gate: `weddingEditor()` (owner or editor; viewers get 403).
+
+Adds a directory listing to the wedding's Vendor CRM. The handler:
+
+1. Resolves the listing via `directoryService.getLiveListingById` — returns 404 `listing_not_found` if missing or not `listed = 'live'` (draft listings cannot be added).
+2. Validates the request body's `category` is one of the listing's categories (400 `invalid_category` otherwise), then snapshots the listing's `name`, `email`, `phone` into a new `vendors` CRM row for the wedding under the chosen `category`, with `status = 'researching'` and `directory_vendor_id` linked.
+3. Deduplication: an `existsForDirectory` pre-check returns **409** `already_in_wedding` for the common case; the `vendors_wedding_directory_uniq` **partial unique index** (`UNIQUE (wedding_id, directory_vendor_id) WHERE directory_vendor_id IS NOT NULL`) is the hard backstop for a concurrent race (the route maps that `UNIQUE constraint` defect to the same **409** `already_in_wedding`).
+
+Service: `vendorsService.existsForDirectory` (pre-check) + `directoryService.getLiveListingById` + `vendorsService.create`; routes in `cire/api/src/routes/vendor-directory.ts`.
+
+### Migration 0041
+
+Additive index-only migration adding the `vendors_wedding_directory_uniq` partial unique index to the existing `vendors` table. No column changes. Applied by CI (`wrangler d1 migrations apply --remote`) on merge — a prod D1 additive index is non-destructive and requires no downtime.
 
 ---
 

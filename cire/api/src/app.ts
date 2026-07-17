@@ -32,6 +32,10 @@ import {
 import { createPrimaryWeddingRoutes } from "./routes/primary-wedding";
 import { createRsvpRoutes } from "./routes/rsvp";
 import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
+import {
+  createVendorDirectoryReadRoutes,
+  createVendorDirectoryWriteRoutes,
+} from "./routes/vendor-directory";
 import { createVendorPortalRoutes } from "./routes/vendor-portal";
 import { createVendorReadRoutes, createVendorWriteRoutes } from "./routes/vendors";
 import { createDirectoryService } from "./services/directory";
@@ -116,6 +120,12 @@ const defaultVendorPortalLimiter = createRateLimiter({ maxRequests: 20, windowMs
  * report; it still 204s).
  */
 const defaultCspReportLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
+/**
+ * Default per-USER limiter for the vendor directory browse route. 60 reads/min
+ * is generous for a paginated listing UI while capping the D1 query amplifier
+ * from a scripted caller with a valid organiser token.
+ */
+const defaultDirectoryLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 
 export interface AppOptions {
   /** Primary origin (used for the session cookie's `secure` flag). */
@@ -144,6 +154,8 @@ export interface AppOptions {
   cspReportLimiter?: RateLimiterBackend;
   /** Override the vendor portal rate limiter (useful for testing). */
   vendorPortalLimiter?: RateLimiterBackend;
+  /** Override the vendor directory browse per-user rate limiter (useful for testing). */
+  directoryLimiter?: RateLimiterBackend;
   /** R2 bucket binding for the organiser import flow. */
   r2?: R2Bucket;
   /** R2 bucket binding for invite-builder images (separate from `r2`). */
@@ -235,6 +247,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     handleSearchLimiter = defaultHandleSearchLimiter,
     cspReportLimiter = defaultCspReportLimiter,
     vendorPortalLimiter = defaultVendorPortalLimiter,
+    directoryLimiter = defaultDirectoryLimiter,
     r2,
     assets,
     images,
@@ -394,6 +407,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
           emailLayer: vendorEmailLayer,
         }),
       )
+      // Vendor directory browse (platform Phase 2, Vendors Slice 1). Admits
+      // any wedding member (weddingMember). Per-user rate limiter to cap the
+      // D1 query amplifier from scripted callers with valid organiser tokens.
+      .use(createVendorDirectoryReadRoutes(db, osnAuthOptions, directoryLimiter))
+      // Vendor directory add-from-directory write route (platform Phase 2).
+      // weddingEditor-gated (viewer gets 403 read_only_role).
+      .use(createVendorDirectoryWriteRoutes(db, osnAuthOptions, directoryLimiter))
       // Invite builder. Public reads (guest site) + organiser writes split into
       // sibling instances so the guest GET isn't behind osnAuth.
       .use(createInvitePublicRoutes(db, assets, images))
