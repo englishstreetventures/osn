@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[platform-plan]]"
   - "[[future]]"
-last-reviewed: 2026-07-16
+last-reviewed: 2026-07-17
 ---
 
 # Platform
@@ -37,14 +37,11 @@ PR slicing + dependency order in [[platform-plan]] §3.6 (PRs 0–2 parallel; IA
 
 ## Phase 2 — vendors & services
 
-- [ ] **Vendor CRM (wedding-scoped)** — `vendors` table + status board UI (researching → booked); category filter; `available_on_date` recorded fact; booking creates/links a budget item + ticks matching tasks
+- [x] **Vendors Slice 1 PR A (foundation + CRM + claim backend) SHIPPED 2026-07-17** — four new tables (`directory_vendors`, `directory_vendor_categories`, `vendors`, `vendor_claims`, migration 0040); wedding-scoped organiser Vendor CRM (`vendorsService` + `/api/organiser/weddings/:weddingId/vendors` routes + `VendorsView` module); directory listing + email-verification claim service (`directoryService`); vendor-portal routes `/api/vendor/*` gated by `vendorOrgMember()` (OSN org membership resolved over ARC `org:read`); fail-soft claim-invite email (`vendor-claim-invite` template in `@shared/email`). See [[systems/vendors]]. **PR B (the `vendor.cireweddings.com` portal app + infra) is next.**
 - [ ] **Venue link** — `events.venue_vendor_id` so a booked venue attaches to a Schedule event
-- [ ] **Directory schema** — global `directory_vendors` + `wedding_vendor_links` (shortlist) + "import to CRM"
 - [ ] **Directory search** — lat/lng bounding-box prefilter + haversine order on D1, radius from the wedding's canonical point; dedicated rate limiter
 - [ ] **Availability** — `vendor_availability` per-day status; "available on your date" badge in search (badge, not filter-out)
-- [ ] **Vendor self-serve** — OSN-account sign-in (`osnAuth()` + listing-ownership authz); listing editor + availability calendar; moderation/`suspended` state before opening claims
 - [ ] **Enquiries** — `vendor_enquiries` + messages; quotes feed `budget_items.quoted_minor`; spam limiter
-- [ ] **Compliance** — data-map + retention rows for vendor contact PII and enquiry content
 
 ## Phase 3 — pricing estimates
 

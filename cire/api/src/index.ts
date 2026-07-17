@@ -1,3 +1,4 @@
+import { makeLogEmailLive, makeResendEmailLive } from "@shared/email";
 import { loadConfig } from "@shared/observability/config";
 import { createWorkersRateLimiter } from "@shared/rate-limit";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
@@ -13,6 +14,7 @@ import {
   createAccountResolverFromEnv,
   createHandleResolverFromEnv,
   createHandleSearchResolverFromEnv,
+  createOrgMembershipResolverFromEnv,
   createProfileDisplayResolverFromEnv,
 } from "./services/osn-bridge";
 import { retentionService } from "./services/retention";
@@ -59,6 +61,11 @@ export interface Env {
   // RSVP endpoints require a valid Turnstile token (fail-closed); unset ⇒ those
   // gates are skipped. `wrangler secret put TURNSTILE_SECRET_KEY`.
   TURNSTILE_SECRET_KEY?: string;
+  // Resend API key for transactional email (vendor claim-invite emails). When
+  // set, the vendor list-in-directory endpoint dispatches via Resend; absent ⇒
+  // falls back to LogEmailLive (emails captured in-memory / logged). Fail-soft:
+  // never throws on boot, just degrades gracefully.
+  RESEND_API_KEY?: string;
 }
 
 // P-W1: the Elysia app graph (root + cors + route factories + auth plugins) is
@@ -185,6 +192,24 @@ const handler: ExportedHandler<Env> = {
           arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
           arcKeyId: env.CIRE_API_ARC_KEY_ID,
         })) ?? undefined;
+      // Org-membership resolver for the vendor portal org-gate (org:read scope,
+      // ARC-authenticated). Returns the fail-soft null-resolver when the ARC
+      // config is absent — all org-gated vendor routes answer 403 (not a member)
+      // rather than 503, consistent with the "no ARC key = access denied" model.
+      const orgMembership = await createOrgMembershipResolverFromEnv({
+        osnApiUrl: env.OSN_API_URL,
+        arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+        arcKeyId: env.CIRE_API_ARC_KEY_ID,
+      });
+      // Email layer for vendor claim-invite emails. Uses Resend when the API key
+      // is present (deployed tiers); falls back to LogEmailLive (no network) so
+      // the worker boots cleanly without the key (local dev + bun:sqlite tests).
+      const emailLayer = env.RESEND_API_KEY
+        ? makeResendEmailLive({
+            apiKey: env.RESEND_API_KEY,
+            fromAddress: "hello@cireweddings.com",
+          })
+        : makeLogEmailLive().layer;
       // C1/C4/AL-S-L1: prefer the native Workers rate-limit binding (global +
       // atomic) for every pre-auth / amplifier surface — claim (brute-force),
       // account-link (ARC-sign + S2S amplifier, membership oracle), invite
@@ -216,6 +241,8 @@ const handler: ExportedHandler<Env> = {
           resolveOsnProfileDisplays,
           resolveOsnHandleSearch,
           turnstileVerifier,
+          orgMembership,
+          emailLayer,
         }),
       };
     }

@@ -231,6 +231,57 @@ CREATE TABLE IF NOT EXISTS payments (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS payments_item_idx ON payments(budget_item_id);
+CREATE TABLE IF NOT EXISTS directory_vendors (
+  id TEXT PRIMARY KEY,
+  owner_org_id TEXT,
+  name TEXT NOT NULL,
+  description TEXT,
+  email TEXT,
+  phone TEXT,
+  website TEXT,
+  instagram TEXT,
+  location_text TEXT,
+  price_band TEXT,
+  price_min_minor INTEGER,
+  price_max_minor INTEGER,
+  listed TEXT NOT NULL DEFAULT 'draft',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS directory_vendors_owner_idx ON directory_vendors(owner_org_id);
+CREATE TABLE IF NOT EXISTS directory_vendor_categories (
+  directory_vendor_id TEXT NOT NULL REFERENCES directory_vendors(id) ON DELETE CASCADE,
+  category TEXT NOT NULL,
+  PRIMARY KEY (directory_vendor_id, category)
+);
+CREATE INDEX IF NOT EXISTS directory_vendor_categories_category_idx ON directory_vendor_categories(category);
+CREATE TABLE IF NOT EXISTS vendors (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  directory_vendor_id TEXT,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'researching',
+  contact_name TEXT,
+  email TEXT,
+  phone TEXT,
+  notes TEXT,
+  quoted_minor INTEGER,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS vendors_wedding_status_idx ON vendors(wedding_id, status, sort_order);
+CREATE TABLE IF NOT EXISTS vendor_claims (
+  id TEXT PRIMARY KEY,
+  directory_vendor_id TEXT NOT NULL REFERENCES directory_vendors(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  email TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  consumed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS vendor_claims_vendor_idx ON vendor_claims(directory_vendor_id);
 `;
 
 export function createDb(path: string = ":memory:"): Db {

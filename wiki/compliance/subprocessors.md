@@ -8,7 +8,7 @@ related:
   - "[[soc2]]"
   - "[[data-map]]"
   - "[[cire]]"
-last-reviewed: 2026-07-10
+last-reviewed: 2026-07-17
 ---
 
 # Subprocessor Register
@@ -25,7 +25,7 @@ that touches personal data adds a row before merge. The
 
 | Vendor | Service | Data category | Region | DPA on file? | SCC / adequacy basis | Last review | Risk |
 |---|---|---|---|---|---|---|---|
-| Resend (Plus Five Five, Inc.) | Resend HTTP API (transactional outbound — **live transport**, `api.resend.com/emails`) | Recipient email + message body (OTPs, security notices: passkey added/removed, recovery codes, cross-device login) | US | **TODO — sign Resend DPA** | **TODO — EU→US transfer basis (DPF self-cert or SCCs) to confirm before the `RESEND_API_KEY` secret is set in any EU-data env** | 2026-06-18 | Medium — has email content. Now the live transactional-email processor (supersedes Cloudflare Email Service). |
+| Resend (Plus Five Five, Inc.) | Resend HTTP API (transactional outbound — **live transport**, `api.resend.com/emails`) | Recipient email + message body (OTPs, security notices: passkey added/removed, recovery codes, cross-device login; **vendor claim-invite emails from cire-api with vendor sole-trader email address**) | US | **TODO — sign Resend DPA** | **TODO — EU→US transfer basis (DPF self-cert or SCCs) to confirm before the `RESEND_API_KEY` secret is set in any EU-data env** | 2026-07-17 | Medium — has email content. Now the live transactional-email processor (supersedes Cloudflare Email Service). Senders: osn-api (security notices), cire-api (claim invites). |
 | Cloudflare, Inc. | Cloudflare Email Service (transactional outbound — **legacy fallback**, superseded by Resend) | Recipient email + message body (OTPs, security notices) | US | **TODO — sign Cloudflare DPA** | EU SCCs (template in DPA) | — | Medium — has email content. Used only if `RESEND_API_KEY` is absent. |
 | Cloudflare, Inc. | Cloudflare DNS / TLS edge (planned for production) | IP, request metadata | US | Same DPA | EU SCCs | — | Low — transient. |
 | Cloudflare, Inc. | Cloudflare D1 + R2 (`cire-sheets`) — cire wedding-invite store | **Guest PII at volume**: family names, guest names, RSVP status, **special-category dietary free-text (Art. 9)**, guest claim codes; raw organiser CSV uploads in R2 | US (account region — confirm D1/R2 location) | Same Cloudflare DPA | EU SCCs | — | **High — first persistent special-category store (dietary) + a separate DB Cloudflare now hosts as data store, not just edge. Confirm D1/R2 data-residency under the DPA.** |

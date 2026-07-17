@@ -19,6 +19,7 @@ import {
   renderRecoveryConsumed,
   renderRecoveryGenerated,
 } from "./security";
+import { renderVendorClaimInvite, type VendorClaimInviteData } from "./vendor-claim";
 
 /** Canonical list of templates. Keep sorted; one per outbound auth email. */
 export type EmailTemplate =
@@ -29,7 +30,8 @@ export type EmailTemplate =
   | "recovery-consumed"
   | "passkey-added"
   | "passkey-removed"
-  | "cross-device-login";
+  | "cross-device-login"
+  | "vendor-claim-invite";
 
 /** Typed data bag per template. Extend the map when adding a template. */
 export interface EmailTemplateDataMap {
@@ -41,6 +43,7 @@ export interface EmailTemplateDataMap {
   "passkey-added": Record<string, never>;
   "passkey-removed": Record<string, never>;
   "cross-device-login": Record<string, never>;
+  "vendor-claim-invite": { claimUrl: string; vendorName: string };
 }
 
 export type EmailTemplateData<T extends EmailTemplate> = EmailTemplateDataMap[T];
@@ -78,6 +81,8 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderPasskeyRemoved();
     case "cross-device-login":
       return renderCrossDeviceLogin();
+    case "vendor-claim-invite":
+      return renderVendorClaimInvite(data as EmailTemplateData<"vendor-claim-invite">);
   }
   // Exhaustive — compile error if a template is added without a branch.
   const _exhaustive: never = template;
@@ -93,4 +98,7 @@ export {
   renderPasskeyAdded,
   renderPasskeyRemoved,
   renderCrossDeviceLogin,
+  renderVendorClaimInvite,
 };
+
+export type { VendorClaimInviteData };

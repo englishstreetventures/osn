@@ -34,6 +34,11 @@ const ARC_SCOPE = "graph:read";
  * pulse-onboarding: least privilege on the multi-account privacy invariant).
  */
 const ARC_RESOLVE_ACCOUNT_SCOPE = "graph:resolve-account";
+/**
+ * Scope for org-membership resolution — osn-api's
+ * `/organisations/internal/*` requires this dedicated scope.
+ */
+const ARC_ORG_READ_SCOPE = "org:read";
 
 /** Outcome of resolving an OSN profile id to its owning account id. */
 export type OsnAccountResolution =
@@ -390,6 +395,138 @@ export async function createHandleSearchResolverFromEnv(env: {
   const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk).catch(() => null);
   if (!arcPrivateKey) return null;
   return createArcHandleSearchResolver({
+    osnApiUrl: env.osnApiUrl,
+    arcPrivateKey,
+    arcKeyId: env.arcKeyId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Org-membership resolvers (Vendors platform — uses `org:read` scope)
+// ---------------------------------------------------------------------------
+
+/**
+ * Lists the organisation ids that a profile belongs to.
+ * FAIL-SOFT: any transport/infra failure resolves to an EMPTY array — the
+ * caller treats an absent org list as "no org memberships" rather than
+ * propagating an error. Mirrors {@link createArcProfileDisplayResolver}.
+ */
+export type OsnProfileOrgsResolver = (profileId: string) => Promise<string[]>;
+
+/**
+ * Builds an {@link OsnProfileOrgsResolver} backed by a real ARC-authenticated
+ * call to `GET /organisations/internal/profile-orgs`. Uses the `org:read`
+ * scope (distinct from `graph:read`) — cire-api's registration must include
+ * `org:read` in `allowedScopes` for this call to succeed.
+ */
+export function createArcProfileOrgsResolver(config: ArcResolverConfig): OsnProfileOrgsResolver {
+  const base = config.osnApiUrl.replace(/\/+$/, "");
+
+  return async (profileId) => {
+    try {
+      const token = await signArcToken(config.arcPrivateKey, {
+        iss: ARC_ISSUER,
+        aud: ARC_AUDIENCE,
+        scope: ARC_ORG_READ_SCOPE,
+        kid: config.arcKeyId,
+      });
+
+      const res = await instrumentedFetch(
+        `${base}/organisations/internal/profile-orgs?profileId=${encodeURIComponent(profileId)}`,
+        { headers: { authorization: `ARC ${token}` } },
+      );
+
+      if (!res.ok) return [];
+
+      const data = (await res.json()) as { organisationIds?: unknown };
+      if (!Array.isArray(data.organisationIds)) return [];
+
+      return (data.organisationIds as unknown[]).filter(
+        (id): id is string => typeof id === "string",
+      );
+    } catch {
+      // FAIL-SOFT: never let an org-list lookup failure break the caller.
+      return [];
+    }
+  };
+}
+
+/**
+ * Resolves the role a profile holds in an organisation, or `null` when they
+ * are not a member. FAIL-SOFT: any transport/infra failure returns `null` —
+ * the caller treats a missing role as "not a member / access denied" rather
+ * than propagating an error.
+ */
+export type OsnOrgMembershipResolver = (
+  orgId: string,
+  profileId: string,
+) => Promise<"admin" | "member" | null>;
+
+/**
+ * Builds an {@link OsnOrgMembershipResolver} backed by a real ARC-authenticated
+ * call to `GET /organisations/internal/membership`. Same `org:read` scope as
+ * {@link createArcProfileOrgsResolver}.
+ */
+export function createArcOrgMembershipResolver(
+  config: ArcResolverConfig,
+): OsnOrgMembershipResolver {
+  const base = config.osnApiUrl.replace(/\/+$/, "");
+
+  return async (orgId, profileId) => {
+    try {
+      const token = await signArcToken(config.arcPrivateKey, {
+        iss: ARC_ISSUER,
+        aud: ARC_AUDIENCE,
+        scope: ARC_ORG_READ_SCOPE,
+        kid: config.arcKeyId,
+      });
+
+      const res = await instrumentedFetch(
+        `${base}/organisations/internal/membership?orgId=${encodeURIComponent(orgId)}&profileId=${encodeURIComponent(profileId)}`,
+        { headers: { authorization: `ARC ${token}` } },
+      );
+
+      if (!res.ok) return null;
+
+      const data = (await res.json()) as { role?: unknown };
+      if (data.role === "admin" || data.role === "member") return data.role;
+      return null;
+    } catch {
+      // FAIL-SOFT: a non-member or unreachable osn-api is treated identically —
+      // access denied.
+      return null;
+    }
+  };
+}
+
+/**
+ * Builds the org-membership resolver from raw env material — the sibling of
+ * {@link createHandleSearchResolverFromEnv}. Returns the fail-soft default
+ * (`() => Promise.resolve(null)`) when any ARC piece is absent so a deployment
+ * without the ARC key simply denies all org-gated requests (fail-closed in
+ * practice, since `null` from the resolver means "not a member"), never
+ * failing to boot. A present-but-invalid key degrades the same way.
+ *
+ * Unlike the account/handle resolvers (which return `null` to signal "feature
+ * disabled → 503"), this returns the null-resolver directly because 403
+ * (not-a-member) is already the safe failure mode for org-gated routes — a
+ * missing ARC key means no vendor portal access, not a 503 boot failure.
+ */
+export async function createOrgMembershipResolverFromEnv(env: {
+  osnApiUrl?: string;
+  arcPrivateKeyJwk?: string;
+  arcKeyId?: string;
+}): Promise<OsnOrgMembershipResolver> {
+  const failSoft: OsnOrgMembershipResolver = () => Promise.resolve(null);
+  if (!env.osnApiUrl || !env.arcPrivateKeyJwk || !env.arcKeyId) {
+    return failSoft;
+  }
+  // Present-but-INVALID key ⇒ degrade like absent (all org-gated routes answer
+  // 403) instead of throwing on every request. See createAccountResolverFromEnv
+  // for the incident this guards against.
+  const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk).catch(() => null);
+  if (!arcPrivateKey) return failSoft;
+  return createArcOrgMembershipResolver({
     osnApiUrl: env.osnApiUrl,
     arcPrivateKey,
     arcKeyId: env.arcKeyId,

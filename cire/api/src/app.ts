@@ -1,8 +1,9 @@
 import { cors } from "@elysiajs/cors";
+import { EmailService, makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { Elysia } from "elysia";
 
 import type { Db } from "./db";
@@ -30,12 +31,16 @@ import {
 import { createPrimaryWeddingRoutes } from "./routes/primary-wedding";
 import { createRsvpRoutes } from "./routes/rsvp";
 import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
+import { createVendorPortalRoutes } from "./routes/vendor-portal";
+import { createVendorReadRoutes, createVendorWriteRoutes } from "./routes/vendors";
+import { createDirectoryService } from "./services/directory";
 import type { AssetsBucket } from "./services/invite-assets";
 import type { ImagesBindingLike } from "./services/invite-image-transform";
 import type {
   OsnAccountResolver,
   OsnHandleResolver,
   OsnHandleSearchResolver,
+  OsnOrgMembershipResolver,
   OsnProfileDisplayResolver,
 } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
@@ -89,6 +94,12 @@ const defaultHostLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000
  */
 const defaultHandleSearchLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 /**
+ * Default per-IP limiter for the vendor portal routes (S-L1). Covers both the
+ * unauthenticated claim preview (DB-query amplifier) and the ARC-calling consume
+ * endpoint; 20 req/min is generous for hand-use while bounding amplification.
+ */
+const defaultVendorPortalLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
+/**
  * Default per-IP limiter for the PUBLIC CSP report collector. The endpoint is
  * unauthenticated (browsers POST here with no creds), so this is a generous
  * bucket purely to cap a log-spam DoS — a real visitor emits a handful of
@@ -120,6 +131,8 @@ export interface AppOptions {
   handleSearchLimiter?: RateLimiterBackend;
   /** Override the public CSP-report collector rate limiter (useful for testing). */
   cspReportLimiter?: RateLimiterBackend;
+  /** Override the vendor portal rate limiter (useful for testing). */
+  vendorPortalLimiter?: RateLimiterBackend;
   /** R2 bucket binding for the organiser import flow. */
   r2?: R2Bucket;
   /** R2 bucket binding for invite-builder images (separate from `r2`). */
@@ -174,6 +187,26 @@ export interface AppOptions {
    * and fail-closed. Built once per isolate in `index.ts`; tests inject a stub.
    */
   turnstileVerifier?: TurnstileVerifier | null;
+  /**
+   * Directory service for vendor listing + claim flow. Defaults to the
+   * singleton `directoryService` (prod config). Tests inject a stub with a
+   * local `vendorPortalOrigin`.
+   */
+  directoryService?: ReturnType<typeof createDirectoryService>;
+  /**
+   * Email transport layer for vendor claim-invite emails. Defaults to
+   * `LogEmailLive` (no network). Tests inject their own `LogEmailLive`
+   * instance; production index.ts injects `ResendEmailLive` when
+   * `RESEND_API_KEY` is set.
+   */
+  emailLayer?: Layer.Layer<EmailService>;
+  /**
+   * Resolves whether an OSN profile is a member of an org (server-to-server,
+   * ARC) for the vendor portal org-gate. When omitted, the vendor portal
+   * routes answer 403 for all org-gated requests (fail-closed — no ARC key
+   * means no vendor portal access). Tests inject a stub.
+   */
+  orgMembership?: OsnOrgMembershipResolver;
 }
 
 export function createApp(db: Db, options: AppOptions = {}) {
@@ -189,6 +222,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     hostLimiter = defaultHostLimiter,
     handleSearchLimiter = defaultHandleSearchLimiter,
     cspReportLimiter = defaultCspReportLimiter,
+    vendorPortalLimiter = defaultVendorPortalLimiter,
     r2,
     assets,
     images,
@@ -200,8 +234,19 @@ export function createApp(db: Db, options: AppOptions = {}) {
     resolveOsnProfileDisplays,
     resolveOsnHandleSearch,
     turnstileVerifier = null,
+    directoryService: directoryServiceOption,
+    emailLayer: emailLayerOption,
+    orgMembership,
   } = options;
   const corsOrigins = allowedOrigins ?? [webOrigin];
+
+  // Vendor CRM deps — use injected instances (tests) or module-level defaults
+  // (production). The email layer defaults to LogEmailLive so tests that don't
+  // inject one still work without network access.
+  const vendorDirectoryService = directoryServiceOption ?? createDirectoryService();
+  const vendorEmailLayer = emailLayerOption ?? makeLogEmailLive().layer;
+  // Fail-closed default: no ARC key means no org membership can be verified.
+  const vendorOrgMembership = orgMembership ?? (() => Promise.resolve(null));
 
   const osnAuthOptions = {
     jwksUrl: osnJwksUrl,
@@ -324,6 +369,18 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createTaskWriteRoutes(db, osnAuthOptions))
       .use(createBudgetReadRoutes(db, osnAuthOptions))
       .use(createBudgetWriteRoutes(db, osnAuthOptions))
+      // Vendor CRM (platform Phase 1). Reads admit any member role (weddingMember);
+      // writes require editor or owner (weddingEditor; viewer gets 403
+      // read_only_role). Split into sibling instances so the read gate never
+      // cross-contaminates with the write gate. Write factory carries
+      // directoryService + emailLayer for the list-in-directory endpoint.
+      .use(createVendorReadRoutes(db, osnAuthOptions))
+      .use(
+        createVendorWriteRoutes(db, osnAuthOptions, {
+          directoryService: vendorDirectoryService,
+          emailLayer: vendorEmailLayer,
+        }),
+      )
       // Invite builder. Public reads (guest site) + organiser writes split into
       // sibling instances so the guest GET isn't behind osnAuth.
       .use(createInvitePublicRoutes(db, assets, images))
@@ -340,6 +397,16 @@ export function createApp(db: Db, options: AppOptions = {}) {
           accountLinkLimiter,
           resolveOsnAccountId,
           webOrigin,
+        ),
+      )
+      // Vendor-facing portal: listing self-management + claim redemption.
+      // Mounted at /api/vendor (NOT under the wedding/organiser group).
+      .use(
+        createVendorPortalRoutes(
+          db,
+          { directoryService: vendorDirectoryService, orgMembership: vendorOrgMembership },
+          osnAuthOptions,
+          vendorPortalLimiter,
         ),
       )
   );

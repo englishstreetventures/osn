@@ -21,6 +21,7 @@
         "@cire/theme": "workspace:*",
         "@elysiajs/cors": "^1.4.2",
         "@shared/crypto": "workspace:*",
+        "@shared/email": "workspace:*",
         "@shared/observability": "workspace:*",
         "@shared/osn-auth-client": "workspace:*",
         "@shared/rate-limit": "workspace:*",
@@ -125,7 +126,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.9.2",
+      "version": "3.9.5",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@osn/db": "workspace:*",

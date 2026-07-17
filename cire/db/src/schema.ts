@@ -332,6 +332,86 @@ export const payments = sqliteTable(
   (t) => [index("payments_item_idx").on(t.budgetItemId)],
 );
 
+// Vendors Slice 1 (platform Phase 2, migration 0040).
+// directory_vendors: the global business listing (one per OSN org).
+export const directoryVendors = sqliteTable(
+  "directory_vendors",
+  {
+    id: text("id").primaryKey(),
+    ownerOrgId: text("owner_org_id"),
+    name: text("name").notNull(),
+    description: text("description"),
+    email: text("email"),
+    phone: text("phone"),
+    website: text("website"),
+    instagram: text("instagram"),
+    locationText: text("location_text"),
+    priceBand: text("price_band"),
+    priceMinMinor: integer("price_min_minor"),
+    priceMaxMinor: integer("price_max_minor"),
+    listed: text("listed").notNull().default("draft"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [index("directory_vendors_owner_idx").on(t.ownerOrgId)],
+);
+
+// directory_vendor_categories: many service categories per listing.
+export const directoryVendorCategories = sqliteTable(
+  "directory_vendor_categories",
+  {
+    directoryVendorId: text("directory_vendor_id")
+      .notNull()
+      .references(() => directoryVendors.id, { onDelete: "cascade" }),
+    category: text("category").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.directoryVendorId, t.category] }),
+    index("directory_vendor_categories_category_idx").on(t.category),
+  ],
+);
+
+// vendors: the wedding-scoped CRM row (organiser-private).
+export const vendors = sqliteTable(
+  "vendors",
+  {
+    id: text("id").primaryKey(),
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    directoryVendorId: text("directory_vendor_id"),
+    name: text("name").notNull(),
+    category: text("category").notNull(),
+    status: text("status").notNull().default("researching"),
+    contactName: text("contact_name"),
+    email: text("email"),
+    phone: text("phone"),
+    notes: text("notes"),
+    quotedMinor: integer("quoted_minor"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [index("vendors_wedding_status_idx").on(t.weddingId, t.status, t.sortOrder)],
+);
+
+// vendor_claims: email-verification claim tokens (SHA-256 hashed, single-use, TTL).
+export const vendorClaims = sqliteTable(
+  "vendor_claims",
+  {
+    id: text("id").primaryKey(),
+    directoryVendorId: text("directory_vendor_id")
+      .notNull()
+      .references(() => directoryVendors.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    email: text("email").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    consumedAt: integer("consumed_at", { mode: "timestamp" }),
+  },
+  (t) => [index("vendor_claims_vendor_idx").on(t.directoryVendorId)],
+);
+
 export const guestEvents = sqliteTable(
   "guest_events",
   {

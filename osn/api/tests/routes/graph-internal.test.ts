@@ -860,6 +860,28 @@ describe("internal graph routes (ARC-protected)", () => {
       expect(body.error).toContain("Unknown scopes");
     });
 
+    it("accepts org:read scope (needed for cire-api org-membership resolvers)", async () => {
+      // T-R3: org:read must be in PERMITTED_SCOPES so the registration curl in
+      // the §6.2 runbook can widen cire-api's grant to include org:read.
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/register-service", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${SECRET}`,
+          },
+          body: JSON.stringify({
+            ...validBody,
+            keyId: "key-org-read-1",
+            allowedScopes: "graph:read,graph:resolve-account,org:read",
+          }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean };
+      expect(body.ok).toBe(true);
+    });
+
     it("returns 200 and upserts the service account and key", async () => {
       const res = await app.handle(
         new Request("http://localhost/graph/internal/register-service", {

@@ -20,6 +20,7 @@ const MODULE_NAV: ModuleDef[] = [
   { id: "schedule", label: "Schedule", glyph: "◇", hint: "Your ceremony, reception, and more" },
   { id: "checklist", label: "Checklist", glyph: "✓", hint: "Your planning tasks by lead time" },
   { id: "budget", label: "Budget", glyph: "$", hint: "Estimates, quotes, and payments" },
+  { id: "vendors", label: "Vendors", glyph: "⬡", hint: "Track and book your suppliers" },
   { id: "guests", label: "Guests", glyph: "✎", hint: "Households, invites, and RSVPs" },
   { id: "invite", label: "Invite", glyph: "✦", hint: "Photos, story, colours, and codes" },
   { id: "settings", label: "Settings", glyph: "✧", hint: "Profile, budget, and co-hosts" },

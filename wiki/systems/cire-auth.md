@@ -9,21 +9,31 @@ related:
   - "[[data-map]]"
   - "[[access-control]]"
   - "[[arc-tokens]]"
-last-reviewed: 2026-07-12
+last-reviewed: 2026-07-17
 ---
 
-# Cire two-system auth
+# Cire auth model
 
-Cire runs **two deliberately separate auth systems** that never overlap. Guests are wedding attendees who must not be asked to create accounts; organisers are OSN users who own a wedding. The systems differ in credential, storage, transport, and threat model — do not try to unify them.
+Cire runs **three deliberately separate auth principal classes**. Guests are wedding attendees who must not be asked to create accounts; organisers are OSN users who own a wedding; vendors are OSN users who additionally hold membership in an OSN org. The systems differ in credential, storage, transport, and threat model — do not try to unify them.
 
-| | Guests | Organisers |
-|---|---|---|
-| Credential | Family claim code (`families.public_id`) | OSN passkey ([[passkey-primary]]) |
-| Token | Opaque 256-bit session token | ES256 access JWT, `aud: "osn-access"`, 5-min TTL |
-| Storage at rest | SHA-256 hash in cire's `sessions` table | Nothing in cire — verification is stateless via JWKS |
-| Transport | `cire_session` HttpOnly cookie (30 days) | `Authorization: Bearer` via `@osn/client` `authFetch` |
-| Middleware | `sessionAuth()` (`cire/api/src/middleware/auth.ts`) | `osnAuth()` + `weddingOwner()` / `weddingEditor()` / `weddingMember()` |
-| Routes | `/api/rsvp` | `/api/organiser/*` |
+| | Guests | Organisers | Vendors |
+|---|---|---|---|
+| Credential | Family claim code (`families.public_id`) | OSN passkey ([[passkey-primary]]) | OSN passkey + OSN org membership |
+| Token | Opaque 256-bit session token | ES256 access JWT, `aud: "osn-access"`, 5-min TTL | Same access JWT; org membership resolved over ARC (`org:read`) |
+| Storage at rest | SHA-256 hash in cire's `sessions` table | Nothing in cire — verification is stateless via JWKS | Nothing in cire — org membership verified S2S per request |
+| Transport | `cire_session` HttpOnly cookie (30 days) | `Authorization: Bearer` via `@osn/client` `authFetch` | Same Bearer transport |
+| Middleware | `sessionAuth()` (`cire/api/src/middleware/auth.ts`) | `osnAuth()` + `weddingOwner()` / `weddingEditor()` / `weddingMember()` | `osnAuth()` + `vendorOrgMember()` |
+| Routes | `/api/rsvp` | `/api/organiser/*` | `/api/vendor/*` |
+
+## Vendor principal — the third principal class (Phase 2)
+
+Vendors are **OSN account holders who are members of an OSN organisation (`org_*`)**. The vendor's org is the unit of identity in cire's directory — one directory listing per org (`directory_vendors.org_id UNIQUE`). A vendor with multiple brands uses separate OSN orgs.
+
+`vendorOrgMember()` (`cire/api/src/middleware/vendor-org-member.ts`) gates `/api/vendor/*`. It runs `osnAuth()` (access-JWT verification, sets `c.var.osnProfileId`) and then makes an ARC-gated call to `@osn/api` `GET /organisations/internal/:orgId/membership` (**scope `org:read`**) to confirm the caller's OSN profile is an active member of the target org. On success it sets `c.var.vendorOrgId` + `c.var.directoryVendorId`. On ARC failure it fails-soft to **503** (never a bypass). An authenticated-but-non-member caller gets **403**.
+
+The `org:read` scope is the ARC bridge that connects cire-api to osn-api's org-membership resolver. cire-api's ARC key registration (`POST /graph/internal/register-service`) must list `org:read` alongside `graph:read` and `graph:resolve-account` — see [[production-deploy]] §6.2 and the [[arc-tokens]] pattern. Until the widened registration runs **per environment** (after the `@osn/api` `PERMITTED_SCOPES` change deploys), `vendorOrgMember()` fails-soft to null and org-gated vendor writes return **503** — the organiser CRM and claim-link generation work regardless.
+
+See [[systems/vendors]] (cire wiki) for the full vendor principal model, the four new tables, and the email-verification claim flow.
 
 ## Guest path: claim code → session cookie
 

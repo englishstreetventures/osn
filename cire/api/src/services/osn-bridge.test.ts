@@ -7,6 +7,8 @@ import {
   createArcAccountResolver,
   createArcHandleResolver,
   createArcHandleSearchResolver,
+  createArcOrgMembershipResolver,
+  createArcProfileOrgsResolver,
   createHandleResolverFromEnv,
   createHandleSearchResolverFromEnv,
 } from "./osn-bridge";
@@ -429,5 +431,153 @@ describe("createHandleSearchResolverFromEnv", () => {
       arcKeyId: "kid-env",
     });
     expect(resolve).toBeNull();
+  });
+});
+
+describe("createArcProfileOrgsResolver", () => {
+  it("signs an ARC token with org:read scope and returns organisationIds", async () => {
+    const { privateKey } = await testKeyMaterial();
+    let seen: { url: string; auth: string | null } | undefined;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      seen = { url: String(url), auth: headers.get("authorization") };
+      return new Response(JSON.stringify({ organisationIds: ["org_1", "org_2"] }), {
+        status: 200,
+      });
+    }) as typeof fetch;
+
+    const resolve = createArcProfileOrgsResolver({
+      osnApiUrl: "https://osn.example/",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+    const result = await resolve("usr_x");
+
+    expect(result).toEqual(["org_1", "org_2"]);
+    // Trailing slash trimmed; profileId query-encoded.
+    expect(seen?.url).toBe(
+      "https://osn.example/organisations/internal/profile-orgs?profileId=usr_x",
+    );
+    // ARC scheme with a 3-segment JWT.
+    expect(seen?.auth?.startsWith("ARC ")).toBe(true);
+    expect(seen?.auth?.split(".")).toHaveLength(3);
+    // Assert the token carries the org:read scope (not graph:read).
+    const payloadSegment = seen!.auth!.slice("ARC ".length).split(".")[1]!;
+    const payload = JSON.parse(Buffer.from(payloadSegment, "base64url").toString("utf8")) as {
+      scope?: string;
+    };
+    expect(payload.scope).toBe("org:read");
+  });
+
+  it("FAIL-SOFT: returns [] on a non-ok status (osn unavailable)", async () => {
+    const { privateKey } = await testKeyMaterial();
+    globalThis.fetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+
+    const resolve = createArcProfileOrgsResolver({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+    expect(await resolve("usr_x")).toEqual([]);
+  });
+
+  it("FAIL-SOFT: returns [] when fetch throws (network down)", async () => {
+    const { privateKey } = await testKeyMaterial();
+    globalThis.fetch = (async () => {
+      throw new Error("network down");
+    }) as typeof fetch;
+
+    const resolve = createArcProfileOrgsResolver({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+    expect(await resolve("usr_x")).toEqual([]);
+  });
+});
+
+describe("createArcOrgMembershipResolver", () => {
+  it("signs an ARC token with org:read scope and returns the role", async () => {
+    const { privateKey } = await testKeyMaterial();
+    let seen: { url: string; auth: string | null } | undefined;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      seen = { url: String(url), auth: headers.get("authorization") };
+      return new Response(JSON.stringify({ role: "admin" }), { status: 200 });
+    }) as typeof fetch;
+
+    const resolve = createArcOrgMembershipResolver({
+      osnApiUrl: "https://osn.example/",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+    const result = await resolve("org_1", "usr_x");
+
+    expect(result).toBe("admin");
+    // Trailing slash trimmed; params query-encoded.
+    expect(seen?.url).toBe(
+      "https://osn.example/organisations/internal/membership?orgId=org_1&profileId=usr_x",
+    );
+    // ARC scheme with a 3-segment JWT.
+    expect(seen?.auth?.startsWith("ARC ")).toBe(true);
+    expect(seen?.auth?.split(".")).toHaveLength(3);
+    // Assert the token carries the org:read scope.
+    const payloadSegment = seen!.auth!.slice("ARC ".length).split(".")[1]!;
+    const payload = JSON.parse(Buffer.from(payloadSegment, "base64url").toString("utf8")) as {
+      scope?: string;
+    };
+    expect(payload.scope).toBe("org:read");
+  });
+
+  it("returns 'member' when the role is member", async () => {
+    const { privateKey } = await testKeyMaterial();
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ role: "member" }), { status: 200 })) as typeof fetch;
+
+    const resolve = createArcOrgMembershipResolver({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+    expect(await resolve("org_1", "usr_x")).toBe("member");
+  });
+
+  it("FAIL-SOFT: returns null on a non-ok status (osn unavailable)", async () => {
+    const { privateKey } = await testKeyMaterial();
+    globalThis.fetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+
+    const resolve = createArcOrgMembershipResolver({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+    expect(await resolve("org_1", "usr_x")).toBeNull();
+  });
+
+  it("FAIL-SOFT: returns null when fetch throws (network down)", async () => {
+    const { privateKey } = await testKeyMaterial();
+    globalThis.fetch = (async () => {
+      throw new Error("network down");
+    }) as typeof fetch;
+
+    const resolve = createArcOrgMembershipResolver({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+    expect(await resolve("org_1", "usr_x")).toBeNull();
+  });
+
+  it("FAIL-SOFT: returns null when role is an unrecognised value", async () => {
+    const { privateKey } = await testKeyMaterial();
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ role: "superadmin" }), { status: 200 })) as typeof fetch;
+
+    const resolve = createArcOrgMembershipResolver({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+    });
+    expect(await resolve("org_1", "usr_x")).toBeNull();
   });
 });

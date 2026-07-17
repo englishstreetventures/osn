@@ -815,6 +815,7 @@ Open compliance findings only. Closed items will be archived in a future `wiki/c
 - [ ] **C-L25** — Backup integrity verification (per-snapshot checksum; reject restores from corrupted snapshots). SOC 2 A1. See `[[compliance/backup-dr]]`.
 - [ ] **C-L26** — Cross-link DSA Art. 28 (minor protections) to ToS recommender-transparency disclosure. Verified Identity unlocks credible age-gating; ToS update should ship same PR as V-M1. See `[[verified-identity]]`, `[[compliance/dsa]]`.
 - [x] **C-L27 (cire, IB-C-L1)** — _done PR #112_: `[[compliance/data-map]]` + `[[compliance/retention]]` rows added for `cire-assets` invite images + `wedding_invite_customisations`. Erasure reachability remains open (D1 cascade doesn't reach R2, no wedding-delete flow) — recorded in those pages and folded into C-H1 / cire IB-S-L2. GDPR Art. 5(1)(e). See `cire/wiki/todo/security.md`.
+- [ ] **C-L28** — Cire vendor claim retention sweeper: purge consumed/expired `vendor_claims` rows (holding sole-trader email PII) once volumes warrant (e.g. rows >90 days old with `status` in `expired`/`consumed`). GDPR Art. 5(1)(e) storage limitation. See `[[compliance/retention]]`.
 
 ---
 

@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-07-16
+last-reviewed: 2026-07-17
 ---
 
 # Data Map
@@ -124,6 +124,21 @@ organiser-initiated wedding administration.
 | `weddings` profile columns: `wedding_date`, `guest_count_estimate`, `currency`, `budget_total_minor` (migration 0030, platform Phase 0 PR 1) | Organiser-provided planning facts — drive checklist lead-time seeding and pricing estimates. Money is wedding-scoped (one main currency the couple thinks in). **Never guest-facing** (not rendered on the invite). Low sensitivity: organiser-volunteered facts about their own event; budget is the most sensitive of the set | Art. 6(1)(f) — wedding administration (organiser-controlled, about the organiser's own event) | Retained with the wedding **shell**, which the 1-year sweep deliberately keeps — effectively until the wedding-DELETE flow (open C-H1 remainder) lands; see [[retention]] | `@cire/api` + wedding owner/co-hosts (Settings tab; writes owner-only) | [[cire]] |
 | `events` location columns: `location_lat`/`location_lng`, `pricing_region` (migration 0030) | Per-event planning location — a wedding can span countries, so each event carries its own geocoded point + pricing region (venue free-text stays in `events.address`, which the invite already shows). Drives per-event vendor radius search + per-region pricing estimates. Organiser-facing only — the coordinates/region are never rendered on the invite | Art. 6(1)(f) — wedding administration (organiser-controlled venue facts) | Cascades with `events` on a wedding delete, but the 1-year sweep keeps the events shell — effectively until the wedding-DELETE flow (open C-H1 remainder) lands; see [[retention]] | `@cire/api` + wedding owner/co-hosts (Events tab; member-level writes, like the import) | [[cire]] |
 | Organiser-typed event venue address (transient — sent to Google Geocoding on an explicit per-event "Look up" click; only the resulting lat/lng + region are stored, in the `events` columns above) | Server-side geocode of an event's venue address to a canonical point + pricing region | Art. 6(1)(f) — wedding administration; **key-optional**: with no `GOOGLE_GEOCODING_API_KEY` set, nothing is ever sent to Google (manual entry fallback) | Not persisted as such — the query string is not stored or logged; only the returned point/region persist | Google LLC (see [[subprocessors]]) | [[cire]] |
+
+## Vendors (`@cire/api` — `directory_vendors`, `vendors`, `vendor_claims`; migration 0040)
+
+Vendor personal data arises when a vendor is a **sole trader** and their contact details are therefore personal data. The organiser is the initial data entry point (CRM); the vendor themselves is the data subject for the directory listing once claimed. Lawful basis follows the same pattern as the venues rows above (public business listings / service contract).
+
+| Field | Purpose | Lawful basis | Retention | Recipients | System page |
+|---|---|---|---|---|---|
+| `directory_vendors.email` | Sole-trader contact email on the public-facing directory listing; also the destination address for the claim-invite email | Art. 6(1)(f) — legit interest in public vendor directory (same class as `venues.instagram_handle`) | While the listing is active; removed on org or cire admin request | `@cire/api` + public directory pages (planned); **Resend** for the claim-invite email (processor) | [[systems/vendors]] (cire wiki) |
+| `directory_vendors.phone` | Sole-trader contact phone on the directory listing | Art. 6(1)(f) — legit interest in public business listings | While listing active; removed on request | `@cire/api` + public directory pages (planned) | [[systems/vendors]] (cire wiki) |
+| `vendors.email` | Organiser-captured sole-trader contact email in the per-wedding vendor CRM | Art. 6(1)(f) — wedding administration (organiser-controlled) | Tied to wedding lifecycle — cascades with the `vendors` row when organiser removes it, or with the wedding on deletion; no independent automated purge yet | `@cire/api` + wedding owner/editor (CRM view) | [[systems/vendors]] (cire wiki) |
+| `vendors.phone` | Organiser-captured sole-trader contact phone in the per-wedding CRM | Art. 6(1)(f) — wedding administration | Same as `vendors.email` above | Same | [[systems/vendors]] (cire wiki) |
+| `vendors.contact_name` | Organiser-captured contact person name — identifies a sole trader or named rep | Art. 6(1)(f) — wedding administration | Same as `vendors.email` above | Same | [[systems/vendors]] (cire wiki) |
+| `vendor_claims.email` | Email address the claim-invite was sent to (copied from `directory_vendors.email` at minting) — identifies the sole trader being invited to claim the listing | Art. 6(1)(f) — legit interest in binding the listing to the correct vendor org; functionally equivalent to the claim-invite verification step (Art. 6(1)(b) — entering service) | 7-day claim TTL; `status` flips to `expired`/`consumed`; `vendor_claims` rows currently retained indefinitely (no purge — add a sweeper once listing volumes warrant) | `@cire/api` only (token hash stored, email stored for audit) | [[systems/vendors]] (cire wiki) |
+
+**Controller note for vendor data.** For `directory_vendors` contact data supplied initially by an organiser (before the vendor claims the listing): the organiser is the original source of entry and cire is the platform. Once the vendor claims the listing and becomes an OSN org-holder, the vendor themselves is the data subject exercising control over the listing fields (controller = cire/OSN for the platform; DSAR + right-to-erasure via standard organiser or vendor account flows).
 
 **Controller / processor note.** For guest data the organiser is the
 controller (they decide to upload the list, set the field contents); cire

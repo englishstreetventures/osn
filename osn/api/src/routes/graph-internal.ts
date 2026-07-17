@@ -58,6 +58,7 @@ const PERMITTED_SCOPES = new Set([
   "account:erase",
   "step-up:verify",
   "app-enrollment:write",
+  "org:read",
 ]);
 
 // ---------------------------------------------------------------------------

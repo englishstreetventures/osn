@@ -9,7 +9,7 @@ related:
   - "[[database-environments]]"
   - "[[redis]]"
   - "[[email]]"
-last-reviewed: 2026-07-16
+last-reviewed: 2026-07-17
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -658,11 +658,14 @@ and the chosen `kid` as `CIRE_API_ARC_KEY_ID`, then register the **public** half
 curl -X POST "$OSN_ISSUER_URL/graph/internal/register-service" \
   -H "Authorization: Bearer $INTERNAL_SERVICE_SECRET" \
   -H "Content-Type: application/json" \
-  -d '{"serviceId":"cire-api","keyId":"<CIRE_API_ARC_KEY_ID>","publicKeyJwk":"<public JWK string>","allowedScopes":"graph:read,graph:resolve-account"}'
+  -d '{"serviceId":"cire-api","keyId":"<CIRE_API_ARC_KEY_ID>","publicKeyJwk":"<public JWK string>","allowedScopes":"graph:read,graph:resolve-account,org:read"}'
 ```
 
 (`POST /graph/internal/register-service` returns 501 if `INTERNAL_SERVICE_SECRET` is
 unset, 401 on a bad bearer — `routes/graph-internal.ts:203-214`.)
+
+> **Vendors (Phase 2): re-run this command per environment after the `@osn/api` `PERMITTED_SCOPES` change deploys.**
+> The `org:read` scope (added in the Vendors PR A — migration 0040) enables cire-api's `vendorOrgMember()` middleware to resolve OSN org membership over ARC. The registration endpoint upserts, so re-running is safe and idempotent. Until it runs **per env**, the `vendorOrgMember()` org resolver fails-soft to null and `/api/vendor/*` writes return **503**. The organiser CRM (`/api/organiser/weddings/:weddingId/vendors`) and claim-link generation work regardless — they use only `graph:read`/`graph:resolve-account`.
 
 ---
 
