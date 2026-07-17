@@ -31,9 +31,9 @@ workers_dev = false
 OSN_ENV = "local"
 OSN_RP_ID = "localhost"
 OSN_RP_NAME = "OSN"
-OSN_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322,http://localhost:5173"
+OSN_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322,http://localhost:5173,http://localhost:4326"
 OSN_ISSUER_URL = "http://localhost:8787"
-OSN_CORS_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322"
+OSN_CORS_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322,http://localhost:4326"
 
 # Local `wrangler dev` D1 (miniflare). database_id is ignored locally but
 # required syntactically; reuse the dev id so `--local` and `--remote dev` share
@@ -226,9 +226,9 @@ crons = ["0 */6 * * *"]
 OSN_ENV = "production"
 OSN_RP_ID = "cireweddings.com"
 OSN_RP_NAME = "OSN"
-OSN_ORIGIN = "https://host.cireweddings.com"
+OSN_ORIGIN = "https://host.cireweddings.com,https://vendor.cireweddings.com"
 OSN_ISSUER_URL = "https://id.cireweddings.com"
-OSN_CORS_ORIGIN = "https://host.cireweddings.com"
+OSN_CORS_ORIGIN = "https://host.cireweddings.com,https://vendor.cireweddings.com"
 OSN_EMAIL_FROM = "hello@cireweddings.com"
 # Email is sent via Resend (RESEND_API_KEY secret, §1.1) — confirmed delivering
 # from hello@cireweddings.com on 2026-06-18. Email is REQUIRED in prod: if

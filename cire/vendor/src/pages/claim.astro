@@ -1,0 +1,26 @@
+---
+import '../styles/global.css'
+import ClaimApp from '../components/ClaimApp'
+---
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claim your listing — Vendor — Cire</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <main class="mx-auto max-w-[560px] px-8 py-16">
+      <header class="mb-8 flex flex-col gap-2">
+        <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">Vendor Portal</p>
+        <h1 class="font-display text-text text-[clamp(1.8rem,4vw,2.8rem)] font-light italic leading-[1.1]">
+          Claim your listing
+        </h1>
+      </header>
+      <ClaimApp client:only="solid-js" />
+    </main>
+  </body>
+</html>

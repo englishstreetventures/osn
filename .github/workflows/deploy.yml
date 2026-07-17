@@ -249,6 +249,48 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+  # ── cire vendor (Astro → Cloudflare Pages, vendor.cireweddings.com) ──────────
+  # The vendor self-service portal (vendor.cireweddings.com). PUBLIC_* vars bake
+  # in at build time. The `cire-vendor` Pages project must exist in the account
+  # before first run (create once: `wrangler pages project create cire-vendor`,
+  # then add the custom domain vendor.cireweddings.com in the dashboard).
+  deploy-cire-vendor:
+    name: Deploy cire/vendor (Pages)
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build cire/vendor
+        run: bun run --cwd cire/vendor build
+        env:
+          PUBLIC_CIRE_API_URL: https://api.cireweddings.com
+          PUBLIC_OSN_ISSUER_URL: https://id.cireweddings.com
+          PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
+
+      - name: Deploy cire/vendor to Cloudflare Pages
+        run: bunx wrangler pages deploy dist --project-name cire-vendor
+        working-directory: cire/vendor
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
   # ── cire landing (Astro → Cloudflare Pages, APEX cireweddings.com) ─────────
   # The marketing site for the apex. Built fully static (output: "static", no
   # Cloudflare adapter) and deployed to its OWN Pages project, separate from the

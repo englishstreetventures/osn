@@ -10,7 +10,7 @@ last-reviewed: 2026-07-17
 
 # Vendors — directory, CRM, and email-verification claim
 
-The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. PR A (this slice) ships the backend foundation, CRM, and claim backend. PR B (the `vendor.cireweddings.com` portal app) is deferred.
+The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. PR A ships the backend foundation, CRM, and claim backend. PR B ships the `vendor.cireweddings.com` portal app (`cire/vendor`), CORS allowlist widening, and the deploy pipeline.
 
 ---
 
@@ -162,9 +162,41 @@ Routes: `/api/vendor/*` — gated by `vendorOrgMember()`.
 
 ---
 
+## Vendor portal (`cire/vendor`)
+
+The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS Cloudflare Pages app living in `cire/vendor/`. It is the browser surface vendors use after receiving a claim link from an organiser.
+
+### Screens (left-to-right user flow)
+
+| Screen | Path | Description |
+|---|---|---|
+| Sign-in | `/` (unauthenticated) | OSN passkey sign-in or register; handled by `SignInPanel` island |
+| Org picker | `/` (authenticated, no listing) | `OrgPicker` island — lists the vendor's existing OSN orgs or offers a "Create new org" form; on pick/create, transitions to the listing editor |
+| Listing editor | `/` (authenticated, listing found) | `ListingEditor` island — loads the vendor's directory listing via `GET /api/vendor/listing` and lets them update name, description, category, website URL; saves via `PUT /api/vendor/listing` |
+| Claim landing | `/claim` | `ClaimApp` island — renders a claim preview (listing name + organiser) from `GET /api/vendor/claim/preview?token=<raw>`; on "Accept" calls `POST /api/vendor/claim` with the raw token + selected org id; strips the token from the URL via `history.replaceState` immediately on mount (**token-strip**) |
+
+### API surface
+
+- **osn-api** — `POST /organisations` (create org) + `GET /organisations` (list caller's orgs), called via `authFetch` with the OSN access JWT in the `Authorization` header. These are cross-origin calls (portal origin → `id.cireweddings.com`), so osn-api's `OSN_ORIGIN` / `OSN_CORS_ORIGIN` must include `vendor.cireweddings.com`.
+- **cire-api** — `/api/vendor/*` routes gated by `vendorOrgMember()` (OSN access JWT + ARC org-membership check). Called via `authFetch`. Also cross-origin (portal → `api.cireweddings.com`), so cire-api's `WEB_ORIGIN` must include `vendor.cireweddings.com`.
+
+Both allowlists are widened in this PR's `cire/api/wrangler.toml` and `osn/api/wrangler.toml` (production + local blocks) — they ship on merge via the normal CI deploy jobs.
+
+### Token-stripping + Referrer-Policy
+
+The `/claim?token=<raw>` URL carries a 256-bit claim secret. Two defences prevent it leaking:
+
+1. **Token-strip**: `ClaimApp` calls `history.replaceState({}, "", "/claim")` on mount — the token leaves the address bar before any user action or navigation.
+2. **Referrer-Policy: no-referrer** header: set in `cire/vendor/public/_headers` (Cloudflare Pages static headers). Prevents any remaining `<a>` or `fetch` from forwarding the URL in a `Referer` header to third-party origins.
+
+### Auth flow
+
+`@osn/client/solid` `createOsnSession` hook manages the OSN access JWT + silent token refresh (HttpOnly session cookie on `id.cireweddings.com`). `authFetch` in `cire/vendor/src/lib/auth-fetch.ts` wraps `fetch` with the current access JWT and handles 401→silent-refresh→retry. No cire guest cookie is involved — the vendor portal uses OSN identity only.
+
+---
+
 ## Deferred to later cycles (NOT in this PR)
 
-- **`vendor.cireweddings.com` portal frontend** (PR B) — the Astro+SolidJS Pages app for vendor sign-in, org create/pick, listing editor, and the `/claim` landing page. Its `deploy-cire-vendor` CI job, DNS, and `vendor.` allowlist additions to cire-api `WEB_ORIGIN` + osn-api origins.
 - **Directory browse** — public/organiser-facing vendor search with lat/lng bounding-box prefilter + haversine sort (requires `location` columns on `directory_vendors`).
 - **Availability calendar** — `vendor_availability` per-day status; "available on your date" badge.
 - **Enquiries** — `vendor_enquiries` + messages; quotes feed `budget_items.quoted_minor`; spam limiter.

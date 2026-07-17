@@ -9,6 +9,7 @@ related:
   - "[[database-environments]]"
   - "[[redis]]"
   - "[[email]]"
+  - "[[vendors]]"
 last-reviewed: 2026-07-17
 ---
 
@@ -749,3 +750,71 @@ Run these in order; each maps to a startup requirement enumerated above.
 - [[database-environments]] — local bun:sqlite vs dev/staging/prod D1
 - [[redis]] — Redis-backed rate limiters + session stores
 - [[email]] — transactional email transport (Cloudflare Email Service)
+- [[vendors]] — vendor portal screens, API surface, token-stripping, Referrer-Policy, ARC org:read scope
+
+
+---
+
+## 8. Vendor portal first-run (manual, one-time)
+
+> **These steps are NOT automated.** They must be performed manually by a team member with Cloudflare account access before or immediately after the first `deploy-cire-vendor` CI job runs. They are flagged here so the person merging PR B knows to action them. See [[vendors]] for the full vendor portal system doc; see [[cire-auth]] for the auth model the portal relies on.
+
+### 8.1 Create the Pages project
+
+```bash
+bunx wrangler pages project create cire-vendor
+```
+
+This must be done **once** before the CI deploy job references it. If the project does not exist, the deploy job errors with "project not found."
+
+### 8.2 Add the custom domain
+
+In the Cloudflare dashboard (or via Wrangler if supported):
+
+1. Open the `cire-vendor` Pages project.
+2. Go to **Custom domains** → **Set up a custom domain**.
+3. Enter `vendor.cireweddings.com`.
+4. Cloudflare will create the DNS CNAME record on the `cireweddings.com` zone automatically (zone is managed in this account). Confirm the CNAME is present.
+
+### 8.3 Confirm CORS allowlist changes are live
+
+After the PR B merge deploy completes, verify that both Workers now allow the new origin. The allowlist entries (`https://vendor.cireweddings.com` added to `cire/api/wrangler.toml` `WEB_ORIGIN` and `osn/api/wrangler.toml` `OSN_ORIGIN` / `OSN_CORS_ORIGIN`) ship automatically with the PR B merge via normal CI deploy jobs — no separate `wrangler deploy` is needed.
+
+Quick smoke check (replace `<token>` with a real short-lived claim token from a test seed):
+
+```bash
+# CORS preflight to cire-api
+curl -si -X OPTIONS https://api.cireweddings.com/api/vendor/listing \
+  -H "Origin: https://vendor.cireweddings.com" \
+  -H "Access-Control-Request-Method: GET" \
+  | grep -i "access-control"
+
+# CORS preflight to osn-api
+curl -si -X OPTIONS https://id.cireweddings.com/organisations \
+  -H "Origin: https://vendor.cireweddings.com" \
+  -H "Access-Control-Request-Method: GET" \
+  | grep -i "access-control"
+```
+
+Expected: `access-control-allow-origin: https://vendor.cireweddings.com` in both responses.
+
+### 8.4 Secrets
+
+No new secret is required for the vendor portal itself:
+
+- `RESEND_API_KEY` — already set on `cire-api` (see §1.1 and §3.2). The `vendor-claim-invite` email uses it.
+- The vendor portal (`cire/vendor`) is a static Pages app with no server-side secrets. It reads from `cire-api` and `osn-api` via `authFetch` in the browser.
+
+### 8.5 ARC re-registration (org:read scope)
+
+The vendor portal uses `vendorOrgMember()` middleware, which requires the `org:read` scope on cire-api's ARC key registration. Re-run the §6.2 `register-service` call per environment with `allowedScopes: "graph:read,graph:resolve-account,org:read"` after deploying. Until this runs, `/api/vendor/*` writes return 503 (the organiser CRM and claim-link generation are unaffected).
+
+### 8.6 Rollback
+
+If the vendor portal must be rolled back:
+
+1. Remove the `https://vendor.cireweddings.com` entries from `cire/api/wrangler.toml` `WEB_ORIGIN` and `osn/api/wrangler.toml` `OSN_ORIGIN` / `OSN_CORS_ORIGIN`.
+2. Merge the revert PR — CI redeploys both Workers with the narrowed allowlists.
+3. Optionally disable the `cire-vendor` Pages project custom domain in the Cloudflare dashboard.
+
+The Pages project itself does not need to be deleted — it can be left idle.

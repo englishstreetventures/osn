@@ -94,7 +94,7 @@ binding = "IMAGES"
 # (`invite.`) and the organiser portal (`host.`). The transitional `cireweddings.com`
 # (apex — now the static marketing landing, makes no API calls) and
 # `app.cireweddings.com` (old organiser origin) were pruned after the cutover.
-WEB_ORIGIN = "https://invite.cireweddings.com,https://host.cireweddings.com"
+WEB_ORIGIN = "https://invite.cireweddings.com,https://host.cireweddings.com,https://vendor.cireweddings.com"
 # OSN identity (osn-api) prod origin — served on the cireweddings.com zone at
 # id.cireweddings.com. OSN_ISSUER_URL MUST equal osn-api's own OSN_ISSUER_URL or
 # access-token verification fails; OSN_JWKS_URL is that origin + the JWKS path.
