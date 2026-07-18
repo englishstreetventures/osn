@@ -4,7 +4,7 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-17
+last-reviewed: 2026-07-18
 ---
 
 # Performance Backlog
@@ -122,3 +122,12 @@ Deferred (scale-dependent, not blocking at wedding-directory scale — hundreds 
 - [ ] **VD-P-I1** — OFFSET pagination is O(offset); fine at current scale (50-row cap). Switch to a keyed cursor on `(name, id)` if the directory reaches tens of thousands.
 - [ ] **VD-P-I2** — `getLiveListingById` does fetch + fetchCategories sequentially (matches `getListingByOrg`/`consumeClaim`); low-frequency write path. Parallelize if the service is extended.
 - [ ] **VD-P-I4** — `directory_vendors_listed_idx` becomes a no-op on the hot path once most rows are `live`; a partial `WHERE listed='live'` index is the future option if a scan ever shows up.
+
+### Platform tiering Phase 1 (entitlement foundation) — /prep-pr perf review notes (`feat/cire-platform-tiering`)
+
+Deferred (not blocking at Phase-1 scale — single wedding, low organiser traffic; all queries are PK/indexed):
+- [ ] **ENT-P-W1** — `weddingEntitlement(db,key)` issues a separate `wedding_entitlements` point lookup after the role gate (`weddingMember`/`weddingEditor`) already round-tripped to the wedding. Fold the entitlement-set fetch into the role-gate `derive` (add an `entitlementSet` to its result) so gated vendor/directory requests drop from ~3 to ~2 D1 queries. Touches the shared role gates — do as a deliberate follow-up.
+- [ ] **ENT-P-W2** — `assertGuestCapacity` re-fetches the wedding's entitlement rows that `diffAgainstDb` already fetched for its preview warning, so the import apply path runs the entitlement scan twice. Thread the derived cap from `diffAgainstDb` through `ImportPlan` into `applyImport`.
+- [ ] **ENT-P-I1** — `ModuleShell` calls `props.entitlements.includes("vendors")` in JSX (O(n) in the reactive graph); convert the entitlement list to a `Set` (or `createMemo`) once in `OrganiserApp` for O(1) `has`.
+- [ ] **ENT-P-I2** — `diffAgainstDb` fetches entitlement rows whenever `guestCreates.length>0`, even when the wedding is far below cap; a cheap `existingGuests.length + guestCreates.length > 100` pre-check before the DB query would skip it for the common case.
+- [ ] **ENT-P-I3** — `assertGuestCapacity` / `diffAgainstDb` fetch ALL entitlement rows to derive the cap; narrow to `WHERE entitlement IN ('capacity_500','capacity_1000')`.

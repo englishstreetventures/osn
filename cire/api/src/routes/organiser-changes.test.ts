@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, families, guests, weddingHosts, weddings } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  events,
+  families,
+  guests,
+  weddingEntitlements,
+  weddingHosts,
+  weddings,
+} from "@cire/db";
 
 import { createApp } from "../app";
 import { createDb, seedBootstrapWedding } from "../db/setup";
@@ -441,5 +449,98 @@ describe("authz — /changes gate", () => {
       body: JSON.stringify({ importId: id }),
     });
     expect(applyOther.status).toBe(404);
+  });
+});
+
+// ── Capacity enforcement: 402 on breach ─────────────────────────────────────
+
+describe("POST /changes/apply — 402 on capacity breach", () => {
+  /**
+   * Build a CSV with N guests in a single family, using EVENTS_CSV events.
+   * Each guest is invited to no events (all 'no') to keep the CSV simple.
+   */
+  function buildLargeGuestsCsv(n: number): string {
+    const header = "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Reception";
+    const rows = Array.from({ length: n }, (_, i) => `1,Bigfamily,Guest${i},Bigfamily,no,no`);
+    return [header, ...rows].join("\n");
+  }
+
+  it("applying a change that would exceed the cap returns 402 with payment_required body and persists no guests", async () => {
+    const { app, db } = buildApp();
+
+    // Preview + apply 101 guests (cap is 100, no capacity entitlement).
+    const guestsCsv = buildLargeGuestsCsv(101);
+
+    const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv,
+    });
+    expect(previewRes.status).toBe(200);
+    const { changeId } = (await previewRes.json()) as { changeId: string };
+
+    const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { importId: changeId });
+    expect(applyRes.status).toBe(402);
+    const body = (await applyRes.json()) as Record<string, unknown>;
+    expect(body.error).toBe("payment_required");
+    expect(body.entitlement).toBe("capacity");
+    expect(body.limit).toBe(100);
+    expect(typeof body.current).toBe("number");
+
+    // Atomic: no guests were persisted.
+    expect(db.select().from(guests).all()).toHaveLength(0);
+    expect(db.select().from(families).all()).toHaveLength(0);
+  });
+
+  it("applying a change within cap succeeds; upgraded wedding (capacity_500) admits up to 500", async () => {
+    const { app, db } = buildApp();
+
+    // Grant capacity_500 to the bootstrap wedding.
+    db.insert(weddingEntitlements)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        entitlement: "capacity_500",
+        source: "comp",
+        grantedAt: new Date(),
+        grantedBy: "usr_admin",
+      })
+      .run();
+
+    // 101 guests < 500 → should succeed.
+    const guestsCsv = buildLargeGuestsCsv(101);
+    const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv,
+    });
+    const { changeId } = (await previewRes.json()) as { changeId: string };
+
+    const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { importId: changeId });
+    expect(applyRes.status).toBe(200);
+    expect(db.select().from(guests).all()).toHaveLength(101);
+  });
+
+  it("the /import alias also returns 402 on capacity breach — full contract + atomicity", async () => {
+    const { app, db } = buildApp();
+
+    const guestsCsv = buildLargeGuestsCsv(101);
+
+    const previewRes = await ownerPost(app, `${IMPORT_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv,
+    });
+    expect(previewRes.status).toBe(200);
+    const { importId } = (await previewRes.json()) as { importId: string };
+
+    const applyRes = await ownerPost(app, `${IMPORT_BASE}/apply`, { importId });
+    expect(applyRes.status).toBe(402);
+    const body = (await applyRes.json()) as Record<string, unknown>;
+    // Full 402 body contract — must match /changes/apply exactly.
+    expect(body.error).toBe("payment_required");
+    expect(body.entitlement).toBe("capacity");
+    expect(body.limit).toBe(100);
+    expect(typeof body.current).toBe("number");
+
+    // Atomic: neither guests nor families persisted via the /import alias.
+    expect(db.select().from(guests).all()).toHaveLength(0);
+    expect(db.select().from(families).all()).toHaveLength(0);
   });
 });

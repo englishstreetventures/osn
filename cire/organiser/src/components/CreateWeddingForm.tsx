@@ -11,6 +11,11 @@ export interface WeddingSummary {
    *  codes, settings + destructive actions; editors get full module writes
    *  (import, invite builder, event locations); viewers are read-only. */
   role: "owner" | "editor" | "viewer";
+  /** Entitlement keys active on this wedding (e.g. `"vendors"`, `"capacity_500"`).
+   *  Populated by the `/api/organiser/weddings` list endpoint. */
+  entitlements: string[];
+  /** Effective guest ceiling derived from the entitlement set. Defaults to 100. */
+  guestCap: number;
 }
 
 /** Claim-code style, mirroring the API's `weddings.code_style` enum. */

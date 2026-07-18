@@ -284,6 +284,15 @@ CREATE TABLE IF NOT EXISTS vendor_claims (
   consumed_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS vendor_claims_vendor_idx ON vendor_claims(directory_vendor_id);
+CREATE TABLE IF NOT EXISTS wedding_entitlements (
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  entitlement TEXT NOT NULL,
+  source TEXT NOT NULL,
+  granted_at INTEGER NOT NULL,
+  granted_by TEXT NOT NULL,
+  provider_ref TEXT,
+  PRIMARY KEY (wedding_id, entitlement)
+);
 `;
 
 export function createDb(path: string = ":memory:"): Db {

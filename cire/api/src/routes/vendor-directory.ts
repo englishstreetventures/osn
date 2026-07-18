@@ -9,6 +9,7 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingEditor } from "../middleware/wedding-editor";
+import { weddingEntitlement } from "../middleware/wedding-entitlement";
 import { weddingMember } from "../middleware/wedding-member";
 import { runCire } from "../observability";
 import { AddFromDirectoryBody } from "../schemas/vendors";
@@ -71,6 +72,7 @@ export const createVendorDirectoryReadRoutes = (
     .group("/weddings/:weddingId", (group) =>
       group
         .use(weddingMember(db))
+        .use(weddingEntitlement(db, "vendors"))
         .use(rateLimitMiddlewareByUser(limiter))
         .get("/directory", async ({ weddingId, query, set }) => {
           if (!weddingId) return internalSync(set);
@@ -104,6 +106,7 @@ export const createVendorDirectoryWriteRoutes = (
       group.guard((write) =>
         write
           .use(weddingEditor(db))
+          .use(weddingEntitlement(db, "vendors"))
           .use(rateLimitMiddlewareByUser(limiter))
           .post(
             "/directory/:directoryVendorId/add",

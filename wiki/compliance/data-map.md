@@ -140,6 +140,12 @@ Vendor personal data arises when a vendor is a **sole trader** and their contact
 
 **S3 browse surface (2026-07-18).** `directory_vendors.email` and `directory_vendors.phone` are now **displayed to a wedding's authenticated organisers** via the `GET …/directory` browse endpoint (new recipient/surface — organiser-only, access-controlled); no new data is collected and the lawful basis is unchanged (Art. 6(1)(f)).
 
+## Cire tiering (`@cire/api` — `wedding_entitlements`)
+
+| Field | Purpose | Lawful basis | Retention | Recipients | System page |
+|---|---|---|---|---|---|
+| `wedding_entitlements.granted_by` | Audit trail for manual capability grants — records which internal operator OSN profile id authorised a comp or manual entitlement grant | Art. 6(1)(f) — legitimate interest (internal audit of operator actions; not a data-subject right-facing field) | Life of the wedding record — row is deleted via `ON DELETE CASCADE` on `weddings.id` | Internal operators only (`@cire/api`; not exposed to wedding owners or guests) | [[cire]] |
+
 **Controller note for vendor data.** For `directory_vendors` contact data supplied initially by an organiser (before the vendor claims the listing): the organiser is the original source of entry and cire is the platform. Once the vendor claims the listing and becomes an OSN org-holder, the vendor themselves is the data subject exercising control over the listing fields (controller = cire/OSN for the platform; DSAR + right-to-erasure via standard organiser or vendor account flows).
 
 **Controller / processor note.** For guest data the organiser is the

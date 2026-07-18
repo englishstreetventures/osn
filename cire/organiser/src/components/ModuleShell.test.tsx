@@ -48,6 +48,25 @@ vi.mock("./HostsPanel", () => ({
 vi.mock("./SettingsPanel", () => ({
   default: (p: { weddingId: string }) => <div data-testid="settings">{p.weddingId}</div>,
 }));
+vi.mock("./VendorsView", () => ({
+  default: (p: { weddingId: string }) => <div data-testid="vendors">{p.weddingId}</div>,
+}));
+vi.mock("./DirectoryBrowseView", () => ({
+  default: (p: { weddingId: string }) => <div data-testid="directory-browse">{p.weddingId}</div>,
+}));
+vi.mock("./UpsellPanel", () => ({
+  default: (p: { feature: string }) => (
+    <div data-testid="upsell-panel" data-feature={p.feature}>
+      Locked
+    </div>
+  ),
+}));
+vi.mock("./ChecklistView", () => ({
+  default: (p: { weddingId: string }) => <div data-testid="checklist">{p.weddingId}</div>,
+}));
+vi.mock("./BudgetView", () => ({
+  default: (p: { weddingId: string }) => <div data-testid="budget">{p.weddingId}</div>,
+}));
 
 import ModuleShell from "./ModuleShell";
 
@@ -58,6 +77,8 @@ function renderShell(opts: {
   canEdit?: boolean;
   module?: Module;
   sub?: string;
+  entitlements?: string[];
+  guestCap?: number;
 }) {
   const [module, setModule] = createSignal<Module>(opts.module ?? "overview");
   const [sub, setSub] = createSignal(opts.sub ?? "index");
@@ -80,6 +101,8 @@ function renderShell(opts: {
       sub={sub()}
       onModule={onModule}
       onSub={onSub}
+      entitlements={opts.entitlements ?? []}
+      guestCap={opts.guestCap ?? 100}
     />
   ));
   return { ...utils, onModule, onSub, setModule, setSub };
@@ -180,6 +203,36 @@ describe("ModuleShell", () => {
     it("still gives a viewer the read RSVPs view", () => {
       renderShell({ canManage: false, canEdit: false, module: "guests", sub: "rsvps" });
       expect(screen.getByTestId("rsvps")).toBeTruthy();
+    });
+  });
+
+  describe("entitlement gating — vendors module", () => {
+    it("renders UpsellPanel when the vendors entitlement is absent", () => {
+      // No entitlements → vendors module is locked.
+      renderShell({ module: "vendors", sub: "index", entitlements: [] });
+      expect(screen.getByTestId("upsell-panel")).toBeTruthy();
+      expect(screen.getByTestId("upsell-panel").getAttribute("data-feature")).toBe("vendors");
+      expect(screen.queryByTestId("vendors")).toBeNull();
+      expect(screen.queryByTestId("directory-browse")).toBeNull();
+    });
+
+    it("renders the vendors feature views when the vendors entitlement is present", () => {
+      renderShell({ module: "vendors", sub: "index", entitlements: ["vendors"] });
+      expect(screen.queryByTestId("upsell-panel")).toBeNull();
+      expect(screen.getByTestId("vendors")).toBeTruthy();
+    });
+
+    it("renders the browse sub-view when entitled and active() is 'browse'", () => {
+      renderShell({ module: "vendors", sub: "browse", entitlements: ["vendors"] });
+      expect(screen.queryByTestId("upsell-panel")).toBeNull();
+      expect(screen.getByTestId("directory-browse")).toBeTruthy();
+    });
+
+    it("does not show UpsellPanel for other entitlements (only absent vendors key locks)", () => {
+      // Has other entitlements but not vendors → still locked.
+      renderShell({ module: "vendors", sub: "index", entitlements: ["capacity_500", "ai"] });
+      expect(screen.getByTestId("upsell-panel")).toBeTruthy();
+      expect(screen.queryByTestId("vendors")).toBeNull();
     });
   });
 });

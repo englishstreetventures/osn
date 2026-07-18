@@ -15,6 +15,12 @@ export type WeddingSummary = {
    *  `editor` (co-host with module writes) or `viewer` (read-only co-host).
    *  Lets the portal label each wedding and gate write/management surfaces. */
   role: "owner" | "editor" | "viewer";
+  /** Entitlement keys active on this wedding (e.g. `"vendors"`, `"capacity_500"`).
+   *  Merged in by the route from `entitlementService.setsForWeddings` — the
+   *  service itself stays free of entitlement logic. */
+  entitlements: string[];
+  /** Effective guest ceiling derived from the entitlement set. Defaults to 100. */
+  guestCap: number;
 };
 
 /** Raised when a new wedding row cannot be persisted (slug collisions are
@@ -98,7 +104,14 @@ export const weddingsService = {
       );
       const summaries: WeddingSummary[] = [];
       for (const w of owned) {
-        summaries.push({ id: w.id, slug: w.slug, displayName: w.displayName, role: "owner" });
+        summaries.push({
+          id: w.id,
+          slug: w.slug,
+          displayName: w.displayName,
+          role: "owner",
+          entitlements: [],
+          guestCap: 100,
+        });
       }
       for (const w of hosted) {
         summaries.push({
@@ -106,6 +119,8 @@ export const weddingsService = {
           slug: w.slug,
           displayName: w.displayName,
           role: normaliseHostRole(w.role),
+          entitlements: [],
+          guestCap: 100,
         });
       }
       return summaries;
@@ -206,7 +221,14 @@ export const weddingsService = {
         }).pipe(
           Effect.map(() => ({
             ok: true as const,
-            summary: { id, slug, displayName: trimmed, role: "owner" as const },
+            summary: {
+              id,
+              slug,
+              displayName: trimmed,
+              role: "owner" as const,
+              entitlements: [] as string[],
+              guestCap: 100,
+            },
           })),
           Effect.catchAll((cause) =>
             // A UNIQUE violation on slug/id is retryable; surface anything else

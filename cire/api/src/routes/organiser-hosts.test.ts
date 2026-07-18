@@ -513,11 +513,20 @@ describe("co-host dashboard access (weddingMember)", () => {
     seedCohostAndGuest(db);
     const res = await req(app, "GET", "/api/organiser/weddings", COHOST);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { weddings: { id: string; role: string }[] };
+    const body = (await res.json()) as {
+      weddings: { id: string; role: string; entitlements: string[]; guestCap: number }[];
+    };
     expect(body.weddings).toEqual([
       // The seed omits `role`, landing on the legacy DDL default 'host'
       // (pre-0031 shape) — readers normalise it to 'editor'.
-      { id: WEDDING_ID, slug: "hosts-wedding", displayName: "Hosts Wedding", role: "editor" },
+      {
+        id: WEDDING_ID,
+        slug: "hosts-wedding",
+        displayName: "Hosts Wedding",
+        role: "editor",
+        entitlements: [],
+        guestCap: 100,
+      },
     ]);
   });
 
@@ -535,9 +544,18 @@ describe("co-host dashboard access (weddingMember)", () => {
       .run();
     const res = await req(app, "GET", "/api/organiser/weddings", "usr_list_viewer");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { weddings: { id: string; role: string }[] };
+    const body = (await res.json()) as {
+      weddings: { id: string; role: string; entitlements: string[]; guestCap: number }[];
+    };
     expect(body.weddings).toEqual([
-      { id: WEDDING_ID, slug: "hosts-wedding", displayName: "Hosts Wedding", role: "viewer" },
+      {
+        id: WEDDING_ID,
+        slug: "hosts-wedding",
+        displayName: "Hosts Wedding",
+        role: "viewer",
+        entitlements: [],
+        guestCap: 100,
+      },
     ]);
   });
 });

@@ -29,6 +29,7 @@ import {
   createOrganiserWeddingCreateRoute,
   createOrganiserWeddingsRoutes,
 } from "./routes/organiser-weddings";
+import { createPaymentWebhookSkeleton } from "./routes/payment-webhook";
 import { createPrimaryWeddingRoutes } from "./routes/primary-wedding";
 import { createRsvpRoutes } from "./routes/rsvp";
 import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
@@ -156,6 +157,13 @@ export interface AppOptions {
   vendorPortalLimiter?: RateLimiterBackend;
   /** Override the vendor directory browse per-user rate limiter (useful for testing). */
   directoryLimiter?: RateLimiterBackend;
+  /**
+   * Phase-2 seam: mount the inert payment-webhook skeleton only when this is
+   * `true`. Defaults to `false` — the route is NOT exposed unless explicitly
+   * enabled. In Phase 2 the provider implementation replaces the skeleton body;
+   * flipping this flag is the only change needed in production config.
+   */
+  paymentWebhookEnabled?: boolean;
   /** R2 bucket binding for the organiser import flow. */
   r2?: R2Bucket;
   /** R2 bucket binding for invite-builder images (separate from `r2`). */
@@ -248,6 +256,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     cspReportLimiter = defaultCspReportLimiter,
     vendorPortalLimiter = defaultVendorPortalLimiter,
     directoryLimiter = defaultDirectoryLimiter,
+    paymentWebhookEnabled = false,
     r2,
     assets,
     images,
@@ -279,7 +288,8 @@ export function createApp(db: Db, options: AppOptions = {}) {
     _testKey: osnTestKey,
   };
 
-  return (
+  // Capture the chain so we can conditionally mount the payment webhook below.
+  const app =
     // `aot: false` — Elysia's ahead-of-time compilation builds handlers via
     // `new Function`, which Cloudflare Workers forbids (no dynamic code
     // evaluation). The dynamic handler is plenty for this API's traffic.
@@ -441,6 +451,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
           osnAuthOptions,
           vendorPortalLimiter,
         ),
-      )
-  );
+      );
+  // Phase-2 seam: mount the inert payment-webhook skeleton ONLY when the flag
+  // is explicitly set. Default is false — the POST /api/payments/webhook route
+  // is never reachable unless a deployment opts in. This keeps Phase 1 safe
+  // (no unverified endpoint is ever exposed by default).
+  return paymentWebhookEnabled ? app.use(createPaymentWebhookSkeleton()) : app;
 }

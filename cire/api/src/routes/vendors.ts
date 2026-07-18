@@ -8,6 +8,7 @@ import { sendClaimInviteEmail } from "../lib/vendor-email";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingEditor } from "../middleware/wedding-editor";
+import { weddingEntitlement } from "../middleware/wedding-entitlement";
 import { weddingMember } from "../middleware/wedding-member";
 import { runCire } from "../observability";
 import {
@@ -63,16 +64,19 @@ export const createVendorReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
-      group.use(weddingMember(db)).get("/vendors", async ({ weddingId, set }) => {
-        if (!weddingId) return internalSync(set);
-        return runCire(
-          vendorsService.list(weddingId).pipe(
-            Effect.map((vendors) => ({ vendors })),
-            Effect.provideService(DbService, db),
-            Effect.catchAllDefect(() => internal(set)),
-          ),
-        );
-      }),
+      group
+        .use(weddingMember(db))
+        .use(weddingEntitlement(db, "vendors"))
+        .get("/vendors", async ({ weddingId, set }) => {
+          if (!weddingId) return internalSync(set);
+          return runCire(
+            vendorsService.list(weddingId).pipe(
+              Effect.map((vendors) => ({ vendors })),
+              Effect.provideService(DbService, db),
+              Effect.catchAllDefect(() => internal(set)),
+            ),
+          );
+        }),
     );
 
 /**
@@ -107,6 +111,7 @@ export const createVendorWriteRoutes = (
       group.guard((write) =>
         write
           .use(weddingEditor(db))
+          .use(weddingEntitlement(db, "vendors"))
           .post(
             "/vendors",
             async ({ weddingId, request, set }) => {

@@ -1,4 +1,12 @@
-import { events, families, guests, guestEvents, rsvps, weddings } from "@cire/db";
+import {
+  events,
+  families,
+  guests,
+  guestEvents,
+  rsvps,
+  weddings,
+  weddingEntitlements,
+} from "@cire/db";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
@@ -21,6 +29,7 @@ import type {
   ParsedEvent,
   ParsedFamily,
 } from "../schemas/import";
+import { entitlementService, CapacityExceeded } from "./entitlements";
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
 import { resolvePinUrl } from "./pinterest-resolve";
@@ -423,6 +432,32 @@ export function diffAgainstDb(
       }
     }
 
+    // ── Capacity preview warning (non-blocking) ──────────────────────────────
+    // Warn early when this plan would breach the derived cap. The hard atomic
+    // block lives in applyImport — this warning lets the preview UI surface the
+    // issue before the organiser commits. Host-preview families are excluded from
+    // the current-guest count (same join + ne(kind,'host') as entitlementService).
+    if (guestCreates.length > 0) {
+      const entRows = yield* dbQuery(() =>
+        db
+          .select({ e: weddingEntitlements.entitlement })
+          .from(weddingEntitlements)
+          .where(eq(weddingEntitlements.weddingId, weddingId))
+          .all(),
+      );
+      const cap = entitlementService.deriveCap((entRows as { e: string }[]).map((r) => r.e));
+      // `existingGuests` was already fetched above with ne(families.kind, 'host'),
+      // so it already excludes host-preview guests. The resulting headcount after
+      // this plan: current real guests minus removals plus new creates.
+      const currentRealGuests = existingGuests.length;
+      const resulting = currentRealGuests - guestRemoves.length + guestCreates.length;
+      if (resulting > cap) {
+        warnings.push(
+          `This import brings you to ${resulting} guests; your plan is capped at ${cap}. Upgrade to add more.`,
+        );
+      }
+    }
+
     return {
       eventCreates,
       eventUpdates,
@@ -516,7 +551,7 @@ export function applyImport(
   importId: string,
   plan: ImportPlan,
   weddingId: string,
-): Effect.Effect<ImportSummary, ImportError, DbService> {
+): Effect.Effect<ImportSummary, ImportError | CapacityExceeded, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
     const now = new Date();
@@ -686,6 +721,17 @@ export function applyImport(
           .values({ guestId: link.guestId, eventId: link.eventId })
           .onConflictDoNothing(),
       );
+    }
+
+    // Capacity gate — enforce the wedding's derived guest ceiling on the NET new
+    // guests this plan introduces, before any write. Atomic: a breach fails the
+    // whole apply, nothing is committed. We pass the NET delta (creates minus
+    // removals) so a churn import that removes K guests and adds K guests at cap
+    // is correctly allowed: assertGuestCapacity does `current + incoming > cap`,
+    // and a negative or zero incoming can never exceed.
+    const netGuestDelta = plan.guestCreates.length - plan.guestRemoves.length;
+    if (netGuestDelta > 0) {
+      yield* entitlementService.assertGuestCapacity(weddingId, netGuestDelta);
     }
 
     yield* Effect.tryPromise({

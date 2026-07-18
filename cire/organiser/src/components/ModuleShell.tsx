@@ -17,6 +17,7 @@ import Overview from "./Overview";
 import RemintPanel from "./RemintPanel";
 import RsvpView from "./RsvpView";
 import SettingsPanel from "./SettingsPanel";
+import UpsellPanel from "./UpsellPanel";
 import VendorsView from "./VendorsView";
 
 interface ModuleShellProps {
@@ -39,6 +40,13 @@ interface ModuleShellProps {
   /** Report a sub-view switch up so the parent updates the hash. */
   onSub: (sub: string) => void;
   onWeddingUpdated?: (patch: { displayName: string; slug: string }) => void;
+  /** Entitlement keys active on this wedding (from the API list response).
+   *  Used to gate locked modules — when a module's key is absent the shell
+   *  renders an UpsellPanel instead of the feature UI. */
+  entitlements: string[];
+  /** Effective guest ceiling derived from the entitlement set. Surfaced for
+   *  informational display (e.g. Overview) — enforcement is server-side. */
+  guestCap: number;
 }
 
 /** A sub-tab within a module. `manage`/`edit` mark role-gated subs so a viewer
@@ -185,16 +193,21 @@ export default function ModuleShell(props: ModuleShellProps) {
 
         {/* ── Vendors: CRM ("My vendors") + directory Browse ──────────── */}
         <Show when={props.module === "vendors"}>
-          <Show when={active() === "index"}>
-            <VendorsView
-              weddingId={props.weddingId}
-              currency={peekCachedBudget(props.weddingId)?.currency ?? "AUD"}
-              canEdit={props.canEdit}
-              canManage={props.canManage}
-            />
-          </Show>
-          <Show when={active() === "browse"}>
-            <DirectoryBrowseView weddingId={props.weddingId} canEdit={props.canEdit} />
+          <Show
+            when={props.entitlements.includes("vendors")}
+            fallback={<UpsellPanel feature="vendors" />}
+          >
+            <Show when={active() === "index"}>
+              <VendorsView
+                weddingId={props.weddingId}
+                currency={peekCachedBudget(props.weddingId)?.currency ?? "AUD"}
+                canEdit={props.canEdit}
+                canManage={props.canManage}
+              />
+            </Show>
+            <Show when={active() === "browse"}>
+              <DirectoryBrowseView weddingId={props.weddingId} canEdit={props.canEdit} />
+            </Show>
           </Show>
         </Show>
 

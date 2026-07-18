@@ -51,6 +51,8 @@ vi.mock("./WeddingList", () => ({
             slug: "new-x",
             displayName: "Fresh Wedding",
             role: "owner",
+            entitlements: [],
+            guestCap: 100,
           })
         }
       >
@@ -105,10 +107,19 @@ function listResponse(
     slug: string;
     displayName: string;
     role?: "owner" | "editor" | "viewer";
+    entitlements?: string[];
+    guestCap?: number;
   }[],
 ) {
   return new Response(
-    JSON.stringify({ weddings: weddings.map((w) => ({ role: "owner", ...w })) }),
+    JSON.stringify({
+      weddings: weddings.map((w) => ({
+        role: "owner",
+        entitlements: [],
+        guestCap: 100,
+        ...w,
+      })),
+    }),
     {
       status: 200,
       headers: { "Content-Type": "application/json" },

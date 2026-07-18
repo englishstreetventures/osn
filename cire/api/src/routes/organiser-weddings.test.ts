@@ -8,6 +8,7 @@ import {
   guests,
   rsvps,
   sessions,
+  weddingEntitlements,
   weddingHosts,
   weddings,
 } from "@cire/db";
@@ -123,6 +124,64 @@ describe("GET /api/organiser/weddings", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { weddings: unknown[] };
     expect(body.weddings).toEqual([]);
+  });
+
+  it("attaches entitlements and guestCap=100 when no capacity pack is granted", async () => {
+    const { db, app } = buildApp();
+    // Grant a non-capacity entitlement so entitlements array is non-empty.
+    db.insert(weddingEntitlements)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        entitlement: "vendors",
+        source: "comp",
+        grantedAt: new Date(),
+        grantedBy: "usr_admin",
+        providerRef: null,
+      })
+      .run();
+    const res = await get(app, "/api/organiser/weddings", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      weddings: { id: string; entitlements: string[]; guestCap: number }[];
+    };
+    const w = body.weddings.find((x) => x.id === BOOTSTRAP_WEDDING_ID)!;
+    expect(w.entitlements).toContain("vendors");
+    // No capacity pack → default 100 cap.
+    expect(w.guestCap).toBe(100);
+  });
+
+  it("derives guestCap=500 from a capacity_500 entitlement", async () => {
+    const { db, app } = buildApp();
+    db.insert(weddingEntitlements)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        entitlement: "capacity_500",
+        source: "comp",
+        grantedAt: new Date(),
+        grantedBy: "usr_admin",
+        providerRef: null,
+      })
+      .run();
+    const res = await get(app, "/api/organiser/weddings", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      weddings: { id: string; entitlements: string[]; guestCap: number }[];
+    };
+    const w = body.weddings.find((x) => x.id === BOOTSTRAP_WEDDING_ID)!;
+    expect(w.entitlements).toContain("capacity_500");
+    expect(w.guestCap).toBe(500);
+  });
+
+  it("returns empty entitlements and guestCap=100 when no entitlement is granted", async () => {
+    const { app } = buildApp();
+    const res = await get(app, "/api/organiser/weddings", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      weddings: { id: string; entitlements: string[]; guestCap: number }[];
+    };
+    const w = body.weddings.find((x) => x.id === BOOTSTRAP_WEDDING_ID)!;
+    expect(w.entitlements).toEqual([]);
+    expect(w.guestCap).toBe(100);
   });
 });
 

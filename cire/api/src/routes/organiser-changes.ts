@@ -13,6 +13,7 @@ import { ApplyBody, DesiredState, RevertBody } from "../schemas/import";
 import type { ImportPlan, ParsedFamily } from "../schemas/import";
 import { decodeChangeBody, GENESIS_REVISION, headRevision } from "../services/changes";
 import { captureBeforeImage, pruneBeforeImages } from "../services/checkpoint";
+import { CapacityExceeded } from "../services/entitlements";
 import { applyImport, diffAgainstDb } from "../services/import";
 import type { DeletableBucket } from "../services/r2-cleanup";
 import { R2Service, fetchUpload, storeUpload } from "../services/r2-imports";
@@ -408,6 +409,17 @@ export const createOrganiserChangeRoutes = (
                     yield* Effect.logError("change apply failed");
                     set.status = 500;
                     return { error: "Apply failed" };
+                  }),
+                ),
+                Effect.catchTag("CapacityExceeded", (e) =>
+                  Effect.sync(() => {
+                    set.status = 402;
+                    return {
+                      error: "payment_required",
+                      entitlement: "capacity",
+                      limit: e.limit,
+                      current: e.current,
+                    };
                   }),
                 ),
               ),

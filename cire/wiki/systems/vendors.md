@@ -10,6 +10,8 @@ last-reviewed: 2026-07-18
 
 # Vendors — directory, CRM, and email-verification claim
 
+> **Entitlement gate:** the Vendor CRM routes (`/api/organiser/weddings/:weddingId/vendors/*`) and the Directory browse/add routes (`/api/organiser/weddings/:weddingId/directory/*`) both require the `vendors` entitlement (a row in `wedding_entitlements` with `entitlement = 'vendors'`). Requests from a wedding without this capability receive `402 { "error": "payment_required", "entitlement": "vendors" }`. The gate sits after the role check — see [[entitlements]].
+
 The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. PR A ships the backend foundation, CRM, and claim backend. PR B ships the `vendor.cireweddings.com` portal app (`cire/vendor`), CORS allowlist widening, and the deploy pipeline.
 
 ---

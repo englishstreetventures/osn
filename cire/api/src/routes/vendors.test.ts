@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, weddingHosts, weddings } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, weddingEntitlements, weddingHosts, weddings } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 
 import { createApp } from "../app";
@@ -21,7 +21,7 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
-function buildApp() {
+function buildApp({ grantVendors = true }: { grantVendors?: boolean } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -55,6 +55,34 @@ function buildApp() {
       updatedAt: now,
     })
     .run();
+
+  // Grant the `vendors` entitlement so the route gate passes (unless opted out
+  // for an explicit 402-test that must exercise the un-entitled path).
+  if (grantVendors) {
+    db.insert(weddingEntitlements)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        entitlement: "vendors",
+        source: "comp",
+        grantedAt: now,
+        grantedBy: OWNER,
+        providerRef: null,
+      })
+      .onConflictDoNothing()
+      .run();
+    // Also grant for wed_other so tenancy tests involving usr_bob's wedding pass.
+    db.insert(weddingEntitlements)
+      .values({
+        weddingId: "wed_other",
+        entitlement: "vendors",
+        source: "comp",
+        grantedAt: now,
+        grantedBy: "usr_bob",
+        providerRef: null,
+      })
+      .onConflictDoNothing()
+      .run();
+  }
 
   const { layer: logEmailLayer } = makeLogEmailLive();
   const directoryService = createDirectoryService({
@@ -222,5 +250,31 @@ describe("vendor CRM routes", () => {
     });
     expect(res.status).toBe(404);
     expect(((await res.json()) as { error: string }).error).toBe("vendor_not_found");
+  });
+
+  // ── Entitlement gate (Task 4) ──────────────────────────────────────────────
+
+  it("GET /vendors → 402 payment_required when wedding lacks `vendors`", async () => {
+    const res = await req(buildApp({ grantVendors: false }), "GET", base, OWNER);
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: "payment_required", entitlement: "vendors" });
+  });
+
+  it("POST /vendors → 402 payment_required when wedding lacks `vendors`", async () => {
+    const res = await req(buildApp({ grantVendors: false }), "POST", base, EDITOR, VENDOR);
+    expect(res.status).toBe(402);
+    expect(await res.json()).toEqual({ error: "payment_required", entitlement: "vendors" });
+  });
+
+  it("a VIEWER still gets 403 (role wins over 402) on the write route", async () => {
+    // weddingEditor fires before weddingEntitlement → viewer gets 403, not 402.
+    const res = await req(buildApp({ grantVendors: false }), "POST", base, VIEWER, VENDOR);
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toBe("read_only_role");
+  });
+
+  it("with the `vendors` entitlement granted, GET /vendors passes the gate (not 402)", async () => {
+    const res = await req(buildApp(), "GET", base, OWNER);
+    expect(res.status).not.toBe(402);
   });
 });

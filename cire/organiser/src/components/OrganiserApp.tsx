@@ -143,6 +143,8 @@ function WeddingDashboard(props: {
         onModule={props.onModule}
         onSub={props.onSub}
         onWeddingUpdated={props.onWeddingUpdated}
+        entitlements={props.wedding.entitlements ?? []}
+        guestCap={props.wedding.guestCap ?? 100}
       />
     </div>
   );

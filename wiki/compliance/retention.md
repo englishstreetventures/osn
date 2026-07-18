@@ -8,7 +8,7 @@ related:
   - "[[dsar]]"
   - "[[cire]]"
   - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-07-17
+last-reviewed: 2026-07-18
 ---
 
 # Retention
@@ -56,6 +56,7 @@ already enforced in code; others need a sweeper job.
 | Cire `directory_vendors.email` / `phone` (sole-trader contact on the directory listing) | While listing active; removed on org or cire admin request | App code (organiser or vendor deletes listing / account-delete flow) | **TODO** — no automated path yet; low-volume, operator-managed today | Cire |
 | Cire `vendors.email` / `phone` / `contact_name` (sole-trader contact in the per-wedding CRM) | Tied to wedding lifecycle — cascades when the organiser removes the CRM entry or the wedding is deleted | DB `ON DELETE cascade` from `vendors`/`weddings` | **OK for cascade path**; no independent sweeper needed (CRM entry is organiser-controlled) | Cire |
 | Cire `vendor_claims.email` (sole-trader email recorded on a claim token) | 7-day claim TTL; `status` flips to `expired`/`consumed` at expiry/consumption | App code (TTL enforced at consume-time check); claim rows retained indefinitely after expiry (no purge today) | **TODO** — add a sweeper once claim volumes warrant (e.g. purge `expired`/`consumed` rows older than 90 d) | Cire |
+| Cire `wedding_entitlements` (incl. `granted_by` audit field) | Life of the wedding record | DB `ON DELETE CASCADE` on `weddings.id` — when the wedding row is deleted the entitlement rows cascade automatically; no independent sweeper required | **OK** — fully covered by the wedding-deletion cascade | Cire |
 | Grafana Cloud traces | 14 days (free tier) | Vendor-enforced | OK | Platform |
 | Grafana Cloud logs | 50 GB rolling (~30 d typical) | Vendor-enforced | OK | Platform |
 | Grafana Cloud metrics | 30 days (free tier) | Vendor-enforced | OK | Platform |

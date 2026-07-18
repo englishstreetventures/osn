@@ -12,6 +12,7 @@ import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
 import { CreateWeddingBody, RemintBody } from "../schemas/wedding";
 import { claimService } from "../services/claim";
+import { entitlementService } from "../services/entitlements";
 import { familyDeactivateService } from "../services/family-deactivate";
 import { hostCodeService } from "../services/host-code";
 import { markSharedService } from "../services/mark-shared";
@@ -78,9 +79,21 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
         return { error: "unauthorised" };
       }
       return runCire(
-        weddingsService.listForMember(osnProfileId).pipe(
+        Effect.gen(function* () {
+          const list = yield* weddingsService.listForMember(osnProfileId);
+          const sets = yield* entitlementService.setsForWeddings(list.map((w) => w.id));
+          return {
+            weddings: list.map((w) => {
+              const keys = sets.get(w.id) ?? [];
+              return {
+                ...w,
+                entitlements: keys,
+                guestCap: entitlementService.deriveCap(keys),
+              };
+            }),
+          };
+        }).pipe(
           Effect.provideService(DbService, db),
-          Effect.map((list) => ({ weddings: list })),
           Effect.catchAllDefect(() =>
             Effect.sync(() => {
               set.status = 500;
