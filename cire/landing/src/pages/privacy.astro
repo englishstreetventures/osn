@@ -5,49 +5,107 @@ import LegalLayout from '../layouts/LegalLayout.astro'
   <div class="draft-banner">
     <strong>Draft</strong> — A working draft for review, not legal advice. Have it checked before
     publishing and replace every highlighted <span class="placeholder">{'{{PLACEHOLDER}}'}</span>
-    value (legal entity, contact address, regulator details).
+    value (contact address, retention specifics).
   </div>
 
   <h1>Privacy Notice</h1>
-  <p class="meta">Last updated: 2026-06-24</p>
+  <p class="meta">Last updated: 2026-07-18</p>
 
   <p>
-    This notice explains how <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span> (&ldquo;Cire&rdquo;,
-    &ldquo;we&rdquo;) handles personal information collected through our marketing site at
-    cireweddings.com. It covers visitors to this site. The separate privacy notice shown inside a
-    couple&rsquo;s invitation governs the guest data handled for that wedding.
+    This notice explains how <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span>, trading as Cire
+    (&ldquo;Cire&rdquo;, &ldquo;we&rdquo;), handles
+    personal information across the Cire service — this marketing site, the invitation site your
+    guests use, and the organiser portal.
   </p>
 
-  <h2>What we collect here</h2>
+  <h2>Two kinds of people use Cire</h2>
   <ul>
-    <li>Anything you choose to send us — for example your name and email when you start an invitation or contact us.</li>
-    <li>Basic, privacy-respecting analytics about how this site is used, so we can improve it.</li>
+    <li><strong>Organisers</strong> (couples and their helpers) create an account with us. For your
+      account and purchase information, we decide how it is handled, as described here.</li>
+    <li><strong>Guests</strong> don&rsquo;t create accounts. Your couple uploads your details to
+      manage their wedding, and we process them on the couple&rsquo;s behalf and instructions. If
+      you are a guest with questions about why your details are in Cire, your couple is the first
+      port of call — but you can always contact us directly too.</li>
+  </ul>
+
+  <h2>What we collect</h2>
+  <ul>
+    <li><strong>Organiser accounts</strong> — your name, email address and passkey credentials
+      (public key only — no passwords), and the weddings you manage.</li>
+    <li><strong>Wedding content</strong> — invitation wording, images, event schedules, checklists
+      and budgets you create.</li>
+    <li><strong>Guest information uploaded by organisers</strong> — guest names, household
+      groupings, RSVP responses, dietary needs and similar details the couple chooses to record.</li>
+    <li><strong>Purchases</strong> — handled by our merchant of record,
+      <span class="placeholder">{'{{MERCHANT_OF_RECORD}}'}</span>. We receive order confirmation
+      (what was bought, for which wedding) but never see your card details.</li>
+    <li><strong>Site usage</strong> — the technical logs needed to keep the service secure. We run
+      no third-party analytics or advertising trackers.</li>
   </ul>
 
   <h2>Why we collect it</h2>
   <ul>
-    <li>To respond to your enquiry and set up your invitation.</li>
-    <li>To keep the site secure and working well.</li>
+    <li>To provide the service — hosting invitations, collecting RSVPs, powering the planning tools.</li>
+    <li>To process purchases and unlock paid add-ons.</li>
+    <li>To send transactional email (sign-in codes, security notices) — never marketing without consent.</li>
+    <li>To keep the service secure and improve it.</li>
   </ul>
-  <p>We do not sell your information, and we do not use it for third-party advertising.</p>
+  <p>We do not sell personal information, and we do not use it for third-party advertising.</p>
+
+  <h2>Who we share it with</h2>
+  <p>We use a small set of service providers to run Cire:</p>
+  <ul>
+    <li><strong>Cloudflare</strong> — hosting, content delivery and databases (global network).</li>
+    <li><span class="placeholder">{'{{MERCHANT_OF_RECORD}}'}</span> — payment processing, as
+      merchant of record for purchases.</li>
+    <li><strong>Resend</strong> — transactional email delivery.</li>
+    <li><strong>Upstash</strong> — infrastructure supporting security features such as rate limiting.</li>
+    <li><strong>Grafana Cloud</strong> — service telemetry (metrics and traces; pseudonymised
+      identifiers only, never guest content).</li>
+    <li><strong>Google Fonts</strong> — our pages currently load fonts from Google&rsquo;s CDN,
+      which sees your IP address when they load. We plan to self-host these fonts.</li>
+  </ul>
+  <p>
+    We also disclose information where the law requires it. Because these providers operate
+    globally, personal information may be stored or processed outside Australia, including in the
+    United States and the European Union.
+  </p>
 
   <h2>How long we keep it</h2>
   <p>
-    Only as long as we need it for the purpose above, then we delete or anonymise it. Specific
-    retention periods: <span class="placeholder">{'{{RETENTION}}'}</span>.
+    Only as long as needed for the purposes above. Guest information (guest lists, RSVPs, dietary
+    needs) is automatically deleted <strong>one year after the wedding&rsquo;s final event</strong>.
+    Other wedding and account data is kept while your account is active and removed when you ask us
+    to; specific periods for account data:
+    <span class="placeholder">{'{{RETENTION}}'}</span>.
+  </p>
+
+  <h2>Security</h2>
+  <p>
+    Traffic is encrypted in transit, organiser sign-in uses passkeys rather than passwords, and
+    session credentials are stored hashed. No system is perfectly secure, but we design for
+    security first.
   </p>
 
   <h2>Your rights</h2>
   <p>
-    Depending on where you live, you may have rights to access, correct, delete or port your
-    information, and to object to certain uses. To exercise them, contact us at
-    <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span>. You may also complain to your local data
-    protection regulator (<span class="placeholder">{'{{REGULATOR}}'}</span>).
+    You may have rights to access, correct, delete or port your information, and to object to
+    certain uses — under the Australian Privacy Act, and for people in the EEA or UK, the GDPR and
+    UK GDPR. To exercise them, contact us at
+    <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span>. You can also complain to a regulator —
+    in Australia, the Office of the Australian Information Commissioner (OAIC), or your local data
+    protection authority.
+  </p>
+
+  <h2>Cookies</h2>
+  <p>
+    We use only the cookies the service needs to work (such as session cookies for signed-in
+    organisers and guests). No advertising or cross-site tracking cookies.
   </p>
 
   <h2>Contact</h2>
   <p>
-    <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span>,
+    <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span> (trading as Cire),
     <span class="placeholder">{'{{POSTAL_ADDRESS}}'}</span> —
     <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span>.
   </p>

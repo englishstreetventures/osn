@@ -207,3 +207,6 @@ wiki/.obsidian/
 
 # Claude Code agent worktrees (transient, per-session)
 .claude/worktrees/
+
+# Private business/legal planning notes — never committed
+wiki/business/
