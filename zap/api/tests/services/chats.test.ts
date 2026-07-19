@@ -10,6 +10,7 @@ import {
   addMember,
   removeMember,
   getChatMembers,
+  provisionC2bChat,
 } from "../../src/services/chats";
 import { setConsentGate, resetConsentGate } from "../../src/services/consent";
 import { createTestLayer, seedChat, seedMember } from "../helpers/db";
@@ -586,6 +587,47 @@ describe("chats service", () => {
       yield* seedMember(chat.id, "usr_alice", "admin");
       const { members: page } = yield* getChatMembers(chat.id, { limit: 10, offset: 50 });
       expect(page).toHaveLength(0);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // ── c2b provisioning (Task 3) ───────────────────────────────────────────
+
+  it.effect("provisionC2bChat creates a class='c2b', type='group' chat with all members", () =>
+    Effect.gen(function* () {
+      const chat = yield* provisionC2bChat({
+        memberProfileIds: ["usr_a", "usr_b"],
+        createdByProfileId: "usr_a",
+      });
+      expect(chat.class).toBe("c2b");
+      expect(chat.type).toBe("group");
+      // Both members present.
+      const { members } = yield* getChatMembers(chat.id);
+      expect(members).toHaveLength(2);
+      const profileIds = members.map((m) => m.profileId).toSorted();
+      expect(profileIds).toEqual(["usr_a", "usr_b"]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("provisionC2bChat rejects <2 members", () =>
+    Effect.gen(function* () {
+      const result = yield* Effect.either(
+        provisionC2bChat({ memberProfileIds: ["usr_a"], createdByProfileId: "usr_a" }),
+      );
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("ValidationError");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("provisionC2bChat includes a title when provided", () =>
+    Effect.gen(function* () {
+      const chat = yield* provisionC2bChat({
+        memberProfileIds: ["usr_a", "usr_b"],
+        createdByProfileId: "usr_a",
+        title: "Enquiry #1",
+      });
+      expect(chat.title).toBe("Enquiry #1");
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

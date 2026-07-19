@@ -34,3 +34,6 @@ export const DEFAULT_MEMBER_LIMIT = 100;
 
 /** Maximum page size for chat-member pagination — members cap at MAX_CHAT_MEMBERS. */
 export const MAX_MEMBER_LIMIT = MAX_CHAT_MEMBERS;
+
+/** Max length of a server-visible c2b message body (plaintext chars). */
+export const MAX_BODY_LENGTH = 8_000;

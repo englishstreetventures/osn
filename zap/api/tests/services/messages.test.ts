@@ -2,7 +2,13 @@ import { it } from "@effect/vitest";
 import { Effect, Either } from "effect";
 import { describe, expect } from "vitest";
 
-import { sendMessage, listMessages } from "../../src/services/messages";
+import { provisionC2bChat } from "../../src/services/chats";
+import {
+  sendMessage,
+  listMessages,
+  sendC2bMessage,
+  listC2bMessages,
+} from "../../src/services/messages";
 import { createTestLayer, seedChat, seedMember, seedMessage } from "../helpers/db";
 
 describe("messages service", () => {
@@ -216,6 +222,102 @@ describe("messages service", () => {
       expect(Either.isLeft(result)).toBe(true);
       if (Either.isLeft(result)) {
         expect(result.left._tag).toBe("ValidationError");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // ── c2b message functions (Task 3) ────────────────────────────────────────
+
+  it.effect("sendC2bMessage stores plaintext body, null ciphertext/nonce", () =>
+    Effect.gen(function* () {
+      const chat = yield* provisionC2bChat({
+        memberProfileIds: ["usr_a", "usr_b"],
+        createdByProfileId: "usr_a",
+      });
+      const msg = yield* sendC2bMessage(chat.id, "usr_a", { body: "hello" });
+      expect(msg.body).toBe("hello");
+      expect(msg.ciphertext).toBeNull();
+      expect(msg.nonce).toBeNull();
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("sendC2bMessage fails NotC2bChat on a c2c chat", () =>
+    Effect.gen(function* () {
+      const chat = yield* seedChat({ type: "group" });
+      yield* seedMember(chat.id, "usr_alice", "admin");
+      const result = yield* Effect.either(sendC2bMessage(chat.id, "usr_alice", { body: "hello" }));
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("NotC2bChat");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("sendC2bMessage fails NotChatMember for a non-member sender", () =>
+    Effect.gen(function* () {
+      const chat = yield* provisionC2bChat({
+        memberProfileIds: ["usr_a", "usr_b"],
+        createdByProfileId: "usr_a",
+      });
+      const result = yield* Effect.either(
+        sendC2bMessage(chat.id, "usr_outsider", { body: "hello" }),
+      );
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("NotChatMember");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("sendC2bMessage fails ValidationError for empty body", () =>
+    Effect.gen(function* () {
+      const chat = yield* provisionC2bChat({
+        memberProfileIds: ["usr_a", "usr_b"],
+        createdByProfileId: "usr_a",
+      });
+      const result = yield* Effect.either(sendC2bMessage(chat.id, "usr_a", { body: "" }));
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("ValidationError");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("listC2bMessages returns bodies newest-first", () =>
+    Effect.gen(function* () {
+      const chat = yield* provisionC2bChat({
+        memberProfileIds: ["usr_a", "usr_b"],
+        createdByProfileId: "usr_a",
+      });
+      yield* sendC2bMessage(chat.id, "usr_a", { body: "first" });
+      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 10)));
+      yield* sendC2bMessage(chat.id, "usr_b", { body: "second" });
+
+      const msgs = yield* listC2bMessages(chat.id);
+      expect(msgs).toHaveLength(2);
+      // Newest first.
+      expect(msgs[0]!.body).toBe("second");
+      expect(msgs[1]!.body).toBe("first");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("listC2bMessages fails NotC2bChat on a c2c chat", () =>
+    Effect.gen(function* () {
+      const chat = yield* seedChat({ type: "group" });
+      const result = yield* Effect.either(listC2bMessages(chat.id));
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("NotC2bChat");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("listC2bMessages fails ChatNotFound for missing chat", () =>
+    Effect.gen(function* () {
+      const result = yield* Effect.either(listC2bMessages("chat_nonexistent"));
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("ChatNotFound");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );

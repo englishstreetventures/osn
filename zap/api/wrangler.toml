@@ -26,8 +26,15 @@ migrations_dir = "../db/drizzle"
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "zap-db-prod"
-database_id = "placeholder-replace-after-d1-create"
+database_id = "9b75f81a-7439-412a-9aad-cf47836bca07"
 migrations_dir = "../db/drizzle"
+
+# Production vars: OSN identity issuer for access-token JWKS verification.
+# OSN_JWKS_URL is the only env var zap-api reads from `Env` for JWT verification
+# (src/index.ts + src/lib/jwks.ts). Mirrors the prod origin used by cire-api
+# and osn-api (id.cireweddings.com). Set before first deploy.
+[env.production.vars]
+OSN_JWKS_URL = "https://id.cireweddings.com/.well-known/jwks.json"
 
 # OSN_JWT_SECRET is sensitive — set it per environment as a Worker secret, not a
 # plaintext var:

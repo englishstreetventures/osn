@@ -186,10 +186,8 @@ export async function requireArc(
 }
 
 /**
- * Allowlist of scopes zap-api will accept on registration. Permitted scopes
- * are those Zap will verify on inbound ARC tokens — keep tight.
- *
- * `account:export` powers the DSAR account-export fan-out (C-H1);
- * `account:erase` is reserved for the future account-deletion fan-out.
+ * `account:export`/`account:erase` power the DSAR fan-out; `chat:c2b` lets a
+ * trusted service (cire-api) provision consumer-to-business chats and CRUD
+ * their server-visible messages via `/internal/chats*`.
  */
-export const PERMITTED_INBOUND_SCOPES = new Set(["account:export", "account:erase"]);
+export const PERMITTED_INBOUND_SCOPES = new Set(["account:export", "account:erase", "chat:c2b"]);

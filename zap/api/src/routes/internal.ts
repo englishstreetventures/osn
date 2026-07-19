@@ -1,6 +1,6 @@
-import { chatMembers } from "@zap/db/schema";
+import { chatMembers, chats, messages } from "@zap/db/schema";
 import { DbLive, Db, type Db as DbType } from "@zap/db/service";
-import { inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
@@ -11,9 +11,14 @@ import {
   requireArc,
   revokeServiceKey,
 } from "../lib/arc-middleware";
+import { provisionC2bChat } from "../services/chats";
+import { sendC2bMessage, listC2bMessages } from "../services/messages";
 
 const AUDIENCE = "zap-api";
 const SCOPE_ACCOUNT_EXPORT = "account:export";
+// Bounds the DSAR c2b-body fetch to keep the export within Worker memory/CPU.
+// A follow-up may paginate if a real account exceeds this.
+const MAX_EXPORT_C2B_MESSAGES = 5_000;
 
 function isTimingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -66,6 +71,65 @@ const loadChatMemberships = (
       joinedAt: r.joinedAt ? r.joinedAt.toISOString() : null,
     }));
   }).pipe(Effect.withSpan("zap.internal.account_export"));
+
+/**
+ * A single DSAR export line for a c2b (server-visible) message body.
+ * `messages.ciphertext` is NEVER read here — only `body` is selected.
+ */
+interface ExportC2bMessageRecord {
+  readonly chatId: string;
+  readonly body: string;
+  readonly createdAt: string;
+}
+
+/**
+ * Reads c2b message bodies for all c2b chats the exported profiles are members
+ * of. `messages.ciphertext` is deliberately NOT selected — c2c ciphertext
+ * stays excluded from all DSAR exports.
+ *
+ * Scope: chats.class = 'c2b' AND chatMembers.profileId IN profileIds.
+ */
+const loadC2bMessages = (
+  profileIds: readonly string[],
+): Effect.Effect<ExportC2bMessageRecord[], never, DbType> =>
+  Effect.gen(function* () {
+    if (profileIds.length === 0) return [];
+    const { db } = yield* Db;
+    // First find the c2b chat IDs this set of profiles belongs to.
+    const memberRows = yield* Effect.promise(
+      (): Promise<{ chatId: string }[]> =>
+        db
+          .select({ chatId: chatMembers.chatId })
+          .from(chatMembers)
+          .innerJoin(chats, and(eq(chats.id, chatMembers.chatId), eq(chats.class, "c2b")))
+          .where(inArray(chatMembers.profileId, [...profileIds])) as Promise<{ chatId: string }[]>,
+    );
+    if (memberRows.length === 0) return [];
+    const c2bChatIds = [...new Set(memberRows.map((r) => r.chatId))];
+    // Read only `body` — never `ciphertext` or `nonce`.
+    // isNotNull(body): defence-in-depth — only c2b bodies, never a stray null.
+    // orderBy + limit: bounds the fetch to keep the export within Worker memory/CPU.
+    const msgRows = yield* Effect.promise(
+      (): Promise<{ chatId: string; body: string; createdAt: Date }[]> =>
+        db
+          .select({
+            chatId: messages.chatId,
+            body: messages.body,
+            createdAt: messages.createdAt,
+          })
+          .from(messages)
+          .where(and(inArray(messages.chatId, c2bChatIds), isNotNull(messages.body)))
+          .orderBy(desc(messages.createdAt))
+          .limit(MAX_EXPORT_C2B_MESSAGES) as Promise<
+          { chatId: string; body: string; createdAt: Date }[]
+        >,
+    );
+    return msgRows.map((r) => ({
+      chatId: r.chatId,
+      body: r.body,
+      createdAt: r.createdAt.toISOString(),
+    }));
+  }).pipe(Effect.withSpan("zap.internal.account_export_c2b_messages"));
 
 /**
  * Internal zap-api endpoints — ARC-gated (account-export) and
@@ -170,13 +234,19 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
           );
           if (!caller) return { error: "Unauthorized" };
 
-          const records = await runtime.runPromise(loadChatMemberships(body.profile_ids));
+          const [membershipRecords, c2bMessageRecords] = await runtime.runPromise(
+            Effect.all([loadChatMemberships(body.profile_ids), loadC2bMessages(body.profile_ids)]),
+          );
 
           // Buffered NDJSON — one JSON object per line, no trailing newline
           // beyond each record's own. Empty profile set → empty body.
-          const ndjson = records
-            .map((record) => JSON.stringify({ section: "zap.chats", record }))
-            .join("\n");
+          const ndjsonLines: string[] = [
+            ...membershipRecords.map((record) => JSON.stringify({ section: "zap.chats", record })),
+            ...c2bMessageRecords.map((record) =>
+              JSON.stringify({ section: "zap.c2b_messages", record }),
+            ),
+          ];
+          const ndjson = ndjsonLines.join("\n");
 
           set.status = 200;
           set.headers["content-type"] = "application/x-ndjson";
@@ -186,6 +256,160 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
           body: t.Object({
             account_id: t.String(),
             profile_ids: t.Array(t.String()),
+          }),
+        },
+      )
+      // ------------------------------------------------------------------
+      // ARC-gated `/internal/chats` — called by cire-api to provision
+      // consumer-to-business chats (scope: `chat:c2b`).
+      // ------------------------------------------------------------------
+      .post(
+        "/chats",
+        async ({ body, headers, set }) => {
+          const caller = await requireArc(headers.authorization, set, AUDIENCE, "chat:c2b");
+          if (!caller) return { error: "Unauthorized" };
+
+          const result = await runtime.runPromise(
+            provisionC2bChat({
+              memberProfileIds: body.memberProfileIds,
+              createdByProfileId: body.createdByProfileId,
+              title: body.title,
+            }).pipe(
+              Effect.catchTag("ValidationError", () =>
+                Effect.sync(() => {
+                  set.status = 400;
+                  return { error: "Invalid request" } as const;
+                }),
+              ),
+              Effect.catchTag("DatabaseError", () =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal server error" } as const;
+                }),
+              ),
+            ),
+          );
+          if ("error" in result) return result;
+          set.status = 201;
+          return { chatId: result.id };
+        },
+        {
+          body: t.Object({
+            memberProfileIds: t.Array(t.String(), { minItems: 2 }),
+            createdByProfileId: t.String({ minLength: 1 }),
+            title: t.Optional(t.String()),
+          }),
+        },
+      )
+      // ------------------------------------------------------------------
+      // ARC-gated `POST /internal/chats/:chatId/messages` — send a
+      // server-visible (plaintext) message into a c2b chat.
+      // ------------------------------------------------------------------
+      .post(
+        "/chats/:chatId/messages",
+        async ({ body, headers, params, set }) => {
+          const caller = await requireArc(headers.authorization, set, AUDIENCE, "chat:c2b");
+          if (!caller) return { error: "Unauthorized" };
+
+          const result = await runtime.runPromise(
+            sendC2bMessage(params.chatId, body.senderProfileId, { body: body.body }).pipe(
+              Effect.catchTag("ValidationError", () =>
+                Effect.sync(() => {
+                  set.status = 400;
+                  return { error: "Invalid request" } as const;
+                }),
+              ),
+              Effect.catchTag("ChatNotFound", () =>
+                Effect.sync(() => {
+                  set.status = 404;
+                  return { error: "Chat not found" } as const;
+                }),
+              ),
+              Effect.catchTag("NotC2bChat", () =>
+                Effect.sync(() => {
+                  set.status = 409;
+                  return { error: "Not a c2b chat" } as const;
+                }),
+              ),
+              Effect.catchTag("NotChatMember", () =>
+                Effect.sync(() => {
+                  set.status = 403;
+                  return { error: "Sender is not a chat member" } as const;
+                }),
+              ),
+              Effect.catchTag("DatabaseError", () =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal server error" } as const;
+                }),
+              ),
+            ),
+          );
+          if ("error" in result) return result;
+          set.status = 201;
+          return {
+            messageId: result.id,
+            createdAt: result.createdAt.toISOString(),
+          };
+        },
+        {
+          params: t.Object({ chatId: t.String({ minLength: 1 }) }),
+          body: t.Object({
+            senderProfileId: t.String({ minLength: 1 }),
+            body: t.String({ minLength: 1 }),
+          }),
+        },
+      )
+      // ------------------------------------------------------------------
+      // ARC-gated `GET /internal/chats/:chatId/messages` — list messages
+      // in a c2b chat (newest first, cursor-paginated via `before` + `limit`).
+      // ------------------------------------------------------------------
+      .get(
+        "/chats/:chatId/messages",
+        async ({ headers, params, query, set }) => {
+          const caller = await requireArc(headers.authorization, set, AUDIENCE, "chat:c2b");
+          if (!caller) return { error: "Unauthorized" };
+
+          const limit = query.limit;
+          const before = query.before ?? undefined;
+
+          const result = await runtime.runPromise(
+            listC2bMessages(params.chatId, { limit, before }).pipe(
+              Effect.catchTag("ChatNotFound", () =>
+                Effect.sync(() => {
+                  set.status = 404;
+                  return { error: "Chat not found" } as const;
+                }),
+              ),
+              Effect.catchTag("NotC2bChat", () =>
+                Effect.sync(() => {
+                  set.status = 409;
+                  return { error: "Not a c2b chat" } as const;
+                }),
+              ),
+              Effect.catchTag("DatabaseError", () =>
+                Effect.sync(() => {
+                  set.status = 500;
+                  return { error: "Internal server error" } as const;
+                }),
+              ),
+            ),
+          );
+          if ("error" in result) return result;
+          return {
+            messages: result.map((m) => ({
+              id: m.id,
+              senderProfileId: m.senderProfileId,
+              body: m.body ?? "",
+              createdAt: m.createdAt.toISOString(),
+            })),
+          };
+        },
+        {
+          params: t.Object({ chatId: t.String({ minLength: 1 }) }),
+          query: t.Object({
+            limit: t.Optional(t.Numeric()),
+            before: t.Optional(t.String()),
           }),
         },
       )

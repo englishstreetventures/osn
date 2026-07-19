@@ -10,7 +10,7 @@ related:
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-07-19
 ---
 
 # Zap
@@ -56,6 +56,48 @@ The Signal Protocol implementation lives in `@shared/crypto` (alongside ARC toke
 | Spam / abuse | Content moderation on ciphertext? | E2E forecloses server-side moderation; need client-side reporting |
 
 Tracked in the Deferred Decisions section of `wiki/TODO.md`.
+
+## c2b (consumer-to-business) chats
+
+### The `class` axis: c2c vs c2b
+
+Every chat row carries a `class` column with two values:
+
+| Class | Description | Body storage |
+|---|---|---|
+| `c2c` (consumer-to-consumer) | Traditional E2E-encrypted DMs and group chats. The server stores **ciphertext only** — `messages.body` is `NULL`. Decryption happens entirely on-device using the Signal Protocol (`@shared/crypto`). | `NULL` (ciphertext in Signal payload, outside this column) |
+| `c2b` (consumer-to-business) | Conversations between a user and a business/service (e.g. a cire vendor inquiry). The business endpoint is a server-side service, not a user device, so full E2E is not applicable. `messages.body` is a **plaintext string**, visible to the server. | `TEXT NOT NULL` |
+
+The `class` column was added to `@zap/db` in the c2b PR and defaults to `'c2c'` for all existing chats, preserving the E2E invariant for all consumer messaging.
+
+### Internal API surface
+
+c2b chat provisioning and messaging is exposed exclusively through **ARC-gated internal routes** — they are never reachable from user clients:
+
+| Route | Method | Purpose |
+|---|---|---|
+| `/internal/chats` | `POST` | Provision a new c2b chat (sets `class = 'c2b'`). Caller must hold the `chat:c2b` scope. |
+| `/internal/chats/:chatId/messages` | `POST` | Send a message into a c2b chat (writes plaintext `body`). |
+| `/internal/chats/:chatId/messages` | `GET` | List messages in a c2b chat with cursor-based pagination. |
+
+All three routes are protected by ARC token verification (audience `zap-api`, scope `chat:c2b`). A caller without the scope receives `403 Forbidden`. Consumer chat routes (`/chats*`) are unaffected and continue to enforce OSN user-token auth (ES256, audience `osn-access`).
+
+#### `chat:c2b` scope
+
+The `chat:c2b` scope is the ARC permission gate for all c2b operations. It is granted when a service (e.g. `cire-api`) registers its ARC public key with zap-api's `POST /internal/register-service` requesting `allowedScopes: "chat:c2b"`. See [[arc-tokens]] and the zap-api production bring-up runbook for the registration steps.
+
+### DSAR / account-export
+
+The DSAR account-export (`GET /account/export`) includes c2b message bodies:
+
+- **c2b chats**: `messages.body` (plaintext) is included in the export under the user's own messages.
+- **c2c chats**: ciphertext is still **excluded** — the server never holds the plaintext and cannot export it. The export includes c2c chat metadata (chat id, member list, timestamps) but not the encrypted payload.
+
+This distinction is by design: c2b body content is server-visible and user-attributed data that users have a right to receive under GDPR/DSAR; c2c ciphertext is opaque server-side and cannot meaningfully be exported.
+
+### CI pipeline
+
+A `deploy-zap-api` job exists in `.github/workflows/deploy.yml` but is **dormant**: it activates once the prod D1 `database_id` is filled in `zap/api/wrangler.toml` `[env.production]`. See the zap-api production bring-up runbook for the manual steps to activate it.
 
 ## Authentication & authorization
 
@@ -111,8 +153,7 @@ add-member) when the two share a permitted OSN social-graph relationship.
 
 ### Deferred
 
-- **Z7** — inbound ARC surface (`POST /internal/chats`) for Pulse-driven event
-  chats: separate PR.
+- **Z7** — inbound ARC surface (`/internal/chats*` for c2b): **shipped** in the c2b PR (see [[#c2b-consumer-to-business-chats]] above). Pulse-driven event group chats remain a separate PR.
 - **S-M6** — widen the 48-bit UUID-slice IDs (`chat_`/`cmem_`/`msg_`): separate
   PR.
 

@@ -9,8 +9,10 @@ import {
   MAX_NONCE_LENGTH,
   DEFAULT_MESSAGE_LIMIT,
   MAX_MESSAGE_LIMIT,
+  MAX_BODY_LENGTH,
 } from "../lib/limits";
 import { metricMessageSent, metricMessagesListed } from "../metrics";
+import { NotC2bChat } from "./chats";
 
 // ---------------------------------------------------------------------------
 // Tagged errors
@@ -42,6 +44,10 @@ const NonceString = Schema.String.pipe(Schema.maxLength(MAX_NONCE_LENGTH));
 const SendMessageSchema = Schema.Struct({
   ciphertext: CiphertextString,
   nonce: NonceString,
+});
+
+const SendC2bMessageSchema = Schema.Struct({
+  body: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(MAX_BODY_LENGTH)),
 });
 
 // ---------------------------------------------------------------------------
@@ -160,6 +166,129 @@ export const listMessages = (
     metricMessagesListed(results.length);
     return results;
   }).pipe(Effect.withSpan("zap.messages.list"));
+
+export const sendC2bMessage = (
+  chatId: string,
+  senderProfileId: string,
+  data: unknown,
+): Effect.Effect<
+  Message,
+  ChatNotFound | NotChatMember | NotC2bChat | ValidationError | DatabaseError,
+  Db
+> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+
+    // Verify chat exists.
+    const chatRows = yield* Effect.tryPromise({
+      try: (): Promise<Chat[]> =>
+        db.select().from(chats).where(eq(chats.id, chatId)).limit(1) as Promise<Chat[]>,
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+    if (chatRows.length === 0) {
+      return yield* Effect.fail(new ChatNotFound({ id: chatId }));
+    }
+    const chat = chatRows[0]!;
+
+    // Assert this is a c2b chat.
+    if (chat.class !== "c2b") {
+      return yield* Effect.fail(new NotC2bChat({ chatId }));
+    }
+
+    // Verify sender is a member.
+    yield* assertMember(chatId, senderProfileId);
+
+    const validated = yield* Schema.decodeUnknown(SendC2bMessageSchema)(data).pipe(
+      Effect.mapError((cause) => new ValidationError({ cause })),
+    );
+
+    const id = "msg_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const now = new Date();
+
+    yield* Effect.tryPromise({
+      try: () =>
+        db.insert(messages).values({
+          id,
+          chatId,
+          senderProfileId,
+          ciphertext: null,
+          nonce: null,
+          body: validated.body,
+          createdAt: now,
+        }),
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+
+    // Bump chat's updatedAt.
+    yield* Effect.tryPromise({
+      try: () => db.update(chats).set({ updatedAt: now }).where(eq(chats.id, chatId)),
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+
+    const [msg] = yield* Effect.tryPromise({
+      try: (): Promise<Message[]> =>
+        db.select().from(messages).where(eq(messages.id, id)) as Promise<Message[]>,
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+    return msg!;
+  }).pipe(Effect.withSpan("zap.messages.send_c2b"));
+
+export const listC2bMessages = (
+  chatId: string,
+  opts: { limit?: number; before?: string } = {},
+): Effect.Effect<Message[], ChatNotFound | NotC2bChat | DatabaseError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+
+    // Verify chat exists.
+    const chatRows = yield* Effect.tryPromise({
+      try: (): Promise<Chat[]> =>
+        db.select().from(chats).where(eq(chats.id, chatId)).limit(1) as Promise<Chat[]>,
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+    if (chatRows.length === 0) {
+      return yield* Effect.fail(new ChatNotFound({ id: chatId }));
+    }
+    const chat = chatRows[0]!;
+
+    // Assert this is a c2b chat.
+    if (chat.class !== "c2b") {
+      return yield* Effect.fail(new NotC2bChat({ chatId }));
+    }
+
+    const limit = Math.min(Math.max(1, opts.limit ?? DEFAULT_MESSAGE_LIMIT), MAX_MESSAGE_LIMIT);
+
+    // Cursor-based pagination: fetch messages older than `before` message id.
+    const conditions = [eq(messages.chatId, chatId)];
+    if (opts.before) {
+      const cursorRows = yield* Effect.tryPromise({
+        try: (): Promise<Message[]> =>
+          db
+            .select()
+            .from(messages)
+            .where(and(eq(messages.id, opts.before!), eq(messages.chatId, chatId)))
+            .limit(1) as Promise<Message[]>,
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      if (cursorRows.length > 0) {
+        conditions.push(lt(messages.createdAt, cursorRows[0]!.createdAt));
+      }
+    }
+
+    const results = yield* Effect.tryPromise({
+      try: (): Promise<Message[]> =>
+        db
+          .select()
+          .from(messages)
+          .where(and(...conditions))
+          .orderBy(desc(messages.createdAt))
+          .limit(limit) as Promise<Message[]>,
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+
+    metricMessagesListed(results.length);
+    return results;
+  }).pipe(Effect.withSpan("zap.messages.list_c2b"));
 
 // ---------------------------------------------------------------------------
 // Internal helpers

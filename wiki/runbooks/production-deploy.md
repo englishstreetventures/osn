@@ -818,3 +818,109 @@ If the vendor portal must be rolled back:
 3. Optionally disable the `cire-vendor` Pages project custom domain in the Cloudflare dashboard.
 
 The Pages project itself does not need to be deleted — it can be left idle.
+
+---
+
+## 9. zap-api production bring-up (PR A follow-up)
+
+> ⚠️ **Requires explicit authorization; prod writes.** Every step in this section modifies production infrastructure or sets production secrets. Do NOT execute any of these steps without explicit human authorization from the team. They are documented here as a deploy-time checklist, not as automated tasks.
+
+These steps are manual follow-ups to the c2b chats PR (Zap PR A). The `deploy-zap-api` CI job exists in `.github/workflows/deploy.yml` but is **dormant** until step 9.1 is completed — it will not fire on merges until the prod D1 id is filled in.
+
+### 9.1 Create the zap-db-prod D1 database
+
+```bash
+# From repo root or zap/api/
+bunx wrangler d1 create zap-db-prod --location oc
+```
+
+Copy the returned `database_id` and paste it into `zap/api/wrangler.toml` under `[env.production]`:
+
+```toml
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "zap-db-prod"
+database_id = "<paste-id-here>"          # replace "placeholder-replace-after-d1-create"
+migrations_dir = "../db/drizzle"
+```
+
+Commit and merge this change. **This activates the dormant `deploy-zap-api` CI job** — subsequent merges to `main` will automatically build and deploy zap-api to production and apply D1 migrations.
+
+> **Region:** use `--location oc` (Oceania / Sydney) to co-locate with the other D1 databases (osn-db-prod and cire-db, all `oc`) and Upstash (`ap-southeast-2`). AU-centric traffic, low write latency.
+
+### 9.2 Set zap-api production secrets
+
+```bash
+# From zap/api/
+cd zap/api
+
+# REQUIRED: OSN JWKS URL for access-token verification (also set as a [vars] entry in
+# wrangler.toml [env.production.vars]; confirm it is already OSN_JWKS_URL = "https://id.cireweddings.com/.well-known/jwks.json")
+# No secret needed for OSN_JWKS_URL — it is a plaintext var.
+
+# REQUIRED: S2S bearer secret for ARC key registration at POST /internal/register-service.
+# Needed to register cire-api's ARC public key with zap-api (§9.3 below).
+bunx wrangler secret put INTERNAL_SERVICE_SECRET --env production
+
+# OPTIONAL: ZAP_CORS_ORIGIN — comma-sep origins that may call user-facing /chats* routes
+# (zap/app when it ships). Not required for c2b which uses internal routes only.
+# bunx wrangler secret put ZAP_CORS_ORIGIN --env production
+```
+
+| Secret | Required? | Notes |
+|---|---|---|
+| `OSN_JWKS_URL` | Set as `[vars]` in wrangler.toml | Already in `zap/api/wrangler.toml [env.production.vars]` = `https://id.cireweddings.com/.well-known/jwks.json`. No separate secret needed. |
+| `INTERNAL_SERVICE_SECRET` | **Yes (for §9.3)** | Guards `POST /internal/register-service`. Without it zap-api returns 501 on that endpoint. |
+| `ZAP_CORS_ORIGIN` | Optional | Only needed once `@zap/app` client ships and calls user-facing routes. `c2b` uses only internal ARC routes. |
+
+### 9.3 Register cire-api's ARC public key with zap-api
+
+This mirrors the cire↔osn `org:read` registration in §6.2. cire-api needs the `chat:c2b` scope on zap-api to provision and message c2b chats.
+
+Generate a stable ES256 key pair for cire-api's zap bridge (same command as §1.2 — or reuse an existing key pair if cire already has one for its osn-api bridge):
+
+```bash
+node -e "const {subtle}=globalThis.crypto; subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']).then(async k=>{const {exportJWK}=await import('jose');console.log('private:',btoa(JSON.stringify(await exportJWK(k.privateKey))));console.log('public:',btoa(JSON.stringify(await exportJWK(k.publicKey))))})"
+```
+
+Store the private key as a cire-api Worker secret and record the public key + kid:
+
+```bash
+# From cire/api/
+bunx wrangler secret put CIRE_ZAP_ARC_PRIVATE_KEY --env production
+bunx wrangler secret put CIRE_ZAP_ARC_KEY_ID      --env production   # the "kid" value
+bunx wrangler secret put ZAP_API_URL               --env production   # zap-api prod base URL
+```
+
+Then register the public half with zap-api (mirrors §6.2 for osn-api):
+
+```bash
+curl -X POST "$ZAP_API_URL/internal/register-service" \
+  -H "Authorization: Bearer $INTERNAL_SERVICE_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"serviceId":"cire-api","keyId":"<CIRE_ZAP_ARC_KEY_ID>","publicKeyJwk":"<public JWK string>","allowedScopes":"chat:c2b"}'
+```
+
+(`POST /internal/register-service` returns 501 if `INTERNAL_SERVICE_SECRET` is unset on zap-api, 401 on a bad bearer. The registration is an upsert — safe to re-run.) Until this step runs per environment, cire-api's `/api/organiser/weddings/:id/enquiries` and vendor-enquiry flows return 503 (the zap-api bridge fails-soft when the ARC key is absent).
+
+### 9.4 Apply zap-db-prod migrations
+
+Once the D1 database exists and the wrangler.toml is updated (§9.1), apply the schema migrations:
+
+```bash
+# From zap/api/ (migrations_dir = "../db/drizzle" is in wrangler.toml)
+bunx wrangler d1 migrations apply zap-db-prod --env production --remote
+
+# Or via the @zap/db script:
+# bun run --cwd zap/db db:migrate:prod
+```
+
+The CI deploy job (`deploy-zap-api`) runs migrations automatically on each deploy once activated — this manual step is needed only for the initial bring-up before the first CI deploy fires.
+
+### 9.5 Smoke-check zap-api production
+
+After the first `deploy-zap-api` run completes:
+
+1. **Health check.** `curl https://<zap-api-prod-url>/health` → 200 (confirms the Worker booted, D1 binding is present, JWKS URL is set).
+2. **D1 row count.** `bunx wrangler d1 execute zap-db-prod --remote --command "SELECT count(*) FROM chats;"` → `0` (empty schema, migrations applied).
+3. **ARC registration (smoke).** After §9.3, a test `POST /internal/chats` from cire-api should return 201 (not 401/403/503). Confirm the `class` column on the returned row is `'c2b'`.

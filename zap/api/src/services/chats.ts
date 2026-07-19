@@ -61,12 +61,23 @@ export class LastAdmin extends Data.TaggedError("LastAdmin")<{
   readonly chatId: string;
 }> {}
 
+/** Emitted when a c2b-only operation is attempted on a c2c chat. */
+export class NotC2bChat extends Data.TaggedError("NotC2bChat")<{
+  readonly chatId: string;
+}> {}
+
 // ---------------------------------------------------------------------------
 // Effect schemas (service-layer validation)
 // ---------------------------------------------------------------------------
 
 const ChatTypeEnum = Schema.Literal("dm", "group", "event");
 const TitleString = Schema.String.pipe(Schema.maxLength(MAX_CHAT_TITLE_LENGTH));
+
+const ProvisionC2bChatSchema = Schema.Struct({
+  memberProfileIds: Schema.Array(Schema.String).pipe(Schema.minItems(2)),
+  createdByProfileId: Schema.String,
+  title: Schema.optional(TitleString),
+});
 
 const CreateChatSchema = Schema.Struct({
   type: ChatTypeEnum,
@@ -463,6 +474,62 @@ export const getChatMembers = (
     const hasMore = rows.length > limit;
     return { members: hasMore ? rows.slice(0, limit) : rows, hasMore };
   }).pipe(Effect.withSpan("zap.chats.get_members"));
+
+export const provisionC2bChat = (input: {
+  memberProfileIds: readonly string[];
+  createdByProfileId: string;
+  title?: string;
+}): Effect.Effect<Chat, ValidationError | DatabaseError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+
+    const validated = yield* Schema.decodeUnknown(ProvisionC2bChatSchema)(input).pipe(
+      Effect.mapError((cause) => new ValidationError({ cause })),
+    );
+
+    // De-dupe members; enforce 2..MAX_CHAT_MEMBERS inclusive.
+    const memberSet = Array.from(new Set(validated.memberProfileIds));
+    if (memberSet.length < 2 || memberSet.length > MAX_CHAT_MEMBERS) {
+      return yield* Effect.fail(
+        new ValidationError({ cause: `member count must be 2..${MAX_CHAT_MEMBERS}` }),
+      );
+    }
+
+    const id = "chat_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const now = new Date();
+
+    yield* Effect.tryPromise({
+      try: () =>
+        db.insert(chats).values({
+          id,
+          type: "group",
+          class: "c2b",
+          title: validated.title ?? null,
+          eventId: null,
+          createdByProfileId: validated.createdByProfileId,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+
+    // Insert all members (no role distinction — cire is the trusted authorizer).
+    const memberRows = memberSet.map((profileId) => ({
+      id: "cmem_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+      chatId: id,
+      profileId,
+      role: "member" as const,
+      joinedAt: now,
+    }));
+    yield* Effect.tryPromise({
+      try: () => db.insert(chatMembers).values(memberRows),
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+
+    return yield* getChat(id).pipe(
+      Effect.mapError((e) => (e instanceof ChatNotFound ? new DatabaseError({ cause: e }) : e)),
+    );
+  }).pipe(Effect.withSpan("zap.chats.provision_c2b"));
 
 // ---------------------------------------------------------------------------
 // Helpers (public — used by routes for membership gating)

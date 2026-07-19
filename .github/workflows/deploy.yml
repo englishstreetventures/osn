@@ -389,3 +389,60 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ── zap/api (Worker + D1 migrate) ──────────────────────────────────────────
+  # DORMANT: zap-api is not yet provisioned in prod (the D1 database doesn't
+  # exist yet). Until the real D1 id is filled in (a deploy-time step — see
+  # wiki/runbooks/production-deploy.md), the "Detect zap prod provisioning"
+  # step below detects the placeholder and emits provisioned=false, causing
+  # both the migrate + deploy steps to be skipped. The job runs green + inert.
+  # Once zap-db-prod is created and its id replaces the placeholder, both steps
+  # fire on the next push to main.
+  deploy-zap-api:
+    name: Deploy zap/api (+ D1 migrate)
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - name: Install dependencies
+        run: bun install
+      # zap-api is not provisioned in prod until its D1 exists + its id is filled
+      # into wrangler.toml (a deploy-time step). Until then, SKIP (green) so this
+      # job never deploys against a non-existent DB and never reds the pipeline.
+      - name: Detect zap prod provisioning
+        id: zapcheck
+        run: |
+          # Check ONLY the production D1 id — dev/staging legitimately keep placeholders.
+          PROD_ID=$(awk '/\[\[env\.production\.d1_databases\]\]/{f=1} f&&/^database_id/{gsub(/.*= *"|".*/,""); print; exit}' zap/api/wrangler.toml)
+          if [ -z "$PROD_ID" ] || [ "$PROD_ID" = "placeholder-replace-after-d1-create" ]; then
+            echo "provisioned=false" >> "$GITHUB_OUTPUT"
+            echo "zap-api prod D1 not provisioned yet — skipping deploy."
+          else
+            echo "zap-api prod D1 provisioned ($PROD_ID) — deploying."
+            echo "provisioned=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Apply zap D1 migrations (remote prod)
+        if: steps.zapcheck.outputs.provisioned == 'true'
+        run: bunx wrangler d1 migrations apply zap-db-prod --env production --remote
+        working-directory: zap/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Deploy zap/api Worker
+        if: steps.zapcheck.outputs.provisioned == 'true'
+        run: bunx wrangler deploy --env production
+        working-directory: zap/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
