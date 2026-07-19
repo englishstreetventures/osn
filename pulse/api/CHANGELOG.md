@@ -1,5 +1,11 @@
 # @osn/api
 
+## 0.24.3
+
+### Patch Changes
+
+- 98320d5: Fix pulse zapBridge test: mirror the new zap `chats.class` + `messages.body` columns (and nullable ciphertext/nonce) into the test's hand-rolled DDL, so it matches the c2b-chats schema change (Vendors S4 PR A / #286). Test-only; unblocks CI Build & Test.
+
 ## 0.24.2
 
 ### Patch Changes
