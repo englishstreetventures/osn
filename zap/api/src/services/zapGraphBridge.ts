@@ -23,12 +23,20 @@ export class GraphBridgeError extends Data.TaggedError("GraphBridgeError")<{
   readonly cause: unknown;
 }> {}
 
-const OSN_API_URL = process.env.OSN_API_URL ?? "http://localhost:4000";
-
-// Validate the URL scheme in production to prevent ARC tokens being sent over
-// plaintext. Runs once at module load; never fires in tests (NODE_ENV=test).
-if (process.env.NODE_ENV === "production" && !OSN_API_URL.startsWith("https://")) {
-  throw new Error(`OSN_API_URL must use https:// in production (got: ${OSN_API_URL})`);
+// Resolve + validate the osn-api base URL LAZILY (at call time), NOT at module
+// load. On Cloudflare Workers, `[vars]` populate `process.env` only at runtime;
+// wrangler's deploy-time module evaluation runs top-level code with an EMPTY
+// process.env, so a module-load read would see the localhost default and the
+// https guard below would abort the deploy. Reading it inside a function defers
+// both the read and the guard to the first real request (env is populated), and
+// tests (NODE_ENV=test) never trip the guard.
+function getOsnApiUrl(): string {
+  const url = process.env.OSN_API_URL ?? "http://localhost:4000";
+  // Prevent ARC tokens being sent over plaintext in production.
+  if (process.env.NODE_ENV === "production" && !url.startsWith("https://")) {
+    throw new Error(`OSN_API_URL must use https:// in production (got: ${url})`);
+  }
+  return url;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +126,7 @@ export async function registerWithOsnApi(): Promise<boolean> {
   _keyInitPromise = Promise.resolve({ privateKey: pair.privateKey, keyId });
 
   const publicKeyJwk = await exportKeyToJwk(pair.publicKey);
-  const res = await fetch(`${OSN_API_URL}/graph/internal/register-service`, {
+  const res = await fetch(`${getOsnApiUrl()}/graph/internal/register-service`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
     body: JSON.stringify({
@@ -160,7 +168,7 @@ export const areConnected = (
             targetId: targetProfileId,
           });
           const res = await fetch(
-            `${OSN_API_URL}/graph/internal/connection-status?${qs.toString()}`,
+            `${getOsnApiUrl()}/graph/internal/connection-status?${qs.toString()}`,
             { headers: { authorization: await arcAuthHeader() } },
           );
           if (!res.ok) {

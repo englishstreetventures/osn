@@ -23,6 +23,17 @@ database_id = "placeholder-replace-after-d1-create"
 migrations_dir = "../db/drizzle"
 
 # ── production ───────────────────────────────────────────────────────────────
+# Custom-domain route: serves zap-api on zap.cireweddings.com (mirrors cire-api's
+# api.cireweddings.com + osn-api's id.cireweddings.com — all on the account's
+# cireweddings.com zone). `custom_domain = true` auto-provisions the DNS record +
+# cert. Named envs do NOT inherit top-level routes, so a deploy target must be
+# declared here; without it `wrangler deploy --env production` errors (no target).
+# zap-api is internal S2S (ARC-gated) + user routes (osnAuth) — auth-gated, so a
+# public subdomain is fine. cire-api reaches it via ZAP_API_URL = this origin.
+[[env.production.routes]]
+pattern = "zap.cireweddings.com"
+custom_domain = true
+
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "zap-db-prod"
@@ -35,6 +46,9 @@ migrations_dir = "../db/drizzle"
 # and osn-api (id.cireweddings.com). Set before first deploy.
 [env.production.vars]
 OSN_JWKS_URL = "https://id.cireweddings.com/.well-known/jwks.json"
+# zapGraphBridge validates OSN_API_URL is https at module load in production
+# (it sends ARC tokens to osn-api's graph). osn-api serves on id.cireweddings.com.
+OSN_API_URL = "https://id.cireweddings.com"
 
 # OSN_JWT_SECRET is sensitive — set it per environment as a Worker secret, not a
 # plaintext var:
