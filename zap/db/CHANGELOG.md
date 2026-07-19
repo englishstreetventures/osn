@@ -1,5 +1,11 @@
 # @zap/db
 
+## 0.5.0
+
+### Minor Changes
+
+- bce0fe4: Add a server-visible c2b (consumer-to-business) chat class to Zap: `chats.class`, plaintext `messages.body`, ARC-gated `/internal/chats` provisioning + message CRUD (scope `chat:c2b`), and c2b bodies in the DSAR export. Adds a dormant `deploy-zap-api` CI job (activates once the prod D1 is provisioned).
+
 ## 0.4.2
 
 ### Patch Changes
