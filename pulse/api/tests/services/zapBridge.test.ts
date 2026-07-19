@@ -23,7 +23,7 @@ function createDualTestLayer() {
   const zapSqlite = new Database(":memory:");
   zapSqlite.run(`
     CREATE TABLE chats (
-      id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT, event_id TEXT,
+      id TEXT PRIMARY KEY, type TEXT NOT NULL, class TEXT NOT NULL DEFAULT 'c2c', title TEXT, event_id TEXT,
       created_by_profile_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )
   `);
@@ -37,7 +37,7 @@ function createDualTestLayer() {
   zapSqlite.run(`
     CREATE TABLE messages (
       id TEXT PRIMARY KEY, chat_id TEXT NOT NULL REFERENCES chats(id),
-      sender_profile_id TEXT NOT NULL, ciphertext TEXT NOT NULL, nonce TEXT NOT NULL,
+      sender_profile_id TEXT NOT NULL, ciphertext TEXT, nonce TEXT, body TEXT,
       created_at INTEGER NOT NULL, expires_at INTEGER
     )
   `);
