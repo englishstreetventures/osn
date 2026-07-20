@@ -1,5 +1,13 @@
 # @osn/pulse
 
+## 0.16.7
+
+### Patch Changes
+
+- Updated dependencies [e01206c]
+  - @osn/client@2.5.1
+  - @osn/ui@1.5.1
+
 ## 0.16.6
 
 ### Patch Changes
