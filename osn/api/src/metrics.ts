@@ -67,6 +67,7 @@ export const OSN_METRICS = {
   authTurnstileRejected: "osn.auth.turnstile.rejected",
   authSessionRotations: "osn.auth.session.rotations",
   authSessionReuseDetected: "osn.auth.session.reuse_detected",
+  authSessionRotationRace: "osn.auth.session.rotation_race",
   authSessionFamilyRevoked: "osn.auth.session.family_revoked",
   authSessionRotatedStoreOps: "osn.auth.session.rotated_store.operations",
   authSessionRotatedStoreDuration: "osn.auth.session.rotated_store.duration",
@@ -484,6 +485,13 @@ const authSessionReuseDetected = createCounter<Record<never, never>>({
   unit: "{detection}",
 });
 
+const authSessionRotationRace = createCounter<Record<never, never>>({
+  name: OSN_METRICS.authSessionRotationRace,
+  description:
+    "Benign concurrent/retried refresh grants tolerated within the rotation grace window (NOT reuse — the family is preserved)",
+  unit: "{race}",
+});
+
 const authSessionFamilyRevoked = createCounter<Record<never, never>>({
   name: OSN_METRICS.authSessionFamilyRevoked,
   description: "Entire session families revoked due to token reuse detection",
@@ -508,6 +516,8 @@ export const withSessionRotation = <A, E, Ctx>(
   );
 
 export const metricSessionReuseDetected = (): void => authSessionReuseDetected.inc({});
+
+export const metricSessionRotationRace = (): void => authSessionRotationRace.inc({});
 
 export const metricSessionFamilyRevoked = (): void => authSessionFamilyRevoked.inc({});
 

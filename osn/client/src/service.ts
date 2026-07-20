@@ -293,6 +293,49 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         });
 
       // -----------------------------------------------------------------------
+      // Shared single-flight for the /token GRANT itself (across refresh AND
+      // bootstrap).
+      //
+      // The refresh path and the cold-start bootstrap path both POST /token
+      // with the same HttpOnly cookie. Each rotates the session on the server,
+      // so if a bootstrap (from loadSession on reload) races a 401-refresh
+      // (from an authFetch firing on the same reload), the SECOND grant replays
+      // the just-rotated cookie. The server now tolerates that within a grace
+      // window, but it is still a wasted round-trip and can transiently fail
+      // the losing call. The two paths kept SEPARATE single-flight guards
+      // (`inFlightRefresh` vs `inFlightBootstrap`), so they could not dedupe
+      // against each other. This shared guard wraps the network grant so a
+      // bootstrap-racing-refresh in one tab fires /token exactly once; both
+      // paths then apply their own account-shaping to the shared result.
+      // (Cross-TAB coordination — a Web Locks guard — is a further improvement
+      // left for a follow-up; the server grace window already prevents
+      // cross-tab races from revoking the family.)
+      // -----------------------------------------------------------------------
+      type GrantEither =
+        | { readonly _tag: "Left"; readonly left: TokenRefreshError }
+        | { readonly _tag: "Right"; readonly right: ReturnType<typeof parseTokenResponse> };
+      let inFlightGrant: Promise<GrantEither> | null = null;
+
+      const sharedTokenGrant = () =>
+        Effect.gen(function* () {
+          if (!inFlightGrant) {
+            const promise = Effect.runPromise(
+              Effect.either(fetchTokenGrant()),
+            ) as Promise<GrantEither>;
+            inFlightGrant = promise;
+            void promise.finally(() => {
+              if (inFlightGrant === promise) inFlightGrant = null;
+            });
+          }
+          const result = yield* Effect.tryPromise({
+            try: () => inFlightGrant!,
+            catch: (cause) => new TokenRefreshError({ cause }),
+          });
+          if (result._tag === "Left") return yield* Effect.fail(result.left);
+          return result.right;
+        });
+
+      // -----------------------------------------------------------------------
       // Single-flight refresh (S-H1 / P-W1).
       //
       // Multiple concurrent authFetch calls that all 401 must NOT each fire
@@ -318,7 +361,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           }
 
           // C3: session token is in the HttpOnly cookie; send credentials: include.
-          const next = yield* fetchTokenGrant();
+          const next = yield* sharedTokenGrant();
 
           const profileId = extractJwtSub(next.accessToken) ?? account.activeProfileId;
           account.profileTokens[profileId] = {
@@ -379,7 +422,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
 
       const doBootstrap = () =>
         Effect.gen(function* () {
-          const next = yield* fetchTokenGrant();
+          const next = yield* sharedTokenGrant();
 
           // The access token's `sub` is the active profile id.
           const profileId = extractJwtSub(next.accessToken) ?? "default";

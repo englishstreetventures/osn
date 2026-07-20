@@ -14,10 +14,16 @@ describe("createInMemoryRotatedSessionStore", () => {
     expect(store.backend).toBe("memory");
   });
 
-  it("track → check returns the familyId", async () => {
+  it("track → check returns the familyId and rotation time", async () => {
     const store = createInMemoryRotatedSessionStore();
+    const before = Date.now();
     await store.track("hash1", "fam1", 60_000);
-    expect(await store.check("hash1")).toBe("fam1");
+    const record = await store.check("hash1");
+    expect(record?.familyId).toBe("fam1");
+    // The rotation timestamp is recorded so detectReuse can apply the grace
+    // window; it is set at track-time (within [before, now]).
+    expect(record?.rotatedAtMs).toBeGreaterThanOrEqual(before);
+    expect(record?.rotatedAtMs).toBeLessThanOrEqual(Date.now());
   });
 
   it("check returns null for unknown hashes", async () => {
@@ -31,7 +37,7 @@ describe("createInMemoryRotatedSessionStore", () => {
     try {
       vi.setSystemTime(new Date(1_000_000));
       await store.track("hash_old", "fam_old", 60_000);
-      expect(await store.check("hash_old")).toBe("fam_old");
+      expect(await store.check("hash_old")).toMatchObject({ familyId: "fam_old" });
 
       // Advance well past the TTL then insert a new entry — the sweep runs
       // at track-time and should evict the stale record.
@@ -39,7 +45,7 @@ describe("createInMemoryRotatedSessionStore", () => {
       await store.track("hash_new", "fam_new", 60_000);
 
       expect(await store.check("hash_old")).toBe(null);
-      expect(await store.check("hash_new")).toBe("fam_new");
+      expect(await store.check("hash_new")).toMatchObject({ familyId: "fam_new" });
     } finally {
       vi.useRealTimers();
     }
@@ -55,7 +61,7 @@ describe("createInMemoryRotatedSessionStore", () => {
 
     expect(await store.check("h1")).toBe(null);
     expect(await store.check("h2")).toBe(null);
-    expect(await store.check("h3")).toBe("famB");
+    expect(await store.check("h3")).toMatchObject({ familyId: "famB" });
   });
 
   it("revokeFamily keeps the FIFO queue aligned with live entries (P-I1)", async () => {
@@ -83,7 +89,7 @@ describe("createInMemoryRotatedSessionStore", () => {
     const keepChecks = await Promise.all(
       Array.from({ length: 10 }, (_, i) => store.check(`keep${i}`)),
     );
-    for (const result of keepChecks) expect(result).toBe("famKeep");
+    for (const result of keepChecks) expect(result).toMatchObject({ familyId: "famKeep" });
   });
 
   it("bounds the map to ROTATED_SESSIONS_MAX entries", async () => {
@@ -96,7 +102,7 @@ describe("createInMemoryRotatedSessionStore", () => {
     }
     // The first 10 should have been evicted; the newest must still be present.
     expect(await store.check("h0")).toBe(null);
-    expect(await store.check(`h${ROTATED_SESSIONS_MAX + 9}`)).toBe("fam");
+    expect(await store.check(`h${ROTATED_SESSIONS_MAX + 9}`)).toMatchObject({ familyId: "fam" });
   });
 });
 
@@ -113,10 +119,24 @@ describe("createRedisRotatedSessionStore (memory-backed RedisClient)", () => {
     expect(store.backend).toBe("redis");
   });
 
-  it("track → check returns the familyId", async () => {
+  it("track → check round-trips the familyId and rotation time", async () => {
     const store = createRedisRotatedSessionStore(client);
+    const before = Date.now();
     await store.track("hashR", "famR", 60_000);
-    expect(await store.check("hashR")).toBe("famR");
+    const record = await store.check("hashR");
+    expect(record?.familyId).toBe("famR");
+    expect(record?.rotatedAtMs).toBeGreaterThanOrEqual(before);
+    expect(record?.rotatedAtMs).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("check tolerates a legacy bare-familyId value (rotatedAtMs → 0, treated as reuse)", async () => {
+    // A value written before the `familyId:rotatedAtMs` format existed has no
+    // numeric suffix. It must still resolve the family (so revocation works)
+    // and report rotatedAtMs 0 — i.e. "rotated long ago" → outside any grace
+    // window → genuine reuse, the strict/secure default.
+    const store = createRedisRotatedSessionStore(client, { namespace: "legacy-ns" });
+    await client.set("legacy-ns:hash:legacyH", "legacyFam", 60_000);
+    expect(await store.check("legacyH")).toEqual({ familyId: "legacyFam", rotatedAtMs: 0 });
   });
 
   it("check returns null for unknown hashes", async () => {
@@ -134,7 +154,7 @@ describe("createRedisRotatedSessionStore (memory-backed RedisClient)", () => {
     const store = createRedisRotatedSessionStore(client);
     await store.track("h1", "famA", 60_000);
     await store.revokeFamily("famA");
-    expect(await store.check("h1")).toBe("famA");
+    expect(await store.check("h1")).toMatchObject({ familyId: "famA" });
   });
 
   it("isolates namespaces between stores", async () => {
@@ -142,7 +162,7 @@ describe("createRedisRotatedSessionStore (memory-backed RedisClient)", () => {
     const b = createRedisRotatedSessionStore(client, { namespace: "ns-b" });
 
     await a.track("hash", "famA", 60_000);
-    expect(await a.check("hash")).toBe("famA");
+    expect(await a.check("hash")).toMatchObject({ familyId: "famA" });
     // Same hash key, different namespace → miss.
     expect(await b.check("hash")).toBe(null);
   });

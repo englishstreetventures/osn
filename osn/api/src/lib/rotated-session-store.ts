@@ -38,12 +38,26 @@ import type { RedisClient } from "@shared/redis";
  */
 export type RotatedSessionStoreBackend = "memory" | "redis";
 
+/**
+ * A rotated-out hash lookup: the family it belonged to plus WHEN it was
+ * rotated out (epoch ms). The timestamp lets `detectReuse` distinguish a
+ * benign concurrent/retried grant (replay within the rotation grace window)
+ * from genuine reuse (replay long after rotation) — see `ROTATION_GRACE_MS`.
+ */
+export interface RotatedHashRecord {
+  readonly familyId: string;
+  readonly rotatedAtMs: number;
+}
+
 export interface RotatedSessionStore {
   readonly backend: RotatedSessionStoreBackend;
   /** Record that `sessionHash` was rotated out of `familyId`. */
   track(sessionHash: string, familyId: string, ttlMs: number): Promise<void>;
-  /** Look up the family a rotated-out hash belonged to, or `null` if unknown. */
-  check(sessionHash: string): Promise<string | null>;
+  /**
+   * Look up a rotated-out hash: the family it belonged to and when it was
+   * rotated out, or `null` if unknown.
+   */
+  check(sessionHash: string): Promise<RotatedHashRecord | null>;
   /** Drop every tracking record for `familyId` (belt-and-braces cleanup). */
   revokeFamily(familyId: string): Promise<void>;
 }
@@ -95,7 +109,7 @@ export function createInMemoryRotatedSessionStore(): RotatedSessionStore {
     },
     async check(sessionHash) {
       const entry = entries.get(sessionHash);
-      return entry ? entry.familyId : null;
+      return entry ? { familyId: entry.familyId, rotatedAtMs: entry.rotatedAt } : null;
     },
     async revokeFamily(familyId) {
       // P-I1: keep the `order` queue consistent with `entries` so the cap
@@ -165,14 +179,29 @@ export function createRedisRotatedSessionStore(
     backend: "redis",
     async track(sessionHash, familyId, ttlMs) {
       try {
-        await client.set(hashKey(namespace, sessionHash), familyId, ttlMs);
+        // Store `familyId:rotatedAtMs` so `check` can recover the rotation time
+        // for the grace-window classification. familyId is an opaque id with no
+        // colons, so a single rightmost split is unambiguous.
+        const value = `${familyId}:${Date.now()}`;
+        await client.set(hashKey(namespace, sessionHash), value, ttlMs);
       } catch (cause) {
         onError?.("track", cause);
       }
     },
     async check(sessionHash) {
       try {
-        return await client.get(hashKey(namespace, sessionHash));
+        const raw = await client.get(hashKey(namespace, sessionHash));
+        if (raw === null) return null;
+        // Parse `familyId:rotatedAtMs`. A value written before this format
+        // existed (bare familyId, no numeric suffix) parses to rotatedAtMs 0 —
+        // i.e. "rotated long ago" → treated as genuine reuse, the strict,
+        // secure default.
+        const sep = raw.lastIndexOf(":");
+        const ts = sep === -1 ? NaN : Number(raw.slice(sep + 1));
+        if (sep === -1 || !Number.isFinite(ts)) {
+          return { familyId: raw, rotatedAtMs: 0 };
+        }
+        return { familyId: raw.slice(0, sep), rotatedAtMs: ts };
       } catch (cause) {
         onError?.("check", cause);
         return null;

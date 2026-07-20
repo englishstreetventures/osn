@@ -60,6 +60,27 @@ export const RESERVED_HANDLES = new Set([
  */
 export const MAX_SESSIONS_PER_ACCOUNT = 50;
 /**
+ * Rotation-reuse grace window (refresh-token concurrency tolerance).
+ *
+ * Refresh-token rotation is single-use: each `/token` grant deletes the old
+ * session row and mints a new one, and a replay of a rotated-out token
+ * normally revokes the whole family (Copenhagen Book C2). But legitimate
+ * clients produce concurrent/near-concurrent grants of the SAME current token
+ * — multiple browser tabs bootstrapping on reload, a cold-start bootstrap
+ * racing a 401-refresh, or a retried grant after a lost response — and the
+ * strict rule mis-classifies those as reuse and logs the user out across every
+ * device (the "logs out sometimes" bug). Within this window after a rotation,
+ * a replay of the just-rotated token is treated as benign concurrency (the
+ * grant fails but the family is preserved) instead of triggering revocation.
+ *
+ * Kept SHORT: a genuine attacker replaying a stolen rotated token seconds
+ * after the legitimate rotation gains nothing they couldn't already do with
+ * the live token, and any replay OUTSIDE this window still revokes the family.
+ * Mirrors the "reuse leeway" interval standard in rotating-refresh-token
+ * implementations. See `[[wiki/systems/sessions]]`.
+ */
+export const ROTATION_GRACE_MS = 10_000;
+/**
  * Hard cap on passkeys per account (P-I10). An attacker with a stolen
  * access token (or a hijacked enrollment token) cannot add unlimited
  * credentials; 10 is comfortably above the real-world ceiling of one

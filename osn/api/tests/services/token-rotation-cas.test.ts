@@ -2,19 +2,24 @@
  * Direct coverage for the refresh-rotation compare-and-swap (CAS) gate in
  * `refreshTokens` (osn/api/src/services/auth/tokens.ts).
  *
- * Landed in #253, the rotation now guards the "delete old session + insert
- * new session" swap with a CAS: the old-session DELETE is the atomic
+ * Landed in #253, the rotation guards the "delete old session + insert new
+ * session" swap with a CAS: the old-session DELETE is the atomic
  * compare-and-swap. If the DELETE reports 0 rows affected, the session was
- * already rotated out (a concurrent refresh won the race, or the token is a
- * replay) — which is Copenhagen Book C2 token reuse. The correct response is
- * to revoke the WHOLE session family rather than mint a sibling session.
+ * already rotated out. #253 revoked the whole family here, but that was a
+ * false positive: a replay of an already-rotated token can't reach this branch
+ * (it fails `verifyRefreshToken`, whose row is absent, and goes down
+ * `detectReuse` instead) — so a 0-rows CAS is ALWAYS a concurrent grant of the
+ * *current* token (multi-tab reload, a bootstrap racing a 401-refresh, a
+ * retried grant), never reuse. Revoking logged legitimate users out across
+ * every device (the "logs out sometimes" bug). The branch now treats a 0-rows
+ * CAS as a benign race: the losing grant fails, but the family is PRESERVED
+ * (the concurrent winner's session stays valid) and no reuse metrics fire.
  *
- * The happy path and the `verifyRefreshToken` → `detectReuse` reuse path are
- * covered in `auth.test.ts`. But that reuse path fires when the session row is
- * ABSENT at verify time. The CAS-0-rows branch is a DIFFERENT branch: it fires
- * when the row is PRESENT at verify time but GONE by DELETE time — the
- * concurrent/replayed-writer race. It previously had no direct deterministic
- * test (flagged during the #253 rehab). This file adds one.
+ * The happy path and the `verifyRefreshToken` → `detectReuse` reuse path (now
+ * gated by the rotation grace window) are covered in `auth.test.ts`. The
+ * CAS-0-rows branch is a DIFFERENT branch: it fires when the row is PRESENT at
+ * verify time but GONE by DELETE time — the concurrent-writer race. This file
+ * covers it deterministically.
  *
  * Forcing it deterministically (no real concurrency / timing): we wrap the
  * drizzle `Db` handle in a proxy that, on the FIRST `db.delete(...)` of a
@@ -113,17 +118,17 @@ beforeAll(async () => {
   config = await makeTestAuthConfig();
 });
 
-describe("refresh rotation CAS 0-rows → family revocation (C2)", () => {
+describe("refresh rotation CAS 0-rows → benign race (family preserved)", () => {
   it.effect(
-    "a lost CAS (delete reports 0 rows) revokes the whole family and fires reuse metrics",
+    "a lost CAS (delete reports 0 rows) is a benign concurrent grant — family preserved, no reuse metrics",
     () => {
-      // A dedicated rotated-session store + auth service so the store's
-      // family-revoke path is exercised alongside the DB-level revoke.
+      // A dedicated rotated-session store + auth service.
       const rotatedSessionStore = createInMemoryRotatedSessionStore();
       const auth = createAuthService({ ...config, rotatedSessionStore });
 
       const reuseSpy = vi.spyOn(metrics, "metricSessionReuseDetected");
       const familyRevokedSpy = vi.spyOn(metrics, "metricSessionFamilyRevoked");
+      const rotationRaceSpy = vi.spyOn(metrics, "metricSessionRotationRace");
 
       const { layer, realDb, arm } = makeCasLosingLayer();
 
@@ -144,48 +149,58 @@ describe("refresh rotation CAS 0-rows → family revocation (C2)", () => {
         expect(before.length).toBe(1);
         const familyId = before[0]!.familyId;
 
+        // Insert a SIBLING session in the same family — this stands in for the
+        // session the concurrent WINNER rotated in. The benign-race path must
+        // leave it untouched (whereas the old revoke-on-CAS-loss behaviour
+        // would have deleted it). Its survival is the assertion that the family
+        // is not revoked.
+        const nowSec = Math.floor(Date.now() / 1000);
+        yield* Effect.tryPromise(() =>
+          realDb.insert(sessions).values({
+            id: "sibling-session-hash",
+            accountId: profile.accountId,
+            familyId,
+            expiresAt: nowSec + 3600,
+            createdAt: nowSec,
+            uaLabel: null,
+            ipHash: null,
+            lastUsedAt: nowSec,
+          }),
+        );
+
         reuseSpy.mockClear();
         familyRevokedSpy.mockClear();
+        rotationRaceSpy.mockClear();
 
         // Arm the CAS-losing interception, then refresh. `verifyRefreshToken`
         // sees the (present) session row and passes; the rotation DELETE then
-        // reports 0 rows → CAS-lost branch.
+        // reports 0 rows → CAS-lost branch (a concurrent grant rotated it out).
         arm();
         const error = yield* Effect.flip(auth.refreshTokens(tokens.refreshToken));
 
-        // 1. Refresh is rejected (no sibling session minted).
+        // 1. The losing grant is rejected (no sibling minted for it).
         expect(error._tag).toBe("AuthError");
         expect(error.message).toMatch(/Invalid or expired session/);
 
-        // 2. The ENTIRE family is revoked — every session in the family is gone.
+        // 2. The family is PRESERVED — the concurrent winner's sibling session
+        //    survives (this is the false-positive-logout fix).
         const afterFamily = yield* Effect.tryPromise(() =>
           realDb.select().from(sessions).where(eq(sessions.familyId, familyId)),
         );
-        expect(afterFamily.length).toBe(0);
+        expect(afterFamily.map((s) => s.id)).toContain("sibling-session-hash");
 
-        // And no rows leaked for the account at all.
-        const afterAccount = yield* Effect.tryPromise(() =>
-          realDb.select().from(sessions).where(eq(sessions.accountId, profile.accountId)),
-        );
-        expect(afterAccount.length).toBe(0);
-
-        // 3. Reuse-detection metrics fired: reuse detected + family revoked.
-        expect(reuseSpy).toHaveBeenCalledTimes(1);
-        expect(familyRevokedSpy).toHaveBeenCalledTimes(1);
-
-        // 4. The rotated-out hash was tracked in the store, so a subsequent
-        //    replay of the (now revoked) token is still recognised as reuse.
-        const reuseCallsBefore = reuseSpy.mock.calls.length;
-        const replayErr = yield* Effect.flip(auth.refreshTokens(tokens.refreshToken));
-        expect(replayErr._tag).toBe("AuthError");
-        // The store-backed detectReuse path fires reuse again on the replay.
-        expect(reuseSpy.mock.calls.length).toBeGreaterThan(reuseCallsBefore);
+        // 3. Reuse / family-revocation metrics did NOT fire; the benign
+        //    rotation-race metric did.
+        expect(reuseSpy).not.toHaveBeenCalled();
+        expect(familyRevokedSpy).not.toHaveBeenCalled();
+        expect(rotationRaceSpy).toHaveBeenCalledTimes(1);
       }).pipe(
         Effect.provide(layer),
         Effect.ensuring(
           Effect.sync(() => {
             reuseSpy.mockRestore();
             familyRevokedSpy.mockRestore();
+            rotationRaceSpy.mockRestore();
           }),
         ),
       );

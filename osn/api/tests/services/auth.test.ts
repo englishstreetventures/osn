@@ -5,6 +5,7 @@ import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
 import { Effect, Layer, Logger, LogLevel } from "effect";
 import { beforeAll } from "vitest";
 
+import { createInMemoryRotatedSessionStore } from "../../src/lib/rotated-session-store";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
@@ -1223,10 +1224,53 @@ describe("refresh token rotation (C2)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("replaying a rotated-out token revokes the entire family", () =>
+  it.effect(
+    "replaying a rotated-out token WITHIN the grace window is a benign race (family preserved)",
+    () =>
+      Effect.gen(function* () {
+        // Concurrency tolerance: a legitimate client (multi-tab reload, a
+        // bootstrap racing a 401-refresh, a retried grant) replays the
+        // just-rotated token within ROTATION_GRACE_MS. This must NOT revoke the
+        // family — otherwise the user is logged out across every device. The
+        // losing grant still fails; the winning rotation (r1) stays valid.
+        const profile = yield* auth.registerProfile("reuse-grace@example.com", "reusegrace");
+        const tokens = yield* auth.issueTokens(
+          profile.id,
+          profile.accountId,
+          profile.email,
+          profile.handle,
+          profile.displayName,
+        );
+
+        const r1 = yield* auth.refreshTokens(tokens.refreshToken);
+
+        // Immediate replay of the rotated-out token — inside the grace window.
+        const err1 = yield* Effect.flip(auth.refreshTokens(tokens.refreshToken));
+        expect(err1._tag).toBe("AuthError");
+
+        // The winning rotation's session SURVIVES — the family was NOT revoked.
+        const stillValid = yield* auth.verifyRefreshToken(r1.refreshToken);
+        expect(stillValid.accountId).toBe(profile.accountId);
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("replaying a rotated-out token OUTSIDE the grace window revokes the family (C2)", () =>
     Effect.gen(function* () {
-      const profile = yield* auth.registerProfile("reuse@example.com", "reuse");
-      const tokens = yield* auth.issueTokens(
+      // A genuine reuse: a stolen rotated token replayed long after rotation
+      // (outside ROTATION_GRACE_MS). Force "outside grace" deterministically
+      // with a store whose check reports the rotation happened at epoch 0.
+      const base = createInMemoryRotatedSessionStore();
+      const outsideGraceStore = {
+        ...base,
+        check: async (hash: string) => {
+          const rec = await base.check(hash);
+          return rec ? { familyId: rec.familyId, rotatedAtMs: 0 } : null;
+        },
+      };
+      const authReuse = createAuthService({ ...config, rotatedSessionStore: outsideGraceStore });
+
+      const profile = yield* authReuse.registerProfile("reuse-old@example.com", "reuseold");
+      const tokens = yield* authReuse.issueTokens(
         profile.id,
         profile.accountId,
         profile.email,
@@ -1234,15 +1278,15 @@ describe("refresh token rotation (C2)", () => {
         profile.displayName,
       );
 
-      // Rotate once — old token is now invalid
-      const r1 = yield* auth.refreshTokens(tokens.refreshToken);
+      // Rotate once — old token is now rotated out (tracked in the store).
+      const r1 = yield* authReuse.refreshTokens(tokens.refreshToken);
 
-      // Replay the old token — should trigger family revocation
-      const err1 = yield* Effect.flip(auth.refreshTokens(tokens.refreshToken));
+      // Replay the old token — outside grace ⇒ genuine reuse ⇒ family revocation.
+      const err1 = yield* Effect.flip(authReuse.refreshTokens(tokens.refreshToken));
       expect(err1._tag).toBe("AuthError");
 
-      // The new token (r1) should also be revoked (family revocation)
-      const err2 = yield* Effect.flip(auth.verifyRefreshToken(r1.refreshToken));
+      // The new token (r1) is also revoked (whole family gone).
+      const err2 = yield* Effect.flip(authReuse.verifyRefreshToken(r1.refreshToken));
       expect(err2._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );

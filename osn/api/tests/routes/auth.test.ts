@@ -465,7 +465,7 @@ describe("auth routes", () => {
       expect(json.error).toBe("unsupported_grant_type");
     });
 
-    it("C2: replaying a rotated-out refresh cookie revokes the entire family", async () => {
+    it("C2: replaying a rotated-out refresh cookie within grace is rejected but keeps the family alive", async () => {
       // Route-layer integration test for reuse detection. Service-level
       // coverage already exercises the detector in isolation; this one
       // locks in the Elysia derive + cookie-reader glue so a regression in
@@ -511,7 +511,8 @@ describe("auth routes", () => {
       const rotatedSession = rotatedCookie.match(/osn_session=([^;]+)/)![1]!;
       expect(rotatedSession).not.toBe(originalSession);
 
-      // Replay the original (rotated-out) cookie — must be rejected.
+      // Replay the original (rotated-out) cookie — the losing grant is still
+      // rejected (it can't mint a token; its session is gone).
       const replayRes = await verifiedApp.handle(
         new Request("http://localhost/token", {
           method: "POST",
@@ -524,8 +525,11 @@ describe("auth routes", () => {
       );
       expect(replayRes.status).toBe(400);
 
-      // And the token from the rotation must now be revoked too — family
-      // revocation logs everyone out, not just the attacker.
+      // But because the replay landed WITHIN the rotation grace window, it is
+      // treated as a benign concurrent grant — NOT reuse — so the family is
+      // preserved: the legitimate rotated cookie still works (the user is not
+      // logged out). Genuine reuse OUTSIDE the grace window still revokes the
+      // family (covered in the service-level auth.test.ts).
       const rotatedAfterReuse = await verifiedApp.handle(
         new Request("http://localhost/token", {
           method: "POST",
@@ -536,7 +540,7 @@ describe("auth routes", () => {
           body: JSON.stringify({ grant_type: "refresh_token" }),
         }),
       );
-      expect(rotatedAfterReuse.status).toBe(400);
+      expect(rotatedAfterReuse.status).toBe(200);
     });
 
     it("rejects refresh_token supplied in the body (cookie-only contract, S-M1)", async () => {

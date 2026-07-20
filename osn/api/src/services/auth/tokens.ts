@@ -8,15 +8,17 @@ import { Db } from "@osn/db/service";
 import { desc, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
+import type { RotatedHashRecord } from "../../lib/rotated-session-store";
 import {
   metricRotatedStoreDuration,
   metricRotatedStoreOp,
   metricSessionFamilyRevoked,
   metricSessionReuseDetected,
+  metricSessionRotationRace,
   withAuthTokenRefresh,
   withSessionRotation,
 } from "../../metrics";
-import { LAST_USED_AT_COALESCE_MS, MAX_SESSIONS_PER_ACCOUNT } from "./constants";
+import { LAST_USED_AT_COALESCE_MS, MAX_SESSIONS_PER_ACCOUNT, ROTATION_GRACE_MS } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, DatabaseError } from "./errors";
 import { generateSessionToken, genId, hashSessionToken, signJwt, verifyJwt } from "./helpers";
@@ -294,7 +296,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   const detectReuse = (sessionHash: string): Effect.Effect<void, DatabaseError, Db> =>
     Effect.gen(function* () {
       const start = Date.now();
-      const familyId = yield* Effect.tryPromise({
+      const record = yield* Effect.tryPromise({
         try: () => rotatedSessionStore.check(sessionHash),
         catch: (cause) => cause,
       }).pipe(
@@ -325,14 +327,30 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             yield* Effect.logWarning("Rotated-session store unreachable — fail-open on check");
             // Fail-open: return null so a Redis outage cannot manufacture
             // false-positive family revocations that log legitimate users out.
-            return null as string | null;
+            return null as RotatedHashRecord | null;
           }),
         ),
         Effect.withSpan("auth.session.rotated_store.check"),
       );
-      if (!familyId) return;
+      if (!record) return;
 
-      // Replayed rotated-out token — revoke the entire family.
+      // Grace window: a rotated-out hash replayed within ROTATION_GRACE_MS of
+      // its rotation is benign concurrency — a legitimate client fired two
+      // near-simultaneous grants of the same token (multi-tab reload, a
+      // bootstrap racing a 401-refresh) or retried after a lost response. The
+      // winning grant already rotated the family forward; this replay just
+      // loses. Treat it as a race, NOT reuse — preserve the family so the user
+      // stays signed in. A replay OUTSIDE the window is genuine reuse below.
+      if (Date.now() - record.rotatedAtMs < ROTATION_GRACE_MS) {
+        metricSessionRotationRace();
+        yield* Effect.logInfo(
+          "Rotated-token replay within grace window — benign concurrent refresh, family preserved",
+        );
+        return;
+      }
+
+      // Replayed rotated-out token outside the grace window — revoke the family.
+      const { familyId } = record;
       metricSessionReuseDetected();
       yield* Effect.logWarning("Session token reuse detected — revoking family");
       const { db } = yield* Db;
@@ -448,14 +466,22 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         0;
 
       if (rotated === 0) {
-        metricSessionReuseDetected();
-        yield* Effect.logWarning("Session rotation CAS lost — revoking family");
-        yield* Effect.tryPromise({
-          try: () => db.delete(sessions).where(eq(sessions.familyId, familyId)),
-          catch: (cause) => new DatabaseError({ cause }),
-        });
-        yield* trackRotatedSession(oldSessionId, familyId).pipe(Effect.catchAll(() => Effect.void));
-        metricSessionFamilyRevoked();
+        // CAS lost: the row was PRESENT at verify but GONE by DELETE, so a
+        // CONCURRENT grant of this SAME token rotated it out in the gap. This
+        // is NOT reuse: a replay of an already-rotated token can't pass
+        // `verifyRefreshToken` (its row is absent) and never reaches here —
+        // only concurrent use of the *current* token does (two tabs
+        // bootstrapping on reload, a cold-start bootstrap racing a 401-refresh,
+        // a retried grant). The winning grant already rotated the family
+        // forward and its new session is valid; revoking the family here was a
+        // false positive that logged legitimate users out across every device
+        // (the "logs out sometimes" bug). Preserve the family — this losing
+        // grant simply fails, and its client re-establishes from the (rotated)
+        // cookie the winner set.
+        metricSessionRotationRace();
+        yield* Effect.logInfo(
+          "Refresh rotation CAS lost to a concurrent grant — benign race, family preserved",
+        );
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
       }
 

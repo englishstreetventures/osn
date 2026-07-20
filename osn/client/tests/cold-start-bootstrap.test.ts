@@ -343,3 +343,63 @@ it.effect("loadSession single-flights — concurrent cold-start loads fire ONE /
     vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
+
+// ---------------------------------------------------------------------------
+// Shared /token single-flight ACROSS paths: a bootstrap (loadSession) racing a
+// 401-refresh (refreshSession) in the same tab must fire /token exactly ONCE.
+// Before the shared grant, loadSession and refreshSession kept SEPARATE
+// single-flight guards, so on a reload with an expired access token the two
+// paths fired two concurrent /token grants against the same cookie — the
+// second replayed the just-rotated cookie. This is the client half of the
+// "logs out sometimes" fix.
+// ---------------------------------------------------------------------------
+it.effect("loadSession bootstrap racing refreshSession fires exactly ONE /token", () =>
+  Effect.gen(function* () {
+    const profileId = "usr_sharedgrant01";
+    let tokenCalls = 0;
+    const fetchMock = vi
+      .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
+      .mockImplementation((input) => {
+        const url = typeof input === "string" ? input : ((input as Request).url ?? "");
+        if (url.endsWith("/token")) {
+          tokenCalls += 1;
+          // Resolve on a later microtask so both concurrent callers are
+          // guaranteed to join the same in-flight grant.
+          return Promise.resolve().then(() =>
+            mockResponse(200, {
+              access_token: fakeJwt(profileId),
+              token_type: "Bearer",
+              expires_in: 300,
+              scope: "openid profile",
+            }),
+          );
+        }
+        return Promise.resolve(mockResponse(404));
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = yield* OsnAuth;
+
+    // Seed a stored account whose access token is already EXPIRED but which
+    // still believes it has a server session — the common reload state. This
+    // makes loadSession take the bootstrap-from-cookie branch while
+    // refreshSession takes the refresh branch; both hit the shared grant.
+    yield* auth.setSession({
+      accessToken: fakeJwt(profileId),
+      idToken: null,
+      expiresAt: Date.now() - 1000,
+      scopes: ["openid", "profile"],
+    });
+
+    const [loaded, refreshed] = yield* Effect.all([auth.loadSession(), auth.refreshSession()], {
+      concurrency: "unbounded",
+    });
+
+    expect(loaded).not.toBeNull();
+    expect(refreshed.accessToken).toBeTruthy();
+    // The whole point: cross-path dedupe → a single /token roundtrip.
+    expect(tokenCalls).toBe(1);
+
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
