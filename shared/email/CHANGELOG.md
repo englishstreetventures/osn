@@ -1,5 +1,11 @@
 # @shared/email
 
+## 0.4.0
+
+### Minor Changes
+
+- 945702c: Add enquiry transactional templates (enquiry-new, enquiry-reply, enquiry-quote) for cire Vendors S4 enquiries.
+
 ## 0.3.4
 
 ### Patch Changes
