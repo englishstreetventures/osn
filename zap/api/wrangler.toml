@@ -1,7 +1,14 @@
 name = "zap-api"
 main = "src/index.ts"
 compatibility_date = "2025-03-01"
-compatibility_flags = ["nodejs_compat"]
+# nodejs_compat_populate_process_env: surface Worker vars + secrets on
+# `process.env`. Our compatibility_date (2025-03-01) predates the 2025-04-01
+# cutoff where this became automatic under nodejs_compat, so without the explicit
+# flag `process.env.INTERNAL_SERVICE_SECRET` is undefined in production — which
+# silently disabled BOTH the inbound `/internal/register-service` endpoint (501)
+# and zap-api's own outbound ARC registration with osn-api (consent checks then
+# fail closed). See wiki/runbooks/production-deploy §9.3.
+compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 
 # No top-level binding on purpose: the `local` environment runs on bun:sqlite via
 # `bun run dev` (src/local.ts), not on Workers. The D1-backed environments are
