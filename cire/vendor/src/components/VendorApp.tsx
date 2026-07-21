@@ -7,6 +7,8 @@ import { OSN_ISSUER_URL } from "../lib/osn";
 import type { OrgSummary } from "../lib/vendor-store";
 import ListingEditor from "./ListingEditor";
 import OrgPicker from "./OrgPicker";
+import VendorEnquiryInbox from "./VendorEnquiryInbox";
+import VendorEnquiryThread from "./VendorEnquiryThread";
 
 function Loading(props: { label: string }) {
   return (
@@ -57,9 +59,37 @@ function clearOrgHash() {
     history.pushState(null, "", `${window.location.pathname}${window.location.search}`);
 }
 
-function Dashboard() {
-  const { logout } = useAuth();
+/** Derive the initial view from the hash on first paint. */
+function initialView(): "listings" | "enquiries" {
+  if (typeof window === "undefined") return "listings";
+  return window.location.hash === "#/enquiries" ? "enquiries" : "listings";
+}
 
+function Dashboard() {
+  const { logout, activeProfileId } = useAuth();
+
+  // ── View toggle (account-level: "listings" | "enquiries") ────────────────
+  const [view, setView] = createSignal<"listings" | "enquiries">(initialView());
+
+  // Selected enquiry id — null when the inbox is shown; set to render the thread.
+  const [selectedEnquiryId, setSelectedEnquiryId] = createSignal<string | null>(null);
+
+  function goEnquiries() {
+    setView("enquiries");
+    if (typeof window !== "undefined") {
+      const next = "#/enquiries";
+      if (window.location.hash !== next)
+        history.pushState(null, "", `${window.location.pathname}${window.location.search}${next}`);
+    }
+  }
+
+  function goListings() {
+    setView("listings");
+    setSelectedEnquiryId(null);
+    clearOrgHash();
+  }
+
+  // ── Org selection (listings view) ─────────────────────────────────────────
   // Restore from hash on first paint. We only have the id on a bare hash
   // restore — the full OrgSummary arrives once OrgPicker loads. Store name
   // alongside so ListingEditor always has it; if we only have a hash-restored
@@ -78,6 +108,18 @@ function Dashboard() {
 
   // Re-sync from the hash on browser Back/Forward and manual edits.
   function onHashChange() {
+    const hash = typeof window !== "undefined" ? window.location.hash : "";
+
+    if (hash === "#/enquiries") {
+      setView("enquiries");
+      return;
+    }
+
+    // Any other hash → listings view. Clear stale thread selection so a Back/
+    // Forward navigation doesn't reopen the thread when the user navigates away.
+    setView("listings");
+    setSelectedEnquiryId(null);
+
     const id = hashOrgId();
     if (!id) {
       setSelectedOrg(null);
@@ -106,33 +148,76 @@ function Dashboard() {
     redirectToLogin();
   }
 
+  // Shared top-bar button base classes
+  const navBtnBase =
+    "font-body text-[0.82rem] tracking-[0.1em] uppercase underline-offset-4 transition hover:underline";
+
   return (
     <div class="flex flex-col gap-8">
       {/* Top bar */}
       <div class="flex flex-wrap items-center justify-between gap-4">
-        <Show when={selectedOrg()}>
+        {/* Back to all orgs — only visible in listings view when an org is selected */}
+        <Show when={view() === "listings" && selectedOrg()}>
           {() => (
             <button
               type="button"
               onClick={() => clearSelection()}
-              class="font-body text-text-muted hover:text-gold self-start text-[0.78rem] tracking-[0.1em] uppercase underline-offset-4 transition hover:underline"
+              class={`${navBtnBase} text-text-muted hover:text-gold self-start`}
             >
               ← All organisations
             </button>
           )}
         </Show>
-        <button
-          type="button"
-          onClick={() => void signOut()}
-          class="font-body text-text-muted hover:text-gold ml-auto text-[0.82rem] tracking-[0.1em] uppercase underline-offset-4 transition hover:underline"
-        >
-          Sign out
-        </button>
+
+        {/* Right-side controls: view toggle + sign out */}
+        <div class="ml-auto flex items-center gap-4">
+          {/* Listings / Enquiries toggle */}
+          <button
+            type="button"
+            onClick={() => goListings()}
+            class={`${navBtnBase} ${view() === "listings" ? "text-gold" : "text-text-muted hover:text-gold"}`}
+          >
+            Listings
+          </button>
+          <button
+            type="button"
+            onClick={() => goEnquiries()}
+            class={`${navBtnBase} ${view() === "enquiries" ? "text-gold" : "text-text-muted hover:text-gold"}`}
+          >
+            Enquiries
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            class={`${navBtnBase} text-text-muted hover:text-gold`}
+          >
+            Sign out
+          </button>
+        </div>
       </div>
 
-      {/* Main content */}
-      <Show when={selectedOrg()} fallback={<OrgPicker onPick={(o) => selectAndHash(o)} />}>
-        {(o) => <ListingEditor orgId={o().id} orgName={o().name} />}
+      {/* ── Listings view ── */}
+      <Show when={view() === "listings"}>
+        <Show when={selectedOrg()} fallback={<OrgPicker onPick={(o) => selectAndHash(o)} />}>
+          {(o) => <ListingEditor orgId={o().id} orgName={o().name} />}
+        </Show>
+      </Show>
+
+      {/* ── Enquiries view ── */}
+      <Show when={view() === "enquiries"}>
+        <Show
+          when={selectedEnquiryId()}
+          fallback={<VendorEnquiryInbox onOpen={setSelectedEnquiryId} />}
+        >
+          {(id) => (
+            <VendorEnquiryThread
+              enquiryId={id()}
+              ownProfileId={activeProfileId() ?? ""}
+              onBack={() => setSelectedEnquiryId(null)}
+            />
+          )}
+        </Show>
       </Show>
     </div>
   );

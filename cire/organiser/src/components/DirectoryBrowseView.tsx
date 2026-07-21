@@ -4,6 +4,7 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { invalidateVendors } from "../lib/vendors-store";
+import EnquireDialog from "./EnquireDialog";
 
 interface BrowseListing {
   id: string;
@@ -54,6 +55,9 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
   // category picker for multi-category listings
   const [pickerListingId, setPickerListingId] = createSignal<string | null>(null);
   const [pickerCategory, setPickerCategory] = createSignal("");
+
+  // Enquire flow state
+  const [enquireListing, setEnquireListing] = createSignal<BrowseListing | null>(null);
 
   // Debounce timer
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -364,15 +368,25 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                       <Show
                         when={pickerListingId() === item.id}
                         fallback={
-                          <button
-                            type="button"
-                            aria-label="Add to wedding"
-                            disabled={addingId() === item.id}
-                            onClick={() => handleAddClick(item)}
-                            class="bg-gold text-bg rounded-sm px-3 py-1 text-[0.78rem] tracking-[0.06em] uppercase disabled:opacity-60"
-                          >
-                            {addingId() === item.id ? "Adding…" : "Add to wedding"}
-                          </button>
+                          <div class="flex items-center gap-2">
+                            <button
+                              type="button"
+                              aria-label="Add to wedding"
+                              disabled={addingId() === item.id}
+                              onClick={() => handleAddClick(item)}
+                              class="bg-gold text-bg rounded-sm px-3 py-1 text-[0.78rem] tracking-[0.06em] uppercase disabled:opacity-60"
+                            >
+                              {addingId() === item.id ? "Adding…" : "Add to wedding"}
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Enquire with ${item.name}`}
+                              onClick={() => setEnquireListing(item)}
+                              class="text-gold-dim hover:text-gold text-[0.78rem] underline-offset-2 hover:underline"
+                            >
+                              Enquire
+                            </button>
+                          </div>
                         }
                       >
                         <div class="flex flex-col gap-2">
@@ -619,6 +633,20 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
               </Show>
             </div>
           </div>
+        )}
+      </Show>
+
+      {/* Enquire dialog — one instance at root, keyed by the active listing */}
+      <Show when={enquireListing()}>
+        {(listing) => (
+          <EnquireDialog
+            open={true}
+            weddingId={props.weddingId}
+            directoryVendorId={listing().id}
+            category={listing().categories[0] ?? "other"}
+            vendorName={listing().name}
+            onClose={() => setEnquireListing(null)}
+          />
         )}
       </Show>
     </div>

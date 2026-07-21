@@ -284,12 +284,22 @@ describe("GET /api/vendor/enquiries", () => {
 
     const res = await req(app, "GET", "/api/vendor/enquiries", VENDOR);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { enquiries: { id: string; directoryVendorId: string }[] };
+    const body = (await res.json()) as {
+      enquiries: { id: string; directoryVendorId: string; weddingName: string }[];
+    };
     // VENDOR's profileOrgs is [ORG_OK]; the query is scoped to ORG_OK's listings,
     // so only the ORG_OK enquiry surfaces — the ORG_X row is never read.
     expect(body.enquiries).toHaveLength(1);
     expect(body.enquiries[0]!.id).toBe(mine.enquiryId);
     expect(body.enquiries.every((e) => e.directoryVendorId === DV_CLAIMED)).toBe(true);
+    // The enquiring wedding's display name must be present on every item.
+    const item = body.enquiries[0] as {
+      id: string;
+      directoryVendorId: string;
+      weddingName: string;
+    };
+    expect(typeof item.weddingName).toBe("string");
+    expect(item.weddingName.length).toBeGreaterThan(0);
   });
 
   it("fails closed to an empty list when the caller resolves to no orgs", async () => {

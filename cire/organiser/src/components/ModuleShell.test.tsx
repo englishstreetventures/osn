@@ -67,6 +67,9 @@ vi.mock("./ChecklistView", () => ({
 vi.mock("./BudgetView", () => ({
   default: (p: { weddingId: string }) => <div data-testid="budget">{p.weddingId}</div>,
 }));
+vi.mock("./EnquiriesView", () => ({
+  default: (p: { weddingId: string }) => <div data-testid="enquiries-view">{p.weddingId}</div>,
+}));
 
 import ModuleShell from "./ModuleShell";
 

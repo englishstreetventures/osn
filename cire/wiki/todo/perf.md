@@ -140,3 +140,9 @@ Deferred (not blocking at Phase-1 scale — single wedding, low organiser traffi
 - [ ] **ENT-P-I1** — `ModuleShell` calls `props.entitlements.includes("vendors")` in JSX (O(n) in the reactive graph); convert the entitlement list to a `Set` (or `createMemo`) once in `OrganiserApp` for O(1) `has`.
 - [ ] **ENT-P-I2** — `diffAgainstDb` fetches entitlement rows whenever `guestCreates.length>0`, even when the wedding is far below cap; a cheap `existingGuests.length + guestCreates.length > 100` pre-check before the DB query would skip it for the common case.
 - [ ] **ENT-P-I3** — `assertGuestCapacity` / `diffAgainstDb` fetch ALL entitlement rows to derive the cap; narrow to `WHERE entitlement IN ('capacity_500','capacity_1000')`.
+
+**Vendors S4 PR C (enquiry frontends) — perf review (deferred; not blocking at Phase-1 scale):**
+- [x] **ENQ-P-W2** — FIXED on-branch: `VendorEnquiryInbox` allocated its `Intl.NumberFormat` in the component body (re-built on every Listings⇄Enquiries mount); hoisted to module scope to match `VendorEnquiryThread`.
+- [ ] **ENQ-P-W1** — (pre-existing, PR B) `POST /api/vendor/enquiries/:id/quote` issues two independent single-row lookups (`vendors.name`, `weddings.currency`) sequentially; parallelise with `Effect.all([...], {concurrency:"unbounded"})`.
+- [ ] **ENQ-P-W3** — organiser `EnquiryInbox.formatMinor` / `EnquiryThread.fmtMinor` build a fresh `Intl.NumberFormat` per call inside `<For>` rows (N formatters per render). Cache in a module-level `Map<currency, NumberFormat>`.
+- [ ] **ENQ-P-I1** — organiser `EnquiriesView.handleSend` unconditionally `invalidateEnquiries` + reloads the whole inbox after every reply; only `lastMessageAt`/`status` on the one row changes. Use `upsertCachedEnquiry` optimistically, full reload only on error.

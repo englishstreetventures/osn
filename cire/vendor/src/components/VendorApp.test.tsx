@@ -15,6 +15,7 @@ vi.mock("@osn/client/solid", () => {
     AuthProvider: (props: any) => props.children,
     useAuth: () => ({
       session: () => mockSession(),
+      activeProfileId: () => "p-vendor",
       authFetch: vi.fn(),
       logout: vi.fn(),
     }),

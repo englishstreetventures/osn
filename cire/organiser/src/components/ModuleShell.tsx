@@ -5,6 +5,7 @@ import { defaultSub, isSubOf, type Module } from "../lib/dashboard-route";
 import BudgetView from "./BudgetView";
 import ChecklistView from "./ChecklistView";
 import DirectoryBrowseView from "./DirectoryBrowseView";
+import EnquiriesView from "./EnquiriesView";
 import EventsEditor from "./EventsEditor";
 import EventTable from "./EventTable";
 import GuestsEditor from "./GuestsEditor";
@@ -69,6 +70,7 @@ const MODULE_SUB_TABS: Partial<Record<Module, SubDef[]>> = {
   vendors: [
     { id: "index", label: "My vendors" },
     { id: "browse", label: "Browse" },
+    { id: "enquiries", label: "Enquiries" },
   ],
   guests: [
     { id: "list", label: "Households" },
@@ -207,6 +209,13 @@ export default function ModuleShell(props: ModuleShellProps) {
             </Show>
             <Show when={active() === "browse"}>
               <DirectoryBrowseView weddingId={props.weddingId} canEdit={props.canEdit} />
+            </Show>
+            <Show when={active() === "enquiries"}>
+              <EnquiriesView
+                weddingId={props.weddingId}
+                currency={peekCachedBudget(props.weddingId)?.currency ?? "AUD"}
+                canEdit={props.canEdit}
+              />
             </Show>
           </Show>
         </Show>

@@ -291,9 +291,10 @@ describe("checklist module route", () => {
 });
 
 describe("vendors module Browse sub-tab", () => {
-  it("vendors module exposes index + browse subs", () => {
-    expect(MODULE_SUBS.vendors).toEqual(["index", "browse"]);
+  it("vendors module exposes index + browse + enquiries subs", () => {
+    expect(MODULE_SUBS.vendors).toEqual(["index", "browse", "enquiries"]);
     expect(isSubOf("vendors", "browse")).toBe(true);
+    expect(isSubOf("vendors", "enquiries")).toBe(true);
     expect(defaultSub("vendors")).toBe("index");
   });
 });

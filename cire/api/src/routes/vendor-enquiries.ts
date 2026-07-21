@@ -180,6 +180,7 @@ export function createVendorEnquiriesRoutes(
                   enquiry: vendorEnquiries,
                   vendorName: vendors.name,
                   category: vendors.category,
+                  weddingName: weddings.displayName,
                 })
                 .from(vendorEnquiries)
                 .innerJoin(
@@ -187,6 +188,7 @@ export function createVendorEnquiriesRoutes(
                   eq(vendorEnquiries.directoryVendorId, directoryVendors.id),
                 )
                 .innerJoin(vendors, eq(vendorEnquiries.vendorId, vendors.id))
+                .innerJoin(weddings, eq(vendorEnquiries.weddingId, weddings.id))
                 .where(inArray(directoryVendors.ownerOrgId, callerOrgIds))
                 .all(),
             );
@@ -194,6 +196,7 @@ export function createVendorEnquiriesRoutes(
               enquiry: EnquiryRow;
               vendorName: string;
               category: string;
+              weddingName: string;
             }>;
 
             const enquiries = all
@@ -201,6 +204,7 @@ export function createVendorEnquiriesRoutes(
                 ...toVendorDto(r.enquiry),
                 vendorName: r.vendorName,
                 category: r.category,
+                weddingName: r.weddingName,
               }))
               .sort((a, b) => b.lastMessageAt - a.lastMessageAt);
 

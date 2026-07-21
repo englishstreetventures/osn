@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[platform-plan]]"
   - "[[future]]"
-last-reviewed: 2026-07-18
+last-reviewed: 2026-07-21
 ---
 
 # Platform
@@ -44,7 +44,7 @@ PR slicing + dependency order in [[platform-plan]] §3.6 (PRs 0–2 parallel; IA
 - [ ] **Venue link** — `events.venue_vendor_id` so a booked venue attaches to a Schedule event
 - [ ] **Directory search** — lat/lng bounding-box prefilter + haversine order on D1, radius from the wedding's canonical point; dedicated rate limiter
 - [ ] **Availability** — `vendor_availability` per-day status; "available on your date" badge in search (badge, not filter-out)
-- [ ] **Enquiries** — `vendor_enquiries` + messages; quotes feed `budget_items.quoted_minor`; spam limiter
+- [x] **Vendors S4 (enquiries) SHIPPED 2026-07-21** — in-platform couple↔vendor enquiries. **PR A** (zap `c2b` server-visible chat class + generic ARC `/internal/chats` provision/CRUD + `chat:c2b` scope + zap-api prod stand-up). **PR B** (`vendor_enquiries` table + migration 0043 + `directory_vendors.lead_forward_email`/`claimed_by_profile_id`; cire-api BFF over the ARC S2S bridge; couple `/api/organiser/…/enquiries` + vendor `/api/vendor/enquiries` routes; quote→Budget; buffered first-message flush on vendor claim; email templates; spam limiters). **PR C** (frontends): organiser Vendors→**Enquiries** sub-tab (inbox + thread, quote card + one-click add-to-budget, "Enquire" from directory cards + CRM rows) and the vendor-portal account-level enquiry inbox/thread/quote form; non-E2E notice on both thread UIs. Pre-contractual → DSA Art.30 out of scope. See [[systems/vendors]].
 
 ## Phase 3 — pricing estimates
 

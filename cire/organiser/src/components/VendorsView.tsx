@@ -11,6 +11,7 @@ import {
   type VendorRow,
   vendorsAccessor,
 } from "../lib/vendors-store";
+import EnquireDialog from "./EnquireDialog";
 
 /** Vendor pipeline stages in workflow order. */
 const VENDOR_STATUSES = [
@@ -58,6 +59,9 @@ export default function VendorsView(props: VendorsViewProps) {
   const [newEmail, setNewEmail] = createSignal("");
   const [newPhone, setNewPhone] = createSignal("");
   const [newQuoted, setNewQuoted] = createSignal("");
+
+  // Enquire flow state — holds the vendor being enquired.
+  const [enquireVendor, setEnquireVendor] = createSignal<VendorRow | null>(null);
 
   // Listing-in-directory state — keyed by vendorId being listed.
   const [listingId, setListingId] = createSignal<string | null>(null);
@@ -392,6 +396,17 @@ export default function VendorsView(props: VendorsViewProps) {
                             >
                               List in directory
                             </button>
+                            {/* Enquire — only available when linked to a directory vendor */}
+                            <Show when={v.directoryVendorId}>
+                              <button
+                                type="button"
+                                aria-label={`Enquire with ${v.name}`}
+                                onClick={() => setEnquireVendor(v)}
+                                class="text-gold-dim hover:text-gold text-[0.78rem] underline-offset-2 hover:underline"
+                              >
+                                Enquire
+                              </button>
+                            </Show>
                             {/* Delete */}
                             <button
                               type="button"
@@ -480,6 +495,20 @@ export default function VendorsView(props: VendorsViewProps) {
             </section>
           )}
         </For>
+      </Show>
+
+      {/* Enquire dialog — one instance at root */}
+      <Show when={enquireVendor()}>
+        {(v) => (
+          <EnquireDialog
+            open={true}
+            weddingId={props.weddingId}
+            directoryVendorId={v().directoryVendorId!}
+            category={v().category}
+            vendorName={v().name}
+            onClose={() => setEnquireVendor(null)}
+          />
+        )}
       </Show>
     </div>
   );
