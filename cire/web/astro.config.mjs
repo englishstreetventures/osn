@@ -3,15 +3,18 @@ import solidJs from "@astrojs/solid-js";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, sessionDrivers } from "astro/config";
 
-// SSR on Cloudflare Pages. The invite route resolves which wedding to render
+// SSR on a Cloudflare Worker. The invite route resolves which wedding to render
 // FROM THE PATH at request time (`/<slug>`), so the guest site no longer bakes a
 // single wedding slug at build time — any wedding renders from its own link. The
-// `@astrojs/cloudflare` adapter emits `dist/_worker.js` alongside the static
-// assets; `wrangler pages deploy dist` serves it as a Pages Function (Advanced
-// mode), so the deploy command is unchanged. Legal pages opt back into static
-// prerendering per-page (`export const prerender = true`) — only the dynamic
-// invite + bare-domain routes need per-request SSR.
+// `@astrojs/cloudflare` adapter emits `dist/server/entry.mjs` + `dist/client/`
+// and a generated `dist/server/wrangler.json` extending `./wrangler.jsonc`;
+// `wrangler deploy` from this directory ships it (see deploy.yml). Legal pages
+// opt back into static prerendering per-page (`export const prerender = true`)
+// — only the dynamic invite + bare-domain routes need per-request SSR.
 export default defineConfig({
+  // Astro 7 changed the default to JSX-style whitespace stripping; pin the
+  // Astro 6 behaviour so the upgrade does not change rendered markup.
+  compressHTML: true,
   output: "server",
   adapter: cloudflare({
     // The guest site does no image transforms of its own — invite images are

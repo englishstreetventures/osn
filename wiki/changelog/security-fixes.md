@@ -7,12 +7,17 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-07-12
+last-reviewed: 2026-07-21
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## Dependency review sweep (2026-07-21)
+
+- **S-M (astro-xss)** `GHSA-4g3v-8h47-v7g6` / `GHSA-f48w-9m4c-m7f5` / `GHSA-7pw4-f3q4-r2p2` — **Astro: three XSS advisories (2 moderate + 1 low), no 6.x backport.** **Issue:** `astro >=2.9.0 <=7.0.9` (resolved 6.4.8, all six astro workspaces) was vulnerable to reflected XSS via unescaped View Transition animation properties, XSS via unescaped spread attribute names in `renderHTMLElement` (incomplete fix for CVE-2026-54298), and XSS via unescaped `transition:*` directive values on hydrated islands; the fix ships only in `astro >=7.1.0`. **Why:** two of the six sites (`@cire/web`, `@cire/organiser`) are deployed and handle user input on `cireweddings.com`; below the `--audit-level=high` push gate but a real exposure. **Solution:** major upgrade `astro ^6.4.6 → ^7.1.1` + `@astrojs/solid-js ^6.0.1 → ^7.0.1` (all six sites) + `@astrojs/cloudflare ^13.7.0 → ^14.1.3` (`@cire/web`), done ahead of the 30-day major window on explicit owner instruction (7.1.2/7.1.3 + 14.1.4 were excluded by `bunfig.toml` `minimumReleaseAge=3d`; will be picked up on a later refresh). Astro 7 requires vite 8, so the root `vite` override moved `^7.3.5 → ^8.0.13` (its consumers all accept 8; the five workspace devDeps went back to `^8.0.13`) and the `esbuild` override floor rose `^0.25.0 → ^0.27.0` (vite 8 is rolldown-based; wrangler pins 0.27.3, and the floor still clamps `@esbuild-kit/core-utils`' vulnerable `~0.18.20` range). Migration surface audited: no view transitions, markdown content, `Astro.locals`, container API, or experimental flags in any site; `compressHTML: true` pinned in all six configs to keep Astro 6 whitespace output (Astro 7 default changed to JSX-style stripping). **Rationale:** the only patched line is 7.x, and the ecosystem majors (`solid-js` integration, cloudflare adapter) declare vite 8 + astro 7 peers as a lockstep set — a partial bump cannot clear the advisories. Verified: all six sites build (Workers-style `dist/server` layout for `@cire/web` unchanged from adapter 13.7, generated `wrangler.json` merge intact — no KV session binding injected), 20/20 type-check tasks, 28/28 test tasks, `bun audit` clears all three GHSA IDs.
+- **S-H (js-yaml-merge-keys)** `GHSA-52cp-r559-cp3m` — **js-yaml: YAML merge-key chains force quadratic CPU.** **Issue:** `js-yaml >=4.0.0 <4.3.0` (resolved 4.2.0, transitive via `astro`, `@astrojs/cloudflare`, `@changesets/cli`) allows crafted merge-key chains to consume quadratic CPU; the root override floor `^4.2.0` permitted the patched 4.3.0 but the lockfile held 4.2.0 and `bun update` won't move a transitive-only pin. **Why:** `high` advisory — was failing the pre-push `bun audit --audit-level=high` gate on every push. **Solution:** raised the root `overrides` floor `"js-yaml": "^4.2.0" → "^4.3.0"`; lockfile resolves 4.3.0 everywhere. **Rationale:** same narrowest-override pattern as S-H (undici-tls); build-tooling-only parse paths, but the gate rightly blocks known-high advisories regardless.
 
 ## Cire co-host roles — prep-pr review round (2026-07-12)
 

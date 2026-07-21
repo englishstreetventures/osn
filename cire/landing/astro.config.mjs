@@ -10,6 +10,9 @@ import { defineConfig } from "astro/config";
 // deploys to Cloudflare Pages (`wrangler pages deploy dist`) exactly like the
 // organiser portal. No Cloudflare adapter is needed for a static build.
 export default defineConfig({
+  // Astro 7 changed the default to JSX-style whitespace stripping; pin the
+  // Astro 6 behaviour so the upgrade does not change rendered markup.
+  compressHTML: true,
   output: "static",
   // Canonical site origin, baked in for SEO meta (og:url, canonical). Overridden
   // per-environment via the `SITE` build var so the preview deploy advertises its

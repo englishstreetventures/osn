@@ -12,9 +12,9 @@
     "check": "bunx --bun astro check"
   },
   "dependencies": {
-    "@astrojs/solid-js": "^6.0.1",
+    "@astrojs/solid-js": "^7.0.1",
     "@tailwindcss/vite": "^4.3.0",
-    "astro": "^6.4.6",
+    "astro": "^7.1.1",
     "motion": "^12.40.0",
     "solid-js": "^1.9.13",
     "tailwindcss": "^4.3.0"

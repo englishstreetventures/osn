@@ -7,6 +7,9 @@ import { defineConfig } from "astro/config";
 // `wrangler pages deploy dist`. No Cloudflare adapter is needed for a static
 // build; there is no first-party API call from this site.
 export default defineConfig({
+  // Astro 7 changed the default to JSX-style whitespace stripping; pin the
+  // Astro 6 behaviour so the upgrade does not change rendered markup.
+  compressHTML: true,
   output: "static",
   // Canonical site origin, baked in for SEO meta (og:url, canonical). This is a
   // PLACEHOLDER canonical origin — overridden per-environment via the `SITE`

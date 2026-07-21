@@ -326,7 +326,33 @@ describe("ExploreMap", () => {
   const WATER_LIGHT = "oklch(0.94 0.03 230)";
   const WATER_DARK = "oklch(0.17 0.015 220)";
 
-  it("updates theme-driven SVG fills when the 'dark' class is toggled on <html>", async () => {
+  // happy-dom's MutationObserver holds its delivery callback only via a
+  // WeakRef to an otherwise-unreferenced closure
+  // (mutation-observer/MutationObserverListener.js — present through at least
+  // 20.11.0), so once GC runs, mutations silently stop being delivered. Bun's
+  // aggressive GC collects it mid-test (Node usually doesn't), which made the
+  // real-observer version of this test a GC-timing flake. Drive the callback
+  // deterministically through a stub instead — same pattern as
+  // ResizeObserverStub below.
+  class MutationObserverStub {
+    static instances: MutationObserverStub[] = [];
+    targets: Node[] = [];
+    constructor(private cb: MutationCallback) {
+      MutationObserverStub.instances.push(this);
+    }
+    observe(target: Node) {
+      this.targets.push(target);
+    }
+    disconnect() {
+      this.targets = [];
+    }
+    trigger() {
+      this.cb([], this as unknown as MutationObserver);
+    }
+  }
+
+  it("updates theme-driven SVG fills when the 'dark' class is toggled on <html>", () => {
+    vi.stubGlobal("MutationObserver", MutationObserverStub);
     document.documentElement.classList.remove("dark");
     document.body.classList.remove("dark");
     try {
@@ -335,19 +361,23 @@ describe("ExploreMap", () => {
       const water = baseMap.querySelector("path")!;
       expect(water.getAttribute("fill")).toBe(WATER_LIGHT);
 
-      document.documentElement.classList.add("dark");
-      // MutationObserver callbacks are delivered asynchronously — yield a
-      // macrotask so the observer fires and the signal propagates.
-      await new Promise((r) => setTimeout(r, 0));
+      // The component wired its observer to both roots it reads from.
+      const observers = MutationObserverStub.instances;
+      expect(observers.some((o) => o.targets.includes(document.documentElement))).toBe(true);
+      expect(observers.some((o) => o.targets.includes(document.body))).toBe(true);
 
+      document.documentElement.classList.add("dark");
+      observers.forEach((o) => o.trigger());
       expect(water.getAttribute("fill")).toBe(WATER_DARK);
 
       // And back again — the observer stays live, not one-shot.
       document.documentElement.classList.remove("dark");
-      await new Promise((r) => setTimeout(r, 0));
+      observers.forEach((o) => o.trigger());
       expect(water.getAttribute("fill")).toBe(WATER_LIGHT);
     } finally {
+      vi.unstubAllGlobals();
       document.documentElement.classList.remove("dark");
+      MutationObserverStub.instances = [];
     }
   });
 

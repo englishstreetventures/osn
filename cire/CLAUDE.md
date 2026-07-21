@@ -216,7 +216,10 @@ cd cire/api && bunx wrangler types                                  # Regenerate
 
 # Deploy
 cd cire/api && bunx wrangler deploy --env production                # Deploy API worker (prod env — never bare `wrangler deploy`, which the config now blocks)
-bun run --cwd cire/web build && bunx wrangler pages deploy cire/web/dist
+# Guest site is a Worker (NOT Pages): the adapter emits dist/server + dist/client
+# and a generated dist/server/wrangler.json extending cire/web/wrangler.jsonc.
+# CI strips the unsupported `legacy_env` field first — see deploy.yml.
+bun run --cwd cire/web build && (cd cire/web && bunx wrangler deploy --config dist/server/wrangler.json)
 
 # Versioning
 bun run changeset                    # Create changeset (required for every PR)

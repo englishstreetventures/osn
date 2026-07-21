@@ -7,6 +7,9 @@ import { defineConfig } from "astro/config";
 // prerenders to plain HTML and deploys to Cloudflare Pages exactly like cire's
 // landing — no Cloudflare adapter is needed for a static build.
 export default defineConfig({
+  // Astro 7 changed the default to JSX-style whitespace stripping; pin the
+  // Astro 6 behaviour so the upgrade does not change rendered markup.
+  compressHTML: true,
   output: "static",
   // Canonical site origin, baked in for SEO meta (og:url, canonical). This is a
   // PLACEHOLDER canonical origin — overridden per-deploy via the `SITE` build
