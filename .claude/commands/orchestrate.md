@@ -2,7 +2,9 @@ Orchestrate one or more tasks end-to-end for: $ARGUMENTS
 
 If $ARGUMENTS is empty, ask the user for the task(s) before proceeding.
 
-`/orchestrate` automates the full loop you would otherwise drive by hand: **gather context → prep a worktree → hand the task wholesale to a subagent (which uses `/new-feat` to plan + implement) → run `/prep-pr` (adding missing tests + fixing every security/performance finding, not just reporting them) → watch the PR on GitHub and squash-merge when green (or rebase-and-resolve conflicts).** You are the orchestrator: you plan the ordering and drive the loop, but you do **not** plan or write the implementation of any task — that is the subagent's job.
+`/orchestrate` automates the full loop you would otherwise drive by hand: **[optionally design first: `/brainstorm` → spec → `writing-plans` → plan] → gather context → prep a worktree → hand the task wholesale to a subagent (which uses `/new-feat` to plan + implement) → run `/prep-pr` (adding missing tests + fixing every security/performance finding, not just reporting them) → watch the PR on GitHub and squash-merge when green (or rebase-and-resolve conflicts).** You are the orchestrator: you plan the ordering and drive the loop, but you do **not** plan or write the implementation of any task — that is the subagent's job.
+
+The design step (Step 00) is the front-loaded phase: when the input is a *feature* (ambiguous scope, multi-phase, spans subsystems) rather than a ready list of discrete tasks, you run `/brainstorm` + `writing-plans` **with the user** first to produce a spec + per-phase plan, then feed those phases into the autonomous build loop. When the input is already a concrete task list, skip Step 00 and go straight to Step 0.
 
 ---
 
@@ -19,9 +21,35 @@ If this is **not** the bare-repo root (e.g. the Claude Code remote/container, or
 
 ---
 
+## Step 00 — Design gate: feature or task list? (you + the user)
+
+Before ordering anything, classify the input:
+
+- **Ready task list** — concrete, well-scoped changes each with clear acceptance criteria ("add weddingName to the vendor enquiries response", "fix the refresh-rotation logout", "wire `astro check` into the two cire frontends"). **Skip to Step 0.**
+- **Feature** — ambiguous scope, needs product/design direction, spans multiple subsystems, or is large enough to want phasing (S4 A→B→C was this). **Run the design phase below first.**
+
+If unsure, treat it as a feature — a five-minute design gate is cheaper than a subagent guessing scope.
+
+### The design phase (interactive — do this WITH the user, before any subagent)
+
+The build loop (Steps 1–5) is autonomous; the design phase is **not**. `superpowers:brainstorming` asks one question at a time and has a HARD-GATE: no implementation, no worktree, no plan until the user approves a design. So run design up front, synchronously with the user, and only enter the autonomous loop once spec + plan are approved.
+
+1. **`/brainstorm` (superpowers:brainstorming)** — turn the idea into an approved spec. If the feature spans independent subsystems, brainstorming decomposes it into **sub-project specs** (these become your phases). Spec lands in `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`; the user reviews it.
+2. **`writing-plans` (superpowers:writing-plans)** — turn each approved spec into a task-by-task plan in `docs/superpowers/plans/YYYY-MM-DD-<name>.md`. One plan per phase/sub-project. Note the plan's **Global Constraints** — you carry those into every dispatch.
+3. **Hand off to the loop.** The ordered **phases** (each its own plan) become the tasks Step 0 orders — one phase = one branch = one PR by default. Within a phase, the plan's individual tasks are the *subagent's* work, not yours.
+
+### Which Step-3 engine for a phase
+
+- **Small/cohesive phase** (a plan with a handful of tightly-coupled tasks, one clear deliverable) → the Step-3 subagent runs **`/new-feat`** as usual and implements the whole phase.
+- **Large phase** (a plan with many independent tasks — the S4 PR C shape: 11 tasks) → tell the Step-3 subagent to run **`superpowers:subagent-driven-development`** against the phase's plan file instead of `/new-feat`: fresh implementer per task + per-task review + whole-branch review, all inside the one phase branch. Still one branch → one PR; `/prep-pr` (Step 4) runs once over the finished branch.
+
+Point every Step-3 dispatch (and every reviewer) at the phase's **plan file path** and its **Global Constraints** — that plan is the single source of requirements, so you don't paste task detail into the dispatch.
+
+---
+
 ## Step 0 — Plan ordering & structure (you do this)
 
-Parse `$ARGUMENTS` into one or more discrete **tasks**. Then plan — **structure only, not implementation**:
+Parse the tasks — either `$ARGUMENTS` (task-list input) or the **phases produced by Step 00** (feature input) — into one or more discrete **tasks**. Then plan — **structure only, not implementation**:
 
 - **Order** the tasks by dependency (a task that another builds on, or that changes files another touches, goes first). Independent tasks can still run sequentially through this loop; only parallelize if they share no files and you'll manage separate worktrees.
 - **Branch/worktree per task** by default (one task = one branch = one PR). Group two tasks into one branch only if they are genuinely a single unit of work.
@@ -97,6 +125,8 @@ Subagents cannot prompt the user — they surface `NEEDS INPUT` in their report.
 
 | Gotcha | Do this |
 |--------|---------|
+| Feature input dispatched straight into the autonomous loop → subagent guesses scope | Run **Step 00** first. brainstorming's HARD-GATE means no worktree/plan/implementation until the user approves the spec — do the design phase synchronously with the user, enter the loop only after spec + plan are approved |
+| A large phase (many independent tasks) crammed into one `/new-feat` subagent | Point the Step-3 subagent at the phase's plan file and have it run `superpowers:subagent-driven-development` instead — still one branch/PR, `/prep-pr` runs once at the end |
 | `gh pr ready <n>` doesn't propagate instantly — a still-draft PR shows `mergeStateStatus: BLOCKED` even with all checks green | `gh pr ready` **then `sleep ~5–10s`** before reading `mergeStateStatus`; don't treat BLOCKED-on-draft as a CI failure |
 | Pre-push lefthook runs `bun audit`, which fails on pre-existing transitive advisories and blocks the push | push with `--no-verify` (CI re-runs lint/test/typecheck — that's the real gate) |
 | `scripts/validate-changesets.sh` uses `mapfile` (bash 4+); local macOS bash is 3.2 | don't rely on running it locally — CI (ubuntu) validates; just match the existing changeset format |
@@ -113,6 +143,6 @@ Subagents cannot prompt the user — they surface `NEEDS INPUT` in their report.
 
 - A trivial one-line / single-file change — just edit it and open a PR directly.
 - You're not in the bare-repo root (use `/new-feat` + `/prep-pr` in place).
-- The task needs product/design direction first — `/brainstorm` with the user, then orchestrate the agreed scope.
+- (No longer an exclusion:) a feature needing product/design direction — Step 00 now folds `/brainstorm` + `writing-plans` in. Run the design gate, then the loop.
 
 When all tasks are merged, summarise: each PR (number + one line), anything deferred as a tracked follow-up, and any deploy-time / human actions surfaced by the subagents.
