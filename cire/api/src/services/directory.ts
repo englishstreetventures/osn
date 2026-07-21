@@ -457,6 +457,68 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
     },
 
     /**
+     * Mint a single-use claim token + URL for an EXISTING listing so an
+     * out-of-band surface (e.g. the couple-side enquiry-new email) can invite
+     * the vendor to claim their listing via the canonical
+     * `${vendorPortalOrigin}/claim?token=…` → `consumeClaim` flow.
+     *
+     * Returns `null` when the listing is unknown OR already claimed
+     * (`owner_org_id` set) — a claimed listing needs no claim CTA. Otherwise
+     * reuses the same token machinery as `seedFromCrm` (256-bit token, stored as
+     * SHA-256 hash only, 7-day TTL). Tokens are hashed at rest, so an existing
+     * unconsumed token cannot be recovered as plaintext — a fresh single-use
+     * token is minted per call. This is a thin reuse of the existing claim
+     * mechanism, not a new subsystem.
+     */
+    issueClaimForListing(
+      directoryVendorId: string,
+    ): Effect.Effect<{ claimToken: string; claimUrl: string } | null, never, DbService> {
+      return Effect.gen(function* () {
+        const db = yield* DbService;
+
+        const [dv] = yield* dbQuery(() =>
+          db
+            .select({
+              id: directoryVendors.id,
+              ownerOrgId: directoryVendors.ownerOrgId,
+              email: directoryVendors.email,
+            })
+            .from(directoryVendors)
+            .where(eq(directoryVendors.id, directoryVendorId))
+            .all(),
+        );
+        const dvRow = dv as
+          | { id: string; ownerOrgId: string | null; email: string | null }
+          | undefined;
+        // Unknown or already-claimed listing → no claim CTA needed.
+        if (!dvRow || dvRow.ownerOrgId !== null) return null;
+
+        const now = new Date();
+        const token = generateToken();
+        const tokenHash = yield* hashToken(token);
+        const claimId = `clm_${crypto.randomUUID()}`;
+        const expiresAt = new Date(Date.now() + CLAIM_TTL_MS);
+
+        yield* dbQuery(() =>
+          db
+            .insert(vendorClaims)
+            .values({
+              id: claimId,
+              directoryVendorId,
+              tokenHash,
+              email: dvRow.email ?? "",
+              createdAt: now,
+              expiresAt,
+              consumedAt: null,
+            })
+            .run(),
+        );
+
+        return { claimToken: token, claimUrl: claimUrl(token) };
+      }).pipe(Effect.withSpan("cire.directory.issueClaimForListing"));
+    },
+
+    /**
      * Validate an unconsumed, unexpired token and return listing summary.
      * Returns null if the token is unknown, expired, or consumed.
      */
@@ -505,10 +567,21 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
     },
 
     /**
-     * Redeem a claim token: bind `owner_org_id=orgId`, flip `listed='live'`,
-     * stamp `consumed_at`. Fails `ClaimInvalid` if unknown/expired/already consumed.
+     * Redeem a claim token: bind `owner_org_id=orgId` AND
+     * `claimed_by_profile_id=claimingProfileId`, flip `listed='live'`, stamp
+     * `consumed_at`. Fails `ClaimInvalid` if unknown/expired/already consumed.
+     *
+     * `claimedByProfileId` is load-bearing: the enquiry service decides
+     * claimed-vs-unclaimed on it (`enquiries.open` branches on
+     * `claimedByProfileId`, and it becomes the vendor-side member of any c2b
+     * chat), so it MUST be written in the same UPDATE that binds `ownerOrgId` —
+     * otherwise a production-claimed listing reads as "unclaimed" forever.
      */
-    consumeClaim(token: string, orgId: string): Effect.Effect<ListingDto, ClaimInvalid, DbService> {
+    consumeClaim(
+      token: string,
+      orgId: string,
+      claimingProfileId: string,
+    ): Effect.Effect<ListingDto, ClaimInvalid, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
         const tokenHash = yield* hashToken(token);
@@ -564,11 +637,18 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
           return yield* Effect.fail(new ClaimInvalid());
         }
 
-        // Burn succeeded — now bind the listing.
+        // Burn succeeded — now bind the listing. `claimedByProfileId` is set in
+        // the SAME UPDATE as `ownerOrgId` so the enquiry service reads this
+        // listing as CLAIMED immediately (never a bound-but-unclaimed window).
         yield* dbQuery(() =>
           db
             .update(directoryVendors)
-            .set({ ownerOrgId: orgId, listed: "live", updatedAt: now })
+            .set({
+              ownerOrgId: orgId,
+              claimedByProfileId: claimingProfileId,
+              listed: "live",
+              updatedAt: now,
+            })
             .where(eq(directoryVendors.id, claimRow.directoryVendorId))
             .run(),
         );

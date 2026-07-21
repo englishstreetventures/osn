@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-07-18
+last-reviewed: 2026-07-21
 ---
 
 # Data Map
@@ -139,6 +139,17 @@ Vendor personal data arises when a vendor is a **sole trader** and their contact
 | `vendor_claims.email` | Email address the claim-invite was sent to (copied from `directory_vendors.email` at minting) — identifies the sole trader being invited to claim the listing | Art. 6(1)(f) — legit interest in binding the listing to the correct vendor org; functionally equivalent to the claim-invite verification step (Art. 6(1)(b) — entering service) | 7-day claim TTL; `status` flips to `expired`/`consumed`; `vendor_claims` rows currently retained indefinitely (no purge — add a sweeper once listing volumes warrant) | `@cire/api` only (token hash stored, email stored for audit) | [[systems/vendors]] (cire wiki) |
 
 **S3 browse surface (2026-07-18).** `directory_vendors.email` and `directory_vendors.phone` are now **displayed to a wedding's authenticated organisers** via the `GET …/directory` browse endpoint (new recipient/surface — organiser-only, access-controlled); no new data is collected and the lawful basis is unchanged (Art. 6(1)(f)).
+
+**S4 — Vendor enquiries (2026-07-21; migration `0043`).** The `vendor_enquiries` table and the Zap c2b thread are new personal-data surfaces introduced by Vendors S4 PR B.
+
+| Field | Purpose | Lawful basis | Retention | Recipients | System page |
+|---|---|---|---|---|---|
+| `vendor_enquiries.wedding_id` + `listing_id` (linkage) | Identifies which couple's wedding is enquiring about which vendor listing — the structural cross-reference that scopes every enquiry read to its owning wedding | Art. 6(1)(b) — pre-contractual (couple requesting vendor information) | Tied to wedding lifecycle — `ON DELETE CASCADE` from `weddings.id`; if the vendor listing is deleted the enquiry row is also removed via `ON DELETE CASCADE` from `directory_vendors.id` | `@cire/api` only (wedding-scoped read gate); the owning vendor org via the vendor-enquiry routes | [[cire]] |
+| `vendor_enquiries.status` (`open` / `quoted` / `closed`) | Internal state-machine for the enquiry thread — drives the organiser's enquiry panel and the vendor's inbox (system bookkeeping, not a contractual obligation) | Art. 6(1)(b) — pre-contractual; Art. 6(1)(f) — legitimate interest (operational tracking of an ongoing quote conversation) | Same as `vendor_enquiries` row (cascade on wedding or listing delete) | `@cire/api` + wedding owner/editor + the vendor org | [[cire]] |
+| `vendor_enquiries.quoted_minor` (integer cents) | The vendor's quoted price attached to the enquiry thread — copies to `vendors.quoted_minor` in the couple's CRM on quote | Art. 6(1)(b) — pre-contractual; Art. 6(1)(f) — wedding administration (couple-side budget tracking) | Same as `vendor_enquiries` row | `@cire/api` + wedding owner/editor; the vendor org (they set it); Budget module (planned) | [[cire]] |
+| `vendor_enquiries.pending_body` (TEXT, nullable — **transient**) | The couple's first message text, held temporarily when the vendor has not yet claimed their listing. Stored only until `enquiryService.onVendorClaimed` fires (claim → flush → Zap c2b creation → message forwarded → `pending_body` cleared to `NULL`). If the vendor never claims, the text remains stored. | Art. 6(1)(b) — pre-contractual; necessary to deliver the first message once the vendor claims | **Transient** — cleared to `NULL` on flush (claim event). If never flushed (vendor never claims): retained with the enquiry row (cascade on wedding/listing delete). No independent sweeper today (low-volume; listing-delete cascade covers the listing-abandoned path). | `@cire/api` only (not exposed via any read endpoint until flushed to Zap) | [[cire]] |
+| `vendor_enquiries.lead_forward_email` (nullable TEXT) | Vendor-supplied sole-trader contact email, recorded at enquiry-open time from `directory_vendors.email` so the couple's lead message can be forwarded to the vendor's inbox even before they claim the listing. Identifies a sole trader → personal data. | Art. 6(1)(f) — legitimate interest in delivering the enquiry lead to the vendor's inbox; same class as `directory_vendors.email` (public business contact) | Tied to the enquiry row (cascade on wedding/listing delete). No independent purge — same window as `directory_vendors.email` above. | `@cire/api`; **Resend** for the forwarded lead email (processor) | [[cire]], [[data-map]] (vendors section) |
+| Zap c2b message bodies (`messages.body` in `@zap/api`) — couple ↔ vendor thread | The content of each message in the couple–vendor conversation routed over a Zap c2b chat thread. Server-visible personal data (not E2E-encrypted — see non-E2E notice planned for PR C). | Art. 6(1)(b) — pre-contractual (couple requesting quotes, vendor responding) | Governed by Zap message retention (see Zap section above — currently indefinite pending Zap disappearing-messages flag). Covered by `account-export` DSAR path (PR A). | `@zap/api` storage; cire-api (ARC `chat:c2b` write access); the couple (weddingMember read via `/enquiries/:id/messages`); the vendor org (vendor-enquiry read routes) | [[zap]], [[cire]] |
 
 ## Cire tiering (`@cire/api` — `wedding_entitlements`)
 

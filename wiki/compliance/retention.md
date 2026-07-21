@@ -8,7 +8,7 @@ related:
   - "[[dsar]]"
   - "[[cire]]"
   - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-07-18
+last-reviewed: 2026-07-21
 ---
 
 # Retention
@@ -57,6 +57,9 @@ already enforced in code; others need a sweeper job.
 | Cire `vendors.email` / `phone` / `contact_name` (sole-trader contact in the per-wedding CRM) | Tied to wedding lifecycle — cascades when the organiser removes the CRM entry or the wedding is deleted | DB `ON DELETE cascade` from `vendors`/`weddings` | **OK for cascade path**; no independent sweeper needed (CRM entry is organiser-controlled) | Cire |
 | Cire `vendor_claims.email` (sole-trader email recorded on a claim token) | 7-day claim TTL; `status` flips to `expired`/`consumed` at expiry/consumption | App code (TTL enforced at consume-time check); claim rows retained indefinitely after expiry (no purge today) | **TODO** — add a sweeper once claim volumes warrant (e.g. purge `expired`/`consumed` rows older than 90 d) | Cire |
 | Cire `wedding_entitlements` (incl. `granted_by` audit field) | Life of the wedding record | DB `ON DELETE CASCADE` on `weddings.id` — when the wedding row is deleted the entitlement rows cascade automatically; no independent sweeper required | **OK** — fully covered by the wedding-deletion cascade | Cire |
+| Cire `vendor_enquiries` rows (S4 — `status`, `quoted_minor`, `pending_body`, `lead_forward_email`) | Tied to the wedding lifecycle (`ON DELETE CASCADE` from `weddings.id`) **and** to the directory listing (`ON DELETE CASCADE` from `directory_vendors.id`). `pending_body` is additionally cleared to `NULL` in-place when the vendor claims and the buffer is flushed (transient first-message text — see [[data-map]] S4 rows); if never flushed (vendor never claims), it persists with the enquiry row until one of the two cascades fires. | DB cascade on wedding or listing delete. No independent sweeper — low volume; cascade paths cover the two main lifecycle events. A future "close stale unclaimed enquiries" sweeper may be warranted once listing volumes grow. | **OK for cascade path** — both cascade FKs are declared. **Honest-gap** for `pending_body` on a never-claimed listing: the text persists indefinitely until the listing is deleted or the wedding is deleted. Low-priority given listing-delete removes it, but no time-bounded purge exists today. | Cire |
+| Cire `lead_forward_email` (vendor-supplied sole-trader contact email on `vendor_enquiries`) | Same lifecycle as the `vendor_enquiries` row — cascades on wedding or listing delete | DB cascade (see row above) | **OK** — covered by parent cascade | Cire |
+| Zap c2b message bodies in the cire vendor-enquiry thread | Governed by Zap message retention — currently indefinite pending the Zap disappearing-messages flag (Zap M1). Covered by the `account-export` DSAR path (PR A, [[zap]]). | Zap message retention sweeper (planned, Zap M1) | **TODO** — Zap M1 disappearing-messages flag (shared open item, see Zap row above) | Zap / Cire |
 | Grafana Cloud traces | 14 days (free tier) | Vendor-enforced | OK | Platform |
 | Grafana Cloud logs | 50 GB rolling (~30 d typical) | Vendor-enforced | OK | Platform |
 | Grafana Cloud metrics | 30 days (free tier) | Vendor-enforced | OK | Platform |

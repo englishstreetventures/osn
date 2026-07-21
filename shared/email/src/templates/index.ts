@@ -11,6 +11,14 @@
  * `{ subject, text, html }`. No I/O, no DB. Worker-safe.
  */
 
+import {
+  renderEnquiryNew,
+  renderEnquiryReply,
+  renderEnquiryQuote,
+  type EnquiryNewData,
+  type EnquiryReplyData,
+  type EnquiryQuoteData,
+} from "./enquiry";
 import { renderEmailChangeOtp, renderRegistrationOtp, renderStepUpOtp } from "./otp";
 import {
   renderCrossDeviceLogin,
@@ -23,6 +31,9 @@ import { renderVendorClaimInvite, type VendorClaimInviteData } from "./vendor-cl
 
 /** Canonical list of templates. Keep sorted; one per outbound auth email. */
 export type EmailTemplate =
+  | "enquiry-new"
+  | "enquiry-reply"
+  | "enquiry-quote"
   | "otp-registration"
   | "otp-step-up"
   | "otp-email-change"
@@ -35,6 +46,9 @@ export type EmailTemplate =
 
 /** Typed data bag per template. Extend the map when adding a template. */
 export interface EmailTemplateDataMap {
+  "enquiry-new": EnquiryNewData;
+  "enquiry-reply": EnquiryReplyData;
+  "enquiry-quote": EnquiryQuoteData;
   "otp-registration": { code: string; ttlMinutes: number };
   "otp-step-up": { code: string; ttlMinutes: number };
   "otp-email-change": { code: string; ttlMinutes: number };
@@ -65,6 +79,12 @@ export function renderTemplate<T extends EmailTemplate>(
   data: EmailTemplateData<T>,
 ): RenderedEmail {
   switch (template) {
+    case "enquiry-new":
+      return renderEnquiryNew(data as EmailTemplateData<"enquiry-new">);
+    case "enquiry-reply":
+      return renderEnquiryReply(data as EmailTemplateData<"enquiry-reply">);
+    case "enquiry-quote":
+      return renderEnquiryQuote(data as EmailTemplateData<"enquiry-quote">);
     case "otp-registration":
       return renderRegistrationOtp(data as EmailTemplateData<"otp-registration">);
     case "otp-step-up":
@@ -90,6 +110,9 @@ export function renderTemplate<T extends EmailTemplate>(
 }
 
 export {
+  renderEnquiryNew,
+  renderEnquiryReply,
+  renderEnquiryQuote,
   renderRegistrationOtp,
   renderStepUpOtp,
   renderEmailChangeOtp,
@@ -101,4 +124,4 @@ export {
   renderVendorClaimInvite,
 };
 
-export type { VendorClaimInviteData };
+export type { EnquiryNewData, EnquiryReplyData, EnquiryQuoteData, VendorClaimInviteData };

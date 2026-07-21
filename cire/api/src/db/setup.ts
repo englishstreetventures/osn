@@ -245,6 +245,8 @@ CREATE TABLE IF NOT EXISTS directory_vendors (
   price_min_minor INTEGER,
   price_max_minor INTEGER,
   listed TEXT NOT NULL DEFAULT 'draft',
+  lead_forward_email TEXT,
+  claimed_by_profile_id TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -284,6 +286,23 @@ CREATE TABLE IF NOT EXISTS vendor_claims (
   consumed_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS vendor_claims_vendor_idx ON vendor_claims(directory_vendor_id);
+CREATE TABLE IF NOT EXISTS vendor_enquiries (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  directory_vendor_id TEXT NOT NULL,
+  vendor_id TEXT NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
+  zap_chat_id TEXT,
+  pending_body TEXT,
+  status TEXT NOT NULL DEFAULT 'open',
+  created_by TEXT NOT NULL,
+  quoted_minor INTEGER,
+  last_message_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS vendor_enquiries_wedding_directory_uniq ON vendor_enquiries(wedding_id, directory_vendor_id);
+CREATE INDEX IF NOT EXISTS vendor_enquiries_wedding_last_msg_idx ON vendor_enquiries(wedding_id, last_message_at);
+CREATE INDEX IF NOT EXISTS vendor_enquiries_directory_idx ON vendor_enquiries(directory_vendor_id);
 CREATE TABLE IF NOT EXISTS wedding_entitlements (
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
   entitlement TEXT NOT NULL,

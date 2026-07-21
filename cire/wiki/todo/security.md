@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-18
+last-reviewed: 2026-07-21
 ---
 
 # Security Backlog
@@ -43,7 +43,13 @@ Completed findings are archived in `[[changelog/security-fixes]]` (Migrated from
 - [x] **CSV-C-L1** (fixed in the same PR, documentation-only) — `guests.csv` surfaces the `families` invite-tracking timestamps (`code_shared_at`, `first_opened_at`, `deactivated_at`) which had no data-map row. Added the Art. 30 row to root `[[wiki/compliance/data-map]]` (purpose: organiser invite-delivery tracking; basis Art. 6(1)(f); retention: 1-year families sweep; recipients: organiser/co-hosts incl. CSV export).
 - [x] **CROP-S-L1** — **Fixed (feat/cire-api-export-hardening):** `imageResponseHeaders` in `cire/api/src/routes/invite.ts` now returns `Vary: Accept, Origin` (was `Vary: Accept`). The `Vary: Origin` addition ensures CORS-mode and no-cors-mode responses are cached under separate browser-cache entries, preventing the mode-mixing that broke the crop editor for any future cross-origin consumer. The existing `invite.test.ts` Vary assertion was updated to expect the new value. (crop-editor CORS-cache fix branch review)
 - [ ] Verify `ORGANISER_TOKEN` is not set as a CF secret on the deployed cire-api worker — the `X-Organiser-Token` code path is deleted, but a secret set during the interim would linger as stale config. If present: `wrangler secret delete ORGANISER_TOKEN` (manual, from `cire/api`).
-      </content>
+
+### Vendors S4 PR B — enquiry backend review notes (`feat/cire-vendors-enquiries`)
+
+**Resolved on this branch:** S-M1 (full-table scan on `vendor_enquiries` — index added). Deferred LOW findings:
+
+- [ ] **S-L1** — enquiry email subject uses organiser-controlled `weddingName` (`displayName`) unescaped; subjects aren't HTML so it's header-injection-adjacent only — mitigated in practice by the Resend transport stripping CR/LF. Optional: trim control chars on `displayName` at write time. (`shared/email/src/templates/enquiry.ts`)
+- [ ] **S-L2** — `vendor_enquiries.pending_body` (couple's buffered first message to an unclaimed listing) has no time-bounded purge; persists until listing/wedding delete (cascade-covered, documented in `[[wiki/compliance/retention]]` as an honest-gap). Add a stale-unclaimed-enquiry sweeper when volumes grow. (`cire/api`)
 
 ### Vendors PR B — vendor portal review notes (`feat/cire-vendor-portal`)
 

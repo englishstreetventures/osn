@@ -1,5 +1,6 @@
 import { cors } from "@elysiajs/cors";
 import { EmailService, makeLogEmailLive } from "@shared/email";
+import type { SendEmailInput } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
@@ -15,6 +16,7 @@ import { createClaimRoutes } from "./routes/claim";
 import { createCspReportRoutes } from "./routes/csp-report";
 import { createInviteOrganiserRoutes, createInvitePublicRoutes } from "./routes/invite";
 import { createOrganiserChangeRoutes } from "./routes/organiser-changes";
+import { createOrganiserEnquiriesRoutes } from "./routes/organiser-enquiries";
 import { createOrganiserHandleSearchRoutes } from "./routes/organiser-handle-search";
 import {
   createOrganiserHostsReadRoutes,
@@ -37,9 +39,11 @@ import {
   createVendorDirectoryReadRoutes,
   createVendorDirectoryWriteRoutes,
 } from "./routes/vendor-directory";
+import { createVendorEnquiriesRoutes } from "./routes/vendor-enquiries";
 import { createVendorPortalRoutes } from "./routes/vendor-portal";
 import { createVendorReadRoutes, createVendorWriteRoutes } from "./routes/vendors";
 import { createDirectoryService } from "./services/directory";
+import { createEnquiryService } from "./services/enquiries";
 import type { AssetsBucket } from "./services/invite-assets";
 import type { ImagesBindingLike } from "./services/invite-image-transform";
 import type {
@@ -48,8 +52,10 @@ import type {
   OsnHandleSearchResolver,
   OsnOrgMembershipResolver,
   OsnProfileDisplayResolver,
+  OsnProfileOrgsResolver,
 } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
+import type { ZapChatClient } from "./services/zap-bridge";
 
 /** Default per-IP rate limiter for the claim endpoint: 5 attempts per minute. */
 const defaultClaimLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000 });
@@ -127,10 +133,31 @@ const defaultCspReportLimiter = createRateLimiter({ maxRequests: 60, windowMs: 6
  * from a scripted caller with a valid organiser token.
  */
 const defaultDirectoryLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
+/**
+ * Default per-USER limiter for the couple-side enquiry write routes (Vendors S4,
+ * spam control §96). An authenticated organiser opening/replying to vendor
+ * threads drives an ARC-signed S2S provision + message into zap-api plus a
+ * transactional email — 20 writes/min is generous for hand-use while capping the
+ * amplifier. Keys on `osnProfileId` so each organiser has an independent bucket.
+ */
+const defaultEnquiryLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 
 export interface AppOptions {
   /** Primary origin (used for the session cookie's `secure` flag). */
   webOrigin?: string;
+  /**
+   * Organiser portal origin (`host.cireweddings.com`) — base for the enquiry
+   * thread deep-link vendors/couples receive. Distinct from `webOrigin` (the
+   * guest invite site). Defaults to the prod organiser origin.
+   */
+  organiserOrigin?: string;
+  /**
+   * Vendor portal origin (`vendor.cireweddings.com`) — base for the vendor
+   * claim link (`/claim?token=…`). Threaded into the default directory service
+   * so dev/staging tiers mint claim URLs on the correct host. Ignored when a
+   * `directoryService` instance is injected. Defaults to the prod vendor origin.
+   */
+  vendorPortalOrigin?: string;
   /** Extra origins allowed by CORS (organiser portal, etc). Defaults to `[webOrigin]`. */
   allowedOrigins?: string[];
   /** Override the claim rate limiter (useful for testing). */
@@ -238,11 +265,38 @@ export interface AppOptions {
    * means no vendor portal access). Tests inject a stub.
    */
   orgMembership?: OsnOrgMembershipResolver;
+  /**
+   * Resolves the org ids an OSN profile belongs to (server-to-server, ARC,
+   * `org:read`). Scopes the vendor enquiry LIST query to the caller's own
+   * tenants before the scan. When omitted, the list route fails closed (empty
+   * list — no cross-tenant scan). Tests inject a stub.
+   */
+  profileOrgs?: OsnProfileOrgsResolver;
+  /**
+   * Zap c2b chat client for the couple-side enquiry routes (Vendors S4).
+   * KEY-OPTIONAL: `null`/omitted ⇒ the ZAP_API_URL/ARC config is absent and the
+   * enquiry routes still mount, but open/reply against a claimed listing answer
+   * 503 (`ZapUnavailable`). Built once per isolate in `index.ts` via
+   * `createZapChatClientFromEnv`; tests inject an in-memory fake.
+   */
+  enquiryZapClient?: ZapChatClient | null;
+  /**
+   * Email transport layer for enquiry notifications (enquiry-new / -reply /
+   * -quote). Defaults to the vendor email layer (`emailLayer` ?? LogEmailLive),
+   * so a deployment with `RESEND_API_KEY` dispatches for real and tests capture
+   * in-memory. The enquiry service wraps `EmailService.send` with error channel
+   * `never` (a broken transport logs a warning, never fails the enquiry).
+   */
+  enquiryEmailLayer?: Layer.Layer<EmailService>;
+  /** Override the couple-side enquiry write rate limiter (useful for testing). */
+  enquiryLimiter?: RateLimiterBackend;
 }
 
 export function createApp(db: Db, options: AppOptions = {}) {
   const {
     webOrigin = "http://localhost:4321",
+    organiserOrigin = "https://host.cireweddings.com",
+    vendorPortalOrigin = "https://vendor.cireweddings.com",
     allowedOrigins,
     claimLimiter = defaultClaimLimiter,
     accountLinkLimiter = defaultAccountLinkLimiter,
@@ -271,16 +325,56 @@ export function createApp(db: Db, options: AppOptions = {}) {
     directoryService: directoryServiceOption,
     emailLayer: emailLayerOption,
     orgMembership,
+    profileOrgs,
+    enquiryZapClient = null,
+    enquiryEmailLayer: enquiryEmailLayerOption,
+    enquiryLimiter = defaultEnquiryLimiter,
   } = options;
   const corsOrigins = allowedOrigins ?? [webOrigin];
 
   // Vendor CRM deps — use injected instances (tests) or module-level defaults
   // (production). The email layer defaults to LogEmailLive so tests that don't
   // inject one still work without network access.
-  const vendorDirectoryService = directoryServiceOption ?? createDirectoryService();
+  const vendorDirectoryService =
+    directoryServiceOption ?? createDirectoryService({ vendorPortalOrigin });
   const vendorEmailLayer = emailLayerOption ?? makeLogEmailLive().layer;
   // Fail-closed default: no ARC key means no org membership can be verified.
   const vendorOrgMembership = orgMembership ?? (() => Promise.resolve(null));
+  // Fail-closed default: no ARC key ⇒ caller resolves to no orgs ⇒ the vendor
+  // enquiry list is empty (never an unscoped cross-tenant scan).
+  const vendorProfileOrgs = profileOrgs ?? (() => Promise.resolve([]));
+
+  // Couple-side enquiry BFF service (Vendors S4). Its zap client + email sender
+  // are injected (tests) or built from env (index.ts). The email layer reuses the
+  // vendor email layer unless a dedicated one is supplied. `sendEmail` is
+  // pre-wrapped with error channel `never`: an `EmailError` is caught, logged as
+  // a warning, and swallowed so a broken transport never fails an enquiry.
+  const enquiryEmailLayer = enquiryEmailLayerOption ?? vendorEmailLayer;
+  const enquirySendEmail = (msg: SendEmailInput): Effect.Effect<void, never, never> =>
+    EmailService.pipe(
+      Effect.flatMap((email) => email.send(msg)),
+      Effect.provide(enquiryEmailLayer),
+      Effect.catchAll((error) =>
+        Effect.logWarning("[enquiries] email send failed — swallowing", {
+          template: msg.template,
+          reason: error.reason,
+        }),
+      ),
+      Effect.catchAllDefect((cause) =>
+        Effect.logWarning("[enquiries] email send defected — swallowing", {
+          template: msg.template,
+          reason: String(cause),
+        }),
+      ),
+    );
+  const enquiryService = createEnquiryService({
+    zap: enquiryZapClient,
+    sendEmail: enquirySendEmail,
+    // Organiser portal thread deep-link base. The enquiry thread is an
+    // ORGANISER surface, so it must live on the organiser origin
+    // (host.cireweddings.com) — NOT `webOrigin`, which is the guest invite site.
+    threadBaseUrl: `${organiserOrigin.replace(/\/+$/, "")}/vendors/enquiries`,
+  });
 
   const osnAuthOptions = {
     jwksUrl: osnJwksUrl,
@@ -424,6 +518,18 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // Vendor directory add-from-directory write route (platform Phase 2).
       // weddingEditor-gated (viewer gets 403 read_only_role).
       .use(createVendorDirectoryWriteRoutes(db, osnAuthOptions, directoryLimiter))
+      // Couple-side vendor enquiries (Vendors S4). Reads (list + messages) admit
+      // any member (weddingMember); writes (open / reply / add-to-budget) require
+      // editor or owner (weddingEditor; viewer → 403 read_only_role) behind a
+      // per-user limiter. The enquiry service was built once above with its zap
+      // client + email sender; if zap is null, open/reply degrade to 503.
+      .use(
+        createOrganiserEnquiriesRoutes(db, osnAuthOptions, {
+          enquiryService,
+          limiter: enquiryLimiter,
+          directoryService: vendorDirectoryService,
+        }),
+      )
       // Invite builder. Public reads (guest site) + organiser writes split into
       // sibling instances so the guest GET isn't behind osnAuth.
       .use(createInvitePublicRoutes(db, assets, images))
@@ -443,18 +549,45 @@ export function createApp(db: Db, options: AppOptions = {}) {
         ),
       )
       // Vendor-facing portal: listing self-management + claim redemption.
-      // Mounted at /api/vendor (NOT under the wedding/organiser group).
+      // Mounted at /api/vendor (NOT under the wedding/organiser group). The
+      // enquiry service is threaded in so a successful claim flushes any
+      // enquiries buffered against the just-claimed listing (onVendorClaimed).
       .use(
         createVendorPortalRoutes(
           db,
-          { directoryService: vendorDirectoryService, orgMembership: vendorOrgMembership },
+          {
+            directoryService: vendorDirectoryService,
+            orgMembership: vendorOrgMembership,
+            enquiryService,
+          },
           osnAuthOptions,
           vendorPortalLimiter,
         ),
+      )
+      // Vendor-side enquiry routes (Vendors S4): list + thread + reply + quote,
+      // mounted at /api/vendor. osnAuth()-gated; the per-enquiry org gate
+      // resolves the owning org from the enquiry's listing and 404s on a
+      // cross-tenant id (no enumeration). Writes behind the shared per-user
+      // enquiry limiter.
+      .use(
+        createVendorEnquiriesRoutes(db, osnAuthOptions, {
+          enquiryService,
+          orgMembership: vendorOrgMembership,
+          profileOrgs: vendorProfileOrgs,
+          limiter: enquiryLimiter,
+        }),
       );
   // Phase-2 seam: mount the inert payment-webhook skeleton ONLY when the flag
   // is explicitly set. Default is false — the POST /api/payments/webhook route
   // is never reachable unless a deployment opts in. This keeps Phase 1 safe
   // (no unverified endpoint is ever exposed by default).
-  return paymentWebhookEnabled ? app.use(createPaymentWebhookSkeleton()) : app;
+  //
+  // `app` is widened to a bare `Elysia` (via `unknown`) before the final
+  // conditional mount: adding the vendor-enquiry routes above grew the fluent
+  // chain's inferred type to the point where threading it through one more
+  // `.use()` tips TS past its instantiation-depth limit (TS2589). Erasing the
+  // accumulated route-type surface here caps the depth; it's runtime-inert
+  // (`.use()` only needs an Elysia instance) and scoped to this final mount.
+  const rootApp = app as unknown as Elysia;
+  return paymentWebhookEnabled ? rootApp.use(createPaymentWebhookSkeleton()) : rootApp;
 }

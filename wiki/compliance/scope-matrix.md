@@ -11,7 +11,7 @@ related:
   - "[[eaa]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-07-21
 ---
 
 # Compliance Scope Matrix
@@ -48,6 +48,7 @@ compliance obligations.
 | `@zap/api` locality channels (M4) | locality opt-in (= location), broadcast subscriptions | GDPR Art. 9 if locality reveals special-category info; DSA broadcaster transparency |
 | `@cire/api` guest RSVP | family + guest names, RSVP status, **dietary free-text (Art. 9 special-category)**, guest claim code | GDPR Art. 6(1)(f) (organiser-controlled) + **Art. 9(2)(a) explicit consent for dietary (cire C-H2)**; DPIA filed ([[dpia/cire-guest-data]]); controller = organiser, processor = cire; cross-DB DSAR/deletion orphan (cire C-M1) |
 | `@cire/api` organiser import | raw organiser spreadsheets (R2 `cire-sheets`), bulk guest PII | GDPR storage-limitation — **indefinite retention, no purge (cire C-H1)**; SOC 2 CC6 (separate D1/R2 access grant, [[access-control]]) |
+| `@cire/api` vendor enquiries (S4) | `vendor_enquiries` linkage (`wedding_id`, `listing_id`, `status`, `quoted_minor`); `pending_body` (transient first-message text, stored only until the vendor claims the listing and the buffer is flushed); `lead_forward_email` (vendor-supplied sole-trader contact email); Zap c2b message bodies (server-visible personal data, routed via `@zap/api` — see [[data-map]] S4 rows) | GDPR Art. 6(1)(b) — contract (couple–vendor pre-contractual communications); Art. 6(1)(f) — legit interest in business lead routing (`lead_forward_email`). DSA Art. 30 **out of scope** (pre-contractual only; no on-platform contract concluded — see DSA section). |
 | `@cire/web` Pinterest embed | guest IP / UA / behaviour (opt-in only) | ePrivacy + GDPR — consent-gated, opt-in, fallback link always present; Pinterest subprocessor row + transfer basis TODO ([[subprocessors]]) |
 | Pulse ticketing (deferred) | payment data | PCI-DSS SAQ-A via Stripe-hosted; never touches our DB |
 | AI surfaces (Zap M5, Pulse discovery v2, locality query M4) | prompt + response + (potentially) chat history | EU AI Act transparency obligations; GDPR Art. 22 (no solely-automated decisions with legal effect); model-provider DPA |
@@ -113,6 +114,7 @@ Even in the exempt tier the following remain mandatory:
 - Notice-and-action mechanism (Art. 16) — anyone can flag illegal content with the prescribed minimum information.
 - Statement of reasons (Art. 17) for every restriction (post removal, account suspension, demotion).
 - Trader traceability (Art. 30) — when a trader (verified org under Zap M3) deals with consumers via the platform, we collect + verify their identity.
+- **DSA Art. 30 — Vendors S4 (cire enquiries): out of scope.** The cire vendor-enquiry flow is **pre-contractual** only: a couple sends an enquiry, the vendor replies with a quote. No distance contract is concluded on-platform (no booking, no payment, no acceptance flow). Art. 30 trader-traceability obligations therefore do **not** attach to this surface. If a future "book / accept" slice allows a couple to formally accept a quote and conclude a service contract on-platform, Art. 30 will be triggered at that point and this entry must be revisited.
 - Internal complaint-handling (Art. 20) — appeal against moderation decisions.
 - Crisis response, recommender transparency, etc. — only Tier-3 (>45M EU users / VLOP). Far out.
 

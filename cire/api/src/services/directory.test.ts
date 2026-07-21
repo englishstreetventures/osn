@@ -8,7 +8,7 @@ import {
   vendors,
   weddings,
 } from "@cire/db";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Effect, Exit } from "effect";
 
 import { DbService } from "../db";
@@ -400,7 +400,10 @@ describe("directoryService.consumeClaim", () => {
     const db = db0();
     const { claimToken, directoryVendorId } = await seedVendorAndClaim(db);
 
-    const res = await run(db, directoryService.consumeClaim(claimToken, "org_consumer"));
+    const res = await run(
+      db,
+      directoryService.consumeClaim(claimToken, "org_consumer", "usr_claimer"),
+    );
     expect(Exit.isSuccess(res)).toBe(true);
     if (!Exit.isSuccess(res)) throw new Error("failed");
     const dto = res.value;
@@ -417,12 +420,36 @@ describe("directoryService.consumeClaim", () => {
     expect(claimRow!.consumedAt).not.toBeNull();
   });
 
+  it("records claimed_by_profile_id alongside owner_org_id in the same bind", async () => {
+    const db = db0();
+    const { claimToken, directoryVendorId } = await seedVendorAndClaim(db);
+
+    const res = await run(
+      db,
+      directoryService.consumeClaim(claimToken, "org_claimer", "usr_the_claimer"),
+    );
+    expect(Exit.isSuccess(res)).toBe(true);
+
+    const dvRow = db
+      .select()
+      .from(directoryVendors)
+      .where(eq(directoryVendors.id, directoryVendorId))
+      .get();
+    // The central fix: the claiming profile is persisted so the enquiry service
+    // reads this listing as CLAIMED (its open() branches on claimedByProfileId).
+    expect(dvRow!.claimedByProfileId).toBe("usr_the_claimer");
+    expect(dvRow!.ownerOrgId).toBe("org_claimer");
+  });
+
   it("second consumeClaim with same token fails ClaimInvalid (single-use)", async () => {
     const db = db0();
     const { claimToken } = await seedVendorAndClaim(db);
 
-    await run(db, directoryService.consumeClaim(claimToken, "org_first"));
-    const second = await run(db, directoryService.consumeClaim(claimToken, "org_second"));
+    await run(db, directoryService.consumeClaim(claimToken, "org_first", "usr_first"));
+    const second = await run(
+      db,
+      directoryService.consumeClaim(claimToken, "org_second", "usr_second"),
+    );
     expect(
       Exit.isFailure(second) &&
         second.cause._tag === "Fail" &&
@@ -434,7 +461,10 @@ describe("directoryService.consumeClaim", () => {
     const db = db0();
     const { claimToken, directoryVendorId } = await seedVendorAndClaim(db);
 
-    const res = await run(db, directoryService.consumeClaim(claimToken, "org_atomic"));
+    const res = await run(
+      db,
+      directoryService.consumeClaim(claimToken, "org_atomic", "usr_atomic"),
+    );
     expect(Exit.isSuccess(res)).toBe(true);
     if (!Exit.isSuccess(res)) throw new Error("consume failed");
 
@@ -455,7 +485,10 @@ describe("directoryService.consumeClaim", () => {
     expect(dvRow!.listed).toBe("live"); // flipped live
 
     // Reuse attempt must fail — consumed_at gate fires before any write.
-    const reuse = await run(db, directoryService.consumeClaim(claimToken, "org_reuse"));
+    const reuse = await run(
+      db,
+      directoryService.consumeClaim(claimToken, "org_reuse", "usr_reuse"),
+    );
     expect(
       Exit.isFailure(reuse) &&
         reuse.cause._tag === "Fail" &&
@@ -505,7 +538,7 @@ describe("directoryService.consumeClaim", () => {
       })
       .run();
 
-    const res = await run(db, directoryService.consumeClaim(fakeToken, "org_late"));
+    const res = await run(db, directoryService.consumeClaim(fakeToken, "org_late", "usr_late"));
     expect(
       Exit.isFailure(res) && res.cause._tag === "Fail" && res.cause.error instanceof ClaimInvalid,
     ).toBe(true);
@@ -513,7 +546,7 @@ describe("directoryService.consumeClaim", () => {
 
   it("fails ClaimInvalid for an unknown token", async () => {
     const db = db0();
-    const res = await run(db, directoryService.consumeClaim("no-such-token", "org_x"));
+    const res = await run(db, directoryService.consumeClaim("no-such-token", "org_x", "usr_x"));
     expect(
       Exit.isFailure(res) && res.cause._tag === "Fail" && res.cause.error instanceof ClaimInvalid,
     ).toBe(true);

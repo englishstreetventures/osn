@@ -350,6 +350,13 @@ export const directoryVendors = sqliteTable(
     priceMinMinor: integer("price_min_minor"),
     priceMaxMinor: integer("price_max_minor"),
     listed: text("listed").notNull().default("draft"),
+    // The vendor's own CRM lead-capture address; cire also notifies it on a new
+    // enquiry (a separate copy, not a BCC — keeps the address off the vendor
+    // thread email). Null until the vendor sets it in the portal.
+    leadForwardEmail: text("lead_forward_email"),
+    // The OSN profile that claimed this listing (recorded at consumeClaim time).
+    // Becomes the vendor-side member of any c2b enquiry chat. Null until claimed.
+    claimedByProfileId: text("claimed_by_profile_id"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
@@ -400,6 +407,48 @@ export const vendors = sqliteTable(
     uniqueIndex("vendors_wedding_directory_uniq")
       .on(t.weddingId, t.directoryVendorId)
       .where(sql`directory_vendor_id IS NOT NULL`),
+  ],
+);
+
+export const vendorEnquiries = sqliteTable(
+  "vendor_enquiries",
+  {
+    id: text("id").primaryKey(), // enq_<uuid>
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    // The directory listing enquired. No FK cascade: a listing outliving a
+    // wedding is fine; the wedding cascade above is the lifecycle owner.
+    directoryVendorId: text("directory_vendor_id").notNull(),
+    // The couple's CRM row (created-if-missing on open) — ties status/quote back
+    // into the S1 Vendors module.
+    vendorId: text("vendor_id")
+      .notNull()
+      .references(() => vendors.id, { onDelete: "cascade" }),
+    // The provisioned Zap c2b chat. Null until provisioned (unclaimed listing:
+    // provisioning is deferred to claim time; the first message waits in
+    // `pendingBody`).
+    zapChatId: text("zap_chat_id"),
+    // Buffered first message for an enquiry whose chat isn't provisioned yet.
+    // Flushed into Zap + nulled when the vendor claims. Exactly one of
+    // (zapChatId set) / (pendingBody set) holds for an open enquiry.
+    pendingBody: text("pending_body"),
+    status: text("status", { enum: ["open", "quoted", "closed"] })
+      .notNull()
+      .default("open"),
+    createdBy: text("created_by").notNull(), // osn profile id of the organiser
+    quotedMinor: integer("quoted_minor"), // latest quote; mirrors vendors.quoted_minor
+    lastMessageAt: integer("last_message_at", { mode: "timestamp" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    // One thread per (wedding, listing) — the idempotency key for open.
+    uniqueIndex("vendor_enquiries_wedding_directory_uniq").on(t.weddingId, t.directoryVendorId),
+    // Couple inbox: newest-first per wedding.
+    index("vendor_enquiries_wedding_last_msg_idx").on(t.weddingId, t.lastMessageAt),
+    // Vendor inbox: find a listing's enquiries.
+    index("vendor_enquiries_directory_idx").on(t.directoryVendorId),
   ],
 );
 

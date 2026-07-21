@@ -35,6 +35,7 @@ WEB_ORIGIN = "http://localhost:4321"
 OSN_JWKS_URL = "http://localhost:4000/.well-known/jwks.json"
 OSN_ISSUER_URL = "http://localhost:4000"
 OSN_AUDIENCE = "osn-access"
+ZAP_API_URL = "http://localhost:3002"
 
 # Native Cloudflare Workers Rate Limiting binding for the pre-auth claim
 # endpoint (C1/C4). Enforced globally + atomically at the edge — unlike the
@@ -101,6 +102,7 @@ WEB_ORIGIN = "https://invite.cireweddings.com,https://host.cireweddings.com,http
 OSN_JWKS_URL = "https://id.cireweddings.com/.well-known/jwks.json"
 OSN_ISSUER_URL = "https://id.cireweddings.com"
 OSN_AUDIENCE = "osn-access"
+ZAP_API_URL = "https://zap.cireweddings.com"
 # OSN_ENV — deployment tier (dev|staging|production). Drives the structured-log
 # level (see src/observability.ts); debug logs are local-only. Set it as a var
 # or secret per environment. No bootstrap-owner config is needed: every

@@ -10,6 +10,7 @@ import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { runCire } from "../observability";
 import { ConsumeClaimBody, UpsertListingBody } from "../schemas/vendors";
 import type { createDirectoryService } from "../services/directory";
+import type { createEnquiryService } from "../services/enquiries";
 import type { OsnOrgMembershipResolver } from "../services/osn-bridge";
 
 // Sentinel parse hook — the handler parses by hand so a malformed payload
@@ -47,6 +48,13 @@ function forbiddenNotMember(set: { status?: number | string }) {
 export interface VendorPortalDeps {
   directoryService: ReturnType<typeof createDirectoryService>;
   orgMembership: OsnOrgMembershipResolver;
+  /**
+   * Couple-side enquiry BFF service. After a successful claim we flush any
+   * enquiries buffered against the just-claimed listing (`onVendorClaimed`) —
+   * best-effort (its error channel is `never`), so a flush hiccup never fails
+   * the claim itself.
+   */
+  enquiryService: ReturnType<typeof createEnquiryService>;
 }
 
 /**
@@ -74,7 +82,7 @@ export function createVendorPortalRoutes(
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
 ) {
-  const { directoryService, orgMembership } = deps;
+  const { directoryService, orgMembership, enquiryService } = deps;
 
   return (
     new Elysia({ prefix: "/api/vendor" })
@@ -116,7 +124,17 @@ export function createVendorPortalRoutes(
               const role = yield* Effect.promise(() => orgMembership(orgId, profileId));
               if (!role) return forbiddenNotMember(set);
 
-              const listing = yield* directoryService.consumeClaim(params.token, orgId);
+              const listing = yield* directoryService.consumeClaim(params.token, orgId, profileId);
+
+              // Claim-flush: provision + send any enquiries buffered against this
+              // listing while it was unclaimed. Best-effort (error channel
+              // `never`) — a flush failure is logged inside the service and must
+              // not fail the claim, which already succeeded above.
+              yield* enquiryService.onVendorClaimed({
+                directoryVendorId: listing.id,
+                vendorProfileId: profileId,
+              });
+
               return { listing };
             }).pipe(
               Effect.provideService(DbService, db),

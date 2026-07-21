@@ -17,7 +17,7 @@ related:
   - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-07-09
+last-reviewed: 2026-07-21
 ---
 
 # Cire
@@ -144,6 +144,19 @@ exists**: architecture + schema sketches in
 - **Pulse event feed** — surface cire weddings in Pulse's event feed. Mechanism undecided: ARC-token pull from `cire/api` vs push-on-publish into `pulse/db` (Deferred Decisions in `wiki/TODO.md`).
 - **Roles for co-hosts** — co-host *membership* shipped (#148, `wedding_hosts` + `weddingMember()`); co-hosts currently get read-only dashboard access. A future role column (`owner`/`editor`/`viewer`) would let a co-host be granted write access short of full ownership.
 - **Guest account-linking frontend** — backend shipped (see [[cire-auth]]); the guest-site "link my Pulse account" affordance is the remaining piece. Once invitees are linked, the Pulse event-feed integration above can surface their invitations.
+
+## Vendor enquiries (S4)
+
+Cire acts as **BFF / orchestrator** for the couple ↔ vendor enquiry flow. The backend work (PR B of the Vendors S4 trilogy) wires together:
+
+- **`vendor_enquiries` table** (migration `0042`) — links a wedding to a directory listing with a state machine (`open` / `replied` / `quoted` / `closed`), a `quoted_minor` column mirrored to the couple's CRM on quote, a transient `pending_body` for the first message buffered before the vendor claims, and a `lead_forward_email` for forwarding the lead to the vendor's inbox.
+- **c2b thread in Zap** — once the vendor's listing is claimed (or immediately if already claimed), cire-api provisions a Zap c2b (`class: 'c2b'`) chat thread via an outbound ARC call using scope `chat:c2b` / audience `zap-api`. All subsequent messages (couple reply, vendor reply, vendor quote) are posted to this thread via `@zap/api`'s internal routes and read back by cire-api for the frontend.
+- **Claimed / unclaimed buffer → flush-on-claim** — if the vendor has not yet claimed the listing when a couple opens an enquiry, the first-message text is held in `pending_body` and a lead-forward email is sent to `lead_forward_email`. On claim (`enquiryService.onVendorClaimed`), buffered enquiries are flushed: the Zap c2b thread is created, `pending_body` is forwarded as the first message, and the field is cleared.
+- **Quote → Budget** — when a vendor replies with a structured quote (`POST /api/vendor/enquiries/:id/messages` with a `quote` body), cire-api writes `vendor_enquiries.quoted_minor` and also copies the amount to `vendors.quoted_minor` in the couple's per-wedding CRM, making it available to the Budget module (planned PR C+).
+- **Per-user spam limiter** — the couple-side `POST /enquiries` and vendor-side `POST /enquiries/:id/messages` (reply / quote) run through a per-user rate limiter to prevent spam across enquiries.
+- **Not E2E encrypted** — the c2b thread is server-visible (not end-to-end encrypted). A disclosure notice for guests/vendors is planned for PR C.
+
+Auth boundaries: couple routes are under `/api/organiser/weddings/:weddingId/enquiries` — reads are `weddingMember`-gated (viewer co-hosts can read), writes are `weddingEditor`-gated (viewer co-hosts get 403 `read_only_role`). Every id-bearing handler re-scopes the loaded enquiry to the gated `weddingId` and returns 404 on a cross-tenant id. Vendor routes are under `/api/vendor/enquiries` — gated by `vendorOrgMember()`, which resolves the listing's `owner_org_id` and 404s on any org mismatch (no enumeration). Compliance rows: [[data-map]] (S4 section) + [[retention]] (S4 rows) + [[scope-matrix]] (DSA Art. 30 out-of-scope note). Deploy-time step: [[production-deploy]] §10 (cire→zap ARC key registration).
 
 ## Compliance
 

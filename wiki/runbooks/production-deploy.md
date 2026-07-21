@@ -10,7 +10,7 @@ related:
   - "[[redis]]"
   - "[[email]]"
   - "[[vendors]]"
-last-reviewed: 2026-07-17
+last-reviewed: 2026-07-21
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -889,7 +889,9 @@ Store the private key as a cire-api Worker secret and record the public key + ki
 # From cire/api/
 bunx wrangler secret put CIRE_ZAP_ARC_PRIVATE_KEY --env production
 bunx wrangler secret put CIRE_ZAP_ARC_KEY_ID      --env production   # the "kid" value
-bunx wrangler secret put ZAP_API_URL               --env production   # zap-api prod base URL
+# NOTE: ZAP_API_URL is NOT a secret — it is set as a plaintext var in
+# cire/api/wrangler.toml [env.production.vars] = "https://zap.cireweddings.com".
+# No `wrangler secret put ZAP_API_URL` needed.
 ```
 
 Then register the public half with zap-api (mirrors §6.2 for osn-api):
@@ -902,6 +904,10 @@ curl -X POST "$ZAP_API_URL/internal/register-service" \
 ```
 
 (`POST /internal/register-service` returns 501 if `INTERNAL_SERVICE_SECRET` is unset on zap-api, 401 on a bad bearer. The registration is an upsert — safe to re-run.) Until this step runs per environment, cire-api's `/api/organiser/weddings/:id/enquiries` and vendor-enquiry flows return 503 (the zap-api bridge fails-soft when the ARC key is absent).
+
+> ⚠️ **Requires explicit authorization; prod writes.** This is a human-executed deploy-time step — not run by CI or triggered by this PR. Perform it once per environment (dev / staging / prod) after zap-api is deployed and `INTERNAL_SERVICE_SECRET` is set.
+>
+> **Trigger condition:** if `POST https://zap.cireweddings.com/internal/register-service` returns 501, `INTERNAL_SERVICE_SECRET` is not yet set on zap-api → complete §9.2 first, then re-attempt.
 
 ### 9.4 Apply zap-db-prod migrations
 
@@ -924,3 +930,4 @@ After the first `deploy-zap-api` run completes:
 1. **Health check.** `curl https://<zap-api-prod-url>/health` → 200 (confirms the Worker booted, D1 binding is present, JWKS URL is set).
 2. **D1 row count.** `bunx wrangler d1 execute zap-db-prod --remote --command "SELECT count(*) FROM chats;"` → `0` (empty schema, migrations applied).
 3. **ARC registration (smoke).** After §9.3, a test `POST /internal/chats` from cire-api should return 201 (not 401/403/503). Confirm the `class` column on the returned row is `'c2b'`.
+

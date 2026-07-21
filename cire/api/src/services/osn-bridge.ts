@@ -452,6 +452,35 @@ export function createArcProfileOrgsResolver(config: ArcResolverConfig): OsnProf
 }
 
 /**
+ * Builds the profile-orgs resolver from raw env material — the sibling of
+ * {@link createOrgMembershipResolverFromEnv}. Returns the fail-soft default
+ * (`() => Promise.resolve([])`) when any ARC piece is absent so a deployment
+ * without the ARC key resolves every caller to "no orgs" — the vendor enquiry
+ * list is then empty (fail-closed; never an unscoped cross-tenant scan) rather
+ * than a 503 boot failure. A present-but-invalid key degrades the same way.
+ */
+export async function createProfileOrgsResolverFromEnv(env: {
+  osnApiUrl?: string;
+  arcPrivateKeyJwk?: string;
+  arcKeyId?: string;
+}): Promise<OsnProfileOrgsResolver> {
+  const failSoft: OsnProfileOrgsResolver = () => Promise.resolve([]);
+  if (!env.osnApiUrl || !env.arcPrivateKeyJwk || !env.arcKeyId) {
+    return failSoft;
+  }
+  // Present-but-INVALID key ⇒ degrade like absent (caller resolves to no orgs,
+  // list empty) instead of throwing on every request. See
+  // createAccountResolverFromEnv for the incident this guards against.
+  const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk).catch(() => null);
+  if (!arcPrivateKey) return failSoft;
+  return createArcProfileOrgsResolver({
+    osnApiUrl: env.osnApiUrl,
+    arcPrivateKey,
+    arcKeyId: env.arcKeyId,
+  });
+}
+
+/**
  * Resolves the role a profile holds in an organisation, or `null` when they
  * are not a member. FAIL-SOFT: any transport/infra failure returns `null` —
  * the caller treats a missing role as "not a member / access denied" rather

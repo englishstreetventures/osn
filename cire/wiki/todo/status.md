@@ -4,7 +4,7 @@ tags: [todo, status]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-06-19
+last-reviewed: 2026-07-21
 ---
 
 # Status + Up Next
@@ -40,3 +40,4 @@ Monorepo built and functional. `cire/db` models families with a shareable `publi
 - [x] **Invite builder** — organiser-editable hero/story images + copy (`wedding_invite_customisations` table, `cire-assets` R2 bucket, `inviteService` + public/organiser routes, `InviteBuilder` tab, `InviteHeader` guest island). Source of truth for events/guests stays in the CSV import. See `[[invite-builder]]`. ⚠️ create `cire-assets` R2 bucket before deploy.
 - [x] **Host invite preview** — "Preview invite" button on the organiser dashboard opens the guest invite with a per-wedding `HOST-*` code that sees every event. Synthetic host family (`families.kind = 'host'`, migration `0010_family_kind.sql`), owner-gated `POST /api/organiser/weddings/:weddingId/preview-code` (`hostCodeService.ensureForWedding`), `preview: true` in the claim response (web shows banner + disables RSVP), host families excluded from the import diff and barred from RSVP. New env `PUBLIC_CIRE_WEB_URL`. See `[[wiki/systems/cire-auth]]` (root, Host preview code).
 - [ ] **Invite builder follow-ups** — create the `cire-assets` (+ preview) R2 bucket before first deploy; consider a live preview pane + more slots (footer/RSVP banner) once the basic version proves out.
+- [x] **Vendors S4 PR B — cire enquiry backend** — `vendor_enquiries` table + couple + vendor enquiry routes, cire→zap ARC c2b client, enquiry emails (Resend), quote→Budget integration, claim-flush. PR A (#286) merged; PR C (vendor + organiser enquiry frontends) is the remaining slice.

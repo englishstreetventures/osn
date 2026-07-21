@@ -16,9 +16,11 @@ import {
   createHandleSearchResolverFromEnv,
   createOrgMembershipResolverFromEnv,
   createProfileDisplayResolverFromEnv,
+  createProfileOrgsResolverFromEnv,
 } from "./services/osn-bridge";
 import { retentionService } from "./services/retention";
 import { sessionService } from "./services/session";
+import { createZapChatClientFromEnv } from "./services/zap-bridge";
 
 // Worker bindings + vars. Mirrors `wrangler.toml` ([[d1_databases]], [[r2_buckets]],
 // [vars]); regenerate the full set with `bunx wrangler types` when bindings change.
@@ -48,6 +50,11 @@ export interface Env {
   OSN_API_URL?: string;
   CIRE_API_ARC_PRIVATE_KEY?: string;
   CIRE_API_ARC_KEY_ID?: string;
+  // Optional — base URL of zap-api for the vendor enquiry c2b chat bridge.
+  // Absent (or combined with a missing ARC key) ⇒ vendor chat disabled (503).
+  // The ARC signing key is shared with the osn-api bridge above; no new key
+  // env vars are introduced.
+  ZAP_API_URL?: string;
   // Native Workers Rate Limiting binding (C1/C4). When present, the claim
   // limiter is the global, atomic edge limiter. Absent ⇒ the per-isolate
   // in-memory fallback — allowed ONLY in the `local` tier (`bun run dev` /
@@ -201,6 +208,15 @@ const handler: ExportedHandler<Env> = {
         arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
         arcKeyId: env.CIRE_API_ARC_KEY_ID,
       });
+      // Profile→orgs resolver: scopes the vendor enquiry LIST query to the
+      // caller's own tenants (org:read scope, ARC). Fail-soft (no orgs) when the
+      // ARC config is absent — the list is then empty (fail-closed), never an
+      // unscoped cross-tenant scan.
+      const profileOrgs = await createProfileOrgsResolverFromEnv({
+        osnApiUrl: env.OSN_API_URL,
+        arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+        arcKeyId: env.CIRE_API_ARC_KEY_ID,
+      });
       // Email layer for vendor claim-invite emails. Uses Resend when the API key
       // is present (deployed tiers); falls back to LogEmailLive (no network) so
       // the worker boots cleanly without the key (local dev + bun:sqlite tests).
@@ -210,6 +226,15 @@ const handler: ExportedHandler<Env> = {
             fromAddress: "hello@cireweddings.com",
           })
         : makeLogEmailLive().layer;
+      // Vendor-enquiry c2b chat bridge (Vendors S4). Reuses cire-api's existing
+      // ARC key (same signing key, new audience `zap-api` + scope `chat:c2b`).
+      // Null (⇒ enquiry open/reply answer 503) when ZAP_API_URL or the ARC
+      // config is absent, or the JWK is corrupt — fail-soft, never crashes boot.
+      const enquiryZapClient = await createZapChatClientFromEnv({
+        zapApiUrl: env.ZAP_API_URL,
+        arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+        arcKeyId: env.CIRE_API_ARC_KEY_ID,
+      });
       // C1/C4/AL-S-L1: prefer the native Workers rate-limit binding (global +
       // atomic) for every pre-auth / amplifier surface — claim (brute-force),
       // account-link (ARC-sign + S2S amplifier, membership oracle), invite
@@ -227,6 +252,12 @@ const handler: ExportedHandler<Env> = {
         dbBinding: env.DB,
         app: createApp(db, {
           webOrigin: origins[0],
+          // WEB_ORIGIN is a comma-list: [guest invite, organiser host, vendor
+          // portal]. Enquiry thread links live on the organiser origin; vendor
+          // claim links on the vendor portal. Fall back to createApp's prod
+          // defaults if a tier only configures the guest origin.
+          ...(origins[1] ? { organiserOrigin: origins[1] } : {}),
+          ...(origins[2] ? { vendorPortalOrigin: origins[2] } : {}),
           allowedOrigins: origins,
           claimLimiter: edgeLimiter,
           accountLinkLimiter: edgeLimiter,
@@ -242,7 +273,15 @@ const handler: ExportedHandler<Env> = {
           resolveOsnHandleSearch,
           turnstileVerifier,
           orgMembership,
+          profileOrgs,
           emailLayer,
+          // Vendor-enquiry deps (Vendors S4). The zap client degrades to 503 for
+          // open/reply when null; the enquiry email layer reuses the shared
+          // transport (Resend in deployed tiers, LogEmailLive locally). The
+          // per-user write limiter (spam control §96) uses createApp's default
+          // (20/min); index.ts passes only the client + email layer.
+          enquiryZapClient,
+          enquiryEmailLayer: emailLayer,
         }),
       };
     }

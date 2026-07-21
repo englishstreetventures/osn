@@ -4,7 +4,7 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-18
+last-reviewed: 2026-07-21
 ---
 
 # Performance Backlog
@@ -122,6 +122,15 @@ Deferred (scale-dependent, not blocking at wedding-directory scale — hundreds 
 - [ ] **VD-P-I1** — OFFSET pagination is O(offset); fine at current scale (50-row cap). Switch to a keyed cursor on `(name, id)` if the directory reaches tens of thousands.
 - [ ] **VD-P-I2** — `getLiveListingById` does fetch + fetchCategories sequentially (matches `getListingByOrg`/`consumeClaim`); low-frequency write path. Parallelize if the service is extended.
 - [ ] **VD-P-I4** — `directory_vendors_listed_idx` becomes a no-op on the hot path once most rows are `live`; a partial `WHERE listed='live'` index is the future option if a scan ever shows up.
+
+### Vendors S4 PR B — enquiry backend perf review notes (`feat/cire-vendors-enquiries`)
+
+Deferred from the /prep-pr Step 6 performance review. P-W5 (unbounded ARC fan-out), P-W2 (unbounded message fetch), and P-W3 (serial claim-flush) were FIXED on the branch. The rest are deferred:
+
+- [ ] **P-W1** — `POST /enquiries` open path does duplicate `directory_vendors` SELECTs (route + service + `issueClaimForListing` all read the same listing row). Fold into one read. (`cire/api/src/routes/organiser-enquiries.ts`, `cire/api/src/services/enquiries.ts`)
+- [ ] **P-W4** — `enquiries.quote()` re-reads the row with `SELECT *` after an UPDATE whose new values are all in scope; build the DTO from known values instead. (`cire/api/src/services/enquiries.ts`)
+- [ ] **P-I1** — `POST /enquiries` runs the independent listing + wedding SELECTs sequentially; could `Effect.all({ concurrency: 2 })`. (`cire/api/src/routes/organiser-enquiries.ts`)
+- [ ] **P-I2** — cire→zap ARC token minted per call inside `send()`; could mint once per service op / short-TTL cache. (`cire/api/src/services/zap-bridge.ts`)
 
 ### Platform tiering Phase 1 (entitlement foundation) — /prep-pr perf review notes (`feat/cire-platform-tiering`)
 
