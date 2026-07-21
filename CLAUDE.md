@@ -54,7 +54,7 @@ Phase 1 surfaces:
 
 ## Wiki Navigation
 
-`wiki/` has detailed ref pages. Use index to find right page — only read what you need:
+`wiki/` has detailed ref pages. Hot-path lookups below; full page-by-page map (per-app subsystems, Pulse sub-features, individual debug runbooks, compliance pages) → `[[wiki/index]]`:
 
 | If you need to... | Read |
 |---|---|
@@ -66,42 +66,13 @@ Phase 1 surfaces:
 | Add rate limiting to endpoint | `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]` |
 | Instrument logging, tracing, metrics | `[[wiki/observability/overview]]`, then specific page |
 | Write or review tests | `[[wiki/conventions/testing-patterns]]` |
-| Understand event visibility rules | `[[wiki/systems/event-access]]` |
-| Work on Pulse share-attribution (share button, source enum, RSVP attribution columns) | `[[wiki/systems/event-access]]` (Share-Source Attribution section) |
 | Add or use UI component (Button, Card, Dialog…) | `[[wiki/architecture/component-library]]` |
-| Understand Pulse visual design (tokens, typography, Explore layout) | `pulse/DESIGN.md` |
-| Work on social graph | `[[wiki/systems/social-graph]]` |
-| Work on Pulse close friends | `[[wiki/systems/pulse-close-friends]]` |
-| Work on Pulse onboarding flow | `[[wiki/systems/pulse-onboarding]]` |
-| Work on Pulse venues / lineups | `[[wiki/systems/venues]]` |
-| Gate sensitive action behind step-up auth | `[[wiki/systems/step-up]]` |
-| Understand passkey-only login model | `[[wiki/systems/passkey-primary]]` |
-| Add Turnstile bot protection to a form (key-optional, fail-closed) | `[[wiki/systems/turnstile]]` |
-| Surface device / passkey management UI (PasskeysView, passkey-only step-up) | `[[wiki/systems/passkey-primary]]`, `[[wiki/systems/sessions]]` |
-| Plan/extend Yoti-style verified-identity layer (AU DVS / mDL / myID, SD-JWT VC) | `[[wiki/systems/verified-identity]]` |
-| Send transactional email (OTP, security notice) | `[[wiki/systems/email]]` |
-| Surface session list / revoke per device | `[[wiki/systems/sessions]]` |
-| Understand cross-service calls | `[[wiki/architecture/s2s-patterns]]` |
-| Work on OSN identity / social UI | `[[wiki/apps/osn-core]]`, `[[wiki/apps/social]]` |
-| Work on Pulse | `[[wiki/apps/pulse]]` |
-| Work on Zap | `[[wiki/apps/zap]]` |
-| Work on cire (wedding invites) | `[[wiki/apps/cire]]`, `[[wiki/systems/cire-auth]]` |
-| Work on the cire marketing site / apex landing page (`@cire/landing`) | `[[wiki/apps/cire-landing]]` |
-| Work on the OSN marketing site (`@osn/landing`) | `[[wiki/apps/osn-landing]]` |
-| Work on the Pulse marketing site (`@pulse/landing`) | `[[wiki/apps/pulse-landing]]` |
+| Work on a specific app/surface (osn-core, social, pulse, zap, cire, cire-landing, osn-landing, pulse-landing) | `[[wiki/apps/<name>]]` |
 | Deploy osn-api + cire to production (secrets/vars, migrations, CI pipeline, smoke checks) | `[[wiki/runbooks/production-deploy]]` |
-| Check free-tier limits / what breaks at a cap / unavailability response / Cloudflare hardening TODO | `[[wiki/runbooks/free-tier-limits]]` |
-| Debug auth failure | `[[wiki/runbooks/auth-failure]]` |
-| Debug ARC verification failure | `[[wiki/runbooks/arc-token-debugging]]` |
-| Debug rate-limit incident | `[[wiki/runbooks/rate-limit-incident]]` |
-| Debug event-visibility leak | `[[wiki/runbooks/event-visibility-bug]]` |
-| Wire new service into observability | `[[wiki/runbooks/observability-setup]]` |
+| Check free-tier limits / what breaks at a cap / Cloudflare hardening TODO | `[[wiki/runbooks/free-tier-limits]]` |
+| Debug auth / ARC / rate-limit / event-visibility failure | `wiki/runbooks/` (`auth-failure`, `arc-token-debugging`, `rate-limit-incident`, `event-visibility-bug`) |
 | Check security or perf findings | `wiki/TODO.md` (Security Backlog / Performance Backlog sections) |
-| Check which compliance standards apply (GDPR, SOC 2, CCPA, DSA, COPPA, EAA, ePrivacy) | `[[wiki/compliance/index]]`, `[[wiki/compliance/scope-matrix]]` |
-| Add personal-data field, processor, or retention rule | `[[wiki/compliance/data-map]]`, `[[wiki/compliance/subprocessors]]`, `[[wiki/compliance/retention]]` |
-| Build DSAR / account-export / account-delete endpoint | `[[wiki/compliance/dsar]]` |
-| Respond to security incident or breach | `[[wiki/compliance/breach-response]]` |
-| Set up production access / quarterly access review | `[[wiki/compliance/access-control]]` |
+| Check which compliance standards apply, or add personal-data field/DSAR/breach/access-review work | `[[wiki/compliance/index]]` |
 | Track progress and priorities | `wiki/TODO.md` |
 
 ### Searching the wiki
