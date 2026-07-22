@@ -655,6 +655,21 @@ describe("design selector", () => {
     expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("clicking the classic design with missing designId does not save", async () => {
+    // Fixture with no designId field — should default to "classic" and no-op the click.
+    const { designId: _omitted, ...customisationWithoutDesignId } = EMPTY_CUSTOMISATION;
+    authFetchMock.mockResolvedValueOnce(json(customisationWithoutDesignId)); // initial load
+
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
+
+    const classic = await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
+    fireEvent.click(classic);
+
+    // No PUT to /design — clicking the visually-current classic card is a no-op even when designId is absent.
+    expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/design"))).toBe(false);
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("selecting a different design PUTs and updates the builder", async () => {
     authFetchMock.mockResolvedValueOnce(json({ ...EMPTY_CUSTOMISATION, designId: "other" })); // initial load — an id from a newer deploy, Classic not active
     authFetchMock.mockResolvedValueOnce(json({ ...EMPTY_CUSTOMISATION, designId: "classic" })); // design save

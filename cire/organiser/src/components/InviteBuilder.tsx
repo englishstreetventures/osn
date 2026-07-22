@@ -399,7 +399,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   const [savingDesign, setSavingDesign] = createSignal(false);
 
   const selectDesign = async (designId: string) => {
-    if (savingDesign() || data()?.designId === designId) return;
+    if (savingDesign() || (data()?.designId ?? "classic") === designId) return;
     setSavingDesign(true);
     try {
       const res = await authFetch(apiUrl(`${base()}/design`), {
