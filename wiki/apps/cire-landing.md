@@ -49,9 +49,12 @@ object rendered with Three.js** (`three`, core only — no addons). Three.js is
 heavy (~515 KB), so it is **strictly off the critical path**: `WaxSeal3D.tsx`
 renders a flat CSS-disc poster server-side, then `import()`s the scene module
 (`waxSealScene.ts`) on `requestIdleCallback` and cross-fades the WebGL canvas in
-over the poster. The chunk is never `modulepreload`ed. No WebGL or
-`prefers-reduced-motion` → the scene never loads and the CSS poster stands in.
-Three.js and Motion One never share a component tree.
+over the poster. The chunk is never `modulepreload`ed. The poster hides **only
+after the scene's first frame paints** — an import/context/first-frame failure
+leaves the poster, never an empty hero. No WebGL → poster stands in;
+`prefers-reduced-motion` → the scene loads in **still mode** (one frame, no
+settle/lean, repaint on resize only — reduced motion means no motion, not no
+3D). Three.js and Motion One never share a component tree.
 
 **Macrostructure: "The Unfolding Letter"** (redesign 2026-07-22). The page reads
 top to bottom like opening and reading a single invitation. Display headings are
@@ -73,11 +76,18 @@ in the other.**
 Composed as `Hero.astro` + seven section components under `components/sections/`.
 
 1. **Hero** (`sections/Hero.astro` + `WaxSeal3D.tsx` + `waxSealScene.ts`) — the
-   signature moment. A **real 3D wax seal** rests at the top of the sealed letter:
-   an embossed "C" monogram (a canvas heightmap → bump map on a waxy
-   `MeshPhysicalMaterial`), lit by a warm gold key against a cool forest fill. It
-   is **ambient** — it never breaks. It idles with a slow tilt, leans toward the
-   pointer, and settles on load (a small dolly-back). Crucially the seal is
+   signature moment. A **real 3D wax seal** rests at the top of the sealed
+   letter, built as a **stamping simulation**: each mount pours a randomised wax
+   puddle (`pourWax()` — silhouette harmonics + run-out tongues) and presses a
+   perfect-circle die into it, so every visitor's seal is subtly unique. The die
+   carries a laurel wreath + italic "C" (canvas bump map, paired with a canvas
+   **roughness map** so the pressed design reads burnished against the matte
+   field) on a waxy `MeshPhysicalMaterial`, lit by a warm gold key against a
+   cool forest fill. It is **ambient** — it never breaks — and it **never
+   rotates on its own**: it rests in a fixed pose, leans toward the pointer,
+   and settles on load; the rAF loop **sleeps at steady state** (woken by
+   pointer/resize/visibility) so a static seal costs zero GPU. Shaders compile
+   via `compileAsync` before the first frame. Crucially the seal is
    **purely decorative**: the eyebrow, headline, subtext and both CTAs are
    server-rendered siblings, always painted, keyboard-operable with a real focus
    ring — so no JS / no WebGL / reduced motion still reads and converts (the old
@@ -223,15 +233,14 @@ product decision, not a migration — see [[cire]].
 
 ## Deferred
 
-- **Wax-seal fidelity** — the hero seal is now a real 3D object
-  (`waxSealScene.ts`), but built **procedurally**: the wax body is a wobbled
-  cylinder and the monogram is a canvas-drawn bump map, not a hand-modelled asset.
-  A sculpted GLTF seal (Blender, with a proper normal + roughness bake) would read
-  richer; deferred until there is an asset pipeline for it. Swap point is
-  `makeSealMesh()` — the lighting, idle motion, pointer lean and PE fallback all
-  stay. The seal was **not** visually verified in a live browser at build time
-  (the review session had no WebGL-capable browser); eyeball it on
-  `bun run dev:landing` and tune `bumpScale` / light intensities to taste.
+- **Wax-seal fidelity** — the hero seal is a real 3D object (`waxSealScene.ts`)
+  built **procedurally** (stamping simulation + canvas bump/roughness maps). A
+  sculpted GLTF seal (Blender, with a proper normal + roughness bake) would read
+  richer still; deferred until there is an asset pipeline for it. Swap point is
+  `makeSealMesh()` — the lighting, pointer lean and PE fallback all stay. The
+  seal IS visually verified now: headless Chrome renders WebGL, so screenshot
+  `bun run dev:landing` (`--headless=new --screenshot --virtual-time-budget`)
+  when tuning `bumpScale` / lights / pour parameters.
 - **Real photography** — imagery is still hotlinked Unsplash placeholders
   (`lib/site.ts` `IMAGES`); swap for the brand's own art when it exists.
 
