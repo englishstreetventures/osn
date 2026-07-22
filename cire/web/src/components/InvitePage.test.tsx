@@ -253,10 +253,10 @@ describe("InvitePage", () => {
       />
     ));
 
-    await waitFor(() => expect(getByRole("button", { name: /View Event/i })).toBeTruthy(), {
+    await waitFor(() => expect(getByRole("button", { name: /Event Details/i })).toBeTruthy(), {
       timeout: 2000,
     });
-    fireEvent.click(getByRole("button", { name: /View Event/i }));
+    fireEvent.click(getByRole("button", { name: /Event Details/i }));
     await waitFor(() => expect(getByTestId("details-modal-stub")).toBeTruthy());
 
     const themeVars = detailsModalProps.value?.themeVars as Record<string, string>;

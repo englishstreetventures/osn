@@ -139,7 +139,7 @@ export function LoginSection(props: LoginSectionProps) {
           <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
             Your Invitation
           </p>
-          <h2 class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic">
+          <h2 class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light">
             Enter Your Code
           </h2>
           <p class="text-text-muted mb-8 text-[0.92rem] leading-[1.6] font-light">
@@ -152,7 +152,10 @@ export function LoginSection(props: LoginSectionProps) {
                 never truncated. The server still validates the code. */}
             <input
               type="text"
-              class="border-border font-body text-text placeholder:text-text-muted focus:border-gold w-full rounded-sm border bg-transparent px-4 py-3.5 text-center text-base tracking-[0.1em] uppercase transition-colors duration-200 placeholder:tracking-[0.04em] placeholder:normal-case focus:outline-none disabled:opacity-50"
+              // A border tint alone is too quiet to mark focus on the page's
+              // one input; the ring keeps keyboard users oriented. Text cursor
+              // on a text field — the pointer belongs on buttons only.
+              class="border-border font-body text-text placeholder:text-text-muted focus:border-gold w-full cursor-text rounded-sm border bg-transparent px-4 py-3.5 text-center text-base tracking-[0.1em] uppercase transition-colors duration-200 placeholder:tracking-[0.04em] placeholder:normal-case focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50"
               placeholder="e.g. PATEL-JOY-RK97"
               value={code()}
               onInput={(e) => setCode(e.currentTarget.value)}
@@ -176,7 +179,7 @@ export function LoginSection(props: LoginSectionProps) {
             <TurnstileWidget onToken={setTurnstileToken} class="flex justify-center" />
             <button
               type="submit"
-              class="border-gold font-body text-gold hover:bg-gold hover:text-bg disabled:hover:text-gold rounded-sm border bg-transparent px-6 py-3.5 text-[0.88rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+              class="border-gold font-body text-gold hover:bg-gold hover:text-bg disabled:hover:text-gold rounded-sm border bg-transparent px-6 py-3.5 text-[0.88rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
               disabled={loading() || !code().trim() || (turnstileEnabled() && !turnstileToken())}
             >
               {loading() ? "Checking\u2026" : "Open Invitation"}
@@ -191,18 +194,18 @@ export function LoginSection(props: LoginSectionProps) {
               class="border-gold/40 bg-gold/5 text-gold mx-auto mb-6 max-w-[420px] rounded-sm border px-4 py-3 text-[0.78rem] tracking-[0.08em] uppercase"
               role="status"
             >
-              Preview mode — every event is shown. Try the RSVP; nothing you send is saved.
+              Preview mode. Every event is shown; try the RSVP, nothing you send is saved.
             </p>
           </Show>
           <Show
             when={isIndividual()}
             fallback={
               <>
-                <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
-                  Welcome
-                </p>
-                <h2 class="font-display text-gold mb-3 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic">
-                  The {props.result?.familyName} Family
+                {/* No "Welcome" eyebrow above this heading: the greeting IS the
+                    heading, and a label repeating it only adds a fourth gold
+                    uppercase micro-label to a page that already has too many. */}
+                <h2 class="font-display text-gold mb-3 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light">
+                  Welcome, the {props.result?.familyName} Family
                 </h2>
                 <p class="text-text-muted mb-2 text-[0.92rem] leading-[1.6] font-light">
                   {props.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE}
@@ -220,10 +223,11 @@ export function LoginSection(props: LoginSectionProps) {
               </>
             }
           >
-            {/* Single-guest code → greet the individual by name (nickname wins). */}
-            <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">Dear</p>
-            <h2 class="font-display text-gold mb-3 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic">
-              {individualName()}
+            {/* Single-guest code → greet the individual by name (nickname wins).
+                "Dear" reads as part of the greeting, so it belongs in the
+                heading, not stranded above it as an uppercase label. */}
+            <h2 class="font-display text-gold mb-3 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light">
+              Dear {individualName()}
             </h2>
             <p class="text-text-muted mb-8 text-[0.92rem] leading-[1.6] font-light">
               {props.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE}

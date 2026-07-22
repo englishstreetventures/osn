@@ -290,7 +290,10 @@ export default function InviteHeader(props: InviteHeaderProps) {
     <>
       <Show when={showHero()}>
         <section
-          class="relative h-dvh overflow-hidden"
+          // min-h, not a fixed h-dvh: a long couple title at 7rem must be able
+          // to grow the hero rather than be clipped by it. The gradient and
+          // photo layers below are absolute inset-0, so they stretch with it.
+          class="relative min-h-dvh overflow-hidden"
           style={{ ...filterThemeVars(heroVars()), ...SECTION_SURFACE }}
         >
           {/* Default gradient — always present as the base layer / fallback. */}
@@ -349,7 +352,10 @@ export default function InviteHeader(props: InviteHeaderProps) {
             text). Slightly stronger at centre than the original gradient-only hero
             since a blurred photo can carry more mid-tone luminance than the dark
             default gradient — keeps WCAG contrast on the title. */}
-          <div class="absolute inset-0 flex flex-col items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--invite-scrim-from)_0%,var(--invite-scrim-to)_100%)] px-[max(1.5rem,env(safe-area-inset-left))] py-[max(1.5rem,env(safe-area-inset-top))]">
+          {/* In flow (not absolute) so the title block sets the hero's height
+              once it outgrows the viewport; min-h-dvh keeps the full-screen
+              feel for every normal-length title. */}
+          <div class="relative flex min-h-dvh flex-col items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--invite-scrim-from)_0%,var(--invite-scrim-to)_100%)] px-[max(1.5rem,env(safe-area-inset-left))] py-[max(1.5rem,env(safe-area-inset-top))]">
             {/* Title block. A title legibility panel sits behind the title +
               monogram, driven by the two backdrop sliders: its opacity (0–100 ⇒
               0–1) controls how solid the dark scrim panel is, and its blur (0–20px)
@@ -386,13 +392,16 @@ export default function InviteHeader(props: InviteHeaderProps) {
                 // monogram — a multi-tenant product must never default to one
                 // couple's initials.
                 fallback={
-                  <span class="font-display text-gold max-w-full text-center text-[clamp(2.5rem,8vw,5.5rem)] leading-none font-light break-words italic select-none">
+                  <span class="font-display text-gold max-w-full pb-1 text-center text-[clamp(2.5rem,8vw,5.5rem)] leading-[1.1] font-light break-words select-none">
                     You're Invited
                   </span>
                 }
               >
                 {(title) => (
-                  <span class="font-display text-gold max-w-full text-center text-[clamp(3rem,10vw,7rem)] leading-none font-light break-words italic select-none">
+                  // leading-[1.1] + pb-1, never leading-none: at 7rem a name
+                  // with a descender (Jyoti, Peggy, Raj) loses its tail to the
+                  // line box otherwise, on the one word the page exists for.
+                  <span class="font-display text-gold max-w-full pb-1 text-center text-[clamp(3rem,10vw,7rem)] leading-[1.1] font-light break-words select-none">
                     {title()}
                   </span>
                 )}
@@ -475,7 +484,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
               <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
                 {story()?.eyebrow ?? "Our Story"}
               </p>
-              <h2 class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic">
+              <h2 class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light">
                 {story()?.heading ?? "How It All Began"}
               </h2>
               <div class="mx-auto max-w-[480px] group-data-[has-image=true]/story:md:mx-0">

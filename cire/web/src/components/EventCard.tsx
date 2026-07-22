@@ -58,21 +58,23 @@ export function EventCard(props: EventCardProps) {
         {/* Text column — always first in the DOM. On `alt` rows it sits on the
             RIGHT on md+ (order-2); on `norm` rows it stays left (order-1). */}
         <div classList={{ "md:order-2": isAlt(), "md:order-1": !isAlt() }}>
-          <h3 class="font-display text-text mb-2 text-2xl font-normal italic">
-            {props.event.name}
-          </h3>
-          <p class="font-body text-gold mb-1 text-[0.78rem] tracking-[0.12em] uppercase">
-            {formatEventDay(props.event)}
-          </p>
+          <h3 class="font-display text-text mb-2 text-2xl font-normal">{props.event.name}</h3>
+          {/* A date, set as a date — not as an uppercase micro-label. One of
+              these per card was the page's largest source of eyebrow noise. */}
+          <p class="font-body text-gold mb-1 text-[0.92rem]">{formatEventDay(props.event)}</p>
           <Show when={venueLine(props.event)}>
             {(venue) => <p class="font-body text-text-muted mb-3 text-[0.88rem]">{venue()}</p>}
           </Show>
           <p class="font-body text-text-muted mb-5 text-[0.88rem] leading-[1.65] font-light">
             {props.event.description}
           </p>
+          {/* One act matters on this page: answering. So "Respond" is the only
+              filled button, and "Event Details" stays an outlined one beside it
+              — a real button, but visibly second. Two equal outlines made the
+              guest choose between them; now the choice is made for them. */}
           <div class="flex flex-wrap gap-3">
             <button
-              class="border-gold font-body text-gold hover:bg-gold hover:text-bg min-h-11 flex-1 rounded-sm border bg-transparent px-5 py-3 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"
+              class="bg-gold font-body text-bg hover:bg-gold/85 min-h-11 flex-1 rounded-sm border border-transparent px-5 py-3 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"
               onClick={() => props.onRespond(props.event)}
             >
               Respond
@@ -81,7 +83,7 @@ export function EventCard(props: EventCardProps) {
               class="border-border font-body text-text-muted hover:border-gold hover:text-gold min-h-11 flex-1 rounded-sm border bg-transparent px-5 py-3 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"
               onClick={() => props.onDetails(props.event)}
             >
-              View Event
+              Event Details
             </button>
           </div>
         </div>

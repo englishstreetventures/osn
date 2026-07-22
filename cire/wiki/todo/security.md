@@ -12,6 +12,10 @@ last-reviewed: 2026-07-22
 
 See [[overview]] for observability rules that apply to all security-sensitive code paths. See [[review-findings]] for severity prefix conventions.
 
+### Guest invite taste pass — review findings (fix/cire-invite-taste-pass, 2026-07-22)
+
+The pre-merge security review came back **clean** — no finding at any severity. The change is presentational: no route, auth gate, wire type or data path moved. Two things were checked explicitly. The footer's new closing line renders a server-fetched hero title through Astro's auto-escaping (the package has no `set:html` or `innerHTML` sink), and the reveal's reduced-motion early return cannot expose or hide events — it returns synchronously before any `await`, the events section stays behind its `<Show when={claimResult()}>` gate, and the existing `catch` force-reveal is unchanged. The accessibility findings (C-M1, C-L1, C-L2) are recorded in `[[web]]`.
+
 ### Host dashboard redesign — review findings (feat/cire-host-dashboard-redesign, 2026-07-22)
 
 The pre-merge security review of the container-query redesign came back **clean** — no High or Critical, nothing to open. The change is presentational: no route, auth gate, wire type or data path moved, and the one new dependency-free surface (the module sheet) is a Kobalte dialog whose focus trap, escape handling and scroll lock come from the library rather than hand-rolled. The review's only note was an accessibility one (C-L1, the sheet nav's accessible name), fixed on the branch and recorded in `[[web]]`.

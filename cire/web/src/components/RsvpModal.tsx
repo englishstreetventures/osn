@@ -255,7 +255,11 @@ export function RsvpModal(props: RsvpModalProps) {
                     Dietary requirements
                     <input
                       type="text"
-                      class="border-border font-body text-text placeholder:text-text-muted focus:border-gold mt-1.5 block w-full rounded-sm border bg-transparent px-3 py-2.5 text-base transition-colors duration-200 focus:outline-none sm:text-[0.9rem]"
+                      // No `focus:outline-none` here: it sits in Tailwind's
+                      // utilities layer and would beat the base-layer
+                      // `:focus-visible` ring, leaving a border tint as the
+                      // only focus cue on the invite's main data-entry field.
+                      class="border-border font-body text-text placeholder:text-text-muted focus:border-gold mt-1.5 block w-full rounded-sm border bg-transparent px-3 py-2.5 text-base transition-colors duration-200 sm:text-[0.9rem]"
                       placeholder="e.g. Vegetarian, no nuts"
                       value={responses()[guestId]?.dietary ?? ""}
                       onInput={(e) => setDietary(guestId, e.currentTarget.value)}
@@ -314,7 +318,7 @@ export function RsvpModal(props: RsvpModalProps) {
           </button>
           <button
             type="submit"
-            class="border-gold font-body text-gold hover:bg-gold hover:text-bg disabled:hover:text-gold flex-1 cursor-pointer rounded-sm border bg-transparent px-4 py-3 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+            class="border-gold font-body text-gold hover:bg-gold hover:text-bg disabled:hover:text-gold flex-1 cursor-pointer rounded-sm border bg-transparent px-4 py-3 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
             disabled={loading()}
           >
             {loading() ? "Saving…" : "Save"}

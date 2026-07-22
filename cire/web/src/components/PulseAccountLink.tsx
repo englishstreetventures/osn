@@ -247,7 +247,9 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
                     />
                     <label
                       for={`pulse-link-${member.guestId}`}
-                      class="text-text text-[0.86rem] font-light"
+                      // The radio is a sibling, not a child, so the base
+                      // label rule can't reach it — say "clickable" here.
+                      class="text-text cursor-pointer text-[0.86rem] font-light"
                     >
                       {member.firstName} {member.lastName}
                     </label>
@@ -291,7 +293,7 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
               if (id) void linkMember(id);
             }}
             disabled={!selected() || linking()}
-            class="border-gold font-body text-gold hover:bg-gold hover:text-bg mt-4 rounded-sm border bg-transparent px-5 py-2.5 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+            class="border-gold font-body text-gold hover:bg-gold hover:text-bg mt-4 rounded-sm border bg-transparent px-5 py-2.5 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
           >
             {linking() ? "Linking…" : "Link my account"}
           </button>

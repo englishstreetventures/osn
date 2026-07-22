@@ -13,6 +13,32 @@ import { animate, stagger } from "motion";
 /** Longest we wait on one animation before the reveal proceeds without it. */
 const STEP_TIMEOUT_MS = 1000;
 
+/** True when the guest's device asks for reduced motion. */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+/**
+ * The reveal's end state, applied with no animation: login form gone, welcome
+ * and events visible. This is what every animated step below settles on, so a
+ * reduced-motion guest sees exactly the same invite — it simply arrives at once.
+ */
+function settleRevealed(
+  loginForm: HTMLElement,
+  welcomeEl: HTMLElement,
+  eventsSection: HTMLElement,
+) {
+  loginForm.style.display = "none";
+  welcomeEl.style.display = "";
+  welcomeEl.style.opacity = "1";
+  eventsSection.style.display = "";
+  eventsSection.style.opacity = "1";
+}
+
 function tryAnimate(run: () => { finished: Promise<unknown> }): Promise<unknown> {
   try {
     const { finished } = run();
@@ -37,6 +63,12 @@ export async function unlockRevealSequence(
   welcomeEl: HTMLElement,
   eventsSection: HTMLElement,
 ) {
+  // Reduced motion: skip the choreography, land on the same end state.
+  if (prefersReducedMotion()) {
+    settleRevealed(loginForm, welcomeEl, eventsSection);
+    return;
+  }
+
   // 1. Fade out the login form
   await tryAnimate(() =>
     animate(

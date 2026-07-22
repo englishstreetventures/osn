@@ -21,10 +21,12 @@ interface Props {
 
 const { apiUrl, slug, initialInvite, siteUrl } = Astro.props
 
-// Preload the hero (the LCP element). It renders responsively via srcset, so
-// preload the same candidate set + sizes — the browser preloads exactly the
-// variant it will pick. Mirrors the bounded variant allowlist in cire/api
-// (thumb/card/hero → 320/800/1600w).
+// Preload the hero (the LCP element). It is ONE fixed-purpose variant, not a
+// responsive set: `InviteHeader` always renders `?variant=hero-bg` (the
+// server-blurred backdrop) with no srcset. So preload that exact URL — an
+// imagesrcset of thumb/card/hero would make the browser fetch a second,
+// sharp 1600w render at top priority that the page never displays, competing
+// with the real LCP image for the same connection.
 const heroBase = initialInvite?.hero.imageUrl ? `${apiUrl}${initialInvite.hero.imageUrl}` : null
 
 // Tab title follows the couple's hero title when they've set one (e.g.
@@ -38,9 +40,8 @@ const pageTitle = inviteTitle(initialInvite?.hero.title)
 const paletteStyle = styleAttr(paletteRootVars(initialInvite?.theme ?? null))
 
 const heroSep = heroBase?.includes('?') ? '&' : '?'
-const preloadHeroSrcset = heroBase
-  ? `${heroBase}${heroSep}variant=thumb 320w, ${heroBase}${heroSep}variant=card 800w, ${heroBase}${heroSep}variant=hero 1600w`
-  : null
+// Must stay in step with HERO_BG_VARIANT in InviteHeader.tsx.
+const preloadHeroHref = heroBase ? `${heroBase}${heroSep}variant=hero-bg` : null
 ---
 <!DOCTYPE html>
 <html lang="en" style={paletteStyle}>
@@ -61,15 +62,7 @@ const preloadHeroSrcset = heroBase
     <noscript>
       <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
     </noscript>
-    {heroBase && (
-      <link
-        rel="preload"
-        as="image"
-        href={heroBase}
-        imagesrcset={preloadHeroSrcset}
-        imagesizes="100vw"
-      />
-    )}
+    {preloadHeroHref && <link rel="preload" as="image" href={preloadHeroHref} />}
   </head>
   <body>
     <InviteHeader client:load apiUrl={apiUrl} slug={slug} initial={initialInvite} />
@@ -82,6 +75,8 @@ const preloadHeroSrcset = heroBase
       details={initialInvite?.details ?? null}
       welcomeMessage={initialInvite?.welcome?.message ?? null}
     />
-    <SiteFooter />
+    {/* Sign the invite off in the couple's name, so the last thing a guest
+        reads is who invited them and not the legal links. */}
+    <SiteFooter closing={initialInvite?.hero.title ?? null} />
   </body>
 </html>

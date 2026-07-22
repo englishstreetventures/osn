@@ -53,6 +53,11 @@
     font-size: 16px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Paired with the same rule on <body>. `clip` rather than `hidden`: `hidden`
+       turns the element into a scroll container, which silently breaks any
+       `position: sticky` descendant. Both elements need it — setting it on one
+       alone lets the other still pan sideways. */
+    overflow-x: clip;
   }
 
   body {
@@ -61,10 +66,81 @@
     font-family: var(--font-body);
     font-weight: 400;
     line-height: 1.5;
-    min-height: 100vh;
+    /* dvh, not vh: on iOS Safari the address bar makes 100vh taller than the
+       visible viewport, so a vh floor adds phantom scroll on every page. */
+    min-height: 100dvh;
     /* Safety net against horizontal scroll on small viewports: a single wide
        island (e.g. a fixed-width third-party embed) should never let the whole
        page pan sideways. Vertical scrolling is unaffected. */
-    overflow-x: hidden;
+    overflow-x: clip;
+  }
+
+  /* Anything the guest can act on says so under the pointer. Tailwind's v4
+     preflight drops the UA `cursor: pointer` on <button>, so without this rule
+     every button on the invite reads as inert text. Disabled controls keep the
+     default arrow — they are not clickable. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  summary,
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  /* A label wrapping a tick-box shares its hit area, so it shares its cursor.
+     Labels around text fields deliberately do not — those get the caret. */
+  label:has(> input[type="checkbox"]:not(:disabled)),
+  label:has(> input[type="radio"]:not(:disabled)) {
+    cursor: pointer;
+  }
+
+  /* Text entry says "type here", not "click here". */
+  input[type="text"]:not(:disabled),
+  input[type="email"]:not(:disabled),
+  input[type="search"]:not(:disabled),
+  input[type="tel"]:not(:disabled),
+  input[type="url"]:not(:disabled),
+  textarea:not(:disabled) {
+    cursor: text;
+  }
+
+  /* Nothing the guest cannot use pretends otherwise. */
+  button:disabled,
+  input:disabled,
+  textarea:disabled,
+  select:disabled {
+    cursor: not-allowed;
+  }
+
+  /* Keyboard focus is always visible, on every control, without each component
+     having to remember. Components may restyle it, but none may remove it. */
+  :focus-visible {
+    outline: 2px solid var(--invite-focus);
+    outline-offset: 2px;
+  }
+}
+
+/*
+  Guests who ask their device for less motion get none of ours. The invite's
+  reveal choreography is decorative — the content underneath is identical — so
+  the safe answer is to land on the end state instantly. Transitions are cut to
+  a near-zero duration rather than `none` so `transitionend` listeners still
+  fire and no state machine stalls waiting for one.
+*/
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: -1ms !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* A spinner is not decoration — it is the only sign the page is still
+     working. Clamped to one 0.01ms turn it becomes a static ring, which
+     reads as "nothing is happening". Keep it turning, slower. */
+  .animate-spin {
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
   }
 }

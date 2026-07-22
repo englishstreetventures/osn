@@ -41,7 +41,7 @@ describe("EventCard", () => {
     expect(container.textContent).toContain("12 Banksia Lane, Strathfield");
     expect(container.textContent).toContain("An evening of henna");
     const buttons = [...container.querySelectorAll("button")];
-    expect(buttons.map((b) => b.textContent)).toEqual(["Respond", "View Event"]);
+    expect(buttons.map((b) => b.textContent)).toEqual(["Respond", "Event Details"]);
   });
 
   it("omits the venue line entirely when the event has no address", () => {

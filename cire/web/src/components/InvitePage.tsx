@@ -189,7 +189,7 @@ export default function InvitePage(props: InvitePageProps) {
               <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
                 {detailsEyebrow()}
               </p>
-              <h2 class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic">
+              <h2 class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light">
                 {detailsHeading()}
               </h2>
               <div class="flex flex-col gap-5 text-left">

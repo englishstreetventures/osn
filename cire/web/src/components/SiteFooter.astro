@@ -2,8 +2,20 @@
 // Site-wide footer. Links to the legal pages so the privacy notice + terms are
 // reachable from every page (compliance blocker C-H4: privacy notice must be
 // published and linked at point of collection).
+interface Props {
+  /**
+   * Closing line for the invite — the couple's title. Given, the footer signs
+   * off in their name before the legal links, so the invitation ends on the
+   * people it is from rather than on the word "Terms". Absent (legal pages,
+   * 404) ⇒ links only.
+   */
+  closing?: string | null
+}
+
+const { closing } = Astro.props
 ---
 <footer class="site-footer">
+  {closing && <p class="closing">{closing}</p>}
   <nav aria-label="Legal">
     <a href="/privacy">Privacy Notice</a>
     <span aria-hidden="true">&middot;</span>
@@ -18,6 +30,17 @@
     font-family: var(--font-body, "Lato", system-ui, sans-serif);
     font-size: 0.8125rem;
     color: var(--color-text-muted, rgba(255, 255, 255, 0.5));
+  }
+
+  .site-footer .closing {
+    margin: 0 0 1.25rem;
+    font-family: var(--font-display, 'Cormorant Garamond', Georgia, serif);
+    font-size: clamp(1.25rem, 3vw, 1.75rem);
+    font-weight: 300;
+    line-height: 1.2;
+    /* pb reserve: a descender in a name (Jyoti, Peggy) must keep its tail. */
+    padding-bottom: 0.15em;
+    color: var(--color-gold, oklch(74.99% 0.0854 82.08));
   }
 
   .site-footer nav {

@@ -244,7 +244,7 @@ export function AddToCalendar(props: AddToCalendarProps) {
               href={googleHref()}
               target="_blank"
               rel="noopener noreferrer"
-              class="font-body text-text-muted hover:bg-gold hover:text-bg focus:bg-gold focus:text-bg rounded-sm px-3 py-2 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 focus:outline-none"
+              class="font-body text-text-muted hover:bg-gold hover:text-bg focus:bg-gold focus:text-bg rounded-sm px-3 py-2 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200"
               onClick={() => setOpen(false)}
             >
               Google Calendar
@@ -253,7 +253,7 @@ export function AddToCalendar(props: AddToCalendarProps) {
               role="menuitem"
               href={icsHref() ?? "#"}
               download={filename()}
-              class="font-body text-text-muted hover:bg-gold hover:text-bg focus:bg-gold focus:text-bg rounded-sm px-3 py-2 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 focus:outline-none"
+              class="font-body text-text-muted hover:bg-gold hover:text-bg focus:bg-gold focus:text-bg rounded-sm px-3 py-2 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200"
               onClick={() => setOpen(false)}
             >
               Apple / Outlook (.ics)

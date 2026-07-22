@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { animateMock, staggerMock } = vi.hoisted(() => ({
   animateMock: vi.fn(() => ({ finished: Promise.resolve() })),
@@ -127,6 +127,35 @@ describe("unlockRevealSequence", () => {
     await vi.advanceTimersByTimeAsync(300);
     await p;
     expect(staggerMock).toHaveBeenCalledWith(0.12, { startDelay: 0.15 });
+  });
+
+  // happy-dom has no matchMedia, so every test above exercises the animated
+  // path. A reduced-motion guest must land on the SAME end state — this file's
+  // history is a reveal that left the events invisible in production.
+  describe("with prefers-reduced-motion: reduce", () => {
+    beforeEach(() => {
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn((query: string) => ({ matches: query.includes("prefers-reduced-motion") })),
+      );
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("reveals everything with no animation at all", async () => {
+      eventsSection.style.display = "none";
+      welcomeEl.style.display = "none";
+      await unlockRevealSequence(loginForm, welcomeEl, eventsSection);
+      expect(loginForm.style.display).toBe("none");
+      expect(welcomeEl.style.display).toBe("");
+      expect(welcomeEl.style.opacity).toBe("1");
+      expect(eventsSection.style.display).toBe("");
+      expect(eventsSection.style.opacity).toBe("1");
+      expect(animateMock).not.toHaveBeenCalled();
+      expect(staggerMock).not.toHaveBeenCalled();
+    });
   });
 
   it("skips stagger when no event cards exist", async () => {

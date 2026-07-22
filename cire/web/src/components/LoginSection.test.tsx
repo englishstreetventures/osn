@@ -26,7 +26,7 @@ describe("LoginSection greeting", () => {
       />
     ));
     const text = container.textContent ?? "";
-    expect(text).toContain("The Okafor Family");
+    expect(text).toContain("Welcome, the Okafor Family");
     // The household members are listed and the individual "Dear" greeting is absent.
     expect(text).toContain("Chidi");
     expect(text).toContain("Ada");

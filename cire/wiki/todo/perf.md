@@ -11,6 +11,17 @@ last-reviewed: 2026-07-22
 
 See [[review-findings]] for severity prefix conventions.
 
+### Guest invite taste pass — review findings (fix/cire-invite-taste-pass, 2026-07-22)
+
+Raised by the pre-merge performance review of the typography + affordance pass. See [[web]].
+
+- [x] **P-W2** (fixed on branch) — `InviteDocument.astro` preloaded the hero as an `imagesrcset` of the thumb/card/hero variants, but `InviteHeader` always renders one fixed variant (`?variant=hero-bg`, the server-blurred backdrop) with no `srcset`. The browser therefore fetched a second, sharp 1600w render at top priority that the page never displays, competing with the real LCP image for the same connection. Now a single `<link rel="preload">` at the exact URL the header requests, with a comment tying it to `HERO_BG_VARIANT`.
+- [x] **P-I1** (fixed on branch) — `motion`'s `animate()` drives the Web Animations API, which ignores the CSS `animation-duration` / `transition-duration` overrides in the `prefers-reduced-motion` block entirely. The reveal already had a JS guard; the modal did not, so a reduced-motion guest still got the 350ms slide-and-scale on every dialog. `Modal.motion.ts` now takes the same `prefersReducedMotion()` early return, settling both enter and exit to their end states and resolving at once.
+- [x] **P-I2** (fixed on branch) — the reduced-motion block cut durations but left `animation-delay` and `transition-delay` intact, so a staggered element could still sit invisible for its full delay before appearing. Delays now collapse too, with `.animate-spin` exempted (a spinner clamped to one 0.01ms turn becomes a static ring, which reads as "nothing is happening").
+- [ ] **P-W1** — the invite loads Cormorant Garamond and Lato from Google Fonts with `display=swap` and no metric-matched fallback, so a slow font fetch reflows the hero title. **Fix:** self-host both and declare `size-adjust` / `ascent-override` fallbacks from the real font metrics. Doing it honestly needs the metrics measured, not guessed. Partly mitigated in practice: the hero only grows past `100dvh` for unusually long titles, which is the case the `min-h` change was made to stop clipping.
+- [ ] **P-I4** — carried over from the palette commit, not this branch: `derivePalette` runs on every island revalidation rather than once per scheme value. Cheap, but repeated.
+- [ ] **P-I5** — the events section's stagger is computed per card on each reveal. One-shot cost on a page with a handful of cards; noted only so it isn't rediscovered.
+
 ### Host dashboard redesign — review findings (feat/cire-host-dashboard-redesign, 2026-07-22)
 
 Raised by the pre-merge performance review of the container-query redesign. See [[web]].
