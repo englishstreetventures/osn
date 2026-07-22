@@ -1,6 +1,8 @@
 import { cors } from "@elysiajs/cors";
 import { EmailService, makeLogEmailLive } from "@shared/email";
 import type { SendEmailInput } from "@shared/email";
+import { createFeatureFlags } from "@shared/feature-flags";
+import type { FeatureFlags } from "@shared/feature-flags";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
@@ -290,6 +292,16 @@ export interface AppOptions {
   enquiryEmailLayer?: Layer.Layer<EmailService>;
   /** Override the couple-side enquiry write rate limiter (useful for testing). */
   enquiryLimiter?: RateLimiterBackend;
+  /**
+   * GrowthBook feature-flag provider, decorated onto the request context as
+   * `flags` so any route can do `await flags.forRequest({ id }).then(f =>
+   * f.isOn("cire.some-flag"))`. KEY-OPTIONAL: omitted ⇒ a provider that serves
+   * every flag's coded default from the registry with zero network (the state
+   * before a GrowthBook account exists). Built once per isolate in `index.ts`
+   * from `GROWTHBOOK_CLIENT_KEY` + the optional `KV_GB_PAYLOAD` cache; tests
+   * inject a stub or rely on the default.
+   */
+  flags?: FeatureFlags;
 }
 
 export function createApp(db: Db, options: AppOptions = {}) {
@@ -329,6 +341,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
     enquiryZapClient = null,
     enquiryEmailLayer: enquiryEmailLayerOption,
     enquiryLimiter = defaultEnquiryLimiter,
+    // Key-optional default: an inert provider that serves registry defaults with
+    // no network, so an app built without GrowthBook config behaves exactly as
+    // it did before flags existed.
+    flags = createFeatureFlags({}),
   } = options;
   const corsOrigins = allowedOrigins ?? [webOrigin];
 
@@ -388,6 +404,11 @@ export function createApp(db: Db, options: AppOptions = {}) {
     // `new Function`, which Cloudflare Workers forbids (no dynamic code
     // evaluation). The dynamic handler is plenty for this API's traffic.
     new Elysia({ aot: false })
+      // Feature flags on the request context. Routes call
+      // `await flags.forRequest({ id }).then(f => f.isOn("cire.some-flag"))`.
+      // Decorated (not derived) — one provider per isolate; the per-request
+      // attribute binding happens in `forRequest`.
+      .decorate("flags", flags)
       .use(
         cors({
           // Echo the request origin verbatim when it's in the allowlist — never
@@ -538,12 +559,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // need only the guest session; the POST link additionally requires an OSN
       // token. Splitting them is what method-gates `osnAuth` to POST without
       // gating the guest-only reads (same sibling pattern as rsvp + organiser).
-      .use(createAccountLinkRoutes(db, accountLinkLimiter))
+      .use(createAccountLinkRoutes(db, accountLinkLimiter, flags))
       .use(
         createAccountLinkPostRoute(
           db,
           osnAuthOptions,
           accountLinkLimiter,
+          flags,
           resolveOsnAccountId,
           webOrigin,
         ),

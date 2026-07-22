@@ -1,4 +1,5 @@
 import { makeLogEmailLive, makeResendEmailLive } from "@shared/email";
+import { createFeatureFlags } from "@shared/feature-flags";
 import { loadConfig } from "@shared/observability/config";
 import { createWorkersRateLimiter } from "@shared/rate-limit";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
@@ -73,6 +74,16 @@ export interface Env {
   // falls back to LogEmailLive (emails captured in-memory / logged). Fail-soft:
   // never throws on boot, just degrades gracefully.
   RESEND_API_KEY?: string;
+  // GrowthBook feature flags (KEY-OPTIONAL). GROWTHBOOK_CLIENT_KEY unset ⇒ the
+  // provider serves every flag's coded default with zero network (state before
+  // a GrowthBook account exists); set it (via `[vars]` or
+  // `wrangler secret put GROWTHBOOK_CLIENT_KEY`) to activate live evaluation.
+  // GROWTHBOOK_API_HOST defaults to https://cdn.growthbook.io. KV_GB_PAYLOAD is
+  // an OPTIONAL cross-isolate cache for the SDK payload — absent ⇒ each isolate
+  // keeps its own in-memory cache (still correct, just not shared).
+  GROWTHBOOK_CLIENT_KEY?: string;
+  GROWTHBOOK_API_HOST?: string;
+  KV_GB_PAYLOAD?: KVNamespace;
 }
 
 // P-W1: the Elysia app graph (root + cors + route factories + auth plugins) is
@@ -248,6 +259,16 @@ const handler: ExportedHandler<Env> = {
       // claim + rsvp gates are skipped. The secret is read here and never
       // logged or placed anywhere but Cloudflare's siteverify endpoint.
       const turnstileVerifier = createTurnstileVerifier(env.TURNSTILE_SECRET_KEY);
+      // GrowthBook feature flags (KEY-OPTIONAL). Unset client key ⇒ an inert
+      // provider that serves registry defaults with no network. Built once per
+      // isolate alongside the app so its payload cache is isolate-lived. No
+      // per-request `ctx` is passed: KV cache writes are best-effort (the
+      // in-isolate memo is the primary cache; KV just shares it across isolates).
+      const flags = createFeatureFlags({
+        clientKey: env.GROWTHBOOK_CLIENT_KEY,
+        apiHost: env.GROWTHBOOK_API_HOST,
+        kv: env.KV_GB_PAYLOAD,
+      });
       cached = {
         dbBinding: env.DB,
         app: createApp(db, {
@@ -272,6 +293,7 @@ const handler: ExportedHandler<Env> = {
           resolveOsnProfileDisplays,
           resolveOsnHandleSearch,
           turnstileVerifier,
+          flags,
           orgMembership,
           profileOrgs,
           emailLayer,

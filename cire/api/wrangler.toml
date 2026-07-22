@@ -37,6 +37,19 @@ OSN_ISSUER_URL = "http://localhost:4000"
 OSN_AUDIENCE = "osn-access"
 ZAP_API_URL = "http://localhost:3002"
 
+# ── GrowthBook feature flags (KEY-OPTIONAL) ──────────────────────────────────
+# GROWTHBOOK_CLIENT_KEY UNSET ⇒ @shared/feature-flags serves every flag's coded
+# default (src/index.ts FLAGS registry) with ZERO network — the state before a
+# GrowthBook account exists, so this ships safely inert. Set the key to activate
+# live evaluation. The SDK client key is low-sensitivity (it authorises reading
+# the public feature payload, not writing), so it can live as a [vars] entry OR
+# a secret — use a secret if you'd rather keep it out of git:
+#   bunx wrangler secret put GROWTHBOOK_CLIENT_KEY --env production
+# GROWTHBOOK_API_HOST defaults to https://cdn.growthbook.io in code; pinned here
+# for clarity and to make a self-hosted/proxy swap a one-line change.
+GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
+# GROWTHBOOK_CLIENT_KEY = "sdk-xxxxxxxx"   # set after creating the GrowthBook SDK connection
+
 # Native Cloudflare Workers Rate Limiting binding for the pre-auth claim
 # endpoint (C1/C4). Enforced globally + atomically at the edge — unlike the
 # per-isolate in-memory limiter it replaces. `simple.limit`/`simple.period`
@@ -85,6 +98,17 @@ preview_bucket_name = "cire-assets-preview"
 [images]
 binding = "IMAGES"
 
+# ── GrowthBook payload cache (OPTIONAL) ──────────────────────────────────────
+# Cross-isolate cache for the GrowthBook SDK payload. ABSENT ⇒ each isolate keeps
+# its own in-memory cache (still correct — just re-fetches once per cold isolate
+# per TTL). Present ⇒ isolates share one cached payload, cutting CDN fetches. The
+# feature-flag helper degrades gracefully either way, so this is a pure
+# optimisation. Create the namespace then uncomment with the real id:
+#   bunx wrangler kv namespace create KV_GB_PAYLOAD
+# [[kv_namespaces]]
+# binding = "KV_GB_PAYLOAD"
+# id = "<paste-namespace-id>"
+
 [env.production.vars]
 # Comma-separated allowlist (index.ts splits on "," and trims). Entry 0 is the
 # guest site (`invite.cireweddings.com`); the organiser portal origin
@@ -103,6 +127,12 @@ OSN_JWKS_URL = "https://id.cireweddings.com/.well-known/jwks.json"
 OSN_ISSUER_URL = "https://id.cireweddings.com"
 OSN_AUDIENCE = "osn-access"
 ZAP_API_URL = "https://zap.cireweddings.com"
+# GrowthBook feature flags (KEY-OPTIONAL) — see the top-level [vars] note. Named
+# envs do NOT inherit top-level [vars], so GROWTHBOOK_API_HOST is redeclared
+# here; set GROWTHBOOK_CLIENT_KEY (var or `wrangler secret put ... --env
+# production`) to activate live evaluation in prod.
+GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
+# GROWTHBOOK_CLIENT_KEY = "sdk-xxxxxxxx"
 # OSN_ENV — deployment tier (dev|staging|production). Drives the structured-log
 # level (see src/observability.ts); debug logs are local-only. Set it as a var
 # or secret per environment. No bootstrap-owner config is needed: every
@@ -151,6 +181,13 @@ preview_bucket_name = "cire-assets-preview"
 # without it and every serve falls back to the un-transformed R2 original.
 [env.production.images]
 binding = "IMAGES"
+
+# Mirror of the top-level GrowthBook payload cache (OPTIONAL) — named envs do NOT
+# inherit top-level [[kv_namespaces]]. Uncomment with the same namespace id (or a
+# separate prod namespace) once created. Absent ⇒ per-isolate in-memory cache.
+# [[env.production.kv_namespaces]]
+# binding = "KV_GB_PAYLOAD"
+# id = "<paste-namespace-id>"
 
 # Mirror of the top-level [observability] block — named environments do NOT
 # inherit it, so without this the production Worker ships with logs disabled.

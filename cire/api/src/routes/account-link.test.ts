@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
 import { guestAccountLinks, guests } from "@cire/db";
+import { createStaticFlags } from "@shared/feature-flags";
 import { createRateLimiter } from "@shared/rate-limit";
 
 import { createApp } from "../app";
@@ -28,7 +29,7 @@ const okResolver: OsnAccountResolver = async () => ({ ok: true, accountId: "acc_
 
 // "disabled" maps to no resolver at all (deployment without an ARC key). A
 // sentinel rather than `undefined` so passing it can't collide with the default.
-function buildApp(resolver: OsnAccountResolver | "disabled" = okResolver) {
+function buildApp(resolver: OsnAccountResolver | "disabled" = okResolver, linkingEnabled = true) {
   const db = createDb(":memory:");
   seedDb(db);
   const app = createApp(db, {
@@ -36,6 +37,9 @@ function buildApp(resolver: OsnAccountResolver | "disabled" = okResolver) {
     accountLinkLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
     osnTestKey: auth.key,
     resolveOsnAccountId: resolver === "disabled" ? undefined : resolver,
+    // The account-linking feature flag gates the whole surface. Enable it for
+    // the functional tests; the flag-off contract is exercised separately.
+    flags: createStaticFlags({ "cire.account-linking": linkingEnabled }),
   });
   return { db, app };
 }
@@ -349,6 +353,31 @@ describe("DELETE /api/account/link/:guestId", () => {
   });
 });
 
+describe("account-linking feature flag (cire.account-linking OFF)", () => {
+  it("GET returns 503 so the guest UI hides the linking section", async () => {
+    // Flag off — even with a working resolver + a valid session, the probe must
+    // report disabled (the frontend `<Show when={ready}>` reads 503 as hidden).
+    const { app } = buildApp(okResolver, false);
+    const cookie = await claimCookie(app, SAMPLETON);
+    const res = await app.fetch(
+      new Request("http://localhost/api/account/link", {
+        headers: { Cookie: cookie, "cf-connecting-ip": TEST_CF_IP },
+      }),
+    );
+    expect(res.status).toBe(503);
+  });
+
+  it("POST returns 503 (defense in depth — a crafted request can't link)", async () => {
+    const { db, app } = buildApp(okResolver, false);
+    const cookie = await claimCookie(app, SAMPLETON);
+    const bearer = await auth.sign("usr_alice");
+    const res = await postLink(app, { cookie, bearer, guestId: guestIdByName(db, "Bo") });
+    expect(res.status).toBe(503);
+    // Nothing was written.
+    expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
+  });
+});
+
 describe("account-link rate limiting (S-L1)", () => {
   it("returns 429 once the per-IP budget is exhausted", async () => {
     const db = createDb(":memory:");
@@ -359,6 +388,7 @@ describe("account-link rate limiting (S-L1)", () => {
       accountLinkLimiter: createRateLimiter({ maxRequests: 2, windowMs: 60_000 }),
       osnTestKey: auth.key,
       resolveOsnAccountId: okResolver,
+      flags: createStaticFlags({ "cire.account-linking": true }),
     });
     const cookie = await claimCookie(app, SAMPLETON);
     const get = () =>

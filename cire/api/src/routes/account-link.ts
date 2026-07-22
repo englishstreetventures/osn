@@ -1,3 +1,4 @@
+import type { FeatureFlags } from "@shared/feature-flags";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Data, Effect, Schema } from "effect";
 import { Elysia } from "elysia";
@@ -24,6 +25,15 @@ const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 const PREFIX = "/api/account/link";
 
+/**
+ * Feature flag gating the whole OSN ("Pulse") account-linking surface. OFF ⇒
+ * both the GET status probe and the POST link answer 503 ("disabled"); the
+ * guest UI reads the 503 GET as "disabled" and hides the section. Default is OFF
+ * (see the `FLAGS` registry), so linking stays hidden until it's turned on in
+ * the GrowthBook dashboard — independent of whether the ARC linking keys exist.
+ */
+const LINKING_FLAG = "cire.account-linking" as const;
+
 /** Transport failure resolving the OSN account id over ARC (osn-api down / 5xx). */
 class OsnAccountLookupError extends Data.TaggedError("OsnAccountLookupError")<{
   reason: string;
@@ -40,18 +50,27 @@ class OsnAccountLookupError extends Data.TaggedError("OsnAccountLookupError")<{
  * Both instances share a per-IP `limiter` (S-L1) so a session can't drive
  * unbounded membership probes / unlink churn.
  */
-export const createAccountLinkRoutes = (db: Db, limiter: RateLimiterBackend) =>
+export const createAccountLinkRoutes = (db: Db, limiter: RateLimiterBackend, flags: FeatureFlags) =>
   new Elysia({ prefix: PREFIX })
     .use(rateLimitMiddleware(limiter))
     .use(sessionAuth(db))
     // GET /api/account/link — link status for every invitee in the household.
     // Returns presence + linked-at; never the OSN account id (S2S-only) nor the
     // profile id (kept minimal).
-    .get("/", ({ familyId, set }) => {
+    .get("/", async ({ familyId, set }) => {
       // sessionAuth guarantees this; the guard is a runtime safety net.
       if (!familyId) {
         set.status = 401;
         return { error: "Unauthorized" };
+      }
+      // Feature gate: the account-linking flag hides this surface. A 503 here is
+      // read by the guest UI as "disabled" ⇒ the whole "Link your Pulse account"
+      // section renders nothing. Bucketed by household so a future percentage
+      // rollout is stable per family.
+      const linking = await flags.forRequest({ id: familyId });
+      if (!linking.isOn(LINKING_FLAG)) {
+        set.status = 503;
+        return { error: "Account linking is not available" };
       }
       return runCire(
         accountLinkService.listByFamily(familyId).pipe(
@@ -101,6 +120,7 @@ export const createAccountLinkPostRoute = (
   db: Db,
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
+  flags: FeatureFlags,
   resolveOsnAccountId?: OsnAccountResolver,
   webOrigin = "http://localhost:4321",
 ) =>
@@ -118,6 +138,16 @@ export const createAccountLinkPostRoute = (
         if (!familyId || !osnProfileId) {
           set.status = 401;
           return { error: "Unauthorized" };
+        }
+        // Feature gate (defense in depth): even though the UI is hidden when the
+        // flag is off, reject a hand-crafted POST so linking can't be driven
+        // while the feature is disabled. Same 503 "disabled" contract as the
+        // no-ARC-key branch below.
+        const linking = await flags.forRequest({ id: familyId });
+        if (!linking.isOn(LINKING_FLAG)) {
+          metricAccountLinkRequest("disabled");
+          set.status = 503;
+          return { error: "Account linking is not available" };
         }
         if (!resolveOsnAccountId) {
           // Deployment has no ARC key configured — linking is disabled, not broken.
