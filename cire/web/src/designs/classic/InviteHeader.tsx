@@ -4,7 +4,6 @@ import {
   cropAspectRatio,
   cropBackgroundStyle,
   heroCropBackgroundStyle,
-  type ImageCrop,
 } from "../../components/image-crop";
 import { isHeroEmpty, isStoryEmpty } from "../../components/invite-emptiness";
 import { buildSrcSet, HERO_BG_VARIANT, variantSrc } from "../../components/invite-images";
