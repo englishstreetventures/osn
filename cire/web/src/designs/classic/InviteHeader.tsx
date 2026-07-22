@@ -5,81 +5,22 @@ import {
   cropBackgroundStyle,
   heroCropBackgroundStyle,
   type ImageCrop,
-} from "./image-crop";
-import { isHeroEmpty, isStoryEmpty } from "./invite-emptiness";
-import { applyPaletteToRoot, filterThemeVars, type InviteTheme, sectionVars } from "./invite-theme";
-
-/**
- * Responsive variant widths the API can transform an invite image to. Mirrors
- * the bounded `IMAGE_VARIANTS` allowlist in `cire/api` — the API resolves an
- * unknown/absent `?variant=` (and any environment without the Cloudflare Images
- * binding) to the original bytes, so the plain `src` below always works as a
- * progressive fallback even when `srcset` is ignored or transforms are off.
- *
- * `hero-bg` is the 1600px hero width rendered with a SERVER-SIDE blur (the radius
- * is a server constant — `VARIANT_BLUR` in `cire/api`, never sent from here): the
- * soft full-bleed backdrop the hero title sits over. The blur abstracts detail,
- * so one width is enough for the backdrop — no responsive `srcset` needed.
- */
-const VARIANT_WIDTHS = { thumb: 320, card: 800, hero: 1600, "hero-bg": 1600 } as const;
-type VariantName = keyof typeof VARIANT_WIDTHS;
-
-// The hero backdrop always requests the `hero-bg` variant: the blur radius is now
-// a per-wedding server value (migration 0018; 0 ⇒ the server renders it sharp),
-// so the guest never picks a different variant — one fixed-purpose variant keeps
-// the re-arm lifecycle + cache simple.
-const HERO_BG_VARIANT: VariantName = "hero-bg";
+} from "../../components/image-crop";
+import { isHeroEmpty, isStoryEmpty } from "../../components/invite-emptiness";
+import { buildSrcSet, HERO_BG_VARIANT, variantSrc } from "../../components/invite-images";
+import { applyPaletteToRoot, filterThemeVars, sectionVars } from "../../components/invite-theme";
+import type { HeroDisplay, InviteCustomisation } from "../types";
 
 // The Our Story photo's default display aspect (4∶3) — the shape the box used
 // before crops carried source dimensions. Used as the fallback when a crop has no
 // captured dims (a legacy crop), so it renders exactly as it did before.
 const STORY_DEFAULT_ASPECT = 4 / 3;
 
-/**
- * Build a `srcset` from a base image URL (which already carries the `?v=`
- * content-version cache-buster) by appending the bounded `&variant=` for each
- * width in `variants`. The browser picks the entry matching the rendered size +
- * DPR; the API negotiates WebP/AVIF per request via Accept.
- */
-export function buildSrcSet(baseUrl: string, variants: readonly VariantName[]): string {
-  const sep = baseUrl.includes("?") ? "&" : "?";
-  return variants.map((v) => `${baseUrl}${sep}variant=${v} ${VARIANT_WIDTHS[v]}w`).join(", ");
-}
-
-/**
- * Point a base image URL at a single bounded `variant` (no width descriptor — for
- * a fixed-purpose `src`, like the blurred hero backdrop). The variant name is the
- * only thing appended; the blur radius lives server-side, keyed off the variant.
- */
-export function variantSrc(baseUrl: string, variant: VariantName): string {
-  const sep = baseUrl.includes("?") ? "&" : "?";
-  return `${baseUrl}${sep}variant=${variant}`;
-}
-
 // The section background, painted from whichever derived surface the section's
 // tone names. Every other colour here comes from the Tailwind utility classes,
 // which now resolve through the palette applied at the document root — so hero
 // and story finally follow the organiser's scheme like the rest of the page.
 const SECTION_SURFACE = { "background-color": "var(--invite-section-bg)" };
-
-/**
- * Hero display sliders the organiser picked, as they arrive from the public
- * invite endpoint (migration 0018 replaced the coarse `blurred|regular` /
- * `none|solid` enums). Always concrete (the API coalesces a missing row to the
- * today's-look default). Mirrors `HeroDisplay` in `cire/api/src/services/invite.ts`.
- *
- *  - `blur` (0–40): the hero backdrop's Gaussian blur — applied SERVER-SIDE on
- *    the `hero-bg` variant (the value lives on the row; the guest just requests
- *    `hero-bg` and gets back the right radius). 28 = today's soft look; 0 = sharp.
- *  - `titleBackdrop.opacity` (0–100): opacity (÷100) of the legibility panel
- *    behind the hero title block. 0 (default) ⇒ no panel (just the radial scrim).
- *  - `titleBackdrop.blur` (0–20): frosted-glass `backdrop-filter` blur in px
- *    behind the title. 0 (default) ⇒ no frost.
- */
-export interface HeroDisplay {
-  blur: number;
-  titleBackdrop: { opacity: number; blur: number };
-}
 
 // The today's-look defaults — used when the field is absent (older API /
 // mid-deploy). Mirrors DEFAULT_HERO_DISPLAY in cire/api.
@@ -89,30 +30,6 @@ const DEFAULT_HERO_DISPLAY: HeroDisplay = { blur: 28, titleBackdrop: { opacity: 
 function clampNum(value: number | undefined, min: number, max: number, fallback: number): number {
   if (typeof value !== "number" || Number.isNaN(value)) return fallback;
   return Math.min(max, Math.max(min, value));
-}
-
-export interface InviteCustomisation {
-  hero: {
-    title: string | null;
-    subtitle: string | null;
-    imageUrl: string | null;
-    // Optional so a mid-deploy payload (older API) without it falls back to no crop.
-    imageCrop?: ImageCrop | null;
-  };
-  story: {
-    eyebrow: string | null;
-    heading: string | null;
-    body: string | null;
-    imageUrl: string | null;
-    imageCrop?: ImageCrop | null;
-  };
-  // Events-section header copy + post-claim greeting (rendered by InvitePage /
-  // LoginSection, not this island). Optional so a mid-deploy payload from an
-  // older API simply keeps the built-in copy.
-  details?: { eyebrow: string | null; heading: string | null };
-  welcome?: { message: string | null };
-  heroDisplay: HeroDisplay;
-  theme: InviteTheme;
 }
 
 interface InviteHeaderProps {

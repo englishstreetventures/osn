@@ -2,8 +2,8 @@ import { derivePalette, PALETTE_PRESETS } from "@cire/theme";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
+import type { ClaimResult, RsvpSummary } from "../../components/types";
 import InvitePage from "./InvitePage";
-import type { ClaimResult, RsvpSummary } from "./types";
 
 vi.mock("motion", () => ({
   animate: vi.fn(() => ({ finished: Promise.resolve() })),
@@ -15,7 +15,7 @@ vi.mock("./UnlockReveal.motion", () => ({
 
 const capturedProps: { value: Record<string, unknown> | null } = { value: null };
 
-vi.mock("./RsvpModal", () => ({
+vi.mock("../../components/RsvpModal", () => ({
   RsvpModal: (props: Record<string, unknown>) => {
     capturedProps.value = props;
     return <div data-testid="rsvp-modal-stub" />;
@@ -27,7 +27,7 @@ vi.mock("./RsvpModal", () => ({
 // slip on one would otherwise pass every test.
 const detailsModalProps: { value: Record<string, unknown> | null } = { value: null };
 
-vi.mock("./DetailsModal", () => ({
+vi.mock("../../components/DetailsModal", () => ({
   DetailsModal: (props: Record<string, unknown>) => {
     detailsModalProps.value = props;
     return <div data-testid="details-modal-stub" />;
@@ -38,7 +38,7 @@ vi.mock("./DetailsModal", () => ({
 // passkey deps). Stub it to a marker so InvitePage's tests assert only the
 // mount wiring (post-claim, non-preview) without exercising the OSN stack — the
 // component's own behaviour is covered in PulseAccountLink.test.tsx.
-vi.mock("./PulseAccountLink", () => ({
+vi.mock("../../components/PulseAccountLink", () => ({
   PulseAccountLink: () => <div data-testid="pulse-account-link-stub" />,
 }));
 

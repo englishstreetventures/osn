@@ -7,8 +7,9 @@
 // The `?code=<host code>` auto-claim deep-link rides on `/<slug>?code=...`:
 // LoginSection reads `code` client-side, so it survives untouched here.
 import { fetchInvite, API_URL } from '../lib/invite'
-import InviteDocument from '../components/InviteDocument.astro'
 import NotFoundDocument from '../components/NotFoundDocument.astro'
+import { registry } from '../designs/registry'
+import { resolveDesignId } from '../designs/resolve'
 
 const { slug } = Astro.params
 
@@ -25,14 +26,16 @@ if (result.kind === 'not-found') {
 }
 
 const siteUrl = import.meta.env.PUBLIC_SITE_URL
+
+// Which design pack renders this wedding — resolved server-side off the same
+// SSR fetch (zero extra round-trips, no client-side design switch, no flash).
+// Unknown/missing ids fall back to classic; an API error renders the classic
+// shell with defaults, same as before.
+const invite = result.kind === 'ok' ? result.invite : null
+const { Document } = registry[resolveDesignId(invite?.designId)]
 ---
 {result.kind === 'not-found' ? (
   <NotFoundDocument />
 ) : (
-  <InviteDocument
-    apiUrl={API_URL}
-    slug={slug!}
-    initialInvite={result.kind === 'ok' ? result.invite : null}
-    siteUrl={siteUrl}
-  />
+  <Document apiUrl={API_URL} slug={slug!} initialInvite={invite} siteUrl={siteUrl} />
 )}

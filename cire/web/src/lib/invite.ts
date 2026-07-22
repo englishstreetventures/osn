@@ -1,4 +1,4 @@
-import type { InviteCustomisation } from "../components/InviteHeader";
+import type { InviteCustomisation } from "../designs/types";
 
 /** cire-api origin. Build/runtime env with a local-dev default. */
 export const API_URL = import.meta.env.PUBLIC_API_URL ?? "http://localhost:8787";
