@@ -32,7 +32,7 @@ vi.mock("../lib/api", () => ({
   redirectToLogin: () => redirectSpy(),
 }));
 
-import InviteBuilder from "./InviteBuilder";
+import InviteBuilder, { isDesignLocked } from "./InviteBuilder";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -42,6 +42,7 @@ function json(body: unknown, status = 200) {
 }
 
 const EMPTY_CUSTOMISATION = {
+  designId: "classic",
   hero: { title: null, subtitle: null, imageUrl: null },
   story: { eyebrow: null, heading: null, body: null, imageUrl: null },
   heroDisplay: { blur: 28, titleBackdrop: { opacity: 0, blur: 0 } },
@@ -76,7 +77,7 @@ describe("InviteBuilder theme", () => {
         theme: { ...EMPTY_CUSTOMISATION.theme, headingFont: "georgia", bodyFont: "system-sans" },
       }),
     );
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
 
     await waitFor(() => {
       const heading = screen.getByLabelText("Heading font") as HTMLSelectElement;
@@ -90,7 +91,7 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
 
     await waitFor(() => screen.getByText("Save invite"));
 
@@ -133,7 +134,7 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // text save
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
     await waitFor(() => screen.getByText("Save invite"));
 
     fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "Anita & Ben" } });
@@ -151,7 +152,7 @@ describe("InviteBuilder theme", () => {
   it("skips the network entirely on a no-op save", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load only
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
     await waitFor(() => screen.getByText("Save invite"));
 
     fireEvent.click(screen.getByText("Save invite"));
@@ -175,7 +176,7 @@ describe("InviteBuilder theme", () => {
     );
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
     await waitFor(() => screen.getByText("Save invite"));
 
     // The section fieldset carries its legend AND a live preview card.
@@ -202,7 +203,7 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
     await waitFor(() => screen.getByText("Save invite"));
 
     fireEvent.click(screen.getByText("Fog"));
@@ -233,7 +234,7 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
     await waitFor(() => screen.getByText("Save invite"));
 
     // One tone control per section, in guest-page order (hero, story, welcome,
@@ -259,7 +260,7 @@ describe("InviteBuilder theme", () => {
         heroDisplay: { blur: 12, titleBackdrop: { opacity: 60, blur: 8 } },
       }),
     );
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
 
     await waitFor(() => screen.getByText("Save invite"));
     expect((screen.getByLabelText("Hero image blur") as HTMLInputElement).value).toBe("12");
@@ -271,7 +272,7 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
     await waitFor(() => screen.getByText("Save invite"));
 
     fireEvent.input(screen.getByLabelText("Hero image blur"), { target: { value: "5" } });
@@ -294,7 +295,7 @@ describe("InviteBuilder theme", () => {
       }),
     );
 
-    const { container } = render(() => <InviteBuilder weddingId="wed_1" />);
+    const { container } = render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
     await waitFor(() => screen.getByText("Save invite"));
 
     const preview = () => container.querySelector('[aria-label="Hero preview"]') as HTMLElement;
@@ -326,7 +327,7 @@ describe("InviteBuilder theme", () => {
     );
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
 
     await waitFor(() => {
       const heading = screen.getByLabelText("Heading font") as HTMLSelectElement;
@@ -347,7 +348,7 @@ describe("InviteBuilder theme", () => {
   it("updates the live hero preview's CSS vars as a colour picker changes (no save needed)", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load only
 
-    const { container } = render(() => <InviteBuilder weddingId="wed_1" />);
+    const { container } = render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
 
     await waitFor(() => screen.getByText("Save invite"));
 
@@ -378,7 +379,7 @@ describe("InviteBuilder theme", () => {
   it("shows the live section previews with the live copy buffers", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
     await waitFor(() => screen.getByText("Save invite"));
 
     // Each guest-page section has its own labelled preview card…
@@ -415,7 +416,7 @@ describe("InviteBuilder theme", () => {
       }),
     );
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
     await waitFor(() => screen.getByText("Save invite"));
 
     const notice = await waitFor(() => screen.getByText(/Adjusted to stay readable/));
@@ -437,7 +438,7 @@ describe("InviteBuilder theme", () => {
   it("reports no adjustment for the built-in scheme", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
     await waitFor(() => screen.getByText("Save invite"));
 
     expect(screen.queryByText(/Adjusted to stay readable/)).toBeNull();
@@ -447,7 +448,7 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json({ error: "Invalid colour or font" }, 400));
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
     await waitFor(() => screen.getByText("Save invite"));
 
     // Dirty the theme half so its PUT actually fires.
@@ -461,7 +462,7 @@ describe("InviteBuilder theme", () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json({ error: "Missing or invalid fields" }, 400));
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
     await waitFor(() => screen.getByText("Save invite"));
 
     // Dirty BOTH halves; the failed text PUT must stop the theme PUT.
@@ -481,7 +482,7 @@ describe("InviteBuilder theme", () => {
     ); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // text save
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
 
     const field = (await waitFor(() =>
       screen.getByLabelText("Invite message (optional)"),
@@ -511,7 +512,7 @@ describe("InviteBuilder theme", () => {
     ); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // text save
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
 
     const eyebrow = (await waitFor(() =>
       screen.getByLabelText("Events eyebrow"),
@@ -537,7 +538,7 @@ describe("InviteBuilder theme", () => {
   it("tolerates a payload without details/welcome copy (older API) — fields seed empty", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // no details/welcome keys
 
-    render(() => <InviteBuilder weddingId="wed_1" />);
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
 
     const eyebrow = (await waitFor(() =>
       screen.getByLabelText("Events eyebrow"),
@@ -562,7 +563,7 @@ describe("InviteBuilder shown/hidden badges", () => {
 
   it("marks both hero and story 'Hidden — empty' for a blank invite", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    const { container } = render(() => <InviteBuilder weddingId="wed_1" />);
+    const { container } = render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
 
     await waitFor(() => expect(badges(container)).toHaveLength(2));
     const [hero, story] = badges(container);
@@ -580,7 +581,7 @@ describe("InviteBuilder shown/hidden badges", () => {
         story: { eyebrow: null, heading: "How It Began", body: null, imageUrl: null },
       }),
     );
-    const { container } = render(() => <InviteBuilder weddingId="wed_1" />);
+    const { container } = render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
 
     await waitFor(() => expect(badges(container)).toHaveLength(2));
     const [hero, story] = badges(container);
@@ -591,7 +592,7 @@ describe("InviteBuilder shown/hidden badges", () => {
 
   it("flips the hero badge to 'Shown' live as the organiser types a title", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
-    const { container } = render(() => <InviteBuilder weddingId="wed_1" />);
+    const { container } = render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
 
     await waitFor(() => expect(badges(container)).toHaveLength(2));
     expect(badges(container)[0].dataset.shown).toBe("false");
@@ -605,5 +606,68 @@ describe("InviteBuilder shown/hidden badges", () => {
     await waitFor(() => expect(badges(container)[0].dataset.shown).toBe("false"));
     // No network save was triggered by typing.
     expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("isDesignLocked", () => {
+  it("never locks a free design", () => {
+    expect(isDesignLocked("free", [])).toBe(false);
+  });
+
+  it("locks a premium design without the entitlement", () => {
+    expect(isDesignLocked("premium", [])).toBe(true);
+    expect(isDesignLocked("premium", ["vendors"])).toBe(true);
+  });
+
+  it("unlocks a premium design with premium_templates", () => {
+    expect(isDesignLocked("premium", ["premium_templates"])).toBe(false);
+  });
+});
+
+describe("design selector", () => {
+  afterEach(() => {
+    cleanup();
+    authFetchMock.mockReset();
+    redirectSpy.mockReset();
+    toastSuccess.mockReset();
+    toastError.mockReset();
+  });
+
+  it("renders a card per catalog design with the active one marked", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
+
+    const classic = await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
+    expect(classic.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("clicking the current design does not save", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
+
+    const classic = await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
+    fireEvent.click(classic);
+
+    // No PUT to /design — the current design is a no-op click.
+    expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/design"))).toBe(false);
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("selecting a different design PUTs and updates the builder", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ ...EMPTY_CUSTOMISATION, designId: "other" })); // initial load — an id from a newer deploy, Classic not active
+    authFetchMock.mockResolvedValueOnce(json({ ...EMPTY_CUSTOMISATION, designId: "classic" })); // design save
+
+    render(() => <InviteBuilder weddingId="wed_1" entitlements={[]} />);
+
+    const classic = await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
+    expect(classic.getAttribute("aria-checked")).toBe("false");
+
+    fireEvent.click(classic);
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    expect(sentBody("/design")).toEqual({ designId: "classic" });
+    await waitFor(() => expect(classic.getAttribute("aria-checked")).toBe("true"));
   });
 });
