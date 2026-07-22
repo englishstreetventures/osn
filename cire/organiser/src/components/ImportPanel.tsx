@@ -204,7 +204,7 @@ export default function ImportPanel(props: { weddingId: string }) {
             <span class="inline-block transition-transform group-open/import:rotate-90">›</span>
           </span>
         </span>
-        <span class="font-display text-text text-[1.4rem] font-light italic">
+        <span class="font-display text-text text-[1.4rem] font-light">
           Upload events &amp; guests CSV
         </span>
         <span class="font-body text-text-muted text-[0.82rem]">
@@ -260,7 +260,7 @@ export default function ImportPanel(props: { weddingId: string }) {
         <CsvFormatHelp />
 
         <form class="flex flex-col gap-4" onSubmit={handlePreview}>
-          <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div class="grid grid-cols-1 gap-4 @xl/panel:grid-cols-2">
             <label class="flex flex-col gap-1.5">
               <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
                 events.csv
@@ -322,7 +322,7 @@ export default function ImportPanel(props: { weddingId: string }) {
         <Show when={preview()}>
           {(p) => (
             <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
-              <h3 class="font-display text-gold-dim text-[1.1rem] italic">Diff preview</h3>
+              <h3 class="font-display text-gold-dim text-[1.1rem]">Diff preview</h3>
               <PlanCounts plan={p().plan} />
               <Show when={p().plan.warnings.length > 0}>
                 <ul class="text-text-muted flex flex-col gap-1 text-[0.82rem]">
@@ -346,7 +346,7 @@ export default function ImportPanel(props: { weddingId: string }) {
         <Show when={applied()}>
           {(s) => (
             <div class="border-gold/30 bg-gold/5 text-text flex flex-col gap-2 rounded-sm border p-4 text-[0.88rem]">
-              <p class="font-display text-gold-dim text-[1.1rem] italic">Applied</p>
+              <p class="font-display text-gold-dim text-[1.1rem]">Applied</p>
               <p class="text-text-muted font-mono text-[0.72rem]">{s().importId}</p>
               <p>
                 events: +{s().eventsCreated} / ~{s().eventsUpdated} / -{s().eventsRemoved} ·
@@ -414,7 +414,7 @@ function KeyLegend() {
 function FormattingTips(props: { children: JSX.Element }) {
   return (
     <details class="border-gold/25 bg-gold/[0.06] group/tips rounded-sm border">
-      <summary class="font-display text-gold-dim flex cursor-pointer list-none items-center gap-2 p-3 text-[0.95rem] italic select-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
+      <summary class="font-display text-gold-dim flex cursor-pointer list-none items-center gap-2 p-3 text-[0.95rem] select-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
         <span
           class="text-gold inline-block not-italic transition-transform group-open/tips:rotate-90"
           aria-hidden
@@ -476,7 +476,7 @@ function StepCard(props: { n: number; title: string; children: JSX.Element }) {
     <li class="border-border bg-surface/30 flex flex-col gap-3 rounded-sm border p-4">
       <div class="flex items-center gap-2.5">
         <StepBadge n={props.n} />
-        <h3 class="font-display text-text text-[1.05rem] italic">{props.title}</h3>
+        <h3 class="font-display text-text text-[1.05rem]">{props.title}</h3>
       </div>
       {props.children}
     </li>
@@ -739,7 +739,7 @@ function CsvFormatHelp() {
       </summary>
 
       <div class="border-border/60 flex flex-col gap-5 border-t px-4 py-5">
-        <ol class="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <ol class="grid grid-cols-1 gap-4 @xl/panel:grid-cols-3">
           <StepCard n={1} title="New here?">
             <p class="text-text-muted text-[0.8rem]">
               Download a starter template above — it has the correct headers and example rows, so

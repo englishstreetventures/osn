@@ -103,25 +103,28 @@ function WeddingDashboard(props: {
     <div class="flex flex-col gap-8">
       {/* ── Wedding context header — "which wedding am I editing" + the two
           things every organiser wants up top: preview it, share it. ───────── */}
-      <header class="flex flex-col gap-4">
+      <header class="border-border flex flex-col gap-4 border-b pb-6">
         <button
           type="button"
           onClick={() => props.onBack()}
-          class="font-body text-text-muted hover:text-gold self-start text-[0.78rem] tracking-[0.1em] uppercase underline-offset-4 transition hover:underline"
+          class="font-body text-text-muted hover:text-gold self-start text-[0.72rem] tracking-[0.16em] uppercase transition-colors duration-(--dur-fast)"
         >
-          ← All weddings
+          <span aria-hidden="true" class="mr-2">
+            ←
+          </span>
+          All weddings
         </button>
-        <div class="flex flex-wrap items-end justify-between gap-4">
-          <div class="flex flex-col gap-1">
-            <span class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">
+        <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+          <div class="flex min-w-0 flex-col gap-2">
+            <span class="font-body text-gold text-[0.68rem] tracking-[0.22em] uppercase">
               {props.wedding.slug}
             </span>
-            <div class="flex flex-wrap items-center gap-3">
-              <h1 class="font-display text-text text-[1.8rem] leading-none font-light italic">
+            <div class="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-2">
+              <h1 class="font-display text-text text-[clamp(1.75rem,5cqi,2.5rem)] leading-[1.1] font-light">
                 {props.wedding.displayName}
               </h1>
               <span
-                class="border-gold/40 text-gold font-body rounded-sm border px-2 py-0.5 text-[0.62rem] tracking-[0.16em] uppercase"
+                class="border-gold/40 text-gold font-body shrink-0 rounded-sm border px-2 py-0.5 text-[0.6rem] tracking-[0.16em] uppercase"
                 title={roleBadge().title}
               >
                 {roleBadge().label}
@@ -150,9 +153,11 @@ function WeddingDashboard(props: {
   );
 }
 
+/** Portal-level nav (Weddings / Security). Same segmented shape as the module
+ *  sub-tabs so the two levels of navigation read as one system. */
 const navClass = (active: boolean) =>
-  `font-body text-[0.82rem] tracking-[0.1em] uppercase underline-offset-4 transition ${
-    active ? "text-gold" : "text-text-muted hover:text-gold hover:underline"
+  `font-body rounded-sm px-3 py-1.5 text-[0.76rem] tracking-[0.12em] uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
+    active ? "bg-gold/12 text-gold" : "text-text-muted hover:text-text hover:bg-surface/60"
   }`;
 
 function initialRoute(): DashboardRoute {
@@ -321,9 +326,14 @@ function Dashboard() {
   }
 
   return (
-    <div class="flex flex-col gap-8">
-      <div class="flex flex-wrap items-center justify-between gap-4">
-        <nav class="flex items-center gap-5" aria-label="Portal sections">
+    // `@container/page` is the outermost query context: the two views that sit
+    // outside the module shell (the wedding list, the create form) size off it.
+    <div class="@container/page flex flex-col gap-8">
+      <div class="border-border flex flex-wrap items-center justify-between gap-4 border-b pb-4">
+        <nav
+          class="border-border bg-surface/30 flex items-center gap-1 rounded-sm border p-1"
+          aria-label="Portal sections"
+        >
           <button
             type="button"
             onClick={() => selectView("weddings")}

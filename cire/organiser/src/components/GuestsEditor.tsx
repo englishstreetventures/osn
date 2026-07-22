@@ -1,5 +1,6 @@
 import { useAuth } from "@osn/client/solid";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
@@ -200,9 +201,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
           when={store.draft.families.length > 0}
           fallback={
             <div class="border-border bg-surface/30 flex flex-col items-start gap-2 rounded-sm border border-dashed p-8 text-center">
-              <p class="font-display text-gold-dim w-full text-[1.2rem] italic">
-                No households yet
-              </p>
+              <p class="font-display text-gold-dim w-full text-[1.2rem]">No households yet</p>
               <p class="font-body text-text-muted w-full text-[0.85rem]">
                 Add a household to start building your guest list.
               </p>
@@ -228,71 +227,81 @@ export default function GuestsEditor(props: { weddingId: string }) {
           preview, gates the apply. */}
       <Show when={preview()}>
         {(p) => (
-          <div
-            class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Review changes before applying"
-          >
-            <div class="bg-bg border-border max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-sm border p-6 shadow-xl">
-              <ChangePreview
-                plan={p().plan}
-                warnings={p().warnings}
-                busy={busy()}
-                confirmLabel="Confirm & save"
-                onConfirm={() => void handleApply()}
-                onCancel={() => setPreview(null)}
-              />
+          /* Portalled to document.body: the dashboard shell sets `container-type`
+             on its layout boxes, which brings `contain: layout` with it and makes
+             them the containing block for `position: fixed` descendants. */
+          <Portal>
+            <div
+              class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Review changes before applying"
+            >
+              <div class="bg-bg border-border max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-sm border p-6 shadow-xl">
+                <ChangePreview
+                  plan={p().plan}
+                  warnings={p().warnings}
+                  busy={busy()}
+                  confirmLabel="Confirm & save"
+                  onConfirm={() => void handleApply()}
+                  onCancel={() => setPreview(null)}
+                />
+              </div>
             </div>
-          </div>
+          </Portal>
         )}
       </Show>
 
       {/* Sticky unsaved-changes bar (§8) — only while dirty. */}
       <Show when={store.loaded() && store.dirty()}>
-        <div class="border-border bg-surface/95 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur">
-          <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-            <span class="font-body text-text-muted text-[0.82rem]">
-              <Show when={hasErrors()} fallback="You have unsaved changes.">
-                <span class="text-error">
-                  Fix {store.errors().length} {store.errors().length === 1 ? "error" : "errors"}{" "}
-                  before saving.
-                </span>
-              </Show>
-            </span>
-            <div class="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={store.undo}
-                disabled={!store.canUndo() || busy()}
-                class="font-body text-text-muted hover:text-gold border-border rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-              >
-                Undo
-              </button>
-              <button
-                type="button"
-                onClick={store.discard}
-                disabled={busy()}
-                class="font-body text-text-muted hover:text-error border-border rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-              >
-                Discard changes
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSave()}
-                disabled={busy() || hasErrors()}
-                class="border-gold bg-gold font-body text-bg hover:bg-gold-dim rounded-sm border px-4 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-              >
-                {busy() ? "Working…" : "Save changes"}
-              </button>
+        {/* Portalled for the same containment reason as the preview modal above —
+            a `fixed` bar inside a `container-type` box pins to that box, not the
+            viewport, so it would ride inside the panel instead of the window. */}
+        <Portal>
+          <div class="border-border bg-surface/95 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur">
+            <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+              <span class="font-body text-text-muted text-[0.82rem]">
+                <Show when={hasErrors()} fallback="You have unsaved changes.">
+                  <span class="text-error">
+                    Fix {store.errors().length} {store.errors().length === 1 ? "error" : "errors"}{" "}
+                    before saving.
+                  </span>
+                </Show>
+              </span>
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={store.undo}
+                  disabled={!store.canUndo() || busy()}
+                  class="font-body text-text-muted hover:text-gold border-border rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  onClick={store.discard}
+                  disabled={busy()}
+                  class="font-body text-text-muted hover:text-error border-border rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+                >
+                  Discard changes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSave()}
+                  disabled={busy() || hasErrors()}
+                  class="border-gold bg-gold font-body text-bg hover:bg-gold-dim rounded-sm border px-4 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+                >
+                  {busy() ? "Working…" : "Save changes"}
+                </button>
+              </div>
             </div>
+            <Show when={saveError()}>
+              <p class="border-error/20 bg-error/5 text-error mx-auto max-w-5xl border-t px-4 py-2 text-[0.82rem]">
+                {saveError()}
+              </p>
+            </Show>
           </div>
-          <Show when={saveError()}>
-            <p class="border-error/20 bg-error/5 text-error mx-auto max-w-5xl border-t px-4 py-2 text-[0.82rem]">
-              {saveError()}
-            </p>
-          </Show>
-        </div>
+        </Portal>
       </Show>
     </div>
   );
@@ -320,7 +329,7 @@ function FamilyCard(props: {
             aria-label="Household name"
             aria-invalid={famErrors().length > 0}
             onInput={(e) => props.store.renameFamily(props.family.key, e.currentTarget.value)}
-            class="border-border bg-bg font-display text-text focus:border-gold rounded-sm border px-3 py-1.5 text-[1.05rem] italic outline-none"
+            class="border-border bg-bg font-display text-text focus:border-gold rounded-sm border px-3 py-1.5 text-[1.05rem] outline-none"
           />
         </label>
         <div class="flex items-center gap-3">

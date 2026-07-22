@@ -99,9 +99,13 @@ function fmtBudget(minor: number, currency: string): string {
   }
 }
 
+/** Agenda marks reuse the module rail's glyphs — an agenda row and the module it
+ *  sends you to carry the same mark, so the two read as one system. (They were
+ *  emoji, which rendered in a different colour and weight on every platform and
+ *  matched nothing else on the page.) */
 const AGENDA_ICON: Record<AgendaItem["kind"], string> = {
-  event: "📅",
-  payment: "💰",
+  event: "◇",
+  payment: "$",
   task: "✓",
 };
 
@@ -128,6 +132,33 @@ function formatWeddingDate(isoDate: string): string {
   }).format(date);
 }
 
+/** One card shell for the whole Overview grid. Every card — read-only or
+ *  clickable — is the same rectangle with the same rule, padding, and internal
+ *  rhythm; only the hover response tells you which ones go somewhere. Before,
+ *  three shells were in play (`bg-surface/30`, `bg-surface/15`, and a gradient),
+ *  which made the grid read as three unrelated groups of cards. */
+const cardBase = "border-border bg-surface/30 flex flex-col gap-3 rounded-sm border p-5";
+
+/** The one card that carries the wedding date. Same rectangle as every other
+ *  card, with the rule in gold rather than the neutral border — one card in the
+ *  grid is allowed to be the loudest, and it is the countdown. */
+const cardBaseAccent = "border-gold/30 bg-surface/30 flex flex-col gap-3 rounded-sm border p-5";
+
+/** Added to a card that is itself a button. */
+const cardLink =
+  "hover:border-gold-dim hover:bg-surface/50 text-left transition-colors duration-(--dur-base) ease-(--ease-out)";
+
+/** The gold label every card leads with. One weight, one tracking, everywhere. */
+const cardEyebrow = "font-body text-gold text-[0.7rem] tracking-[0.18em] uppercase";
+
+/** The "go to the module" line at the foot of a card. */
+const cardCta =
+  "font-body text-gold-dim hover:text-gold group/cta flex items-center gap-1.5 self-start text-[0.78rem] transition-colors duration-(--dur-fast)";
+
+/** The arrow inside a {@link cardCta}, nudged on hover. */
+const cardCtaArrow =
+  "transition-transform duration-(--dur-base) ease-(--ease-out) group-hover/cta:translate-x-1";
+
 /** A thin meter used by the RSVP / Budget / Checklist cards. `over` renders in a
  *  warning tone and is used when a value exceeds its max (e.g. over-budget). */
 function ProgressBar(props: {
@@ -148,7 +179,7 @@ function ProgressBar(props: {
       aria-label={props.label ?? "Progress"}
     >
       <div
-        class={`h-full rounded-full ${props.tone === "over" ? "bg-red-500/80" : "bg-gold"}`}
+        class={`h-full rounded-full ${props.tone === "over" ? "bg-error/80" : "bg-gold"}`}
         style={{ width: `${pct()}%` }}
       />
     </div>
@@ -357,8 +388,8 @@ export default function Overview(props: {
   const spentSoFarMemo = createMemo(() => spentSoFar(props.weddingId));
 
   const WhatsNext = () => (
-    <div class="border-border bg-surface/20 flex flex-col gap-3 rounded-sm border p-5">
-      <p class="font-body text-gold text-[0.7rem] tracking-[0.18em] uppercase">What&rsquo;s next</p>
+    <div class={cardBase}>
+      <p class={cardEyebrow}>What&rsquo;s next</p>
       <Show
         when={agenda().length > 0}
         fallback={
@@ -392,7 +423,7 @@ export default function Overview(props: {
                   </span>
                   <span class="text-text grow truncate text-[0.88rem]">{item.label}</span>
                   <Show when={item.overdue}>
-                    <span class="font-body shrink-0 text-[0.68rem] tracking-wide text-red-400 uppercase">
+                    <span class="font-body text-error shrink-0 text-[0.68rem] tracking-wide uppercase">
                       overdue
                     </span>
                   </Show>
@@ -421,7 +452,7 @@ export default function Overview(props: {
       <Show when={data.loading}>
         <div class="flex flex-col gap-4">
           <div class="bg-surface h-[120px] animate-pulse rounded-sm" />
-          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div class="grid gap-4 @lg/panel:grid-cols-2 @3xl/panel:grid-cols-3">
             <For each={[1, 2, 3]}>
               {() => <div class="bg-surface h-[130px] animate-pulse rounded-sm" />}
             </For>
@@ -448,25 +479,26 @@ export default function Overview(props: {
         <Show when={!isFresh()}>
           <div class="flex flex-col gap-4">
             <WhatsNext />
-            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="grid gap-4 @lg/panel:grid-cols-2 @3xl/panel:grid-cols-3">
               {/* ── Countdown ─────────────────────────────────────────────── */}
-              <div class="border-gold/25 from-surface/50 to-surface/20 flex flex-col gap-2 rounded-sm border bg-gradient-to-br p-5">
-                <p class="font-body text-gold text-[0.7rem] tracking-[0.18em] uppercase">
-                  Countdown
-                </p>
+              <div class={cardBaseAccent}>
+                <p class={cardEyebrow}>Countdown</p>
                 <Show
                   when={weddingDate()}
                   fallback={
                     <>
-                      <p class="font-display text-text text-[1.5rem] leading-tight font-light italic">
+                      <p class="font-display text-text text-[1.5rem] leading-tight font-light">
                         No date yet
                       </p>
                       <button
                         type="button"
                         onClick={() => props.onNavigate("settings", "wedding")}
-                        class="font-body text-gold-dim hover:text-gold self-start text-[0.78rem] underline-offset-4 transition hover:underline"
+                        class={cardCta}
                       >
-                        Set your wedding date →
+                        Set your wedding date
+                        <span aria-hidden="true" class={cardCtaArrow}>
+                          →
+                        </span>
                       </button>
                     </>
                   }
@@ -476,7 +508,7 @@ export default function Overview(props: {
                       <Show
                         when={countdown() !== null}
                         fallback={
-                          <p class="font-display text-text text-[1.4rem] leading-tight font-light italic">
+                          <p class="font-display text-text text-[1.4rem] leading-tight font-light">
                             {formatWeddingDate(iso())}
                           </p>
                         }
@@ -524,8 +556,8 @@ export default function Overview(props: {
               </div>
 
               {/* ── RSVP totals ───────────────────────────────────────────── */}
-              <div class="border-border bg-surface/30 flex flex-col gap-3 rounded-sm border p-5">
-                <p class="font-body text-gold text-[0.7rem] tracking-[0.18em] uppercase">RSVPs</p>
+              <div class={cardBase}>
+                <p class={cardEyebrow}>RSVPs</p>
                 <Show
                   when={data()?.rsvps && data()!.rsvps!.eventCount > 0}
                   fallback={
@@ -588,9 +620,12 @@ export default function Overview(props: {
                         <button
                           type="button"
                           onClick={() => props.onNavigate("guests", "rsvps")}
-                          class="font-body text-gold-dim hover:text-gold self-start text-[0.78rem] underline-offset-4 transition hover:underline"
+                          class={cardCta}
                         >
-                          See replies per event →
+                          See replies per event
+                          <span aria-hidden="true" class={cardCtaArrow}>
+                            →
+                          </span>
                         </button>
                       </>
                     );
@@ -599,10 +634,8 @@ export default function Overview(props: {
               </div>
 
               {/* ── Guests + schedule snapshot ─────────────────────────────── */}
-              <div class="border-border bg-surface/30 flex flex-col gap-3 rounded-sm border p-5">
-                <p class="font-body text-gold text-[0.7rem] tracking-[0.18em] uppercase">
-                  Guests &amp; schedule
-                </p>
+              <div class={cardBase}>
+                <p class={cardEyebrow}>Guests &amp; schedule</p>
                 <dl class="font-body text-text-muted flex flex-col gap-1.5 text-[0.85rem]">
                   <div class="flex justify-between gap-2">
                     <dt>Households</dt>
@@ -622,9 +655,12 @@ export default function Overview(props: {
                 <button
                   type="button"
                   onClick={() => props.onNavigate("guests", "list")}
-                  class="font-body text-gold-dim hover:text-gold self-start text-[0.78rem] underline-offset-4 transition hover:underline"
+                  class={cardCta}
                 >
-                  Open the guest list →
+                  Open the guest list
+                  <span aria-hidden="true" class={cardCtaArrow}>
+                    →
+                  </span>
                 </button>
               </div>
 
@@ -632,11 +668,9 @@ export default function Overview(props: {
               <button
                 type="button"
                 onClick={() => props.onNavigate("checklist")}
-                class="border-border bg-surface/15 hover:border-gold/40 flex flex-col gap-2 rounded-sm border p-5 text-left transition-colors"
+                class={`${cardBase} ${cardLink}`}
               >
-                <p class="font-body text-gold-dim text-[0.7rem] tracking-[0.18em] uppercase">
-                  Checklist
-                </p>
+                <p class={cardEyebrow}>Checklist</p>
                 <Show
                   when={taskCounts(props.weddingId)}
                   fallback={<p class="text-text-muted text-[0.82rem]">Loading your tasks…</p>}
@@ -669,11 +703,9 @@ export default function Overview(props: {
               <button
                 type="button"
                 onClick={() => props.onNavigate("vendors")}
-                class="border-border bg-surface/15 hover:border-gold/40 flex flex-col gap-2 rounded-sm border p-5 text-left transition-colors"
+                class={`${cardBase} ${cardLink}`}
               >
-                <p class="font-body text-gold-dim text-[0.7rem] tracking-[0.18em] uppercase">
-                  Vendors
-                </p>
+                <p class={cardEyebrow}>Vendors</p>
                 <Show
                   when={vendorCountValue() !== null}
                   fallback={<p class="text-text-muted text-[0.82rem]">Loading your vendors…</p>}
@@ -698,11 +730,9 @@ export default function Overview(props: {
               <button
                 type="button"
                 onClick={() => props.onNavigate("budget")}
-                class="border-border bg-surface/15 hover:border-gold/40 flex flex-col gap-2 rounded-sm border p-5 text-left transition-colors"
+                class={`${cardBase} ${cardLink}`}
               >
-                <p class="font-body text-gold-dim text-[0.7rem] tracking-[0.18em] uppercase">
-                  Budget
-                </p>
+                <p class={cardEyebrow}>Budget</p>
                 <Show
                   when={spentSoFarMemo() !== null}
                   fallback={<p class="text-text-muted text-[0.82rem]">Loading your budget…</p>}
@@ -747,7 +777,7 @@ export default function Overview(props: {
                             label="Budget spend"
                           />
                           <Show when={spent > cap!}>
-                            <p class="text-[0.72rem] text-red-400">Over budget</p>
+                            <p class="text-error text-[0.72rem]">Over budget</p>
                           </Show>
                         </Show>
                       );

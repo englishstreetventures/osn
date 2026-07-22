@@ -237,7 +237,7 @@ export default function EventTable(props: EventTableProps) {
 
       <Show when={!loading() && !error() && !hasEvents()}>
         <div class="border-border bg-surface/30 flex flex-col items-start gap-2 rounded-sm border border-dashed p-8 text-center">
-          <p class="font-display text-gold-dim w-full text-[1.2rem] italic">No events yet</p>
+          <p class="font-display text-gold-dim w-full text-[1.2rem]">No events yet</p>
           <p class="font-body text-text-muted w-full text-[0.85rem] leading-relaxed">
             Import your events sheet from the Spreadsheet Import above. Add the events first —
             guests are matched to events that already exist.
@@ -259,15 +259,13 @@ export default function EventTable(props: EventTableProps) {
                   <span class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">
                     {event.slug}
                   </span>
-                  <h3 class="font-display text-text text-[1.5rem] font-light italic">
-                    {event.name}
-                  </h3>
+                  <h3 class="font-display text-text text-[1.5rem] font-light">{event.name}</h3>
                   <p class="font-body text-text-muted text-[0.82rem]">
                     {formatRange(event.startAt, event.endAt, event.timezone)} · {event.timezone}
                   </p>
                 </header>
 
-                <dl class="font-body grid grid-cols-1 gap-x-6 gap-y-2 text-[0.88rem] md:grid-cols-2">
+                <dl class="font-body grid grid-cols-1 gap-x-6 gap-y-2 text-[0.88rem] @xl/panel:grid-cols-2">
                   <Show when={event.address}>
                     <Detail label="Address" value={event.address!} />
                   </Show>
@@ -442,7 +440,7 @@ function EventImageField(props: {
 
 function Detail(props: { label: string; value: string; span?: boolean }) {
   return (
-    <div class={props.span ? "md:col-span-2" : ""}>
+    <div class={props.span ? "@xl/panel:col-span-2" : ""}>
       <dt class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
         {props.label}
       </dt>

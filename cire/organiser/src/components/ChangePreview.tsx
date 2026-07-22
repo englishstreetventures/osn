@@ -121,7 +121,7 @@ export function PlanCounts(props: { plan: ChangePlan }) {
 export default function ChangePreview(props: ChangePreviewProps) {
   return (
     <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
-      <h3 class="font-display text-gold-dim text-[1.1rem] italic">Diff preview</h3>
+      <h3 class="font-display text-gold-dim text-[1.1rem]">Diff preview</h3>
       <PlanCounts plan={props.plan} />
 
       <Show when={props.warnings.length > 0}>

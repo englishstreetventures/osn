@@ -1,0 +1,21 @@
+{
+  "scanned": "2026-07-22",
+  "target": "cire/organiser",
+  "findings": {
+    "framework": "Astro 7 + SolidJS 1.9 islands (cire/organiser/package.json)",
+    "styling": "Tailwind v4 via @tailwindcss/vite; @theme tokens in src/styles/global.css",
+    "fontStack": "Cormorant Garamond (display) + Lato (body), loaded via <link> in src/pages/index.astro",
+    "palette": "11 OKLCH tokens in src/styles/global.css @theme (bg, surface, border, text, text-muted, gold, gold-dim, error, ...)",
+    "motion": "cut — no motion library in package.json; all motion is CSS",
+    "spacing": "introduced --space-1..--space-8 in @theme (none existed)",
+    "componentLibrary": "@kobalte/core 0.13 (dialog, popover); @osn/ui shared primitives"
+  },
+  "preserve": ["font stack", "OKLCH palette", "route + hash scheme", "information architecture", "copy intent"],
+  "introduce": [
+    "spacing / radius / duration / easing / focus tokens",
+    "container-query layout (no media queries)",
+    "rail + Kobalte sheet navigation",
+    "one card-shell family across Overview",
+    "slop-test gates"
+  ]
+}

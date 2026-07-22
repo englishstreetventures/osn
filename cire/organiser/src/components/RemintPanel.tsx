@@ -114,7 +114,7 @@ export default function RemintPanel(props: RemintPanelProps) {
         <legend class="font-body text-text-muted mb-1.5 text-[0.72rem] tracking-[0.1em] uppercase">
           New code style
         </legend>
-        <div class="flex flex-col gap-2 sm:flex-row">
+        <div class="flex flex-col gap-2 @lg/panel:flex-row">
           <For each={STYLE_OPTIONS}>
             {(option) => (
               <label

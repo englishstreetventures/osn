@@ -1,5 +1,6 @@
 import { useAuth } from "@osn/client/solid";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
@@ -220,7 +221,7 @@ export default function EventsEditor(props: { weddingId: string }) {
           when={store.draft.events.length > 0}
           fallback={
             <div class="border-border bg-surface/30 flex flex-col items-start gap-2 rounded-sm border border-dashed p-8 text-center">
-              <p class="font-display text-gold-dim w-full text-[1.2rem] italic">No events yet</p>
+              <p class="font-display text-gold-dim w-full text-[1.2rem]">No events yet</p>
               <p class="font-body text-text-muted w-full text-[0.85rem]">
                 Add an event to start building your schedule. Guests are matched to events that
                 exist.
@@ -262,79 +263,89 @@ export default function EventsEditor(props: { weddingId: string }) {
       {/* Preview modal (the shared ChangePreview). */}
       <Show when={preview()}>
         {(p) => (
-          <div
-            class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Review changes before applying"
-          >
-            <div class="bg-bg border-border max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-sm border p-6 shadow-xl">
-              <ChangePreview
-                plan={p().plan}
-                warnings={p().warnings}
-                busy={busy()}
-                confirmLabel="Confirm & save"
-                onConfirm={() => void handleApply()}
-                onCancel={() => setPreview(null)}
-              />
+          /* Portalled to document.body: the dashboard shell sets `container-type`
+             on its layout boxes, which brings `contain: layout` with it and makes
+             them the containing block for `position: fixed` descendants. */
+          <Portal>
+            <div
+              class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Review changes before applying"
+            >
+              <div class="bg-bg border-border max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-sm border p-6 shadow-xl">
+                <ChangePreview
+                  plan={p().plan}
+                  warnings={p().warnings}
+                  busy={busy()}
+                  confirmLabel="Confirm & save"
+                  onConfirm={() => void handleApply()}
+                  onCancel={() => setPreview(null)}
+                />
+              </div>
             </div>
-          </div>
+          </Portal>
         )}
       </Show>
 
       {/* Sticky unsaved-changes bar (§8) — only while dirty. */}
       <Show when={store.loaded() && store.dirty()}>
-        <div class="border-border bg-surface/95 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur">
-          <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-            <span class="font-body text-text-muted text-[0.82rem]">
-              <Show when={hasErrors()} fallback="You have unsaved changes.">
-                <span class="text-error">
-                  Fix {store.errors().length} {store.errors().length === 1 ? "error" : "errors"}{" "}
-                  before saving.
-                </span>
-              </Show>
-            </span>
-            <div class="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={store.undo}
-                disabled={!store.canUndo() || busy()}
-                class="font-body text-text-muted hover:text-gold border-border rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-              >
-                Undo
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  store.discard();
-                  setEditingKey(null);
-                }}
-                disabled={busy()}
-                class="font-body text-text-muted hover:text-error border-border rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-              >
-                Discard changes
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSave()}
-                disabled={busy() || hasErrors()}
-                class="border-gold bg-gold font-body text-bg hover:bg-gold-dim rounded-sm border px-4 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-              >
-                {busy() ? "Working…" : "Save changes"}
-              </button>
+        {/* Portalled for the same containment reason as the preview modal above —
+            a `fixed` bar inside a `container-type` box pins to that box, not the
+            viewport, so it would ride inside the panel instead of the window. */}
+        <Portal>
+          <div class="border-border bg-surface/95 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur">
+            <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+              <span class="font-body text-text-muted text-[0.82rem]">
+                <Show when={hasErrors()} fallback="You have unsaved changes.">
+                  <span class="text-error">
+                    Fix {store.errors().length} {store.errors().length === 1 ? "error" : "errors"}{" "}
+                    before saving.
+                  </span>
+                </Show>
+              </span>
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={store.undo}
+                  disabled={!store.canUndo() || busy()}
+                  class="font-body text-text-muted hover:text-gold border-border rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    store.discard();
+                    setEditingKey(null);
+                  }}
+                  disabled={busy()}
+                  class="font-body text-text-muted hover:text-error border-border rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+                >
+                  Discard changes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSave()}
+                  disabled={busy() || hasErrors()}
+                  class="border-gold bg-gold font-body text-bg hover:bg-gold-dim rounded-sm border px-4 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+                >
+                  {busy() ? "Working…" : "Save changes"}
+                </button>
+              </div>
             </div>
+            <Show when={store.warnings().length > 0 && !hasErrors()}>
+              <p class="border-gold/20 bg-gold/5 text-gold-dim mx-auto max-w-5xl border-t px-4 py-2 text-[0.82rem]">
+                {store.warnings().join(" ")}
+              </p>
+            </Show>
+            <Show when={saveError()}>
+              <p class="border-error/20 bg-error/5 text-error mx-auto max-w-5xl border-t px-4 py-2 text-[0.82rem]">
+                {saveError()}
+              </p>
+            </Show>
           </div>
-          <Show when={store.warnings().length > 0 && !hasErrors()}>
-            <p class="border-gold/20 bg-gold/5 text-gold-dim mx-auto max-w-5xl border-t px-4 py-2 text-[0.82rem]">
-              {store.warnings().join(" ")}
-            </p>
-          </Show>
-          <Show when={saveError()}>
-            <p class="border-error/20 bg-error/5 text-error mx-auto max-w-5xl border-t px-4 py-2 text-[0.82rem]">
-              {saveError()}
-            </p>
-          </Show>
-        </div>
+        </Portal>
       </Show>
     </div>
   );
@@ -378,7 +389,7 @@ function EventRowCard(props: {
       </div>
 
       <div class="min-w-0 flex-1">
-        <p class="font-display text-text truncate text-[1.15rem] italic">
+        <p class="font-display text-text truncate text-[1.15rem]">
           {props.event.name || <span class="text-text-muted not-italic">Untitled event</span>}
         </p>
         <p class="font-body text-text-muted truncate text-[0.8rem]">
@@ -460,236 +471,242 @@ function EventDrawer(props: {
     });
 
   return (
-    <div class="fixed inset-0 z-50 flex justify-end bg-black/60" onClick={props.onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Edit event"
-        class="bg-bg border-border h-full w-full max-w-md overflow-y-auto border-l p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div class="mb-6 flex items-center justify-between">
-          <h2 class="font-display text-gold-dim text-[1.4rem] italic">Event details</h2>
-          <button
-            type="button"
-            onClick={props.onClose}
-            aria-label="Close"
-            class="text-text-muted hover:text-text text-[1.2rem]"
-          >
-            ✕
-          </button>
-        </div>
-
-        <Show when={props.errors.length > 0}>
-          <div class="border-error/20 bg-error/5 mb-5 flex flex-col gap-1 rounded-sm border p-3">
-            <For each={props.errors}>{(msg) => <p class="text-error text-[0.8rem]">{msg}</p>}</For>
-          </div>
-        </Show>
-
-        <div class="flex flex-col gap-5">
-          <label class="flex flex-col gap-1.5">
-            <span class={fieldLabel}>Event name</span>
-            <input
-              type="text"
-              value={props.event.name}
-              aria-label="Event name"
-              onInput={(e) => props.onPatch({ name: e.currentTarget.value })}
-              class={fieldInput}
-            />
-          </label>
-
-          {/* Start: date + time + offset. */}
-          <fieldset class="flex flex-col gap-2 border-none p-0">
-            <legend class={fieldLabel}>Start</legend>
-            <DatePicker
-              label="Start date"
-              value={start().date || null}
-              onChange={(v) => setStart("date", v)}
-            />
-            <div class="flex flex-wrap items-end gap-3">
-              <label class="flex flex-col gap-1.5">
-                <span class={fieldLabel}>Time</span>
-                <input
-                  type="time"
-                  value={start().time}
-                  aria-label="Start time"
-                  onInput={(e) => setStart("time", e.currentTarget.value)}
-                  class={fieldInput}
-                />
-              </label>
-              <label class="flex flex-col gap-1.5">
-                <span class={fieldLabel}>UTC offset</span>
-                <select
-                  value={start().offset}
-                  aria-label="Start UTC offset"
-                  onChange={(e) => setStart("offset", e.currentTarget.value)}
-                  class={fieldInput}
-                >
-                  <For each={OFFSET_OPTIONS}>{(o) => <option value={o}>{o}</option>}</For>
-                </select>
-              </label>
-            </div>
-          </fieldset>
-
-          {/* End (optional). */}
-          <fieldset class="flex flex-col gap-2 border-none p-0">
-            <legend class={fieldLabel}>End (optional)</legend>
-            <DatePicker
-              label="End date"
-              value={end().date || null}
-              onChange={(v) => setEnd("date", v)}
-            />
-            <div class="flex flex-wrap items-end gap-3">
-              <label class="flex flex-col gap-1.5">
-                <span class={fieldLabel}>Time</span>
-                <input
-                  type="time"
-                  value={end().time}
-                  aria-label="End time"
-                  onInput={(e) => setEnd("time", e.currentTarget.value)}
-                  class={fieldInput}
-                />
-              </label>
-              <label class="flex flex-col gap-1.5">
-                <span class={fieldLabel}>UTC offset</span>
-                <select
-                  value={end().offset}
-                  aria-label="End UTC offset"
-                  onChange={(e) => setEnd("offset", e.currentTarget.value)}
-                  class={fieldInput}
-                >
-                  <For each={OFFSET_OPTIONS}>{(o) => <option value={o}>{o}</option>}</For>
-                </select>
-              </label>
-            </div>
-          </fieldset>
-
-          <label class="flex flex-col gap-1.5">
-            <span class={fieldLabel}>Timezone (IANA name)</span>
-            <input
-              type="text"
-              value={props.event.timezone}
-              aria-label="Timezone"
-              placeholder="Australia/Sydney"
-              onInput={(e) => props.onPatch({ timezone: e.currentTarget.value })}
-              class={fieldInput}
-            />
-          </label>
-
-          <label class="flex flex-col gap-1.5">
-            <span class={fieldLabel}>Address</span>
-            <input
-              type="text"
-              value={props.event.address ?? ""}
-              aria-label="Address"
-              onInput={(e) =>
-                props.onPatch({
-                  address: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
-                })
-              }
-              class={fieldInput}
-            />
-          </label>
-
-          <label class="flex flex-col gap-1.5">
-            <span class={fieldLabel}>Dress code description</span>
-            <textarea
-              value={props.event.dressCodeDescription ?? ""}
-              aria-label="Dress code description"
-              rows={2}
-              onInput={(e) =>
-                props.onPatch({
-                  dressCodeDescription:
-                    e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
-                })
-              }
-              class={fieldInput}
-            />
-          </label>
-
-          {/* Dress-code palette — each swatch a name + a ColorPicker. */}
-          <div class="flex flex-col gap-2">
-            <span class={fieldLabel}>Dress code palette</span>
-            <For each={props.event.dressCodePalette}>
-              {(swatch, i) => (
-                <div class="flex flex-wrap items-end gap-2">
-                  <label class="flex flex-1 flex-col gap-1.5">
-                    <span class="sr-only">Swatch name</span>
-                    <input
-                      type="text"
-                      value={swatch.name}
-                      aria-label={`Swatch ${i() + 1} name`}
-                      placeholder="Blush"
-                      onInput={(e) => updateSwatch(i(), { name: e.currentTarget.value })}
-                      class={fieldInput}
-                    />
-                  </label>
-                  <ColorPicker
-                    label={`Swatch ${i() + 1} colour`}
-                    value={swatch.color}
-                    onChange={(c) => updateSwatch(i(), { color: c })}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeSwatch(i())}
-                    aria-label={`Remove swatch ${i() + 1}`}
-                    class="font-body text-text-muted hover:text-error text-[0.72rem] tracking-[0.1em] uppercase"
-                  >
-                    Remove
-                  </button>
-                </div>
-              )}
-            </For>
+    /* Portalled: see the preview modal above — `container-type` on the shell
+       makes it the containing block for `position: fixed` descendants. */
+    <Portal>
+      <div class="fixed inset-0 z-50 flex justify-end bg-black/60" onClick={props.onClose}>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Edit event"
+          class="bg-bg border-border h-full w-full max-w-md overflow-y-auto border-l p-6 shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div class="mb-6 flex items-center justify-between">
+            <h2 class="font-display text-gold-dim text-[1.4rem]">Event details</h2>
             <button
               type="button"
-              onClick={addSwatch}
-              class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 self-start rounded-sm border px-3 py-1.5 text-[0.7rem] tracking-[0.1em] uppercase transition"
+              onClick={props.onClose}
+              aria-label="Close"
+              class="text-text-muted hover:text-text text-[1.2rem]"
             >
-              Add swatch
+              ✕
             </button>
           </div>
 
-          <label class="flex flex-col gap-1.5">
-            <span class={fieldLabel}>Pinterest URL</span>
-            <input
-              type="url"
-              value={props.event.pinterestUrl ?? ""}
-              aria-label="Pinterest URL"
-              placeholder="https://www.pinterest.com/…"
-              onInput={(e) =>
-                props.onPatch({
-                  pinterestUrl: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
-                })
-              }
-              class={fieldInput}
-            />
-          </label>
+          <Show when={props.errors.length > 0}>
+            <div class="border-error/20 bg-error/5 mb-5 flex flex-col gap-1 rounded-sm border p-3">
+              <For each={props.errors}>
+                {(msg) => <p class="text-error text-[0.8rem]">{msg}</p>}
+              </For>
+            </div>
+          </Show>
 
-          <label class="flex flex-col gap-1.5">
-            <span class={fieldLabel}>Maps URL</span>
-            <input
-              type="url"
-              value={props.event.mapsUrl ?? ""}
-              aria-label="Maps URL"
-              placeholder="https://maps.google.com/…"
-              onInput={(e) =>
-                props.onPatch({
-                  mapsUrl: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
-                })
-              }
-              class={fieldInput}
-            />
-          </label>
+          <div class="flex flex-col gap-5">
+            <label class="flex flex-col gap-1.5">
+              <span class={fieldLabel}>Event name</span>
+              <input
+                type="text"
+                value={props.event.name}
+                aria-label="Event name"
+                onInput={(e) => props.onPatch({ name: e.currentTarget.value })}
+                class={fieldInput}
+              />
+            </label>
 
-          <button
-            type="button"
-            onClick={props.onClose}
-            class="border-gold bg-gold font-body text-bg hover:bg-gold-dim mt-2 self-start rounded-sm border px-4 py-2 text-[0.78rem] tracking-[0.1em] uppercase transition"
-          >
-            Done
-          </button>
+            {/* Start: date + time + offset. */}
+            <fieldset class="flex flex-col gap-2 border-none p-0">
+              <legend class={fieldLabel}>Start</legend>
+              <DatePicker
+                label="Start date"
+                value={start().date || null}
+                onChange={(v) => setStart("date", v)}
+              />
+              <div class="flex flex-wrap items-end gap-3">
+                <label class="flex flex-col gap-1.5">
+                  <span class={fieldLabel}>Time</span>
+                  <input
+                    type="time"
+                    value={start().time}
+                    aria-label="Start time"
+                    onInput={(e) => setStart("time", e.currentTarget.value)}
+                    class={fieldInput}
+                  />
+                </label>
+                <label class="flex flex-col gap-1.5">
+                  <span class={fieldLabel}>UTC offset</span>
+                  <select
+                    value={start().offset}
+                    aria-label="Start UTC offset"
+                    onChange={(e) => setStart("offset", e.currentTarget.value)}
+                    class={fieldInput}
+                  >
+                    <For each={OFFSET_OPTIONS}>{(o) => <option value={o}>{o}</option>}</For>
+                  </select>
+                </label>
+              </div>
+            </fieldset>
+
+            {/* End (optional). */}
+            <fieldset class="flex flex-col gap-2 border-none p-0">
+              <legend class={fieldLabel}>End (optional)</legend>
+              <DatePicker
+                label="End date"
+                value={end().date || null}
+                onChange={(v) => setEnd("date", v)}
+              />
+              <div class="flex flex-wrap items-end gap-3">
+                <label class="flex flex-col gap-1.5">
+                  <span class={fieldLabel}>Time</span>
+                  <input
+                    type="time"
+                    value={end().time}
+                    aria-label="End time"
+                    onInput={(e) => setEnd("time", e.currentTarget.value)}
+                    class={fieldInput}
+                  />
+                </label>
+                <label class="flex flex-col gap-1.5">
+                  <span class={fieldLabel}>UTC offset</span>
+                  <select
+                    value={end().offset}
+                    aria-label="End UTC offset"
+                    onChange={(e) => setEnd("offset", e.currentTarget.value)}
+                    class={fieldInput}
+                  >
+                    <For each={OFFSET_OPTIONS}>{(o) => <option value={o}>{o}</option>}</For>
+                  </select>
+                </label>
+              </div>
+            </fieldset>
+
+            <label class="flex flex-col gap-1.5">
+              <span class={fieldLabel}>Timezone (IANA name)</span>
+              <input
+                type="text"
+                value={props.event.timezone}
+                aria-label="Timezone"
+                placeholder="Australia/Sydney"
+                onInput={(e) => props.onPatch({ timezone: e.currentTarget.value })}
+                class={fieldInput}
+              />
+            </label>
+
+            <label class="flex flex-col gap-1.5">
+              <span class={fieldLabel}>Address</span>
+              <input
+                type="text"
+                value={props.event.address ?? ""}
+                aria-label="Address"
+                onInput={(e) =>
+                  props.onPatch({
+                    address: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                  })
+                }
+                class={fieldInput}
+              />
+            </label>
+
+            <label class="flex flex-col gap-1.5">
+              <span class={fieldLabel}>Dress code description</span>
+              <textarea
+                value={props.event.dressCodeDescription ?? ""}
+                aria-label="Dress code description"
+                rows={2}
+                onInput={(e) =>
+                  props.onPatch({
+                    dressCodeDescription:
+                      e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                  })
+                }
+                class={fieldInput}
+              />
+            </label>
+
+            {/* Dress-code palette — each swatch a name + a ColorPicker. */}
+            <div class="flex flex-col gap-2">
+              <span class={fieldLabel}>Dress code palette</span>
+              <For each={props.event.dressCodePalette}>
+                {(swatch, i) => (
+                  <div class="flex flex-wrap items-end gap-2">
+                    <label class="flex flex-1 flex-col gap-1.5">
+                      <span class="sr-only">Swatch name</span>
+                      <input
+                        type="text"
+                        value={swatch.name}
+                        aria-label={`Swatch ${i() + 1} name`}
+                        placeholder="Blush"
+                        onInput={(e) => updateSwatch(i(), { name: e.currentTarget.value })}
+                        class={fieldInput}
+                      />
+                    </label>
+                    <ColorPicker
+                      label={`Swatch ${i() + 1} colour`}
+                      value={swatch.color}
+                      onChange={(c) => updateSwatch(i(), { color: c })}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeSwatch(i())}
+                      aria-label={`Remove swatch ${i() + 1}`}
+                      class="font-body text-text-muted hover:text-error text-[0.72rem] tracking-[0.1em] uppercase"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+              </For>
+              <button
+                type="button"
+                onClick={addSwatch}
+                class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 self-start rounded-sm border px-3 py-1.5 text-[0.7rem] tracking-[0.1em] uppercase transition"
+              >
+                Add swatch
+              </button>
+            </div>
+
+            <label class="flex flex-col gap-1.5">
+              <span class={fieldLabel}>Pinterest URL</span>
+              <input
+                type="url"
+                value={props.event.pinterestUrl ?? ""}
+                aria-label="Pinterest URL"
+                placeholder="https://www.pinterest.com/…"
+                onInput={(e) =>
+                  props.onPatch({
+                    pinterestUrl: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                  })
+                }
+                class={fieldInput}
+              />
+            </label>
+
+            <label class="flex flex-col gap-1.5">
+              <span class={fieldLabel}>Maps URL</span>
+              <input
+                type="url"
+                value={props.event.mapsUrl ?? ""}
+                aria-label="Maps URL"
+                placeholder="https://maps.google.com/…"
+                onInput={(e) =>
+                  props.onPatch({
+                    mapsUrl: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                  })
+                }
+                class={fieldInput}
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={props.onClose}
+              class="border-gold bg-gold font-body text-bg hover:bg-gold-dim mt-2 self-start rounded-sm border px-4 py-2 text-[0.78rem] tracking-[0.1em] uppercase transition"
+            >
+              Done
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </Portal>
   );
 }

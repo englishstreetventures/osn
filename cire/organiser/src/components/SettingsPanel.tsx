@@ -179,7 +179,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
             <p class={hintClass}>Only the wedding&apos;s owner can change these settings.</p>
           </Show>
 
-          <div class="grid gap-4 sm:grid-cols-2">
+          <div class="grid gap-4 @lg/panel:grid-cols-2">
             <label class="flex flex-col gap-1.5">
               <span class={labelClass}>Wedding name</span>
               <input

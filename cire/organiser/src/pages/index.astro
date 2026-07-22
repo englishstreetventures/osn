@@ -13,16 +13,29 @@ import OrganiserApp from '../components/OrganiserApp'
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <main class="mx-auto max-w-[1100px] px-8 py-12">
-      <header class="mb-8 flex flex-col gap-2">
-        <p class="font-body text-[0.72rem] uppercase tracking-[0.2em] text-gold">
-          Organiser Portal
-        </p>
-        <h1 class="font-display text-[clamp(2rem,5vw,3.5rem)] font-light italic leading-[1.1] text-text">
-          Organiser Dashboard
-        </h1>
+    <!--
+      `@container/frame` wraps the whole document so the page gutters respond to
+      the width the frame actually has. Every other measurement inside the app
+      derives from this one, which is why nothing here uses a media query.
+    -->
+    <div class="@container/frame">
+      <!-- The masthead is a full-bleed band with a hairline under it; the
+           content below shares its max width so the rule reads as a margin
+           line, not a floating divider. -->
+      <header class="border-border border-b">
+        <div class="@2xl/frame:px-8 @2xl/frame:py-8 mx-auto flex max-w-[1100px] flex-col gap-2 px-5 py-6">
+          <p class="font-body text-gold text-[0.7rem] uppercase tracking-[0.24em]">
+            Organiser Portal
+          </p>
+          <h1 class="font-display text-[clamp(1.9rem,7cqi,3rem)] font-light leading-[1.05] text-text">
+            Organiser Dashboard
+          </h1>
+        </div>
       </header>
-      <OrganiserApp client:only="solid-js" />
-    </main>
+
+      <main class="@2xl/frame:px-8 @2xl/frame:py-10 mx-auto max-w-[1100px] px-5 py-8">
+        <OrganiserApp client:only="solid-js" />
+      </main>
+    </div>
   </body>
 </html>

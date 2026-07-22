@@ -1,0 +1,15 @@
+{
+  "runs": [
+    {
+      "date": "2026-07-22",
+      "verb": "redesign",
+      "scope": "cire/organiser — host dashboard",
+      "mode": "preserve",
+      "genre": "editorial",
+      "theme": "cire house (existing OKLCH tokens, preserved)",
+      "macrostructure": "app shell — masthead band + contained main; rail + panel inside",
+      "motion": "cut (CSS transitions + keyframes only)",
+      "critique": { "P": 5, "H": 5, "E": 5, "S": 4, "R": 5, "V": 4 }
+    }
+  ]
+}

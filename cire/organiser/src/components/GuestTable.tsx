@@ -332,7 +332,7 @@ export default function GuestTable(props: GuestTableProps) {
 
       <Show when={!loading() && !error() && !hasGuests()}>
         <div class="border-border bg-surface/30 flex flex-col items-start gap-2 rounded-sm border border-dashed p-8 text-center">
-          <p class="font-display text-gold-dim w-full text-[1.2rem] italic">No guests yet</p>
+          <p class="font-display text-gold-dim w-full text-[1.2rem]">No guests yet</p>
           <p class="font-body text-text-muted w-full text-[0.85rem] leading-relaxed">
             Import your guests sheet from the Spreadsheet Import above to build the list. Each
             household gets its own code and invite message to share.
@@ -373,7 +373,7 @@ export default function GuestTable(props: GuestTableProps) {
                         }`}
                       >
                         <div class="flex flex-wrap items-center justify-between gap-3">
-                          <span class="font-display text-gold-dim flex items-center gap-2 text-[1rem] italic">
+                          <span class="font-display text-gold-dim flex items-center gap-2 text-[1rem]">
                             {family.familyName}
                             <Show when={isDeactivated(family)}>
                               <span

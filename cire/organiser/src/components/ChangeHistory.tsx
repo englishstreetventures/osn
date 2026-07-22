@@ -222,7 +222,7 @@ export default function ChangeHistory(props: { weddingId: string }) {
                 // pruned) shows an explanatory note instead of the button.
                 const agedOut = () => entry.status === "applied" && !entry.revertable;
                 return (
-                  <li class="border-border bg-surface/30 flex flex-col gap-2 rounded-sm border p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <li class="border-border bg-surface/30 flex flex-col gap-2 rounded-sm border p-4 @lg/panel:flex-row @lg/panel:items-center @lg/panel:justify-between">
                     <div class="flex flex-col gap-1">
                       <span class="font-body text-gold text-[0.62rem] tracking-[0.18em] uppercase">
                         {KIND_LABEL[entry.kind] ?? "Change"}
@@ -248,7 +248,7 @@ export default function ChangeHistory(props: { weddingId: string }) {
                         onClick={() => void handleRevert(entry)}
                         disabled={revertingId() !== null}
                         aria-busy={reverting()}
-                        class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 shrink-0 self-start rounded-sm border px-4 py-2 text-[0.78rem] tracking-[0.1em] uppercase transition disabled:opacity-40 sm:self-auto"
+                        class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 shrink-0 self-start rounded-sm border px-4 py-2 text-[0.78rem] tracking-[0.1em] uppercase transition disabled:opacity-40 @lg/panel:self-auto"
                       >
                         {reverting() ? "Reverting…" : "Revert"}
                       </button>
@@ -256,7 +256,7 @@ export default function ChangeHistory(props: { weddingId: string }) {
 
                     <Show when={agedOut()}>
                       <span
-                        class="font-body text-text-muted shrink-0 self-start text-[0.72rem] italic sm:max-w-[12rem] sm:self-auto sm:text-right"
+                        class="font-body text-text-muted shrink-0 self-start text-[0.72rem] italic @lg/panel:max-w-[12rem] @lg/panel:self-auto @lg/panel:text-right"
                         title="Only the ten most recent changes keep a restore point."
                       >
                         Restore point no longer available

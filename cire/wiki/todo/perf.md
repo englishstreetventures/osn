@@ -4,12 +4,22 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-21
+last-reviewed: 2026-07-22
 ---
 
 # Performance Backlog
 
 See [[review-findings]] for severity prefix conventions.
+
+### Host dashboard redesign — review findings (feat/cire-host-dashboard-redesign, 2026-07-22)
+
+Raised by the pre-merge performance review of the container-query redesign. See [[web]].
+
+- [x] **P-C1** (critical, fixed on branch) — the redesign put `container-type: inline-size` on the shell and panel boxes. That property carries `contain: layout` with it, which makes the box a containing block for `position: fixed` descendants and a new stacking context — so every full-screen overlay in the dashboard pinned to a layout box instead of the viewport. Seven sites across six files: the enquiry dialog, the directory drawer, the image crop modal, and the preview modal plus sticky save bar in both the events and guests editors. All now render through a Solid `<Portal>` to `document.body`, which escapes containment and stacking without moving `container-type` off the boxes the migrated `@lg/panel:` variants query.
+- [x] **P-W1** (fixed on branch) — the module sheet survived the container growing past the rail breakpoint: the trigger goes `display: none` but the sheet lives in a portal, leaving a modal open with no way back to its trigger. Fixed with a `ResizeObserver` on the narrow wrapper that closes the sheet when the box reports 0×0 — reads the real container state rather than duplicating the `@2xl` threshold in JS.
+- [x] **P-I1** (fixed on branch) — `--space-1`…`--space-8`, `--rule-hair` and `--rule-accent` were declared in `global.css` and referenced nowhere. Deleted.
+- [x] **P-I2** (fixed on branch) — `spentSoFar` re-reduced every budget item on each call, twice per Budget card render. Wrapped in a `createMemo`.
+- [ ] **P-I3** — both nav surfaces stay mounted (the rail's 8 buttons plus the sheet trigger), with a container query hiding one, and each rail row carries a second reactive `class` binding for the gold marker span. Accepted: the CSS-only swap is what makes the nav respond to its container rather than the viewport, and the cost is 8 idle buttons. Revisit only if the module list grows well past 8.
 
 ### Round-trip state export — review findings (guest-event-editor E1, `claude/events-guests-ui-plan-aewfd3`)
 

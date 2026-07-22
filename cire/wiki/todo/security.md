@@ -12,6 +12,10 @@ last-reviewed: 2026-07-22
 
 See [[overview]] for observability rules that apply to all security-sensitive code paths. See [[review-findings]] for severity prefix conventions.
 
+### Host dashboard redesign — review findings (feat/cire-host-dashboard-redesign, 2026-07-22)
+
+The pre-merge security review of the container-query redesign came back **clean** — no High or Critical, nothing to open. The change is presentational: no route, auth gate, wire type or data path moved, and the one new dependency-free surface (the module sheet) is a Kobalte dialog whose focus trap, escape handling and scroll lock come from the library rather than hand-rolled. The review's only note was an accessibility one (C-L1, the sheet nav's accessible name), fixed on the branch and recorded in `[[web]]`.
+
 ### Preview tier — review findings (feat/cire-invite-palette, 2026-07-22)
 
 Raised by the pre-merge security review of the invite colour scheme. The palette

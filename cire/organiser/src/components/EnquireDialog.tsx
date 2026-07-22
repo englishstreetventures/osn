@@ -1,5 +1,6 @@
 import { useAuth } from "@osn/client/solid";
 import { createSignal, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 import { toast } from "solid-toast";
 
 import { redirectToLogin } from "../lib/api";
@@ -50,57 +51,62 @@ export default function EnquireDialog(props: EnquireDialogProps) {
 
   return (
     <Show when={props.open}>
-      <div
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-        onClick={(e) => {
-          if (e.target === e.currentTarget) props.onClose();
-        }}
-      >
+      {/* Portalled to document.body: the dashboard shell sets `container-type`
+          on its layout boxes, which brings `contain: layout` with it and makes
+          them the containing block for `position: fixed` descendants. */}
+      <Portal>
         <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Enquire with ${props.vendorName}`}
-          class="border-border bg-bg flex w-full max-w-lg flex-col gap-4 rounded-sm border p-6"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) props.onClose();
+          }}
         >
-          <header class="flex flex-col gap-1">
-            <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">Enquiry</p>
-            <h3 class="font-display text-text text-[1.2rem] font-light italic">
-              Enquire with {props.vendorName}
-            </h3>
-          </header>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Enquire with ${props.vendorName}`}
+            class="border-border bg-bg flex w-full max-w-lg flex-col gap-4 rounded-sm border p-6"
+          >
+            <header class="flex flex-col gap-1">
+              <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">Enquiry</p>
+              <h3 class="font-display text-text text-[1.2rem] font-light">
+                Enquire with {props.vendorName}
+              </h3>
+            </header>
 
-          <label class="flex flex-col gap-1.5">
-            <span class="text-gold-dim font-body text-[0.64rem] tracking-[0.14em] uppercase">
-              Your message
-            </span>
-            <textarea
-              value={message()}
-              onInput={(e) => setMessage(e.currentTarget.value)}
-              placeholder="Introduce yourselves and ask your question…"
-              rows={5}
-              class="border-border bg-bg text-text w-full rounded-sm border px-3 py-2 text-[0.85rem] focus:outline-none"
-            />
-          </label>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-gold-dim font-body text-[0.64rem] tracking-[0.14em] uppercase">
+                Your message
+              </span>
+              <textarea
+                value={message()}
+                onInput={(e) => setMessage(e.currentTarget.value)}
+                placeholder="Introduce yourselves and ask your question…"
+                rows={5}
+                class="border-border bg-bg text-text w-full rounded-sm border px-3 py-2 text-[0.85rem] focus:outline-none"
+              />
+            </label>
 
-          <div class="flex items-center gap-3">
-            <button
-              type="button"
-              disabled={sending() || message().trim() === ""}
-              onClick={() => void handleSend()}
-              class="bg-gold text-bg rounded-sm px-4 py-1.5 text-[0.78rem] tracking-[0.08em] uppercase disabled:opacity-60"
-            >
-              {sending() ? "Sending…" : "Send"}
-            </button>
-            <button
-              type="button"
-              onClick={props.onClose}
-              class="text-text-muted hover:text-text text-[0.78rem]"
-            >
-              Cancel
-            </button>
+            <div class="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={sending() || message().trim() === ""}
+                onClick={() => void handleSend()}
+                class="bg-gold text-bg rounded-sm px-4 py-1.5 text-[0.78rem] tracking-[0.08em] uppercase disabled:opacity-60"
+              >
+                {sending() ? "Sending…" : "Send"}
+              </button>
+              <button
+                type="button"
+                onClick={props.onClose}
+                class="text-text-muted hover:text-text text-[0.78rem]"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      </Portal>
     </Show>
   );
 }

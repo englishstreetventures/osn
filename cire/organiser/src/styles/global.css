@@ -1,3 +1,7 @@
+/* Hallmark · pre-emit critique: P5 H5 E5 S4 R5 V4
+ * genre: editorial · theme: cire house (preserved) · scope: app shell
+ * contrast: pass (46-50) · motion: cut (CSS only) · nav: rail + sheet
+ */
 @import "tailwindcss";
 
 /*
@@ -24,6 +28,26 @@
   --font-display: "Cormorant Garamond", Georgia, serif;
   --font-body: "Lato", system-ui, sans-serif;
   --default-font-family: var(--font-body);
+
+  /* Corner radius — one scale, sharp end of the range. The house look is
+     stationery, not app-store chrome: nothing rounder than 6px except pills. */
+  --radius-hair: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-pill: 999px;
+
+  /* Motion — no animation library in this package by design, so every
+     transition below is CSS and every duration is one of these three. */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Focus — one ring everywhere, never animated, always visible. */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --focus-ring-color: var(--color-gold);
 }
 
 /* shadcn-style semantic tokens used by @osn/ui, mapped to the cire palette. */
@@ -53,6 +77,9 @@
     font-size: 16px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* `clip`, never `hidden`: `hidden` on the root turns the document into a
+       scroll container and breaks `position: sticky` in the shell header. */
+    overflow-x: clip;
   }
 
   body {
@@ -61,6 +88,104 @@
     font-family: var(--font-body);
     font-weight: 400;
     line-height: 1.5;
-    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: clip;
+  }
+
+  /* Display type is always roman. Cormorant's italic is lovely in running copy
+     and wrong as a heading face — it reads as decoration, not hierarchy, and it
+     clips descenders at the tight leading these headings use. Emphasis is
+     carried by weight, gold, and rules instead. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-style: normal;
+    /* Wedding names and vendor names are user data and can be one long word. */
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+
+  /* One focus ring for the whole dashboard. Never animated, never removed —
+     the shell is keyboard-driven (module rail, sub-tabs, tables). */
+  /* No border-radius here: the outline already follows whatever radius the
+     element itself has, and setting one would square off pill-shaped controls
+     for as long as they hold focus. */
+  :focus-visible {
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
+  }
+}
+
+@layer base {
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ── Nav sheet motion ───────────────────────────────────────────────────────
+ * The mobile module sheet is a Kobalte dialog. Kobalte keeps a closing dialog
+ * mounted until its *animation* ends (not its transition), so the enter/exit
+ * pair below is keyframes rather than a transition. Both are suppressed by the
+ * reduced-motion block above, which leaves the sheet appearing instantly.
+ */
+@keyframes sheet-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-scrim-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-panel-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes sheet-panel-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@utility sheet-scrim {
+  &[data-expanded] {
+    animation: sheet-scrim-in var(--dur-base) var(--ease-out);
+  }
+  &[data-closed] {
+    animation: sheet-scrim-out var(--dur-fast) var(--ease-in-out);
+  }
+}
+
+@utility sheet-panel {
+  &[data-expanded] {
+    animation: sheet-panel-in var(--dur-slow) var(--ease-out);
+  }
+  &[data-closed] {
+    animation: sheet-panel-out var(--dur-base) var(--ease-in-out);
   }
 }

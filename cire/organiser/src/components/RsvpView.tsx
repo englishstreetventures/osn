@@ -207,7 +207,7 @@ export default function RsvpView(props: RsvpViewProps) {
 
       <Show when={!loading() && !error() && !hasEvents()}>
         <div class="border-border bg-surface/30 flex flex-col items-start gap-2 rounded-sm border border-dashed p-8 text-center">
-          <p class="font-display text-gold-dim w-full text-[1.2rem] italic">No events yet</p>
+          <p class="font-display text-gold-dim w-full text-[1.2rem]">No events yet</p>
           <p class="font-body text-text-muted w-full text-[0.85rem] leading-relaxed">
             Add your events and invite guests — their replies will appear here.
           </p>
@@ -220,7 +220,7 @@ export default function RsvpView(props: RsvpViewProps) {
             {(event) => (
               <section class="border-border bg-surface/30 flex flex-col gap-4 rounded-sm border p-5">
                 <header class="flex flex-wrap items-end justify-between gap-3">
-                  <h3 class="font-display text-text text-[1.3rem] leading-none font-light italic">
+                  <h3 class="font-display text-text text-[1.3rem] leading-none font-light">
                     {event.name}
                   </h3>
                   <dl class="font-body text-text-muted flex flex-wrap gap-x-4 gap-y-1 text-[0.78rem]">

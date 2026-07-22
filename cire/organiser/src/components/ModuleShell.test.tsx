@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -114,25 +114,29 @@ function renderShell(opts: {
 describe("ModuleShell", () => {
   afterEach(() => cleanup());
 
+  /** The persistent rail. The nav also renders a narrow-container sheet trigger,
+   *  so module queries are scoped to the rail landmark rather than the document. */
+  const rail = () => screen.getByRole("navigation", { name: /Wedding modules/i });
+
   it("renders the module rail with every module and lands on Overview", () => {
     renderShell({});
     for (const label of ["Overview", "Schedule", "Guests", "Invite", "Settings"]) {
-      expect(screen.getByRole("button", { name: new RegExp(label) })).toBeTruthy();
+      expect(within(rail()).getByRole("button", { name: new RegExp(label) })).toBeTruthy();
     }
     expect(screen.getByTestId("overview")).toBeTruthy();
   });
 
   it("marks the active module with aria-current", () => {
     renderShell({ module: "guests", sub: "list" });
-    const guests = screen.getByRole("button", { name: /Guests/ });
+    const guests = within(rail()).getByRole("button", { name: /Guests/ });
     expect(guests.getAttribute("aria-current")).toBe("page");
-    const overview = screen.getByRole("button", { name: /Overview/ });
+    const overview = within(rail()).getByRole("button", { name: /Overview/ });
     expect(overview.getAttribute("aria-current")).toBeNull();
   });
 
   it("reports a module switch up via onModule and follows the controlled prop", () => {
     const { onModule } = renderShell({});
-    fireEvent.click(screen.getByRole("button", { name: /Schedule/ }));
+    fireEvent.click(within(rail()).getByRole("button", { name: /Schedule/ }));
     expect(onModule).toHaveBeenCalledWith("schedule");
     expect(screen.getByTestId("events")).toBeTruthy();
   });

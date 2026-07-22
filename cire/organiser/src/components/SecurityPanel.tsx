@@ -51,7 +51,7 @@ export default function SecurityPanel() {
     <div class="flex flex-col gap-6">
       <div class="flex flex-col gap-1">
         <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">Security</p>
-        <h2 class="font-display text-[1.4rem] italic">Your devices &amp; passkeys</h2>
+        <h2 class="font-display text-[1.4rem]">Your devices &amp; passkeys</h2>
         <p class="font-body text-text-muted text-[0.88rem]">
           Passkeys are how you sign in to the organiser portal. Add one for each device you use, and
           remove any you no longer recognise.

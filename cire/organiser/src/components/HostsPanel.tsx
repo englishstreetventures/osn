@@ -401,7 +401,7 @@ export default function HostsPanel(props: HostsPanelProps) {
             <legend class="font-body text-text-muted mb-1.5 text-[0.72rem] tracking-[0.1em] uppercase">
               Access
             </legend>
-            <div class="flex flex-col gap-2 sm:flex-row">
+            <div class="flex flex-col gap-2 @lg/panel:flex-row">
               <For each={ROLE_OPTIONS}>
                 {(option) => (
                   <label

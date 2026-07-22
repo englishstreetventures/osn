@@ -229,7 +229,7 @@ export default function GettingStarted(props: {
               <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">
                 {allDone() ? "You're all set" : "Getting started"}
               </p>
-              <h2 class="font-display text-text text-[1.4rem] font-light italic">
+              <h2 class="font-display text-text text-[1.4rem] font-light">
                 {allDone() ? "Everything's ready for your guests" : "Four steps to your invite"}
               </h2>
               <Show when={!allDone() && nextStep()}>
@@ -264,7 +264,7 @@ export default function GettingStarted(props: {
             />
           </div>
 
-          <ol class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          <ol class="grid grid-cols-1 gap-2.5 @lg/panel:grid-cols-2">
             <For each={steps()}>
               {(step, i) => (
                 <li>

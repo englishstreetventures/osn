@@ -32,23 +32,37 @@ export default function WeddingList(props: {
       </Show>
 
       <Show when={!isEmpty()}>
-        <ul class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <ul class="grid grid-cols-1 gap-4 @lg/page:grid-cols-2">
           <For each={props.weddings}>
             {(wedding) => (
-              <li>
+              <li class="flex">
                 <button
                   type="button"
                   onClick={() => props.onSelect(wedding)}
-                  class="border-border bg-surface/30 hover:border-gold group flex w-full flex-col gap-2 rounded-sm border p-6 text-left transition-colors"
+                  class="border-border bg-surface/30 hover:border-gold-dim hover:bg-surface/60 group relative flex w-full flex-col gap-2 overflow-hidden rounded-sm border p-6 text-left transition-colors duration-(--dur-base) ease-(--ease-out)"
                 >
-                  <span class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">
+                  {/* A gold rule that draws down the left edge on hover — the
+                      same marker vocabulary the module rail uses for "you are
+                      here", reused here for "this is the one you're reaching
+                      for". Scale, so it costs no layout. */}
+                  <span
+                    aria-hidden="true"
+                    class="bg-gold absolute inset-y-0 left-0 w-[2px] origin-top scale-y-0 transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:scale-y-100"
+                  />
+                  <span class="font-body text-gold text-[0.7rem] tracking-[0.22em] uppercase">
                     {wedding.slug}
                   </span>
-                  <span class="font-display text-gold-dim group-hover:text-gold text-[1.4rem] italic transition-colors">
+                  <span class="font-display text-text text-[1.5rem] leading-tight font-light">
                     {wedding.displayName}
                   </span>
-                  <span class="font-body text-text-muted mt-1 text-[0.78rem] tracking-[0.1em] uppercase">
-                    Open dashboard →
+                  <span class="font-body text-text-muted group-hover:text-gold mt-2 flex items-center gap-2 text-[0.72rem] tracking-[0.16em] uppercase transition-colors duration-(--dur-base)">
+                    Open dashboard
+                    <span
+                      aria-hidden="true"
+                      class="transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:translate-x-1"
+                    >
+                      →
+                    </span>
                   </span>
                 </button>
               </li>

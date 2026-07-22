@@ -98,9 +98,7 @@ export default function CreateWeddingForm(props: {
     >
       <div class="flex flex-col gap-1">
         <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">New wedding</p>
-        <h2 class="font-display text-text text-[1.4rem] font-light italic">
-          Start a new celebration
-        </h2>
+        <h2 class="font-display text-text text-[1.4rem] font-light">Start a new celebration</h2>
       </div>
 
       <label class="flex flex-col gap-1.5">
@@ -123,7 +121,7 @@ export default function CreateWeddingForm(props: {
         <legend class="font-body text-text-muted mb-1.5 text-[0.72rem] tracking-[0.1em] uppercase">
           Guest code style
         </legend>
-        <div class="flex flex-col gap-2 sm:flex-row">
+        <div class="flex flex-col gap-2 @lg/page:flex-row">
           <For each={CODE_STYLE_OPTIONS}>
             {(option) => (
               <label

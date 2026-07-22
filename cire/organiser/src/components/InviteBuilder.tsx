@@ -444,9 +444,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     <section class="border-border bg-surface/30 flex flex-col gap-8 rounded-sm border p-6">
       <header class="flex flex-col gap-1">
         <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">Invite Builder</p>
-        <h2 class="font-display text-text text-[1.4rem] font-light italic">
-          Customise your invite
-        </h2>
+        <h2 class="font-display text-text text-[1.4rem] font-light">Customise your invite</h2>
         <p class="font-body text-text-muted text-[0.82rem]">
           Each card below is one section of the guest invite, in the order guests see them — images,
           copy and colours together. Events and guests still come from your spreadsheet import.
@@ -474,7 +472,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   Two fonts and five colours set the whole invite. Each section below picks how
                   light or dark it sits — not its own colours.
                 </p>
-                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div class="grid grid-cols-1 gap-4 @lg/panel:grid-cols-2">
                   <FontField label="Heading font" value={headingFont()} onChange={setHeadingFont} />
                   <FontField label="Body font" value={bodyFont()} onChange={setBodyFont} />
                 </div>
