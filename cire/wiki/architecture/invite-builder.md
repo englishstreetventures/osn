@@ -139,6 +139,11 @@ gradient.
 | `gilt`   | The metal          | rules, eyebrows, buttons, links, focus ring                   |
 | `bloom`  | Festive counter    | dots, ornament, motifs, ambient accents                       |
 
+The builder labels each picker with the **seed name** from that first column —
+Ground, Card, Ink, Gilt, Bloom — and prints the "Drives" line beneath it. The
+names mean nothing on their own, so the description is not decoration; but one
+vocabulary across the UI, this page, `@cire/theme` and the API beats two.
+
 `palettePreset` records which curated scheme (`evergreen` — today's look —
 `jewel`, `fog`, `chapel`, `garden`) the organiser started from. It is
 presentation only: the five seed columns are what render, and a `null` seed

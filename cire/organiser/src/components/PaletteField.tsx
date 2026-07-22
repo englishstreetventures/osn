@@ -20,16 +20,17 @@ export interface PaletteState {
 
 /**
  * The five seed roles, in the order they read on the page — page, then paper,
- * then what's written on it, then the two accents. Each carries the plain
- * description of what it does, because "ground" and "gilt" only mean anything
- * once you know where they land.
+ * then what's written on it, then the two accents. Each is shown under its seed
+ * name, so the builder, the wiki and the code all say "gilt" for the same
+ * colour. The names carry no meaning on their own, so each keeps the plain
+ * description of where it lands.
  */
 const ROLES: { key: keyof PaletteSeeds; label: string; hint: string }[] = [
-  { key: "ground", label: "Page", hint: "The background behind everything." },
-  { key: "card", label: "Cards", hint: "Event cards, panels and pop-ups." },
-  { key: "ink", label: "Text", hint: "Headings and body text." },
-  { key: "gilt", label: "Accent", hint: "Buttons, links and fine rules." },
-  { key: "bloom", label: "Highlight", hint: "Small flourishes and markers." },
+  { key: "ground", label: "Ground", hint: "The background behind everything." },
+  { key: "card", label: "Card", hint: "Event cards, panels and pop-ups." },
+  { key: "ink", label: "Ink", hint: "Headings and body text." },
+  { key: "gilt", label: "Gilt", hint: "Buttons, links and fine rules." },
+  { key: "bloom", label: "Bloom", hint: "Small flourishes and markers." },
 ];
 
 /** Human names for the curated schemes. */

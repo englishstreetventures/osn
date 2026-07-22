@@ -97,7 +97,7 @@ describe("InviteBuilder theme", () => {
     fireEvent.change(screen.getByLabelText("Heading font"), { target: { value: "cormorant" } });
     // ONE Accent swatch for the whole invite now, not one per section. Open its
     // popover and type a full hex into the labelled "Hex" field.
-    fireEvent.click(screen.getByLabelText("Accent colour"));
+    fireEvent.click(screen.getByLabelText("Gilt colour"));
     const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
     fireEvent.input(hex, { target: { value: "#112233" } });
 
@@ -182,7 +182,7 @@ describe("InviteBuilder theme", () => {
     expect(screen.getAllByText("Code Entry & Welcome").length).toBeGreaterThanOrEqual(2);
     screen.getByLabelText("Code Entry & Welcome preview");
 
-    fireEvent.click(screen.getByLabelText("Accent colour"));
+    fireEvent.click(screen.getByLabelText("Gilt colour"));
     const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
     // Seeded from the loaded theme, not the preset default (case per Kobalte).
     expect(hex.value.toLowerCase()).toBe("#7a9e7e");
@@ -362,7 +362,7 @@ describe("InviteBuilder theme", () => {
 
     // Change the accent seed via the popover hex field — the preview updates
     // instantly (no PUT fired), through the SAME derivation the guest uses.
-    fireEvent.click(screen.getByLabelText("Accent colour"));
+    fireEvent.click(screen.getByLabelText("Gilt colour"));
     const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
     fireEvent.input(hex, { target: { value: "#112233" } });
 
@@ -419,7 +419,9 @@ describe("InviteBuilder theme", () => {
     await waitFor(() => screen.getByText("Save invite"));
 
     const notice = await waitFor(() => screen.getByText(/Adjusted to stay readable/));
-    expect(notice.textContent).toContain("text");
+    // The seed NAME, not the old "text" label — and not the raw key either,
+    // which is what the notice falls back to when the label map loses a role.
+    expect(notice.textContent).toContain("ink");
     // The organiser's own pick is still saveable — nothing is blocked.
     expect((screen.getByText("Save invite") as HTMLButtonElement).disabled).toBe(false);
 
