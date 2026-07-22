@@ -1,3 +1,4 @@
+import { derivePalette, PALETTE_PRESETS } from "@cire/theme";
 import { render, cleanup, waitFor } from "@solidjs/testing-library";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
@@ -46,9 +47,8 @@ describe("variantSrc", () => {
 const EMPTY_THEME = {
   headingFont: null,
   bodyFont: null,
-  hero: { accentColor: null, surfaceColor: null },
-  story: { accentColor: null, surfaceColor: null },
-  details: { accentColor: null, surfaceColor: null },
+  palette: null,
+  tones: null,
 } as const;
 
 // Today's-look hero display defaults — every fixture spreads this unless a test
@@ -151,7 +151,7 @@ describe("InviteHeader render", () => {
       hero: { title: "A & B", subtitle: null, imageUrl: null },
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
       heroDisplay: DEFAULT_HERO_DISPLAY,
-      theme: { ...EMPTY_THEME, hero: { accentColor: "#d4af37", surfaceColor: null } },
+      theme: { ...EMPTY_THEME, palette: { gilt: "#d4af37" }, tones: { hero: "card" } },
     };
     vi.stubGlobal(
       "fetch",
@@ -164,8 +164,15 @@ describe("InviteHeader render", () => {
 
     await waitFor(() => {
       const section = container.querySelector("section") as HTMLElement;
-      expect(section.style.getPropertyValue("--invite-accent")).toBe("#d4af37");
+      // The hero picks its surface from the tone…
+      expect(section.style.getPropertyValue("--invite-section-bg")).toBe("var(--color-surface)");
     });
+    // …and the accent reaches it via the root palette, which is what finally
+    // makes the hero's `text-gold` utilities follow the organiser's scheme —
+    // they were stuck on the built-in gold before the palette landed.
+    expect(document.documentElement.style.getPropertyValue("--color-gold")).toBe(
+      derivePalette({ gilt: "#d4af37" })["--color-gold"],
+    );
   });
 
   it("renders NOTHING for the hero when it has no image, title or subtitle", async () => {
@@ -329,7 +336,7 @@ describe("InviteHeader render", () => {
       heroDisplay: DEFAULT_HERO_DISPLAY,
       theme: {
         ...EMPTY_THEME,
-        hero: { accentColor: "red;background:url(https://evil.example)", surfaceColor: null },
+        palette: { gilt: "red;background:url(https://evil.example)" },
       },
     };
     vi.stubGlobal(
@@ -345,7 +352,13 @@ describe("InviteHeader render", () => {
       expect(container.querySelector("section")).not.toBeNull();
     });
     const section = container.querySelector("section") as HTMLElement;
-    expect(section.style.getPropertyValue("--invite-accent")).toBe("");
+    // No tone ⇒ the hero sits on the page ground, exactly as before…
+    expect(section.style.getPropertyValue("--invite-section-bg")).toBe("var(--color-bg)");
+    // …and the malicious seed is dropped at the render boundary, so the accent
+    // stays the built-in gold rather than reaching the rendered CSS.
+    expect(document.documentElement.style.getPropertyValue("--color-gold")).toBe(
+      derivePalette(PALETTE_PRESETS.evergreen)["--color-gold"],
+    );
   });
 
   // ── SSR-hydration visibility fix ──────────────────────────────────────────

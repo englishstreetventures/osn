@@ -672,27 +672,40 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   heroBlur: integer("hero_blur").notNull().default(28),
   heroTitleBackdropOpacity: integer("hero_title_backdrop_opacity").notNull().default(0),
   heroTitleBackdropBlur: integer("hero_title_backdrop_blur").notNull().default(0),
-  // Per-section presentation theme. All columns are nullable ⇒ "use the built-in
-  // default token". Fonts are a closed enum validated in
+  // Global typography. A closed enum validated in
   // `cire/api/src/schemas/invite.ts` (never a free-text font URL — that's a perf
-  // + CSS-injection risk on the static guest site); colours are validated against
-  // the same strict allow-list the dress-code palette uses before they reach an
-  // inline `style`. Two global font choices (heading + body) plus an accent +
-  // surface colour per named section (hero / story / details) — a bounded theme,
-  // not a generic CSS engine.
+  // + CSS-injection risk on the static guest site). NULL ⇒ the built-in token.
   themeHeadingFont: text("theme_heading_font"),
   themeBodyFont: text("theme_body_font"),
-  heroAccentColor: text("hero_accent_color"),
-  heroSurfaceColor: text("hero_surface_color"),
-  storyAccentColor: text("story_accent_color"),
-  storySurfaceColor: text("story_surface_color"),
-  detailsAccentColor: text("details_accent_color"),
-  detailsSurfaceColor: text("details_surface_color"),
-  // "Welcome" section (migration 0027) — the invite-code entry form and the
-  // post-claim welcome banner on the guest site, which were previously stuck on
-  // the built-in green/gold tokens with no organiser control.
-  welcomeAccentColor: text("welcome_accent_color"),
-  welcomeSurfaceColor: text("welcome_surface_color"),
+  // The invite COLOUR SCHEME (migration 0044) — five seeds, named by their role
+  // on the invite, from which every other colour is derived by `derivePalette`
+  // in `@cire/theme`. This replaced the eight per-section accent/surface columns
+  // from 0014 + 0027: eight free colours asked the organiser to hand-build
+  // cohesion, and still only reached five of the guest site's design tokens.
+  //
+  // Each seed is validated against the same strict CSS-colour allow-list the
+  // dress-code palette uses before it can reach an inline `style`. All nullable
+  // ⇒ fall back to that role's value in the `evergreen` preset (today's look),
+  // so an un-themed invite renders exactly as it always has.
+  //
+  // `palette_preset` records WHICH curated scheme the organiser started from, so
+  // the builder can show it selected and offer a clean reset. It is a bounded
+  // key (`PALETTE_PRESETS`), never free text, and is presentation only — the
+  // five seed columns are the source of truth for what renders.
+  palettePreset: text("palette_preset"),
+  paletteGround: text("palette_ground"),
+  paletteCard: text("palette_card"),
+  paletteInk: text("palette_ink"),
+  paletteGilt: text("palette_gilt"),
+  paletteBloom: text("palette_bloom"),
+  // Per-section TONE — which derived surface a section sits on
+  // (`ground` | `card` | `raised`; NULL ⇒ `ground`). This is what carries
+  // section identity now that colour is global: alternating surfaces down the
+  // page is what made sections read as distinct, not eight free colours.
+  heroTone: text("hero_tone"),
+  storyTone: text("story_tone"),
+  detailsTone: text("details_tone"),
+  welcomeTone: text("welcome_tone"),
   // Optional host override for the FIRST line of the message an organiser copies
   // to send a family their invite (migration 0023). NULL ⇒ the built-in default
   // prose. The copied message is always the same 3-line shape — this line, then

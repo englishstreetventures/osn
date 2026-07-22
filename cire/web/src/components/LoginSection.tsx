@@ -1,5 +1,6 @@
 import { createSignal, onMount, Show, For } from "solid-js";
 
+import { filterThemeVars } from "./invite-theme";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 import type { ClaimResult } from "./types";
 import { isValidClaimResponse } from "./utils";
@@ -12,9 +13,9 @@ interface LoginSectionProps {
   welcomeRef?: (el: HTMLDivElement) => void;
   /**
    * Validated CSS-variable map for the "welcome" theme section
-   * (`sectionTokenBridge(theme, "welcome")` — the `--invite-*` variables plus
-   * the scoped token bridge), covering the code-entry form and the post-claim
-   * welcome banner. Empty/absent ⇒ the built-in tokens, unchanged.
+   * (`sectionVars(theme, "welcome")`) — which derived surface the code-entry
+   * form and post-claim welcome banner sit on. The colours themselves come from
+   * the palette at the document root. Empty/absent ⇒ the page ground.
    */
   themeVars?: Record<string, string>;
   /**
@@ -123,17 +124,13 @@ export function LoginSection(props: LoginSectionProps) {
     <section
       class="border-border border-b px-6 py-16 md:px-8 md:py-20"
       style={{
-        // themeVars carries the scoped token bridge (see sectionTokenBridge in
-        // invite-theme.ts): every gold/font utility inside this section (the
-        // eyebrow labels, headings, the input's focus border, the submit button
-        // and its hover fill, the preview-mode chip) resolves the re-pointed
-        // `var(--color-gold)` / `var(--font-*)` tokens, so the theme reaches ALL
-        // states — including hover/focus, which per-element inline styles cannot.
-        ...props.themeVars,
-        // The section has no background by default — `transparent` keeps the
-        // body backdrop showing through unless the organiser picks a surface
-        // colour (deliberately NOT the bridge's `--color-surface` default).
-        "background-color": "var(--invite-surface, transparent)",
+        // themeVars carries this section's tone — which derived surface it sits
+        // on. Every gold/font utility inside (eyebrow labels, headings, the
+        // input's focus border, the submit button and its hover fill, the
+        // preview-mode chip) already resolves the organiser's scheme from the
+        // root palette, hover and focus states included.
+        ...filterThemeVars(props.themeVars),
+        "background-color": "var(--invite-section-bg)",
       }}
     >
       <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">

@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+/**
+ * Parser coverage for the shared colour maths. Moved here from
+ * `cire/organiser/src/lib/contrast.ts` when derivation became shared: the
+ * organiser, the guest site and the API all read colours through this module
+ * now, so its parser is the one that must be right.
+ */
+import { describe, expect, it } from "bun:test";
 
-import { contrastRatio, parseCssColor, WCAG_TEXT_MIN } from "./contrast";
+import { contrastRatio, parseCssColor, WCAG_TEXT_MIN } from "./color";
 
 describe("parseCssColor", () => {
   it("parses hex (short + long, alpha ignored)", () => {

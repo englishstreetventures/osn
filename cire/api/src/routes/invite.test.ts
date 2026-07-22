@@ -979,18 +979,40 @@ describe("invite write rate limiting (IB-S-L1)", () => {
   });
 });
 
+/** The theme block as the public invite endpoint returns it. */
+interface ThemeShape {
+  headingFont: string | null;
+  bodyFont: string | null;
+  palettePreset: string | null;
+  palette: {
+    ground: string | null;
+    card: string | null;
+    ink: string | null;
+    gilt: string | null;
+    bloom: string | null;
+  };
+  tones: {
+    hero: string | null;
+    story: string | null;
+    details: string | null;
+    welcome: string | null;
+  };
+}
+
 describe("PUT /invite/theme (organiser)", () => {
   const validTheme = {
     headingFont: "cormorant",
     bodyFont: "system-sans",
-    heroAccentColor: "#d4af37",
-    heroSurfaceColor: "oklch(22.7% 0.0275 152.78)",
-    storyAccentColor: null,
-    storySurfaceColor: null,
-    detailsAccentColor: "rgb(212, 175, 55)",
-    detailsSurfaceColor: null,
-    welcomeAccentColor: "#7a9e7e",
-    welcomeSurfaceColor: null,
+    palettePreset: "jewel",
+    paletteGround: "#1b172a",
+    paletteCard: "oklch(25.5% 0.052 300)",
+    paletteInk: null,
+    paletteGilt: "rgb(212, 175, 55)",
+    paletteBloom: null,
+    heroTone: "ground",
+    storyTone: "card",
+    detailsTone: null,
+    welcomeTone: "raised",
     heroBlur: 28,
     titleBackdropOpacity: 0,
     titleBackdropBlur: 0,
@@ -1026,38 +1048,45 @@ describe("PUT /invite/theme (organiser)", () => {
     expect(put.status).toBe(200);
 
     const pub = await appRequest(app, `/api/invite/${SLUG}`);
-    const body = (await pub.json()) as {
-      theme: {
-        headingFont: string | null;
-        bodyFont: string | null;
-        hero: { accentColor: string | null; surfaceColor: string | null };
-        story: { accentColor: string | null; surfaceColor: string | null };
-        details: { accentColor: string | null; surfaceColor: string | null };
-        welcome: { accentColor: string | null; surfaceColor: string | null };
-      };
-    };
+    const body = (await pub.json()) as { theme: ThemeShape };
     expect(body.theme.headingFont).toBe("cormorant");
     expect(body.theme.bodyFont).toBe("system-sans");
-    expect(body.theme.hero.accentColor).toBe("#d4af37");
-    expect(body.theme.hero.surfaceColor).toBe("oklch(22.7% 0.0275 152.78)");
-    expect(body.theme.story.accentColor).toBeNull();
-    expect(body.theme.details.accentColor).toBe("rgb(212, 175, 55)");
-    expect(body.theme.welcome.accentColor).toBe("#7a9e7e");
-    expect(body.theme.welcome.surfaceColor).toBeNull();
+    expect(body.theme.palettePreset).toBe("jewel");
+    // Each seed round-trips in the exact format the organiser picked — the API
+    // stores the string, the guest site derives from it.
+    expect(body.theme.palette.ground).toBe("#1b172a");
+    expect(body.theme.palette.card).toBe("oklch(25.5% 0.052 300)");
+    expect(body.theme.palette.gilt).toBe("rgb(212, 175, 55)");
+    expect(body.theme.palette.ink).toBeNull();
+    expect(body.theme.palette.bloom).toBeNull();
+    expect(body.theme.tones).toEqual({
+      hero: "ground",
+      story: "card",
+      details: null,
+      welcome: "raised",
+    });
   });
 
   it("defaults to a null theme when never customised", async () => {
     const { app } = buildApp();
     const pub = await appRequest(app, `/api/invite/${SLUG}`);
-    const body = (await pub.json()) as {
-      theme: {
-        headingFont: string | null;
-        hero: { accentColor: string | null; surfaceColor: string | null };
-      };
-    };
+    const body = (await pub.json()) as { theme: ThemeShape };
     expect(body.theme.headingFont).toBeNull();
-    expect(body.theme.hero.accentColor).toBeNull();
-    expect(body.theme.hero.surfaceColor).toBeNull();
+    expect(body.theme.palettePreset).toBeNull();
+    // Every seed null ⇒ the guest site derives the built-in `evergreen` look.
+    expect(body.theme.palette).toEqual({
+      ground: null,
+      card: null,
+      ink: null,
+      gilt: null,
+      bloom: null,
+    });
+    expect(body.theme.tones).toEqual({
+      hero: null,
+      story: null,
+      details: null,
+      welcome: null,
+    });
   });
 
   it("rejects a colour outside the allow-list with 400 (CSS-injection guard)", async () => {
@@ -1068,7 +1097,7 @@ describe("PUT /invite/theme (organiser)", () => {
       body: JSON.stringify({
         ...validTheme,
         // url() would be a CSS-injection / exfil vector if it ever reached a style.
-        heroAccentColor: "red; background:url(https://evil.example/x)",
+        paletteGilt: "red; background:url(https://evil.example/x)",
       }),
     });
     expect(res.status).toBe(400);
@@ -1079,7 +1108,7 @@ describe("PUT /invite/theme (organiser)", () => {
     const res = await appRequest(app, `${orgBase}/theme`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
-      body: JSON.stringify({ ...validTheme, heroSurfaceColor: "rebeccapurple" }),
+      body: JSON.stringify({ ...validTheme, paletteCard: "rebeccapurple" }),
     });
     expect(res.status).toBe(400);
   });
@@ -1099,18 +1128,37 @@ describe("PUT /invite/theme (organiser)", () => {
     const res = await appRequest(app, `${orgBase}/theme`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
-      // Omits detailsSurfaceColor (and everything after it) — the body is total,
-      // so this must be a 400, not a partial update (guards against an accidental
+      // Omits the tones (and everything after them) — the body is total, so this
+      // must be a 400, not a partial update (guards against an accidental
       // Schema.optional refactor).
       body: JSON.stringify({
         headingFont: "default",
         bodyFont: "default",
-        heroAccentColor: null,
-        heroSurfaceColor: null,
-        storyAccentColor: null,
-        storySurfaceColor: null,
-        detailsAccentColor: null,
+        palettePreset: null,
+        paletteGround: null,
+        paletteCard: null,
+        paletteInk: null,
       }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an unknown section tone with 400", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...validTheme, heroTone: "banana" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects an unknown palette preset with 400", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/theme`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...validTheme, palettePreset: "not-a-preset" }),
     });
     expect(res.status).toBe(400);
   });
@@ -1124,7 +1172,7 @@ describe("PUT /invite/theme (organiser)", () => {
       // just the character allow-list.
       body: JSON.stringify({
         ...validTheme,
-        heroAccentColor: `rgb(${" ".repeat(80)}0, 0, 0)`,
+        paletteGilt: `rgb(${" ".repeat(80)}0, 0, 0)`,
       }),
     });
     expect(res.status).toBe(400);
@@ -1135,7 +1183,7 @@ describe("PUT /invite/theme (organiser)", () => {
     const bad = await appRequest(app, `${orgBase}/theme`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
-      body: JSON.stringify({ ...validTheme, storySurfaceColor: "javascript:alert(1)" }),
+      body: JSON.stringify({ ...validTheme, paletteCard: "javascript:alert(1)" }),
     });
     expect(bad.status).toBe(400);
 
@@ -1150,14 +1198,16 @@ describe("hero display sliders (migration 0018)", () => {
   const validTheme = {
     headingFont: "default",
     bodyFont: "default",
-    heroAccentColor: null,
-    heroSurfaceColor: null,
-    storyAccentColor: null,
-    storySurfaceColor: null,
-    detailsAccentColor: null,
-    detailsSurfaceColor: null,
-    welcomeAccentColor: null,
-    welcomeSurfaceColor: null,
+    palettePreset: null,
+    paletteGround: null,
+    paletteCard: null,
+    paletteInk: null,
+    paletteGilt: null,
+    paletteBloom: null,
+    heroTone: null,
+    storyTone: null,
+    detailsTone: null,
+    welcomeTone: null,
     heroBlur: 28,
     titleBackdropOpacity: 0,
     titleBackdropBlur: 0,
@@ -1347,7 +1397,7 @@ describe("hero display sliders (migration 0018)", () => {
       const put = await appRequest(app, `${orgBase}/theme`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
-        body: JSON.stringify({ ...validTheme, heroAccentColor: "#d4af37" }),
+        body: JSON.stringify({ ...validTheme, paletteGilt: "#d4af37" }),
       });
       expect(put.status).toBe(200);
 

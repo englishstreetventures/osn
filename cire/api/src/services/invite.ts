@@ -1,4 +1,5 @@
 import { weddingInviteCustomisations, weddings } from "@cire/db";
+import type { PalettePresetKey, SectionTone } from "@cire/theme";
 import { eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
@@ -38,11 +39,28 @@ export class WeddingNotFound extends Data.TaggedError("WeddingNotFound")<{
 export interface InviteTheme {
   headingFont: FontChoice | null;
   bodyFont: FontChoice | null;
-  hero: { accentColor: string | null; surfaceColor: string | null };
-  story: { accentColor: string | null; surfaceColor: string | null };
-  details: { accentColor: string | null; surfaceColor: string | null };
-  // The invite-code entry form + post-claim welcome banner (migration 0027).
-  welcome: { accentColor: string | null; surfaceColor: string | null };
+  /** Which curated scheme the organiser started from (presentation only). */
+  palettePreset: PalettePresetKey | null;
+  /**
+   * The five colour seeds. Every other colour on the invite is derived from
+   * these by `derivePalette` in `@cire/theme`; a `null` seed falls back to that
+   * role's value in the default preset, so a partly-filled scheme is always
+   * renderable and an un-themed invite looks exactly as it always has.
+   */
+  palette: {
+    ground: string | null;
+    card: string | null;
+    ink: string | null;
+    gilt: string | null;
+    bloom: string | null;
+  };
+  /** Which derived surface each section sits on (`null` ⇒ the page ground). */
+  tones: {
+    hero: SectionTone | null;
+    story: SectionTone | null;
+    details: SectionTone | null;
+    welcome: SectionTone | null;
+  };
 }
 
 /**
@@ -100,10 +118,9 @@ export interface InviteCustomisation {
 const EMPTY_THEME: InviteTheme = {
   headingFont: null,
   bodyFont: null,
-  hero: { accentColor: null, surfaceColor: null },
-  story: { accentColor: null, surfaceColor: null },
-  details: { accentColor: null, surfaceColor: null },
-  welcome: { accentColor: null, surfaceColor: null },
+  palettePreset: null,
+  palette: { ground: null, card: null, ink: null, gilt: null, bloom: null },
+  tones: { hero: null, story: null, details: null, welcome: null },
 };
 
 // The defaults a wedding with no customisation row reports — identical to the
@@ -159,14 +176,16 @@ function toCustomisation(
     heroTitleBackdropBlur: number | null;
     themeHeadingFont: string | null;
     themeBodyFont: string | null;
-    heroAccentColor: string | null;
-    heroSurfaceColor: string | null;
-    storyAccentColor: string | null;
-    storySurfaceColor: string | null;
-    detailsAccentColor: string | null;
-    detailsSurfaceColor: string | null;
-    welcomeAccentColor: string | null;
-    welcomeSurfaceColor: string | null;
+    palettePreset: string | null;
+    paletteGround: string | null;
+    paletteCard: string | null;
+    paletteInk: string | null;
+    paletteGilt: string | null;
+    paletteBloom: string | null;
+    heroTone: string | null;
+    storyTone: string | null;
+    detailsTone: string | null;
+    welcomeTone: string | null;
     inviteMessage: string | null;
     updatedAt: Date | null;
     imagesUpdatedAt: Date | null;
@@ -212,10 +231,20 @@ function toCustomisation(
       // font is a bounded enum key, the colour an allow-listed CSS string.
       headingFont: c.themeHeadingFont as FontChoice | null,
       bodyFont: c.themeBodyFont as FontChoice | null,
-      hero: { accentColor: c.heroAccentColor, surfaceColor: c.heroSurfaceColor },
-      story: { accentColor: c.storyAccentColor, surfaceColor: c.storySurfaceColor },
-      details: { accentColor: c.detailsAccentColor, surfaceColor: c.detailsSurfaceColor },
-      welcome: { accentColor: c.welcomeAccentColor, surfaceColor: c.welcomeSurfaceColor },
+      palettePreset: c.palettePreset as PalettePresetKey | null,
+      palette: {
+        ground: c.paletteGround,
+        card: c.paletteCard,
+        ink: c.paletteInk,
+        gilt: c.paletteGilt,
+        bloom: c.paletteBloom,
+      },
+      tones: {
+        hero: c.heroTone as SectionTone | null,
+        story: c.storyTone as SectionTone | null,
+        details: c.detailsTone as SectionTone | null,
+        welcome: c.welcomeTone as SectionTone | null,
+      },
     },
     inviteMessage: c.inviteMessage,
   };
@@ -282,14 +311,16 @@ export const inviteService = {
             heroTitleBackdropBlur: weddingInviteCustomisations.heroTitleBackdropBlur,
             themeHeadingFont: weddingInviteCustomisations.themeHeadingFont,
             themeBodyFont: weddingInviteCustomisations.themeBodyFont,
-            heroAccentColor: weddingInviteCustomisations.heroAccentColor,
-            heroSurfaceColor: weddingInviteCustomisations.heroSurfaceColor,
-            storyAccentColor: weddingInviteCustomisations.storyAccentColor,
-            storySurfaceColor: weddingInviteCustomisations.storySurfaceColor,
-            detailsAccentColor: weddingInviteCustomisations.detailsAccentColor,
-            detailsSurfaceColor: weddingInviteCustomisations.detailsSurfaceColor,
-            welcomeAccentColor: weddingInviteCustomisations.welcomeAccentColor,
-            welcomeSurfaceColor: weddingInviteCustomisations.welcomeSurfaceColor,
+            palettePreset: weddingInviteCustomisations.palettePreset,
+            paletteGround: weddingInviteCustomisations.paletteGround,
+            paletteCard: weddingInviteCustomisations.paletteCard,
+            paletteInk: weddingInviteCustomisations.paletteInk,
+            paletteGilt: weddingInviteCustomisations.paletteGilt,
+            paletteBloom: weddingInviteCustomisations.paletteBloom,
+            heroTone: weddingInviteCustomisations.heroTone,
+            storyTone: weddingInviteCustomisations.storyTone,
+            detailsTone: weddingInviteCustomisations.detailsTone,
+            welcomeTone: weddingInviteCustomisations.welcomeTone,
             inviteMessage: weddingInviteCustomisations.inviteMessage,
             updatedAt: weddingInviteCustomisations.updatedAt,
             imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
@@ -410,10 +441,11 @@ export const inviteService = {
   },
 
   /**
-   * Upsert the per-section theme (fonts + colours) for a wedding. The body has
-   * already been schema-validated (fonts ∈ closed enum, colours ∈ allow-list) at
+   * Upsert the invite theme — global fonts, the five colour seeds, the preset
+   * key and the per-section tones. The body has already been schema-validated
+   * (fonts/tones/preset ∈ closed enums, seeds ∈ the CSS-colour allow-list) at
    * the route boundary, so by the time it reaches here every value is safe to
-   * persist; a `null` clears that field back to the built-in default token.
+   * persist; a `null` clears that field back to the built-in default.
    */
   upsertTheme(weddingId: string, fields: InviteThemeBody): Effect.Effect<void, never, DbService> {
     return Effect.gen(function* () {
@@ -437,14 +469,16 @@ export const inviteService = {
       const values = {
         themeHeadingFont: fields.headingFont,
         themeBodyFont: fields.bodyFont,
-        heroAccentColor: fields.heroAccentColor,
-        heroSurfaceColor: fields.heroSurfaceColor,
-        storyAccentColor: fields.storyAccentColor,
-        storySurfaceColor: fields.storySurfaceColor,
-        detailsAccentColor: fields.detailsAccentColor,
-        detailsSurfaceColor: fields.detailsSurfaceColor,
-        welcomeAccentColor: fields.welcomeAccentColor,
-        welcomeSurfaceColor: fields.welcomeSurfaceColor,
+        palettePreset: fields.palettePreset,
+        paletteGround: fields.paletteGround,
+        paletteCard: fields.paletteCard,
+        paletteInk: fields.paletteInk,
+        paletteGilt: fields.paletteGilt,
+        paletteBloom: fields.paletteBloom,
+        heroTone: fields.heroTone,
+        storyTone: fields.storyTone,
+        detailsTone: fields.detailsTone,
+        welcomeTone: fields.welcomeTone,
         // Hero display sliders (already clamped into range by the schema decode).
         heroBlur: fields.heroBlur,
         heroTitleBackdropOpacity: fields.titleBackdropOpacity,

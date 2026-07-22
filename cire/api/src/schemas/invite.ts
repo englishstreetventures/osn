@@ -1,4 +1,10 @@
-import { isSafeCssColor } from "@cire/theme";
+import {
+  FONT_CHOICES,
+  isSafeCssColor,
+  PALETTE_PRESET_KEYS,
+  PALETTE_SEED_KEYS,
+  SECTION_TONES,
+} from "@cire/theme";
 import { Schema } from "effect";
 
 // ── Image slots ───────────────────────────────────────────────────────────────
@@ -250,38 +256,33 @@ const sliderField = (min: number, max: number) =>
 // ── Theme (per-section colours + fonts) ─────────────────────────────────────────
 
 /**
- * The named sections an organiser can theme. Closed on purpose — same philosophy
- * as the image slots: a few well-placed sections, not a page-builder. Bounds the
- * theme columns and the CSS-variable namespace the guest site emits.
+ * The named sections an organiser can tone. Closed on purpose — same philosophy
+ * as the image slots: a few well-placed sections, not a page-builder.
  */
 export const THEME_SECTIONS = ["hero", "story", "details", "welcome"] as const;
 export type ThemeSection = (typeof THEME_SECTIONS)[number];
 
 /**
- * Closed allow-list of fonts the guest site is willing to load. Free-text font
- * names / URLs are deliberately impossible: an arbitrary `@font-face`/Google-Fonts
- * URL on the static Astro guest site is both a performance footgun (render-block,
- * extra round-trips) and a CSS/SSRF-injection surface. Each entry maps to a
- * concrete CSS `font-family` stack on the guest side (`fontStack` below); the
- * value persisted + sent over the wire is only the bounded key. `"default"` (or
- * a null column) means "use the built-in token", so an un-themed invite renders
- * exactly as before.
- *
- *   serif fonts  → headings (display)      sans fonts → body
- * All are either already loaded by the guest site (Cormorant Garamond, Lato) or
- * resolve to a pure system-font stack — NO new web-font/CDN dependency is added.
+ * The font allow-list and the colour-scheme vocabulary both live in
+ * `@cire/theme` — the single copy every side of the boundary imports. A
+ * free-text font name/URL stays deliberately impossible (an arbitrary
+ * `@font-face` on the static guest site is a render-blocking performance
+ * footgun and a CSS/SSRF-injection surface), and a tone/preset key is likewise
+ * bounded rather than free text.
  */
-export const FONT_CHOICES = [
-  "default",
-  "cormorant", // Cormorant Garamond — the built-in display serif (already loaded)
-  "lato", // Lato — the built-in body sans (already loaded)
-  "georgia", // system serif stack
-  "system-sans", // system sans stack
-  "system-mono", // system monospace stack
-] as const;
-export type FontChoice = (typeof FONT_CHOICES)[number];
+export { FONT_CHOICES, PALETTE_PRESET_KEYS, PALETTE_SEED_KEYS, SECTION_TONES };
 
 const FontField = Schema.NullOr(Schema.Literal(...FONT_CHOICES));
+
+/** Which derived surface a section sits on. `null` ⇒ the page ground. */
+const ToneField = Schema.NullOr(Schema.Literal(...SECTION_TONES));
+
+/**
+ * Which curated scheme the organiser started from. Presentation only — the five
+ * seeds are what actually render — so an unknown/stale key is harmless, but it
+ * is still bounded so it can never carry free text into the builder's UI.
+ */
+const PresetField = Schema.NullOr(Schema.Literal(...PALETTE_PRESET_KEYS));
 
 /**
  * Strict CSS-colour allow-list — the write-time half of the CSS-injection
@@ -304,20 +305,33 @@ const ColorField = Schema.NullOr(
 /**
  * Full theme override body. Like the text body it's total — the builder always
  * submits every field, and a `null` clears that field back to the built-in
- * default token. Two global fonts plus an accent + surface colour per section.
+ * default token.
+ *
+ * The colour half is a five-seed SCHEME (migration 0044), not eight per-section
+ * colours: the organiser names `ground` / `card` / `ink` / `gilt` / `bloom`, and
+ * `derivePalette` in `@cire/theme` produces every other token from them. Each
+ * seed still passes the same `isSafeCssColor` gate the per-section colours did —
+ * the injection boundary is untouched, only the field count shrank. Section
+ * identity now comes from a bounded per-section `tone`.
  */
 export const InviteThemeBody = Schema.Struct({
   headingFont: FontField,
   bodyFont: FontField,
-  heroAccentColor: ColorField,
-  heroSurfaceColor: ColorField,
-  storyAccentColor: ColorField,
-  storySurfaceColor: ColorField,
-  detailsAccentColor: ColorField,
-  detailsSurfaceColor: ColorField,
-  // "Welcome" — the invite-code entry form + post-claim welcome banner.
-  welcomeAccentColor: ColorField,
-  welcomeSurfaceColor: ColorField,
+  // Which curated scheme the organiser started from (presentation only — the
+  // five seeds are what render).
+  palettePreset: PresetField,
+  // The five seeds. `null` ⇒ fall back to that role's value in the default
+  // preset, so a partly-filled scheme is always renderable.
+  paletteGround: ColorField,
+  paletteCard: ColorField,
+  paletteInk: ColorField,
+  paletteGilt: ColorField,
+  paletteBloom: ColorField,
+  // Which derived surface each section sits on (`null` ⇒ the page ground).
+  heroTone: ToneField,
+  storyTone: ToneField,
+  detailsTone: ToneField,
+  welcomeTone: ToneField,
   // Hero display sliders. Non-nullable bounded ints — the builder always submits
   // all three, each is clamped into range on decode (out-of-range is silently
   // clamped, not rejected), and a non-integer is a ParseError → 400. The

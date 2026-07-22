@@ -14,7 +14,7 @@ interface DetailsModalProps {
   /** Origin used to stamp the calendar invite's "Invite:" link. */
   siteUrl: string;
   /**
-   * "Details"-section theme map (`sectionTokenBridge(theme, "details")`) so this
+   * "Details"-section tone map (`sectionVars(theme, "details")`) so this
    * sheet follows the events section it expands — see AnimatedModal.themeVars.
    */
   themeVars?: Record<string, string>;

@@ -1,145 +1,126 @@
+import {
+  DERIVED_TOKENS,
+  derivePalette,
+  fontStack,
+  isPalettePresetKey,
+  type PaletteSeeds,
+  type SectionTone,
+  sectionToneVars,
+} from "@cire/theme";
+
 import { isValidColor } from "./dress-code-render";
 
 /**
- * The per-section theme an organiser can set in the builder, as it arrives from
- * the public invite endpoint. Every field is nullable — `null` means "use the
- * built-in default token", so an un-themed invite renders exactly as before.
- * Mirrors `InviteTheme` in `cire/api/src/services/invite.ts`.
+ * The invite theme as it arrives from the public invite endpoint. Mirrors
+ * `InviteTheme` in `cire/api/src/services/invite.ts`.
+ *
+ * Colour is a five-seed SCHEME, not eight per-section colours: `derivePalette`
+ * turns the seeds into the whole token set once, at the document root, so the
+ * organiser's colours reach every section, every modal, the footer and the hero
+ * gradient — instead of the five tokens the old per-section bridge could reach.
+ * Section identity comes from `tones` (which derived surface a section sits on).
+ *
+ * Every field is nullable — `null` means "use the built-in default", so an
+ * un-themed invite renders exactly as it always has.
  */
 export interface InviteTheme {
   headingFont: string | null;
   bodyFont: string | null;
-  hero: { accentColor: string | null; surfaceColor: string | null };
-  story: { accentColor: string | null; surfaceColor: string | null };
-  details: { accentColor: string | null; surfaceColor: string | null };
-  // "Welcome" — the invite-code entry form + post-claim welcome banner. Optional
-  // on the wire only until cire-api ships migration 0027; a payload without it
-  // simply keeps the built-in tokens (sectionThemeVars already tolerates a
-  // missing section).
-  welcome?: { accentColor: string | null; surfaceColor: string | null };
+  palettePreset?: string | null;
+  palette?: Partial<Record<keyof PaletteSeeds, string | null>> | null;
+  tones?: Partial<Record<ThemeSection, string | null>> | null;
 }
 
 export type ThemeSection = "hero" | "story" | "details" | "welcome";
 
 /**
- * Closed map of font-choice key → concrete CSS `font-family` stack. The key is
- * the only thing that ever crosses the wire / is persisted; the guest site owns
- * the stack. NO new web-font is introduced: Cormorant Garamond + Lato are already
- * loaded by `index.astro`, everything else is a pure system stack (zero network
- * cost, no CSS-injection surface). An unknown key (or `null` / `"default"`) falls
- * through to the built-in token, so a stale/garbage value can never break layout.
+ * Re-validate every seed at render time before it can reach a `style`.
+ *
+ * The API already rejected un-listed colours on write; this is the second half
+ * of the same gate (defence in depth — a drifted validator on either side would
+ * let an unvalidated value reach rendered CSS). A seed that fails is dropped,
+ * and `derivePalette` resolves a missing seed to the default preset's value for
+ * that role — so a corrupt value degrades to the built-in look rather than
+ * breaking the page.
  */
-const FONT_STACKS: Record<string, string> = {
-  cormorant: '"Cormorant Garamond", Georgia, serif',
-  lato: '"Lato", system-ui, sans-serif',
-  georgia: 'Georgia, "Times New Roman", serif',
-  "system-sans": 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-  "system-mono": 'ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace',
-};
-
-/** Resolve a font-choice key to its CSS stack, or `null` to keep the default. */
-export function fontStack(choice: string | null): string | null {
-  if (!choice || choice === "default") return null;
-  return FONT_STACKS[choice] ?? null;
+function safeSeeds(theme: InviteTheme | null | undefined): Partial<PaletteSeeds> {
+  const raw = theme?.palette;
+  if (!raw) return {};
+  const out: Partial<PaletteSeeds> = {};
+  for (const key of ["ground", "card", "ink", "gilt", "bloom"] as const) {
+    const value = raw[key];
+    if (typeof value === "string" && isValidColor(value)) out[key] = value;
+  }
+  return out;
 }
 
 /**
- * Build the inline CSS-variable style map a section wrapper applies. Only emits a
- * variable for a field that is present AND passes validation — fonts must resolve
- * to a known stack, colours must pass the same strict allow-list the dress-code
- * palette uses (defence in depth: the API already validated on write, but the
- * guest site never trusts a colour string into a `style` unchecked). An empty map
- * means "fully default" — the section inherits the global tokens unchanged.
+ * The full derived token set for an invite, as one style map for the document
+ * root. This is what makes the organiser's scheme reach EVERY descendant —
+ * including hover/focus states and opacity-modified Tailwind utilities, which
+ * per-element inline styles cannot reach.
  *
- * Returned keys are CSS custom properties the section's classes consume:
- *   --invite-accent   → the gold/accent colour for that section
- *   --invite-surface  → the section background
- *   --invite-heading  → display/heading font-family
- *   --invite-body     → body font-family
+ * Fonts ride along here too: they were always global (one heading face, one
+ * body face), so applying them per-section was only ever repeated work.
  */
-export function sectionThemeVars(
-  theme: InviteTheme | null | undefined,
-  section: ThemeSection,
-): Record<string, string> {
-  const vars: Record<string, string> = {};
-  if (!theme) return vars;
+export function paletteRootVars(theme: InviteTheme | null | undefined): Record<string, string> {
+  // The preset is part of what renders, not just a UI memento: an organiser who
+  // picks a scheme and changes nothing saves the KEY with five null seeds, and
+  // each null falls back to THAT preset's colour for the role. Drop it if it
+  // isn't a known key, so a stale value degrades to the built-in scheme.
+  const preset = theme?.palettePreset;
+  const vars: Record<string, string> = derivePalette(
+    safeSeeds(theme),
+    typeof preset === "string" && isPalettePresetKey(preset) ? preset : null,
+  );
 
-  const heading = fontStack(theme.headingFont);
-  if (heading) vars["--invite-heading"] = heading;
-  const body = fontStack(theme.bodyFont);
-  if (body) vars["--invite-body"] = body;
-
-  // Defensive: a truthy-but-partial theme (the requested section's sub-object
-  // missing — e.g. a mid-deploy payload-shape mismatch on the no-store
-  // revalidation, or future shape drift) must NEVER throw here. This map styles
-  // the guest invite's events ("details") section wrapper, so a throw would crash
-  // the InvitePage island and make the EVENTS list disappear entirely. Mirror the
-  // organiser preview helper's `?? default` resilience (`invite-theme-preview.ts`)
-  // and simply omit the section colours, falling back to the built-in tokens.
-  const sectionColors = theme[section] as
-    | { accentColor: string | null; surfaceColor: string | null }
-    | undefined;
-  const accentColor = sectionColors?.accentColor ?? null;
-  const surfaceColor = sectionColors?.surfaceColor ?? null;
-  if (accentColor && isValidColor(accentColor)) vars["--invite-accent"] = accentColor;
-  if (surfaceColor && isValidColor(surfaceColor)) vars["--invite-surface"] = surfaceColor;
+  // Fonts resolve through the same closed allow-list; an unknown/absent key
+  // simply keeps the built-in token.
+  const heading = fontStack(theme?.headingFont ?? null);
+  if (heading) vars["--font-display"] = heading;
+  const body = fontStack(theme?.bodyFont ?? null);
+  if (body) {
+    vars["--font-body"] = body;
+    // Tailwind's default family reads this; without it, unclassed text keeps
+    // the built-in body face while classed text switches — a split page.
+    vars["--default-font-family"] = body;
+  }
 
   return vars;
 }
 
 /**
- * Scoped token bridge: re-points the global design tokens the Tailwind utility
- * classes consume (`text-gold`, `bg-gold/5`, `hover:border-gold-dim`,
- * `font-display`, `font-body`, `bg-surface`, …) at the validated `--invite-*`
- * variables, so applying this map to a section (or modal) wrapper themes EVERY
- * descendant — including hover/focus/selected states and opacity-modified
- * utilities, which per-element inline styles cannot reach.
+ * The style map a section wrapper applies: which derived surface it sits on.
+ * One variable — the section paints `background-color: var(--invite-section-bg)`.
  *
- * Each fallback is the built-in token's literal value (a self-reference like
- * `--color-gold: var(--invite-accent, var(--color-gold))` would be a var()
- * cycle, which CSS resolves to *invalid* — not the outer value), so an
- * un-themed invite renders exactly as before. Must stay in sync with the
- * `@theme` tokens in `styles/global.css`.
+ * A missing/garbage tone falls back to the page ground rather than throwing.
+ * This styles the wrapper around the guest's EVENTS list, so a throw here would
+ * crash the island and make the events disappear entirely — the failure mode the
+ * old per-section helper was hardened against. Keep that property.
  */
-const TOKEN_BRIDGE: Record<string, string> = {
-  "--color-gold": "var(--invite-accent, oklch(74.99% 0.0854 82.08))",
-  // The original gold-dim is gold at 0.35 alpha; color-mix reproduces that for
-  // any picked accent (and collapses to the same value for the default).
-  "--color-gold-dim":
-    "color-mix(in oklab, var(--invite-accent, oklch(74.99% 0.0854 82.08)) 35%, transparent)",
-  "--color-surface": "var(--invite-surface, oklch(22.7% 0.0275 152.78))",
-  "--font-display": 'var(--invite-heading, "Cormorant Garamond", Georgia, serif)',
-  "--font-body": 'var(--invite-body, "Lato", system-ui, sans-serif)',
-};
-
-/**
- * A section's `--invite-*` variables PLUS the token bridge above, as one style
- * map for the section wrapper. This is what makes a themed accent reach the
- * event cards' buttons, date lines and modal contents rather than just the
- * elements that carry a hand-written inline `var(--invite-…)` style.
- */
-export function sectionTokenBridge(
+export function sectionVars(
   theme: InviteTheme | null | undefined,
   section: ThemeSection,
 ): Record<string, string> {
-  return { ...sectionThemeVars(theme, section), ...TOKEN_BRIDGE };
+  const tone = theme?.tones?.[section] ?? null;
+  return sectionToneVars(tone as SectionTone | null);
 }
 
 /**
- * The only style keys a theme-vars map may carry: the four validated
- * `--invite-*` variables plus the fixed bridge tokens. Components that spread a
- * theme map into a `style` attribute (AnimatedModal) filter through this set,
- * so a future caller wiring unvalidated data into the prop can never smuggle an
- * arbitrary CSS property (e.g. `background-image`) into the DOM — the sink
- * enforces the contract instead of relying on every caller remembering it
- * (S-L1).
+ * The only style keys a theme-vars map may carry: the derived palette tokens,
+ * the two font families, Tailwind's default-family variable, and the section
+ * background. Components that spread a theme map into a `style` attribute
+ * (AnimatedModal) filter through this set, so a future caller wiring
+ * unvalidated data into the prop can never smuggle an arbitrary CSS property
+ * (e.g. `background-image`) into the DOM — the sink enforces the contract
+ * instead of relying on every caller remembering it (S-L1).
  */
-const ALLOWED_THEME_VAR_KEYS: ReadonlySet<string> = new Set([
-  "--invite-accent",
-  "--invite-surface",
-  "--invite-heading",
-  "--invite-body",
-  ...Object.keys(TOKEN_BRIDGE),
+const ALLOWED_THEME_VAR_KEYS: ReadonlySet<string> = new Set<string>([
+  ...DERIVED_TOKENS,
+  "--font-display",
+  "--font-body",
+  "--default-font-family",
+  "--invite-section-bg",
 ]);
 
 /** Drop any key outside the theme-variable allow-list (undefined stays undefined). */
@@ -153,3 +134,60 @@ export function filterThemeVars(
   }
   return safe;
 }
+
+/**
+ * Serialise a style map into a CSS declaration string for the Astro shell,
+ * which renders the palette into the SSR'd HTML so the FIRST paint is already
+ * themed (no flash of the built-in dark green before a cream invite loads).
+ *
+ * Values reaching here are `derivePalette` output or an allow-listed font stack,
+ * but the map is filtered and each value re-checked anyway: this writes into a
+ * raw `style="…"` attribute.
+ *
+ * The character that matters is `;` — the only one that can close this
+ * declaration and open another. `<`/`>` are rejected as belt-and-braces against
+ * a future caller writing this somewhere Astro doesn't escape, and `\` because
+ * a CSS escape sequence could otherwise reconstruct a `;`.
+ *
+ * Quotes are NOT rejected. An earlier version filtered them too, which silently
+ * dropped every font declaration — every stack in `FONT_STACKS` contains a
+ * quoted family name — so a themed invite server-rendered its colours but not
+ * its typography, and only picked the fonts up on hydration. Astro escapes the
+ * attribute, so a quote here cannot break out; over-broad filtering just voided
+ * the feature the SSR path exists for.
+ */
+export function styleAttr(vars: Record<string, string>): string {
+  return Object.entries(filterThemeVars(vars) ?? {})
+    .filter(([, value]) => !/[;<>\\]/.test(value))
+    .map(([key, value]) => `${key}:${value}`)
+    .join(";");
+}
+
+/**
+ * Apply the palette to the document root from a client island, so a theme change
+ * picked up by the on-mount revalidation repaints the whole page — not just the
+ * island that fetched it. Idempotent, and a no-op outside the browser (the Astro
+ * shell owns the server-rendered copy).
+ */
+export function applyPaletteToRoot(theme: InviteTheme | null | undefined): void {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  const vars = paletteRootVars(theme);
+
+  // Remove what the PREVIOUS apply set and this one doesn't. Fonts are the case
+  // that matters: an organiser clearing their heading font back to the default
+  // makes `paletteRootVars` stop emitting `--font-display`, and without this the
+  // value written by the SSR shell would stay on the root forever — the guest
+  // would keep seeing a font the invite no longer specifies.
+  for (const key of appliedKeys) {
+    if (!(key in vars)) root.style.removeProperty(key);
+  }
+  appliedKeys = new Set(Object.keys(vars));
+
+  for (const [key, value] of Object.entries(vars)) {
+    root.style.setProperty(key, value);
+  }
+}
+
+/** The custom properties the last {@link applyPaletteToRoot} call set. */
+let appliedKeys: ReadonlySet<string> = new Set();

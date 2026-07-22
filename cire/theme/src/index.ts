@@ -39,6 +39,9 @@ const COLOR_PATTERNS = [
   new RegExp(`^oklch\\(${COLOR_INNER}\\)$`),
 ];
 
+export * from "./color";
+export * from "./palette";
+
 export function isSafeCssColor(value: string): boolean {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();

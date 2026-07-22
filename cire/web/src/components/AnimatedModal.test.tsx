@@ -38,8 +38,8 @@ describe("AnimatedModal", () => {
         onClose={() => {}}
         label="Event details"
         themeVars={{
-          "--invite-accent": "#abcdef",
-          "--color-gold": "var(--invite-accent, oklch(74.99% 0.0854 82.08))",
+          "--invite-section-bg": "var(--color-surface-raised)",
+          "--color-gold": "oklch(74.99% 0.0854 82.08)",
           // NOT in the theme-variable allow-list — must never reach the DOM
           // (the prop is a style sink; the component enforces the contract).
           "background-image": "url(https://evil.example/x)",
@@ -50,8 +50,10 @@ describe("AnimatedModal", () => {
     ));
 
     const dialog = getByRole("dialog");
-    expect(dialog.style.getPropertyValue("--invite-accent")).toBe("#abcdef");
-    expect(dialog.style.getPropertyValue("--color-gold")).toContain("--invite-accent");
+    expect(dialog.style.getPropertyValue("--invite-section-bg")).toBe(
+      "var(--color-surface-raised)",
+    );
+    expect(dialog.style.getPropertyValue("--color-gold")).toBe("oklch(74.99% 0.0854 82.08)");
     expect(dialog.style.getPropertyValue("background-image")).toBe("");
   });
 

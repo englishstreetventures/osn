@@ -1,11 +1,11 @@
 import { AuthProvider } from "@osn/client/solid";
-import { createMemo, createResource, createSignal, Show, For } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, Show, For } from "solid-js";
 import { Toaster } from "solid-toast";
 
 import { OSN_ISSUER_URL } from "../lib/osn";
 import { DetailsModal } from "./DetailsModal";
 import { EventCard } from "./EventCard";
-import { type InviteTheme, sectionTokenBridge } from "./invite-theme";
+import { applyPaletteToRoot, filterThemeVars, type InviteTheme, sectionVars } from "./invite-theme";
 import { LoginSection } from "./LoginSection";
 import { PulseAccountLink } from "./PulseAccountLink";
 import { RsvpModal } from "./RsvpModal";
@@ -116,16 +116,20 @@ export default function InvitePage(props: InvitePageProps) {
     { initialValue: propInvite() },
   );
 
-  // Validated per-section CSS-variable maps PLUS the scoped token bridge, so the
-  // theme reaches every descendant (event-card buttons, hover states, modal
-  // contents) — not just elements with a hand-written inline style. An unset
-  // field falls through to the built-in token via the var() fallbacks. "welcome"
-  // styles the invite-code entry form + post-claim welcome banner inside
-  // LoginSection.
+  // Which derived surface each section sits on. The COLOURS themselves come
+  // from the palette applied at the document root, so every descendant — event
+  // cards, buttons, hover/focus states, modal contents — already resolves the
+  // organiser's scheme; a section only chooses its background.
   // Memoised: each map has several consumers (section wrapper + both modals),
   // so compute once per theme change and share a stable object identity.
-  const detailsVars = createMemo(() => sectionTokenBridge(liveInvite().theme, "details"));
-  const welcomeVars = createMemo(() => sectionTokenBridge(liveInvite().theme, "welcome"));
+  const detailsVars = createMemo(() => sectionVars(liveInvite().theme, "details"));
+  const welcomeVars = createMemo(() => sectionVars(liveInvite().theme, "welcome"));
+
+  // Repaint the root palette when the revalidated theme changes. Harmless
+  // duplicate of InviteHeader's effect on a full invite page (both islands see
+  // the same payload); load-bearing on a page where the hero is hidden, since
+  // then this island is the only one that revalidates.
+  createEffect(() => applyPaletteToRoot(liveInvite().theme));
 
   // Organiser copy overrides with the built-in defaults as fallback.
   const detailsEyebrow = () => liveInvite().details?.eyebrow ?? DEFAULT_DETAILS_EYEBROW;
@@ -171,13 +175,15 @@ export default function InvitePage(props: InvitePageProps) {
         {(data) => (
           <section
             ref={eventsSectionRef}
-            class="border-border bg-surface border-y px-6 py-16 opacity-0 md:px-8 md:py-20"
-            // The token bridge in detailsVars re-points --color-surface /
-            // --color-gold / --font-* inside this section, so the `bg-surface`,
-            // `text-gold`, `font-display` (etc.) utility classes on the header
-            // AND on every EventCard descendant resolve the organiser's theme —
-            // no per-element inline styles needed.
-            style={detailsVars()}
+            class="border-border border-y px-6 py-16 opacity-0 md:px-8 md:py-20"
+            // The section paints whichever derived surface its tone names; the
+            // `text-gold` / `font-display` / `border-border` utilities on the
+            // header and on every EventCard descendant already resolve the
+            // organiser's scheme from the root palette.
+            style={{
+              ...filterThemeVars(detailsVars()),
+              "background-color": "var(--invite-section-bg)",
+            }}
           >
             <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
               <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">

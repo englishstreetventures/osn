@@ -16,7 +16,7 @@ interface RsvpModalProps {
    */
   preview?: boolean;
   /**
-   * "Details"-section theme map (`sectionTokenBridge(theme, "details")`) so the
+   * "Details"-section tone map (`sectionVars(theme, "details")`) so the
    * RSVP sheet follows the events section it belongs to — see
    * AnimatedModal.themeVars.
    */

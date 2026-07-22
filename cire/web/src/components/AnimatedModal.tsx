@@ -14,7 +14,7 @@ interface AnimatedModalProps {
   /** Fallback accessible name when there is no on-screen title to reference. */
   label?: string;
   /**
-   * Validated theme CSS-variable map (usually a `sectionTokenBridge(...)` from
+   * Validated theme CSS-variable map (usually a `sectionVars(...)` from
    * `invite-theme.ts`), applied to the panel so the modal follows its owning
    * section's theme. The modal paints outside any themed section wrapper, so
    * the variables must be re-declared here to reach its contents. Empty/absent

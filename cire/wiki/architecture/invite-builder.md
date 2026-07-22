@@ -4,14 +4,15 @@ tags: [architecture, api, web, db]
 related:
   - "[[index]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-07-10
+  - "[[invite-templates]]"
+last-reviewed: 2026-07-22
 ---
 
 # Invite Builder
 
 Lets an organiser customise the **presentation** of the guest invite — swap a
 couple of images, rewrite a few copy blocks, and apply a per-section **theme**
-(fonts + colours) — on top of the existing animated invite. It is deliberately
+(fonts + a five-colour scheme) — on top of the existing animated invite. It is deliberately
 additive: the event + guest **source of truth stays in the CSV import**
 (`events` / `families` / `guests`), and this feature only layers per-wedding
 image + text + theme overrides on top of the wedding root.
@@ -107,42 +108,96 @@ The organiser-facing template mirror (`cire/organiser/src/lib/import-templates.t
 the **optional** chips, kept in lockstep with the parser by
 `import-templates.test.ts`.
 
-## Theme (per-section fonts + colours)
+## Theme (fonts + a five-colour scheme)
 
 A second bounded surface on the same row: two global fonts (`headingFont`,
-`bodyFont`) plus an accent + surface colour for each of four named sections.
-Single source of truth: `cire/api/src/schemas/invite.ts` (`THEME_SECTIONS`,
-`FONT_CHOICES`, `InviteThemeBody`).
+`bodyFont`), a **five-seed colour scheme**, and a per-section **tone**. Single
+source of truth for the vocabulary: `@cire/theme` (`PALETTE_SEED_KEYS`,
+`PALETTE_PRESETS`, `SECTION_TONES`, `FONT_CHOICES`), re-exported by
+`cire/api/src/schemas/invite.ts` (`InviteThemeBody`).
 
-| Section              | Theme key | Accent colour         | Surface colour          |
-| -------------------- | --------- | --------------------- | ----------------------- |
-| Hero                 | `hero`    | `heroAccentColor`     | `heroSurfaceColor`      |
-| Our Story            | `story`   | `storyAccentColor`    | `storySurfaceColor`     |
-| Event Details        | `details` | `detailsAccentColor`  | `detailsSurfaceColor`   |
-| Code Entry & Welcome | `welcome` | `welcomeAccentColor`  | `welcomeSurfaceColor`   |
+### Why a scheme, not per-section colours
 
-The `welcome` section (migration `0027_welcome_theme.sql`) covers the guest
-site's **invite-code entry form and the post-claim welcome banner**
-(`LoginSection.tsx`), which were previously pinned to the built-in green/gold
-tokens with no organiser control.
+Until migration `0044` the builder asked for **eight** colours — an accent and a
+surface for each of hero / story / details / welcome. That is eight chances to
+pick a set that does not hang together, and it still only reached **five of the
+guest site's thirteen design tokens**: the page background, borders, text, muted
+text and the hero gradient were hard-locked, and hero + story applied only the
+raw `--invite-*` variables (not the token bridge), so their `text-gold` /
+`border-border` utilities silently ignored the organiser's accent entirely.
 
-Every field is nullable ⇒ "use the built-in token", so an un-themed (or
-partially-themed) invite renders exactly as before.
+Now the organiser names five colours by their ROLE and `derivePalette` in
+`@cire/theme` produces every other token from them, applied once at the document
+root — so the scheme reaches every section, both modals, the footer and the hero
+gradient.
+
+| Seed    | Role on the invite | Drives                                                        |
+| ------- | ------------------ | ------------------------------------------------------------- |
+| `ground` | The page           | body background, hero base gradient, scrims                   |
+| `card`   | Raised paper       | event cards, modals, panels, the code-entry box               |
+| `ink`    | Everything written | headings, body, muted text, hairlines                         |
+| `gilt`   | The metal          | rules, eyebrows, buttons, links, focus ring                   |
+| `bloom`  | Festive counter    | dots, ornament, motifs, ambient accents                       |
+
+`palettePreset` records which curated scheme (`evergreen` — today's look —
+`jewel`, `fog`, `chapel`, `garden`) the organiser started from. It is
+presentation only: the five seed columns are what render, and a `null` seed
+falls back to that role's value in the preset, so picking a preset and nudging
+one colour keeps the rest coherent.
+
+### Tones replace per-section colour
+
+Each section carries a `tone` — `ground` | `card` | `raised`, i.e. which derived
+surface it sits on (`hero_tone`, `story_tone`, `details_tone`, `welcome_tone`;
+`null` ⇒ `ground`). Alternating surfaces down the page is what made sections read
+as distinct; eight free colours were never what did that work. There is
+deliberately no "sit on the accent" tone — that needs the text tokens to flip
+too, and a half-flipped section is the unreadable output the derivation exists to
+prevent.
+
+### Contrast is enforced, not advised
+
+`derivePalette` moves a derived text or accent token's lightness until it clears
+WCAG on the surface it actually sits on (4.5:1 for text, 3:1 for UI + focus), and
+returns a well-chosen seed untouched. The builder reports what it moved
+(`paletteAdjustments`) rather than warning and shipping an unreadable invite,
+which is what the old `ContrastAdvisory` did. Derivation is direction-aware — it
+pushes surfaces AWAY from `ground` — so one function produces a coherent dark
+invite and a coherent light one with no `isDark` flag threaded through
+components.
+
+Two failures worth remembering, both caught only by screenshotting a light
+scheme (regression-tested in `cire/theme/src/palette.test.ts`):
+
+- a near-white card on a cream page **clipped** at white, so the `raised` tone
+  rendered identically to `card`; the step now reverses when it would clip.
+- the hero scrim was fixed-dark, which turned a cream invite muddy grey; it now
+  tracks the page (dark page scrims dark, light page veils light).
+
+### Still bounded
 
 - **Fonts** are a **closed enum** (`FONT_CHOICES`: `default`, `cormorant`,
   `lato`, `georgia`, `system-sans`, `system-mono`) — never a free-text font
-  name / URL. The guest site owns the concrete `font-family` stack
-  (`FONT_STACKS` in `cire/web/src/components/invite-theme.ts`); every key
-  resolves to an **already-loaded** font (Cormorant Garamond / Lato) or a pure
-  **system stack** — no new web-font / CDN dependency, no `@font-face`/SSRF
-  surface, no render-block cost.
+  name / URL. `@cire/theme` owns the concrete `font-family` stack
+  (`FONT_STACKS`); every key resolves to an **already-loaded** font (Cormorant
+  Garamond / Lato) or a pure **system stack** — no new web-font / CDN
+  dependency, no `@font-face`/SSRF surface, no render-block cost. This map used
+  to exist in three hand-maintained copies (guest render, API enum, organiser
+  preview); one copy is the point.
 - **Colours** pass a strict server-side allow-list (`isThemeColor`) — only
   `#hex` / `rgb(a)` / `hsl(a)` / `oklch(...)` with a restricted inner-character
   class (no `url()`, `expression()`, `var()`, named colours, or attribute
   breakouts), length-capped at 64. This is the **CSS-injection gate**: a bad
-  colour ⇒ 400, never persisted. The guest site **re-validates** the same
-  allow-list (`isValidColor`) before emitting any CSS variable — defence in
-  depth (the API allow-list and the guest allow-list are kept byte-identical).
+  seed ⇒ 400, never persisted. The guest site **re-validates** the same
+  allow-list before deriving (`safeSeeds` in `invite-theme.ts`) — defence in
+  depth, and a rejected seed degrades to the default preset rather than breaking
+  the page. Every DERIVED value is emitted as `oklch(...)`, so it clears the same
+  gate as a hand-picked one.
+- **Tones and preset keys** are closed enums too, so neither can carry free text
+  into rendered CSS or the builder's UI.
+
+The **dress-code palette** on an event is deliberately NOT scheme-driven: those
+swatches say what guests should wear, and recolouring them would be a lie.
 
 ## Storage
 
@@ -150,9 +205,13 @@ partially-themed) invite renders exactly as before.
 `0009_invite_customisations.sql` + `0014_invite_theme.sql` +
 `0017_hero_display_options.sql`) — one row per wedding (`wedding_id` PK + cascade
 FK ⇒ 1:1). Nullable text columns + nullable `hero_image_key` / `story_image_key` +
-nullable theme columns (`theme_heading_font`, `theme_body_font`, and
-`{hero,story,details,welcome}_{accent,surface}_color` — the `welcome` pair
-landed in `0027_welcome_theme.sql`) + the nullable copy columns
+nullable theme columns (`theme_heading_font`, `theme_body_font`, the five
+`palette_{ground,card,ink,gilt,bloom}` seeds + `palette_preset`, and the four
+`{hero,story,details,welcome}_tone` columns — all from
+`0044_invite_palette.sql`, which dropped the eight
+`{hero,story,details,welcome}_{accent,surface}_color` columns added by `0014` +
+`0027`, back-filling the hero accent → `palette_gilt` and the hero surface →
+`palette_card`) + the nullable copy columns
 `details_eyebrow` / `details_heading` / `welcome_message`
 (`0028_details_welcome_copy.sql`) + the two **hero display** columns
 `hero_image_style` (`blurred | regular`, **NOT NULL DEFAULT `blurred`**) and

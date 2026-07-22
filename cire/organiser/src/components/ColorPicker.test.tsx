@@ -22,6 +22,56 @@ describe("ColorPicker", () => {
     expect(trigger.textContent?.toUpperCase()).toContain("#112233");
   });
 
+  it("renders an oklch value as its hex equivalent", async () => {
+    // Kobalte's parser does NOT understand oklch(), and every curated preset
+    // seed and derived token is oklch — so before the shared parser was wired in
+    // here, each picker silently showed the stand-in gold instead of the colour
+    // the invite actually renders. This is the normal path (open a swatch on a
+    // preset), not an edge case.
+    render(() => (
+      <ColorPicker label="Accent" value="oklch(74.99% 0.0854 82.08)" onChange={() => {}} />
+    ));
+    const trigger = screen.getByLabelText("Accent colour");
+    // The built-in gold converts to #C9A96E. Note it is NOT the picker's own
+    // stand-in #D4AF37 — those two golds were always different, which is why a
+    // silent fallback to the stand-in was invisible before this conversion
+    // existed. Pinning the exact value is what makes that visible.
+    expect(trigger.textContent?.toUpperCase()).toContain("#C9A96E");
+    expect(trigger.textContent?.toUpperCase()).not.toContain("DEFAULT");
+
+    fireEvent.click(trigger);
+    const hex = (await waitFor(() => screen.getByLabelText("Hex"))) as HTMLInputElement;
+    expect(hex.value.toUpperCase()).toBe("#C9A96E");
+  });
+
+  it("shows the caller's fallback colour when the value is null", () => {
+    // "Default" must be a colour the organiser can SEE — the scheme editor
+    // passes the seed's value in the chosen preset, so the swatch shows what the
+    // invite actually paints rather than a stand-in.
+    const { container } = render(() => (
+      <ColorPicker
+        label="Page"
+        value={null}
+        fallback="oklch(19.96% 0.0331 147.34)"
+        onChange={() => {}}
+      />
+    ));
+    // Still reads "Default" (nothing is persisted)…
+    expect(screen.getByLabelText("Page colour").textContent).toContain("Default");
+    // …but the swatch is painted with the fallback, not the stand-in gold.
+    const swatch = container.querySelector('[aria-label="Page colour"] [style*="background"]');
+    expect(swatch).not.toBeNull();
+    const style = (swatch as HTMLElement).getAttribute("style") ?? "";
+    expect(style.toLowerCase()).not.toContain("#d4af37");
+  });
+
+  it("falls back to the stand-in when neither the value nor the fallback parses", () => {
+    render(() => (
+      <ColorPicker label="Accent" value={null} fallback="rebeccapurple" onChange={() => {}} />
+    ));
+    expect(screen.getByLabelText("Accent colour").textContent).toContain("Default");
+  });
+
   it("shows 'Default' (not a hex) and no clear control when value is null", () => {
     render(() => <ColorPicker label="Accent" value={null} onChange={() => {}} />);
     expect(screen.getByLabelText("Accent colour").textContent).toContain("Default");

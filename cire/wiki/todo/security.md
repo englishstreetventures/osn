@@ -5,12 +5,28 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-21
+last-reviewed: 2026-07-22
 ---
 
 # Security Backlog
 
 See [[overview]] for observability rules that apply to all security-sensitive code paths. See [[review-findings]] for severity prefix conventions.
+
+### Preview tier — review findings (feat/cire-invite-palette, 2026-07-22)
+
+Raised by the pre-merge security review of the invite colour scheme. The palette
+itself came back clean (no High/Critical); everything below concerns the new
+disposable preview tier. See [[preview-tier]].
+
+- [x] **S-M2** (fixed on branch) — `[env.preview]` set no `OSN_ENV`, so `loadConfig` fell back to `local`, `isDeployedTier()` returned false, and the fail-closed guard for a missing `CLAIM_RATE_LIMITER` binding was skipped **on a publicly reachable Worker** — a binding typo would have silently downgraded the claim-code brute-force defence with no signal (the exact failure RL-S-M1 below exists to prevent). Also kept the logger at `debug` on a deployed tier. Fixed by `OSN_ENV = "dev"` in `cire/api/wrangler.toml`.
+- [x] **S-L1** (fixed on branch) — `styleAttr`'s terminator filter rejected `"`, silently dropping every font declaration from the SSR'd palette (every `FONT_STACKS` entry has a quoted family name). Not exploitable — Astro escapes the attribute — but an over-broad guard that voids a feature invites someone to loosen it later without knowing which character matters. Narrowed to `;` `<` `>` `\`, with a test asserting the stacks survive.
+- [x] **S-L2** (fixed on branch) — four of five theme-var `style` sinks bypassed `filterThemeVars`. Safe as written (SolidJS object-form `style` uses `setProperty`), but it made the "the sink enforces the contract" rule documentation rather than a control. All sinks now filter.
+- [ ] **S-M1** — preview deploys run with the **production** Cloudflare API token. All three jobs in `deploy-cire-preview.yml` use `environment: production`, and `workflow_dispatch` can run them against any branch, so unreviewed branch content (including dependency postinstalls) executes with prod-scope credentials. The "touches NOTHING in production" guarantee is currently enforced only by resource names in `wrangler.toml`. **Fix:** a separate GitHub `preview` environment holding a token scoped to the preview Workers, `cire-db-preview` and the `-preview` buckets. Needs a human to mint the token.
+- [ ] **S-M3** — the preview API accepts **production-issued** OSN access tokens (same issuer + `osn-access` audience). Deliberate — it is what lets a reviewer sign in with their real passkey — but a token captured on a branch-built Worker replays directly against `api.cireweddings.com`. **Fix:** a distinct `osn-access-preview` audience that prod rejects, or Cloudflare Access in front of the three preview hostnames. Until then, an accepted documented exception.
+- [ ] **S-L3** — `cire-organiser-preview.pages.dev` sits in a credentialed CORS allowlist. If that Pages project is ever deleted the subdomain becomes claimable by another Cloudflare account, which would inherit a cross-origin channel to the preview API. **Fix:** move it to a `*-preview.cireweddings.com` custom domain like the other two, or never delete the project while the origin is allowlisted.
+- [ ] **S-L4** — with only two preview `WEB_ORIGIN` entries, `origins[2]` (the vendor portal) falls back to the **production** default, so enquiry links generated on preview would point at the live vendor portal carrying preview-database ids. Latent only: `ZAP_API_URL` is unset on preview so nothing is sent.
+- [ ] **C-M1** — the preview data tier (`cire-db-preview` + two `-preview` buckets + three public hostnames) has no row in the data map / retention / access-control pages, and a reviewer signing in with a real passkey can upload a real guest spreadsheet into it. "Disposable by design" needs a mechanism: a scheduled wipe, or a runbook rule that only synthetic data goes there. GDPR Art. 5(1)(e) + Art. 30.
+- [ ] **C-M2** — the new deploy workflow is a production-environment-consuming CI path and needs a named reviewer recorded for SOC 2 CC8 change-management evidence.
 
 ### Claim rate-limiter fail-closed (re-port of closed PR #235)
 

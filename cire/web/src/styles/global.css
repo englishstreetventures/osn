@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/*
+  The built-in scheme — the `evergreen` preset in `@cire/theme`, spelled out
+  here as the Tailwind token defaults.
+
+  An invite with a colour scheme overrides EVERY one of these at the document
+  root (`paletteRootVars` → `derivePalette`), so the utilities below —
+  `text-gold`, `bg-surface`, `border-border`, and their hover/opacity variants —
+  follow the organiser's five seeds automatically. These values are what an
+  un-themed invite paints, and what the derived tokens fall back to if the
+  palette ever fails to apply.
+*/
 @theme {
   --color-bg: oklch(19.96% 0.0331 147.34);
   --color-surface: oklch(22.7% 0.0275 152.78);
@@ -9,11 +20,32 @@
   --color-text-muted: oklch(94.62% 0.0111 89.72 / 0.5);
   --color-gold: oklch(74.99% 0.0854 82.08);
   --color-gold-dim: oklch(74.99% 0.0854 82.08 / 0.35);
+  /* The festive counter-colour — timeline dots, ornament, ambient accents. */
+  --color-bloom: oklch(70.5% 0.1123 24.5);
+  --color-bloom-dim: oklch(70.5% 0.1123 24.5 / 0.3);
   --color-error: oklch(67.56% 0.1401 21.48);
   --color-success: oklch(75.96% 0.1421 146.94);
   --font-display: "Cormorant Garamond", Georgia, serif;
   --font-body: "Lato", system-ui, sans-serif;
   --default-font-family: var(--font-body);
+}
+
+/*
+  Invite compositions that used to be hardcoded colour literals inside
+  components (and hand-copied into the organiser's preview). They are derived
+  from the scheme like everything else; these are the un-themed fallbacks.
+*/
+:root {
+  --invite-hero-grad-1: oklch(27.87% 0.0393 149.62);
+  --invite-hero-grad-2: oklch(19.96% 0.0331 147.34);
+  --invite-hero-grad-3: oklch(22.7% 0.0275 152.78);
+  --invite-scrim-from: oklch(8% 0.0132 147.34 / 0.3);
+  --invite-scrim-to: oklch(8% 0.0132 147.34 / 0.55);
+  --invite-panel: oklch(22.7% 0.0275 152.78);
+  --invite-card-edge: oklch(74.99% 0.0854 82.08 / 0.4);
+  --invite-focus: oklch(74.99% 0.0854 82.08);
+  /* Which derived surface a section sits on; set per-section by its wrapper. */
+  --invite-section-bg: var(--color-bg);
 }
 
 @layer base {

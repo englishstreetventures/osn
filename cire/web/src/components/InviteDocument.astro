@@ -3,6 +3,7 @@ import '../styles/global.css'
 import { inviteTitle } from '../lib/invite-title'
 import InviteHeader, { type InviteCustomisation } from './InviteHeader'
 import InvitePage from './InvitePage'
+import { paletteRootVars, styleAttr } from './invite-theme'
 import SiteFooter from './SiteFooter.astro'
 
 interface Props {
@@ -29,13 +30,20 @@ const heroBase = initialInvite?.hero.imageUrl ? `${apiUrl}${initialInvite.hero.i
 // Tab title follows the couple's hero title when they've set one (e.g.
 // "Anita & Ben — You're Invited"); the built-in default otherwise.
 const pageTitle = inviteTitle(initialInvite?.hero.title)
+// The invite's colour scheme, derived once and written into the SSR'd HTML so
+// the FIRST paint is already themed. Without this a cream invite would flash
+// the built-in dark green until the island hydrated. The islands re-apply it on
+// their no-store revalidation (`applyPaletteToRoot`) so a colour the organiser
+// just saved lands without a rebuild.
+const paletteStyle = styleAttr(paletteRootVars(initialInvite?.theme ?? null))
+
 const heroSep = heroBase?.includes('?') ? '&' : '?'
 const preloadHeroSrcset = heroBase
   ? `${heroBase}${heroSep}variant=thumb 320w, ${heroBase}${heroSep}variant=card 800w, ${heroBase}${heroSep}variant=hero 1600w`
   : null
 ---
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" style={paletteStyle}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />

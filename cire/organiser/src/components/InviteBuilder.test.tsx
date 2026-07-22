@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { derivePalette, PALETTE_PRESETS } from "@cire/theme";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -47,10 +48,9 @@ const EMPTY_CUSTOMISATION = {
   theme: {
     headingFont: null,
     bodyFont: null,
-    hero: { accentColor: null, surfaceColor: null },
-    story: { accentColor: null, surfaceColor: null },
-    details: { accentColor: null, surfaceColor: null },
-    welcome: { accentColor: null, surfaceColor: null },
+    palettePreset: null,
+    palette: { ground: null, card: null, ink: null, gilt: null, bloom: null },
+    tones: { hero: null, story: null, details: null, welcome: null },
   },
 };
 
@@ -86,7 +86,7 @@ describe("InviteBuilder theme", () => {
     expect(body.value).toBe("system-sans");
   });
 
-  it("PUTs only the theme body when only theme fields changed (font enum + colours)", async () => {
+  it("PUTs only the theme body when only theme fields changed (font enum + scheme)", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
@@ -95,11 +95,9 @@ describe("InviteBuilder theme", () => {
     await waitFor(() => screen.getByText("Save invite"));
 
     fireEvent.change(screen.getByLabelText("Heading font"), { target: { value: "cormorant" } });
-    // Four "Accent colour" swatch triggers (one per section, in guest-page
-    // order: hero, story, welcome, events/details); the first is Hero. Open its
+    // ONE Accent swatch for the whole invite now, not one per section. Open its
     // popover and type a full hex into the labelled "Hex" field.
-    const accents = screen.getAllByLabelText("Accent colour");
-    fireEvent.click(accents[0]);
+    fireEvent.click(screen.getByLabelText("Accent colour"));
     const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
     fireEvent.input(hex, { target: { value: "#112233" } });
 
@@ -115,17 +113,18 @@ describe("InviteBuilder theme", () => {
 
     const sent = sentBody("/theme");
     expect(sent.headingFont).toBe("cormorant");
-    expect(sent.heroAccentColor).toBe("#112233");
+    expect(sent.paletteGilt).toBe("#112233");
     // Untouched fonts collapse to null ("default" ⇒ keep the built-in token).
     expect(sent.bodyFont).toBeNull();
     // Hero display sliders ride on the same PUT, defaulting to today's look.
     expect(sent.heroBlur).toBe(28);
     expect(sent.titleBackdropOpacity).toBe(0);
     expect(sent.titleBackdropBlur).toBe(0);
-    // The untouched welcome section rides along as null (keep the defaults) —
-    // the body is total, so the fields must be present.
-    expect(sent.welcomeAccentColor).toBeNull();
-    expect(sent.welcomeSurfaceColor).toBeNull();
+    // The untouched seeds and tones ride along as null (keep the defaults) —
+    // the body is total, so every field must be present.
+    expect(sent.paletteGround).toBeNull();
+    expect(sent.paletteBloom).toBeNull();
+    expect(sent.welcomeTone).toBeNull();
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Invite saved"));
   });
 
@@ -163,13 +162,14 @@ describe("InviteBuilder theme", () => {
     expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("seeds the welcome section pickers and PUTs the edited welcome accent", async () => {
+  it("seeds the scheme from the loaded theme and PUTs an edited seed", async () => {
     authFetchMock.mockResolvedValueOnce(
       json({
         ...EMPTY_CUSTOMISATION,
         theme: {
           ...EMPTY_CUSTOMISATION.theme,
-          welcome: { accentColor: "#7a9e7e", surfaceColor: null },
+          palettePreset: "jewel",
+          palette: { ...EMPTY_CUSTOMISATION.theme.palette, gilt: "#7a9e7e" },
         },
       }),
     );
@@ -182,47 +182,74 @@ describe("InviteBuilder theme", () => {
     expect(screen.getAllByText("Code Entry & Welcome").length).toBeGreaterThanOrEqual(2);
     screen.getByLabelText("Code Entry & Welcome preview");
 
-    // Welcome is the THIRD section in guest-page order (hero, story, welcome,
-    // events) — recolour it and save.
-    const accents = screen.getAllByLabelText("Accent colour");
-    expect(accents.length).toBe(4);
-    fireEvent.click(accents[2]);
+    fireEvent.click(screen.getByLabelText("Accent colour"));
     const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
-    // Seeded from the loaded theme, not the empty default (case per Kobalte).
+    // Seeded from the loaded theme, not the preset default (case per Kobalte).
     expect(hex.value.toLowerCase()).toBe("#7a9e7e");
     fireEvent.input(hex, { target: { value: "#112233" } });
     fireEvent.click(screen.getByText("Save invite"));
 
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     const sent = sentBody("/theme");
-    expect(sent.welcomeAccentColor).toBe("#112233");
-    // The sibling sections are untouched.
-    expect(sent.heroAccentColor).toBeNull();
-    expect(sent.detailsAccentColor).toBeNull();
+    expect(sent.paletteGilt).toBe("#112233");
+    // The preset the organiser started from rides along; the seeds they never
+    // touched stay null so they keep following that preset.
+    expect(sent.palettePreset).toBe("jewel");
+    expect(sent.paletteGround).toBeNull();
   });
 
-  it("PUTs an edited welcome surface colour (the background signal lane)", async () => {
+  it("adopts a preset's five colours in one click", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
 
     render(() => <InviteBuilder weddingId="wed_1" />);
     await waitFor(() => screen.getByText("Save invite"));
 
-    // The THIRD "Background colour" swatch is the welcome section's surface.
-    const surfaces = screen.getAllByLabelText("Background colour");
-    expect(surfaces.length).toBe(4);
-    fireEvent.click(surfaces[2]);
-    const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
-    fireEvent.input(hex, { target: { value: "#223344" } });
+    fireEvent.click(screen.getByText("Fog"));
     fireEvent.click(screen.getByText("Save invite"));
 
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     const sent = sentBody("/theme");
-    expect(sent.welcomeSurfaceColor).toBe("#223344");
-    // Sibling surface lanes untouched — guards a copy-paste slip in the updater.
-    expect(sent.storySurfaceColor).toBeNull();
-    expect(sent.detailsSurfaceColor).toBeNull();
-    expect(sent.welcomeAccentColor).toBeNull();
+    // Picking a preset records the CHOICE, not five copied hexes — so a later
+    // change to the preset's palette reaches invites that chose it. The guest
+    // side resolves the null seeds against this key (see paletteRootVars), which
+    // is what makes a key-only scheme render as that scheme.
+    expect(sent.palettePreset).toBe("fog");
+    expect(sent.paletteGround).toBeNull();
+
+    // And the preview agrees with what a guest will see. The two sides reach
+    // `derivePalette` differently — the builder pre-fills the five seeds, the
+    // guest passes the preset key — and the one bug this feature shipped to a
+    // live preview was exactly a preset-only scheme rendering as evergreen.
+    const heroPreview = document.querySelector('[aria-label="Hero preview"]') as HTMLElement;
+    await waitFor(() =>
+      expect(heroPreview.style.getPropertyValue("--color-gold")).toBe(
+        derivePalette(PALETTE_PRESETS.fog)["--color-gold"],
+      ),
+    );
+  });
+
+  it("PUTs an edited section tone (the tone lane)", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
+
+    render(() => <InviteBuilder weddingId="wed_1" />);
+    await waitFor(() => screen.getByText("Save invite"));
+
+    // One tone control per section, in guest-page order (hero, story, welcome,
+    // events); each offers the same three surfaces.
+    const raised = screen.getAllByText("Raised");
+    expect(raised.length).toBe(4);
+    fireEvent.click(raised[2]); // welcome
+    fireEvent.click(screen.getByText("Save invite"));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    const sent = sentBody("/theme");
+    expect(sent.welcomeTone).toBe("raised");
+    // Sibling tone lanes untouched — guards a copy-paste slip in the updater.
+    expect(sent.storyTone).toBeNull();
+    expect(sent.detailsTone).toBeNull();
+    expect(sent.heroTone).toBeNull();
   });
 
   it("seeds the hero display sliders from the loaded customisation", async () => {
@@ -285,15 +312,15 @@ describe("InviteBuilder theme", () => {
     expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("seeds a null font as 'default' and sends a cleared colour as null", async () => {
-    // Loaded with a hero accent set + null fonts: the selects should read
-    // "default", and clearing the accent should PUT heroAccentColor: null.
+  it("seeds a null font as 'default' and sends a cleared seed as null", async () => {
+    // Loaded with an accent seed set + null fonts: the selects should read
+    // "default", and clearing the seed should PUT paletteGilt: null.
     authFetchMock.mockResolvedValueOnce(
       json({
         ...EMPTY_CUSTOMISATION,
         theme: {
           ...EMPTY_CUSTOMISATION.theme,
-          hero: { accentColor: "#112233", surfaceColor: null },
+          palette: { ...EMPTY_CUSTOMISATION.theme.palette, gilt: "#112233" },
         },
       }),
     );
@@ -306,14 +333,14 @@ describe("InviteBuilder theme", () => {
       expect(heading.value).toBe("default");
     });
 
-    // Hero accent was loaded as #112233, so its "Use default" clear control shows.
+    // The accent seed was loaded as #112233, so its "Use default" clear shows.
     const clears = screen.getAllByText("Use default");
     fireEvent.click(clears[0]);
 
     fireEvent.click(screen.getByText("Save invite"));
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     const sent = sentBody("/theme");
-    expect(sent.heroAccentColor).toBeNull();
+    expect(sent.paletteGilt).toBeNull();
     expect(sent.headingFont).toBeNull();
   });
 
@@ -324,24 +351,25 @@ describe("InviteBuilder theme", () => {
 
     await waitFor(() => screen.getByText("Save invite"));
 
-    // The WYSIWYG hero preview consumes --invite-accent, driven live by the Hero
-    // accent picker in the same fieldset. Before any change: the default gold.
+    // The WYSIWYG hero preview consumes the DERIVED tokens, driven live by the
+    // scheme editor. Before any change: the built-in gold.
     const heroPreview = () =>
       container.querySelector('[aria-label="Hero preview"]') as HTMLElement | null;
     await waitFor(() => expect(heroPreview()).not.toBeNull());
-    expect(heroPreview()!.style.getPropertyValue("--invite-accent")).toBe(
-      "oklch(74.99% 0.0854 82.08)",
+    expect(heroPreview()!.style.getPropertyValue("--color-gold")).toBe(
+      derivePalette(PALETTE_PRESETS.evergreen)["--color-gold"],
     );
 
-    // Change the Hero accent via the popover hex field — the preview updates
-    // instantly (no PUT fired).
-    const accents = screen.getAllByLabelText("Accent colour");
-    fireEvent.click(accents[0]);
+    // Change the accent seed via the popover hex field — the preview updates
+    // instantly (no PUT fired), through the SAME derivation the guest uses.
+    fireEvent.click(screen.getByLabelText("Accent colour"));
     const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
     fireEvent.input(hex, { target: { value: "#112233" } });
 
     await waitFor(() =>
-      expect(heroPreview()!.style.getPropertyValue("--invite-accent")).toBe("#112233"),
+      expect(heroPreview()!.style.getPropertyValue("--color-gold")).toBe(
+        derivePalette({ ...PALETTE_PRESETS.evergreen, gilt: "#112233" })["--color-gold"],
+      ),
     );
     // Live preview must not trigger a network save.
     expect(authFetchMock).toHaveBeenCalledTimes(1);
@@ -368,15 +396,21 @@ describe("InviteBuilder theme", () => {
     expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("shows a live low-contrast advisory for a self-defeating colour pair, and clears it (WT-C-L1)", async () => {
-    // Loaded with a welcome accent ≈ background: the code-entry form's labels /
-    // focus ring would be near-invisible. The advisory must warn (never block).
+  it("reports which seeds it adjusted for a self-defeating scheme (WT-C-L1)", async () => {
+    // Loaded with text ≈ page: the invite would be near-unreadable. Contrast is
+    // now ENFORCED in the derivation rather than merely warned about, so the
+    // builder reports what it moved instead of asking the organiser to fix it.
     authFetchMock.mockResolvedValueOnce(
       json({
         ...EMPTY_CUSTOMISATION,
         theme: {
           ...EMPTY_CUSTOMISATION.theme,
-          welcome: { accentColor: "#888888", surfaceColor: "#999999" },
+          palette: {
+            ...EMPTY_CUSTOMISATION.theme.palette,
+            ground: "#999999",
+            card: "#999999",
+            ink: "#888888",
+          },
         },
       }),
     );
@@ -384,27 +418,27 @@ describe("InviteBuilder theme", () => {
     render(() => <InviteBuilder weddingId="wed_1" />);
     await waitFor(() => screen.getByText("Save invite"));
 
-    const advisory = await waitFor(() => screen.getByText(/Low contrast/));
-    expect(advisory.textContent).toContain(":1");
-    // Advisory only — the save button stays enabled.
+    const notice = await waitFor(() => screen.getByText(/Adjusted to stay readable/));
+    expect(notice.textContent).toContain("text");
+    // The organiser's own pick is still saveable — nothing is blocked.
     expect((screen.getByText("Save invite") as HTMLButtonElement).disabled).toBe(false);
 
-    // Clearing the accent back to the default (gold on #999999 is still low…
-    // so clear the background too) removes the warning live, no save needed.
-    const clears = screen.getAllByText("Use default");
-    fireEvent.click(clears[0]);
-    fireEvent.click(screen.getAllByText("Use default")[0]);
-    await waitFor(() => expect(screen.queryByText(/Low contrast/)).toBeNull());
+    // Clearing the three edited seeds back to the preset's colours clears the
+    // notice live, with no save. (Clearing only the text seed is not enough —
+    // near-white text on a mid-grey page is still short of 4.5:1, which is
+    // exactly why the derivation refuses to leave the pair alone.)
+    for (let i = 0; i < 3; i++) fireEvent.click(screen.getAllByText("Use default")[0]);
+    await waitFor(() => expect(screen.queryByText(/Adjusted to stay readable/)).toBeNull());
     expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("shows no contrast advisory for the built-in defaults", async () => {
+  it("reports no adjustment for the built-in scheme", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
 
     render(() => <InviteBuilder weddingId="wed_1" />);
     await waitFor(() => screen.getByText("Save invite"));
 
-    expect(screen.queryByText(/Low contrast/)).toBeNull();
+    expect(screen.queryByText(/Adjusted to stay readable/)).toBeNull();
   });
 
   it("surfaces a server validation error from the theme half (bad colour rejected)", async () => {

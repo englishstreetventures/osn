@@ -1,3 +1,4 @@
+import { derivePalette, PALETTE_PRESETS } from "@cire/theme";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
@@ -81,6 +82,9 @@ const claim: ClaimResult = {
 describe("InvitePage", () => {
   afterEach(() => {
     cleanup();
+    // The palette is applied to the document root, which outlives a render —
+    // clear it so one test's scheme can't leak into the next one's assertions.
+    document.documentElement.removeAttribute("style");
     capturedProps.value = null;
     detailsModalProps.value = null;
     vi.restoreAllMocks();
@@ -128,7 +132,7 @@ describe("InvitePage", () => {
     expect(window.location.search).not.toContain("code");
   });
 
-  it("applies the validated details-section theme to the events section", async () => {
+  it("applies the section tone to the events section and the palette to the root", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ...claim, preview: true }), {
         status: 200,
@@ -144,11 +148,10 @@ describe("InvitePage", () => {
         theme={{
           headingFont: null,
           bodyFont: null,
-          hero: { accentColor: null, surfaceColor: null },
-          story: { accentColor: null, surfaceColor: null },
-          // Only the details section is themed — proves the binding uses the
+          palette: { gilt: "#abcdef", card: "oklch(30% 0.02 150)" },
+          // Only the details tone is set — proves the binding uses the
           // "details" key, not a copy-pasted "hero".
-          details: { accentColor: "#abcdef", surfaceColor: "oklch(30% 0.02 150)" },
+          tones: { details: "card" },
         }}
       />
     ));
@@ -156,13 +159,20 @@ describe("InvitePage", () => {
     await waitFor(() => expect(getByText("Your Events")).toBeTruthy(), { timeout: 2000 });
 
     const section = getByText("Your Events").closest("section") as HTMLElement;
-    expect(section.style.getPropertyValue("--invite-accent")).toBe("#abcdef");
-    expect(section.style.getPropertyValue("--invite-surface")).toBe("oklch(30% 0.02 150)");
-    // The scoped token bridge re-points the global tokens on the same wrapper,
-    // so the theme reaches the EventCard utility classes (buttons, date lines)
-    // and not just the inline-styled header.
-    expect(section.style.getPropertyValue("--color-gold")).toContain("--invite-accent");
-    expect(section.style.getPropertyValue("--font-display")).toContain("--invite-heading");
+    // The section chooses its surface…
+    expect(section.style.getPropertyValue("--invite-section-bg")).toBe("var(--color-surface)");
+    expect(section.style.getPropertyValue("background-color")).toBe("var(--invite-section-bg)");
+    // …and the colours come from the root palette, so the EventCard utility
+    // classes (buttons, date lines) follow the organiser's scheme too.
+    const root = document.documentElement.style;
+    await waitFor(() =>
+      expect(root.getPropertyValue("--color-gold")).toBe(
+        derivePalette({ gilt: "#abcdef", card: "oklch(30% 0.02 150)" })["--color-gold"],
+      ),
+    );
+    expect(root.getPropertyValue("--color-surface")).toBe(
+      derivePalette({ gilt: "#abcdef", card: "oklch(30% 0.02 150)" })["--color-surface"],
+    );
   });
 
   it("renders the organiser's events-section header copy, and the defaults when unset", async () => {
@@ -205,9 +215,8 @@ describe("InvitePage", () => {
         theme={{
           headingFont: null,
           bodyFont: null,
-          hero: { accentColor: null, surfaceColor: null },
-          story: { accentColor: null, surfaceColor: null },
-          details: { accentColor: "#abcdef", surfaceColor: null },
+          palette: { gilt: "#abcdef" },
+          tones: { details: "raised" },
         }}
       />
     ));
@@ -219,8 +228,7 @@ describe("InvitePage", () => {
     await waitFor(() => expect(getByTestId("rsvp-modal-stub")).toBeTruthy());
 
     const themeVars = capturedProps.value?.themeVars as Record<string, string>;
-    expect(themeVars["--invite-accent"]).toBe("#abcdef");
-    expect(themeVars["--color-gold"]).toContain("--invite-accent");
+    expect(themeVars["--invite-section-bg"]).toBe("var(--color-surface-raised)");
   });
 
   it("threads the details theme into the event-details modal (both modal consumers)", async () => {
@@ -239,9 +247,8 @@ describe("InvitePage", () => {
         theme={{
           headingFont: null,
           bodyFont: null,
-          hero: { accentColor: null, surfaceColor: null },
-          story: { accentColor: null, surfaceColor: null },
-          details: { accentColor: "#abcdef", surfaceColor: null },
+          palette: { gilt: "#abcdef" },
+          tones: { details: "raised" },
         }}
       />
     ));
@@ -253,61 +260,48 @@ describe("InvitePage", () => {
     await waitFor(() => expect(getByTestId("details-modal-stub")).toBeTruthy());
 
     const themeVars = detailsModalProps.value?.themeVars as Record<string, string>;
-    expect(themeVars["--invite-accent"]).toBe("#abcdef");
-    expect(themeVars["--color-gold"]).toContain("--invite-accent");
+    expect(themeVars["--invite-section-bg"]).toBe("var(--color-surface-raised)");
   });
 
-  it("applies the validated welcome-section theme to the code entry + welcome banner", () => {
+  it("applies the welcome tone to the code entry + welcome banner", () => {
     const { getByText } = render(() => (
       <InvitePage
         apiUrl="https://api.test"
         theme={{
           headingFont: null,
           bodyFont: null,
-          hero: { accentColor: null, surfaceColor: null },
-          story: { accentColor: null, surfaceColor: null },
-          details: { accentColor: null, surfaceColor: null },
-          // Only the welcome section is themed — proves the binding uses the
+          palette: { gilt: "#7a9e7e", card: "oklch(30% 0.02 150)" },
+          // Only the welcome tone is set — proves the binding uses the
           // "welcome" key, not a copy-pasted sibling section.
-          welcome: { accentColor: "#7a9e7e", surfaceColor: "oklch(30% 0.02 150)" },
+          tones: { welcome: "card" },
         }}
       />
     ));
 
     const section = getByText("Enter Your Code").closest("section") as HTMLElement;
-    expect(section.style.getPropertyValue("--invite-accent")).toBe("#7a9e7e");
-    expect(section.style.getPropertyValue("--invite-surface")).toBe("oklch(30% 0.02 150)");
-    // The scoped token bridge re-points the section's gold utilities (labels,
-    // focus border, button hover fill) and background at the picked values.
-    expect(section.style.getPropertyValue("--color-gold")).toContain("--invite-accent");
-    expect(section.style.getPropertyValue("background-color")).toContain("--invite-surface");
-    // The font bridges too — and their literal fallbacks must be the built-in
-    // stacks (a self-referential var() would be a cycle), so a typo there would
-    // silently change fonts on every un-themed invite.
-    const fontDisplay = section.style.getPropertyValue("--font-display");
-    expect(fontDisplay).toContain("--invite-heading");
-    expect(fontDisplay).toContain("Cormorant Garamond");
-    const fontBody = section.style.getPropertyValue("--font-body");
-    expect(fontBody).toContain("--invite-body");
-    expect(fontBody).toContain("Lato");
+    expect(section.style.getPropertyValue("--invite-section-bg")).toBe("var(--color-surface)");
+    expect(section.style.getPropertyValue("background-color")).toBe("var(--invite-section-bg)");
+    // The section's gold utilities (labels, focus border, button hover fill)
+    // resolve from the root palette, so hover/focus states follow too.
+    expect(document.documentElement.style.getPropertyValue("--color-gold")).toBe(
+      derivePalette({ gilt: "#7a9e7e", card: "oklch(30% 0.02 150)" })["--color-gold"],
+    );
   });
 
   it("ignores a malicious welcome colour from the live refetch (never reaches the code-entry DOM)", async () => {
     // Counterpart of the malicious-details test for the no-store revalidation
-    // path: pins that LoginSection consumes the validated sectionThemeVars path
-    // on live updates too. The valid surface colour proves the refetch landed;
-    // the malicious accent must still be dropped.
+    // path: the render-time seed validation must run on live updates too. The
+    // valid card seed proves the refetch landed; the malicious gilt seed must
+    // fall back to the default rather than reach the DOM.
     const liveInvite = {
       theme: {
         headingFont: null,
         bodyFont: null,
-        hero: { accentColor: null, surfaceColor: null },
-        story: { accentColor: null, surfaceColor: null },
-        details: { accentColor: null, surfaceColor: null },
-        welcome: {
-          accentColor: "red;background:url(https://evil.example)",
-          surfaceColor: "oklch(30% 0.02 150)",
+        palette: {
+          gilt: "red;background:url(https://evil.example)",
+          card: "oklch(30% 0.02 150)",
         },
+        tones: { welcome: "card" },
       },
     };
     const fetchMock = vi.fn().mockResolvedValue(
@@ -322,34 +316,30 @@ describe("InvitePage", () => {
       <InvitePage apiUrl="https://api.test" slug="cire-wedding" />
     ));
 
-    const section = getByText("Enter Your Code").closest("section") as HTMLElement;
+    getByText("Enter Your Code");
+    const root = document.documentElement.style;
     await waitFor(() =>
-      expect(section.style.getPropertyValue("--invite-surface")).toBe("oklch(30% 0.02 150)"),
+      expect(root.getPropertyValue("--color-surface")).toBe(
+        derivePalette({ card: "oklch(30% 0.02 150)" })["--color-surface"],
+      ),
     );
-    expect(section.style.getPropertyValue("--invite-accent")).toBe("");
+    // The malicious seed is dropped, so gold stays the built-in default.
+    expect(root.getPropertyValue("--color-gold")).toBe(
+      derivePalette(PALETTE_PRESETS.evergreen)["--color-gold"],
+    );
   });
 
-  it("renders the code entry untouched when the theme has no welcome section (pre-0027 payload)", () => {
+  it("renders the code entry untouched when the theme carries no tones", () => {
     const { getByText } = render(() => (
-      <InvitePage
-        apiUrl="https://api.test"
-        theme={{
-          headingFont: null,
-          bodyFont: null,
-          hero: { accentColor: null, surfaceColor: null },
-          story: { accentColor: null, surfaceColor: null },
-          details: { accentColor: null, surfaceColor: null },
-        }}
-      />
+      <InvitePage apiUrl="https://api.test" theme={{ headingFont: null, bodyFont: null }} />
     ));
 
     const section = getByText("Enter Your Code").closest("section") as HTMLElement;
-    // No --invite-* variables ⇒ the bridge falls through to the built-in tokens.
-    expect(section.style.getPropertyValue("--invite-accent")).toBe("");
-    expect(section.style.getPropertyValue("--invite-surface")).toBe("");
+    // No tone ⇒ the section sits on the page ground, as it always has.
+    expect(section.style.getPropertyValue("--invite-section-bg")).toBe("var(--color-bg)");
   });
 
-  it("ignores a malicious details colour (never reaches the events-section DOM)", async () => {
+  it("ignores a malicious seed (never reaches the rendered CSS)", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ...claim, preview: true }), {
         status: 200,
@@ -365,16 +355,16 @@ describe("InvitePage", () => {
         theme={{
           headingFont: null,
           bodyFont: null,
-          hero: { accentColor: null, surfaceColor: null },
-          story: { accentColor: null, surfaceColor: null },
-          details: { accentColor: "red;background:url(https://evil.example)", surfaceColor: null },
+          palette: { gilt: "red;background:url(https://evil.example)" },
         }}
       />
     ));
 
     await waitFor(() => expect(getByText("Your Events")).toBeTruthy(), { timeout: 2000 });
-    const section = getByText("Your Events").closest("section") as HTMLElement;
-    expect(section.style.getPropertyValue("--invite-accent")).toBe("");
+    // The seed is rejected at the render boundary, so gold stays the built-in.
+    expect(document.documentElement.style.getPropertyValue("--color-gold")).toBe(
+      derivePalette(PALETTE_PRESETS.evergreen)["--color-gold"],
+    );
   });
 
   it("revalidates the details theme + copy at runtime, overriding the stale build-time props", async () => {
@@ -388,13 +378,7 @@ describe("InvitePage", () => {
       story: { eyebrow: null, heading: null, body: null, imageUrl: null },
       details: { eyebrow: "Join The Celebration", heading: "The Festivities" },
       welcome: { message: null },
-      theme: {
-        headingFont: null,
-        bodyFont: null,
-        hero: { accentColor: null, surfaceColor: null },
-        story: { accentColor: null, surfaceColor: null },
-        details: { accentColor: "#00ff00", surfaceColor: null },
-      },
+      theme: { headingFont: null, bodyFont: null, palette: { gilt: "#00ff00" } },
     };
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
@@ -425,10 +409,8 @@ describe("InvitePage", () => {
         theme={{
           headingFont: null,
           bodyFont: null,
-          hero: { accentColor: null, surfaceColor: null },
-          story: { accentColor: null, surfaceColor: null },
-          // Stale build-time accent — must be overridden by the live fetch.
-          details: { accentColor: "#abcdef", surfaceColor: null },
+          // Stale build-time seed — must be overridden by the live fetch.
+          palette: { gilt: "#abcdef" },
         }}
         // Stale build-time copy — must be overridden by the live fetch.
         details={{ eyebrow: "Old Eyebrow", heading: "Old Heading" }}
@@ -441,8 +423,11 @@ describe("InvitePage", () => {
     expect(queryByText("Old Heading")).toBeNull();
     expect(queryByText("Your Events")).toBeNull();
 
-    const section = getByText("The Festivities").closest("section") as HTMLElement;
-    await waitFor(() => expect(section.style.getPropertyValue("--invite-accent")).toBe("#00ff00"));
+    await waitFor(() =>
+      expect(document.documentElement.style.getPropertyValue("--color-gold")).toBe(
+        derivePalette({ gilt: "#00ff00" })["--color-gold"],
+      ),
+    );
   });
 
   it("keeps the build-time theme when the runtime revalidation fails (non-OK)", async () => {
@@ -467,21 +452,16 @@ describe("InvitePage", () => {
       <InvitePage
         apiUrl="https://api.test"
         slug="cire-wedding"
-        theme={{
-          headingFont: null,
-          bodyFont: null,
-          hero: { accentColor: null, surfaceColor: null },
-          story: { accentColor: null, surfaceColor: null },
-          details: { accentColor: "#abcdef", surfaceColor: null },
-        }}
+        theme={{ headingFont: null, bodyFont: null, palette: { gilt: "#abcdef" } }}
         details={{ eyebrow: "SSR Eyebrow", heading: "SSR Heading" }}
       />
     ));
 
     await waitFor(() => expect(getByText("SSR Heading")).toBeTruthy(), { timeout: 2000 });
-    const section = getByText("SSR Heading").closest("section") as HTMLElement;
-    // The failed revalidation must leave the build-time accent AND copy untouched.
-    expect(section.style.getPropertyValue("--invite-accent")).toBe("#abcdef");
+    // The failed revalidation must leave the build-time scheme AND copy untouched.
+    expect(document.documentElement.style.getPropertyValue("--color-gold")).toBe(
+      derivePalette({ gilt: "#abcdef" })["--color-gold"],
+    );
     expect(getByText("SSR Eyebrow")).toBeTruthy();
   });
 

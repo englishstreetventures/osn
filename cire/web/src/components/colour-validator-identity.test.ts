@@ -3,7 +3,7 @@
  * the same @cire/theme export.
  *
  * The guest site re-validates persisted theme colours at render time
- * (`sectionThemeVars` → `isValidColor` from `dress-code-render.ts`).
+ * (`paletteRootVars` → `isValidColor` from `dress-code-render.ts`).
  * The write gate uses `isSafeCssColor` from `@cire/theme` (via the API
  * schema at `cire/api/src/schemas/invite.ts` and the organiser's
  * `guest-validation.ts`).

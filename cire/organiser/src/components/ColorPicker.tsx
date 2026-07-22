@@ -1,3 +1,4 @@
+import { oklchToRgb, parseColor as parseAnyColor } from "@cire/theme";
 import { ColorArea } from "@kobalte/core/color-area";
 import { ColorField } from "@kobalte/core/color-field";
 import { ColorSlider } from "@kobalte/core/color-slider";
@@ -7,9 +8,10 @@ import { Popover } from "@kobalte/core/popover";
 import { createEffect, createSignal, Show } from "solid-js";
 
 /**
- * The colour a picker falls back to when the section is on its default (the
- * organiser hasn't picked one). Matches the gold the rest of the builder seeds
- * — see InviteBuilder's preview gold + the old native input default.
+ * The colour a picker shows when nothing is set and the caller names no
+ * fallback. Callers that know the real default — the scheme editor, which knows
+ * each seed's value in the chosen preset — should pass `fallback`, so the
+ * swatch shows the colour the invite ACTUALLY renders rather than a stand-in.
  */
 const DEFAULT_HEX = "#d4af37";
 
@@ -24,15 +26,34 @@ const DEFAULT_HEX = "#d4af37";
  */
 const COMPLETE_HEX = /^#?[0-9a-fA-F]{6}$/;
 
+/** A colour as `#rrggbb`, via the shared parser (the only one that reads oklch). */
+function toHexString(value: string): string | null {
+  const parsed = parseAnyColor(value);
+  if (!parsed) return null;
+  const { r, g, b } = oklchToRgb(parsed);
+  const byte = (n: number) =>
+    Math.round(n * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${byte(r)}${byte(g)}${byte(b)}`;
+}
+
 /**
  * Parse an incoming CSS colour string into a Kobalte `Color`, tolerating the
- * non-hex formats the API allow-list accepts (rgb / hsl / oklch) and partial /
- * invalid input. Returns `null` when it can't be parsed so callers fall back to
- * the default instead of throwing — `parseColor` throws on anything it can't read.
+ * non-hex formats the API allow-list accepts and partial / invalid input.
+ * Returns `null` when it can't be parsed so callers fall back to the default
+ * instead of throwing (Kobalte's `parseColor` throws on anything it can't read).
+ *
+ * Kobalte does NOT understand `oklch()`, which is the format every derived
+ * token and every curated preset seed uses — handing it one straight through
+ * made each picker silently show the stand-in gold instead of the colour the
+ * invite actually renders. So convert through the shared parser FIRST and give
+ * Kobalte plain hex.
  */
 function tryParse(value: string): Color | null {
+  const hex = toHexString(value);
   try {
-    return parseColor(value);
+    return parseColor(hex ?? value);
   } catch {
     return null;
   }
@@ -44,12 +65,15 @@ function toHex(color: Color): string {
 }
 
 /**
- * Resolve the colour to display: the parsed incoming value, or the default gold
- * when the section is on its default (null) or holds something unparseable.
+ * Resolve the colour to display: the parsed incoming value, else the caller's
+ * fallback (the colour the invite actually renders when this field is unset),
+ * else the stand-in gold.
  */
-function resolveColor(value: string | null): Color {
+function resolveColor(value: string | null, fallback?: string): Color {
   const parsed = value ? tryParse(value) : null;
-  return parsed ?? parseColor(DEFAULT_HEX);
+  if (parsed) return parsed;
+  const fromFallback = fallback ? tryParse(fallback) : null;
+  return fromFallback ?? parseColor(DEFAULT_HEX);
 }
 
 /**
@@ -70,11 +94,21 @@ export default function ColorPicker(props: {
   label: string;
   value: string | null;
   onChange: (v: string | null) => void;
+  /**
+   * What this field resolves to when it is null — shown in the swatch so
+   * "Default" is a colour the organiser can see, not a guess. The scheme editor
+   * passes the seed's value in the chosen preset.
+   */
+  fallback?: string;
+  /** Optional one-line description of the role, under the label. */
+  hint?: string;
 }) {
   // The live working colour in HSB space (x = saturation, y = brightness for the
   // ColorArea; the hue slider drives the H channel). Seeded from the resolved
   // incoming value and kept in sync with external changes via the effect below.
-  const [color, setColor] = createSignal<Color>(resolveColor(props.value).toFormat("hsb"));
+  const [color, setColor] = createSignal<Color>(
+    resolveColor(props.value, props.fallback).toFormat("hsb"),
+  );
 
   // The hex field is a controlled string so a partial value ("#d4") survives a
   // keystroke without being clobbered; it re-derives from `color` on visual picks.
@@ -84,9 +118,9 @@ export default function ColorPicker(props: {
   // a sibling reset). Compare hex so an internal commit that already matches
   // doesn't thrash the working colour while the popover is open.
   createEffect(() => {
-    const incoming = toHex(resolveColor(props.value));
+    const incoming = toHex(resolveColor(props.value, props.fallback));
     if (incoming !== toHex(color())) {
-      setColor(resolveColor(props.value).toFormat("hsb"));
+      setColor(resolveColor(props.value, props.fallback).toFormat("hsb"));
       setHexText(incoming);
     }
   });
@@ -111,13 +145,16 @@ export default function ColorPicker(props: {
   };
 
   // The swatch/trigger always reflect the persisted value (default gold if null).
-  const display = () => resolveColor(props.value);
+  const display = () => resolveColor(props.value, props.fallback);
 
   return (
     <div class="flex flex-col items-start gap-1.5">
       <span class="font-body text-text-muted text-[0.68rem] tracking-[0.08em] uppercase">
         {props.label}
       </span>
+      <Show when={props.hint}>
+        <span class="font-body text-text-muted -mt-1 text-[0.68rem] italic">{props.hint}</span>
+      </Show>
       <div class="flex items-center gap-2">
         <Popover gutter={8} placement="bottom-start">
           <Popover.Trigger

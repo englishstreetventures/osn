@@ -1,0 +1,181 @@
+name: Preview — cire (api + guest + organiser)
+
+# Deploys a COMPLETE, self-contained copy of cire so a feature branch can be
+# reviewed on real infrastructure:
+#
+#   api       → https://api-preview.cireweddings.com     (Worker, `--env preview`)
+#   guest     → https://invite-preview.cireweddings.com  (Worker, SSR)
+#   organiser → https://cire-organiser-preview.pages.dev (Pages)
+#
+# It touches NOTHING in production. The preview API is bound to its own D1
+# (`cire-db-preview`) and the `-preview` R2 buckets, so a branch's migrations —
+# including destructive ones — run against disposable data. That separation is
+# the reason this exists rather than pointing a preview frontend at the prod API:
+# a schema change cannot be reviewed end-to-end until the schema has actually
+# changed, and doing that to prod before merge is not an option.
+#
+# Preview data is disposable by design. The seed below re-runs on every push and
+# is the only thing that guarantees the sample invites exist.
+#
+# To preview a different branch: add it to the `branches` list, or run this from
+# the Actions tab with "Run workflow" against any branch.
+on:
+  push:
+    branches: [feat/cire-invite-palette]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-cire-preview
+  cancel-in-progress: true
+
+jobs:
+  # ── Preview API + its own D1 ────────────────────────────────────────────────
+  # Migrations run BEFORE the Worker deploys, so new code never serves against an
+  # old schema. Both in one job so the order is guaranteed.
+  api:
+    name: Deploy cire/api preview (+ D1 migrate + seed)
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install
+
+      # `--env preview` selects the [env.preview] block in cire/api/wrangler.toml,
+      # whose d1_databases binding names cire-db-preview. Idempotent: wrangler
+      # skips already-applied migrations.
+      - name: Apply migrations to the preview D1
+        run: bunx wrangler d1 migrations apply cire-db-preview --remote --env preview
+        working-directory: cire/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy the preview API Worker
+        run: bunx wrangler deploy --env preview
+        working-directory: cire/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Sample weddings so the preview has something to look at the moment it
+      # comes up, instead of an empty database and a 404. Idempotent (every
+      # statement is an upsert), so it re-runs safely on each push.
+      - name: Seed the preview sample invites
+        run: bunx wrangler d1 execute cire-db-preview --remote --env preview --file=../db/seed/preview-seed.sql
+        working-directory: cire/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ── Preview guest site (Astro SSR → Worker) ─────────────────────────────────
+  # Needs the API first: the guest page fetches its invite server-side per
+  # request, so deploying it against a not-yet-migrated API would render the
+  # fallback rather than the branch's real output.
+  guest:
+    name: Deploy cire/web preview (Worker SSR)
+    needs: api
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build cire/web
+        run: bun run --cwd cire/web build
+        env:
+          PUBLIC_API_URL: https://api-preview.cireweddings.com
+          PUBLIC_SITE_URL: https://invite-preview.cireweddings.com
+          PUBLIC_OSN_ISSUER_URL: https://id.cireweddings.com
+          PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
+          PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
+
+      # The adapter generates dist/server/wrangler.json by EXTENDING
+      # cire/web/wrangler.jsonc — which carries the production worker name and the
+      # invite.cireweddings.com custom domain. Deploying that from a branch would
+      # overwrite the live guest site, so rewrite all three fields here:
+      #
+      #   legacy_env  removed — wrangler 4.111+ hard-errors on it (see deploy.yml)
+      #   name        → cire-invites-preview, a SEPARATE Worker from prod
+      #   routes      → invite-preview.cireweddings.com, so the prod custom domain
+      #                 is never claimed by this deploy
+      #
+      # Rewriting the generated file (rather than adding a second committed
+      # wrangler config) keeps one source of truth for the real deploy.
+      - name: Point the generated config at the preview Worker
+        run: |
+          node -e "
+            const fs = require('fs');
+            const f = 'dist/server/wrangler.json';
+            const c = JSON.parse(fs.readFileSync(f, 'utf8'));
+            delete c.legacy_env;
+            c.name = 'cire-invites-preview';
+            c.routes = [{ pattern: 'invite-preview.cireweddings.com', custom_domain: true }];
+            fs.writeFileSync(f, JSON.stringify(c));
+          "
+        working-directory: cire/web
+
+      - name: Deploy the preview guest Worker
+        run: bunx wrangler deploy --config dist/server/wrangler.json
+        working-directory: cire/web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ── Preview organiser portal (Astro static → Pages) ─────────────────────────
+  # Its own Pages project, so the live portal is untouched. Sign-in uses the REAL
+  # OSN identity issuer — a reviewer signs in with their usual passkey, creates a
+  # wedding in the preview database, and edits it there.
+  organiser:
+    name: Deploy cire/organiser preview (Pages)
+    needs: api
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build cire/organiser
+        run: bun run --cwd cire/organiser build
+        env:
+          PUBLIC_CIRE_API_URL: https://api-preview.cireweddings.com
+          PUBLIC_OSN_ISSUER_URL: https://id.cireweddings.com
+          # "View live invite" links point at the preview guest site, not prod.
+          PUBLIC_CIRE_WEB_URL: https://invite-preview.cireweddings.com
+          PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
+
+      # Idempotent: creates the project on first run, no-ops once it exists.
+      - name: Ensure the cire-organiser-preview Pages project exists
+        run: bunx wrangler pages project create cire-organiser-preview --production-branch main || true
+        working-directory: cire/organiser
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Deploy to the project's production branch so it serves at the clean
+      # cire-organiser-preview.pages.dev — the exact origin the preview API's
+      # CORS allowlist names. A per-commit Pages preview URL would be a different
+      # origin on every push and every request would fail the origin guard.
+      - name: Deploy to Cloudflare Pages
+        run: bunx wrangler pages deploy dist --project-name cire-organiser-preview --branch main --commit-dirty=true
+        working-directory: cire/organiser
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

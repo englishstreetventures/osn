@@ -214,3 +214,70 @@ head_sampling_rate = 1
 # NOT a committed var:
 #   bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS --env production
 #     value: "authorization=Basic <base64(instanceID:apiToken)>"
+
+# ── PREVIEW environment ──────────────────────────────────────────────────────
+# A complete, throwaway copy of the API for reviewing a feature branch on real
+# infrastructure: `api-preview.cireweddings.com`, backed by its OWN D1
+# (`cire-db-preview`) and the `-preview` R2 buckets. Deployed only by
+# `.github/workflows/deploy-cire-preview.yml`, never by the main deploy.
+#
+# The separate database is the whole point. A branch's migrations run against
+# THIS db, so a destructive migration (e.g. 0044 dropping the per-section theme
+# colours) can be exercised end-to-end without touching a single row of prod.
+# Preview data is disposable — the workflow seeds it and nobody should expect it
+# to survive.
+[env.preview.vars]
+# Only the two preview origins may call this API. The organiser preview is a
+# Pages project (*.pages.dev); the guest preview is a Worker on the zone.
+WEB_ORIGIN = "https://invite-preview.cireweddings.com,https://cire-organiser-preview.pages.dev"
+# Identity is shared with prod: the reviewer signs in with their real passkey,
+# so no separate OSN tier is needed to exercise the organiser portal.
+OSN_JWKS_URL = "https://id.cireweddings.com/.well-known/jwks.json"
+OSN_ISSUER_URL = "https://id.cireweddings.com"
+OSN_AUDIENCE = "osn-access"
+GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
+# OSN_ENV marks this as a DEPLOYED tier. Without it `loadConfig` falls back to
+# `local`, `isDeployedTier()` returns false, and the boot guard that fail-closes
+# on a missing CLAIM_RATE_LIMITER binding is skipped — on a publicly reachable
+# Worker. A binding typo would then silently downgrade the guest claim-code
+# brute-force defence to the per-isolate limiter with no signal. It also keeps
+# the logger off `debug` on a deployed tier, per the four-tier convention.
+OSN_ENV = "dev"
+# ZAP_API_URL is deliberately NOT set. Named envs don't inherit top-level vars,
+# so the code default (localhost) applies and vendor-enquiry delivery fails
+# closed — a preview must never send a real email to a real vendor. Everything
+# else in the enquiry flow still works; only the outbound send is inert.
+
+[[env.preview.routes]]
+pattern = "api-preview.cireweddings.com"
+custom_domain = true
+
+# Named environments do NOT inherit top-level bindings — each is redeclared.
+# A DIFFERENT rate-limiter namespace so preview traffic can't consume prod's
+# claim-attempt budget (or vice versa).
+[[env.preview.unsafe.bindings]]
+name = "CLAIM_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1002"
+simple = { limit = 5, period = 60 }
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "cire-db-preview"
+database_id = "28d615d2-1e15-4592-9e44-cbf9c5af953a"
+migrations_dir = "../db/migrations"
+
+[[env.preview.r2_buckets]]
+binding = "SHEETS"
+bucket_name = "cire-sheets-preview"
+
+[[env.preview.r2_buckets]]
+binding = "ASSETS"
+bucket_name = "cire-assets-preview"
+
+[env.preview.images]
+binding = "IMAGES"
+
+[env.preview.observability]
+enabled = true
+head_sampling_rate = 1

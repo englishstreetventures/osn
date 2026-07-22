@@ -1,9 +1,17 @@
+import {
+  derivePalette,
+  FONT_CHOICES,
+  fontStack,
+  type PalettePresetKey,
+  type PaletteSeeds,
+  SECTION_TONES,
+  type SectionTone,
+} from "@cire/theme";
 import { useAuth } from "@osn/client/solid";
-import { createResource, createSignal, For, lazy, Show, Suspense } from "solid-js";
+import { createMemo, createResource, createSignal, For, lazy, Show, Suspense } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
-import { contrastRatio, WCAG_TEXT_MIN } from "../lib/contrast";
 import {
   CROP_ASPECT,
   cropAspectRatio,
@@ -12,36 +20,39 @@ import {
   type ImageCrop,
 } from "../lib/image-crop";
 import { isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
-import { previewSectionVars, resolveSectionTheme } from "../lib/invite-theme-preview";
-import type { PreviewTheme, ThemeSection } from "../lib/invite-theme-preview";
-import ColorPicker from "./ColorPicker";
+import PaletteField, { type PaletteState, resolvedSeeds } from "./PaletteField";
+
+/** The four sections whose tone an organiser chooses. */
+type ThemeSection = "hero" | "story" | "details" | "welcome";
 
 const ImageCropModal = lazy(() => import("./ImageCropModal"));
 
 type ImageSlot = "hero" | "story";
 
-// Closed font allow-list — mirrors FONT_CHOICES in cire/api. The value is the
-// only thing persisted; the guest site owns the concrete font stack. Kept in
-// sync by hand (a server-side enum miss would 400 anyway).
-const FONT_OPTIONS = [
-  { value: "default", label: "Default" },
-  { value: "cormorant", label: "Cormorant (serif)" },
-  { value: "lato", label: "Lato (sans)" },
-  { value: "georgia", label: "Georgia (serif)" },
-  { value: "system-sans", label: "System sans" },
-  { value: "system-mono", label: "System mono" },
-] as const;
+/**
+ * The font choices, labelled for the dropdown. The KEYS come from the shared
+ * allow-list in `@cire/theme`, so this can no longer drift from what the API
+ * accepts or the guest site can render — only the labels live here.
+ */
+const FONT_LABELS: Record<string, string> = {
+  default: "Default",
+  cormorant: "Cormorant (serif)",
+  lato: "Lato (sans)",
+  georgia: "Georgia (serif)",
+  "system-sans": "System sans",
+  "system-mono": "System mono",
+};
+const FONT_OPTIONS = FONT_CHOICES.map((value) => ({ value, label: FONT_LABELS[value] ?? value }));
 
 interface InviteTheme {
   headingFont: string | null;
   bodyFont: string | null;
-  hero: { accentColor: string | null; surfaceColor: string | null };
-  story: { accentColor: string | null; surfaceColor: string | null };
-  details: { accentColor: string | null; surfaceColor: string | null };
-  // The guest site's invite-code entry form + post-claim welcome banner.
-  // Optional on the wire only until cire-api ships migration 0027 (the seed
-  // below already coalesces a missing section to "keep the defaults").
-  welcome?: { accentColor: string | null; surfaceColor: string | null };
+  /** Which curated scheme the organiser started from. */
+  palettePreset: string | null;
+  /** The five colour seeds; every other colour is derived from them. */
+  palette: Partial<Record<keyof PaletteSeeds, string | null>>;
+  /** Which derived surface each section sits on. */
+  tones: Partial<Record<ThemeSection, string | null>>;
 }
 
 // Hero display sliders (organiser choice; migration 0018 replaced the coarse
@@ -61,16 +72,13 @@ const BACKDROP_OPACITY_MAX = 100;
 const BACKDROP_BLUR_MIN = 0;
 const BACKDROP_BLUR_MAX = 20;
 
-// The guest hero's dark gradient fallback, for the WYSIWYG hero preview (mirrors
-// InviteHeader's base layer). Kept local — the organiser must never import
-// cire/web internals.
+// The guest hero's base gradient and title panel, expressed in the SAME derived
+// tokens the guest site uses — so the preview cannot drift from the real hero
+// the way the old hand-copied colour literals could.
 const PREVIEW_HERO_GRADIENT =
-  "linear-gradient(160deg, oklch(27.87% 0.0393 149.62) 0%, oklch(19.96% 0.0331 147.34) 40%, oklch(22.70% 0.0275 152.78) 100%)";
-
-// The guest hero's title-panel base when no surface colour is picked. The guest
-// falls back to BLACK here (not the section surface token), so the preview must
-// too or it would lie about the default look.
-const PREVIEW_PANEL_BASE = "oklch(0% 0 0)";
+  "linear-gradient(160deg, var(--invite-hero-grad-1) 0%, var(--invite-hero-grad-2) 40%, var(--invite-hero-grad-3) 100%)";
+const PREVIEW_HERO_SCRIM =
+  "radial-gradient(ellipse at center, var(--invite-scrim-from) 0%, var(--invite-scrim-to) 100%)";
 
 interface InviteCustomisation {
   hero: {
@@ -167,17 +175,13 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
-  // Theme edit buffers. Fonts default to "default"; each section's accent +
-  // surface colours are nullable (null ⇒ keep the built-in token).
+  // Theme edit buffers. Fonts default to "default"; the colour scheme is a
+  // preset plus whichever seeds the organiser has nudged, and each section has
+  // a tone (null ⇒ the page ground).
   const [headingFont, setHeadingFont] = createSignal("default");
   const [bodyFont, setBodyFont] = createSignal("default");
-  const [accent, setAccent] = createSignal<Record<ThemeSection, string | null>>({
-    hero: null,
-    story: null,
-    details: null,
-    welcome: null,
-  });
-  const [surface, setSurface] = createSignal<Record<ThemeSection, string | null>>({
+  const [palette, setPalette] = createSignal<PaletteState>({ preset: null, seeds: {} });
+  const [tones, setTones] = createSignal<Record<ThemeSection, SectionTone | null>>({
     hero: null,
     story: null,
     details: null,
@@ -204,17 +208,21 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     setInviteMessage(d.inviteMessage ?? "");
     setHeadingFont(d.theme.headingFont ?? "default");
     setBodyFont(d.theme.bodyFont ?? "default");
-    setAccent({
-      hero: d.theme.hero.accentColor,
-      story: d.theme.story.accentColor,
-      details: d.theme.details.accentColor,
-      welcome: d.theme.welcome?.accentColor ?? null,
+    setPalette({
+      preset: (d.theme.palettePreset as PalettePresetKey | null) ?? null,
+      seeds: {
+        ground: d.theme.palette?.ground ?? null,
+        card: d.theme.palette?.card ?? null,
+        ink: d.theme.palette?.ink ?? null,
+        gilt: d.theme.palette?.gilt ?? null,
+        bloom: d.theme.palette?.bloom ?? null,
+      },
     });
-    setSurface({
-      hero: d.theme.hero.surfaceColor,
-      story: d.theme.story.surfaceColor,
-      details: d.theme.details.surfaceColor,
-      welcome: d.theme.welcome?.surfaceColor ?? null,
+    setTones({
+      hero: (d.theme.tones?.hero as SectionTone | null) ?? null,
+      story: (d.theme.tones?.story as SectionTone | null) ?? null,
+      details: (d.theme.tones?.details as SectionTone | null) ?? null,
+      welcome: (d.theme.tones?.welcome as SectionTone | null) ?? null,
     });
     setHeroBlur(d.heroDisplay?.blur ?? HERO_BLUR_DEFAULT);
     setTitleBackdropOpacity(d.heroDisplay?.titleBackdrop?.opacity ?? 0);
@@ -242,14 +250,16 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   const themePayload = () => ({
     headingFont: fontOrDefault(headingFont()),
     bodyFont: fontOrDefault(bodyFont()),
-    heroAccentColor: accent().hero,
-    heroSurfaceColor: surface().hero,
-    storyAccentColor: accent().story,
-    storySurfaceColor: surface().story,
-    detailsAccentColor: accent().details,
-    detailsSurfaceColor: surface().details,
-    welcomeAccentColor: accent().welcome,
-    welcomeSurfaceColor: surface().welcome,
+    palettePreset: palette().preset,
+    paletteGround: palette().seeds.ground ?? null,
+    paletteCard: palette().seeds.card ?? null,
+    paletteInk: palette().seeds.ink ?? null,
+    paletteGilt: palette().seeds.gilt ?? null,
+    paletteBloom: palette().seeds.bloom ?? null,
+    heroTone: tones().hero,
+    storyTone: tones().story,
+    detailsTone: tones().details,
+    welcomeTone: tones().welcome,
     heroBlur: heroBlur(),
     titleBackdropOpacity: titleBackdropOpacity(),
     titleBackdropBlur: titleBackdropBlur(),
@@ -265,16 +275,34 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   let savedText = "";
   let savedTheme = "";
 
-  // The live picker state as one PreviewTheme — drives every section preview,
-  // wired with the SAME `--invite-*` CSS variables the guest invite consumes
-  // (see lib/invite-theme-preview), so each font/colour change is visible
-  // instantly, before saving.
-  const previewTheme = (): PreviewTheme => ({
-    headingFont: fontOrDefault(headingFont()),
-    bodyFont: fontOrDefault(bodyFont()),
-    accent: accent(),
-    surface: surface(),
+  // The live scheme as a CSS-variable map, derived by the SAME function the
+  // guest site uses (`derivePalette` in `@cire/theme`). There is no
+  // organiser-side colour maths any more, so the preview cannot disagree with
+  // what a guest sees — the drift the old hand-copied preview helper allowed.
+  // Memoised: four preview cards read this, and the trigger is a colour-picker
+  // DRAG (pointermove) — without a memo each frame ran the full derivation once
+  // per reader. A memo also gives the token map a stable identity, so Solid's
+  // style diffing can early-out instead of re-walking ~24 properties four times.
+  const previewTokens = createMemo((): Record<string, string> => {
+    const vars: Record<string, string> = derivePalette(resolvedSeeds(palette()));
+    const heading = fontStack(fontOrDefault(headingFont()));
+    if (heading) vars["--font-display"] = heading;
+    const body = fontStack(fontOrDefault(bodyFont()));
+    if (body) vars["--font-body"] = body;
+    return vars;
   });
+
+  /** The surface a section's tone paints, for its preview card. */
+  const toneSurface = (section: ThemeSection): string => {
+    switch (tones()[section]) {
+      case "card":
+        return "var(--color-surface)";
+      case "raised":
+        return "var(--color-surface-raised)";
+      default:
+        return "var(--color-bg)";
+    }
+  };
 
   // Live "what a guest will see" gates, mirroring the guest invite's emptiness
   // predicates. Driven by the edit buffers (so the badge flips the instant the
@@ -437,19 +465,20 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           seed(d());
           return (
             <div class="flex flex-col gap-8">
-              {/* ── Typography (global) ──────────────────────────────── */}
-              <fieldset class="border-border flex flex-col gap-4 rounded-sm border p-4">
+              {/* ── Look (global): typography + the colour scheme ────── */}
+              <fieldset class="border-border flex flex-col gap-5 rounded-sm border p-4">
                 <legend class="font-body text-gold-dim px-2 text-[0.72rem] tracking-[0.1em] uppercase">
-                  Typography
+                  Look
                 </legend>
                 <p class="font-body text-text-muted text-[0.82rem]">
-                  Two fonts for the whole invite — headings and body text. Shown live in every
-                  section preview below.
+                  Two fonts and five colours set the whole invite. Each section below picks how
+                  light or dark it sits — not its own colours.
                 </p>
                 <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <FontField label="Heading font" value={headingFont()} onChange={setHeadingFont} />
                   <FontField label="Body font" value={bodyFont()} onChange={setBodyFont} />
                 </div>
+                <PaletteField value={palette()} onChange={setPalette} />
               </fieldset>
 
               {/* ── Hero ─────────────────────────────────────────────── */}
@@ -479,12 +508,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   value={heroSubtitle()}
                   onInput={setHeroSubtitle}
                 />
-                <SectionColours
-                  accent={accent().hero}
-                  surface={surface().hero}
-                  surfaceHint="The panel behind the title (with the backdrop sliders below)."
-                  onAccent={(v) => setAccent((p) => ({ ...p, hero: v }))}
-                  onSurface={(v) => setSurface((p) => ({ ...p, hero: v }))}
+                <ToneField
+                  value={tones().hero}
+                  hint="Used behind the title panel and wherever the photo doesn't reach."
+                  onChange={(v) => setTones((p) => ({ ...p, hero: v }))}
                 />
                 <SliderField
                   label="Hero image blur"
@@ -519,7 +546,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   heroBlur={heroBlur()}
                   backdropOpacity={titleBackdropOpacity()}
                   backdropBlur={titleBackdropBlur()}
-                  theme={previewTheme()}
+                  tokens={previewTokens()}
+                  surface={toneSurface("hero")}
                 />
               </fieldset>
 
@@ -562,16 +590,15 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     class="border-border bg-bg font-body text-text focus:border-gold rounded-sm border px-3 py-2 text-[0.88rem] outline-none"
                   />
                 </label>
-                <SectionColours
-                  accent={accent().story}
-                  surface={surface().story}
-                  onAccent={(v) => setAccent((p) => ({ ...p, story: v }))}
-                  onSurface={(v) => setSurface((p) => ({ ...p, story: v }))}
+                <ToneField
+                  value={tones().story}
+                  onChange={(v) => setTones((p) => ({ ...p, story: v }))}
                 />
                 <SectionPreview
                   label="Our Story"
                   section="story"
-                  theme={previewTheme()}
+                  tokens={previewTokens()}
+                  surface={toneSurface("story")}
                   eyebrow={sampleCopy(storyEyebrow(), DEFAULTS.storyEyebrow, 40)}
                   heading={sampleCopy(storyHeading(), DEFAULTS.storyHeading, 60)}
                   body={sampleCopy(storyBody(), DEFAULTS.storyBody)}
@@ -595,16 +622,15 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   value={welcomeMessage()}
                   onInput={setWelcomeMessage}
                 />
-                <SectionColours
-                  accent={accent().welcome}
-                  surface={surface().welcome}
-                  onAccent={(v) => setAccent((p) => ({ ...p, welcome: v }))}
-                  onSurface={(v) => setSurface((p) => ({ ...p, welcome: v }))}
+                <ToneField
+                  value={tones().welcome}
+                  onChange={(v) => setTones((p) => ({ ...p, welcome: v }))}
                 />
                 <SectionPreview
                   label="Code Entry & Welcome"
                   section="welcome"
-                  theme={previewTheme()}
+                  tokens={previewTokens()}
+                  surface={toneSurface("welcome")}
                   eyebrow="Your Invitation"
                   heading="Enter Your Code"
                   body={sampleCopy(welcomeMessage(), DEFAULTS.welcomeMessage)}
@@ -633,16 +659,15 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   value={detailsHeading()}
                   onInput={setDetailsHeading}
                 />
-                <SectionColours
-                  accent={accent().details}
-                  surface={surface().details}
-                  onAccent={(v) => setAccent((p) => ({ ...p, details: v }))}
-                  onSurface={(v) => setSurface((p) => ({ ...p, details: v }))}
+                <ToneField
+                  value={tones().details}
+                  onChange={(v) => setTones((p) => ({ ...p, details: v }))}
                 />
                 <SectionPreview
                   label="Events Section"
                   section="details"
-                  theme={previewTheme()}
+                  tokens={previewTokens()}
+                  surface={toneSurface("details")}
                   eyebrow={sampleCopy(detailsEyebrow(), DEFAULTS.detailsEyebrow, 40)}
                   heading={sampleCopy(detailsHeading(), DEFAULTS.detailsHeading, 60)}
                   body="Event names, dates and the Respond buttons follow these colours."
@@ -712,48 +737,70 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   );
 }
 
-/** Accent + background colour pickers for the enclosing section, each clearable. */
-function SectionColours(props: {
-  accent: string | null;
-  surface: string | null;
-  /** Optional extra context for what "Background" means in this section. */
-  surfaceHint?: string;
-  onAccent: (v: string | null) => void;
-  onSurface: (v: string | null) => void;
+/** Plain-English names for the three surfaces a section can sit on. */
+const TONE_LABELS: Record<SectionTone, string> = {
+  ground: "Page",
+  card: "Card",
+  raised: "Raised",
+};
+
+/**
+ * Which surface this section sits on — the whole of a section's colour choice
+ * now that the scheme is global. Three steps in one family always read as a
+ * deliberate rhythm down the page, where three freely-picked colours usually
+ * did not; and there is no way to land on an unreadable pairing, because all
+ * three surfaces are derived against the same text colour.
+ */
+function ToneField(props: {
+  value: SectionTone | null;
+  hint?: string;
+  onChange: (v: SectionTone | null) => void;
 }) {
+  const current = () => props.value ?? "ground";
   return (
     <div class="flex flex-col gap-1.5">
       <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
-        Section colours
+        Section background
       </span>
-      <div class="flex flex-wrap gap-5">
-        <ColorPicker label="Accent" value={props.accent} onChange={props.onAccent} />
-        <ColorPicker label="Background" value={props.surface} onChange={props.onSurface} />
+      <div class="flex flex-wrap gap-2" role="group" aria-label="Section background">
+        <For each={SECTION_TONES}>
+          {(tone) => (
+            <button
+              type="button"
+              aria-pressed={current() === tone}
+              onClick={() => props.onChange(tone === "ground" ? null : tone)}
+              class="border-border hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 font-body text-text aria-pressed:border-gold aria-pressed:text-gold rounded-sm border px-3 py-1.5 text-[0.78rem] transition outline-none focus-visible:ring-2"
+            >
+              {TONE_LABELS[tone]}
+            </button>
+          )}
+        </For>
       </div>
-      <Show when={props.surfaceHint}>
-        <span class="font-body text-text-muted text-[0.72rem] italic">{props.surfaceHint}</span>
+      <Show when={props.hint}>
+        <span class="font-body text-text-muted text-[0.72rem] italic">{props.hint}</span>
       </Show>
     </div>
   );
 }
 
 /**
- * Live preview card for one section, styled with the SAME `--invite-*` CSS
- * variables the guest invite consumes and driven by the live picker signals +
- * copy buffers, so every colour/font/copy change is visible instantly — before
- * saving. Defaults are substituted (resolveSectionTheme) so an un-picked value
- * previews as the real built-in token — an honest before/after. No guest
- * stylesheet, no Effect/web imports: plain inline `style` with the var names.
+ * Live preview card for one section, styled with the SAME derived tokens the
+ * guest invite consumes and driven by the live scheme + copy buffers, so every
+ * colour/font/copy change is visible instantly — before saving.
+ *
+ * The tokens come from `derivePalette` in `@cire/theme`, the one the guest site
+ * calls. There is no organiser-side colour maths left to drift.
  */
 function SectionPreview(props: {
   label: string;
   section: ThemeSection;
-  theme: PreviewTheme;
+  tokens: Record<string, string>;
+  /** The surface this section's tone paints, as a `var(--color-…)` reference. */
+  surface: string;
   eyebrow: string;
   heading: string;
   body: string;
 }) {
-  const r = () => resolveSectionTheme(props.theme, props.section);
   return (
     <div class="flex flex-col gap-1.5">
       <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
@@ -762,71 +809,41 @@ function SectionPreview(props: {
       <figure
         aria-label={`${props.label} preview`}
         style={{
-          ...previewSectionVars(props.theme, props.section),
-          "background-color": "var(--invite-surface)",
-          "font-family": "var(--invite-body)",
+          ...props.tokens,
+          "background-color": props.surface,
+          "font-family": "var(--font-body)",
+          "border-color": "var(--color-border)",
         }}
-        class="border-border flex min-h-28 flex-col items-center justify-center gap-1.5 overflow-hidden rounded-sm border p-4 text-center"
+        class="flex min-h-28 flex-col items-center justify-center gap-1.5 overflow-hidden rounded-sm border p-4 text-center"
       >
         <span
-          style={{ color: "var(--invite-accent)", "font-family": "var(--invite-body)" }}
+          style={{ color: "var(--color-gold)" }}
           class="text-[0.6rem] tracking-[0.18em] uppercase opacity-80"
         >
           {props.eyebrow}
         </span>
         <span
-          style={{ color: "var(--invite-accent)", "font-family": "var(--invite-heading)" }}
+          style={{ color: "var(--color-text)", "font-family": "var(--font-display)" }}
           class="text-[1.5rem] leading-none font-light italic"
         >
           {props.heading}
         </span>
-        {/* Body sample in the body font on the section surface, so the font +
-            surface contrast is visible too. Mid-tone so it reads on either a
-            light or dark picked surface. */}
+        {/* Body sample in the body font on the section surface, so the font and
+            the text-on-surface contrast are both visible. */}
         <span
-          style={{ color: r().accent }}
-          class="max-w-full text-[0.62rem] break-words opacity-55"
+          style={{ color: "var(--color-text-muted)" }}
+          class="max-w-full text-[0.62rem] break-words"
         >
           {props.body}
         </span>
-        <figcaption class="font-body text-text-muted mt-1 text-[0.62rem] tracking-[0.08em] uppercase">
+        <figcaption
+          style={{ color: "var(--color-text-muted)" }}
+          class="font-body mt-1 text-[0.62rem] tracking-[0.08em] uppercase"
+        >
           {props.label}
         </figcaption>
       </figure>
-      <ContrastAdvisory theme={props.theme} section={props.section} />
     </div>
-  );
-}
-
-/**
- * Live WCAG contrast advisory (WT-C-L1): warns — never blocks — when the
- * section's resolved accent-on-background pair drops below the AA text minimum
- * (4.5:1), since the accent styles real text (eyebrows, headings, buttons; in
- * the welcome section it styles the functionally-critical code-entry form).
- * Defaults are substituted first, so it only fires on the organiser's own
- * picks; an unparseable colour keeps it silent (advisory, not a validator —
- * the server-side allow-list stays the only gate).
- */
-function ContrastAdvisory(props: { theme: PreviewTheme; section: ThemeSection }) {
-  const ratio = () => {
-    const r = resolveSectionTheme(props.theme, props.section);
-    return contrastRatio(r.accent, r.surface);
-  };
-  const low = () => {
-    const c = ratio();
-    return c !== null && c < WCAG_TEXT_MIN;
-  };
-  return (
-    <Show when={low()}>
-      <p
-        role="status"
-        class="border-error/30 bg-error/5 text-error rounded-sm border px-3 py-2 text-[0.78rem] leading-relaxed"
-      >
-        Low contrast: this accent on this background is about {ratio()!.toFixed(1)}:1 — text needs
-        at least {WCAG_TEXT_MIN}:1 to stay readable for everyone. You can still save it; consider a
-        lighter/darker pick.
-      </p>
-    </Show>
   );
 }
 
@@ -900,14 +917,11 @@ function SliderField(props: {
 /**
  * WYSIWYG hero preview — composites the hero section's ENTIRE look live, with
  * ZERO Cloudflare Images calls: the uploaded photo with a client-side CSS
- * `filter: blur()` (free + instant), the title legibility panel (background
- * opacity + `backdrop-filter` from the two backdrop sliders, tinted by the
- * section's picked Background colour — falling back to the guest's BLACK panel
- * default, not the surface token), and the hero title in the section's accent
- * colour + the chosen heading font (via the same `--invite-*` variables the
- * guest consumes, default-substituted by previewSectionVars). With no image
- * uploaded it falls back to the same dark gradient the real hero uses, so the
- * preview is never empty.
+ * `filter: blur()` (free + instant), the title legibility panel (opacity +
+ * `backdrop-filter` from the two sliders, tinted by the scheme's derived panel
+ * colour), and the hero title in the scheme's accent + the chosen heading font.
+ * With no image uploaded it falls back to the same derived gradient the real
+ * hero uses, so the preview is never empty.
  *
  * The image requests a PLAIN variant (`card`, not the server-blurred `hero-bg`)
  * so the client-side CSS blur isn't doubled on an already-blurred server image.
@@ -918,7 +932,9 @@ function HeroPreview(props: {
   heroBlur: number;
   backdropOpacity: number;
   backdropBlur: number;
-  theme: PreviewTheme;
+  tokens: Record<string, string>;
+  /** The surface the hero's tone paints, behind the gradient. */
+  surface: string;
 }) {
   // A non-blurred source so the CSS blur is the only blur in the preview. The
   // imageUrl already carries the ?v= cache-buster; append the bounded variant.
@@ -929,10 +945,6 @@ function HeroPreview(props: {
     return apiUrl(`${url}${sep}variant=card`);
   };
   const titleText = () => (props.title.trim().length > 0 ? props.title : DEFAULTS.heroTitle);
-  // The title panel's base colour: the picked hero Background, else the guest's
-  // black default (deliberately NOT the resolved surface token — the guest
-  // falls back to black here, and the preview must not lie).
-  const panelBase = () => props.theme.surface.hero ?? PREVIEW_PANEL_BASE;
   return (
     <div class="flex flex-col gap-2">
       <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
@@ -942,8 +954,10 @@ function HeroPreview(props: {
         aria-label="Hero preview"
         class="border-border relative flex h-44 items-center justify-center overflow-hidden rounded-sm border"
         style={{
-          ...previewSectionVars(props.theme, "hero"),
-          background: PREVIEW_HERO_GRADIENT,
+          ...props.tokens,
+          "background-color": props.surface,
+          "background-image": PREVIEW_HERO_GRADIENT,
+          "border-color": "var(--color-border)",
         }}
       >
         {/* Background photo with a live CSS blur (free — no CF transform). */}
@@ -958,13 +972,7 @@ function HeroPreview(props: {
           )}
         </Show>
         {/* Radial scrim, mirroring the guest hero, so the title always reads. */}
-        <div
-          class="absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(ellipse at center, oklch(0% 0 0 / 0.3) 0%, oklch(0% 0 0 / 0.55) 100%)",
-          }}
-        />
+        <div class="absolute inset-0" style={{ background: PREVIEW_HERO_SCRIM }} />
         {/* Title legibility panel — opacity + frosted blur from the two sliders,
             tinted by the section's Background colour. Painted only when opacity
             > 0 (mirrors the guest behaviour). */}
@@ -973,7 +981,7 @@ function HeroPreview(props: {
           style={
             props.backdropOpacity > 0
               ? {
-                  "background-color": `color-mix(in oklab, ${panelBase()} ${props.backdropOpacity}%, transparent)`,
+                  "background-color": `color-mix(in oklab, var(--invite-panel) ${props.backdropOpacity}%, transparent)`,
                   "backdrop-filter": `blur(${props.backdropBlur}px)`,
                   "-webkit-backdrop-filter": `blur(${props.backdropBlur}px)`,
                 }
@@ -982,7 +990,7 @@ function HeroPreview(props: {
         >
           <span
             class="max-w-full text-center text-[clamp(1.5rem,7vw,2.75rem)] leading-none font-light break-words italic"
-            style={{ color: "var(--invite-accent)", "font-family": "var(--invite-heading)" }}
+            style={{ color: "var(--color-gold)", "font-family": "var(--font-display)" }}
           >
             {titleText()}
           </span>

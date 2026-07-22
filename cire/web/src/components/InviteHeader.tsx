@@ -7,7 +7,7 @@ import {
   type ImageCrop,
 } from "./image-crop";
 import { isHeroEmpty, isStoryEmpty } from "./invite-emptiness";
-import { type InviteTheme, sectionThemeVars } from "./invite-theme";
+import { applyPaletteToRoot, filterThemeVars, type InviteTheme, sectionVars } from "./invite-theme";
 
 /**
  * Responsive variant widths the API can transform an invite image to. Mirrors
@@ -56,19 +56,11 @@ export function variantSrc(baseUrl: string, variant: VariantName): string {
   return `${baseUrl}${sep}variant=${variant}`;
 }
 
-// Styles that consume the per-section CSS variables with a built-in-token
-// fallback, so an unset variable resolves to the original gold / surface /
-// display values. `--invite-*` is only ever set to a validated value (see
-// sectionThemeVars). Hoisted to module scope — they're constant string literals.
-const ACCENT_TEXT = { color: "var(--invite-accent, var(--color-gold))" };
-// Dimmed accent (the original `text-gold-dim` is gold at 0.35 alpha). Applying
-// the accent colour at 0.35 element opacity reproduces that for any accent.
-const ACCENT_TEXT_DIM = { color: "var(--invite-accent, var(--color-gold))", opacity: "0.35" };
-const HEADING_FONT = { "font-family": "var(--invite-heading, var(--font-display))" };
-const STORY_SURFACE = {
-  "background-color": "var(--invite-surface, var(--color-surface))",
-  "font-family": "var(--invite-body, var(--font-body))",
-};
+// The section background, painted from whichever derived surface the section's
+// tone names. Every other colour here comes from the Tailwind utility classes,
+// which now resolve through the palette applied at the document root — so hero
+// and story finally follow the organiser's scheme like the rest of the page.
+const SECTION_SURFACE = { "background-color": "var(--invite-section-bg)" };
 
 /**
  * Hero display sliders the organiser picked, as they arrive from the public
@@ -190,8 +182,15 @@ export default function InviteHeader(props: InviteHeaderProps) {
   // actually set (and that passed validation); an absent variable falls through
   // to the built-in token via the `var(--invite-*, <default>)` fallbacks below,
   // so an un-themed (or partially-themed) invite renders exactly as before.
-  const heroVars = () => sectionThemeVars(theme(), "hero");
-  const storyVars = () => sectionThemeVars(theme(), "story");
+  const heroVars = () => sectionVars(theme(), "hero");
+  const storyVars = () => sectionVars(theme(), "story");
+
+  // Re-apply the derived palette to the document root whenever the revalidated
+  // theme changes. The Astro shell already server-rendered it for the first
+  // paint; this is what makes a colour the organiser just saved show up on the
+  // no-store refetch, and it repaints the WHOLE page (footer included) rather
+  // than only this island.
+  createEffect(() => applyPaletteToRoot(theme()));
 
   // Conditional-segment gates. A hero with no image, no title and no subtitle
   // would paint an empty full-screen section (including the built-in
@@ -290,11 +289,14 @@ export default function InviteHeader(props: InviteHeaderProps) {
   return (
     <>
       <Show when={showHero()}>
-        <section class="relative h-dvh overflow-hidden" style={heroVars()}>
+        <section
+          class="relative h-dvh overflow-hidden"
+          style={{ ...filterThemeVars(heroVars()), ...SECTION_SURFACE }}
+        >
           {/* Default gradient — always present as the base layer / fallback. */}
           <div
             class="absolute inset-0 bg-cover bg-center"
-            style="background: linear-gradient(160deg, oklch(27.87% 0.0393 149.62) 0%, oklch(19.96% 0.0331 147.34) 40%, oklch(22.70% 0.0275 152.78) 100%);"
+            style="background: linear-gradient(160deg, var(--invite-hero-grad-1) 0%, var(--invite-hero-grad-2) 40%, var(--invite-hero-grad-3) 100%);"
           />
           {/* Custom background image, fading in over the gradient once decoded. The
             requested variant is the organiser's choice: `hero-bg` (server-blurred
@@ -347,7 +349,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
             text). Slightly stronger at centre than the original gradient-only hero
             since a blurred photo can carry more mid-tone luminance than the dark
             default gradient — keeps WCAG contrast on the title. */}
-          <div class="absolute inset-0 flex flex-col items-center justify-center bg-[radial-gradient(ellipse_at_center,oklch(0%_0_0/0.3)_0%,oklch(0%_0_0/0.55)_100%)] px-[max(1.5rem,env(safe-area-inset-left))] py-[max(1.5rem,env(safe-area-inset-top))]">
+          <div class="absolute inset-0 flex flex-col items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--invite-scrim-from)_0%,var(--invite-scrim-to)_100%)] px-[max(1.5rem,env(safe-area-inset-left))] py-[max(1.5rem,env(safe-area-inset-top))]">
             {/* Title block. A title legibility panel sits behind the title +
               monogram, driven by the two backdrop sliders: its opacity (0–100 ⇒
               0–1) controls how solid the dark scrim panel is, and its blur (0–20px)
@@ -370,7 +372,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                       // the slider opacity (÷100). `color-mix` blends the surface
                       // with transparent so any validated theme colour honours the
                       // opacity too. Both `backdrop-filter` spellings for Safari.
-                      "background-color": `color-mix(in oklab, var(--invite-surface, oklch(0% 0 0)) ${titleBackdropOpacity()}%, transparent)`,
+                      "background-color": `color-mix(in oklab, var(--invite-panel) ${titleBackdropOpacity()}%, transparent)`,
                       "backdrop-filter": `blur(${titleBackdropBlur()}px)`,
                       "-webkit-backdrop-filter": `blur(${titleBackdropBlur()}px)`,
                     }
@@ -384,29 +386,20 @@ export default function InviteHeader(props: InviteHeaderProps) {
                 // monogram — a multi-tenant product must never default to one
                 // couple's initials.
                 fallback={
-                  <span
-                    class="font-display text-gold max-w-full text-center text-[clamp(2.5rem,8vw,5.5rem)] leading-none font-light break-words italic select-none"
-                    style={{ ...ACCENT_TEXT, ...HEADING_FONT }}
-                  >
+                  <span class="font-display text-gold max-w-full text-center text-[clamp(2.5rem,8vw,5.5rem)] leading-none font-light break-words italic select-none">
                     You're Invited
                   </span>
                 }
               >
                 {(title) => (
-                  <span
-                    class="font-display text-gold max-w-full text-center text-[clamp(3rem,10vw,7rem)] leading-none font-light break-words italic select-none"
-                    style={{ ...ACCENT_TEXT, ...HEADING_FONT }}
-                  >
+                  <span class="font-display text-gold max-w-full text-center text-[clamp(3rem,10vw,7rem)] leading-none font-light break-words italic select-none">
                     {title()}
                   </span>
                 )}
               </Show>
               <Show when={hero()?.subtitle}>
                 {(subtitle) => (
-                  <p
-                    class="font-body text-gold-dim max-w-full text-center text-[0.8rem] tracking-[0.25em] break-words uppercase"
-                    style={ACCENT_TEXT_DIM}
-                  >
+                  <p class="font-body text-gold-dim max-w-full text-center text-[0.8rem] tracking-[0.25em] break-words uppercase">
                     {subtitle()}
                   </p>
                 )}
@@ -418,8 +411,8 @@ export default function InviteHeader(props: InviteHeaderProps) {
 
       <Show when={showStory()}>
         <section
-          class="bg-surface border-border border-y px-6 py-16 md:px-8 md:py-20"
-          style={{ ...storyVars(), ...STORY_SURFACE }}
+          class="border-border border-y px-6 py-16 md:px-8 md:py-20"
+          style={{ ...filterThemeVars(storyVars()), ...SECTION_SURFACE }}
         >
           {/*
             Two-column on laptop/desktop when a story image exists — image LEFT,
@@ -479,16 +472,10 @@ export default function InviteHeader(props: InviteHeaderProps) {
               }}
             </Show>
             <div>
-              <p
-                class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase"
-                style={ACCENT_TEXT}
-              >
+              <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
                 {story()?.eyebrow ?? "Our Story"}
               </p>
-              <h2
-                class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic"
-                style={HEADING_FONT}
-              >
+              <h2 class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light italic">
                 {story()?.heading ?? "How It All Began"}
               </h2>
               <div class="mx-auto max-w-[480px] group-data-[has-image=true]/story:md:mx-0">
