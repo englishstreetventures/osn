@@ -1,6 +1,6 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro'
-import { WaxSealHero } from '../components/WaxSealHero'
+import Hero from '../components/sections/Hero.astro'
 import Promise from '../components/sections/Promise.astro'
 import Features from '../components/sections/Features.astro'
 import HowItWorks from '../components/sections/HowItWorks.astro'
@@ -9,23 +9,12 @@ import Craft from '../components/sections/Craft.astro'
 import Testimonials from '../components/sections/Testimonials.astro'
 import Faq from '../components/sections/Faq.astro'
 import FinalCta from '../components/sections/FinalCta.astro'
-import { DEMO_ANCHOR, DEMO_INVITE_URL, IMAGES, ORGANISER_URL } from '../lib/site'
-
-// "See a live invite" links out to a real seeded invitation when one is wired
-// (PUBLIC_DEMO_INVITE_URL), otherwise it scrolls to the in-page interactive demo.
-const demoHref = DEMO_INVITE_URL ?? DEMO_ANCHOR
-const demoIsExternal = DEMO_INVITE_URL !== null
 ---
 <BaseLayout>
-  {/* Hero is client:load — it's the first paint and the signature interaction. */}
-  <WaxSealHero
-    client:load
-    heroImageId={IMAGES.hero.id}
-    heroImageAlt={IMAGES.hero.alt}
-    organiserUrl={ORGANISER_URL}
-    demoHref={demoHref}
-    demoIsExternal={demoIsExternal}
-  />
+  {/* The Unfolding Letter: the page reads top to bottom like opening and reading
+      a single invitation — sealed hero, the letter unfolds, what's inside, how it
+      works, open one yourself, the trust behind it, questions, and the sign-off. */}
+  <Hero />
 
   <main>
     <Promise />
@@ -33,6 +22,8 @@ const demoIsExternal = DEMO_INVITE_URL !== null
     <HowItWorks />
     <SeeItLive />
     <Craft />
+    {/* Renders nothing until real, consented couple quotes exist (honest social
+        proof — SHOW_TESTIMONIALS stays false until then). */}
     <Testimonials />
     <Faq />
     <FinalCta />

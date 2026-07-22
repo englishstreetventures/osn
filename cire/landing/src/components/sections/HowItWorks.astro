@@ -1,17 +1,19 @@
 ---
-// Three steps — the whole journey, compressed.
+// The whole journey in three steps, read as a vertical sequence down the page
+// (a hanging numeral in the margin, the step beside it), not three identical
+// columns. The numerals are genuinely ordinal here, so they earn their place.
 const steps = [
   {
     n: '01',
     title: 'Design your invitation',
     body:
-      'Add your events, your wording and your guests, then theme it to your day. No design tools, no developers — it looks considered out of the box.',
+      'Add your events, your wording and your guests, then theme it to your day. No design tools, no developers. It looks considered out of the box.',
   },
   {
     n: '02',
     title: 'Share one link',
     body:
-      'Send a single link, or print a claim code on paper invites. Your guest list stays private — guests never need an account.',
+      'Send a single link, or print a claim code on paper invites. Your guest list stays private, and guests never need an account.',
   },
   {
     n: '03',
@@ -26,32 +28,38 @@ const steps = [
   class="border-border bg-surface/75 border-y px-6 py-24 md:py-32"
   aria-labelledby="how-heading"
 >
-  <div class="mx-auto max-w-[64rem]">
-    <div class="mb-16 text-center" data-reveal>
-      <p class="font-body text-gold mb-4 text-[0.72rem] tracking-[0.28em] uppercase">
-        How it works
-      </p>
+  <div class="mx-auto max-w-[54rem]">
+    <div class="mb-14 md:mb-20" data-reveal>
       <h2
         id="how-heading"
-        class="font-display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2] font-light italic"
+        class="display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2]"
       >
         From idea to invited in an afternoon.
       </h2>
     </div>
 
-    <ol class="grid gap-10 md:grid-cols-3 md:gap-12">
+    <ol class="flex flex-col">
       {
-        steps.map((step) => (
-          <li class="text-center md:text-left" data-reveal>
-            <p class="font-display text-gold mb-4 text-[2.75rem] leading-none font-light italic">
+        steps.map((step, i) => (
+          <li
+            class:list={[
+              'grid grid-cols-[auto_1fr] items-baseline gap-x-6 gap-y-2 py-8 md:gap-x-12',
+              i > 0 && 'border-border border-t',
+            ]}
+            data-reveal
+          >
+            <span
+              class="display text-gold text-[2.5rem] leading-none font-light md:text-[3.25rem]"
+              aria-hidden="true"
+            >
               {step.n}
-            </p>
-            <h3 class="font-display text-text mb-3 text-[1.5rem] font-normal italic">
-              {step.title}
-            </h3>
-            <p class="font-body text-text-muted text-[0.95rem] leading-[1.75] font-light">
-              {step.body}
-            </p>
+            </span>
+            <div>
+              <h3 class="display text-text mb-2 text-[1.5rem] font-normal">{step.title}</h3>
+              <p class="font-body text-text-muted max-w-[38rem] text-[0.98rem] leading-[1.75] font-light">
+                {step.body}
+              </p>
+            </div>
           </li>
         ))
       }

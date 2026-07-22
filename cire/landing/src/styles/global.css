@@ -18,6 +18,13 @@
   --font-display: "Cormorant Garamond", Georgia, serif;
   --font-body: "Lato", system-ui, sans-serif;
   --default-font-family: var(--font-body);
+
+  /* Landing-only additions (not part of the shared cire/web brand block above —
+     colour + font tokens stay byte-identical; these are motion + rhythm helpers
+     the marketing site needs and the app does not). Named easings so no rule
+     falls back to the browser default `ease`. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 @layer base {
@@ -82,6 +89,91 @@
   [data-reveal][data-revealed] {
     opacity: 1;
     transform: none;
+  }
+
+  /* ── The Unfolding Letter — shared editorial primitives ──────────────────────
+     The page is composed like a single invitation read top to bottom, so a few
+     structural helpers recur across sections. */
+
+  /* The reading measure — a letter's column, never the full viewport. */
+  .letter-column {
+    margin-inline: auto;
+    max-width: 44rem;
+  }
+
+  /* A hairline gold rule used as a section seam and between index rows. */
+  .rule-gold {
+    height: 1px;
+    border: 0;
+    background: linear-gradient(to right, transparent, var(--color-gold-dim), transparent);
+  }
+
+  /* Display headings are ROMAN by default (italic headers are the single most
+     reliable AI tell). Emphasis is carried by weight, the gold accent, or a
+     drawn rule — never by tilting the whole heading. Italic survives only on the
+     wordmark logotype and inside running body copy. */
+  .display {
+    font-family: var(--font-display);
+    font-style: normal;
+    font-weight: 300;
+    line-height: 1.15;
+    letter-spacing: -0.005em;
+    /* Long words in a large serif must break rather than force a scrollbar. */
+    overflow-wrap: anywhere;
+  }
+
+  /* The one sanctioned eyebrow style. Used at most twice on the whole page. */
+  .eyebrow {
+    font-family: var(--font-body);
+    font-size: 0.72rem;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--color-gold);
+  }
+
+  /* Shared CTA voice — a gold-filled primary and a hairline-outlined secondary,
+     both with a proper, instantly-visible focus ring (never animated). */
+  .cta-primary,
+  .cta-ghost {
+    font-family: var(--font-body);
+    font-size: 0.84rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0.95rem 1.9rem;
+    border-radius: 0.125rem;
+    border: 1px solid transparent;
+    transition:
+      color 0.2s var(--ease-out),
+      background-color 0.2s var(--ease-out),
+      border-color 0.2s var(--ease-out),
+      transform 0.12s var(--ease-out);
+  }
+  .cta-primary {
+    background: var(--color-gold);
+    border-color: var(--color-gold);
+    color: var(--color-bg);
+  }
+  .cta-primary:hover {
+    background: transparent;
+    color: var(--color-gold);
+  }
+  .cta-ghost {
+    background: transparent;
+    border-color: var(--color-border);
+    color: var(--color-text);
+  }
+  .cta-ghost:hover {
+    border-color: var(--color-gold);
+    color: var(--color-gold);
+  }
+  .cta-primary:active,
+  .cta-ghost:active {
+    transform: translateY(1px);
+  }
+  .cta-primary:focus-visible,
+  .cta-ghost:focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 3px;
   }
 }
 
@@ -161,7 +253,11 @@
    own point --a. */
 .vine-layer.is-animated .vine-stroke {
   stroke-dasharray: 1;
-  stroke-dashoffset: clamp(0, calc((var(--a1, 1) - var(--p, 1)) / (var(--a1, 1) - var(--a0, 0))), 1);
+  stroke-dashoffset: clamp(
+    0,
+    calc((var(--a1, 1) - var(--p, 1)) / (var(--a1, 1) - var(--a0, 0))),
+    1
+  );
 }
 
 .vine-layer.is-animated .vine-leaf,

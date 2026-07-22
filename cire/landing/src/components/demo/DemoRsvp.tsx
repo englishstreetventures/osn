@@ -58,13 +58,10 @@ export function DemoRsvp() {
 
   return (
     <div class="border-border bg-surface-raised mx-auto max-w-[640px] overflow-hidden rounded-lg border shadow-2xl">
-      {/* Faux browser chrome — signals "this is the real thing, in miniature". */}
-      <div class="border-border flex items-center gap-2 border-b px-4 py-3">
-        <span class="bg-error/60 h-2.5 w-2.5 rounded-full" aria-hidden="true" />
-        <span class="bg-gold/50 h-2.5 w-2.5 rounded-full" aria-hidden="true" />
-        <span class="bg-success/50 h-2.5 w-2.5 rounded-full" aria-hidden="true" />
-        <span class="font-body text-text-muted ml-2 text-[0.72rem] tracking-[0.08em]">
-          cireweddings.com/amara-and-sam
+      {/* An honest frame header — a plain label, not imitation browser chrome. */}
+      <div class="border-border flex items-center justify-center border-b px-4 py-3">
+        <span class="font-body text-text-muted text-[0.72rem] tracking-[0.18em] uppercase">
+          A live Cire invitation
         </span>
       </div>
 
@@ -104,7 +101,7 @@ export function DemoRsvp() {
         </div>
 
         <p class="font-body text-text-muted mt-6 text-[0.74rem] tracking-[0.06em]">
-          This is an interactive preview — responses aren&rsquo;t saved.
+          This is an interactive preview. Responses aren&rsquo;t saved.
         </p>
       </div>
 
@@ -180,7 +177,7 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
             </h3>
             <p class="font-body text-text-muted mb-7 text-[0.9rem] leading-[1.6] font-light">
               On a real Cire invitation, your reply would be on its way to the couple and counted in
-              their live guest dashboard. Here, nothing is saved — it&rsquo;s just a taste.
+              their live guest dashboard. Here, nothing is saved. It&rsquo;s just a taste.
             </p>
             <button
               type="button"
@@ -200,7 +197,7 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
           class="border-gold/40 bg-gold/5 text-gold mb-6 rounded-sm border px-3.5 py-2.5 text-[0.74rem] leading-relaxed"
           role="status"
         >
-          Interactive preview — your reply won&rsquo;t be saved.
+          Interactive preview. Your reply won&rsquo;t be saved.
         </p>
 
         <form class="flex flex-col gap-5" onSubmit={handleSubmit}>

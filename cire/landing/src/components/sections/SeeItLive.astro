@@ -1,22 +1,21 @@
 ---
-// The "show, don't tell" section: a real, interactive invitation rendered in the
-// page. The RSVP is a deliberate no-op (nothing is sent) — see DemoRsvp.
+// "Show, don't tell": a real, interactive invitation rendered right in the page.
+// The RSVP is a deliberate no-op (nothing is sent) — see DemoRsvp. This is one of
+// only two sections on the page that earns an eyebrow.
 import { DemoRsvp } from '../demo/DemoRsvp'
 ---
 <section id="see-it-live" class="px-6 py-24 md:py-32" aria-labelledby="see-heading">
   <div class="mx-auto max-w-[64rem]">
-    <div class="mb-14 text-center" data-reveal>
-      <p class="font-body text-gold mb-4 text-[0.72rem] tracking-[0.28em] uppercase">
-        See it live
-      </p>
+    <div class="letter-column mb-14 text-center" data-reveal>
+      <p class="eyebrow mb-5">See it live</p>
       <h2
         id="see-heading"
-        class="font-display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2] font-light italic"
+        class="display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2]"
       >
-        Go on — open it.
+        Go on, open it.
       </h2>
-      <p class="font-body text-text-muted mx-auto mt-5 max-w-[34rem] text-[1rem] leading-[1.7] font-light">
-        A working Cire invitation, right here on the page. Respond as a guest would — it&rsquo;s fully
+      <p class="font-body text-text-muted mx-auto mt-6 max-w-[34rem] text-[1rem] leading-[1.7] font-light">
+        A working Cire invitation, right here on the page. Respond as a guest would. It is fully
         interactive, and nothing you enter is saved.
       </p>
     </div>

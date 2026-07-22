@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[production-deploy]]"
   - "[[free-tier-limits]]"
-last-reviewed: 2026-07-16
+last-reviewed: 2026-07-22
 ---
 
 # Cire Landing
@@ -44,6 +44,22 @@ Mirrors `cire/organiser`: **static Astro + SolidJS islands + Tailwind v4**
 `wrangler pages deploy dist`. Motion via Motion One (`motion`), animation logic
 isolated in `*.motion.ts` files (the cire convention).
 
+The hero seal is the one exception to the Motion-One rule: it is a real **3D
+object rendered with Three.js** (`three`, core only — no addons). Three.js is
+heavy (~515 KB), so it is **strictly off the critical path**: `WaxSeal3D.tsx`
+renders a flat CSS-disc poster server-side, then `import()`s the scene module
+(`waxSealScene.ts`) on `requestIdleCallback` and cross-fades the WebGL canvas in
+over the poster. The chunk is never `modulepreload`ed. No WebGL or
+`prefers-reduced-motion` → the scene never loads and the CSS poster stands in.
+Three.js and Motion One never share a component tree.
+
+**Macrostructure: "The Unfolding Letter"** (redesign 2026-07-22). The page reads
+top to bottom like opening and reading a single invitation. Display headings are
+**roman** (`.display` in `global.css`) — italic survives only on the wordmark
+logotype and inside running body copy (an all-italic heading is a reliable
+AI-generated tell). Eyebrows are rationed to two on the whole page (hero + "See
+it live"). All visible copy avoids the em-dash.
+
 **Brand parity is a feature, not a coincidence**: `src/styles/global.css` keeps
 the `@theme` token block **byte-identical** to `cire/web/src/styles/global.css`
 (deep-green oklch palette, gold accent, Cormorant Garamond display + Lato body)
@@ -54,19 +70,27 @@ in the other.**
 
 ## Page structure (`src/pages/index.astro`)
 
-1. **Wax-seal hero** (`WaxSealHero.tsx` + `WaxSeal.motion.ts`) — the signature
-   interaction. The **whole first screen is the front of a sealed envelope** (a
-   full-bleed flap + body with pocket seams and a gold wax disc, monogram "C", at
-   its heart). The seal lifts, the flap swings open about its top hinge, and the
-   envelope fades away to unveil the headline + CTAs beneath. Opens on tap
-   (anywhere)/keyboard, or auto-opens after a beat. Honours
-   `prefers-reduced-motion` (snaps open). `client:load` — first paint, and the
-   thesis of the product in one gesture.
-2. **Promise** — the editorial "paper vs soulless e-invite vs Cire" passage.
-3. **Features** — alternating image/text rows; every feature is something cire
-   actually ships (reveal animation, per-guest greetings, live RSVPs, details/
-   maps/calendar, theming/moodboards). See [[cire]].
-4. **How it works** — three steps (design → share one link → watch RSVPs).
+Composed as `Hero.astro` + seven section components under `components/sections/`.
+
+1. **Hero** (`sections/Hero.astro` + `WaxSeal3D.tsx` + `waxSealScene.ts`) — the
+   signature moment. A **real 3D wax seal** rests at the top of the sealed letter:
+   an embossed "C" monogram (a canvas heightmap → bump map on a waxy
+   `MeshPhysicalMaterial`), lit by a warm gold key against a cool forest fill. It
+   is **ambient** — it never breaks. It idles with a slow tilt, leans toward the
+   pointer, and settles on load (a small dolly-back). Crucially the seal is
+   **purely decorative**: the eyebrow, headline, subtext and both CTAs are
+   server-rendered siblings, always painted, keyboard-operable with a real focus
+   ring — so no JS / no WebGL / reduced motion still reads and converts (the old
+   `WaxSealHero` gated all hero content behind `display:none` until JS opened it;
+   this does not).
+2. **Promise** (`sections/Promise.astro`) — "the letter unfolds": the editorial
+   "paper vs soulless e-invite vs Cire" passage in a narrow column.
+3. **Features** (`sections/Features.astro`) — read *down* the card, not five
+   identical alternating rows: two lead image/text splits (the opening, the RSVP)
+   then a three-item text index of the rest. Every feature is something cire
+   actually ships. See [[cire]].
+4. **How it works** (`sections/HowItWorks.astro`) — three steps as a vertical
+   numbered sequence (design → share one link → watch RSVPs), not a 3-column grid.
 5. **See it live** (`demo/DemoRsvp.tsx`) — a real, in-page interactive invitation
    whose RSVP is a deliberate **no-op** (see below). `client:visible`.
 6. **Craft / trust** — privacy-first, guests need no account, your data is yours.
@@ -74,8 +98,13 @@ in the other.**
    behind `SHOW_TESTIMONIALS = false`; renders nothing until we have real,
    permissioned quotes. We don't fabricate social proof.
 8. **FAQ** — native `<details>` accordion, works with zero JS.
-9. **Final CTA + footer** — repeats the primary CTA; `SiteFooter.astro` carries
-   the `/privacy` + `/terms` links (the legal pages are present as review drafts).
+9. **Final CTA + footer** — repeats the primary CTA; `SiteFooter.astro` is a
+   sign-off statement (a small wax mark echoing the hero seal) carrying the
+   `/privacy` + `/terms` + `/refunds` links (the legal pages are review drafts).
+
+A minimal fixed masthead (`SiteNav.astro`) — wordmark + the one primary CTA —
+sits over the hero and gains a hairline + blurred wash once scrolled (toggled by
+an `IntersectionObserver` sentinel, no per-frame scroll handler).
 
 ## Interactive no-op RSVP demo
 
@@ -194,12 +223,17 @@ product decision, not a migration — see [[cire]].
 
 ## Deferred
 
-- **Wax-seal graphic** — the hero's seal disc (`WaxSealHero.tsx`) is a
-  PLACEHOLDER (gold radial-gradient + Cormorant "C" monogram). It is to be
-  replaced by a separately designed wax-seal asset. The component is structured
-  so only the inner seal `<div>` needs swapping — the full-page envelope, the
-  open/seal-break animation (`WaxSeal.motion.ts`) and all wiring stay. Marked
-  with `TODO(design)` in the source.
+- **Wax-seal fidelity** — the hero seal is now a real 3D object
+  (`waxSealScene.ts`), but built **procedurally**: the wax body is a wobbled
+  cylinder and the monogram is a canvas-drawn bump map, not a hand-modelled asset.
+  A sculpted GLTF seal (Blender, with a proper normal + roughness bake) would read
+  richer; deferred until there is an asset pipeline for it. Swap point is
+  `makeSealMesh()` — the lighting, idle motion, pointer lean and PE fallback all
+  stay. The seal was **not** visually verified in a live browser at build time
+  (the review session had no WebGL-capable browser); eyeball it on
+  `bun run dev:landing` and tune `bumpScale` / light intensities to taste.
+- **Real photography** — imagery is still hotlinked Unsplash placeholders
+  (`lib/site.ts` `IMAGES`); swap for the brand's own art when it exists.
 
 ## Related
 

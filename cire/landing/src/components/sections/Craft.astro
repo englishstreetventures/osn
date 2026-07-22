@@ -1,17 +1,18 @@
 ---
-// Trust + craft: privacy-first, your data is yours, no ads, no spam. Ties the
-// product to the OSN identity story without getting technical.
+// Trust + craft: private by design, no accounts for guests, your data is yours.
+// Ties Cire to the OSN identity story without getting technical. Image + a short
+// list of promises, each set off by a gold hairline.
 import Figure from '../Figure.astro'
 import { IMAGES } from '../../lib/site'
 
 const points = [
   {
     title: 'Private by design',
-    body: 'Guests claim a code — no public guest list, no link to forward, no enumeration. Your circle stays your circle.',
+    body: 'Guests claim a code. No public guest list, no link to forward, no enumeration. Your circle stays your circle.',
   },
   {
     title: 'No accounts for guests',
-    body: 'Guests never sign up for anything. They open, they reply, they&rsquo;re done.',
+    body: 'Guests never sign up for anything. They open, they reply, they are done.',
   },
   {
     title: 'Your data is yours',
@@ -19,18 +20,15 @@ const points = [
   },
 ] as const
 ---
-<section class="px-6 py-12 md:py-20" aria-labelledby="craft-heading">
+<section class="px-6 py-20 md:py-28" aria-labelledby="craft-heading">
   <div class="mx-auto grid max-w-[64rem] items-center gap-10 md:grid-cols-2 md:gap-16">
     <div data-reveal>
       <Figure image={IMAGES.craft} class="aspect-[4/5]" />
     </div>
     <div data-reveal>
-      <p class="font-body text-gold mb-4 text-[0.72rem] tracking-[0.28em] uppercase">
-        Made with care
-      </p>
       <h2
         id="craft-heading"
-        class="font-display text-text mb-8 text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2] font-light italic"
+        class="display text-text mb-8 text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.2]"
       >
         The trust of paper, kept digital.
       </h2>
@@ -38,10 +36,10 @@ const points = [
         {
           points.map((point) => (
             <div class="border-border border-t pt-5">
-              <dt class="font-display text-text mb-1.5 text-[1.25rem] font-normal italic">
-                {point.title}
-              </dt>
-              <dd class="font-body text-text-muted text-[0.95rem] leading-[1.7] font-light" set:html={point.body} />
+              <dt class="display text-text mb-1.5 text-[1.25rem] font-normal">{point.title}</dt>
+              <dd class="font-body text-text-muted text-[0.95rem] leading-[1.7] font-light">
+                {point.body}
+              </dd>
             </div>
           ))
         }

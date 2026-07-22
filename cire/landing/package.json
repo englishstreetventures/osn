@@ -15,12 +15,14 @@
     "astro": "^7.1.1",
     "motion": "^12.40.0",
     "solid-js": "^1.9.13",
-    "tailwindcss": "^4.3.0"
+    "tailwindcss": "^4.3.0",
+    "three": "^0.185.1"
   },
   "devDependencies": {
-    "@solidjs/testing-library": "^0.8.10",
     "@shared/typescript-config": "workspace:*",
+    "@solidjs/testing-library": "^0.8.10",
     "@testing-library/jest-dom": "^6.9.1",
+    "@types/three": "^0.185.1",
     "jsdom": "^29.1.1",
     "vite-plugin-solid": "^2.11.12",
     "vitest": "^4.1.8"

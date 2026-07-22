@@ -24,7 +24,7 @@ export const DEMO_ANCHOR = "#see-it-live";
 export const SITE_NAME = "Cire";
 export const SITE_TAGLINE = "Invitations worthy of the moment";
 export const SITE_DESCRIPTION =
-  "Cire is a bespoke digital wedding invitation — tactile, animated and personal as handcrafted paper, with every RSVP tracked for you. Share one link; watch the replies roll in.";
+  "Cire is a bespoke digital wedding invitation: tactile, animated and personal as handcrafted paper, with every RSVP tracked for you. Share one link, and watch the replies roll in.";
 
 /**
  * Hotlinked Unsplash imagery. These load in the visitor's browser straight from

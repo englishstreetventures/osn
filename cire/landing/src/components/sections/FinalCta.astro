@@ -1,40 +1,39 @@
 ---
+// The sign-off before the footer: one clear invitation to begin, over a faint
+// gold bloom. Same CTA labels as the hero (one intent, one label everywhere).
 import { DEMO_ANCHOR, DEMO_INVITE_URL, ORGANISER_URL } from '../../lib/site'
 
 const demoHref = DEMO_INVITE_URL ?? DEMO_ANCHOR
 const demoIsExternal = DEMO_INVITE_URL !== null
 ---
-<section class="relative overflow-hidden px-6 py-28 text-center md:py-40" aria-labelledby="cta-heading">
+<section
+  class="relative overflow-hidden px-6 py-28 text-center md:py-40"
+  aria-labelledby="cta-heading"
+>
   <div
     class="absolute inset-0 -z-10"
     style="background: radial-gradient(120% 80% at 50% 0%, oklch(74.99% 0.0854 82.08 / 0.12), transparent 60%);"
   >
   </div>
-  <div class="mx-auto max-w-[44rem]" data-reveal>
-    <p class="font-body text-gold mb-5 text-[0.72rem] tracking-[0.28em] uppercase">
-      Your day, beautifully invited
-    </p>
+  <div class="letter-column" data-reveal>
     <h2
       id="cta-heading"
-      class="font-display text-text text-[clamp(2.2rem,6vw,4rem)] leading-[1.08] font-light italic"
+      class="display text-text text-[clamp(2.2rem,6vw,4rem)] leading-[1.08]"
     >
       Begin your invitation.
     </h2>
     <p class="font-body text-text-muted mx-auto mt-6 max-w-[32rem] text-[1.05rem] leading-[1.7] font-light">
-      Give your guests something to remember opening — and give yourself one less thing to chase.
+      Give your guests something to remember opening, and give yourself one less thing to chase.
     </p>
     <div class="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-      <a
-        href={ORGANISER_URL}
-        class="border-gold bg-gold text-bg hover:bg-transparent hover:text-gold font-body w-full rounded-sm border px-8 py-4 text-[0.84rem] tracking-[0.12em] uppercase transition-colors duration-200 sm:w-auto"
-      >
+      <a href={ORGANISER_URL} class="cta-primary w-full sm:w-auto">
         Create your invitation
       </a>
       <a
         href={demoHref}
         target={demoIsExternal ? '_blank' : undefined}
         rel={demoIsExternal ? 'noopener noreferrer' : undefined}
-        class="border-border font-body text-text hover:border-gold hover:text-gold w-full rounded-sm border bg-transparent px-8 py-4 text-[0.84rem] tracking-[0.12em] uppercase transition-colors duration-200 sm:w-auto"
+        class="cta-ghost w-full sm:w-auto"
       >
         See a live invite
       </a>

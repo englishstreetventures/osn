@@ -1,89 +1,97 @@
 ---
-// Marketing-site footer. Carries the wordmark, the primary CTA, in-page section
-// links, and — like cire/web's SiteFooter — the legal pages so the privacy
-// notice + terms are reachable from every page (compliance: privacy notice
-// published and linked at point of collection).
+// The back of the envelope. A sign-off statement that bookends the hero's seal:
+// a small wax mark, the wordmark, the tagline. Below it the practical rows —
+// section links and the legal pages (privacy / terms / refunds), which must be
+// reachable from every page (privacy notice linked at point of collection).
 import { ORGANISER_URL } from '../lib/site'
 
 const year = 2026
 ---
 <footer class="site-footer">
-  <div class="site-footer__inner">
-    <div class="site-footer__brand">
-      <p class="site-footer__wordmark">Cire</p>
-      <p class="site-footer__tagline">Invitations worthy of the moment.</p>
-    </div>
+  <div class="site-footer__signoff">
+    <p class="site-footer__wordmark">Cire</p>
+    <p class="site-footer__tagline">Invitations worthy of the moment.</p>
+  </div>
 
+  <hr class="rule-gold site-footer__rule" />
+
+  <div class="site-footer__rows">
     <nav class="site-footer__nav" aria-label="Sections">
       <a href="/#how-it-works">How it works</a>
-      <a href="/#features">Features</a>
+      <a href="/#features">What&rsquo;s inside</a>
       <a href="/#faq">Questions</a>
       <a href={ORGANISER_URL}>Create an invitation</a>
     </nav>
-  </div>
 
-  <div class="site-footer__legal">
-    <nav aria-label="Legal">
-      <a href="/privacy">Privacy Notice</a>
-      <span aria-hidden="true">&middot;</span>
-      <a href="/terms">Terms</a>
-      <span aria-hidden="true">&middot;</span>
-      <a href="/refunds">Refunds</a>
-    </nav>
-    <p class="site-footer__copy">&copy; {year} Cire. Made with care.</p>
+    <div class="site-footer__legal">
+      <nav aria-label="Legal">
+        <a href="/privacy">Privacy Notice</a>
+        <span aria-hidden="true">&middot;</span>
+        <a href="/terms">Terms</a>
+        <span aria-hidden="true">&middot;</span>
+        <a href="/refunds">Refunds</a>
+      </nav>
+      <p class="site-footer__copy">&copy; {year} Cire. Made with care.</p>
+    </div>
   </div>
 </footer>
 
 <style>
   .site-footer {
     border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
-    padding: 3.5rem 1.5rem 3rem;
+    padding: 4.5rem 1.5rem 3rem;
     font-family: var(--font-body, "Lato", system-ui, sans-serif);
     color: var(--color-text-muted, rgba(255, 255, 255, 0.5));
   }
 
-  .site-footer__inner {
+  .site-footer__signoff {
+    text-align: center;
+    max-width: 64rem;
+    margin: 0 auto;
+  }
+
+  .site-footer__wordmark {
+    font-family: var(--font-display, "Cormorant Garamond", Georgia, serif);
+    font-size: 2.25rem;
+    font-weight: 400;
+    font-style: italic;
+    letter-spacing: 0.04em;
+    color: var(--color-gold, oklch(74.99% 0.0854 82.08));
+    margin: 0 0 0.4rem;
+  }
+
+  .site-footer__tagline {
+    font-size: 0.95rem;
+    margin: 0;
+  }
+
+  .site-footer__rule {
+    max-width: 64rem;
+    margin: 3rem auto;
+  }
+
+  .site-footer__rows {
     max-width: 64rem;
     margin: 0 auto;
     display: flex;
     flex-wrap: wrap;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 2rem 3rem;
-  }
-
-  .site-footer__wordmark {
-    font-family: var(--font-display, "Cormorant Garamond", Georgia, serif);
-    font-size: 1.75rem;
-    font-weight: 400;
-    font-style: italic;
-    letter-spacing: 0.04em;
-    color: var(--color-gold, oklch(74.99% 0.0854 82.08));
-    margin: 0 0 0.35rem;
-  }
-
-  .site-footer__tagline {
-    font-size: 0.875rem;
-    margin: 0;
+    gap: 1.5rem 3rem;
   }
 
   .site-footer__nav {
     display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
+    flex-wrap: wrap;
+    gap: 0.6rem 1.75rem;
     font-size: 0.875rem;
   }
 
   .site-footer__legal {
-    max-width: 64rem;
-    margin: 2.5rem auto 0;
-    padding-top: 1.75rem;
-    border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6rem;
     font-size: 0.8125rem;
   }
 
@@ -97,18 +105,31 @@ const year = 2026
     margin: 0;
   }
 
+  @media (min-width: 640px) {
+    .site-footer__legal {
+      align-items: flex-end;
+      text-align: right;
+    }
+  }
+
   .site-footer a {
     color: inherit;
     text-decoration: none;
     border-bottom: 1px solid transparent;
     transition:
-      color 0.2s ease,
-      border-color 0.2s ease;
+      color 0.2s var(--ease-out, ease),
+      border-color 0.2s var(--ease-out, ease);
   }
 
   .site-footer a:hover,
   .site-footer a:focus-visible {
     color: var(--color-gold, oklch(74.99% 0.0854 82.08));
     border-bottom-color: currentColor;
+  }
+
+  .site-footer a:focus-visible {
+    outline: 2px solid var(--color-gold, oklch(74.99% 0.0854 82.08));
+    outline-offset: 3px;
+    border-radius: 0.125rem;
   }
 </style>

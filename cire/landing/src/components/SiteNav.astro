@@ -1,0 +1,98 @@
+---
+// A quiet, single-line masthead. Transparent over the hero, gaining a hairline
+// and a faint surface wash once you scroll past it. Just the wordmark and the one
+// action the page exists to drive — no link farm. Works fully without JS (the
+// scrolled state is pure polish, toggled by a tiny inline observer).
+import { ORGANISER_URL, SITE_NAME } from '../lib/site'
+---
+<header class="site-nav" data-site-nav>
+  <div class="site-nav__inner">
+    <a href="/" class="site-nav__wordmark">{SITE_NAME}</a>
+    <a href={ORGANISER_URL} class="site-nav__cta">Create your invitation</a>
+  </div>
+</header>
+
+<script is:inline>
+  // Add `is-scrolled` once the page has moved, using a zero-size sentinel and an
+  // IntersectionObserver so there is no scroll handler running per frame.
+  ;(() => {
+    const nav = document.querySelector('[data-site-nav]')
+    if (!nav) return
+    const sentinel = document.createElement('div')
+    sentinel.setAttribute('aria-hidden', 'true')
+    sentinel.style.cssText = 'position:absolute;top:0;left:0;height:8px;width:1px;pointer-events:none'
+    document.body.prepend(sentinel)
+    if (!('IntersectionObserver' in window)) return
+    const io = new IntersectionObserver(
+      ([entry]) => nav.classList.toggle('is-scrolled', !entry.isIntersecting),
+      { threshold: 0 },
+    )
+    io.observe(sentinel)
+  })()
+</script>
+
+<style>
+  .site-nav {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 40;
+    border-bottom: 1px solid transparent;
+    transition:
+      background-color 0.3s var(--ease-out),
+      border-color 0.3s var(--ease-out),
+      backdrop-filter 0.3s var(--ease-out);
+  }
+
+  .site-nav.is-scrolled {
+    background: color-mix(in oklch, var(--color-bg) 82%, transparent);
+    border-bottom-color: var(--color-border);
+    backdrop-filter: blur(10px) saturate(1.1);
+  }
+
+  .site-nav__inner {
+    max-width: 72rem;
+    margin: 0 auto;
+    height: 4.25rem;
+    padding: 0 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .site-nav__wordmark {
+    font-family: var(--font-display, "Cormorant Garamond", Georgia, serif);
+    font-size: 1.6rem;
+    font-style: italic;
+    letter-spacing: 0.04em;
+    color: var(--color-gold);
+    text-decoration: none;
+    line-height: 1;
+  }
+
+  .site-nav__cta {
+    font-family: var(--font-body);
+    font-size: 0.76rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-text);
+    text-decoration: none;
+    padding: 0.45rem 0;
+    border-bottom: 1px solid var(--color-gold-dim);
+    transition:
+      color 0.2s var(--ease-out),
+      border-color 0.2s var(--ease-out);
+  }
+
+  .site-nav__cta:hover {
+    color: var(--color-gold);
+    border-bottom-color: var(--color-gold);
+  }
+
+  .site-nav__wordmark:focus-visible,
+  .site-nav__cta:focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 4px;
+    border-radius: 0.125rem;
+  }
+</style>
