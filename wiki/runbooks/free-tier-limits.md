@@ -11,7 +11,7 @@ related:
   - "[[database-environments]]"
   - "[[observability-setup]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-06-18
+last-reviewed: 2026-07-22
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -41,8 +41,8 @@ last-reviewed: 2026-06-18
 > rate limiter is the native Cloudflare Workers Rate Limiting binding
 > (`CLAIM_RATE_LIMITER` in `cire/api/wrangler.toml`), and its state lives in
 > D1. So an **Upstash outage does not touch cire** — it degrades **osn-api**
-> auth + (via osn-api) any downstream that needs an osn access token. Don't
-> conflate the two.
+> auth + (via osn-api) any downstream that needs an osn access token. Keep the
+> two apart.
 
 ---
 
@@ -59,13 +59,13 @@ last-reviewed: 2026-06-18
 | Monthly bandwidth | **10 GB** |
 | Databases | **1** free DB |
 | Concurrent connections | Not published for Free — we use the **REST/Upstash** client (`@shared/redis/upstash`), which is stateless HTTP, so classic connection caps don't apply the way they do for `ioredis`. |
-| Inactivity | Free DB **archived after ~14 days idle** (warning emails first) — keep at least one health-check command flowing so prod is never archived. |
+| Inactivity | Free DB **archived after ~14 days idle** (warning emails first) — run a health-check command often enough that prod is never archived. |
 
 **What breaks when we exceed it.** Every Redis-backed subsystem in `@osn/api`
-fails on backend error per its documented posture (see the Unavailability
-Playbook below for the exact fail-open vs fail-closed split — **do not assume
-uniform fail-closed**). Hitting the command cap looks identical to "Redis
-down": commands start rejecting/throttling, and:
+fails on a backend error, each with its own documented posture. See the
+Unavailability Playbook below for the exact fail-open vs fail-closed split —
+**do not assume uniform fail-closed**. The command cap looks identical to
+"Redis down": commands start rejecting/throttling, and:
 
 - **Rate limiters (auth per-IP, graph/org-write per-user) → fail CLOSED.**
   `createRedisRateLimiter().check()` returns `false` on any Redis error
@@ -100,20 +100,21 @@ per-account lockout (security regression, not an outage the user sees).
   `osn.auth.step_up.verified` dropping, `osn.auth.recovery.lockout`.
 
 **Immediate mitigation:**
-- If it's the **monthly command cap** (not an outage): the fastest unblock is to
-  upgrade Upstash to Pay-as-you-go (see trigger). There is no safe "fail-open"
-  flip for the rate limiters / step-up — that's a deliberate security posture.
+- If it's the **monthly command cap** (not an outage): upgrade Upstash to
+  Pay-as-you-go (see trigger). That is the fastest fix. There is no safe
+  "fail-open" flip for the rate limiters / step-up — that is a deliberate
+  security posture.
 - For a transient Upstash **outage** (not quota): osn-api falls back to the
-  in-memory client only when `REDIS_URL`/`UPSTASH_*` is **unset** — you cannot
-  hot-swap to in-memory in prod without a redeploy, and in-memory is
-  per-isolate (not cluster-safe). Prefer waiting out a short blip; the stores
-  degrade per the posture above.
+  in-memory client only when `REDIS_URL`/`UPSTASH_*` is **unset**. You cannot
+  swap to in-memory in prod without a redeploy, and in-memory is per-isolate
+  (not cluster-safe). Wait out a short blip; the stores degrade as described
+  above.
 
 **Upgrade trigger / cost:** when monthly commands trend toward ~500K, or the
 single free DB's 256 MB fills, move to **Upstash Pay-as-you-go** (pay per
 command + bandwidth; first 200 GB bandwidth free). This also lifts the
-1-DB and archive-on-idle constraints. Re-verify current pricing before pulling
-the trigger.
+1-DB and archive-on-idle constraints. Re-verify current pricing before you
+upgrade.
 
 ---
 
@@ -196,8 +197,8 @@ storage; overage is cheap ($0.001/M read, $1/M written, $0.75/GB-mo). Re-verify.
 | Files per site | **20,000** |
 | Max file size | **25 MiB** |
 
-**Low risk.** Bandwidth being unmetered is the headline — the guest site can go
-viral without a bandwidth bill. The realistic ceiling is **500 builds/month**
+**Low risk.** Unmetered bandwidth is the main point — the guest site can take a
+large traffic spike without a bandwidth bill. The realistic ceiling is **500 builds/month**
 (a busy CI day with many pushes) and **20,000 files** (large asset bundles).
 Symptom of a build cap: new deploys queue/fail until the month resets — the
 **already-deployed** site keeps serving. No app-level fail-closed here.
@@ -217,13 +218,20 @@ it is **not a capacity risk** for us. The integration **already shipped** (#154,
 `@shared/turnstile` + osn-api register/passkey-login + cire-api claim/RSVP);
 full design on [[turnstile]]. It is **key-optional + fail-closed**: with no
 secret set the gate is a true no-op (no token expected, the flow runs exactly
-as before), so it's inert in production today. **Activating** it = create the
-managed widget in the CF dashboard, then set `TURNSTILE_SECRET_KEY` (Worker
-secret) on osn-api + cire-api and the public sitekey in `[vars]` / the Pages
-env, per the [[production-deploy]] secret checklist. Once the secret is present,
-a missing/invalid/duplicate/unreachable token rejects (400/403) — confirm the
-sitekey reaches the frontend before flipping the secret, or every gated form
-breaks. Re-verify that the free tier is still unlimited at activation time.
+as before), so it is inert in production today.
+
+> **Warning:** once the secret is present, a missing, invalid, duplicate or
+> unreachable token rejects the request (400/403). Confirm the sitekey reaches
+> the frontend before you set the secret, or every gated form breaks.
+
+To activate Turnstile:
+
+1. Re-verify that the free tier is still unlimited.
+2. Create the managed widget in the CF dashboard.
+3. Set the public sitekey in `[vars]` or the Pages env, per the
+   [[production-deploy]] secret checklist.
+4. Confirm the sitekey reaches the frontend.
+5. Set `TURNSTILE_SECRET_KEY` (Worker secret) on osn-api and cire-api.
 
 ---
 
@@ -238,8 +246,8 @@ breaks. Re-verify that the free tier is still unlimited at activation time.
 | **Managed ruleset** | **Cloudflare Free Managed Ruleset** (auto-on, no config; subset of the full managed rules) |
 
 **Implication for our design:** with only **1 WAF rate-limiting rule** capped at
-a **10-second window**, **we cannot lean on the WAF for application rate
-limiting.** That's exactly why rate limiting lives in the app:
+a **10-second window**, **we cannot use the WAF for application rate
+limiting.** That is why rate limiting lives in the app:
 
 - osn-api → Upstash-backed per-IP / per-user limiters ([[rate-limiting]],
   [[redis]]).
@@ -270,7 +278,7 @@ fail-open vs fail-closed split is NOT uniform — read this table, don't guess.*
 | **A Worker** over daily request quota | osn-api / cire-api | CF edge **429** before handler runs | Site-wide 429 (resets UTC midnight) | account Requests metric vs 100K | Upgrade to **Workers Paid** ($5/mo). |
 | **Pages** build cap | static sites | already-deployed site keeps serving; new deploys queue/fail | stale deploys, build failures | Pages build history | Wait for month reset or Pages Pro. |
 
-> The Upstash split above is load-bearing: **rate limiters + step-up JTI +
+> The Upstash split above matters: **rate limiters + step-up JTI +
 > ceremonies fail closed; rotated-session + recovery lockout fail OPEN.** If you
 > change any store's posture, update this table and its file ref.
 
@@ -302,10 +310,10 @@ and are viewable in the CF dashboard.
 
 ## Cloudflare security hardening (free, dashboard) — TODO
 
-These are **manual dashboard steps** the maintainer must do — they can't be
-applied from code/wrangler with current tooling. All are free on the Cloudflare
-Free plan. Defence-in-depth on top of the app-level guards (ARC, origin guard,
-auth middleware).
+These are **manual dashboard steps** the maintainer must do — current tooling
+cannot apply them from code or wrangler. All are free on the Cloudflare Free
+plan. They add defence in depth on top of the app-level guards (ARC, origin
+guard, auth middleware).
 
 1. **Enable the free WAF Managed Ruleset.** Dashboard → the `cireweddings.com`
    zone → **Security → WAF → Managed rules** → confirm **Cloudflare Free Managed
@@ -314,7 +322,7 @@ auth middleware).
    `/graph/internal/*`.** Dashboard → zone → **Security → WAF → Custom rules →
    Create rule**. Expression: `(http.request.uri.path contains "/internal/" or
    starts_with(http.request.uri.path, "/graph/internal/"))` → **Action: Block**.
-   This is belt-and-suspenders on top of ARC — those routes are S2S-only and
+   This is extra cover on top of ARC — those routes are S2S-only and
    should never be reachable from the public internet. (Costs 1 of the 5 free
    custom rules.)
 3. **Enable Page Shield (basic)** on the guest Pages site. Dashboard → zone →

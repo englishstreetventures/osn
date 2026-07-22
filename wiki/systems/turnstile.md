@@ -16,7 +16,7 @@ packages:
   - "@cire/web"
   - "@cire/organiser"
 finding-ids: []
-last-reviewed: 2026-06-19
+last-reviewed: 2026-07-22
 ---
 
 # Turnstile bot protection
@@ -25,7 +25,7 @@ Cloudflare Turnstile gates the project's public, abusable form submissions —
 account registration, passkey login, and the cire guest **claim** flow —
 behind a privacy-preserving CAPTCHA alternative. Shipped in **#154**; the design
 is deliberately **key-optional + fail-closed** so it could merge and deploy
-**inert** (no widget, no behaviour change) ahead of creating the dashboard
+**inert** (no widget, no behaviour change) before anyone created the dashboard
 widget.
 
 ## What it protects
@@ -39,8 +39,8 @@ widget.
 **`/api/rsvp` is intentionally NOT gated.** A guest only reaches RSVP after a
 successful `/api/claim`, which mints the `cire_session` cookie behind the
 Turnstile gate above — so the unauthenticated bot surface is already covered at
-claim. A second challenge on every RSVP was pure friction (it surfaced an
-interactive widget mid-flow), so `app.ts` wires `createRsvpRoutes(db)` with **no
+claim. A second challenge on every RSVP added friction alone (it put an
+interactive widget in the middle of the flow), so `app.ts` wires `createRsvpRoutes(db)` with **no
 verifier** and `RsvpModal` renders no widget. The `rsvp.ts` route keeps the
 key-optional gate parameter (defaults to a no-op) so it can be re-armed if abuse
 ever appears. Removed in the RSVP-friction fix (2026-06-19).
@@ -68,15 +68,15 @@ is the single chokepoint every backend uses:
 Safety properties baked into the primitive:
 
 - **Never throws.** Network error, abort, malformed JSON → `{ ok: false }`. A
-  slow/degraded Cloudflare therefore degrades to "reject", never "hang".
+  slow or failing Cloudflare therefore ends in a reject, never a hang.
 - **5s timeout** (`AbortSignal.timeout(5_000)`, S-L2) so a hung `siteverify`
   can't tie up the Worker isolate.
-- **Secret never logged, never echoed.** The thrown cause is deliberately not
-  surfaced from `siteverify` (it could embed the request body, which contains the
+- **Secret never logged, never echoed.** The code deliberately drops the thrown
+  cause from `siteverify` (it could embed the request body, which contains the
   secret). Only the boolean outcome + Cloudflare's machine-readable
   `error-codes` (no PII) reach logs/spans.
-- Outbound goes through `instrumentedFetch` so the call appears on the trace
-  tree; the token + secret are **not** annotated onto the span.
+- The outbound call goes through `instrumentedFetch`, so it appears on the trace
+  tree. The span carries neither the token nor the secret.
 
 `remoteip` is the caller's `cf-connecting-ip` (passed to `siteverify` for
 Cloudflare's own risk scoring when present), the same trusted IP the rate
@@ -106,10 +106,10 @@ and osn-api lives on `id.cireweddings.com`.
 
 A Turnstile token is **single-use**: once a backend has siteverified it, the
 same value is rejected `timeout-or-duplicate` forever. Cloudflare only
-auto-refreshes a token on its **~300s expiry**, *not* when it is consumed by a
-form submit. So a frontend that re-submits a form (a retried sign-in, a "resend
-code") **must explicitly reset the widget** to mint a fresh token — otherwise it
-replays the redeemed token and the server fail-closes it.
+auto-refreshes a token on its **~300s expiry**, *not* when a form submit consumes
+it. So a frontend that re-submits a form (a retried sign-in, a "resend code")
+**must reset the widget** to mint a fresh token — otherwise it replays the
+redeemed token and the server fail-closes it.
 
 `@osn/ui`'s `TurnstileWidget` exposes this via `onReady({ reset })`: `reset()`
 drops the stale token (`onToken(null)`) and calls Cloudflare's `turnstile.reset()`
@@ -128,13 +128,13 @@ osn-api does not gate it (#163 Bug C).
 ## Activation (the rollout order matters)
 
 The integration is inert in production today (no secret set). To turn it on,
-follow [[production-deploy]] §3.4. The **load-bearing rule**: roll out
-**secret-first is wrong here** — because each backend *requires* a token the
-moment its secret is present, you must ensure the **sitekey reaches the
-frontend** (so the widget renders and sends a token) **before** the secret lands
-on the Worker. Ship the sitekey while the secret is absent → harmless (widget
-renders, server ignores). Ship the secret while the sitekey is absent → the
-server requires a token the UI never sends and **every gated form 400/403s**.
+follow [[production-deploy]] §3.4. The **load-bearing rule: never ship the secret
+first.** Each backend *requires* a token the moment its secret is present, so the
+**sitekey must reach the frontend** — and the widget must render and send a token
+— **before** the secret lands on the Worker. Ship the sitekey while the secret is
+absent → harmless (the widget renders, the server ignores the token). Ship the
+secret while the sitekey is absent → the server requires a token the UI never
+sends, and **every gated form 400/403s**.
 
 ## Observability
 

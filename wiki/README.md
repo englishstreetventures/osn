@@ -3,12 +3,12 @@ title: OSN Wiki — vault README
 tags: [wiki, meta]
 related:
   - "[[index]]"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-07-22
 ---
 
 # OSN Wiki
 
-This directory is an [Obsidian](https://obsidian.md/) vault containing the OSN project's knowledge graph.
+This directory is an [Obsidian](https://obsidian.md/) vault that holds the OSN project's knowledge graph.
 
 ## Opening in Obsidian
 
@@ -26,7 +26,7 @@ When you first open the vault, configure these settings in Obsidian:
 
 ## For AI Agents
 
-This wiki is optimized for AI agent consumption. Key navigation patterns:
+This wiki is written for AI agents to read. Key navigation patterns:
 
 - Start at `CLAUDE.md` (repo root) for the slim index with a Wiki Navigation table
 - Follow `[[wiki links]]` to reach detailed pages — only read the pages you need

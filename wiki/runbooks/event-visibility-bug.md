@@ -7,14 +7,14 @@ related:
   - "[[event-access]]"
   - "[[pulse-close-friends]]"
   - "[[pulse]]"
-last-reviewed: 2026-04-26
+last-reviewed: 2026-07-22
 ---
 
 # Event Visibility Bug Runbook
 
 ## Overview
 
-Event visibility is one of Pulse's most security-sensitive features. Private events must only be visible to the organiser and users with RSVP rows. A visibility bug can either **leak private events** to unauthorized users or **incorrectly deny access** to authorized users.
+Event visibility is one of Pulse's most security-sensitive features. Only the organiser and users with RSVP rows may see a private event. A visibility bug can either **leak private events** to unauthorized users or **wrongly deny access** to authorized users.
 
 ## Symptoms
 
@@ -30,7 +30,7 @@ Event visibility is one of Pulse's most security-sensitive features. Private eve
 
 ### 1. Identify the Leaking Endpoint
 
-Check which route is exposing the data. All of these MUST use `loadVisibleEvent`:
+Check which route exposes the data. All of these MUST use `loadVisibleEvent`:
 
 - `GET /events/:id` -- event details
 - `GET /events/:id/ics` -- iCal export
@@ -41,7 +41,7 @@ Check which route is exposing the data. All of these MUST use `loadVisibleEvent`
 
 ### 2. Check if the Route Uses `loadVisibleEvent`
 
-Every direct-fetch route must call `loadVisibleEvent(eventId, viewerId)` from `pulse/api/src/services/eventAccess.ts`. If a route loads the event via `getEvent` instead of `loadVisibleEvent`, it bypasses the visibility check entirely (this is the S-H12 pattern).
+Every direct-fetch route must call `loadVisibleEvent(eventId, viewerId)` from `pulse/api/src/services/eventAccess.ts`. If a route loads the event with `getEvent` instead of `loadVisibleEvent`, it bypasses the visibility check (this is the S-H12 pattern).
 
 **Where to look:** `pulse/api/src/routes/events.ts` and any new route files.
 
@@ -58,7 +58,7 @@ SELECT id, visibility, organiser_id FROM events WHERE id = '<event-id>';
 
 ### 4. Check RSVP Rows
 
-For private events, check if the user has an RSVP entry:
+For private events, check whether the user has an RSVP entry:
 
 ```sql
 SELECT * FROM rsvps WHERE event_id = '<event-id>' AND user_id = '<user-id>';
@@ -79,7 +79,7 @@ If the user has no RSVP row and is not the organiser, they should get 404.
 The discovery endpoint (`listEvents`) uses a SQL `WHERE` clause to filter events by visibility. This SQL predicate must stay in sync with the JavaScript logic in `canViewEvent`.
 
 **If they drift:**
-- `listEvents` might show a private event that `canViewEvent` would reject (or vice versa)
+- `listEvents` might show a private event that `canViewEvent` would reject, or the other way round
 - The SQL predicate is the source for list queries; `canViewEvent` / `loadVisibleEvent` is the source for direct-fetch queries
 
 Check both:
@@ -108,13 +108,13 @@ Check both:
 | S-H15 | `GET /events/:id/rsvps` | Invited list exposed | Fixed via `loadVisibleEvent` |
 | S-H16 | `GET /events/:id/rsvps/counts` | Private event existence | Fixed via `loadVisibleEvent` |
 
-All fixed via the shared `loadVisibleEvent` helper.
+The shared `loadVisibleEvent` helper fixed all of these.
 
 ## Prevention
 
 ### For New Routes
 
-When adding a new event-scoped route:
+When you add a new event-scoped route:
 
 1. **Always** use `loadVisibleEvent(eventId, viewerId)` instead of `getEvent(eventId)`
 2. Handle the `null` return (unauthorized) as **404**

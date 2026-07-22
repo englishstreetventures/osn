@@ -14,7 +14,7 @@ related:
   - "[[subprocessors]]"
   - "[[cire]]"
   - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-06-17
+last-reviewed: 2026-07-22
 ---
 
 # Compliance
@@ -26,8 +26,8 @@ PII including special-category dietary data (cire — its own Cloudflare D1 +
 R2; see [[cire]], [[dpia/cire-guest-data]]), and future paid event ticketing
 (Pulse, deferred). That product surface puts us in scope for **GDPR,
 UK GDPR, CCPA/CPRA, SOC 2, the EU Digital Services Act, COPPA, and the
-European Accessibility Act** today, with PCI-DSS and the EU AI Act on the
-horizon as those features land.
+European Accessibility Act** today, with PCI-DSS and the EU AI Act still
+to come as those features land.
 
 This Map of Content links each obligation to the system page that
 implements it and the TODO row that tracks the remaining work. Read
@@ -82,11 +82,11 @@ compliance" surface looks like.
 
 - **Building a new feature?** Read `[[data-map]]` to see whether your feature
   introduces a new data class. If it does, add a row before merging — most
-  obligations attach at "we collect this field for this purpose" granularity.
+  obligations attach at the level of "we collect this field for this purpose".
 - **Adding a new third-party service?** Add a row to `[[subprocessors]]` and
   flag it on the PR. Vendor diligence + DPA must be on file before we ship.
 - **Reviewing security?** The `/review-security` slash command (see
-  `.claude/commands/review-security.md`) now includes a compliance checklist
+  `.claude/commands/review-security.md`) includes a compliance checklist
   — DSAR coverage, retention windows, log redaction of PII, lawful basis
   for new collection, etc.
 - **Triaging a finding?** Compliance findings use the `C-` prefix (see

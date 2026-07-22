@@ -22,7 +22,7 @@ related:
 packages:
   - "@shared/email"
   - "@osn/api"
-last-reviewed: 2026-07-03
+last-reviewed: 2026-07-22
 ---
 
 # Email Transport
@@ -50,10 +50,10 @@ email.
 
 The **live transport is Resend** — a single bearer-authed HTTPS POST to
 `https://api.resend.com/emails`. Resend works on workerd over plain HTTP
-(no paid Workers plan required), which is why it is preferred over the
-Cloudflare Email Service transport. The Cloudflare transport
+(no paid Workers plan required), so we prefer it over the Cloudflare
+Email Service transport. The Cloudflare transport
 (`https://api.cloudflare.com/client/v4/accounts/{id}/email-service/send`)
-is retained as a legacy fallback. Both render the **same** templates
+stays as a legacy fallback. Both render the **same** templates
 in-process and DKIM-sign via the verified sender domain
 (`cireweddings.com` in prod) — no intermediate Worker, no ARC tokens.
 
@@ -145,7 +145,7 @@ Content-Type: application/json
   `recorded()`), emits a single `Effect.logDebug` line with `template`
   + `subject` + `to` — **never** the OTP code. Tests that need to
   assert on captured content read the recorder directly. **Dev/test
-  ONLY** — the ring buffer grows unbounded, so it is never used in
+  ONLY** — the ring buffer grows unbounded, so it never runs in
   production.
 - `makeNoopEmailLive()` — degraded-mode production transport. Renders
   the template (so template bugs still surface as `render_failed`) but
@@ -214,7 +214,7 @@ Environment variables for `@osn/api`:
 | `CLOUDFLARE_EMAIL_API_TOKEN` | optional / legacy | API token with Email Send permission (fallback transport) |
 | `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`; prod: `hello@cireweddings.com`) |
 
-Before deploying (Resend — the live path):
+Before you deploy (Resend — the live path):
 
 1. Resend dashboard → **Domains → Add Domain** → `cireweddings.com`. Add
    the SPF/DKIM/return-path DNS records Resend displays into the Cloudflare
@@ -223,7 +223,7 @@ Before deploying (Resend — the live path):
 2. Create a Resend API key (Sending access).
 3. `wrangler secret put RESEND_API_KEY --env production` on osn-api, and set
    `OSN_EMAIL_FROM=hello@cireweddings.com`.
-4. Once delivery is confirmed, remove `OSN_EMAIL_OPTIONAL` so email is
+4. Once you have confirmed delivery, remove `OSN_EMAIL_OPTIONAL` so email is
    required/fail-closed again. See [[production-deploy]] §1.1.
 
 The Cloudflare Email Service path remains available as a fallback (onboard
@@ -286,7 +286,7 @@ exactly as before this transport landed):
    a Resend API key, `wrangler secret put RESEND_API_KEY`. Send real mail to a
    synthetic inbox. Watch `osn.email.send.attempts{outcome="sent"}` by
    template, then the `outcome="failed"` rate for 24h.
-3. Once delivery is confirmed, **remove `OSN_EMAIL_OPTIONAL`** so email is
+3. Once you have confirmed delivery, **remove `OSN_EMAIL_OPTIONAL`** so email is
    required/fail-closed again.
 
 ## Deferred decisions
@@ -300,5 +300,5 @@ are the current code path, not a commitment.
   valuable. TBD once we have real send-rate telemetry.
 - **Dry-run flag** — `OSN_EMAIL_DRY_RUN` env knob that short-circuits
   before API dispatch. Not implemented yet.
-- **HTML vs text-only** — current templates send both. If downstream
-  analysis shows HTML is unnecessary for auth flows, we can drop it.
+- **HTML vs text-only** — current templates send both. If later
+  analysis shows auth flows do not need HTML, we can drop it.

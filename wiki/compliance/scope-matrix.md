@@ -11,7 +11,7 @@ related:
   - "[[eaa]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-07-21
+last-reviewed: 2026-07-22
 ---
 
 # Compliance Scope Matrix
@@ -56,7 +56,7 @@ compliance obligations.
 
 ## "Minimum viable compliance" surface per standard
 
-What ships in the **first** compliance push. Subsequent rounds harden.
+What ships in the **first** compliance push. Later rounds harden it.
 
 ### GDPR — first cut
 
@@ -122,14 +122,14 @@ Even in the exempt tier the following remain mandatory:
 
 We do not knowingly collect data from children under 13. The first cut is
 a **hard age gate at registration** (`under_13 → 400`) and a written
-take-down procedure if a violating account is reported. This is the
-"actual knowledge" defense. Adding parental-consent flows is deferred
+take-down procedure for any reported violating account. This is the
+"actual knowledge" defence. We defer parental-consent flows
 indefinitely — the platform is not designed for under-13 users.
 
 ### EAA — first cut
 
 WCAG 2.1 AA across `@pulse/app`, `@osn/social`, `@zap/app` (when shipped),
-and `@osn/landing`. Audited via:
+and `@osn/landing`. We audit it with:
 
 - `@axe-core/playwright` in CI on the four apps.
 - Solid-aware accessibility lint rule in `oxlintrc.json` (`jsx-a11y` already enabled).

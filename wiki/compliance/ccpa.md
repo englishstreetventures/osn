@@ -8,7 +8,7 @@ related:
   - "[[data-map]]"
   - "[[scope-matrix]]"
   - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-06-17
+last-reviewed: 2026-07-22
 ---
 
 # CCPA / CPRA
@@ -52,9 +52,9 @@ ones, with their notable deltas, are:
 
 **Operational consequence:** treat universal opt-out signals (Global
 Privacy Control browser header, Sec-GPC: 1) as a CCPA opt-out from sale /
-share. Implementation: `@osn/api` middleware reads `Sec-GPC: 1`, sets a
-`gpc_opt_out` flag on the session, persisted to a `consent_signals` table
-when the consent-records system lands (C-L1).
+share. Implementation: `@osn/api` middleware reads `Sec-GPC: 1` and sets a
+`gpc_opt_out` flag on the session. The flag also persists to a
+`consent_signals` table once the consent-records system lands (C-L1).
 
 ## Project changes required
 
@@ -73,7 +73,7 @@ CCPA's definitions are wider than common usage:
 - **Sale** = exchanging personal information for monetary or other valuable consideration. We do not.
 - **Share** = disclosing personal information for cross-context behavioural advertising. We do not — no third-party ad networks anywhere in the stack today. Adding one (e.g. a "promoted events" network for Pulse) flips both definitions; revisit before that ships.
 
-Subprocessors transferring data to perform a contracted service (Cloudflare
+Subprocessors that transfer data to perform a contracted service (Cloudflare
 Email, Photon, Grafana Cloud) are **service providers**, not "sales", *if*
 the contract restricts them appropriately. The DPAs in [[subprocessors]]
 must contain CCPA service-provider language alongside GDPR Art. 28

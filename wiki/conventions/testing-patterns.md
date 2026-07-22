@@ -6,14 +6,14 @@ related:
   - "[[backend-patterns]]"
   - "[[schema-layers]]"
   - "[[commands]]"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-07-22
 ---
 
 # Testing Patterns
 
 ## Directory Layout
 
-Test files live in `tests/` at the package root, mirroring the `src/` structure:
+Test files live in `tests/` at the package root and mirror the `src/` structure:
 
 ```
 pulse/api/
@@ -101,7 +101,7 @@ describe("events routes", () => {
 
 - **OSN auth routes use `createAuthRoutes(authConfig, dbLayer?)`.** The `authConfig` parameter is required (no global default). `dbLayer` defaults to `DbLive`.
 
-- **Use `bunx --bun vitest`** (not plain `vitest`) -- required for `bun:sqlite` module access. The `test:run` scripts in `package.json` are already configured correctly.
+- **Use `bunx --bun vitest`** (not plain `vitest`) -- the flag is required for `bun:sqlite` module access. The `test:run` scripts in `package.json` already set it.
 
 - **Use future dates for test events.** For example, `2030-06-01T10:00:00.000Z`. The default `listEvents` implementation filters out past events, so tests with past dates will produce confusing empty results.
 

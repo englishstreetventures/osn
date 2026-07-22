@@ -10,15 +10,15 @@ related:
   - "[[osn-landing]]"
   - "[[cire-landing]]"
   - "[[venues]]"
-last-reviewed: 2026-06-30
+last-reviewed: 2026-07-22
 ---
 
 # Pulse Landing
 
 `@pulse/landing` (`pulse/landing`, dev port **4325**; root script
 `dev:pulse-landing`) is the **marketing site** for Pulse — the events app. It
-sells the "what's happening near you" experience and points visitors at the
-Pulse app. Pure brochure: no Pulse API calls, no account.
+sells the "what's happening near you" idea and points visitors at the Pulse app.
+Pure brochure: no Pulse API calls, no account.
 
 ## Stack
 
@@ -27,7 +27,7 @@ islands + Tailwind v4** (`output: "static"`). Signature animation is SVG +
 CSS / `requestAnimationFrame` (Motion One is a declared dep for parity but not
 imported). Builds to plain HTML, deployable to Cloudflare Pages.
 
-Brand fidelity follows the Pulse design system — see `pulse/DESIGN.md`:
+Branding follows the Pulse design system — see `pulse/DESIGN.md`:
 
 - Fonts: **Instrument Serif** (editorial display, italic accent word), **Geist**
   (UI/body), **Geist Mono** (eyebrow / meta), loaded via the shared preload +
@@ -70,9 +70,8 @@ location from `request.cf` (city / region / country) and returns it as JSON.
 
 Same-origin, so the tight CSP (`connect-src 'self'`) is untouched. Fully
 progressive: no JS / fetch failure / function absent → the generic "near you"
-copy + plain `Find events` CTA simply remain (the hero is never blank). The
-function is bundled automatically by `wrangler pages deploy` from the
-`functions/` directory. **The event count is an illustrative placeholder**
+copy + plain `Find events` CTA remain (the hero is never blank). `wrangler pages
+deploy` bundles the function automatically from the `functions/` directory. **The event count is an illustrative placeholder**
 (deterministic per place) until the real Pulse events API is wired; the region
 and city are real.
 
@@ -89,8 +88,8 @@ and city are real.
 4. **How it works** — discover → RSVP in a tap → show up.
 5. **Categories** — the most colourful section: vivid per-category chips driven by
    `CATEGORIES` in `lib/site.ts`, each in its own `--cat-*` colour.
-6. **Venues** — a stylised faux lineup timeline (mono time + act), teasing the
-   real venue-page feature. See [[venues]].
+6. **Venues** — a stylised faux lineup timeline (mono time + act), a preview of
+   the real venue-page feature. See [[venues]].
 7. **FAQ** — native `<details>` accordion.
 8. **Final CTA + footer** — repeats the primary CTA; `SiteFooter.astro` carries
    `/privacy` + `/terms` (review drafts).

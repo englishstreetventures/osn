@@ -10,7 +10,7 @@ related:
   - "[[social]]"
   - "[[pulse-landing]]"
   - "[[cire-landing]]"
-last-reviewed: 2026-07-02
+last-reviewed: 2026-07-22
 ---
 
 # OSN Landing
@@ -44,7 +44,7 @@ Two self-contained Solid islands carry the "your social graph" idea:
 
 - **`ConstellationCanvas.tsx`** (`client:load`, mounted in `BaseLayout` behind
   every page, like cire's `VineCanvas`) — an animated field of dots with thin
-  links drawn between near neighbours: a living social graph. The layer is
+  links drawn between near neighbours, a picture of a social graph. The layer is
   **`position: fixed` and the canvas is sized to the viewport** (not the full
   document), so the backing store stays a few MB no matter how long the page is;
   it sits at `z-index:-1`, low opacity, `pointer-events:none`. Node count is
@@ -56,7 +56,7 @@ Two self-contained Solid islands carry the "your social graph" idea:
   ecosystem" → `#apps`).
 
 Both honour `prefers-reduced-motion` (render a still final state, no animation
-loop) and bail cleanly when no 2-D context exists (so they render statically
+loop) and stop cleanly when no 2-D context exists (so they render statically
 under jsdom / SSR). No `console.*` anywhere (observability rule).
 
 > Implementation note: the canvas draw/resize/render closures are written as
@@ -101,7 +101,7 @@ data:`), Google Fonts allowed in `style-src` / `font-src`, immutable cache on
 
 `ConnectionsHero.test.tsx` renders the hero under jsdom (no canvas context) and
 asserts the headline + CTA targets — the reduced-motion / no-context path, so it
-is robust regardless of canvas support. Run with
+passes regardless of canvas support. Run with
 `bun run --cwd osn/landing test:run`.
 
 ## Deferred

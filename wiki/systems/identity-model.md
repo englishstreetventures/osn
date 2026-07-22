@@ -10,7 +10,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-07-03
+last-reviewed: 2026-07-22
 p4-completed: 2026-04-14
 p2-completed: 2026-04-14
 p3-completed: 2026-04-14
@@ -72,7 +72,7 @@ The `accounts` table is the **authentication principal** — the entity that log
 
 **Key invariants:**
 - `accountId` is **never exposed** in any API response, token claim, or log entry. It is the multi-account correlation identifier — leaking it reveals which profiles belong to the same person. Added to the log redaction deny-list in P6.
-- `passkeyUserId` is a random UUID generated at account creation, used as the WebAuthn `user.id` in passkey registration. This prevents two profiles on the same account from being correlated via matching WebAuthn credential `user.id` fields. Lazy-filled for accounts created before P6.
+- `passkeyUserId` is a random UUID generated at account creation, used as the WebAuthn `user.id` in passkey registration. It stops anyone correlating two profiles on the same account through matching WebAuthn credential `user.id` fields. Lazy-filled for accounts created before P6.
 - Email is **only on accounts**, not duplicated on profiles.
 - Passkeys reference `accounts.id` (not profile IDs), because authentication is account-level.
 
@@ -126,7 +126,7 @@ Organisations are independent entities that are **composed of profiles, not acco
 
 | Token | Bound to | Format | TTL | Purpose |
 |-------|----------|--------|-----|---------|
-| Access | Profile | ES256 JWT (`sub` = profileId) | **5 min** | Authorize API calls as a specific profile |
+| Access | Profile | ES256 JWT (`sub` = profileId) | **5 min** | Authorise API calls as a specific profile |
 | Session (refresh) | Account | Opaque `ses_` + 40 hex chars (160-bit entropy) | 30 days (sliding) | Re-issue access tokens; enables profile switching without re-authentication |
 | Enrollment | Account | ES256 JWT (`sub` = accountId) | 5 min | Passkey registration after signup |
 | Recovery code | Account | 16 hex chars `xxxx-xxxx-xxxx-xxxx` (64-bit entropy) | No expiry, single-use | Lost-device account recovery (Copenhagen Book M2) — see [[recovery-codes]] |
@@ -225,7 +225,7 @@ sequenceDiagram
   API-->>U: 200 — account now has ≥1 WebAuthn credential
 ```
 
-Passkey enrollment is **mandatory**; `deletePasskey` refuses to drop below 1 credential. This gives the account-level invariant "every live account has ≥1 WebAuthn credential at all times".
+Passkey enrolment is **mandatory**; `deletePasskey` refuses to drop below 1 credential. This gives the account-level invariant "every live account has ≥1 WebAuthn credential at all times".
 
 Passkey (or security key) is the only primary login factor. OTP and magic-
 link primary-login surfaces were removed; OTP survives as the step-up and
@@ -245,7 +245,7 @@ email-change verification factor. The recovery-code path is the single
 
 ## Privacy Rules
 
-1. **`accountId` never appears in**: API responses, JWT claims (except refresh tokens, which are only seen by the account holder), log entries (enforced via redaction deny-list), metric attributes, span attributes, or any data sent to other services.
+1. **`accountId` never appears in**: API responses, JWT claims (except refresh tokens, which only the account holder sees), log entries (enforced via redaction deny-list), metric attributes, span attributes, or any data sent to other services.
 2. **`passkeyUserId` (not `accountId`)** is used as the WebAuthn `user.id` to prevent passkey-based profile correlation.
 3. **Rate limiting is per-profile** for API calls, **per-IP for auth** — per-account rate limits would correlate profiles. Exception: profile-switch rate limiting is per-account (acceptable because the endpoint inherently requires the account-scoped refresh token).
 4. **Block independence** — blocking on one profile does NOT affect other profiles on the same account.
@@ -284,7 +284,7 @@ Settings-surface operations over an account's existing credentials. All routes b
 
 ### Last-passkey guard
 
-`deletePasskey` refuses when this would be the final passkey AND the account has zero unused recovery codes. Users must generate recovery codes (or add a second passkey) before we let them lock themselves out.
+`deletePasskey` refuses when this would be the final passkey AND the account has zero unused recovery codes. The user must first generate recovery codes or add a second passkey — otherwise the delete would lock them out of the account.
 
 ## Multi-Account Roadmap
 

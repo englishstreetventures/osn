@@ -10,7 +10,7 @@ related:
   - "[[subprocessors]]"
   - "[[observability/overview]]"
   - "[[cire]]"
-last-reviewed: 2026-06-12
+last-reviewed: 2026-07-22
 ---
 
 # SOC 2
@@ -149,7 +149,7 @@ The big one. See [[access-control]] for the matrix.
 ### Privacy (P1–P8)
 
 These mirror GDPR + CCPA. See [[gdpr]] and [[ccpa]] for the underlying
-obligations; SOC 2 just asks "do you do this and can you prove it?".
+obligations; SOC 2 asks "do you do this and can you prove it?".
 
 ## Project changes required
 
@@ -171,7 +171,7 @@ Tracked with `C-` IDs in [[TODO]] Compliance Backlog:
     silent gap. **Interim guard:** the cire PII field names + `cire_session`
     are on the log-redaction deny-list (`shared/observability/src/logger/redact.ts`),
     so *if* a cire payload is logged from a service that does use the shared
-    logger it is scrubbed — but cire's own logs are currently unguarded.
+    logger it is scrubbed — but cire's own logs are unguarded today.
     **Deadline:** adopt before cire handles production guest traffic at scale.
     The Hono→Elysia migration landed 2026-06-12, unblocking the shared
     `@shared/observability/elysia` plugin. ID:

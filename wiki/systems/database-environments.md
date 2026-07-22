@@ -14,7 +14,7 @@ related:
   - "[[backend-patterns]]"
   - "[[schema-layers]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-06-18
+last-reviewed: 2026-07-22
 ---
 
 # Database Environments
@@ -29,11 +29,11 @@ drivers** behind a single driver-agnostic Drizzle type:
 | `staging` | **Cloudflare D1** | Deployed | `wrangler deploy --env staging` |
 | `production` | **Cloudflare D1** | Deployed | `wrangler deploy --env production` |
 
-`local` stays on bun:sqlite because it is the cheapest, fastest way to spin up a
+`local` stays on bun:sqlite because it is the cheapest, fastest way to create a
 fresh database per test (`new Database(":memory:")` resolves in microseconds and
 needs no network or daemon). D1 cannot match that for unit tests — a D1 binding
-only exists inside workerd/miniflare. So unit tests keep bun:sqlite; the D1 path
-is exercised by a single Miniflare integration test per service.
+only exists inside workerd/miniflare. So unit tests keep bun:sqlite, and one
+Miniflare integration test per service covers the D1 path.
 
 This mirrors how [[cire-auth|Cire]] already works (D1 at runtime, bun:sqlite for
 dev + tests) and generalises it to the rest of the monorepo.
@@ -83,7 +83,7 @@ bun run --cwd zap/db db:migrate:prod
 
 ## ⚠️ D1 has no interactive transactions
 
-The one true incompatibility: **D1 does not support `db.transaction(async tx =>
+The one real incompatibility: **D1 does not support `db.transaction(async tx =>
 …)`** (interactive read-then-conditional-write). It offers only `db.batch([…])`
 — an atomic list of pre-built statements with no intermediate reads.
 
@@ -121,7 +121,7 @@ Miniflare-tested, but the long-lived osn-api process also depends on **ioredis**
 at module top level — neither runs on Cloudflare Workers. Hosting osn-api on
 Workers needs a Workers-compatible Redis (e.g. Upstash REST) and request-scoped
 key loading. Its `wrangler.toml` therefore has no `main`/deploy target yet — it
-exists so the osn D1 databases can be created/migrated for free. Tracked in
+exists so that creating and migrating the osn D1 databases stays free. Tracked in
 `wiki/TODO.md`.
 
 **Region:** all four D1 databases (`cire-db` + osn-db dev/staging/prod) are in **`oc`
@@ -132,14 +132,14 @@ exists so the osn D1 databases can be created/migrated for free. Tracked in
 ## Worker bundling: keep `bun:sqlite` out of the Worker
 
 `bun:sqlite` is Bun-only — wrangler/esbuild cannot resolve it, so **any** static
-import that reaches a Worker entry breaks `wrangler deploy`. The service →
-`@shared/db-utils` chain is imported by both the Bun host and the Worker, so
+import that reaches a Worker entry breaks `wrangler deploy`. Both the Bun host
+and the Worker import the service → `@shared/db-utils` chain, so
 `db-utils` must not statically import `bun:sqlite` (or `drizzle-orm/bun-sqlite`,
 which pulls it transitively). `createDrizzleClient` therefore imports both
 **dynamically via indirect specifiers** (`const m = "bun:sqlite"; await
 import(m)`) so esbuild leaves them as runtime imports and bundles neither — the
 code runs only on Bun (`local` + tests) and never executes on Workers.
-Consequently `makeDbLive` builds its layer asynchronously. Guard this with the
+So `makeDbLive` builds its layer asynchronously. Guard this with the
 Worker build: `bun run --cwd <pkg> build` (= `wrangler deploy --dry-run`).
 
 ## Testing

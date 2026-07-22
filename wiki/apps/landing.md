@@ -5,11 +5,12 @@ tags: [app, marketing]
 status: active
 packages:
   - "@osn/landing"
+last-reviewed: 2026-07-22
 ---
 
 # Landing
 
-`@osn/landing` is the OSN marketing site -- the public-facing landing page that introduces the platform.
+`@osn/landing` is the OSN marketing site -- the public landing page that introduces the platform.
 
 ## Stack
 
@@ -26,7 +27,7 @@ Planned deployment to **Vercel** or **Cloudflare Pages** (decision pending).
 
 ## Development
 
-The landing site is included in the monorepo dev command:
+The monorepo dev command starts the landing site:
 
 ```bash
 bun run dev    # Starts all dev servers including landing

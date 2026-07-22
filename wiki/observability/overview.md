@@ -10,7 +10,7 @@ related:
   - "[[feature-checklist]]"
   - "[[observability-setup]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-06-18
+last-reviewed: 2026-07-22
 ---
 
 # Observability Overview
@@ -49,15 +49,15 @@ shared/observability/
 
 ## The three golden rules
 
-1. **Never call `console.*` in backend code.** Use `Effect.logInfo` / `Effect.logWarn` / `Effect.logError`. The logger is automatically replaced with `Logger.jsonLogger` in prod and `Logger.prettyLogger()` in dev via `ObservabilityLive`. See [[logging]] for the full rules.
+1. **Never call `console.*` in backend code.** Use `Effect.logInfo` / `Effect.logWarn` / `Effect.logError`. `ObservabilityLive` swaps the logger for `Logger.jsonLogger` in prod and `Logger.prettyLogger()` in dev. See [[logging]] for the full rules.
 
-2. **Never construct OTel meters/tracers directly.** Use the typed helpers from `@shared/observability/metrics`. Raw `metrics.getMeter(...)` calls are banned (lint rule enforces this). See [[metrics]] for the factory API and naming conventions.
+2. **Never construct OTel meters/tracers directly.** Use the typed helpers from `@shared/observability/metrics`. A lint rule bans raw `metrics.getMeter(...)` calls. See [[metrics]] for the factory API and naming conventions.
 
 3. **Never put unbounded values in metric attributes.** No `userId`, no `requestId`, no `eventId`, no email, no handle. Those belong in traces (spans) or logs (annotations), never metrics. See [[metrics]] for the cardinality rules.
 
 ## Exporter wiring (env-driven; true no-op when unset)
 
-The OTLP exporter reads its destination from env, so dashboards can be turned on
+The OTLP exporter reads its destination from env, so you can turn dashboards on
 without a code change (PR #129):
 
 - **`OTEL_EXPORTER_OTLP_ENDPOINT` unset** → `makeTracingLayer` returns a **true

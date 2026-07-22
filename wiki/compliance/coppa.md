@@ -6,7 +6,7 @@ related:
   - "[[scope-matrix]]"
   - "[[identity-model]]"
   - "[[cire]]"
-last-reviewed: 2026-07-07
+last-reviewed: 2026-07-22
 ---
 
 # COPPA
@@ -28,7 +28,7 @@ compliant strategy is therefore the **hard age gate at registration**:
 - No retry persistence — the rejected registration leaves no row in the DB.
 - The age gate appears **once**, before any personal information is collected, so we never have actual knowledge of a child's data.
 
-This is the FTC-blessed "actual knowledge" defense (16 CFR §312.2). It
+This is the "actual knowledge" defence the FTC tolerates (16 CFR §312.2). It
 puts us out of scope for COPPA's substantive obligations (verifiable
 parental consent, parental review, data minimisation specific to children,
 etc.).
@@ -40,7 +40,7 @@ Claim codes are issued to **households** by the organiser, and the guest
 site is a general-adult-audience wedding page. There is no direct
 child-signup surface, so cire needs **no cire-specific age gate**; it folds
 into the platform-wide age-gate rollout (C-H8) if/when a guest flow ever
-gains a signup. Light-touch by design — flagged here so it is not forgotten,
+gains a signup. Light-touch by design — noted here so nobody forgets it,
 not because it needs work today. See [[data-map]] (cire section) and [[cire]].
 
 ## What we must not do
@@ -72,4 +72,4 @@ Tracked with `C-` IDs:
 - Data-minimisation review per data point (no nice-to-haves).
 
 This would be a major engineering investment; flag any feature spec that
-trends in this direction.
+moves this way.

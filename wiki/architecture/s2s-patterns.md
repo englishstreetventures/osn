@@ -18,7 +18,7 @@ packages:
   - "@pulse/api"
   - "@osn/api"
   - "@shared/crypto"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-07-22
 security-fixes:
   - S-H100
   - S-H101
@@ -78,8 +78,8 @@ Graph membership sets are bounded by `MAX_EVENT_GUESTS` (see [[platform-limits]]
 `pulse/api` uses **ephemeral key + auto-rotation** exclusively:
 
 1. On startup, `startKeyRotation()` generates a fresh P-256 key pair and registers the public key via `POST /graph/internal/register-service` (authenticated with `INTERNAL_SERVICE_SECRET`). Throws at startup if `INTERNAL_SERVICE_SECRET` is unset.
-2. Rotation fires `KEY_ROTATION_BUFFER_HOURS` (default 2h) before expiry. New key is registered BEFORE the signing singleton is swapped — zero downtime.
-3. On rotation failure, retries after 5 min with ±30 s jitter to prevent thundering-herd across horizontal instances.
+2. Rotation fires `KEY_ROTATION_BUFFER_HOURS` (default 2h) before expiry. It registers the new key BEFORE it swaps the signing singleton — zero downtime.
+3. On rotation failure, it retries after 5 min with ±30 s jitter to prevent a thundering herd across horizontal instances.
 
 No private key in any file. No manual key management needed.
 
@@ -87,8 +87,8 @@ See [[arc-tokens]] for the full ARC token system, `kid`-based key lookup, and `s
 
 ## Performance Notes
 
-- `getCloseFriendsOf` and `getConnectionIds` are issued in parallel (`Effect.all` with `concurrency: "unbounded"`) when both are needed in `filterByAttendeePrivacy`.
-- `getProfileDisplays` is always issued after fetching RSVP rows (depends on the profile IDs in those rows).
+- The bridge issues `getCloseFriendsOf` and `getConnectionIds` in parallel (`Effect.all` with `concurrency: "unbounded"`) when `filterByAttendeePrivacy` needs both.
+- The bridge issues `getProfileDisplays` only after it fetches the RSVP rows, because it depends on the profile IDs in those rows.
 - Short-circuits to `Effect.succeed(new Set/Map())` when the input array is empty — no HTTP call.
 
 ## Adding a New Cross-Domain Call

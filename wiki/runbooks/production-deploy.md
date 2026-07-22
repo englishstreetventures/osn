@@ -10,7 +10,7 @@ related:
   - "[[redis]]"
   - "[[email]]"
   - "[[vendors]]"
-last-reviewed: 2026-07-21
+last-reviewed: 2026-07-22
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -26,9 +26,9 @@ last-reviewed: 2026-07-21
 > `env` binding** (never `process.env` on workerd); non-secret config lives in
 > `osn/api/wrangler.toml` `[vars]` / `[env.<env>.vars]`. The Bun dev server
 > (`osn/api/src/local.ts`) is unchanged and remains the local devloop only — it
-> is **not** the production runtime. Older "process env" framing in §3.1 / §5.1
-> has been corrected; some `osn/api/src/index.ts:NN` line refs below predate the
-> Worker entry rewrite and are approximate.
+> is **not** the production runtime. §3.1 and §5.1 now use the correct Worker
+> framing. Some `osn/api/src/index.ts:NN` line refs below predate the Worker
+> entry rewrite and are approximate.
 >
 > **CI pipeline:** a GitHub Actions deploy workflow (`.github/workflows/deploy.yml`,
 > PR #128) deploys the cire Worker + Pages sites; the manual `wrangler` commands
@@ -38,9 +38,8 @@ last-reviewed: 2026-07-21
 > Read alongside [[observability-setup]] (OTel/Grafana wiring) and
 > [[cire-auth]] (the two-auth model + the cire→osn ARC bridge).
 
-⚠️ **Never put real secret values in this file or any committed file.** Every secret
-below is set out-of-band with `wrangler secret put` (osn-api **and** cire-api are
-both Workers).
+⚠️ **Never put real secret values in this file or any committed file.** Set every secret
+below out-of-band with `wrangler secret put` (osn-api **and** cire-api are both Workers).
 
 > **🔀 Domain reshuffle (2026-07-16) — end-state supersedes older `app.`/apex
 > framing below.** Apex `cireweddings.com` → marketing **landing** site;
@@ -96,46 +95,48 @@ osn-api emails OTPs and security notices through **Resend's HTTP API**
 `osn/api/src/lib/email-layer.ts`). Resend is the **live transport** — it works on
 workerd over plain HTTP and needs no paid Workers plan (the reason the Cloudflare Email
 Service path was originally degraded). In a non-local env osn-api needs a real email
-provider by default and fails closed at startup without one (surfaced as a `503 Worker
-misconfigured`) **unless** the explicit degraded-email opt-in `OSN_EMAIL_OPTIONAL` is set
-(see the box below). With `RESEND_API_KEY` set, email works normally and the opt-in is no
+provider. Without one it fails closed at startup, which surfaces as a `503 Worker
+misconfigured`. The one exception is the degraded-email opt-in `OSN_EMAIL_OPTIONAL` (see
+the box below). With `RESEND_API_KEY` set, email works normally and the opt-in is no
 longer needed.
 
 > **The degraded opt-in is now transitional.** 🚦 `OSN_EMAIL_OPTIONAL = "true"` is still in
 > `osn/api/wrangler.toml` `[env.production.vars]` so the Worker keeps booting during the
-> cutover (it would otherwise fail closed in the window before `RESEND_API_KEY` is set). It
-> is **ignored once a real provider is configured** — Resend (or the legacy Cloudflare
-> creds) wins. While the opt-in is active AND no provider is set, osn-api boots with a
+> cutover (it would otherwise fail closed in the window before `RESEND_API_KEY` is set). A
+> real provider — Resend, or the legacy Cloudflare creds — **overrides the opt-in**.
+> While the opt-in is active AND no provider is set, osn-api boots with a
 > **no-op email transport** that **DISCARDS** every transactional email (loud redacted
 > startup warning); **OTP step-up, email-change OTPs, and security-notice emails (passkey
 > added/removed, recovery-code generate/consume, cross-device login) are NOT delivered**.
 > **Passkey login is primary and unaffected.** **Do NOT remove `OSN_EMAIL_OPTIONAL` in the
 > same change that adds Resend** — set the secret, confirm delivery, *then* drop the opt-in
-> (step 4) so there is never a window where the Worker fails closed before the secret lands.
+> (step 7) so there is never a window where the Worker fails closed before the secret lands.
+
+⚠️ Until the domain is verified and the key is set, OTP email does not arrive. In the
+**fail-closed default** (opt-in unset, no provider) the Worker 503s. In **degraded mode**
+(opt-in set, no provider) the Worker boots but discards mail, per the box above. The
+in-memory `LogEmailLive` recorder is local/test only and never runs in production.
 
 Setup steps (live path — Resend):
 
 1. `OSN_EMAIL_FROM` is `hello@cireweddings.com` (set in `osn/api/wrangler.toml`
    `[env.production.vars]`). The sender domain is `cireweddings.com`.
 2. **Verify the `cireweddings.com` sender domain in Resend** (Resend dashboard → Domains →
-   Add Domain). Add the **SPF / DKIM / return-path** DNS records Resend provides into the
-   Cloudflare DNS zone for `cireweddings.com` — quick, since the zone is already in-account.
-   Wait for verification to go green.
-3. Create a Resend API key (Sending access) and set it on osn-api:
+   Add Domain).
+3. Add the **SPF / DKIM / return-path** DNS records Resend provides into the Cloudflare
+   DNS zone for `cireweddings.com`. The zone is already in-account, so this is quick.
+4. Wait for verification to go green.
+5. Create a Resend API key (Sending access). Set it on osn-api:
    `bunx wrangler secret put RESEND_API_KEY --env production` (repeat per env as needed).
-4. Confirm a real send arrives (watch `osn.email.send.attempts{outcome="sent"}`), **then
-   remove `OSN_EMAIL_OPTIONAL`** from `osn/api/wrangler.toml` `[env.production.vars]` so a
-   future Resend outage fails closed again rather than silently degrading. (Left in place by
-   the PR that added Resend — it is removed operationally after delivery is confirmed.)
+6. Confirm a real send arrives. Watch `osn.email.send.attempts{outcome="sent"}`.
+7. **Then remove `OSN_EMAIL_OPTIONAL`** from `osn/api/wrangler.toml`
+   `[env.production.vars]`, so a future Resend outage fails closed again instead of
+   degrading quietly. The PR that added Resend left the opt-in in place; you remove it
+   by hand once delivery is confirmed.
 
-Until the domain is verified and the key is set, OTP email will not arrive. In the
-**fail-closed default** (opt-in unset, no provider) the Worker 503s. In **degraded mode**
-(opt-in set, no provider) the Worker boots but mail is discarded per the box above; the
-in-memory `LogEmailLive` recorder is local/test only and is never used in production.
-
-The **Cloudflare Email Service** path remains available as a legacy fallback (onboard the
+The **Cloudflare Email Service** path stays available as a legacy fallback: onboard the
 sender domain in Cloudflare Email Sending, mint an Email-Send-scoped token →
-`CLOUDFLARE_EMAIL_API_TOKEN`, note `CLOUDFLARE_ACCOUNT_ID`), but it requires a paid Workers
+`CLOUDFLARE_EMAIL_API_TOKEN`, and note `CLOUDFLARE_ACCOUNT_ID`. It needs a paid Workers
 plan and is **not** the live transport — prefer Resend.
 
 ### 1.2 Generate the ES256 JWT key pair
@@ -170,16 +171,18 @@ openssl rand -base64 48   # ≥32 bytes after decode; store as OSN_SESSION_IP_PE
 osn-api's rate limiters, rotated-session store, and step-up single-use JTI store are
 Redis-backed in production. On workerd there is no TCP socket, so osn-api talks to
 **Upstash Redis over the REST API** (matching the Worker's `Env`:
-`osn/api/src/index.ts:51-52`). Set **both** secrets:
+`osn/api/src/index.ts:51-52`).
+
+⚠️ In any non-local env (`OSN_ENV` set & `!= "local"`) **both secrets are required**. The
+Worker **refuses to boot** (fail-closed 503) without them. It does not downgrade to
+per-isolate in-memory limiters (`osn/api/src/index.ts:92-96`). Locally (`OSN_ENV`
+unset/`local`) both are absent and the Worker uses in-memory fallbacks — no Upstash, no
+external service needed.
+
+Set **both** secrets:
 
 - `UPSTASH_REDIS_REST_URL`
 - `UPSTASH_REDIS_REST_TOKEN`
-
-In any non-local env (`OSN_ENV` set & `!= "local"`) **both are required** — the Worker
-**refuses to boot** (fail-closed 503) without them rather than silently downgrading to
-per-isolate in-memory limiters (`osn/api/src/index.ts:92-96`). Locally (`OSN_ENV`
-unset/`local`) they are absent and the Worker uses in-memory fallbacks — no Upstash, no
-external service needed.
 
 > ✅ **C-M18 resolved — Upstash region = `ap-southeast-2` (Sydney).** Create the
 > Upstash database in **`ap-southeast-2`** — co-located with the D1 databases (all in
@@ -189,9 +192,9 @@ external service needed.
 
 ### 1.5 OTel / Grafana endpoint
 
-Observability ships via OpenTelemetry → Grafana Cloud. Provision the OTLP endpoint +
-auth header per [[observability-setup]]; you'll set `OTEL_EXPORTER_OTLP_ENDPOINT`
-and `OTEL_EXPORTER_OTLP_HEADERS` (plus `DEPLOYMENT_ENVIRONMENT=production`) on osn-api and
+Observability ships via OpenTelemetry → Grafana Cloud. Provision the OTLP endpoint and
+auth header per [[observability-setup]]. Then set `OTEL_EXPORTER_OTLP_ENDPOINT` and
+`OTEL_EXPORTER_OTLP_HEADERS` (plus `DEPLOYMENT_ENVIRONMENT=production`) on osn-api and
 the cire Worker.
 
 ---
@@ -315,7 +318,7 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 | `RESEND_API_KEY` | `wrangler secret put` | **Yes\* (live transport)** | Resend API key (bearer). When set in non-local → `ResendEmailLive` (POST `https://api.resend.com/emails`); **wins over the Cloudflare creds and the opt-in**. Fail-closed at startup if no provider is set in non-local — **unless `OSN_EMAIL_OPTIONAL` is set** (then degraded no-op). With this set, the opt-in is no longer needed. §1.1 |
 | `CLOUDFLARE_ACCOUNT_ID` | `wrangler secret put` | Optional / **legacy** | Cloudflare-email fallback transport (paid Workers plan). Used only if `RESEND_API_KEY` is absent. §1.1 |
 | `CLOUDFLARE_EMAIL_API_TOKEN` | `wrangler secret put` | Optional / **legacy** | Cloudflare-email fallback bearer token. Same role as `CLOUDFLARE_ACCOUNT_ID`. §1.1 |
-| `OSN_EMAIL_OPTIONAL` | `[env.<env>.vars]` | No (default off) | **Explicit degraded-email opt-in (transitional).** Truthy (`true`/`1`/`yes`/`on`) → boot with a **no-op email transport** (transactional mail DISCARDED, loud startup warning) when **no real provider** (`RESEND_API_KEY` / `CLOUDFLARE_*`) is set in a non-local env, instead of failing closed. **Currently `"true"` in prod `[vars]`** to keep the Worker booting during the Resend cutover. A real provider wins — ignored when `RESEND_API_KEY` (or the Cloudflare creds) is present. **Remove it once Resend delivery is confirmed** (§1.1 step 4) so a future Resend outage fails closed again. §1.1 |
+| `OSN_EMAIL_OPTIONAL` | `[env.<env>.vars]` | No (default off) | **Explicit degraded-email opt-in (transitional).** Truthy (`true`/`1`/`yes`/`on`) → boot with a **no-op email transport** (transactional mail DISCARDED, loud startup warning) when **no real provider** (`RESEND_API_KEY` / `CLOUDFLARE_*`) is set in a non-local env, instead of failing closed. **Currently `"true"` in prod `[vars]`** to keep the Worker booting during the Resend cutover. A real provider wins — ignored when `RESEND_API_KEY` (or the Cloudflare creds) is present. **Remove it once Resend delivery is confirmed** (§1.1 step 7) so a future Resend outage fails closed again. §1.1 |
 | `OSN_EMAIL_FROM` | `[env.<env>.vars]` (or secret) | **Yes (prod)** | Verified sender address. Prod = **`hello@cireweddings.com`** (set in `wrangler.toml`). Resend-verified domain from §1.1. |
 | `UPSTASH_REDIS_REST_URL` | `wrangler secret put` | **Yes** | Upstash REST URL. Worker refuses to boot in non-local without it + the token (`index.ts:92-96`). §1.4 |
 | `UPSTASH_REDIS_REST_TOKEN` | `wrangler secret put` | **Yes** | Upstash REST token. §1.4 (region `ap-southeast-2` / Sydney — C-M18 resolved) |
@@ -378,7 +381,7 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 > Wrangler **4.111.0 removed** that field and hard-errors on it; since `cire/web`
 > pins no wrangler, `bunx wrangler` pulls the latest, so the `deploy-cire-web` job
 > failed on every merge from the moment 4.111 shipped (the apex stayed up on the
-> last-good build — deploys just stopped landing). The job now deletes `legacy_env`
+> last-good build — deploys stopped landing). The job now deletes `legacy_env`
 > from the generated config between build and deploy (behaviour-neutral: `true` was
 > already the default). If a guest-site deploy fails on a config field again, check
 > the generated `dist/server/wrangler.json` against the installed wrangler's schema.
@@ -408,7 +411,14 @@ covers **both** the guest site and the organiser portal.
 
 The `wrangler` OAuth token in use (`owner@example.com`) lacks the `Account.Turnstile:Edit`
 scope, so the widget **could not be created programmatically** during this work —
-create it in the dashboard (or with a custom API token that has the scope):
+create it in the dashboard (or with a custom API token that has the scope).
+
+> ⚠️ **Order matters (fail-closed).** Ship the **sitekey** in the Pages build first
+> (step 3). Set the **secret on the Workers** second (step 4). If you ship the sitekey while
+> the secret is absent, the widget renders and the server skips verify — harmless. If you
+> set the secret while the sitekey is absent, the server requires a token the UI never
+> sends, and legitimate requests 400/403. A coordinated deploy of both at once is also
+> safe.
 
 1. **Dashboard → Turnstile → Add widget** (account `fad09b83d3590eaeb803eca52d5bf1b7`).
    - **Name:** `cire-weddings`
@@ -419,8 +429,8 @@ create it in the dashboard (or with a custom API token that has the scope):
 2. Copy the **Sitekey** (public, `0x…`) and the **Secret key** (private).
 3. **Sitekey** → set as the repo **Variable** `PUBLIC_TURNSTILE_SITEKEY` and **uncomment**
    the two `PUBLIC_TURNSTILE_SITEKEY:` lines in `.github/workflows/deploy.yml`
-   (`deploy-cire-web` + `deploy-cire-organiser` build steps). Static Astro bakes it
-   in at build time, so a **rebuild + redeploy** of both Pages projects is required to
+   (`deploy-cire-web` + `deploy-cire-organiser` build steps). Static Astro bakes the
+   sitekey in at build time, so **rebuild and redeploy** both Pages projects to
    activate the widget.
 4. **Secret key** → set on **both** Workers (never commit it):
    ```bash
@@ -430,12 +440,6 @@ create it in the dashboard (or with a custom API token that has the scope):
    cd cire/api && echo "<secret>" | bunx wrangler secret put TURNSTILE_SECRET_KEY --env production
    ```
    Then `wrangler deploy` both Workers so the new isolate picks up the secret.
-5. **Order matters (fail-closed):** set the **secret on the Workers FIRST**, then ship
-   the **sitekey** in the Pages build. If you ship the sitekey while the secret is
-   absent the widget renders but the server skips verify (harmless); if you set the
-   secret while the sitekey is absent the server requires a token the UI never sends
-   and legitimate requests 400/403. The safe rollout is secret-first, sitekey-second
-   (or both together via a coordinated deploy).
 
 ---
 
@@ -445,7 +449,13 @@ create it in the dashboard (or with a custom API token that has the scope):
 
 Migrations live in `cire/db/migrations/` (`0001`…`0015`, incl.
 `0015_drop_bootstrap_wedding.sql`). The `database_id` is already wired
-(`6e835474-e0a7-4db9-8883-3247c3c891cd`, §2.1):
+(`6e835474-e0a7-4db9-8883-3247c3c891cd`, §2.1).
+
+> ⚠️ Migration `0015_drop_bootstrap_wedding.sql` DELETEs the orphaned demo wedding
+> row `wed_bootstrap` (seeded by `0006`, owned by the inert sentinel
+> `usr_unclaimed_bootstrap`). Its children cascade-delete. Pre-launch there is no
+> real data on it. This runs on its own in the CI deploy pipeline's migration
+> step (`.github/workflows/deploy.yml`) — no manual action.
 
 ```bash
 # from cire/api (wrangler.toml lives there)
@@ -454,12 +464,6 @@ bunx wrangler d1 migrations apply cire-db --remote
 # or, from repo root via the cire/db script:
 # bun run --cwd cire/db db:push:remote
 ```
-
-> Migration `0015_drop_bootstrap_wedding.sql` DELETEs the orphaned demo wedding
-> row `wed_bootstrap` (seeded by `0006`, owned by the inert sentinel
-> `usr_unclaimed_bootstrap`); its children cascade-delete. Pre-launch there is no
-> real data on it. This runs automatically in the CI deploy pipeline's migration
-> step (`.github/workflows/deploy.yml`) — no manual action.
 
 > ✅ **No bootstrap-owner step.** cire-api needs **no** `BOOTSTRAP_OWNER_PROFILE_ID`
 > and no seeded owner. **Every authenticated OSN user is a first-class
@@ -474,7 +478,18 @@ bunx wrangler d1 migrations apply cire-db --remote
 osn-api's migrations live in `osn/db/drizzle/` (`0000`→`0009`) and are wired into every
 `[[env.<env>.d1_databases]]` via `migrations_dir = "../db/drizzle"`. The three remote D1s
 (§2.3) are freshly created and **unmigrated**. Apply per env (against the binding name in
-`osn/api/wrangler.toml`):
+`osn/api/wrangler.toml`).
+
+> **⚠️ DEPLOY (handle-autocomplete PR):** CI's `deploy.yml` does **not** apply the
+> `users_handle_idx` migration (`osn/db/drizzle/0001_exotic_lady_vermin.sql` — a B-tree
+> index on `users.handle` backing co-host handle prefix search). osn-api migrations are a
+> **manual** step (this §4.3). Run `bun run --cwd osn/db db:migrate:prod`, or the
+> `wrangler … apply osn-db-prod` line below, **before** the new osn-api worker that serves
+> `GET /graph/internal/profile-search` goes live. Then **redeploy osn-api**
+> (`cd osn/api && bunx wrangler deploy --env production`) so the new internal endpoint is
+> live and isolates cycle. cire-api and Pages auto-deploy on merge and need no manual
+> step. Until the index and the osn-api redeploy land, cire's handle-search route returns
+> empty lists (fail-soft), and the manual add-by-handle path keeps working.
 
 ```bash
 # from osn/api (wrangler.toml + the migrations_dir live relative to it)
@@ -489,21 +504,8 @@ bunx wrangler d1 migrations apply osn-db-prod     --env production  --remote
 # bun run --cwd osn/db db:migrate:prod     # remote prod D1
 ```
 
-The local equivalent (`bun run --cwd osn/db db:migrate:local`, miniflare) is verified to
-apply all `0000`→latest cleanly after the `0002_add_user_handle` data-copy fix.
-
-> **⚠️ DEPLOY (handle-autocomplete PR):** the `users_handle_idx` migration
-> (`osn/db/drizzle/0001_exotic_lady_vermin.sql` — a B-tree index on `users.handle`
-> backing co-host handle prefix search) is **NOT applied by CI's `deploy.yml`** —
-> osn-api migrations are a **manual** step (this §4.3). Run
-> `bun run --cwd osn/db db:migrate:prod` (or the `wrangler … apply osn-db-prod`
-> line above) **before** the new osn-api worker that serves
-> `GET /graph/internal/profile-search` goes live, then **redeploy osn-api**
-> (`cd osn/api && bunx wrangler deploy --env production`) so the new internal
-> endpoint is live and isolates cycle. cire-api + Pages auto-deploy on merge and
-> need no manual step — until the index + osn-api redeploy land, cire's
-> handle-search route simply returns empty lists (fail-soft), and the manual
-> add-by-handle path keeps working.
+The local equivalent (`bun run --cwd osn/db db:migrate:local`, miniflare) applies all
+`0000`→latest cleanly after the `0002_add_user_handle` data-copy fix.
 
 ---
 
@@ -554,6 +556,8 @@ staging stay on their current `workers.dev` config; if/when they get hostnames, 
 
 ### 5.2 cire-api (Worker)
 
+Set any conditional secrets first (`wrangler secret put …`, §6.2). Then deploy:
+
 ```bash
 cd cire/api
 bunx wrangler types          # regenerate binding types if bindings changed
@@ -561,8 +565,7 @@ bunx wrangler deploy --env production
 ```
 
 Confirm the deploy picked up the prod vars from `[env.production.vars]` and the
-top-level D1/R2 bindings (§3.2 nuance). Set any conditional secrets first
-(`wrangler secret put …`, §6.2).
+top-level D1/R2 bindings (§3.2 nuance).
 
 ### 5.3 cire/web (guest Pages) + cire/organiser (Pages)
 
@@ -586,15 +589,15 @@ PUBLIC_CIRE_WEB_URL=https://cireweddings.com \
 bunx wrangler pages deploy cire/organiser/dist --project-name cire-organiser
 ```
 
-Make sure the published guest + organiser origins are exactly the ones listed in
+Make sure the published guest and organiser origins are exactly the ones listed in
 cire-api's `WEB_ORIGIN` allowlist (§3.2) and in osn-api's `OSN_CORS_ORIGIN` /
 `OSN_ORIGIN` (organiser passkey sign-in talks to osn-api).
 
 ### 5.4 Attach custom domains (human / dashboard steps) 🌐
 
-The Worker custom domains auto-provision from `wrangler.toml`; the Pages custom domains are
-attached in the dashboard. The `cireweddings.com` zone is already in-account, so all DNS +
-certs are issued automatically once attached.
+The Worker custom domains auto-provision from `wrangler.toml`. You attach the Pages custom
+domains in the dashboard. The `cireweddings.com` zone is already in-account, so Cloudflare
+issues the DNS records and certs automatically once you attach them.
 
 1. **Worker custom domains (auto, verify only).** After `wrangler deploy --env production`:
    - osn-api → **`id.cireweddings.com`** (route in `osn/api/wrangler.toml`).
@@ -624,7 +627,7 @@ OSN account. It is **additive and opt-in**; skip this section for the minimal la
 ### 6.1 What it needs
 
 - cire-api: `CIRE_API_ARC_PRIVATE_KEY` (ES256 JWK), `CIRE_API_ARC_KEY_ID`, `OSN_API_URL`
-  (§3.2). All three absent ⇒ the linking POST simply answers 503 (`src/index.ts:78-85`).
+  (§3.2). All three absent ⇒ the linking POST answers 503 (`src/index.ts:78-85`).
 - osn-api: cire-api's matching ES256 **public** key registered in `service_accounts`
   under serviceId `cire-api` with scopes `graph:read,graph:resolve-account`, so osn-api
   can verify cire's ARC token on `GET /graph/internal/profile-account`
@@ -666,22 +669,20 @@ curl -X POST "$OSN_ISSUER_URL/graph/internal/register-service" \
 unset, 401 on a bad bearer — `routes/graph-internal.ts:203-214`.)
 
 > **Vendors (Phase 2): re-run this command per environment after the `@osn/api` `PERMITTED_SCOPES` change deploys.**
-> The `org:read` scope (added in the Vendors PR A — migration 0040) enables cire-api's `vendorOrgMember()` middleware to resolve OSN org membership over ARC. The registration endpoint upserts, so re-running is safe and idempotent. Until it runs **per env**, the `vendorOrgMember()` org resolver fails-soft to null and `/api/vendor/*` writes return **503**. The organiser CRM (`/api/organiser/weddings/:weddingId/vendors`) and claim-link generation work regardless — they use only `graph:read`/`graph:resolve-account`.
+> The `org:read` scope (added in the Vendors PR A — migration 0040) lets cire-api's `vendorOrgMember()` middleware resolve OSN org membership over ARC. The registration endpoint upserts, so re-running it is safe. Until it runs **per env**, the `vendorOrgMember()` org resolver fails soft to null and `/api/vendor/*` writes return **503**. The organiser CRM (`/api/organiser/weddings/:weddingId/vendors`) and claim-link generation work either way — they use only `graph:read`/`graph:resolve-account`.
 
 ---
 
 ## 7. Post-deploy verification (smoke checks)
 
-Run these in order; each maps to a startup requirement enumerated above.
+Run these in order. Each one maps to a startup requirement listed above.
 
 1. **Health / readiness / JWKS.** `curl https://id.cireweddings.com/health`,
    `/` , and `/.well-known/jwks.json` (and the cire-api root `https://api.cireweddings.com/`).
-   200s confirm the Worker
-   booted — meaning none of the startup throws fired (or, at the edge, no 503
-   `Worker misconfigured`), so the JWT keys, pepper, and Upstash are all present (and
-   either the email creds are present, or `OSN_EMAIL_OPTIONAL` is set and the Worker is
-   running in degraded email mode — §1.1). `/.well-known/jwks.json` must return an ES256
-   (`alg:"ES256"`, P-256) JWK.
+   200s confirm the Worker booted: no startup throw fired and the edge returned no 503
+   `Worker misconfigured`. So the JWT keys, pepper, and Upstash are all present. Email is
+   either configured, or `OSN_EMAIL_OPTIONAL` is set and the Worker runs in degraded email
+   mode (§1.1). `/.well-known/jwks.json` must return an ES256 (`alg:"ES256"`, P-256) JWK.
 2. **No ephemeral-key warning in logs.** Search osn-api boot logs; you must **NOT** see
    `"Using ephemeral JWT key pair — tokens will be invalidated on restart"`
    (`osn/api/src/index.ts:272-275`). If you do, `OSN_ENV` and/or the JWT key vars are not
@@ -757,15 +758,15 @@ Run these in order; each maps to a startup requirement enumerated above.
 
 ## 8. Vendor portal first-run (manual, one-time)
 
-> **These steps are NOT automated.** They must be performed manually by a team member with Cloudflare account access before or immediately after the first `deploy-cire-vendor` CI job runs. They are flagged here so the person merging PR B knows to action them. See [[vendors]] for the full vendor portal system doc; see [[cire-auth]] for the auth model the portal relies on.
+> **These steps are NOT automated.** A team member with Cloudflare account access must run them by hand, before or just after the first `deploy-cire-vendor` CI job runs. They are listed here so the person merging PR B knows to run them. See [[vendors]] for the full vendor portal system doc; see [[cire-auth]] for the auth model the portal relies on.
 
 ### 8.1 Create the Pages project
+
+⚠️ Run this **once**, before the CI deploy job references the project. If the project does not exist, the deploy job errors with "project not found."
 
 ```bash
 bunx wrangler pages project create cire-vendor
 ```
-
-This must be done **once** before the CI deploy job references it. If the project does not exist, the deploy job errors with "project not found."
 
 ### 8.2 Add the custom domain
 
@@ -774,11 +775,11 @@ In the Cloudflare dashboard (or via Wrangler if supported):
 1. Open the `cire-vendor` Pages project.
 2. Go to **Custom domains** → **Set up a custom domain**.
 3. Enter `vendor.cireweddings.com`.
-4. Cloudflare will create the DNS CNAME record on the `cireweddings.com` zone automatically (zone is managed in this account). Confirm the CNAME is present.
+4. Cloudflare creates the DNS CNAME record on the `cireweddings.com` zone by itself, because this account manages the zone. Confirm the CNAME is present.
 
 ### 8.3 Confirm CORS allowlist changes are live
 
-After the PR B merge deploy completes, verify that both Workers now allow the new origin. The allowlist entries (`https://vendor.cireweddings.com` added to `cire/api/wrangler.toml` `WEB_ORIGIN` and `osn/api/wrangler.toml` `OSN_ORIGIN` / `OSN_CORS_ORIGIN`) ship automatically with the PR B merge via normal CI deploy jobs — no separate `wrangler deploy` is needed.
+After the PR B merge deploy completes, check that both Workers now allow the new origin. The allowlist entries add `https://vendor.cireweddings.com` to `cire/api/wrangler.toml` `WEB_ORIGIN` and to `osn/api/wrangler.toml` `OSN_ORIGIN` / `OSN_CORS_ORIGIN`. They ship with the PR B merge through the normal CI deploy jobs — you need no separate `wrangler deploy`.
 
 Quick smoke check (replace `<token>` with a real short-lived claim token from a test seed):
 
@@ -807,27 +808,29 @@ No new secret is required for the vendor portal itself:
 
 ### 8.5 ARC re-registration (org:read scope)
 
-The vendor portal uses `vendorOrgMember()` middleware, which requires the `org:read` scope on cire-api's ARC key registration. Re-run the §6.2 `register-service` call per environment with `allowedScopes: "graph:read,graph:resolve-account,org:read"` after deploying. Until this runs, `/api/vendor/*` writes return 503 (the organiser CRM and claim-link generation are unaffected).
+The vendor portal uses `vendorOrgMember()` middleware, which needs the `org:read` scope on cire-api's ARC key registration. ⚠️ Until this step runs, `/api/vendor/*` writes return 503. The organiser CRM and claim-link generation keep working. After deploying, re-run the §6.2 `register-service` call per environment with `allowedScopes: "graph:read,graph:resolve-account,org:read"`.
 
 ### 8.6 Rollback
 
-If the vendor portal must be rolled back:
+To roll the vendor portal back:
 
 1. Remove the `https://vendor.cireweddings.com` entries from `cire/api/wrangler.toml` `WEB_ORIGIN` and `osn/api/wrangler.toml` `OSN_ORIGIN` / `OSN_CORS_ORIGIN`.
 2. Merge the revert PR — CI redeploys both Workers with the narrowed allowlists.
 3. Optionally disable the `cire-vendor` Pages project custom domain in the Cloudflare dashboard.
 
-The Pages project itself does not need to be deleted — it can be left idle.
+You need not delete the Pages project — leave it idle.
 
 ---
 
 ## 9. zap-api production bring-up (PR A follow-up)
 
-> ⚠️ **Requires explicit authorization; prod writes.** Every step in this section modifies production infrastructure or sets production secrets. Do NOT execute any of these steps without explicit human authorization from the team. They are documented here as a deploy-time checklist, not as automated tasks.
+> ⚠️ **Requires explicit authorization; prod writes.** Every step in this section changes production infrastructure or sets production secrets. Do NOT run any of these steps without explicit human authorisation from the team. They are a deploy-time checklist, not automated tasks.
 
-These steps are manual follow-ups to the c2b chats PR (Zap PR A). The `deploy-zap-api` CI job exists in `.github/workflows/deploy.yml` but is **dormant** until step 9.1 is completed — it will not fire on merges until the prod D1 id is filled in.
+These steps are manual follow-ups to the c2b chats PR (Zap PR A). The `deploy-zap-api` CI job exists in `.github/workflows/deploy.yml` but stays **dormant** until you finish step 9.1 — it does not fire on merges until the prod D1 id is filled in.
 
 ### 9.1 Create the zap-db-prod D1 database
+
+> **Region:** use `--location oc` (Oceania / Sydney) to co-locate with the other D1 databases (osn-db-prod and cire-db, all `oc`) and Upstash (`ap-southeast-2`). AU-centric traffic, low write latency.
 
 ```bash
 # From repo root or zap/api/
@@ -844,9 +847,9 @@ database_id = "<paste-id-here>"          # replace "placeholder-replace-after-d1
 migrations_dir = "../db/drizzle"
 ```
 
-Commit and merge this change. **This activates the dormant `deploy-zap-api` CI job** — subsequent merges to `main` will automatically build and deploy zap-api to production and apply D1 migrations.
+⚠️ Committing this change **activates the dormant `deploy-zap-api` CI job**. Later merges to `main` then build and deploy zap-api to production and apply D1 migrations on their own.
 
-> **Region:** use `--location oc` (Oceania / Sydney) to co-locate with the other D1 databases (osn-db-prod and cire-db, all `oc`) and Upstash (`ap-southeast-2`). AU-centric traffic, low write latency.
+Commit and merge the change.
 
 ### 9.2 Set zap-api production secrets
 
@@ -877,6 +880,10 @@ bunx wrangler secret put INTERNAL_SERVICE_SECRET --env production
 
 This mirrors the cire↔osn `org:read` registration in §6.2. cire-api needs the `chat:c2b` scope on zap-api to provision and message c2b chats.
 
+> ⚠️ **Requires explicit authorization; prod writes.** A human runs this step at deploy time — not CI, and not this PR. Run it once per environment (dev / staging / prod), after zap-api is deployed and `INTERNAL_SERVICE_SECRET` is set.
+>
+> **Trigger condition:** if `POST https://zap.cireweddings.com/internal/register-service` returns 501, `INTERNAL_SERVICE_SECRET` is not yet set on zap-api. Finish §9.2 first, then try again.
+
 Generate a stable ES256 key pair for cire-api's zap bridge (same command as §1.2 — or reuse an existing key pair if cire already has one for its osn-api bridge):
 
 ```bash
@@ -903,11 +910,7 @@ curl -X POST "$ZAP_API_URL/internal/register-service" \
   -d '{"serviceId":"cire-api","keyId":"<CIRE_ZAP_ARC_KEY_ID>","publicKeyJwk":"<public JWK string>","allowedScopes":"chat:c2b"}'
 ```
 
-(`POST /internal/register-service` returns 501 if `INTERNAL_SERVICE_SECRET` is unset on zap-api, 401 on a bad bearer. The registration is an upsert — safe to re-run.) Until this step runs per environment, cire-api's `/api/organiser/weddings/:id/enquiries` and vendor-enquiry flows return 503 (the zap-api bridge fails-soft when the ARC key is absent).
-
-> ⚠️ **Requires explicit authorization; prod writes.** This is a human-executed deploy-time step — not run by CI or triggered by this PR. Perform it once per environment (dev / staging / prod) after zap-api is deployed and `INTERNAL_SERVICE_SECRET` is set.
->
-> **Trigger condition:** if `POST https://zap.cireweddings.com/internal/register-service` returns 501, `INTERNAL_SERVICE_SECRET` is not yet set on zap-api → complete §9.2 first, then re-attempt.
+(`POST /internal/register-service` returns 501 if `INTERNAL_SERVICE_SECRET` is unset on zap-api, 401 on a bad bearer. The registration is an upsert — safe to re-run.) Until this step runs per environment, cire-api's `/api/organiser/weddings/:id/enquiries` and vendor-enquiry flows return 503, because the zap-api bridge fails soft when the ARC key is absent.
 
 ### 9.4 Apply zap-db-prod migrations
 

@@ -8,7 +8,7 @@ related:
   - "[[compliance/retention]]"
   - "[[compliance/dpia/cire-guest-data]]"
   - "[[compliance/dsar]]"
-last-reviewed: 2026-06-18
+last-reviewed: 2026-07-22
 ---
 
 # Compliance Fixes — Completed
@@ -30,10 +30,10 @@ label disambiguates the cire dietary-consent finding from the root **C-H2**
 
 ## Partial closes still tracked open
 
-- **C-H1 (cire retention)** — substantially narrowed this session: the
+- **C-H1 (cire retention)** — narrowed this session: the
   expired-guest-session sweep (PR #127) and the 1-year guest-data sweep
   (PR #132, `rsvps` / `guests` / `families` / `imports` DB rows) now run on a
-  daily Cloudflare cron. The remaining open item is reaping the **R2 objects**
+  daily Cloudflare cron. The remaining open item is sweeping the **R2 objects**
   (raw `cire-sheets` CSVs) referenced by swept `imports` rows. See
   [[compliance/retention]].
 - **C-H4 (osn-landing)** — the cire guest-site notice shipped (above); the

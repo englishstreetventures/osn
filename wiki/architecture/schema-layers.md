@@ -17,12 +17,12 @@ packages:
   - "@pulse/api"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-07-22
 ---
 
 # Schema Layers
 
-OSN uses two schema tools at two distinct layers. They must never be mixed -- each has a specific job and a specific location in the request lifecycle.
+OSN uses two schema tools at two distinct layers. Never mix them -- each has a specific job and a specific place in the request lifecycle.
 
 ## The Two Layers
 
@@ -37,7 +37,7 @@ OSN uses two schema tools at two distinct layers. They must never be mixed -- ea
 
 - Validates AND transforms (e.g. ISO string to `Date`, enum narrowing)
 - Returns `Effect<A, ParseError>` -- integrates naturally with Effect pipelines
-- Used via `Schema.decodeUnknown(MySchema)(data)` inside service functions
+- Runs via `Schema.decodeUnknown(MySchema)(data)` inside service functions
 - Example: `Schema.DateFromString` decodes `"2030-06-01T..."` to a `Date` object
 
 ## Data Flow Diagram
@@ -123,7 +123,7 @@ export const createEvent = (data: unknown) =>
 - **Never transform in the route layer.** Strings stay strings at the HTTP boundary.
 - **Always map `ParseError` to a domain error.** Callers should catch `ValidationError`, not `ParseError`.
 - **Client SDK packages use Effect Schema.** `@osn/client` is not an Elysia route layer, so it has no TypeBox. Any runtime validation of external data (e.g. token responses from OAuth endpoints) uses Effect Schema, consistent with the service-layer pattern. Use `Schema.decodeUnknownSync` when the call site is synchronous or non-Effect.
-- **No third-party validation libraries.** Valibot, zod, and similar libraries must not be introduced. All validation is handled by TypeBox (HTTP boundary) or Effect Schema (everywhere else).
+- **No third-party validation libraries.** Do not introduce Valibot, zod, or similar libraries. TypeBox handles validation at the HTTP boundary; Effect Schema handles it everywhere else.
 
 ## Source Files
 

@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-07-21
+last-reviewed: 2026-07-22
 ---
 
 # Data Map
@@ -99,7 +99,7 @@ Cire is a wedding-invite app merged into the monorepo as the `cire/*`
 workspace. It runs its **own** Cloudflare D1 and R2, separate from `osn/db`
 (see [[cire]], [[cire-auth]]). The **controller** for guest data is the
 wedding organiser (the couple) who uploads the guest list; OSN/cire is the
-**platform / processor** providing the technical means. The wedding owner
+**platform / processor** and provides the technical means. The wedding owner
 is identified by `weddings.owner_osn_profile_id` — an opaque OSN profile id
 (`usr_*` string, cross-DB reference, **no FK**). Lawful basis is
 organiser-initiated wedding administration.
@@ -127,7 +127,7 @@ organiser-initiated wedding administration.
 
 ## Vendors (`@cire/api` — `directory_vendors`, `vendors`, `vendor_claims`; migration 0040)
 
-Vendor personal data arises when a vendor is a **sole trader** and their contact details are therefore personal data. The organiser is the initial data entry point (CRM); the vendor themselves is the data subject for the directory listing once claimed. Lawful basis follows the same pattern as the venues rows above (public business listings / service contract).
+Vendor personal data arises when the vendor is a **sole trader**, so their contact details identify a person. The organiser enters the data first (CRM); the vendor themselves is the data subject for the directory listing once claimed. Lawful basis follows the same pattern as the venues rows above (public business listings / service contract).
 
 | Field | Purpose | Lawful basis | Retention | Recipients | System page |
 |---|---|---|---|---|---|
@@ -138,7 +138,7 @@ Vendor personal data arises when a vendor is a **sole trader** and their contact
 | `vendors.contact_name` | Organiser-captured contact person name — identifies a sole trader or named rep | Art. 6(1)(f) — wedding administration | Same as `vendors.email` above | Same | [[systems/vendors]] (cire wiki) |
 | `vendor_claims.email` | Email address the claim-invite was sent to (copied from `directory_vendors.email` at minting) — identifies the sole trader being invited to claim the listing | Art. 6(1)(f) — legit interest in binding the listing to the correct vendor org; functionally equivalent to the claim-invite verification step (Art. 6(1)(b) — entering service) | 7-day claim TTL; `status` flips to `expired`/`consumed`; `vendor_claims` rows currently retained indefinitely (no purge — add a sweeper once listing volumes warrant) | `@cire/api` only (token hash stored, email stored for audit) | [[systems/vendors]] (cire wiki) |
 
-**S3 browse surface (2026-07-18).** `directory_vendors.email` and `directory_vendors.phone` are now **displayed to a wedding's authenticated organisers** via the `GET …/directory` browse endpoint (new recipient/surface — organiser-only, access-controlled); no new data is collected and the lawful basis is unchanged (Art. 6(1)(f)).
+**S3 browse surface (2026-07-18).** The `GET …/directory` browse endpoint now **shows `directory_vendors.email` and `directory_vendors.phone` to a wedding's authenticated organisers** (new recipient/surface — organiser-only, access-controlled). We collect no new data, and the lawful basis is unchanged (Art. 6(1)(f)).
 
 **S4 — Vendor enquiries (2026-07-21; migration `0043`).** The `vendor_enquiries` table and the Zap c2b thread are new personal-data surfaces introduced by Vendors S4 PR B.
 
@@ -176,8 +176,8 @@ opaque strings with no foreign key (separate databases), so deleting the OSN
 account leaves the cire link row in place holding a now-stale account id. The
 accepted behaviour today is **orphan-tolerant** — a stale link surfaces no
 OSN-side personal data (cire stores only the opaque id, never name/email), and
-the next ARC resolve of a deleted account simply fails closed (the invitation
-just stops surfacing in Pulse). A reverse ARC fan-out from OSN account-deletion
+the next ARC resolve of a deleted account fails closed (the invitation stops
+surfacing in Pulse). A reverse ARC fan-out from OSN account-deletion
 into cire is **deferred** (cire exposes no inbound ARC purge route today). Folds
 into [[dsar]] (C-M1).
 
@@ -185,8 +185,8 @@ into [[dsar]] (C-M1).
 claim codes are issued to households by the organiser, and the guest site is
 a general-adult-audience wedding page (no signup, no DOB collection). There
 is no direct child-account creation surface. Guest age handling folds into
-the platform-wide age-gate rollout when it lands ([[coppa]] C-H8); no
-cire-specific gate is required in the interim. Light-touch by design.
+the platform-wide age-gate rollout when it lands ([[coppa]] C-H8); cire needs
+no gate of its own until then. Light-touch by design.
 
 ## Observability (`@shared/observability` → Grafana Cloud)
 

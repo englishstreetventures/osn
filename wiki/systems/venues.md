@@ -16,18 +16,18 @@ packages:
   - "@pulse/db"
   - "@pulse/api"
   - "@pulse/app"
-last-reviewed: 2026-06-11
+last-reviewed: 2026-07-22
 ---
 
 # Venues & Event Lineups
 
-A venue is a physical place that hosts events — initially scoped to clubs, but the shape is generic. An event lineup is the programmed set of artist slots for one event ("DJ X plays 22:00–23:30"). Together they power the venue detail page (`/venues/:orgHandle/:venueHandle`) and the venue pin layer on the Explore map.
+A venue is a physical place that hosts events — clubs to start with, but the shape is generic. An event lineup is the programmed set of artist slots for one event ("DJ X plays 22:00–23:30"). Together they power the venue detail page (`/venues/:orgHandle/:venueHandle`) and the venue pin layer on the Explore map.
 
 ## Identity & addressing
 
-Venues belong to an **OSN organisation** (see [[identity-model]]). The public URL is `/venues/:orgHandle/:venueHandle` — the org handle namespaces the venue handle, so two venues across the network can share a handle (or a name) without collision. Enforced by the unique index `venues_org_handle_idx (org_handle, handle)`.
+Venues belong to an **OSN organisation** (see [[identity-model]]). The public URL is `/venues/:orgHandle/:venueHandle` — the org handle namespaces the venue handle, so two venues across the network can share a handle (or a name) without collision. The unique index `venues_org_handle_idx (org_handle, handle)` enforces this.
 
-The `id` column (`ven_*` prefix) is opaque: it is the FK target for `events.venue_id` and `event_lineup`, and is **never surfaced in URLs**.
+The `id` column (`ven_*` prefix) is opaque: it is the FK target for `events.venue_id` and `event_lineup`, and it **never appears in URLs**.
 
 ## Schema (`@pulse/db`, migration `0005_venues_and_lineup`)
 
@@ -55,7 +55,7 @@ Services are Effect-based with `pulse.venue.*` spans. Metrics (`pulse.venue.deta
 
 ## Frontend (`@pulse/app`)
 
-- **`VenueDetailPage`** (`/venues/:orgHandle/:venueHandle`): vertical mono-time lineup timeline (`VenueLineupTimeline`), snap-scroll event carousel (`VenueEventCarousel`), real-time open/closed badge computed in the venue's timezone (`computeOpenStatus` handles midnight-crossing windows), "Open in Maps" (`venueMapsUrl`), website + Instagram icon links. Fetches `scope=upcoming`; falls back to `scope=past&limit=1` only when no upcoming nights exist. `website_url` / `hero_image_url` render through `safeHttpUrl()` — non-http(s) schemes are dropped (S-M2).
+- **`VenueDetailPage`** (`/venues/:orgHandle/:venueHandle`): vertical mono-time lineup timeline (`VenueLineupTimeline`), snap-scroll event carousel (`VenueEventCarousel`), real-time open/closed badge computed in the venue's timezone (`computeOpenStatus` handles midnight-crossing windows), "Open in Maps" (`venueMapsUrl`), website + Instagram icon links. Fetches `scope=upcoming`; falls back to `scope=past&limit=1` only when no upcoming nights exist. `website_url` / `hero_image_url` render through `safeHttpUrl()`, which drops non-http(s) schemes (S-M2).
 - **Explore map venue layer**: diamond venue pins wrapped in `<A>` links. When a visible event pin sits at the same venue, the diamond is hidden and the event popover gains a "See venue →" CTA. Event pins are focusable `<button>`s — the popover opens on focus as well as hover (grace-timer dismiss, Escape closes), so the venue link stays keyboard-reachable (C-M2 / WCAG 2.1.1).
 - Client fetchers in `pulse/app/src/lib/venues.ts` are fail-soft (null / `[]` on error) and `encodeURIComponent` every path segment.
 - `Icon` was promoted from `explore/` to `components/` with `globe` + `instagram` glyphs added.

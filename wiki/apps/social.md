@@ -11,12 +11,12 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-07-22
 ---
 
 # Social
 
-`@osn/social` is a SolidJS web app for managing your OSN identity and social graph. It is the first surface dedicated to the cross-app identity layer — separate from Pulse (events) and Zap (messaging), which remain responsible for their own domain UI.
+`@osn/social` is a SolidJS web app for managing your OSN identity and social graph. It is the first app dedicated to the cross-app identity layer — separate from Pulse (events) and Zap (messaging), which keep their own domain UI.
 
 ## Architecture
 
@@ -47,7 +47,7 @@ Pages talk to `@osn/api` via three plain-fetch clients factored out of `@osn/cli
 - `createOrgClient` — org CRUD and membership (`osn/client/src/organisations.ts`)
 - `createRecommendationClient` — friends-of-friends suggestions (`osn/client/src/recommendations.ts`)
 
-All three share the same hardening: `authGet/authPost/authPatch/authDelete` with `safeJson` wrapping (no `SyntaxError` leakage), capped error strings, and per-module typed error classes. These helpers are currently duplicated per module; factoring is tracked as P-I1.
+All three share the same hardening: `authGet/authPost/authPatch/authDelete` with `safeJson` wrapping (no `SyntaxError` leakage), capped error strings, and per-module typed error classes. These helpers are duplicated per module; factoring them out is tracked as P-I1.
 
 ## Dev
 
@@ -63,7 +63,7 @@ Environment variables (all prefixed `VITE_`):
 
 ## Auth
 
-Uses `AuthProvider` from `@osn/client/solid` with the standard OSN passkey-primary login model — see [[passkey-primary]]. Access tokens live in `localStorage` (the only auth secret there after Copenhagen Book C3); the refresh token lives in an HttpOnly cookie. Silent refresh on 401 is handled by `OsnAuthService.authFetch`. A "Lost your passkey?" link routes to the recovery-code login form.
+Uses `AuthProvider` from `@osn/client/solid` with the standard OSN passkey-primary login model — see [[passkey-primary]]. Access tokens live in `localStorage` (the only auth secret there after Copenhagen Book C3); the refresh token lives in an HttpOnly cookie. `OsnAuthService.authFetch` handles silent refresh on 401. A "Lost your passkey?" link routes to the recovery-code login form.
 
 ## Rate limits
 
@@ -71,4 +71,4 @@ Per-user Redis-backed limiter on the recommendations endpoint (20 req/min, fail-
 
 ## Testing
 
-`osn/social/tests/` — currently covers the sidebar mount path under `AuthContext` + `MemoryRouter` using `@solidjs/testing-library` + `happy-dom`. The full open-and-click interaction for the Kobalte dropdown is not asserted; Kobalte's trigger relies on pointer-capture semantics that happy-dom does not reproduce faithfully.
+`osn/social/tests/` covers the sidebar mount path under `AuthContext` + `MemoryRouter` using `@solidjs/testing-library` + `happy-dom`. The tests do not assert the full open-and-click interaction for the Kobalte dropdown: Kobalte's trigger relies on pointer-capture behaviour that happy-dom does not reproduce.

@@ -6,12 +6,12 @@ related:
   - "[[recovery-codes]]"
   - "[[passkey-primary]]"
   - "[[sessions]]"
-last-reviewed: 2026-07-03
+last-reviewed: 2026-07-22
 ---
 
 # Step-up (sudo) tokens
 
-Short-lived high-assurance tokens required by the most sensitive endpoints. Prevents a stolen access token alone from pivoting into destructive actions (recovery-code generation, email change).
+The most sensitive endpoints require short-lived, high-assurance tokens. A stolen access token on its own then cannot reach destructive actions (recovery-code generation, email change).
 
 ## When step-up is required
 
@@ -36,7 +36,7 @@ Two factors, both authenticated via the caller's existing Bearer access token:
 | `POST /step-up/otp/begin` | Sends a 6-digit OTP to the account's verified email |
 | `POST /step-up/otp/complete` | Verifies code, returns `{ step_up_token, expires_in }` |
 
-OTPs sent for step-up are keyed separately from login OTPs — a login code cannot authorise a sensitive action and vice versa.
+Step-up OTPs are keyed separately from login OTPs — a login code cannot authorise a sensitive action, and a step-up code cannot complete a login.
 
 ## Token shape
 
@@ -58,7 +58,7 @@ ES256 JWT signed with the same key as access tokens (reuses `/.well-known/jwks.j
 - **iss** — (O1) pinned to `AuthConfig.issuerUrl`; the verifier rejects any other issuer. Every verify also allows a **30s `clockTolerance`** for benign signer/verifier skew. Both access and step-up tokens share this contract.
 - **sub** — `accountId` (not profileId). The verifier requires a match against the caller's resolved account.
 - **amr** — RFC 8176 authentication-method-reference array. Verifier intersects with a caller-supplied allow-list.
-- **jti** — single-use replay guard. Backed by a `StepUpJtiStore` interface (see `osn/api/src/services/auth/stores.ts`) with two implementations: an in-memory Map for single-process dev/test, and `createRedisJtiStore` (`osn/api/src/lib/step-up-jti-store.ts`) for multi-pod production. The Redis variant fails closed on outage — an unavailable replay guard is equivalent to a ceremony no one completed.
+- **jti** — single-use replay guard. Backed by a `StepUpJtiStore` interface (see `osn/api/src/services/auth/stores.ts`) with two implementations: an in-memory Map for single-process dev/test, and `createRedisJtiStore` (`osn/api/src/lib/step-up-jti-store.ts`) for multi-pod production. The Redis variant fails closed on outage — a replay guard that is unreachable counts as a ceremony no one completed.
 
 TTL: 5 minutes.
 

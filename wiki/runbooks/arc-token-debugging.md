@@ -7,16 +7,16 @@ related:
   - "[[arc-tokens]]"
   - "[[s2s-patterns]]"
   - "[[osn-core]]"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-07-22
 ---
 
 # ARC Token Debugging Runbook
 
 ## Overview
 
-ARC (ASAP-style) tokens are OSN's service-to-service authentication mechanism. They are ES256 (ECDSA P-256) self-issued JWTs used for backend-to-backend calls (e.g. `@pulse/api` querying `@osn/api`'s social graph over HTTP).
+ARC (ASAP-style) tokens are OSN's service-to-service authentication method. They are ES256 (ECDSA P-256) self-issued JWTs for backend-to-backend calls (e.g. `@pulse/api` queries `@osn/api`'s social graph over HTTP).
 
-ARC tokens are **not** used for user-facing auth (that uses user JWTs).
+We do **not** use ARC tokens for user-facing auth. User-facing auth uses access tokens.
 
 ## Symptoms
 
@@ -38,20 +38,20 @@ LEFT JOIN service_account_keys sak ON sak.service_id = sa.service_id
 WHERE sa.service_id = '<issuer-service-id>';
 ```
 
-If no row exists, the token will fail with `unknown_issuer`.
+If no row exists, the token fails with `unknown_issuer`.
 
-The expected production path is **ephemeral key auto-rotation** via `startKeyRotation()` — the service registers itself on boot through `POST /graph/internal/register-service`. Manual `INSERT`s should only be needed in disaster recovery.
+The expected production path is **ephemeral key auto-rotation** through `startKeyRotation()` — the service registers itself on boot with `POST /graph/internal/register-service`. Use manual `INSERT`s only in disaster recovery.
 
 ### 2. Verify Key Pair Matches
 
 The service signs tokens with its private key. The matching public key must exist (and be un-revoked, un-expired) in `service_account_keys`. The header `kid` is the lookup key.
 
-Common failure: the in-process signing key was replaced but the `register-service` POST that publishes the public counterpart never landed (network blip on rotation).
+Common failure: the service replaced the in-process signing key, but the `register-service` POST that publishes the public counterpart never landed (network blip on rotation).
 
 **Fix:**
 
 1. Restart the service (`startKeyRotation()` re-registers on boot), or
-2. Force a manual rotation by hitting `POST /graph/internal/register-service` directly with a freshly-generated keypair.
+2. Force a manual rotation. Call `POST /graph/internal/register-service` directly with a freshly generated keypair.
 
 ```typescript
 import { generateArcKeyPair, exportKeyToJwk } from "@shared/crypto";
@@ -65,7 +65,7 @@ const publicKeyJwk = await exportKeyToJwk(keyPair.publicKey);
 
 ARC tokens have a **5-minute TTL** by default. The `getOrCreateArcToken` function caches tokens in memory and re-issues them 30 seconds before expiry.
 
-**Clock skew** greater than 5 minutes between services will cause all tokens to appear expired.
+**Clock skew** greater than 5 minutes between services makes every token appear expired.
 
 **Diagnosis:**
 
@@ -124,7 +124,7 @@ evictPublicKeyCacheEntry(kid);  // Verifier side: evict one kid (call on revoke)
 
 | Metric | Type | What It Tells You |
 |--------|------|-------------------|
-| `arc.token.issued` | Counter | Token generation rate (should be low due to caching) |
+| `arc.token.issued` | Counter | Token generation rate (should be low because of caching) |
 | `arc.token.verification` | Counter | Verification attempts with `result` attribute |
 
 The `result` attribute on `arc.token.verification` uses the `ArcVerifyResult` bounded union:

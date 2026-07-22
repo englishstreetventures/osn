@@ -10,7 +10,7 @@ related:
   - "[[arc-tokens]]"
 packages: ["@shared/observability"]
 finding-ids: [S-H18, S-H20]
-last-reviewed: 2026-06-17
+last-reviewed: 2026-07-22
 ---
 
 # Tracing
@@ -46,9 +46,8 @@ from env:
   `otlpExporterUrl` helper, trailing slash stripped). `OTEL_EXPORTER_OTLP_HEADERS`
   supplies the auth header and is a **secret**.
 
-Setting the two env vars (plus optional `OTEL_SERVICE_NAME`) is all that's needed to
-start exporting spans. See [[overview]] and [[observability-setup]] for the full env
-list.
+Set the two env vars (plus the optional `OTEL_SERVICE_NAME`) to start exporting spans.
+See [[overview]] and [[observability-setup]] for the full env list.
 
 ## Trace propagation
 
@@ -72,4 +71,4 @@ Elysia's `onRequest -> handler -> onAfterResponse` hooks run as separate invocat
 
 ## WebSocket spans
 
-WebSocket spans are **out of scope for the initial rollout** -- deferred to Zap M1. Per-message spans will be added when `@zap/api` lands.
+WebSocket spans are **out of scope for the initial rollout** -- deferred to Zap M1. Add per-message spans when `@zap/api` ships.

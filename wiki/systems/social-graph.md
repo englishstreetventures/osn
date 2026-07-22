@@ -17,12 +17,12 @@ related:
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-04-26
+last-reviewed: 2026-07-22
 ---
 
 # Social Graph
 
-The social graph is OSN's core relationship system. It manages connections between users and blocks. All graph logic lives in `@osn/api` with the schema in `@osn/db`.
+The social graph is OSN's core relationship system. It manages connections and blocks between users. All graph logic lives in `@osn/api` with the schema in `@osn/db`.
 
 > **Close friends moved to Pulse.** OSN core no longer owns a close-friends list — each app that wants one owns its own table and validates membership against this graph. See [[pulse-close-friends]].
 
@@ -42,9 +42,9 @@ A connection is a mutual relationship between two users. It requires both partie
 ### Blocks (unidirectional)
 
 A block is a one-way action. When A blocks B:
-- The existing connection between A and B (if any) is removed (wrapped in a DB transaction after P-W17)
+- The block removes any existing connection between A and B (wrapped in a DB transaction after P-W17)
 - B cannot send connection requests to A
-- Blocks are currently global across all OSN apps (per-app blocking is a deferred decision)
+- Blocks are global across all OSN apps today (per-app blocking is a deferred decision)
 
 The `is-blocked` route only checks whether the caller has blocked the target (`isBlocked(caller, target)`) -- it does not reveal whether the target has blocked the caller (S-M15).
 
@@ -65,14 +65,14 @@ The graph service exports functions like:
 
 Tests covering services and routes. Test areas include:
 - Connection lifecycle (request, accept, decline, cancel, remove)
-- Block behavior (directional checks)
+- Block behaviour (directional checks)
 - Rate limiting on graph write endpoints
 - Error handling (not found, already exists, self-referential operations)
 - Input validation (handle regex, length bounds via TypeBox `HandleParam`)
 
 ## Rate Limiting
 
-All graph write endpoints are rate-limited at 60 requests per user per minute (S-M16). The rate limiter is injected via DI -- graph routes accept injected rate limiter instances, which was part of the [[redis]] migration Phase 1 abstraction work.
+All graph write endpoints are rate-limited at 60 requests per user per minute (S-M16). Graph routes accept injected rate-limiter instances -- part of the [[redis]] migration Phase 1 abstraction work.
 
 ## Cross-Package Access
 
@@ -85,7 +85,7 @@ Apps that own a close-friends-style list (e.g. Pulse — see [[pulse-close-frien
 
 ## Error Handling
 
-Graph routes use `safeError()` to ensure only `GraphError` and `NotFoundError` messages are exposed to clients (S-M17). Raw DB/Effect errors are never surfaced. Error objects logged via `Effect.logError` go through `safeErrorSummary()` which extracts only `_tag` + `message` (S-L9).
+Graph routes use `safeError()` so that only `GraphError` and `NotFoundError` messages reach clients (S-M17). Raw DB/Effect errors never leave the server. Error objects logged via `Effect.logError` go through `safeErrorSummary()` which extracts only `_tag` + `message` (S-L9).
 
 ## Input Validation
 

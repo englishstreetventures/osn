@@ -24,7 +24,7 @@ finding-ids:
   - S-H16
 packages:
   - "@pulse/api"
-last-reviewed: 2026-06-16
+last-reviewed: 2026-07-22
 ---
 
 # Event Access Control
@@ -52,7 +52,7 @@ Get `null` from `loadVisibleEvent`. The route returns **404** (not 403) to avoid
 
 ## Mandatory Usage
 
-Every direct-fetch route that returns event data **MUST** use `loadVisibleEvent` instead of `getEvent`. Without the visibility gate, private events become bypassable by direct ID.
+Every direct-fetch route that returns event data **MUST** use `loadVisibleEvent` instead of `getEvent`. Without the visibility gate, anyone who knows the ID can read a private event.
 
 Routes that must use the gate:
 - `GET /events/:id` -- event detail
@@ -76,11 +76,11 @@ When adding a new event-scoped route, **always** load the event via `loadVisible
 
 Any code that SELECTs from `events` and returns multiple rows MUST consume `buildVisibilityFilter` — divergence re-opens the S-H12..S-H16 regression class. Do not reinvent the filter.
 
-The SQL predicate was pushed into the `WHERE` clause (P-W12) to fix unstable page sizes -- previously the `LIMIT` was applied before the JS visibility filter, causing the client to receive fewer rows than requested.
+P-W12 moved the SQL predicate into the `WHERE` clause to fix unstable page sizes. Before that, the `LIMIT` ran before the JS visibility filter, so the client got fewer rows than it asked for.
 
 ## Security Finding History
 
-These findings were all discovered in the full-event-view PR review and fixed via the shared `loadVisibleEvent` helper:
+The full-event-view PR review found all of these. The shared `loadVisibleEvent` helper fixed them:
 
 | ID | Status | Description |
 |----|--------|-------------|
@@ -96,7 +96,7 @@ Non-authorised viewers receive 404, not 403. Returning 403 would confirm that th
 
 ### RSVP-specific Gate (S-H15)
 
-`listRsvps` has an additional gate beyond `loadVisibleEvent`: queries with `status: "invited"` return empty unless the viewer is the event organiser. Invitees never opted into being listed -- the public guest-list override applies only to people who have actually RSVPed.
+`listRsvps` has an additional gate beyond `loadVisibleEvent`: queries with `status: "invited"` return empty unless the viewer is the event organiser. Invitees never opted into being listed -- the public guest-list override applies only to people who RSVPed.
 
 ## Attendee Visibility — `canViewAttendees` (W4)
 
@@ -104,13 +104,13 @@ Non-authorised viewers receive 404, not 403. Returning 403 would confirm that th
 
 `canViewAttendees(event, viewerId)` is a pure, synchronous policy in `services/eventAccess.ts` that captures the second concern. It is **organiser-only** today (`viewerId === event.createdByProfileId`) — the creator is the one party guaranteed to be allowed to enumerate guests. It needs no DB round trip and accepts a trimmed `{ createdByProfileId }` projection.
 
-It is surfaced as an **additive, non-breaking** `canViewAttendees` boolean on the `GET /events/:id/rsvps` and `/events/:id/rsvps/latest` responses. The decision (locked in W4) is *additive flag now, organiser-only payload cutover deferred*: existing clients keep rendering the `rsvps` array unchanged while the UI migrates to consult the flag. When the cutover lands, the row payload itself becomes organiser-only and `canViewAttendees` gates it.
+The `GET /events/:id/rsvps` and `/events/:id/rsvps/latest` responses carry it as an **additive, non-breaking** `canViewAttendees` boolean. The decision (locked in W4) is *additive flag now, organiser-only payload cutover deferred*: existing clients keep rendering the `rsvps` array unchanged while the UI migrates to consult the flag. When the cutover lands, the row payload itself becomes organiser-only and `canViewAttendees` gates it.
 
 ## Friends Discovery — Graph-Symmetry Assumption
 
-The `friendsOnly` discovery branch in `discoverEvents` interprets `pulse_users.attendance_visibility = "connections"` as "visible to people the *RSVPer* is connected to". Today this is equivalent to "people who claim the RSVPer as a connection" because the OSN social graph is **symmetric** (see `[[social-graph]]`). The predicate gates on the *viewer's* connection set without re-validating the friendship from the RSVPer's side.
+The `friendsOnly` discovery branch in `discoverEvents` interprets `pulse_users.attendance_visibility = "connections"` as "visible to people the *RSVPer* is connected to". Today this means the same as "people who claim the RSVPer as a connection", because the OSN social graph is **symmetric** (see `[[social-graph]]`). The predicate gates on the *viewer's* connection set without re-validating the friendship from the RSVPer's side.
 
-If asymmetric follows / blocks ever land, this predicate must additionally verify `viewerId ∈ RSVPer.connections`, not only `RSVPer ∈ viewerId.connections`. Tracked as a forward-compatibility note (S-M2 from the discovery PR security review).
+If asymmetric follows / blocks ever land, this predicate must also verify `viewerId ∈ RSVPer.connections`, not only `RSVPer ∈ viewerId.connections`. Tracked as a forward-compatibility note (S-M2 from the discovery PR security review).
 
 ## Share-Source Attribution
 
@@ -120,7 +120,7 @@ When the same gate runs on the share-attribution surface (`POST /events/:id/shar
 - Service decode: `ShareSourceSchema` (Effect Schema literal) in the same file
 - Metric attribute type: `import type { ShareSource } from "./lib/shareSource"` in `pulse/api/src/metrics.ts`
 
-Wire shape stays in lockstep — adding a destination (e.g. Zap, future OSN-native share targets) means widening the array constant and the matching frontend mirror in `pulse/app/src/lib/shareSource.ts`.
+All three layers must agree on the wire shape. To add a destination (e.g. Zap, future OSN-native share targets), widen the array constant and the matching frontend mirror in `pulse/app/src/lib/shareSource.ts`.
 
 ### Attribution rules
 
@@ -142,7 +142,7 @@ Four bounded-cardinality counters drive the per-platform funnel. Attributes are 
 
 ### Rate limits
 
-Both endpoints are unauthenticated. Per-IP fail-closed limiters defend the metric counters from being trivially poisoned: 60/min on `/share`, 120/min on `/exposure` (higher because legitimate page reloads of a sourced URL hit this surface). See `[[rate-limiting]]` and the deferred `S-L2 (share-attribution)` follow-up on `getClientIp`'s `"unknown"` bucket.
+Both endpoints are unauthenticated. Per-IP fail-closed limiters make the metric counters costly to poison: 60/min on `/share`, 120/min on `/exposure` (higher because real page reloads of a sourced URL hit this surface). See `[[rate-limiting]]` and the deferred `S-L2 (share-attribution)` follow-up on `getClientIp`'s `"unknown"` bucket.
 
 ## Source Files
 

@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[cire-auth]]"
   - "[[cire]]"
-last-reviewed: 2026-07-17
+last-reviewed: 2026-07-22
 ---
 
 # Access Control
@@ -28,7 +28,7 @@ Already strong; documented elsewhere.
 | Recovery | 64-bit single-use codes (Copenhagen Book M2) | [[recovery-codes]] |
 | Service-to-service | ARC tokens (ES256, scoped, kid-pinned, revocable, scope-validated on cache hit) | [[arc-tokens]] |
 | Org admin (Zap M3) | Role-gated `org_agents.role = "admin"` | [[zap]] |
-| Cire organiser | OSN access JWT (`aud: "osn-access"`) verified via `@shared/osn-auth-client`, then per-wedding **role authz** — three tiers: `weddingOwner()` (owner: code management, settings, host management, delete), `weddingEditor()` (owner or `editor` co-host: module writes — import, invite, locations; viewers get 403 `read_only_role`), `weddingMember()` (any role incl. `viewer`: reads + invite preview). Roles live in `wedding_hosts.role` (`editor`/`viewer`), checked per-request from the DB (demotion is immediate, never embedded in the JWT); only the owner assigns roles. | [[cire-auth]] |
+| Cire organiser | OSN access token (`aud: "osn-access"`) verified via `@shared/osn-auth-client`, then per-wedding **role authz** — three tiers: `weddingOwner()` (owner: code management, settings, host management, delete), `weddingEditor()` (owner or `editor` co-host: module writes — import, invite, locations; viewers get 403 `read_only_role`), `weddingMember()` (any role incl. `viewer`: reads + invite preview). Roles live in `wedding_hosts.role` (`editor`/`viewer`), checked per-request from the DB (demotion is immediate, never embedded in the JWT); only the owner assigns roles. | [[cire-auth]] |
 | Cire guest | **Guest-session credential class** — family claim code (`families.public_id`) → opaque 256-bit `cire_session` (SHA-256 at rest), family-scoped, gates `/api/rsvp` only. Never an OSN account. | [[cire-auth]] |
 | Cire vendor (sole-trader) | **Vendor principal class** — OSN account holder + organization membership (per `org:read` ARC scope grant). `vendorOrgMember()` middleware gate (fail-closed: missing/failed check → 403, never bypass) protects `/api/vendor/*` listing writes and claim consumption. Scope `org:read` requested by cire-api, granted by osn-api's ARC allowlist; resolved at claim/consume time via ARC verification of the requestor's org membership. | [[cire-auth]] |
 
@@ -55,7 +55,7 @@ The matrix that needs to exist, by environment + system + role.
 | Email provider (Cloudflare Email Service today) | Admin | Same as Cloudflare | ✓ | — | — |
 | Redis provider (TBD) | Admin | <named humans> | ✓ | Manual | Quarterly |
 
-This page is the template; the actual matrix with named humans lives in
+This page is the template; the matrix with named humans lives in
 a private successor under `wiki/compliance/access-matrix/<YYYY>-<Q>.md`
 on a quarterly cadence and is **never committed publicly**. The public
 template gives auditors the structure; the private quarterly file gives
@@ -65,7 +65,7 @@ them the evidence.
 
 ### Granting
 
-Pre-conditions before any production access is granted:
+Pre-conditions to meet before we grant any production access:
 
 1. Documented role per the matrix above (no "founder gets everything by default").
 2. WebAuthn / hardware key enrolled on the system.
@@ -115,7 +115,7 @@ must be:
 3. **Attributable** — keyed to the operator's account, not a shared service account.
 4. **Reviewable** — quarterly sample by a second reviewer.
 
-This is currently informal; the `admin_actions` table is on the backlog.
+This is informal today; the `admin_actions` table is on the backlog.
 ID: **C-M16**.
 
 ## Service-account hygiene (ARC)
@@ -138,7 +138,7 @@ grant in the matrix above. Expectations:
 - **No standing access.** Operators query cire D1 / R2 only for support,
   security, or a manual DSAR (cire has no DSAR endpoint yet — see [[dsar]]
   C-M1); each access is necessary, logged, attributable, and reviewable per
-  "Internal admin actions on user data" below.
+  "Internal admin actions on user data" above.
 - **Guest claim codes are credentials.** `families.public_id` is treated as
   a secret (redacted in logs, C-M2), not a public identifier — do not paste
   codes into tickets or logs.

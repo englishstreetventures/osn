@@ -1,34 +1,34 @@
 # OSN Project TODO
 
-Progress tracking and deferred decisions. Completed items archived in `[[changelog/]]`. For full spec see README.md. For code patterns see CLAUDE.md. For detailed system docs see [[index]].
+Progress tracking and deferred decisions. Completed items move to `[[changelog/]]`. For the full spec see README.md. For code patterns see CLAUDE.md. For detailed system docs see [[index]].
 
 ## Up Next
 
 Now **deployed on `cireweddings.com`** (Cloudflare Free tier — see [[production-deploy]], [[free-tier-limits]], [[changelog/completed-features]] "Production launch" 2026-06-18). Post-deploy priorities:
 
-- [ ] **Activate Cloudflare Turnstile** — create the managed widget in the dashboard, set `PUBLIC_TURNSTILE_SITEKEY` (Pages build var, **sitekey-first**) then `TURNSTILE_SECRET_KEY` (osn-api + cire-api Worker secret). Code shipped inert (#154); gates go live only once the secret is set. See [[turnstile]], [[production-deploy]] §3.4.
-- [ ] **Free Cloudflare dashboard hardening** (manual, can't be done from wrangler) — confirm the free WAF Managed Ruleset, add a custom rule blocking public `/internal/*` + `/graph/internal/*`, enable Page Shield on the guest site, confirm L7 DDoS. See [[free-tier-limits]] "Cloudflare security hardening".
+- [ ] **Activate Cloudflare Turnstile** — create the managed widget in the dashboard, set `PUBLIC_TURNSTILE_SITEKEY` (Pages build var, **sitekey-first**) then `TURNSTILE_SECRET_KEY` (osn-api + cire-api Worker secret). The code shipped inert (#154); the gates go live only once the secret is set. See [[turnstile]], [[production-deploy]] §3.4.
+- [ ] **Free Cloudflare dashboard hardening** (manual — wrangler cannot do this) — confirm the free WAF Managed Ruleset, add a custom rule blocking public `/internal/*` + `/graph/internal/*`, enable Page Shield on the guest site, confirm L7 DDoS. See [[free-tier-limits]] "Cloudflare security hardening".
 - [ ] **Re-enable email later** — provision Cloudflare Email Service (`CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` + `OSN_EMAIL_FROM`), watch `osn.email.send.attempts{outcome="sent"}`, then **remove** `OSN_EMAIL_OPTIONAL=true` from osn-api `[vars]`. Restores OTP step-up everywhere (incl. cire organiser, currently passkey-only). See [[email]], [[production-deploy]] §1.1.
 - [ ] **Optional Google Maps key** — set the Maps Embed key so cire location previews render the real map instead of the CSS-card fallback (#146; key-optional today). See [[cire]].
-- [ ] **Provision Grafana Cloud + wire `OTEL_EXPORTER_OTLP_ENDPOINT` + headers**; build first dashboards (HTTP RED, auth funnel, ARC verification, events CRUD). NB: OTel export is **deferred on workerd** — the deployed Workers ship to Cloudflare Workers Logs in the interim. See [[observability-setup]], [[observability/overview]].
+- [ ] **Provision Grafana Cloud + wire `OTEL_EXPORTER_OTLP_ENDPOINT` + headers**; build first dashboards (HTTP RED, auth funnel, ARC verification, events CRUD). OTel export is **deferred on workerd** — for now the deployed Workers ship to Cloudflare Workers Logs. See [[observability-setup]], [[observability/overview]].
 - _C-H1 (account export) and C-H8 (registration age gate) shipped 2026-07-07 — pruned from Up Next; see `[[compliance/dsar]]` / `[[compliance/coppa]]`._
 
 ---
 
 ## Auth Audit Remediation (2026-06)
 
-**Status: W1–W7 landed on `claude/stoic-davinci-9v8eap` (PR #116) and reconciled with `main` (#118 shared `appRuntime`, #119 Zap/Pulse Cloudflare Workers).** The workstream checkboxes below are checked off; the review of the remediation PR itself surfaced three must-fix findings (S-H1 zap-IP, P-W1 zap-consent, S-M1 osn-recovery-CAS — all **fixed** in this PR, see Security/Performance Backlog) plus follow-on cire/low findings now tracked open in the Security Backlog. On final merge, move this whole section to `[[changelog/completed-features]]`.
+**Status: W1–W7 landed on `claude/stoic-davinci-9v8eap` (PR #116) and reconciled with `main` (#118 shared `appRuntime`, #119 Zap/Pulse Cloudflare Workers).** Every workstream checkbox below is now ticked. The review of the remediation PR itself found three must-fix findings (S-H1 zap-IP, P-W1 zap-consent, S-M1 osn-recovery-CAS — all **fixed** in this PR, see Security/Performance Backlog). It also found follow-on cire/low findings, which stay open in the Security Backlog. On final merge, move this whole section to `[[changelog/completed-features]]`.
 
-Cross-app authentication audit (OSN core, Pulse, Zap, Cire, shared crypto/auth). Findings are grouped into parallel workstreams **W1–W7**, chosen to minimise file overlap so they can be actioned independently/simultaneously. Each item carries `file:line` + the fix + severity, and cross-references the existing Security Backlog ID where a finding is already tracked (don't double-track — close it there when the workstream lands).
+Cross-app authentication audit (OSN core, Pulse, Zap, Cire, shared crypto/auth). The findings sit in parallel workstreams **W1–W7**, split to minimise file overlap so agents can work on them at the same time. Each item carries `file:line` + the fix + severity. Where a finding is already tracked, the item points at the existing Security Backlog ID (don't double-track — close it there when the workstream lands).
 
 **Sequencing for parallel agents:**
 - **W3 (shared rate-limit) should land first** — W4 and W5's per-IP limiter work both consume the same `getClientIp`.
 - **W6-O1 pairs with W7-X2** (issuer + clock-skew must change on signer and verifier together).
-- W1 (Zap token model) and W5-C1 (Cire claim code) are the only genuinely *exploitable* items — everything else is hardening. Prioritise them.
+- W1 (Zap token model) and W5-C1 (Cire claim code) are the only *exploitable* items — everything else is hardening. Do them first.
 
 ### W1 — Zap token model (Critical) — `zap/api`
 
-- [x] AUDIT-Z1 — **Replace hand-rolled HS256 shared-secret verification with `@shared/osn-auth-client`.** `zap/api/src/routes/chats.ts:23-37` verifies bearer tokens with a symmetric `OSN_JWT_SECRET` (default `"dev-secret-change-in-prod"`) and trusts `sub`/`profileId` with no audience or algorithm pin — the verifier holds signing material, so anyone with the secret can forge a token for any `profileId`, and it can't validate real OSN ES256 tokens at all. Add the `@shared/osn-auth-client` dep, swap to `extractClaims(authHeader, OSN_JWKS_URL, { audience: "osn-access" })`, delete `OSN_JWT_SECRET` + the HS256 path. Closes **S-L1 (zap)** (algorithm allowlist) and the missing-`aud` gap in one change — see [[rate-limiting]], CLAUDE.md `@shared/osn-auth-client`.
+- [x] AUDIT-Z1 — **Replace hand-rolled HS256 shared-secret verification with `@shared/osn-auth-client`.** `zap/api/src/routes/chats.ts:23-37` verifies bearer tokens with a symmetric `OSN_JWT_SECRET` (default `"dev-secret-change-in-prod"`) and trusts `sub`/`profileId` with no audience or algorithm pin — the verifier holds signing material, so anyone with the secret can forge a token for any `profileId`, and it cannot validate real OSN ES256 tokens. Add the `@shared/osn-auth-client` dep, swap to `extractClaims(authHeader, OSN_JWKS_URL, { audience: "osn-access" })`, delete `OSN_JWT_SECRET` + the HS256 path. Closes **S-L1 (zap)** (algorithm allowlist) and the missing-`aud` gap in one change — see [[rate-limiting]], CLAUDE.md `@shared/osn-auth-client`.
 - [x] AUDIT-Z2 — Validate `sub` shape (e.g. `usr_` prefix) post-verify before writing `created_by_profile_id` / `sender_profile_id` (`zap/api/src/routes/chats.ts:31-33`). Defence-in-depth once Z1 lands.
 
 ### W2 — Zap authorization & consent (High/Med) — `zap/api/src/services`
@@ -50,7 +50,7 @@ Cross-app authentication audit (OSN core, Pulse, Zap, Cire, shared crypto/auth).
 - [x] AUDIT-P2 — Rate limiters are instantiated with in-memory backends and never wired to Redis despite the injection seam (`pulse/api/src/index.ts:28-35`) → per-process limits that reset on deploy. Add a composition root that builds Redis-backed limiters when `REDIS_URL` is set.
 - [x] AUDIT-P3 — Restrict bare `cors()` to known app origins (`pulse/api/src/index.ts:24`). Closes **S-L2 (auth)**.
 - [x] AUDIT-P4 — Unauthenticated `POST /events/:id/exposure` accepts a client-supplied `source` and bumps counters with no throttle/replay protection (`pulse/api/src/routes/share.ts:44-71`). Add a per-IP limit (after W3); consider an HMAC'd share token in the `?source=` link. Relates to **S-L2 (share-attribution)**.
-- [x] AUDIT-P5 — Attendee list exposed to any viewer who can see the event (`pulse/api/src/routes/events.ts:312-340`) — friends-visibility events let any organiser-friend enumerate every attendee. Add a `canViewAttendees` policy (organiser/co-hosts) or return counts to non-organisers — see [[event-access]].
+- [x] AUDIT-P5 — Any viewer who can see the event also sees the attendee list (`pulse/api/src/routes/events.ts:312-340`) — friends-visibility events let any organiser-friend enumerate every attendee. Add a `canViewAttendees` policy (organiser/co-hosts) or return counts to non-organisers — see [[event-access]].
 
 ### W5 — Cire claim-code & guest sessions (High) — `cire/api`
 
@@ -79,7 +79,7 @@ Cross-app authentication audit (OSN core, Pulse, Zap, Cire, shared crypto/auth).
 
 ### Verified sound (no action)
 
-Token-verification core (audience enforced inside the single `jwtVerify` pass, ES256/`alg` pinning, alg:none + HS/RS confusion structurally blocked, JWKS amplification defences), OSN session rotation + family-revocation + cookie-only refresh, Cire two-auth separation + guest tenant-scoping + additive `/account/link`, and Pulse single-source-of-truth visibility with no IDOR were all reviewed and found sound. The items above are hardening, except **W1** and **W5-C1**, which are genuinely exploitable.
+The review found these sound: the token-verification core (audience enforced inside the single `jwtVerify` pass, ES256/`alg` pinning, alg:none + HS/RS confusion structurally blocked, JWKS amplification defences); OSN session rotation + family-revocation + cookie-only refresh; Cire two-auth separation + guest tenant-scoping + additive `/account/link`; and Pulse single-source-of-truth visibility with no IDOR. The items above are hardening, except **W1** and **W5-C1**, which are exploitable.
 
 ---
 
@@ -87,7 +87,7 @@ Token-verification core (audience enforced inside the single `jwtVerify` pass, E
 
 - [x] "What's on today" default view — unified into the discovery feed on `ExplorePage`; default view is `from = now` with the chip rail + more-filters drawer layered on top
 - [x] Prompt for max event duration when creating events without an endTime — duration presets + `maybe_finished` status at 8h, auto-close at 12h, 48h defence-in-depth cap on explicit endTimes (moved to `[[changelog/completed-features]]`)
-- [x] Event discovery (location, category, datetime, friends, price) — `GET /events/discover` with cursor pagination; bbox + haversine for radius; friends branch unions organiser ∈ connections and RSVP ∈ connections (positive engagement only — `going` / `interested`) and respects `attendanceVisibility=no_one`; per-IP rate limit; interests deferred until the Pulse interest profile onboarding lands. See `[[event-access]]` for the shared visibility-filter helper consumed by `listEvents` and `discoverEvents`.
+- [x] Event discovery (location, category, datetime, friends, price) — `GET /events/discover` with cursor pagination; bbox + haversine for radius; friends branch unions organiser ∈ connections and RSVP ∈ connections (positive engagement only — `going` / `interested`) and respects `attendanceVisibility=no_one`; per-IP rate limit; interests deferred until the onboarding for Pulse interest profiles lands. See `[[event-access]]` for the shared visibility-filter helper consumed by `listEvents` and `discoverEvents`.
 - [x] **Pulse new-user onboarding flow** — six-step `/welcome` flow with themed coral illustrations (welcome rings, editorial map, interest constellation, location pin drop, notifications ember, finish date stamp). Account-keyed via new `pulse_account_onboarding` table + `pulse_profile_accounts` mapping cache + `GET /graph/internal/profile-account` ARC endpoint (preserves the multi-account privacy invariant in `[[identity-model]]`). Captures interests (≤8), `notifications_perm`/`location_perm` outcomes, and reminder opt-in. Idempotent `POST /me/onboarding/complete`. Server-side first-run gate redirects to `/welcome`. See `[[pulse-onboarding]]`. (Move to `[[changelog/completed-features]]` on merge.)
 - [x] **Pulse calendar agenda page** — `/calendar` route in `@pulse/app` rendering a vertical-timeline agenda (continuous left rail with per-day dated markers; events listed to the right). Lists events the viewer is hosting OR has RSVP'd Going/Maybe to; "Maybe" entries surface an inline reminder to confirm (I'm going) or drop (Can't make it). Backed by a new auth-gated `GET /events/calendar` endpoint + `listMyCalendarEvents` service (UNION-of-two-arms shape so cost scales with per-user data, not global event volume — see P-W1 fix below). Also a full end-to-end rename of the RSVP status value `interested` → `maybe` (DB enum value, API wire value, metrics, UI; no legacy alias). New `pulse.calendar.events.fetched` counter + `pulse.calendar.list_mine` span. (Move to `[[changelog/completed-features]]` on merge.)
 - [ ] Wire captured interests into the discovery feed — add a "For you" chip to `ExplorePage` that filters/boosts events by the account's onboarding interests (data lives in `pulse_account_onboarding.interests` — see `[[pulse-onboarding]]`)
@@ -104,7 +104,7 @@ Token-verification core (audience enforced inside the single `jwtVerify` pass, E
 - [ ] Real SMS/email comms providers — `sendBlast` is stubbed (writes to `event_comms`); plug in actual delivery
 - [x] **Dead metric emitters (2026-07-03 quality review)** — resolved per-emitter (2026-07-05): `metricJwksCacheLookup` + counter + attrs **deleted** (JWKS cache lives in `@shared/osn-auth-client`, uninstrumented — also closes the Platform "Dead JWKS-cache metric cleanup" row); `metricEventCreateDuration` **wired** via `withEventCreateDuration` around `createEvent`; `metricPulseHostCancelledHardDelete` **wired** into `runEventCancellationSweep` (ok per purged event, error on failed batch). (`zap/api`'s `metricWsConnection` / `metricWsMessageDelivered` remain deliberately pre-declared for the in-flight M1 WebSocket transport.) See [[observability/overview]].
 - [x] **`notifyAppJoined` bridge unwired (2026-07-03 quality review)** — **Wired 2026-07-07.** `completeOnboarding` now fires `notifyAppJoined(accountId)` on the first-completion branch as a best-effort `forkDaemon` (new `pulse.onboarding.enrollment_notify{result}` metric). This inserts the `app_enrollments` row that osn-api's full-account-delete fan-out reads — without it, deleting an OSN account silently skipped Pulse. Residual gap: no join-side retry sweeper yet (unlike the leave side), so a transient osn-api outage during onboarding leaves the enrollment row uncreated until the next completion. See [[s2s-patterns]].
-- [ ] **Split `pulse/api/src/routes/events.ts`** — **partially done 2026-07-07:** `createSettingsRoutes` extracted to `routes/settings.ts` (clean — it was already a separate `/me` factory). **Remaining:** extract the discovery/share/exposure routes to `routes/discovery.ts`. Deferred because those routes sit mid-chain inside the single `createEventsRoutes` Elysia builder and share closures (`runtime`, `resolveIp`, `checkPerIpLimit`, the per-IP limiters) with the CRUD/RSVP routes — extracting them needs those closures lifted into a shared helper first, so it's a larger, higher-risk surgery on the hottest route file than a same-PR cleanup warrants. (2026-07-03 quality review)
+- [ ] **Split `pulse/api/src/routes/events.ts`** — **partially done 2026-07-07:** `createSettingsRoutes` extracted to `routes/settings.ts` (clean — it was already a separate `/me` factory). **Remaining:** extract the discovery/share/exposure routes to `routes/discovery.ts`. Deferred because those routes sit mid-chain inside the single `createEventsRoutes` Elysia builder and share closures (`runtime`, `resolveIp`, `checkPerIpLimit`, the per-IP limiters) with the CRUD/RSVP routes — extracting them needs those closures lifted into a shared helper first, so it is a larger, riskier change to the busiest route file than a same-PR cleanup warrants. (2026-07-03 quality review)
 - [x] Drizzle: extract shared `createSchemaSql()` helper so adding a column is a one-file change — shipped on `claude/drizzle-pulse-todo-cX5ps`: `@pulse/db/testing` export with `createSchemaSql()` + `applySchema()`, derived from the live Drizzle schema in FK-respecting order; replaces four hand-rolled DDL blocks across `pulse/db` and `pulse/api` tests; drift-guard regression test in `pulse/db/tests/testing.test.ts`
 - [ ] Verified-organisation tier (Phase 2): org accounts can run events over `MAX_EVENT_GUESTS` (1000) via per-event support flow
 
@@ -133,7 +133,7 @@ Token-verification core (audience enforced inside the single `jwtVerify` pass, E
 
 ## Zap (`zap/app` + `zap/api` + `zap/db`)
 
-OSN's messaging app. Stack matches Pulse (Bun, Tauri+Solid, Elysia+Eden, Drizzle+SQLite, Effect.ts) unless a real reason emerges to diverge. Signal Protocol lives in `@osn/crypto`, not `zap/`.
+OSN's messaging app. Stack matches Pulse (Bun, Tauri+Solid, Elysia+Eden, Drizzle+SQLite, Effect.ts) unless a real reason to differ emerges. Signal Protocol lives in `@osn/crypto`, not `zap/`.
 
 ### M0 — Scaffold (remaining)
 
@@ -211,7 +211,7 @@ Wedding-invite stack merged from cire.git (2026-06). Cire-internal feature work 
 - [x] **Host-preview RSVP is an interactive no-op** — the organiser host preview's RSVP was greyed out (`disabled` in preview mode); it's now fully interactive with submit short-circuited to a no-op + a "nothing you send here is saved" banner (`RsvpModal` `preview` prop). Lets a host feel the guest flow without writing RSVP data. See [[cire-landing]].
 - [ ] Pulse event-feed integration — surface cire weddings in Pulse's discovery/feed. Blocked on the mechanism decision (ARC-token pull from `cire/api` vs push-on-publish into `pulse/db`) — see Deferred Decisions.
 - [x] **Co-host roles (editor/viewer)** — `wedding_hosts.role` + `weddingEditor()` gate + the roles capability matrix shipped 2026-07-12 (cire platform Phase 0 PR 2; migration `0031`). See [[cire-auth]]. (Moved to [[changelog/completed-features]].)
-- [ ] Guest claim-code → optional OSN account linking (frontend) — backend shipped; the guest-site "link my Pulse account" affordance remains (guests stay deliberately account-free — see [[cire-auth]]).
+- [ ] Guest claim-code → optional OSN account linking (frontend) — backend shipped; the guest-site "link my Pulse account" control is still to build (guests stay deliberately account-free — see [[cire-auth]]).
 - [x] **IB-S-L1 / colour-allowlist duplication (#152)** — single source of truth factored into the new zero-dependency `@cire/theme` package (`isSafeCssColor`); `cire/api` (write-time) and `cire/web` (render-time) both import it, so the CSS-injection-safe guarantee can't drift — see [[cire]]. (Moved to [[changelog/security-fixes]].)
 
 ---
@@ -416,6 +416,13 @@ eligible under the Digital ID Act 2024.
 
 ## Platform
 
+### Docs / wiki
+
+- [ ] Fix the wiki drift found by the 2026-07-22 writing-rules pass. The copy-edit changed prose only, so about 25 factual contradictions were flagged and left in place — the full list is in the pull request body. The worst: `[[production-deploy]]` §5.3–5.4 still deploys `cire/web` as a Pages project on the apex; `[[observability-setup]]` and `[[rate-limit-incident]]` still assume the Bun/Node stack that the Workers migration replaced; `[[monorepo-structure]]` says four top-level directories and "SQLite (migrating to Supabase)"; `[[component-library]]` deprecates `bx()` and still tells you to use it; `[[email]]`, `[[passkey-primary]]` and `[[subprocessors]]` disagree about whether Resend or Cloudflare Email Service is live
+- [ ] Delete or redirect `wiki/apps/landing.md` — it documents `@osn/landing` as unbuilt with the deploy target undecided, which `[[osn-landing]]` contradicts in full
+- [ ] Reconcile the duplicate finding IDs in this file (C-L4, C-L5, C-L6, S-L23 each appear on two or three rows) and the eight items recorded as both shipped and open
+- [ ] Run the same writing-rules pass over `cire/wiki/` (30 pages, ~62k words) — the 2026-07-22 pass covered only the root `wiki/` tree
+
 ### Pulse events API (`pulse/api`)
 
 - [ ] Batch status-transition `UPDATE`s in `listEvents`/`listTodayEvents` (currently N individual writes)
@@ -502,7 +509,7 @@ Phases 1–3 complete (abstraction layer, `@shared/redis` package, wire-up). Det
 
 ## Security Backlog
 
-Open findings only. Completed fixes archived in [[changelog/security-fixes]].
+Open findings only. Completed fixes move to [[changelog/security-fixes]].
 
 ### High
 
@@ -572,7 +579,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 
 ### Low
 
-- [ ] S-L (esbuild-dev-read, 2026-07-21 dependency review) — low advisory `GHSA-g7r4-m6w7-qqqr`: `esbuild >=0.27.3 <0.28.1` (resolved 0.27.7 via the root override floor `^0.27.0`) allows arbitrary file read when running the **dev server on Windows**. Not raised to `^0.28.1` deliberately: wrangler pins `esbuild 0.27.3` exactly and forcing a different minor onto its Worker bundler risks deploy breakage, while the exposure is Windows-only + local-dev-only (this repo deploys from Linux CI to Workers; vite 8 no longer uses esbuild at all — and the vulnerable `--serve` path is exercised by nothing in this toolchain: wrangler bundles then serves via workerd, drizzle-kit/tsx use transform APIs; prep-pr security review 2026-07-21 confirmed unreachable). Below the `--audit-level=high` push gate. Note `astro@7.1.1` already declares `esbuild ^0.28.0`, so the override is what clamps astro below the fix — the drop-trigger is **wrangler-only**: raise the floor to `^0.28.1` once wrangler ships an esbuild ≥0.28.1 pin, then prune per the `lefthook.yml` override policy.
+- [ ] S-L (esbuild-dev-read, 2026-07-21 dependency review) — low advisory `GHSA-g7r4-m6w7-qqqr`: `esbuild >=0.27.3 <0.28.1` (resolved 0.27.7 via the root override floor `^0.27.0`) allows arbitrary file read when running the **dev server on Windows**. Not raised to `^0.28.1` deliberately: wrangler pins `esbuild 0.27.3` exactly and forcing a different minor onto its Worker bundler risks deploy breakage. The exposure is Windows-only + local-dev-only (this repo deploys from Linux CI to Workers; vite 8 no longer uses esbuild — and the vulnerable `--serve` path is exercised by nothing in this toolchain: wrangler bundles then serves via workerd, drizzle-kit/tsx use transform APIs; prep-pr security review 2026-07-21 confirmed unreachable). Below the `--audit-level=high` push gate. Note `astro@7.1.1` already declares `esbuild ^0.28.0`, so the override is what clamps astro below the fix — the drop-trigger is **wrangler-only**: raise the floor to `^0.28.1` once wrangler ships an esbuild ≥0.28.1 pin, then prune per the `lefthook.yml` override policy.
 - [ ] S-L (native-binding-scopes, 2026-07-21 prep-pr security review) — astro 7 swaps the pure-JS `@astrojs/markdown-remark` chain (~70 packages) for native-binary pipelines: `satteri` (pre-1.0) + `@bruits/satteri-*`, `@astrojs/compiler-rs` bindings, and `rolldown` + `@rolldown/binding-*` (via vite 8). Verified 2026-07-21: zero install scripts, npm integrity pins, wasm fallbacks, `minimumReleaseAge=3d` applies, and no site renders markdown so satteri is inert at runtime. Awareness only — fold these publisher scopes into the C-M7 CI dependency-scan when it lands. See [[compliance/soc2]].
 - [ ] S-L2 (rotation-race-attribution, 2026-07-20 prep-pr security review of PR #289) — the new `osn.auth.session.rotation_race` counter (benign concurrent/retried refresh grants tolerated within `ROTATION_GRACE_MS`) has no per-account attribution, so a deliberate `/token` hammer with a rotated token (each attempt still fails closed) is indistinguishable from normal multi-tab usage in metrics. Not exploitable (no escalation — every such grant fails). Observability hardening only: alert on absolute `rotation_race` rate + the `family_revoked : rotation_race` ratio, and lean on existing per-IP/per-account `/token` rate limiting. Adding accountId/familyId attributes would violate bounded-cardinality + PII-redaction rules. See [[sessions]]. (S-L1 same review = accepted grace-window theft-signal tradeoff, documented in [[sessions]], no action.)
 - [x] S-L (export-passkey-user-id, 2026-07-08 prep-pr review of C-H1) — `GET /account/export`'s `account` section emits `passkeyUserId`. **Decision: keep as spec'd** (2026-07-08). It matches the explicit `[[compliance/dsar]]` field list, is not a P6 violation (it is not `accountId`, and it is the owner's own data), and is an opaque WebAuthn user-handle rather than a cross-service identifier. Accepted-risk (data-minimisation nit, not a leak). `osn/api/src/services/account-export.ts`.
@@ -663,7 +670,7 @@ Open findings only. Completed fixes archived in [[changelog/security-fixes]].
 
 ## Performance Backlog
 
-Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
+Open findings only. Completed fixes move to [[changelog/performance-fixes]].
 
 ### Warning
 
@@ -758,7 +765,7 @@ Open findings only. Completed fixes archived in [[changelog/performance-fixes]].
 
 ## Compliance Backlog
 
-Open compliance findings only. Closed items will be archived in a future `wiki/changelog/compliance-fixes.md` (created on first close). See `[[compliance/index]]` for the programme overview and `[[compliance/scope-matrix]]` for the in-scope-laws map. ID format documented in `[[review-findings]]`.
+Open compliance findings only. Closed items move to a future `wiki/changelog/compliance-fixes.md`, which we create on the first close. See `[[compliance/index]]` for the programme overview and `[[compliance/scope-matrix]]` for the in-scope-laws map. `[[review-findings]]` documents the ID format.
 
 ### High
 
@@ -834,7 +841,7 @@ Open compliance findings only. Closed items will be archived in a future `wiki/c
 
 ## Auth Improvements (Copenhagen Book Audit)
 
-Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenhagenbook.com/) by pilcrowonpaper. Organised in priority phases.
+Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenhagenbook.com/) by pilcrowonpaper. The phases below run in priority order.
 
 ### Phase 1 — Session Revocation (Critical)
 - [x] C1: Server-side session table in `osn/db` — store hashed refresh tokens, enable revocation — see [[identity-model]]
@@ -868,7 +875,7 @@ Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenha
 | Decision | Context | Revisit When |
 |----------|---------|--------------|
 | Social media platform name | Need a catchy name | Before starting Phase 3 |
-| CI lint gate: deny warnings? | 2026-07-03 quality review drove oxlint 463 → 21 warnings; the 21 survivors are the deliberately-warn jsx-a11y set (native `<dialog>`/`<progress>`/`<output>` refactors that change behaviour). `--deny-warnings` in CI would stop future drift but makes "warn" mean "error" — either fix/waive the a11y set first or keep warnings advisory | Next time lint drift is noticed, or when the a11y items are actioned |
+| CI lint gate: deny warnings? | 2026-07-03 quality review drove oxlint 463 → 21 warnings; the 21 survivors are the deliberately-warn jsx-a11y set (native `<dialog>`/`<progress>`/`<output>` refactors that change behaviour). `--deny-warnings` in CI would stop future drift but makes "warn" mean "error" — either fix/waive the a11y set first or keep warnings advisory | Next time lint drift is noticed, or when the a11y items are done |
 | Signal vs MLS for Zap group chats — see [[zap]] | Sender-keys is simpler; MLS scales past ~50 members. **Hard constraint either way:** hybrid PQ KEM (classical + ML-KEM-768) — messages are durable and HNDL-exposed | Before Zap M2 |
 | Zap media storage (images / voice / video) | Needs E2E-friendly blob storage; SQLite-only won't cut it | When Zap M2 lands |
 | Effect.ts adoption | Trial underway in `pulse/api` | After more service coverage |
@@ -900,12 +907,12 @@ Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenha
 
 ### Decided this session (2026-06-18) — recorded, no longer open
 
-- **Email provider → degraded-for-now.** osn-api ships with **no** Cloudflare Email Service creds and `OSN_EMAIL_OPTIONAL=true` (no-op transport). The provider choice (Resend / SendGrid / Postmark / SES at the Worker level) is parked until email is actually re-enabled — see [[email]]. Redis provider likewise **decided: Upstash** (`ap-southeast-2`, C-M18) — see [[redis]].
+- **Email provider → degraded-for-now.** osn-api ships with **no** Cloudflare Email Service creds and `OSN_EMAIL_OPTIONAL=true` (no-op transport). The provider choice (Resend / SendGrid / Postmark / SES at the Worker level) is parked until email is re-enabled — see [[email]]. Redis provider likewise **decided: Upstash** (`ap-southeast-2`, C-M18) — see [[redis]].
 - **Production domain → `cireweddings.com`** (guest apex / `app.` / `api.` / `id.`; passkey RP ID `cireweddings.com`) — #149.
 - **Maps approach → Google Maps Embed** (key-optional, CSS-card fallback) — #146.
 - **WAF vs own rate limiter → keep the app limiter.** The Cloudflare Free WAF (1 rule, 10s window) can't replace the app's per-IP/per-user limiters; WAF is reserved for coarse edge defence. Free dashboard hardening steps documented in [[free-tier-limits]].
 - **osn-api topology → single Worker** (split + service-bindings/Access "VPC" evaluated and **deferred**); osn-api runs as one Worker on `id.cireweddings.com`.
-- **Cire test idiom** → unblocked by the Hono → Elysia migration (2026-06-12); cire follows the platform `it.effect` + `createTestLayer()` convention going forward.
+- **Cire test idiom** → unblocked by the Hono → Elysia migration (2026-06-12); cire now follows the platform `it.effect` + `createTestLayer()` convention.
 
 ---
 

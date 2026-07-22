@@ -10,7 +10,7 @@ related:
   - "[[feature-checklist]]"
 packages: ["@shared/observability", "@osn/api", "@pulse/api", "@shared/crypto"]
 finding-ids: [S-C1, S-C2, S-C3]
-last-reviewed: 2026-07-03
+last-reviewed: 2026-07-22
 ---
 
 # Metrics
@@ -33,7 +33,7 @@ Follow [OTel semantic conventions](https://opentelemetry.io/docs/specs/semconv/g
 
 ## Default resource attributes
 
-Applied to every metric by the SDK init, never set per-call:
+The SDK init applies these to every metric. Never set them per call.
 
 | Attribute | Example |
 |-----------|---------|
@@ -45,7 +45,7 @@ Applied to every metric by the SDK init, never set per-call:
 
 ## Single-definition-site rule
 
-Every metric is declared **exactly once**, in a `metrics.ts` file co-located with its domain:
+Declare every metric **exactly once**, in a `metrics.ts` file that sits with its domain:
 
 | File | Scope |
 |------|-------|
@@ -57,7 +57,7 @@ Every metric is declared **exactly once**, in a `metrics.ts` file co-located wit
 Each file exports:
 
 1. An **`OSN_METRICS`** (or `PULSE_METRICS`, `ARC_METRICS`, etc.) const object of metric name strings -- the single source of truth, grep-able, refactor-safe.
-2. **Typed counter/histogram instances** built via `createCounter<Attrs>(...)` from `@shared/observability/metrics/factory`. The `Attrs` generic pins the allowed attribute keys at declaration -- TypeScript rejects any caller passing an unknown key, so cardinality footguns become compile errors.
+2. **Typed counter/histogram instances** built via `createCounter<Attrs>(...)` from `@shared/observability/metrics/factory`. The `Attrs` generic pins the allowed attribute keys at declaration -- TypeScript rejects any caller that passes an unknown key, so cardinality mistakes become compile errors.
 3. Optionally, small **wrapper functions** for common call sites (`metricLoginAttempt(method, result)`) so the call site reads as a verb, not a `.inc()`.
 
 ## Per-metric attribute rules
@@ -84,7 +84,7 @@ When an attribute value comes from user input or a runtime registry whose set ca
 
 ### Route attributes default to a fixed sentinel (S-C1)
 
-HTTP-style route labels must never be set from a raw URL path. The shared Elysia plugin defaults `http.route` to `"unmatched"` and only overwrites it with Elysia's matched route template in `onAfterHandle`. Any request that short-circuits before then (404, body validation failure) records as `unmatched`, not as a raw attacker-controlled path.
+Never set HTTP-style route labels from a raw URL path. The shared Elysia plugin defaults `http.route` to `"unmatched"` and only overwrites it with Elysia's matched route template in `onAfterHandle`. Any request that short-circuits before then (404, body validation failure) records as `unmatched`, not as a raw attacker-controlled path.
 
 ## Canonical code examples
 

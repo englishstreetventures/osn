@@ -11,21 +11,21 @@ packages:
   - "@osn/client"
   - "@osn/ui"
   - "@cire/organiser"
-last-reviewed: 2026-07-03
+last-reviewed: 2026-07-22
 ---
 
 # Passkey-Primary Login
 
 OSN accepts exactly one primary login factor: a WebAuthn credential — either a
 platform passkey (Face ID / Touch ID / Windows Hello / Android screen lock)
-or a roaming security key (FIDO2 Yubikey etc.). OTP and magic-link primary
-login have been removed; OTP survives as the step-up and email-change
-verification factor.
+or a roaming security key (FIDO2 Yubikey etc.). We removed OTP and magic-link
+primary login; OTP survives as the step-up and email-change verification
+factor.
 
 ## Account-level invariant
 
 **Every live account has ≥1 WebAuthn credential at all times.** The invariant
-holds cradle-to-grave:
+holds from registration to deletion:
 
 - **Registration.** `/register/complete` returns a session, but the UI
   refuses to dismiss the registration flow until `/passkey/register/complete`
@@ -34,7 +34,7 @@ holds cradle-to-grave:
   drop the account below 1 passkey (`osn/api/src/services/auth/passkey-management.ts`). Recovery
   codes are NOT a substitute credential — they are the "my device is gone"
   escape hatch only.
-- **Rotation.** Users who want to remove a compromised passkey enroll the
+- **Rotation.** Users who want to remove a compromised passkey enrol the
   replacement first via Settings → Security → "Add passkey", then delete
   the old one. The add-passkey flow is step-up gated (passkey or OTP AMR)
   so a stolen access token can't silently bind a new authenticator — see
@@ -59,9 +59,9 @@ UI surface (`@osn/ui/auth`):
   to `<RecoveryLoginForm>`. Feature-detects `browserSupportsWebAuthn()`; when
   false, shows a "passkey or security key required" screen that still lets
   the user enter a recovery code.
-- `<Register>` — WebAuthn-gated. Registration is blocked at the start if the
-  environment lacks WebAuthn support; completion is blocked until first-
-  credential enrollment succeeds.
+- `<Register>` — WebAuthn-gated. The flow stops at the start if the
+  environment lacks WebAuthn support, and completion stays blocked until
+  first-credential enrolment succeeds.
 - `<PasskeysView>` (`@osn/ui/auth/PasskeysView`) — Settings → Security
   surface. Lists the account's credentials; supports rename (step-up
   gated, S-M2), delete (last-passkey guarded), and **Add passkey** (step-up
@@ -91,7 +91,7 @@ UI surface (`@osn/ui/auth`):
 ## New-device onboarding
 
 Getting onto a brand-new device that holds no passkey yet does **not** use a
-bespoke OSN flow — it reuses what already exists, surfaced as UI copy in the
+custom OSN flow — it reuses what already exists, surfaced as UI copy in the
 `<PasskeysView>` help disclosure and the WebAuthn-unsupported `<SignIn>`
 screen:
 
@@ -130,7 +130,7 @@ with a second factor (UV = PIN, biometric, or device unlock).
 
 `/passkey/register/begin` requires a fresh step-up token (`X-Step-Up-Token`
 header or `step_up_token` body field; webauthn or otp AMR) when the account
-already has ≥1 passkey. First-passkey enrollment (bootstrap) bypasses the
+already has ≥1 passkey. First-passkey enrolment (bootstrap) bypasses the
 gate because no step-up ceremony is reachable before the account has any
 credentials. This closes the "stolen access token → silent authenticator
 binding" vector that the enrollmentToken deletion otherwise opened.
@@ -164,10 +164,10 @@ binding" vector that the enrollmentToken deletion otherwise opened.
 Unchanged contract: `POST /login/recovery/complete` returns a session
 directly. The user can immediately add a new passkey from the authenticated
 state. This is the one place the account-level invariant sees a "temporary"
-relaxation: a recovery-login session whose user deleted their old passkey
-on a different device before the recovery would technically have access
-via only recovery codes — but because `deletePasskey` itself refuses to
-leave 0, that state is unreachable in normal operation.
+relaxation. A user who deleted their old passkey on another device before
+the recovery would technically hold an account backed by recovery codes
+alone. Because `deletePasskey` refuses
+to leave 0 passkeys, that state is unreachable in normal operation.
 
 ## Enumeration safety (S-M1)
 

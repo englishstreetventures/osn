@@ -17,12 +17,12 @@ related:
   - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-07-21
+last-reviewed: 2026-07-22
 ---
 
 # Cire
 
-Cire is a bespoke digital wedding invite — a tactile, animated guest-facing site plus an organiser portal for managing the guest list via spreadsheet import. It started life as a standalone repo (`cire.git`) and was merged into the OSN monorepo as a sibling workspace (`cire/*`, first in the root `workspaces` array). The data model is already multi-tenant (a `weddings` root table) so the bespoke build can platformise later without a schema rewrite.
+Cire is a digital wedding invite: an animated guest-facing site plus an organiser portal that manages the guest list by spreadsheet import. It began as a standalone repo (`cire.git`) and moved into the OSN monorepo as a sibling workspace (`cire/*`, first in the root `workspaces` array). The data model is already multi-tenant (a `weddings` root table), so the build can grow into a platform later without a schema rewrite.
 
 ## Packages
 
@@ -38,26 +38,26 @@ Note: `@cire/api` runs Elysia with `aot: false` — Elysia's ahead-of-time compi
 
 ## Auth model (summary)
 
-Two deliberately separate systems — full contract in [[cire-auth]]:
+Two separate systems by design — full contract in [[cire-auth]]:
 
-- **Guests** never become OSN account holders. A family claim code (`families.public_id`, e.g. `SHARMA-IVY-QM42`) is exchanged at `POST /api/claim` for a 256-bit session token (SHA-256-hashed at rest), carried in a 30-day HttpOnly `cire_session` cookie. `sessionAuth()` gates `/api/rsvp`.
-- **Organisers** sign in with their OSN passkey (via `@osn/client` + `@osn/ui` on the portal), or create a new OSN account inline — the portal's `SignInPanel` toggles between the `<SignIn>` and `<Register>` flows, so an organiser without an account never has to leave to register (the account is still created on OSN, not cire). **Any logged-in OSN user is a first-class organiser** (the old bootstrap-owner 503 gate is gone — #156, see below). `cire/api` verifies the resulting ES256 access JWT (`aud: "osn-access"`) against the OSN issuer's JWKS using `osnAuth()` from `@shared/osn-auth-client`; per-wedding authorization is enforced by two gates against `weddings.owner_osn_profile_id` + the `wedding_hosts` table — `weddingOwner()` (owner-only, destructive/management routes) and `weddingMember()` (owner **or** co-host, dashboard reads). Full contract in [[cire-auth]].
-- **Multiple weddings + co-hosts** — an organiser lists / selects / creates weddings (`GET`/`POST /api/organiser/weddings`, #147); every wedding-scoped route carries an explicit `:weddingId` (the import routes were rescoped from global to `/api/organiser/weddings/:weddingId/import/*`). Co-hosts are added **by OSN handle** (#148): `cire/api` resolves the handle via an ARC-gated osn-api `GET /graph/internal/profile-by-handle` call and writes a `wedding_hosts` row; co-hosts get the read dashboard via `weddingMember()` but nothing destructive.
+- **Guests** never become OSN account holders. A guest exchanges a family claim code (`families.public_id`, e.g. `SHARMA-IVY-QM42`) at `POST /api/claim` for a 256-bit session token (SHA-256-hashed at rest), carried in a 30-day HttpOnly `cire_session` cookie. `sessionAuth()` protects `/api/rsvp`.
+- **Organisers** sign in with their OSN passkey (via `@osn/client` + `@osn/ui` on the portal), or create a new OSN account inline — the portal's `SignInPanel` switches between the `<SignIn>` and `<Register>` flows, so an organiser without an account never has to leave to register (the account is still created on OSN, not cire). **Any logged-in OSN user is a full organiser** (the old bootstrap-owner 503 gate is gone — #156, see below). `cire/api` verifies the resulting ES256 access token (`aud: "osn-access"`) against the OSN issuer's JWKS using `osnAuth()` from `@shared/osn-auth-client`. Two checks enforce per-wedding authorisation against `weddings.owner_osn_profile_id` + the `wedding_hosts` table: `weddingOwner()` (owner-only, destructive/management routes) and `weddingMember()` (owner **or** co-host, dashboard reads).
+- **Multiple weddings + co-hosts** — an organiser lists / selects / creates weddings (`GET`/`POST /api/organiser/weddings`, #147); every wedding-scoped route carries an explicit `:weddingId` (the import routes were rescoped from global to `/api/organiser/weddings/:weddingId/import/*`). An organiser adds co-hosts **by OSN handle** (#148): `cire/api` resolves the handle via an ARC-gated osn-api `GET /graph/internal/profile-by-handle` call and writes a `wedding_hosts` row; co-hosts get the read dashboard via `weddingMember()` but nothing destructive.
 - **Optional guest account linking** (backend shipped; frontend deferred) — an invitee may attach their seat to an OSN/Pulse account. `POST /api/account/link` is the one dual-credential route (guest cookie + OSN token); it resolves the profile to an account id over ARC and writes `guest_account_links`. Full contract + the 401/dual-credential nuances in [[cire-auth]].
 
 ## Guest + organiser features (this session)
 
-- **Per-section invite theming (#152)** — organisers theme each invite section with a bounded set of fonts + colours (migration `0014`). The allowlist is CSS-injection-safe: only known font keys and validated colour values reach the rendered styles, so a malicious value can't break out into arbitrary CSS. The colour validator's single source of truth is the zero-dependency `@cire/theme` package (`isSafeCssColor`) — `cire/api` validates at write time and `cire/web` re-checks at render time from the same definition (IB-S-L1, fixed 2026-07-03). A shared **scoped token bridge** (`sectionTokenBridge`, 2026-07-09) re-points the guest site's Tailwind tokens at the validated `--invite-*` vars per section, so the theme reaches every descendant (event-card buttons, hover states, the RSVP/details modals) — closing the reported "details theme only changed the header" gap. Migration `0028` made the last hardcoded guest-facing copy editable (events-section eyebrow/heading + the post-claim welcome greeting), and the guest tab `<title>` follows the couple's hero title. Full contract in `cire/wiki/architecture/invite-builder.md`.
+- **Per-section invite theming (#152)** — organisers theme each invite section with a bounded set of fonts + colours (migration `0014`). The allowlist is CSS-injection-safe: only known font keys and validated colour values reach the rendered styles, so a malicious value can't break out into arbitrary CSS. The colour validator's single source of truth is the zero-dependency `@cire/theme` package (`isSafeCssColor`) — `cire/api` validates at write time and `cire/web` re-checks at render time from the same definition (IB-S-L1, fixed 2026-07-03). A shared **scoped token bridge** (`sectionTokenBridge`, 2026-07-09) re-points the guest site's Tailwind tokens at the validated `--invite-*` vars per section, so the theme reaches every descendant (event-card buttons, hover states, the RSVP/details modals). This fixed the reported "details theme only changed the header" bug. Migration `0028` made the last hardcoded guest-facing copy editable (events-section eyebrow/heading + the post-claim welcome greeting), and the guest tab `<title>` follows the couple's hero title. Full contract in `cire/wiki/architecture/invite-builder.md`.
 - **Google Maps Embed preview (#146)** — venue/location previews use the Maps Embed API, key-optional with a CSS-card fallback when no key is set (same graceful-degradation pattern as Turnstile and the optional email).
 - **Turnstile bot protection (#154)** — guest claim + RSVP (and the organiser-portal OSN register/login) are gated by Cloudflare Turnstile, key-optional + fail-closed; **inert until a widget is created**. See [[turnstile]].
-- **Organiser Security / Devices section (#155)** — the portal's `SecurityPanel` mounts `@osn/ui`'s `PasskeysView` to list / add / rename / remove passkeys, with passkey-only step-up (the `passkeyOnly` flag on `StepUpDialog`). OTP step-up is suppressed because the deployed osn-api runs with email degraded ([[email]]), so an OTP couldn't be delivered; new-device help points at synced/backed-up passkeys, the cross-device QR ceremony, or a recovery code. See [[passkey-primary]], [[sessions]].
+- **Organiser Security / Devices section (#155)** — the portal's `SecurityPanel` mounts `@osn/ui`'s `PasskeysView` to list / add / rename / remove passkeys, with passkey-only step-up (the `passkeyOnly` flag on `StepUpDialog`). The portal suppresses OTP step-up because the deployed osn-api runs with email degraded ([[email]]), so it could not deliver an OTP. New-device help points at synced/backed-up passkeys, the cross-device QR ceremony, or a recovery code. See [[passkey-primary]], [[sessions]].
 
 ## Data model
 
 - `weddings` is the root table; `families`, `events`, and `imports` carry a `wedding_id` NOT NULL FK (cascade). Multiple weddings per organiser are live (#147) — there is no longer a single seeded wedding.
 - `weddings.owner_osn_profile_id` stores the owning OSN profile id as an opaque `usr_*` string — **no cross-DB FK** (cire's D1 and OSN's DB are separate databases). `wedding_hosts(wedding_id, osn_profile_id, …)` (#148) records co-hosts; unique per `(wedding_id, osn_profile_id)`. Owner + co-hosts are the `weddingMember()` set.
 - `guest_account_links` records the optional per-invitee OSN link: `guest_id`/`family_id`/`wedding_id` (cascade FKs) + opaque `osn_account_id` / `osn_profile_id` (no cross-DB FK). See [[cire-auth]].
-- **No bootstrap owner / no boot gate (#156).** Earlier builds seeded a demo wedding `wed_bootstrap` and gated the whole Worker on a `BOOTSTRAP_OWNER_PROFILE_ID` env var (`ensureBootstrapOwner` threw → 503 in any deployed tier until a real `usr_*` owner was set). That entire mechanism is **removed**: migration `0015_drop_bootstrap_wedding.sql` deletes the demo wedding, the env var + `ensureBootstrapOwner` + `resolveBootstrapOwnerProfileId` are gone, and a freshly signed-in account simply gets `GET /api/organiser/weddings → 200 {weddings: []}` and creates its first wedding. (Migration `0006_multi_tenant.sql` still uses the deliberate `__keep_*` snapshot/restore idiom for the multi-tenant scaffold — DROP TABLE under enforced FKs fires ON DELETE CASCADE into children on D1, verified empirically.)
+- **No bootstrap owner / no boot gate (#156).** Earlier builds seeded a demo wedding `wed_bootstrap` and gated the whole Worker on a `BOOTSTRAP_OWNER_PROFILE_ID` env var (`ensureBootstrapOwner` threw → 503 in any deployed tier until a real `usr_*` owner was set). That entire mechanism is **removed**: migration `0015_drop_bootstrap_wedding.sql` deletes the demo wedding, the env var + `ensureBootstrapOwner` + `resolveBootstrapOwnerProfileId` are gone, and a freshly signed-in account gets `GET /api/organiser/weddings → 200 {weddings: []}` and creates its first wedding. (Migration `0006_multi_tenant.sql` still uses the `__keep_*` snapshot/restore pattern for the multi-tenant scaffold — DROP TABLE under enforced FKs fires ON DELETE CASCADE into children on D1, verified by testing.)
 
 ## Local dev
 
@@ -86,8 +86,8 @@ CIRE_DEV_OWNER_PROFILE_ID=usr_<your-osn-profile-id>
 The `cire/api` dev server (`local.ts`) seeds the same owner into its own
 **in-memory** DB (not the persistent D1), so `bun run dev:cire` shows a wedding
 under your account without a separate seed step. (Since #156 removed the
-bootstrap-owner re-point machinery, the dev seed simply *creates* a wedding for
-your profile rather than re-pointing a sentinel-owned demo row.) Both paths are
+bootstrap-owner re-point machinery, the dev seed *creates* a wedding for your
+profile rather than re-pointing a sentinel-owned demo row.) Both paths are
 dev-only — neither runs in the deployed Worker (entry `src/index.ts`).
 `cire/db` drizzle.config points `db:studio` at the local D1 sqlite (override via
 `CIRE_DATABASE_URL`; the content-hashed path changes on `db:reset`).
@@ -121,15 +121,14 @@ Cire keeps its own knowledge graph: `cire/CLAUDE.md` is the AI entry point and `
 
 ## Marketing site + platform roadmap
 
-The apex `cireweddings.com` is being given a dedicated **marketing site**,
-`@cire/landing` — a static Astro brochure that opens with a wax-seal "unveil" and
-markets the invite product (full design + deploy/migration plan in
-[[cire-landing]]). The end-state packaging is three clean concerns on three
-hosts: marketing (apex) · invites (`invite.cireweddings.com`) · organiser
-(`host.cireweddings.com`).
+The apex `cireweddings.com` gets its own **marketing site**, `@cire/landing` — a
+static Astro brochure that opens with a wax-seal "unveil" and sells the invite
+product (full design + deploy/migration plan in [[cire-landing]]). The end state
+is three concerns on three hosts: marketing (apex) · invites
+(`invite.cireweddings.com`) · organiser (`host.cireweddings.com`).
 
-Longer term, the ambition is to grow the organiser portal into a full wedding
-**management platform** (withjoy-class): guests + events promoted to
+Longer term, the plan is to grow the organiser portal into a full wedding
+**management platform** on the scale of withjoy.com: guests + events promoted to
 invite-independent sources of truth (the invite becomes one module), vendor
 discovery with availability + location search, context-aware pricing estimates,
 budget, checklist, seating, and guest comms. The multi-tenant `weddings` root
@@ -147,12 +146,12 @@ exists**: architecture + schema sketches in
 
 ## Vendor enquiries (S4)
 
-Cire acts as **BFF / orchestrator** for the couple ↔ vendor enquiry flow. The backend work (PR B of the Vendors S4 trilogy) wires together:
+Cire acts as **BFF / orchestrator** for the couple ↔ vendor enquiry flow. The backend work (PR B of the three-part Vendors S4 series) wires together:
 
 - **`vendor_enquiries` table** (migration `0042`) — links a wedding to a directory listing with a state machine (`open` / `replied` / `quoted` / `closed`), a `quoted_minor` column mirrored to the couple's CRM on quote, a transient `pending_body` for the first message buffered before the vendor claims, and a `lead_forward_email` for forwarding the lead to the vendor's inbox.
 - **c2b thread in Zap** — once the vendor's listing is claimed (or immediately if already claimed), cire-api provisions a Zap c2b (`class: 'c2b'`) chat thread via an outbound ARC call using scope `chat:c2b` / audience `zap-api`. All subsequent messages (couple reply, vendor reply, vendor quote) are posted to this thread via `@zap/api`'s internal routes and read back by cire-api for the frontend.
 - **Claimed / unclaimed buffer → flush-on-claim** — if the vendor has not yet claimed the listing when a couple opens an enquiry, the first-message text is held in `pending_body` and a lead-forward email is sent to `lead_forward_email`. On claim (`enquiryService.onVendorClaimed`), buffered enquiries are flushed: the Zap c2b thread is created, `pending_body` is forwarded as the first message, and the field is cleared.
-- **Quote → Budget** — when a vendor replies with a structured quote (`POST /api/vendor/enquiries/:id/messages` with a `quote` body), cire-api writes `vendor_enquiries.quoted_minor` and also copies the amount to `vendors.quoted_minor` in the couple's per-wedding CRM, making it available to the Budget module (planned PR C+).
+- **Quote → Budget** — when a vendor replies with a structured quote (`POST /api/vendor/enquiries/:id/messages` with a `quote` body), cire-api writes `vendor_enquiries.quoted_minor` and also copies the amount to `vendors.quoted_minor` in the couple's per-wedding CRM, which makes it available to the Budget module (planned PR C+).
 - **Per-user spam limiter** — the couple-side `POST /enquiries` and vendor-side `POST /enquiries/:id/messages` (reply / quote) run through a per-user rate limiter to prevent spam across enquiries.
 - **Not E2E encrypted** — the c2b thread is server-visible (not end-to-end encrypted). A disclosure notice for guests/vendors is planned for PR C.
 

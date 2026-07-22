@@ -19,7 +19,7 @@ related:
 packages:
   - "@pulse/app"
   - "@osn/ui"
-last-reviewed: 2026-04-26
+last-reviewed: 2026-07-22
 ---
 
 # Frontend Patterns
@@ -51,13 +51,13 @@ lib/ui.ts (CLOSE_FRIEND_RING_CLASS)
 
 ### The Rule
 
-When you find yourself copy-pasting the same Tailwind class list across two components, either:
+When you copy the same Tailwind class list into a second component, do one of these:
 1. **Use a Zaidan component** if the pattern is a standard UI primitive (button, card, input) — see [[component-library]]
 2. **Lift a token into `lib/ui.ts`** if the pattern is app-specific visual treatment (close-friend ring, status colours)
 
 ### Testing
 
-The `RsvpAvatar` test asserts that the constant flows to the DOM, so you can verify the linkage stays intact. This is important because a broken import or a renamed constant would silently drop the visual treatment without any runtime error.
+The `RsvpAvatar` test asserts that the constant reaches the DOM, so you can check the link stays intact. A broken import or a renamed constant would drop the visual treatment with no runtime error.
 
 ## Shared Auth Components
 
@@ -75,7 +75,7 @@ Any OSN app (Pulse, Zap, Social, future apps) imports these from `@osn/ui/auth/*
 
 ## Lazy Loading
 
-Route-level components (`EventDetailPage`, `SettingsPage`) are `lazy()`-loaded in `App.tsx` to reduce the initial bundle. Components with heavy dependencies (like `MapPreview` with Leaflet at ~150KB) dynamic-import their dependencies inside `onMount` so pages that don't need them never pay for the chunk.
+Route-level components (`EventDetailPage`, `SettingsPage`) are `lazy()`-loaded in `App.tsx` to reduce the initial bundle. Components with heavy dependencies (like `MapPreview` with Leaflet at ~150KB) dynamic-import their dependencies inside `onMount` so pages that don't need them never load the chunk.
 
 ## Source Files
 

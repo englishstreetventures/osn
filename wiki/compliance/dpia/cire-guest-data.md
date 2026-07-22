@@ -10,13 +10,13 @@ related:
   - "[[subprocessors]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-07-16
+last-reviewed: 2026-07-22
 ---
 
 # DPIA — Cire guest data
 
 A Data Protection Impact Assessment (GDPR Art. 35) for the cire
-wedding-invite app. A DPIA is triggered here because the processing
+wedding-invite app. This processing needs a DPIA because it
 involves **special-category data** (Art. 9 — dietary free-text reveals
 religion and health) about **guests at scale** who are not the controller's
 direct users, which meets the Art. 35(3) / EDPB criteria (sensitive data +
@@ -62,8 +62,8 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   to collect it and what it contains); OSN/cire is the **processor**
   providing the platform. The organiser is themselves an OSN data subject.
 - **Scale.** Per-wedding guest counts (tens to low hundreds today; multi-tenant
-  scaffold allows many weddings). Special-category data is collected from a
-  meaningful fraction of guests who RSVP.
+  scaffold allows many weddings). We collect special-category data from a
+  meaningful fraction of the guests who RSVP.
 - **Subprocessors.** Cloudflare (D1 + R2 store) and — on the guest site,
   **desktop-only and opt-in only** — Pinterest's `pinit_main.js` embed (touch
   devices get a plain link-out to Pinterest with no embed and no tracker). See
@@ -74,7 +74,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
 - **Purpose.** Catering for guests' dietary needs is a genuine, limited
   purpose of a wedding RSVP. Collecting the data is necessary to serve it.
 - **Data minimisation.** The field is optional and free-text. Free text is
-  proportionate (dietary needs are heterogeneous) but carries the risk that
+  proportionate (dietary needs vary widely) but carries the risk that
   guests volunteer more than needed (e.g. naming a medical condition). The
   form copy should ask only for dietary requirements, not reasons.
 - **Lawful basis.** Art. 6(1)(a) consent for the dietary field; the

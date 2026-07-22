@@ -5,13 +5,13 @@ related:
   - "[[index]]"
   - "[[soc2]]"
   - "[[breach-response]]"
-last-reviewed: 2026-04-26
+last-reviewed: 2026-07-22
 ---
 
 # Backup + Disaster Recovery
 
 SOC 2 Availability (A1) requires a documented backup + DR posture with
-evidence of operating effectiveness — i.e. you have done the restore
+evidence of operating effectiveness — that is, you have run the restore
 drill and it worked.
 
 ## Targets
@@ -40,8 +40,8 @@ drill and it worked.
 
 Quarterly. Documented under `wiki/compliance/dr-drills/<YYYY>-<Q>.md`.
 
-1. Pick a backup from ≥7 days ago (tests we can restore old enough).
-2. Provision a parallel environment (DB instance, Redis, services).
+1. Pick a backup from ≥7 days ago (this tests that we can restore a backup that old).
+2. Set up a parallel environment (DB instance, Redis, services).
 3. Restore from backup.
 4. Smoke-test:
    - `/health` and `/ready` return 200 on every service.
@@ -70,7 +70,7 @@ Quarterly. Documented under `wiki/compliance/dr-drills/<YYYY>-<Q>.md`.
 
 Tracked with `C-` IDs:
 
-1. **DR plan finalised** — this page is the skeleton; flesh out once Supabase target is chosen. ID: **C-M6**.
+1. **DR plan finalised** — this page is the outline; complete it once we choose the Supabase target. ID: **C-M6**.
 2. **First restore drill** — schedule for Q3 2026 (initial dry run before production traffic). ID: **C-M6** (bundled).
 3. **GitHub mirror** to a second host (Codeberg / Gitlab.com / private S3) for code-catastrophic-loss scenarios. ID: **C-L23**.
 4. **Encryption-at-rest documentation** — confirm Supabase / R2 / Redis-provider encryption-at-rest defaults; capture in [[soc2]] C1. ID: **C-L24**.

@@ -5,7 +5,7 @@ tags: [convention, reference]
 related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-07-22
 ---
 
 # CLI Commands Reference
@@ -34,7 +34,7 @@ bun run --cwd pulse/db test:run           # Pulse DB schema tests
 bun run --cwd pulse/api test              # Pulse API tests in watch mode
 ```
 
-Always use `bunx --bun vitest` instead of plain `vitest` -- the `--bun` flag is required for `bun:sqlite` module access. The `test:run` scripts in each `package.json` already include this flag.
+Always use `bunx --bun vitest` instead of plain `vitest`. The `--bun` flag is required for `bun:sqlite` module access. The `test:run` scripts in each `package.json` already include this flag.
 
 ## Code Quality
 
@@ -89,7 +89,7 @@ bunx tauri dev           # Start Tauri dev server
 bunx tauri build         # Build Tauri app for distribution
 ```
 
-Tauri apps are created via CLI (`bunx create-tauri-app`), not manually.
+Create Tauri apps with the CLI (`bunx create-tauri-app`), not by hand.
 
 ## Workspace Installs
 

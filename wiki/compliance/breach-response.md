@@ -7,7 +7,7 @@ related:
   - "[[soc2]]"
   - "[[subprocessors]]"
   - "[[runbooks/auth-failure]]"
-last-reviewed: 2026-04-26
+last-reviewed: 2026-07-22
 ---
 
 # Breach Response
@@ -31,8 +31,8 @@ What to do when a personal-data breach happens. Required by GDPR Arts.
 GDPR Art. 33: notify the supervisory authority **within 72 hours** of
 becoming aware of a personal-data breach, unless the breach is unlikely
 to result in a risk to rights and freedoms. The clock starts when we
-have reasonable certainty that a breach has occurred — investigation
-time counts.
+have reasonable certainty that a breach happened — investigation time
+counts.
 
 CCPA: notify affected California residents "in the most expedient time
 possible and without unreasonable delay". No fixed clock, but DPAs
@@ -58,7 +58,7 @@ threshold counts.
 2. Page the on-call (`#sev`).
 3. Designate Incident Commander (IC) and Scribe.
 4. Snapshot evidence: queries, log excerpts (redacted), tracer screenshots, chat threads.
-5. **Stop the bleeding** — revoke compromised tokens, rotate keys, take affected service offline if SEV-1.
+5. **Limit the damage** — revoke compromised tokens, rotate keys, take affected service offline if SEV-1.
 
 ### 1–24 hours: contain + assess
 
@@ -90,7 +90,7 @@ threshold counts.
 18. Postmortem within 7 days. Blame-free; focus on systemic prevention.
 19. Add findings to security backlog with `S-` IDs.
 20. Update wiki pages affected.
-21. Run a tabletop exercise within 30 days to validate the lesson.
+21. Run a tabletop exercise within 30 days to test the lesson.
 
 ## Incident doc template
 

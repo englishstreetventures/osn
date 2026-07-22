@@ -10,7 +10,7 @@ related:
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-07-19
+last-reviewed: 2026-07-22
 ---
 
 # Zap
@@ -21,7 +21,7 @@ Zap is OSN's end-to-end encrypted messaging app. The backend (`@zap/api`, `@zap/
 
 | Package | Purpose | Status |
 |---|---|---|
-| `@zap/api` | Elysia messaging server (port 3002) | M0 scaffolded — routes/services skeleton in place; M1 (1:1 DMs over Signal) in flight |
+| `@zap/api` | Elysia messaging server (port 3002) | M0 scaffolded — routes/services skeleton in place; M1 (1:1 DMs over Signal) in progress |
 | `@zap/db` | Drizzle + SQLite schema (chats, messages, group state) | M0 scaffolded |
 | `@zap/app` | Tauri + SolidJS messaging client | Not started |
 
@@ -53,7 +53,7 @@ The Signal Protocol implementation lives in `@shared/crypto` (alongside ARC toke
 | Signal vs MLS | Signal Protocol (1:1), MLS (group) | Likely Signal for 1:1 + MLS for groups. Hybrid PQ KEM (ML-KEM-768 + X25519) required either way — durable message ciphertext is HNDL-exposed |
 | Storage backend | Local SQLite vs server-side | E2E means the server stores ciphertext only |
 | Media handling | Direct upload, CDN, P2P | Encrypted media blobs need a delivery mechanism |
-| Spam / abuse | Content moderation on ciphertext? | E2E forecloses server-side moderation; need client-side reporting |
+| Spam / abuse | Content moderation on ciphertext? | E2E rules out server-side moderation; need client-side reporting |
 
 Tracked in the Deferred Decisions section of `wiki/TODO.md`.
 
@@ -68,11 +68,11 @@ Every chat row carries a `class` column with two values:
 | `c2c` (consumer-to-consumer) | Traditional E2E-encrypted DMs and group chats. The server stores **ciphertext only** — `messages.body` is `NULL`. Decryption happens entirely on-device using the Signal Protocol (`@shared/crypto`). | `NULL` (ciphertext in Signal payload, outside this column) |
 | `c2b` (consumer-to-business) | Conversations between a user and a business/service (e.g. a cire vendor inquiry). The business endpoint is a server-side service, not a user device, so full E2E is not applicable. `messages.body` is a **plaintext string**, visible to the server. | `TEXT NOT NULL` |
 
-The `class` column was added to `@zap/db` in the c2b PR and defaults to `'c2c'` for all existing chats, preserving the E2E invariant for all consumer messaging.
+The c2b PR added the `class` column to `@zap/db`. It defaults to `'c2c'` for all existing chats, which preserves the E2E invariant for all consumer messaging.
 
 ### Internal API surface
 
-c2b chat provisioning and messaging is exposed exclusively through **ARC-gated internal routes** — they are never reachable from user clients:
+Only **ARC-gated internal routes** expose c2b chat provisioning and messaging — a user client can never reach them:
 
 | Route | Method | Purpose |
 |---|---|---|
@@ -93,7 +93,7 @@ The DSAR account-export (`GET /account/export`) includes c2b message bodies:
 - **c2b chats**: `messages.body` (plaintext) is included in the export under the user's own messages.
 - **c2c chats**: ciphertext is still **excluded** — the server never holds the plaintext and cannot export it. The export includes c2c chat metadata (chat id, member list, timestamps) but not the encrypted payload.
 
-This distinction is by design: c2b body content is server-visible and user-attributed data that users have a right to receive under GDPR/DSAR; c2c ciphertext is opaque server-side and cannot meaningfully be exported.
+This split is by design: c2b body content is server-visible, user-attributed data that users have a right to receive under GDPR/DSAR; c2c ciphertext is opaque to the server and cannot be exported.
 
 ### CI pipeline
 
@@ -111,10 +111,10 @@ was removed). Keys are resolved from `OSN_JWKS_URL` (`zap/api/src/lib/jwks.ts`);
 `zap/api/src/index.ts` refuses to boot in a non-local env if that URL is
 plaintext `http://`.
 
-The actor's `profileId` is derived through a single chokepoint
-(`resolveProfileId` in `zap/api/src/routes/chats.ts`, AUDIT-Z2) that drops any
-verified token whose `sub` does not start with `usr_`, so a non-user principal
-can never be written into `created_by_profile_id` / `sender_profile_id`.
+A single chokepoint (`resolveProfileId` in `zap/api/src/routes/chats.ts`,
+AUDIT-Z2) derives the actor's `profileId`. It drops any verified token whose
+`sub` does not start with `usr_`, so nothing but a user principal can reach
+`created_by_profile_id` / `sender_profile_id`.
 
 The factory signature mirrors Pulse:
 `createChatsRoutes(dbLayer, jwksUrl, _testKey?, rateLimiters?)`. Route tests

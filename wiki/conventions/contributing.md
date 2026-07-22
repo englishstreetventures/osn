@@ -6,7 +6,7 @@ related:
   - "[[commands]]"
   - "[[review-findings]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-07-22
 ---
 
 # Contributing
@@ -15,27 +15,27 @@ last-reviewed: 2026-04-23
 
 ### App Scaffolding
 
-- **Tauri apps** are created via CLI (`bunx create-tauri-app`), not manually
+- Create **Tauri apps** with the CLI (`bunx create-tauri-app`), not by hand
 - Follow the existing Pulse app structure for new Tauri apps
 
 ### Technology Choices
 
 - **Effect.ts**: trial with OSN/Pulse first, then decide on broader adoption (see Deferred Decisions in TODO.md)
-- **E2E encryption everywhere**: all user-to-user communication must be encrypted end-to-end
-- **All personalization data must be user-accessible and resettable**
+- **E2E encryption everywhere**: encrypt all user-to-user communication end-to-end
+- **Personalisation data**: show it to the user, and let the user reset it
 
 ### Messaging Architecture
 
 The messaging backend (`@zap/api`) is a **shared service**:
 - Zap consumes it directly as the messaging client
 - Pulse uses it indirectly for event group chats
-- Users do not need a Zap install to participate in event group chats
+- Users do not need a Zap install to join event group chats
 
 ### Platform Priority
 
 **iOS > Web > Android**
 
-Android is deferred. iOS is the primary target for Tauri apps. Web support comes naturally from the SolidJS frontend.
+Android is deferred. iOS is the primary target for Tauri apps. Web support follows from the SolidJS frontend.
 
 ## Code Quality
 
@@ -82,7 +82,7 @@ bun run changeset
 | `"@osn/api"` | `"osn-api"` |
 | `"@shared/db-utils"` | `"db-utils"` |
 
-The Changeset Check workflow runs `bunx changeset status` to catch typos before merge. A bad package reference will pass the check but fail the Release workflow on main, blocking all subsequent versioning.
+The Changeset Check workflow runs `bunx changeset status` to catch typos before merge. A bad package reference passes the check but fails the Release workflow on main, and blocks all later versioning.
 
 ### Versioning
 

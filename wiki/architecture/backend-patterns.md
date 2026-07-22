@@ -19,12 +19,12 @@ packages:
   - "@pulse/api"
   - "@osn/api"
   - "@zap/api"
-last-reviewed: 2026-07-03
+last-reviewed: 2026-07-22
 ---
 
 # Backend Code Patterns
 
-OSN's backend follows a layered architecture: **routes** handle HTTP concerns (validation, status codes, serialization), **services** contain business logic as Effect pipelines, and **schemas** validate + transform data at each boundary. See [[schema-layers]] for the full schema separation strategy.
+OSN's backend uses a layered architecture. **Routes** handle HTTP concerns: validation, status codes, serialisation. **Services** hold business logic as Effect pipelines. **Schemas** validate and transform data at each boundary. See [[schema-layers]] for the full schema separation strategy.
 
 ## Route Layer -- Elysia TypeBox for HTTP shapes
 
@@ -50,12 +50,12 @@ export const createEventsRoutes = (dbLayer = DbLive) =>
 Key points:
 - Routes accept an optional `dbLayer` parameter for dependency injection (default is `DbLive`)
 - TypeBox stays structural -- strings stay strings (no transforms)
-- `set.status` is used explicitly for non-200 responses
-- Effect pipelines are run via `Effect.runPromise` at the route boundary
+- Handlers set `set.status` explicitly for non-200 responses
+- Routes run Effect pipelines via `Effect.runPromise` at the boundary
 
 ### Build the layer graph ONCE — never re-provide expensive layers per request
 
-`Effect.provide(layer)` **rebuilds** the layer every time the effect runs. Layer memoization is per-build, so calling `Effect.runPromise(eff.pipe(Effect.provide(someLayer)))` inside a request handler reconstructs `someLayer`'s entire resource graph on every request. For the observability layer this is severe: `makeObservabilityLayer` wraps `NodeSdk.layer` (a `BatchSpanProcessor`, OTLP trace + metric exporters, and a `PeriodicExportingMetricReader`), so each request **starts and tears down the whole OpenTelemetry SDK** — and the teardown blocks on an exporter flush (≈3s locally when no collector is listening). `DbLive` similarly opens a fresh, never-closed `bun:sqlite` connection per request.
+`Effect.provide(layer)` **rebuilds** the layer every time the effect runs. Layer memoisation is per-build, so calling `Effect.runPromise(eff.pipe(Effect.provide(someLayer)))` inside a request handler reconstructs `someLayer`'s entire resource graph on every request. For the observability layer this is severe: `makeObservabilityLayer` wraps `NodeSdk.layer` (a `BatchSpanProcessor`, OTLP trace + metric exporters, and a `PeriodicExportingMetricReader`), so each request **starts and tears down the whole OpenTelemetry SDK** — and the teardown blocks on an exporter flush (≈3s locally when no collector is listening). `DbLive` similarly opens a fresh, never-closed `bun:sqlite` connection per request.
 
 In `@osn/api` this surfaced as multi-second stalls on the debounced username-availability check. The fix: build the graph once into a long-lived `ManagedRuntime` at boot and run every request against it.
 
@@ -71,7 +71,7 @@ const { run } = makeAppRunner(appRuntime, Layer.merge(dbLayer, loggerLayer));
 const result = await run(createEvent(body));
 ```
 
-Route factories keep accepting `dbLayer` / `loggerLayer` for tests (where `makeAppRunner` wraps the test layer in a one-time `ManagedRuntime`); production threads the single shared `appRuntime` through every factory so there is exactly one OTel SDK + one DB connection process-wide. Cheap, stateless effects that need no services (e.g. JWT verification) can still use a bare `Effect.runPromise` — the rule is specifically: do not re-provide `DbLive` or the observability layer inside a hot request path.
+Route factories keep accepting `dbLayer` / `loggerLayer` for tests (where `makeAppRunner` wraps the test layer in a one-time `ManagedRuntime`); production threads the single shared `appRuntime` through every factory so there is exactly one OTel SDK + one DB connection process-wide. Cheap, stateless effects that need no services (e.g. JWT verification) can still use a bare `Effect.runPromise` — the rule is: do not re-provide `DbLive` or the observability layer inside a hot request path.
 
 As of 2026-07-03, `pulse/api` and `zap/api` route factories comply too: each factory builds `const runtime = ManagedRuntime.make(dbLayer)` once at construction time and handlers call `runtime.runPromise(eff)` — the per-request `Effect.provide(dbLayer)` pattern was removed monorepo-wide. (They build one runtime per route group rather than threading a single shared `AppRuntime` like `osn/api`; consolidating to one runtime per process is a follow-up if those services grow an observability layer.)
 
@@ -110,9 +110,9 @@ export const createEvent = (data: unknown) =>
 
 Key points:
 - `Schema.decodeUnknown` returns `Effect<A, ParseError>` -- integrates naturally with Effect pipelines
-- Errors are mapped to domain-specific tagged errors (`ValidationError`, `EventNotFound`, etc.)
+- Services map errors to domain-specific tagged errors (`ValidationError`, `EventNotFound`, etc.)
 - Services use `Effect.gen` + generator syntax for sequential Effect composition
-- Every service function should be wrapped in `Effect.withSpan("<domain>.<operation>")` for tracing
+- Wrap every service function in `Effect.withSpan("<domain>.<operation>")` for tracing
 
 ### Large services: split into a module directory
 
@@ -123,7 +123,7 @@ When a service outgrows a single file, split it into a directory of domain modul
 - One file per domain (`tokens.ts`, `passkeys.ts`, `recovery.ts`, `step-up.ts`, …). A module that needs another module's methods takes it as a factory parameter (`createTokensModule(ctx, profiles)`) and destructures what it uses — the layering stays acyclic and explicit.
 - Stateless building blocks live beside them: `errors.ts`, `types.ts` (public DTOs), `helpers.ts` (pure functions), `constants.ts` (tunables + rationale), `stores.ts` (store contracts + in-memory defaults), `config.ts`.
 
-Rules of thumb: module factories return only the methods other code calls (internals stay closed over); the composition root enumerates the public surface explicitly rather than spreading modules, so the service's API is pinned in one place.
+Two rules: module factories return only the methods other code calls (internals stay closed over); the composition root lists the public surface explicitly rather than spreading modules, so the service's API is pinned in one place.
 
 The same shape applies at the route layer — `osn/api/src/routes/auth/` splits a large route factory into one Elysia group per domain (`registration.ts`, `step-up.ts`, `sessions.ts`, …), each a `createXxxRoutes(ctx)` factory over a shared `AuthRouteContext` (`context.ts`: service instance, app runner, rate-limit / Turnstile gates, IP + cookie plumbing). `index.ts` builds the context once and mounts the groups with `.use(...)`, keeping the original `createAuthRoutes` signature and re-exports intact.
 

@@ -30,12 +30,12 @@ packages:
   - "@cire/api"
   - "@shared/rate-limit"
   - "@shared/redis"
-last-reviewed: 2026-07-03
+last-reviewed: 2026-07-22
 ---
 
 # Rate Limiting
 
-OSN uses **per-IP fixed-window rate limiting** on all auth endpoints and **per-user** limiting on graph write endpoints. Two backends are supported: **Redis** (production, cross-process) and **in-memory** (local dev fallback).
+OSN uses **per-IP fixed-window rate limiting** on all auth endpoints and **per-user** limiting on graph write endpoints. Two backends exist: **Redis** (production, cross-process) and **in-memory** (local dev fallback).
 
 ## Architecture
 
@@ -81,7 +81,7 @@ So the change **reduces but does not remove** the Upstash dependency — `UPSTAS
 
 **Tiers + keying.** The native binding's `limit`/`period` live in `wrangler.toml`, so there is one binding per request-budget tier (`RL_AUTH_IP_{5,10,20,30,60}_60`, each `simple = { limit, period = 60 }`), declared at top level **and mirrored into every named env** (named envs do NOT inherit top-level bindings). Each endpoint keeps its existing budget by mapping to the matching tier; `selectAuthRateLimiters` (`osn/api/src/lib/native-rate-limiters.ts`) namespaces the key as `"<endpoint>:" + ip` so endpoints sharing a tier never share a counter bucket. `selectAuthRateLimiters` runs **once per isolate** (inside the per-isolate-cached `buildAll`), not per request.
 
-**Per-colo trade-off (accepted).** Native rate limiting is counted **per Cloudflare colo**, not globally — a caller spread across colos sees a slightly looser effective cap. This was explicitly approved: a single attacker is pinned to one colo, and the durable brute-force guards (recovery lockout) remain on Upstash. The `namespace_id`s (2001–2005) are account-scoped — verify they're unused in the account at deploy (S-L7).
+**Per-colo trade-off (accepted).** Cloudflare counts native rate limits **per colo**, not globally — a caller spread across colos sees a slightly looser effective cap. We approved this explicitly: a single attacker stays pinned to one colo, and the durable brute-force guards (recovery lockout) remain on Upstash. The `namespace_id`s (2001–2005) are account-scoped — verify they're unused in the account at deploy (S-L7).
 
 **Observability.** `[observability]` is enabled in `wrangler.toml` (every tier) so Workers Logs/invocations are captured in the Cloudflare dashboard — interim while OTel export stays deferred on workerd (the redacting `osnLoggerLayer` is unchanged).
 
@@ -132,14 +132,14 @@ Send `maxRequests + 1` requests and assert the last returns 429.
 | Endpoint group | Max req/IP/min | Rationale |
 |----------------|----------------|-----------|
 | `/register/begin`, `/step-up/otp/begin`, `/account/email/begin` | 5 | OTP / email send — prevents email bombing |
-| `/register/complete`, `/login/passkey/begin`, `/login/passkey/complete`, `/passkey/register/{begin,complete}`, `/step-up/{passkey,otp}/complete`, `/account/email/complete`, `/handle/:handle` | 10 | Verify / complete — slightly higher to allow legitimate retries |
+| `/register/complete`, `/login/passkey/begin`, `/login/passkey/complete`, `/passkey/register/{begin,complete}`, `/step-up/{passkey,otp}/complete`, `/account/email/complete`, `/handle/:handle` | 10 | Verify / complete — higher, to allow legitimate retries |
 | `/login/recovery/complete` | 5/hr | Brute-force defence on the lost-device escape hatch |
 | `/recovery/generate` | 1/day | Stop-gap for S-M1 — flood control on a destructive action |
 | `PATCH /passkeys/:id` (rename) | 20 | Cheap settings action; label-only writes |
 | `DELETE /passkeys/:id` | 10 | Step-up is the primary gate; per-IP throttle is defence in depth |
 | `GET /passkeys` | 30 | Settings listing — cheap reads |
 
-Graph write endpoints are rate-limited at 60 requests per user per minute (S-M16). Recommendations reads (`/recommendations/connections`) are rate-limited at 20 requests per user per minute — tighter because each call runs an FOF fan-out query (S-H1/P-C2).
+Graph write endpoints allow 60 requests per user per minute (S-M16). Recommendations reads (`/recommendations/connections`) allow 20 requests per user per minute — tighter because each call runs an FOF fan-out query (S-H1/P-C2).
 
 ### Zap (`@zap/api`)
 
@@ -166,13 +166,13 @@ work.
 | `PATCH /series/:id` | 60 / hr | Re-materialises future instances; generous for iterative editing |
 | `POST/DELETE /close-friends/:id` | 60 / min | Tiny list writes; absorbs rapid picker toggling |
 
-The shared `checkWriteRateLimit(limiter, endpoint, profileId)` helper performs the check **after** authentication (so anonymous callers get 401, not 429), is **fail-closed** (a thrown/rejected backend `check()` counts as rate-limited), and records the bounded `pulse.write.rate_limited{ endpoint }` counter on every deny. The `endpoint` attribute is the closed `PulseWriteEndpoint` union — same cardinality discipline as `AuthRateLimitedEndpoint`.
+The shared `checkWriteRateLimit(limiter, endpoint, profileId)` helper runs the check **after** authentication (so anonymous callers get 401, not 429), is **fail-closed** (a thrown/rejected backend `check()` counts as rate-limited), and records the bounded `pulse.write.rate_limited{ endpoint }` counter on every deny. The `endpoint` attribute is the closed `PulseWriteEndpoint` union — same cardinality discipline as `AuthRateLimitedEndpoint`.
 
 Pulse's composition root (`pulse/api/src/index.ts` + `pulse/api/src/redis.ts`) mirrors osn/api: it builds Redis-backed write limiters via `createRedisWriteRateLimiters` when `REDIS_URL` is set, and falls back to the in-memory client otherwise.
 
 ### Pulse Per-IP Read / Share Limits (W4 / P4)
 
-The **unauthenticated** Pulse surfaces — `GET /events/discover`, `POST /events/:id/share`, `POST /events/:id/exposure` — are limited **per IP** (discover 60/min, share 60/min, exposure 120/min; the exposure ceiling is higher because legitimate page reloads, link previews, and bot scans of a sourced URL all register there). The keying IP is resolved through the spoofing-resistant `getClientIp(headers, options)` trust policy (`PULSE_TRUSTED_PROXY_COUNT`, or `trustCloudflare` behind CF; `socketIp` wired from Bun's `server.requestIP` in direct mode). An **unresolved IP fails closed** (429) via `isUnresolvedIp` rather than sharing a single `unknown` bucket — see [[#Client-IP Trust Policy (S-M34)]]. Redis namespaces: `pulse:discover`, `pulse:share`, `pulse:exposure`. A deferred follow-up will bind these pings to an HMAC-signed share token so the counters cannot be inflated by a caller who simply replays the endpoint with a fresh IP.
+The **unauthenticated** Pulse surfaces — `GET /events/discover`, `POST /events/:id/share`, `POST /events/:id/exposure` — are limited **per IP** (discover 60/min, share 60/min, exposure 120/min; the exposure ceiling is higher because legitimate page reloads, link previews, and bot scans of a sourced URL all register there). `getClientIp(headers, options)` resolves the keying IP under its spoofing-resistant trust policy (`PULSE_TRUSTED_PROXY_COUNT`, or `trustCloudflare` behind CF; `socketIp` wired from Bun's `server.requestIP` in direct mode). An **unresolved IP fails closed** (429) via `isUnresolvedIp` rather than sharing a single `unknown` bucket — see [[#Client-IP Trust Policy (S-M34)]]. Redis namespaces: `pulse:discover`, `pulse:share`, `pulse:exposure`. A deferred follow-up will bind these pings to an HMAC-signed share token so the counters cannot be inflated by a caller who simply replays the endpoint with a fresh IP.
 
 ## Config
 
@@ -196,15 +196,15 @@ interface RateLimiterBackend {
 }
 ```
 
-This abstraction was introduced in Phase 1 of the [[redis]] migration to allow swapping the in-memory backend for Redis without touching route code.
+Phase 1 of the [[redis]] migration introduced this abstraction so we can swap the in-memory backend for Redis without touching route code.
 
 ## Fail-Closed Posture (S-M36)
 
-If the rate limiter backend throws (e.g. Redis connection failure), the check defaults to `false` (deny). This is the fail-closed posture -- an unresponsive backend blocks requests rather than allowing unlimited throughput. The try/catch wrapping was added after S-M36 found that async `check()` rejections propagated as 500 errors instead of 429s.
+If the rate limiter backend throws (e.g. Redis connection failure), the check defaults to `false` (deny). This is the fail-closed posture -- an unresponsive backend blocks requests rather than allowing unlimited throughput. We added the try/catch wrapping after S-M36 found that async `check()` rejections surfaced as 500 errors instead of 429s.
 
 ## Proactive Sweep (P-W16)
 
-Expired entries are evicted on every `check()` call when at least one window has elapsed since the last sweep. The `maxEntries` cap is a hard backstop; periodic sweeping keeps memory deterministic under normal load.
+The limiter evicts expired entries on every `check()` call when at least one window has passed since the last sweep. The `maxEntries` cap is a hard backstop; periodic sweeping keeps memory deterministic under normal load.
 
 ## Client-IP Trust Policy (S-M34)
 
@@ -227,7 +227,7 @@ Expired entries are evicted on every `check()` call when at least one window has
 > Redis/Workers limiter migration is tracked separately). See
 > [[changelog/security-fixes]].
 
-**`@osn/api` wiring (now behind Cloudflare):** osn-api is deployed on Cloudflare Workers serving `id.cireweddings.com`, so every **non-local** tier now keys per-IP rate limiting on `cf-connecting-ip` **exclusively** (`trustCloudflare: true`), closing the XFF-spoof bypass. The Workers entry (`osn/api/src/index.ts` `buildAll`) sets `trustCloudflare: isNonLocal(env)`; `buildAppDeps` (`build-deps.ts`) then builds `clientIpConfig = { trustCloudflare: true }` for deployed tiers. `TRUSTED_PROXY_COUNT` is **ignored** in deployed tiers (it only feeds the legacy XFF/socket path on the local Bun dev server, where `trustCloudflare` is `false` and the per-request `socketIp` comes from Bun's `server.requestIP`). The W3.3 proxy-count startup warning is suppressed under Cloudflare. Unresolved IPs still deny (429) at the call sites via `isUnresolvedIp`. Pulse / Zap still use their own options; Cire is CF-aware in its own surface.
+**`@osn/api` wiring (now behind Cloudflare):** osn-api is deployed on Cloudflare Workers serving `id.cireweddings.com`, so every **non-local** tier now keys per-IP rate limiting on `cf-connecting-ip` **exclusively** (`trustCloudflare: true`), closing the XFF-spoof bypass. The Workers entry (`osn/api/src/index.ts` `buildAll`) sets `trustCloudflare: isNonLocal(env)`; `buildAppDeps` (`build-deps.ts`) then builds `clientIpConfig = { trustCloudflare: true }` for deployed tiers. `TRUSTED_PROXY_COUNT` is **ignored** in deployed tiers (it only feeds the legacy XFF/socket path on the local Bun dev server, where `trustCloudflare` is `false` and the per-request `socketIp` comes from Bun's `server.requestIP`). Under Cloudflare, the W3.3 startup warning about the proxy count stays suppressed. Unresolved IPs still deny (429) at the call sites via `isUnresolvedIp`. Pulse / Zap still use their own options; Cire is CF-aware in its own surface.
 
 ## Integration Notes — adopting the hardened policy
 

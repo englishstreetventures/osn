@@ -6,7 +6,7 @@ related:
   - "[[scope-matrix]]"
   - "[[event-access]]"
   - "[[social-graph]]"
-last-reviewed: 2026-04-26
+last-reviewed: 2026-07-22
 ---
 
 # Digital Services Act
@@ -23,9 +23,9 @@ The micro / SME exemption is specifically **Art. 19**, which carves out
 the "additional obligations for online platforms" in Section 3 (Arts.
 20–28) for enterprises meeting the Recommendation 2003/361/EC employee /
 turnover thresholds. It does **not** exempt the operational obligations
-of Arts. 11–18 (Section 1 + 2), and Art. 15 transparency reporting for
-hosting services should be confirmed with counsel before relying on the
-exemption — the language is narrower than commonly summarised.
+of Arts. 11–18 (Section 1 + 2). Confirm Art. 15 transparency reporting
+for hosting services with counsel before you rely on the exemption — the
+language is narrower than most summaries suggest.
 
 ## Always-on obligations (no SME exemption)
 

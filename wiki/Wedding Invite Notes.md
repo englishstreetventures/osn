@@ -1,6 +1,7 @@
-V&R too small
-hero image needed
-Our story needs larger letter spacing
-Desktop: Our story needs to be right aligned with photo left aligned
-Mobile: Our story has photo underneath
+- V&R is too small.
+- Add a hero image.
+- Widen the letter spacing on "Our story".
+- Desktop: align "Our story" right and the photo left.
+- Mobile: put the photo below "Our story".
+
 ![[Top Five.jpg]]

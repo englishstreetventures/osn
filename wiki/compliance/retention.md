@@ -8,14 +8,14 @@ related:
   - "[[dsar]]"
   - "[[cire]]"
   - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-07-21
+last-reviewed: 2026-07-22
 ---
 
 # Retention
 
 Per GDPR Art. 5(1)(e) ("storage limitation"), every personal-data class
-needs a documented retention window and an enforcement mechanism. Some are
-already enforced in code; others need a sweeper job.
+needs a documented retention window and an enforcement mechanism. Code
+already enforces some of them; the rest need a sweeper job.
 
 ## Schedule
 
@@ -82,7 +82,7 @@ Tracked with `C-` IDs:
 
 ## Sweeper design contract (C-M15)
 
-Every sweeper invocation **must** follow these rules. They exist because a naive `DELETE … WHERE created_at < ?` against a large table holds a write lock long enough to time out concurrent auth writes (passkey ceremonies, refresh-token rotation, session revocation). Locked in before C-M15 implementation starts:
+Every sweeper invocation **must** follow these rules. They exist because a naive `DELETE … WHERE created_at < ?` against a large table holds a write lock long enough to time out concurrent auth writes (passkey ceremonies, refresh-token rotation, session revocation). Locked in before work on C-M15 starts:
 
 1. **Batched delete** — `DELETE FROM <table> WHERE id IN (SELECT id FROM <table> WHERE <cutoff> LIMIT 500)` looped until 0 rows. Never an unbounded delete.
 2. **Inter-batch yield** — 50–100 ms `setTimeout` between batches to release the SQLite / Postgres write lock.
@@ -113,5 +113,5 @@ The minimum information per row:
 | 24 months DSAR log | Mandatory under CCPA §999.317. Convenient default for GDPR record-keeping too. |
 | 6 months DSA reports | Art. 20 mandates appeal availability for at least 6 months after a moderation action. |
 | 30 d soft-delete tombstone | Lets us reverse an accidental account-delete while bounding the window for the user-facing erasure right. Mention in privacy notice. |
-| 14 d traces | Free-tier Grafana ceiling. Sufficient for incident postmortems. |
+| 14 d traces | Free-tier Grafana ceiling. Enough for incident postmortems. |
 | 1 yr cire guest data (after final event) | The window **published in the cire `/privacy` notice** (PR #124) and enforced by `sweepExpiredGuestData` (PR #132). One year past the last event covers post-wedding thank-yous / late corrections while honouring storage limitation for special-category dietary data. Open-ended events (no stated end — legal since 2026-07-08) count from their **start** instant. |

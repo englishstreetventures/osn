@@ -20,7 +20,7 @@ related:
 packages:
   - "@osn/ui"
   - "@pulse/app"
-last-reviewed: 2026-04-16
+last-reviewed: 2026-07-22
 ---
 
 # Component Library (Zaidan)
@@ -30,7 +30,7 @@ OSN uses **Zaidan**-style components — the SolidJS equivalent of shadcn/ui. Co
 ## Why Zaidan / shadcn-style?
 
 - **Owned source** — components live in the repo, not behind a version pin. Customise freely without forking a library.
-- **Kobalte underneath** — headless primitives give proper ARIA semantics, focus trapping, portal rendering, and keyboard navigation for free.
+- **Kobalte underneath** — headless primitives give proper ARIA semantics, focus trapping, portal rendering, and keyboard navigation by default.
 - **CVA variants** — type-safe variant props (`variant="secondary"`, `size="sm"`) with consistent class composition.
 - **Tailwind-native** — uses the same CSS variable theme the app already defines, no separate token system.
 
@@ -124,7 +124,7 @@ import { cn } from "@osn/ui/lib/utils";
 cn(dynamicClassesFromSignalA(), dynamicClassesFromSignalB())
 ```
 
-**Rule of thumb**: component files use `base:` prefixed strings + `clsx()`. Consumer code uses `clsx()`. Use `cn()` only when you'd otherwise get broken styles from conflicting classes.
+**Rule**: component files use `base:` prefixed strings + `clsx()`. Consumer code uses `clsx()`. Use `cn()` only when you'd otherwise get broken styles from conflicting classes.
 
 ## Performance Guidelines
 
@@ -208,7 +208,7 @@ import { buttonVariants } from "@osn/ui/ui/button";
 
 ### Kobalte Components (Dialog, Popover, Tabs, RadioGroup, Checkbox)
 
-These wrap Kobalte primitives with styling. They provide proper accessibility out of the box:
+These wrap Kobalte primitives with styling. They provide proper accessibility by default:
 
 ```tsx
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@osn/ui/ui/dialog";
@@ -223,7 +223,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@osn/ui/ui/dia
 </Dialog>
 ```
 
-Key behaviours you get for free:
+Key behaviours you get by default:
 - **Dialog** — portaled to `<body>`, overlay click dismisses, Escape key dismisses, focus trapped
 - **Popover** — portaled, auto-positioned, outside click/Escape dismisses
 - **Tabs** — `role="tablist"` / `role="tab"` / `role="tabpanel"`, keyboard arrow navigation

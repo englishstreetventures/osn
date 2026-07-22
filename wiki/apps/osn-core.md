@@ -17,12 +17,12 @@ related:
   - "[[rate-limiting]]"
   - "[[auth-failure]]"
 port: 4000
-last-reviewed: 2026-04-23
+last-reviewed: 2026-07-22
 ---
 
 # OSN Core
 
-OSN Core is the identity stack every other OSN app builds on. It owns auth (passkey-primary), the social graph, organisations, recommendations, and the handle namespace. The runtime is a single Bun/Elysia binary — `@osn/api` on port 4000 — that ships ARC-protected internal routes for service-to-service callers and Bearer-protected public routes for end users.
+OSN Core is the identity stack every other OSN app builds on. It owns auth (passkey-primary), the social graph, organisations, recommendations, and the handle namespace. The runtime is a single Bun/Elysia binary — `@osn/api` on port 4000 — that serves ARC-protected internal routes for service-to-service callers and Bearer-protected public routes for end users.
 
 ## Packages
 
@@ -36,12 +36,12 @@ OSN Core is the identity stack every other OSN app builds on. It owns auth (pass
 
 ## Authentication model
 
-Passkey-only primary login. OTP and magic-link primary surfaces were removed; OTP survives only as a step-up / email-change verification factor. See [[passkey-primary]] for the full contract.
+Passkey-only primary login. The OTP and magic-link primary surfaces are gone; OTP remains only as a step-up / email-change verification factor. See [[passkey-primary]] for the full contract.
 
 | Factor | Where it's used |
 |---|---|
 | WebAuthn passkey or security key | Primary login (`POST /login/passkey/*`), required at register |
-| Recovery code | Lost-device escape hatch (`POST /login/recovery/complete`) |
+| Recovery code | Lost-device fallback (`POST /login/recovery/complete`) |
 | Step-up passkey ceremony | Sudo gate for sensitive endpoints — see [[step-up]] |
 | Step-up OTP (to verified email) | Step-up fallback factor — see [[step-up]] |
 
@@ -83,7 +83,7 @@ Cross-domain consumers reach the graph through the bridge pattern in `pulse/api/
 
 ## Handle system
 
-Handles live in a single namespace shared with organisations. They are immutable, validated at the schema layer, and surfaced via `GET /handle/:handle` for real-time availability.
+Handles live in a single namespace shared with organisations. A handle is immutable, the schema layer validates it, and `GET /handle/:handle` reports availability in real time.
 
 ## Testing
 

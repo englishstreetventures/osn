@@ -4,12 +4,12 @@ description: Tagging system for security, performance, and test review findings
 tags: [convention, review]
 related:
   - "[[contributing]]"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-07-22
 ---
 
 # Review Finding IDs
 
-All review skills (`/review-security`, `/review-performance`, `/review-tests`) tag findings with short IDs so they can be referenced precisely in discussions, PR comments, and TODO.md backlogs.
+All review skills (`/review-security`, `/review-performance`, `/review-tests`) tag findings with short IDs, so you can refer to them precisely in discussions, PR comments, and TODO.md backlogs.
 
 ## Prefix Table
 
@@ -55,7 +55,7 @@ Each finding uses a four-field format:
 
 ## Adding to TODO.md
 
-When adding findings to the Security or Performance backlogs in TODO.md, use the finding ID as the item label:
+When you add findings to the Security or Performance backlogs in TODO.md, use the finding ID as the item label:
 
 ```markdown
 - [ ] S-M3 -- No rate limit on /foo endpoint

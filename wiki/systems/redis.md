@@ -23,16 +23,16 @@ finding-ids:
 packages:
   - "@shared/redis"
   - "@osn/api"
-last-reviewed: 2026-06-18
+last-reviewed: 2026-07-22
 ---
 
 # Redis Migration
 
-Migrate in-memory rate limiters and auth state stores to Redis for horizontal scaling. This is the S-M2 umbrella initiative that subsumes: S-M2, S-M8, P-W1, P-W4, S-L18, S-L23.
+Migrate in-memory rate limiters and auth state stores to Redis for horizontal scaling. One piece of work covers six findings: S-M2, S-M8, P-W1, P-W4, S-L18, S-L23.
 
 ## Motivation
 
-The original in-memory rate limiter and the auth-state stores that need cross-process consistency (rotated session hashes for C2 reuse detection, step-up `jti` replay guard, pending WebAuthn challenges) had fundamental limitations:
+The original in-memory rate limiter and the auth-state stores that need cross-process consistency (rotated session hashes for C2 reuse detection, step-up `jti` replay guard, pending WebAuthn challenges) shared three limitations:
 
 - **Reset on restart/deploy** — all counters and pending auth flows were lost
 - **Not safe for multi-process** — each process had its own state; horizontal scaling defeated rate limiting and could miss reuse detection
@@ -85,7 +85,7 @@ Bounded attribute types:
 
 ### O3: ceremony / pending-state stores
 
-Every short-lived ceremony / pending-state entry in the auth service (registration + login + step-up WebAuthn challenges, pending registrations, step-up OTP, pending email changes, cross-device requests) used to live in a process-local `Map` inside `auth.ts` — correct for single-process dev but silently partitioning in multi-pod deployments (a `begin` on pod A, a `complete` routed to pod B → spurious "challenge expired"; per-account caps trivially bypassed across pods). Each now follows the injectable triple-pattern used by `StepUpJtiStore` / `RotatedSessionStore`: an interface (`CeremonyStore<V>`) on `AuthConfig.ceremonyStores`, an in-memory default (TTL-swept, `CEREMONY_STORE_MAX`-bounded), and a Redis-backed impl (one key per entry, native PX expiry) wired from a single `RedisClient` in `osn/api/src/index.ts` via `createRedisCeremonyStores`. The two per-account caps (profile-switch 20/hr, email-change-begin 3/24h) route through `createRedisRateLimiter`. **Fail-conservative:** a Redis blip degrades a ceremony to "not found / re-begin" rather than a 500. Per-namespace op + live-entry telemetry: `osn.auth.ceremony_store.operations` / `osn.auth.ceremony_store.entries`.
+Every short-lived ceremony / pending-state entry in the auth service (registration + login + step-up WebAuthn challenges, pending registrations, step-up OTP, pending email changes, cross-device requests) used to live in a process-local `Map` inside `auth.ts`. That was correct for single-process dev, but it split the state across pods in a multi-pod deployment: a `begin` on pod A and a `complete` routed to pod B gave a false "challenge expired", and a client could sidestep the per-account caps by hopping pods. Each entry now follows the injectable triple-pattern used by `StepUpJtiStore` / `RotatedSessionStore`: an interface (`CeremonyStore<V>`) on `AuthConfig.ceremonyStores`, an in-memory default (TTL-swept, `CEREMONY_STORE_MAX`-bounded), and a Redis-backed impl (one key per entry, native PX expiry) wired from a single `RedisClient` in `osn/api/src/index.ts` via `createRedisCeremonyStores`. The two per-account caps (profile-switch 20/hr, email-change-begin 3/24h) route through `createRedisRateLimiter`. **Fail-conservative:** a short Redis outage drops a ceremony to "not found / re-begin" rather than a 500. Per-namespace op + live-entry telemetry: `osn.auth.ceremony_store.operations` / `osn.auth.ceremony_store.entries`.
 
 ## Deferred Decision: Provider Choice
 
@@ -96,7 +96,7 @@ Every short-lived ceremony / pending-state entry in the auth service (registrati
 | **Self-hosted** | Full control, lowest cost | Ops burden |
 | **Cloudflare Durable Objects** | Zero-latency at edge, no separate service | Vendor lock-in, reconsidered if deploying to Workers |
 
-Decision deferred until deploying beyond localhost. **Resolved: Upstash, region
+Decision deferred until the first deploy beyond localhost. **Resolved: Upstash, region
 `ap-southeast-2` (Sydney)** — co-located with the D1 databases (`oc`/Sydney) + AU edge
 traffic for low latency (C-M18; see [[compliance/subprocessors]], [[production-deploy]]).
 

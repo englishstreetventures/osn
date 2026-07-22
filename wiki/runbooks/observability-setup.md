@@ -8,7 +8,7 @@ related:
   - "[[observability/metrics]]"
   - "[[observability/logging]]"
   - "[[observability/tracing]]"
-last-reviewed: 2026-04-23
+last-reviewed: 2026-07-22
 ---
 
 # Observability Setup Runbook
@@ -51,7 +51,7 @@ DEPLOYMENT_ENVIRONMENT="<env>"      # dev | staging | production
 
 ### 3. Wire Into Deploy Environment
 
-Each service initializes observability via the `@shared/observability` package:
+Each service starts observability with the `@shared/observability` package:
 
 ```typescript
 import { initObservability } from "@shared/observability";
@@ -74,7 +74,7 @@ The Elysia observability plugin exposes two endpoints:
 - **`/health`** -- basic liveness check
 - **`/ready`** -- readiness check (includes dependency health)
 
-Hit these endpoints after deployment to verify the service is running and the observability pipeline is connected.
+Call these endpoints after each deployment. They confirm that the service runs and that the observability pipeline is connected.
 
 ```bash
 curl http://localhost:4000/health
@@ -108,20 +108,20 @@ Then add domain-specific metrics:
 
 ### Wrong OTLP Endpoint Format
 
-**Symptom:** No data appearing in Grafana despite service running.
+**Symptom:** No data in Grafana while the service runs.
 
 **Cause:** The OTLP endpoint must include the `/otlp` path suffix. Common mistakes:
 - Missing `/otlp` suffix
 - Using the Grafana UI URL instead of the OTLP gateway URL
 - Using HTTP instead of HTTPS
 
-**Fix:** Ensure the endpoint is `https://otlp-gateway-<region>.grafana.net/otlp`.
+**Fix:** Set the endpoint to `https://otlp-gateway-<region>.grafana.net/otlp`.
 
 ### Missing Auth Headers
 
 **Symptom:** 401 errors in exporter logs.
 
-**Cause:** The `OTEL_EXPORTER_OTLP_HEADERS` variable is not set or incorrectly formatted.
+**Cause:** The `OTEL_EXPORTER_OTLP_HEADERS` variable is unset or wrongly formatted.
 
 **Fix:** The header must be `Authorization=Basic <base64>` where `<base64>` is `base64(<instance-id>:<api-token>)`.
 
@@ -133,7 +133,7 @@ echo -n "<instance-id>:<api-token>" | base64
 
 **Symptom:** Dev and production data mixed in dashboards.
 
-**Cause:** `DEPLOYMENT_ENVIRONMENT` not set or set to wrong value.
+**Cause:** `DEPLOYMENT_ENVIRONMENT` is unset, or set to the wrong value.
 
 **Fix:** Set `DEPLOYMENT_ENVIRONMENT` to exactly one of: `dev`, `staging`, `production`. This becomes the `deployment.environment` resource attribute on all telemetry.
 
@@ -141,7 +141,7 @@ echo -n "<instance-id>:<api-token>" | base64
 
 **Symptom:** Verbose debug output (e.g. step-up OTP codes in dev paths) visible in prod logs.
 
-**Cause:** The observability layer's minimum log level is `Info` by default, but if overridden or misconfigured, `Debug` entries can leak.
+**Cause:** The observability layer's minimum log level is `Info` by default. An override or a misconfiguration lets `Debug` entries through.
 
 **Fix:**
 - Verify `NODE_ENV` is set to `"production"` in the deploy environment
@@ -152,15 +152,15 @@ echo -n "<instance-id>:<api-token>" | base64
 
 **Symptom:** Each service shows its own root spans but no parent-child relationship across services.
 
-**Cause:** Outbound HTTP calls not using `instrumentedFetch` from `@shared/observability/fetch`, so `traceparent` header is not injected.
+**Cause:** Outbound HTTP calls do not use `instrumentedFetch` from `@shared/observability/fetch`, so nothing injects the `traceparent` header.
 
-**Fix:** All service-to-service HTTP calls must go through `instrumentedFetch`. Never use raw `fetch()` for S2S calls.
+**Fix:** Never use raw `fetch()` for S2S calls. Route every service-to-service HTTP call through `instrumentedFetch`.
 
 ### Inbound Trace Context Trust
 
-**Symptom:** External requests showing up with attacker-controlled trace IDs in internal traces.
+**Symptom:** External requests show up with attacker-controlled trace IDs in internal traces.
 
-**Cause:** Inbound `traceparent` should only be trusted from ARC-authenticated callers (S-H13).
+**Cause:** An inbound `traceparent` is trustworthy only from an ARC-authenticated caller (S-H13).
 
 **Fix:** The Elysia plugin only extracts upstream trace context when the request presents `Authorization: ARC ...`. Anonymous/public requests start fresh root spans.
 

@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-07-07
+last-reviewed: 2026-07-22
 ---
 
 # DSAR Runbook
@@ -33,12 +33,12 @@ runbook, two regimes, because the operational steps overlap.
 
 1. **Acknowledge within 72 hours** — automated reply confirming receipt and the response deadline.
 2. **Identify the regime** — GDPR if EU/UK; CCPA + state laws if US-resident; treat unclear cases as both (apply the stricter rule).
-3. **Verify identity** — for the account holder using the in-app endpoints, the bearer token + step-up token verifies. For email/postal:
+3. **Verify identity** — for the account holder using the in-app endpoints, the bearer token + step-up token verifies them. For email/postal:
    - First test: email-controlled OTP to the email on file.
    - If that fails (e.g. user has lost the email): require step-up via a recovery code, OR a notarised statement of identity, OR proof of association (last login IP region, recent profile activity).
    - **Do not** require government ID for a basic DSAR — over-collection.
 4. **Verify scope** — the request must specify the right exercised. "I want my data" = Art. 15 (access). "I want it deleted" = Art. 17. "I want it sent to Acme" = Art. 20 (portability). Document the inferred scope back to the requester before acting.
-5. **Authorised agent path** — verify notarised power-of-attorney + the underlying user's identity per step 3. CCPA also allows the user to confirm direct.
+5. **Authorised agent path** — verify notarised power-of-attorney + the underlying user's identity per step 3. CCPA also allows the user to confirm directly.
 6. **Execute** — see "Per-right execution" below.
 7. **Respond** — include what was provided / deleted, the format, the lawful basis to refuse anything refused (see "Refusals"), and the right to lodge a complaint with a supervisory authority (GDPR Art. 77 — list the relevant DPA based on user's residence).
 8. **Log** — add a row to `dsar_requests` (planned table) including: opened, closed, regime, right exercised, decisions, evidence path. Retain 24 months (CCPA min).
@@ -54,7 +54,7 @@ streams the NDJSON bundle below. Implementation: `osn/api/src/routes/account-exp
 fetched over ARC (scope `account:export`) from each app's
 `POST /internal/account-export` and streamed through line-by-line, degrading to a
 `{"degraded":...}` line if a bridge fails. Building Zap's inbound-ARC stack for
-this also closed the gap where Zap had no `/internal` ARC surface at all.
+this also closed the gap where Zap had no `/internal` ARC surface.
 
 Use `GET /account/export`. The endpoint returns a JSON bundle:
 
@@ -77,10 +77,10 @@ Use `GET /account/export`. The endpoint returns a JSON bundle:
 
 **Wire format (locked before C-H1 implementation starts):**
 
-- **NDJSON envelope** — one JSON object per line, prefixed by a header line `{"version":1,"sections":[...]}` and terminated by `{"end":true}`. This lets the response stream via `ReadableStream` without ever materialising the full bundle in memory.
+- **NDJSON envelope** — one JSON object per line, prefixed by a header line `{"version":1,"sections":[...]}` and terminated by `{"end":true}`. This lets the response stream via `ReadableStream` without ever holding the full bundle in memory.
 - **Per-section keyset pagination** — every multi-row section (`security_events`, `sessions`, `connections`, `pulse.rsvps`, `pulse.events_hosted`, `zap.chats`) is fetched in batches of `LIMIT 500` ordered by `id` with `WHERE id > :cursor`. No `OFFSET` (degrades on large tables).
 - **ARC fan-out sub-bundles streamed** — `pulse.*` and `zap.*` sections are fetched via ARC and re-serialised line-by-line into the outer NDJSON; the bridge call uses chunked transfer too (see P-W2 below).
-- **Memory budget** — ≤32 MB resident per export. Exceeding the budget logs a warning + truncates with a tombstone record so the user gets a partial bundle + a notice rather than an OOM.
+- **Memory budget** — ≤32 MB resident per export. A run that exceeds the budget logs a warning + truncates with a tombstone record, so the user gets a partial bundle + a notice rather than an OOM.
 
 Auth: bearer access token + step-up token. Rate-limit: 1 export per 24 h per account.
 
@@ -126,12 +126,11 @@ profile-id string with **no cross-DB FK**. Two consequences:
   reaches their cire data via that `owner_osn_profile_id`: export/erasure can
   query cire's D1 for the weddings they own, the `families` / `guests` /
   `rsvps` / `imports` rows under them, and the R2 `cire-sheets` CSVs.
-  Mechanically this needs an ARC bridge to `@cire/api` mirroring the
+  This needs an ARC bridge to `@cire/api` that mirrors the
   pulse/zap pattern — **not built yet** (cire/api has no
   `internal/account-deleted` or export endpoint, and does not carry
-  `@shared/observability`). Until it exists, an organiser DSAR that touches
-  cire is handled **manually** by an operator with cire D1/R2 access (logged
-  per [[access-control]]).
+  `@shared/observability`). Until it exists, an operator with cire D1/R2
+  access handles such a DSAR **manually** (logged per [[access-control]]).
 - **Guest DSARs.** Guests are not OSN account holders; a guest exercising a
   right is the organiser's responsibility as **controller** (cire is
   processor — see [[data-map]]). Route guest requests to the organiser and
@@ -140,8 +139,8 @@ profile-id string with **no cross-DB FK**. Two consequences:
 **Cross-DB deletion orphan — decision: orphan-tolerance (for now).** Nothing
 fans OSN-account deletion out into cire. Erasing an OSN account today
 therefore **orphans** the wedding + guest data in cire's D1/R2, and the
-planned `GET /account/export` / `DELETE /account` cannot reach it. Two
-positions were available: (a) build the ARC fan-out into cire now, or (b)
+planned `GET /account/export` / `DELETE /account` cannot reach it. We had two
+options: (a) build the ARC fan-out into cire now, or (b)
 document an orphan-tolerance rationale and revisit. **We choose (b)** because
 there is no `DELETE /account` endpoint to hook yet, and the orphan-tolerance
 framing is defensible on the merits:

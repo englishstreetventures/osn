@@ -31,11 +31,11 @@ Three clean concerns, three packages, mapping onto the end-state domains:
 | Invites (guest) | `@cire/web` | `invite.cireweddings.com` |
 | Organiser portal | `@cire/organiser` | `host.cireweddings.com` |
 
-A marketing page wants to be **fully static** (best SEO + speed, no per-request
+A marketing page should be **fully static** (best SEO + speed, no per-request
 work). The guest site is per-request SSR (it resolves which wedding to render
-from the path), so folding the brochure into it would tangle a static page into
-the SSR invite Worker and fight the bare-domain redirect. Keeping them apart lets
-each deploy + scale independently.
+from the path), so putting the brochure inside it would push a static page
+through the SSR invite Worker and complicate the bare-domain redirect. Separate
+packages deploy and scale on their own.
 
 ## Stack + brand parity
 
@@ -46,7 +46,7 @@ isolated in `*.motion.ts` files (the cire convention).
 
 The hero seal is the one exception to the Motion-One rule: it is a real **3D
 object rendered with Three.js** (`three`, core only — no addons). Three.js is
-heavy (~515 KB), so it is **strictly off the critical path**: `WaxSeal3D.tsx`
+heavy (~515 KB), so it stays **off the critical path**: `WaxSeal3D.tsx`
 renders a flat CSS-disc poster server-side, then `import()`s the scene module
 (`waxSealScene.ts`) on `requestIdleCallback` and cross-fades the WebGL canvas in
 over the poster. The chunk is never `modulepreload`ed. The poster hides **only
@@ -58,16 +58,16 @@ settle/lean, repaint on resize only — reduced motion means no motion, not no
 
 **Macrostructure: "The Unfolding Letter"** (redesign 2026-07-22). The page reads
 top to bottom like opening and reading a single invitation. Display headings are
-**roman** (`.display` in `global.css`) — italic survives only on the wordmark
-logotype and inside running body copy (an all-italic heading is a reliable
-AI-generated tell). Eyebrows are rationed to two on the whole page (hero + "See
-it live"). All visible copy avoids the em-dash.
+**roman** (`.display` in `global.css`) — italic stays on the wordmark logotype
+and inside running body copy only (an all-italic heading is a reliable sign of
+AI-written design). The whole page uses two eyebrows (hero + "See it live"). All
+visible copy avoids the em-dash.
 
-**Brand parity is a feature, not a coincidence**: `src/styles/global.css` keeps
+**Brand parity is deliberate**: `src/styles/global.css` keeps
 the `@theme` token block **byte-identical** to `cire/web/src/styles/global.css`
 (deep-green oklch palette, gold accent, Cormorant Garamond display + Lato body)
-and loads the same Google Fonts. What a visitor sees on the marketing page is
-exactly what their guests will feel opening the invite — so the site sells the
+and loads the same Google Fonts. A visitor sees on the marketing page exactly
+what their guests will see when they open the invite, so the site sells the
 product by *being* a piece of it. **If you change a brand token in one, change it
 in the other.**
 
@@ -75,24 +75,23 @@ in the other.**
 
 Composed as `Hero.astro` + seven section components under `components/sections/`.
 
-1. **Hero** (`sections/Hero.astro` + `WaxSeal3D.tsx` + `waxSealScene.ts`) — the
-   signature moment. A **real 3D wax seal** rests at the top of the sealed
-   letter, built as a **stamping simulation**: each mount pours a randomised wax
-   puddle (`pourWax()` — silhouette harmonics + run-out tongues) and presses a
-   perfect-circle die into it, so every visitor's seal is subtly unique. The die
-   carries a laurel wreath + italic "C" (canvas bump map, paired with a canvas
-   **roughness map** so the pressed design reads burnished against the matte
-   field) on a waxy `MeshPhysicalMaterial`, lit by a warm gold key against a
-   cool forest fill. It is **ambient** — it never breaks — and it **never
-   rotates on its own**: it rests in a fixed pose, leans toward the pointer,
-   and settles on load; the rAF loop **sleeps at steady state** (woken by
-   pointer/resize/visibility) so a static seal costs zero GPU. Shaders compile
-   via `compileAsync` before the first frame. Crucially the seal is
-   **purely decorative**: the eyebrow, headline, subtext and both CTAs are
-   server-rendered siblings, always painted, keyboard-operable with a real focus
-   ring — so no JS / no WebGL / reduced motion still reads and converts (the old
-   `WaxSealHero` gated all hero content behind `display:none` until JS opened it;
-   this does not).
+1. **Hero** (`sections/Hero.astro` + `WaxSeal3D.tsx` + `waxSealScene.ts`) — a
+   **real 3D wax seal** rests at the top of the sealed letter, built as a
+   **stamping simulation**: each mount pours a random wax puddle (`pourWax()` —
+   silhouette harmonics + run-out tongues) and presses a perfect-circle die into
+   it, so every visitor's seal differs a little. The die carries a laurel wreath
+   + italic "C" (canvas bump map, paired with a canvas **roughness map** so the
+   pressed design reads burnished against the matte field) on a waxy
+   `MeshPhysicalMaterial`, lit by a warm gold key against a cool forest fill. It
+   is **ambient** — it never breaks — and it **never rotates on its own**: it
+   rests in a fixed pose, leans toward the pointer, and settles on load. The rAF
+   loop **sleeps at steady state** (woken by pointer/resize/visibility), so a
+   static seal costs zero GPU. Shaders compile via `compileAsync` before the
+   first frame. The seal is **decorative only**: the eyebrow, headline, subtext
+   and both CTAs are server-rendered siblings, always painted, keyboard-operable
+   with a real focus ring — so no JS / no WebGL / reduced motion still reads and
+   works (the old `WaxSealHero` hid all hero content behind `display:none` until
+   JS opened it; this does not).
 2. **Promise** (`sections/Promise.astro`) — "the letter unfolds": the editorial
    "paper vs soulless e-invite vs Cire" passage in a narrow column.
 3. **Features** (`sections/Features.astro`) — read *down* the card, not five
@@ -128,8 +127,8 @@ the product instead of describing it.
 The **same no-op treatment** was applied to the organiser **host preview** in
 `cire/web`: the RSVP there used to be greyed out (`disabled` in preview mode).
 It is now fully interactive, with submit short-circuited to a no-op and a "Nothing
-you send here is saved" banner (`RsvpModal`'s `preview` prop). A host can now feel
-the exact guest RSVP flow without polluting their own RSVP data.
+you send here is saved" banner (`RsvpModal`'s `preview` prop). A host can now walk
+the exact guest RSVP flow without adding rows to their own RSVP data.
 
 ## Generative vine backdrop
 
@@ -149,7 +148,7 @@ you scroll past them**.
   fallback). On mount the client measures the real document, regenerates with a
   **fresh per-load seed** (so every visit is subtly different), and animates.
 - **Scroll-linked draw-on.** Stems are STROKED with `pathLength="1"` +
-  `stroke-dasharray:1`; a lean passive-scroll + `requestAnimationFrame` loop maps
+  `stroke-dasharray:1`; a passive-scroll + `requestAnimationFrame` loop maps
   each vine's document band to a single CSS custom property `--p` (0→1), and CSS
   draws the stroke (`stroke-dashoffset: calc(1 - var(--p))`) and fades the
   leaves/flowers in just behind the growth front. One property write per in-view
@@ -166,15 +165,15 @@ which is how Unsplash intends hosted images to be used. Every image is composed
 in `src/lib/site.ts` (`IMAGES` map + `unsplash()` helper) so swapping in the
 brand's / couple's own art is a one-line change. Each `<img>` paints over a gold
 gradient (`Figure.astro`) so a slow or blocked load never leaves an empty hole,
-and the required photo credit is surfaced per image. The CSP in `public/_headers`
+and each image shows the required photo credit. The CSP in `public/_headers`
 allow-lists `images.unsplash.com` for `img-src`.
 
 ## Configuration (`src/lib/site.ts`, all build-time `PUBLIC_*`)
 
 - `PUBLIC_ORGANISER_URL` — target of the primary "Create your invitation" CTA.
   Dev default is the local organiser (`http://localhost:4322`); end-state prod is
-  `https://host.cireweddings.com`. **Centralised so the apex cutover is one env
-  change, not a code hunt.**
+  `https://host.cireweddings.com`. **Held in one place, so the apex cutover is
+  one env change and not a search through the code.**
 - `PUBLIC_DEMO_INVITE_URL` — optional. When set, "See a live invite" links to a
   real seeded invitation; unset, it scrolls to the in-page interactive demo.
 - `SITE` — canonical origin for SEO meta (`astro.config` `site`).
@@ -218,7 +217,7 @@ Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
 
 ## Roadmap — toward a wedding platform
 
-Cire's longer-term vision is to compete with all-in-one suites (withjoy.com): not
+Cire's longer-term plan is to compete with all-in-one suites (withjoy.com): not
 just the invitation, but the whole wedding **management platform** run from the
 organiser dashboard. Tracked, not yet built:
 
@@ -228,8 +227,8 @@ organiser dashboard. Tracked, not yet built:
 - **Marketing depth** — pricing page, real testimonials (flip `SHOW_TESTIMONIALS`
   once permissioned), case studies, blog/SEO content.
 
-The data model is already multi-tenant (`weddings` root), so platformising is a
-product decision, not a migration — see [[cire]].
+The data model is already multi-tenant (`weddings` root), so growing into a
+platform is a product decision, not a migration — see [[cire]].
 
 ## Deferred
 
@@ -238,7 +237,7 @@ product decision, not a migration — see [[cire]].
   sculpted GLTF seal (Blender, with a proper normal + roughness bake) would read
   richer still; deferred until there is an asset pipeline for it. Swap point is
   `makeSealMesh()` — the lighting, pointer lean and PE fallback all stay. The
-  seal IS visually verified now: headless Chrome renders WebGL, so screenshot
+  seal is now visually verified: headless Chrome renders WebGL, so screenshot
   `bun run dev:landing` (`--headless=new --screenshot --virtual-time-budget`)
   when tuning `bumpScale` / lights / pour parameters.
 - **Real photography** — imagery is still hotlinked Unsplash placeholders

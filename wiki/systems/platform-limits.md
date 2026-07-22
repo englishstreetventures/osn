@@ -15,7 +15,7 @@ related:
   - "[[pulse]]"
 packages:
   - "@pulse/api"
-last-reviewed: 2026-04-26
+last-reviewed: 2026-07-22
 ---
 
 # Platform Limits
@@ -34,18 +34,18 @@ The 1000 guest cap is the hard ceiling for event attendance across the Pulse pla
 
 - **Bulk invite:** the maximum number of users that can be invited to a single event
 - **Graph bridge:** `getConnectionIds` in [[s2s-patterns|graphBridge.ts]] caps its result set at this value (raised from 100 after S-M28/P-W13)
-- **Batch lookups:** Pulse's `getCloseFriendsOfBatch` (in [[pulse-close-friends]]) is clamped to 1000 which aligns with this limit
+- **Batch lookups:** Pulse's `getCloseFriendsOfBatch` (in [[pulse-close-friends]]) is clamped to 1000, which matches this limit
 
 ## Beyond 1000 Guests
 
 Events with more than 1000 guests belong to a future **verified-organisation tier** (Pulse phase 2). This tier would include:
 
 - Organisation accounts with elevated caps
-- Per-event support flow that bumps the cap
+- Per-event support flow that raises the cap
 - Dashboards, SLA, bulk import/export
 - Paid ticketing
 
-**Do not bump this number without a team discussion.** The limit exists because the graph membership sets used for visibility filtering are not paginated -- the bridge returns complete sets. Raising the cap requires validating that the full set still fits comfortably in memory and that the visibility filter's performance remains acceptable.
+**Do not raise this number without a team discussion.** The limit exists because the graph membership sets the visibility filter reads are not paginated -- the bridge returns complete sets. Before you raise the cap, check that the full set still fits comfortably in memory and that the visibility filter still performs acceptably.
 
 ## Adding a New Limit
 

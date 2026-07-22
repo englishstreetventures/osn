@@ -17,7 +17,7 @@ packages:
   - "@osn/ui"
   - "@osn/social"
   - "@shared/crypto"
-last-reviewed: 2026-04-28
+last-reviewed: 2026-07-22
 status: design — not yet implemented
 ---
 
@@ -32,7 +32,7 @@ account, and any OSN app or third-party relying party can later request
 country = AU) without seeing the source document.
 
 This page captures **what we are building, why, and the staged plan**.
-Nothing here is shipped yet — see the **Verified Identity (V)** section
+Nothing here has shipped yet — see the **Verified Identity (V)** section
 of `[[TODO]]` for live work.
 
 ## Why
@@ -42,7 +42,7 @@ of `[[TODO]]` for live work.
   "reasonable steps" to keep under-16s off Pulse/Zap account
   registration. A government-document round-trip on every signup is
   hostile UX; a one-time OSN verification + per-app `over_16` boolean is
-  the right ergonomic.
+  the better design.
 - **Pulse hosts use cases beyond age.** "Hosts can require verified
   attendees" is a roadmap item (`[[event-access]]`), and an event host
   asking for a verified given-name should not learn the attendee's
@@ -53,9 +53,9 @@ of `[[TODO]]` for live work.
   credentials, RFC 9901 + draft-ietf-oauth-sd-jwt-vc) reuses the same
   key infrastructure — the issuer is just another `service_account`
   consumer of the OSN signing key.
-- **Australia first.** The user base lives here; the regulatory clock
-  is ticking here; the document/mDL stack is well-defined here. Other
-  countries layer on top of the same primitives in later phases.
+- **Australia first.** The user base lives here; the regulatory clock runs
+  here; the document/mDL stack is well defined here. Other countries
+  layer on top of the same primitives in later phases.
 
 ## Mental model
 
@@ -68,12 +68,12 @@ SD-JWT VC on the wire:
 | **Holder** | The user, via `@osn/social` (and later mobile wallets) | Stores verified attributes account-side. On a presentation request, releases only the disclosures matching the requested claim set. |
 | **Verifier / Relying party** | Pulse, Zap, third-party apps | Asks for a specific predicate ("`age >= 18`", "`country == AU`", "`given_name` verified"), receives an SD-JWT VC presentation, validates the OSN issuer signature against `/.well-known/jwks.json`. |
 
-Critically: **OSN never re-shares the source document.** The licence
+**OSN never re-shares the source document.** The licence
 image is processed for OCR + face-match, the doc number is hashed for
 replay/duplicate-account defence, and the raw image is destroyed within
 the verification provider's retention window. Only derived attributes
-+ an evidence hash live in OSN's database — Yoti's "privacy by
-design" model directly.
++ an evidence hash live in OSN's database — the same "privacy by
+design" model as Yoti.
 
 ## Verification methods (Australia)
 
@@ -81,7 +81,7 @@ OSN supports a layered set, picked per-attribute by required assurance:
 
 1. **Facial age estimation** — selfie → ML age estimate → `age_band`
    attribute (e.g. `"18-24"`). Probabilistic, low friction, **not**
-   sufficient for legally binding age gates above ±2 years tolerance.
+   enough for legally binding age gates above ±2 years tolerance.
    Use for: "looks adult" UX hints, soft gates.
 2. **Document verification (DVS)** — capture AU driver's licence /
    passport / Medicare card → OCR → submit to the Australian
@@ -116,7 +116,7 @@ catalogue) and step 3 for the local mDL issuer when one exists.
 - Pure JSON on the wire — no CBOR/COSE binary tooling needed, fits
   Elysia + Effect cleanly.
 - IETF spec landed Nov 2025 (RFC 9901); SD-JWT VC profile in WG last
-  call, EU Digital Identity Wallet picked it. Bet on the same horse.
+  call, EU Digital Identity Wallet picked it. We make the same choice.
 - Selective disclosure via salted-hash claims: issuer publishes the
   digest, holder decides at presentation time which cleartext claims
   to reveal. Predicates ("`age >= 18`") implemented as
@@ -149,7 +149,7 @@ Source document hashing: each verified attribute row stores
 `document_number_hash = HMAC-SHA-256(pepper, provider ‖
 document_type ‖ document_number)` where `pepper` is held only in
 `@osn/api` env, never in the database, and is distinct per attribute
-kind. Plain SHA-256 is **not** sufficient — AU driver licence numbers
+kind. Plain SHA-256 is **not** enough — AU driver licence numbers
 are ~8 digits and AU passports ~9 alphanumeric, both well within
 brute-force range from a DB read. The HMAC + env-only pepper mirrors
 the IP-hash pattern in `[[sessions]]`. The schema MUST also enforce
@@ -272,8 +272,8 @@ checklist. Summary:
 
 - **V-M0 — Foundations**: vendor + DPIA + schema + SD-JWT VC issuance
   helper (no UI, no provider yet).
-- **V-M1 — Facial age estimation**: end-to-end thinnest path. Lets
-  the social-media-minimum-age clock be answered.
+- **V-M1 — Facial age estimation**: end-to-end thinnest path. It lets us
+  answer the social-media minimum-age question.
 - **V-M2 — AU document verification (DVS + selfie + face-match)**.
 - **V-M3 — mDL acceptance** (NSW + QLD first; others as they go
   live).
@@ -300,9 +300,9 @@ designed yet:
 - **Verifier collusion** — independent SD-JWT VCs are linkable by
   shared salts if the same VC is presented to two RPs. Mitigation:
   mint a fresh VC per audience (default), or move to BBS+ in v2.
-- **Compromise of the OSN signing key** — same blast radius as
-  ARC tokens; mitigated by the existing key-rotation + JWKS
-  invalidation path.
+- **Compromise of the OSN signing key** — the same scope of damage as
+  ARC tokens; the existing key-rotation + JWKS invalidation path
+  mitigates it.
 - **Provider compromise** — a malicious KYC vendor could mint false
   verifications. Defence: stamp every `verification_run` with the
   provider id + timestamp + provider-side `runId` so OSN can revoke

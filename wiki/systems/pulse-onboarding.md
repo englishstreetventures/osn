@@ -6,12 +6,12 @@ related:
   - "[[identity-model]]"
   - "[[arc-tokens]]"
   - "[[component-library]]"
-last-reviewed: 2026-07-05
+last-reviewed: 2026-07-22
 ---
 
 # Pulse Onboarding
 
-First-run flow shown to a user the first time they open Pulse with an account that has not previously completed onboarding. Six-step linear stepper with themed illustrations matching `pulse/DESIGN.md`.
+Pulse shows this first-run flow when a user opens the app on an account that has not completed onboarding. It is a six-step linear stepper with themed illustrations that match `pulse/DESIGN.md`.
 
 ## State machine
 
@@ -70,7 +70,7 @@ Migration: `pulse/db/drizzle/0004_pulse_onboarding.sql`.
 
 `GET /graph/internal/profile-account?profileId=` → `{ accountId }` or 404.
 
-ARC-protected with the **dedicated `graph:resolve-account` scope** (audience `osn-api`) — NOT the generic `graph:read` used by the sibling internal-graph endpoints. The profileId → accountId mapping dissolves the multi-account privacy invariant if it leaks, so the scope is granted only to services that key state by account: pulse-api (this onboarding flow — the bridge registers `graph:read,graph:resolve-account` at boot and requests the resolve scope per call) and cire-api (account linking). A `graph:read`-only token gets 401 (S-M1 pulse-onboarding, fixed 2026-07-05 — see [[changelog/security-fixes]]). Defined in `osn/api/src/routes/graph-internal.ts`.
+ARC-protected with the **dedicated `graph:resolve-account` scope** (audience `osn-api`) — NOT the generic `graph:read` used by the sibling internal-graph endpoints. A leak of the profileId → accountId mapping breaks the multi-account privacy invariant, so only services that key state by account get the scope: pulse-api (this onboarding flow — the bridge registers `graph:read,graph:resolve-account` at boot and requests the resolve scope per call) and cire-api (account linking). A `graph:read`-only token gets 401 (S-M1 pulse-onboarding, fixed 2026-07-05 — see [[changelog/security-fixes]]). Defined in `osn/api/src/routes/graph-internal.ts`.
 
 ## Pulse endpoints
 
@@ -128,5 +128,5 @@ All attribute types are bounded string-literal unions (no profileId / accountId 
 ## Future extensions
 
 - Native Tauri permission plugins (`@tauri-apps/plugin-geolocation`, `@tauri-apps/plugin-notification`) for first-class iOS/Android prompts. Currently uses the standard browser APIs which work in WKWebView/Android WebView but route through the JS layer.
-- Settings page surface for revisiting captured prefs (interests, reminder opt-in). The service already has `updateOnboardingPrefs` shape sketched out; it just needs a route + UI.
+- Settings page surface for revisiting captured prefs (interests, reminder opt-in). The service already has the `updateOnboardingPrefs` shape sketched out; it needs a route + UI.
 - Friend-suggestion step (post-step-3) once OSN exposes a "people on Pulse you may know" recommendation feed.

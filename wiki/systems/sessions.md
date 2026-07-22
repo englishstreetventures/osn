@@ -5,12 +5,12 @@ related:
   - "[[identity-model]]"
   - "[[step-up]]"
   - "[[passkey-primary]]"
-last-reviewed: 2026-07-20
+last-reviewed: 2026-07-22
 ---
 
 # Session introspection + revocation
 
-Per-device session management surface exposed to end users in Settings. Builds on the server-side session store introduced in Copenhagen Book C1/C2/C3.
+Per-device session management, exposed to users in Settings. Builds on the server-side session store introduced in Copenhagen Book C1/C2/C3.
 
 ## Refresh-token rotation chain (C2)
 
@@ -90,7 +90,7 @@ The public `id` field is the first 16 hex chars of the session-token SHA-256. Ch
 - **64 bits of collision resistance** is more than enough inside a single account's handful of sessions.
 - A full SHA-256 accidentally logged gives an attacker a forge-able DELETE URL. A 16-hex prefix does not.
 
-The server re-scans its sessions table by accountId and finds the row whose hash prefix matches, mapping handle → internal hash at request time.
+The server re-scans its sessions table by accountId and finds the row whose hash prefix matches. This maps handle → internal hash at request time.
 
 ## Rotation preserves metadata
 
@@ -113,9 +113,9 @@ The `RotatedSessionStore` abstraction (`osn/api/src/lib/rotated-session-store.ts
 
 - `osn:rot-session:hash:{sessionHash}` → `{familyId}:{rotatedAtMs}`, PX = `refreshTokenTtl * 1000` — the authoritative lookup used by `check`. `check` returns `{ familyId, rotatedAtMs }` (a `RotatedHashRecord`); the rotation timestamp drives the grace-window classification below. A legacy value with no numeric suffix parses to `rotatedAtMs 0` (rotated "long ago" → treated as genuine reuse — the strict default).
 
-Cleanup is delegated to Redis's native per-key PX expiry, so `track` is a single round-trip (no family-set write, no JSON blob, no cross-command race). `revokeFamily` is a deliberate no-op on the Redis backend — the DB-level `DELETE FROM sessions WHERE family_id = ?` in `detectReuse` is the authoritative revocation, and a stale `hash:*` key lingering until TTL just means a subsequent replay fires another idempotent DB delete plus another `reuse_detected` metric increment, which is a more informative observability signal than silently deduping the attempt.
+Redis's native per-key PX expiry handles cleanup, so `track` is a single round-trip (no family-set write, no JSON blob, no cross-command race). `revokeFamily` is a deliberate no-op on the Redis backend — the DB-level `DELETE FROM sessions WHERE family_id = ?` in `detectReuse` is the authoritative revocation. A stale `hash:*` key that lingers until TTL only means a later replay fires another idempotent DB delete plus another `reuse_detected` metric increment. That is a more useful observability signal than silently deduping the attempt.
 
-Failure modes fail **open**: `check` returns `null` on Redis error (so an outage cannot manufacture false-positive family revocations that log legitimate users out), and `track` logs a warning and continues (the DB-level rotation has already committed). The trade-off is a temporary weakening of reuse detection during a Redis outage, not a loss of session security — the DB row lookup in `verifyRefreshToken` is still authoritative for rejecting unknown tokens. The `onError` callback passed by `index.ts` is itself wrapped in a try/swallow inside the store, so a misconfigured observability layer cannot cascade into a rejected store operation. Connection-level error strings from ioredis are routed through `sanitizeCause` before annotation to strip any credentialed URLs that may be embedded in the cause.
+Failure modes fail **open**: `check` returns `null` on Redis error (so an outage cannot manufacture false-positive family revocations that log legitimate users out), and `track` logs a warning and continues (the DB-level rotation has already committed). The trade-off is a temporary weakening of reuse detection during a Redis outage, not a loss of session security — the DB row lookup in `verifyRefreshToken` is still authoritative for rejecting unknown tokens. The store wraps the `onError` callback from `index.ts` in its own try/swallow, so a misconfigured observability layer cannot cascade into a rejected store operation. `sanitizeCause` strips any embedded credentialed URLs from ioredis connection error strings before they are annotated.
 
 `AuthConfig.rotatedSessionStore` is the injection point. Non-local deploys pass the Redis-backed store from `osn/api/src/index.ts`; tests and the in-memory fallback path omit it.
 
@@ -135,7 +135,7 @@ Failure modes fail **open**: `check` returns `null` on Redis error (so an outage
 
 - `@osn/ui/auth/SessionsView` — Settings panel. "This device" badge on current, Revoke button disabled for current, "Sign out everywhere else" with a synchronous `confirm()` (toast-style undo would leave the stolen-session window open).
 
-**Device / passkey management (#155).** The companion `@osn/ui/auth/PasskeysView` surfaces the *credential* side of device management — list / add / rename / remove passkeys, each destructive op step-up-gated. It mounts in `@osn/social`'s Settings Security section and, as of #155, in the cire organiser portal's `SecurityPanel`. Because the deployed osn-api runs with email degraded ([[email]]), cire mounts it with `StepUpDialog`'s `passkeyOnly` flag so the OTP step-up factor is suppressed (an OTP that can't be mailed would dead-end the ceremony). New-device help (a backed-up/synced passkey, the cross-device QR ceremony above, or a recovery code) is covered on [[passkey-primary]].
+**Device / passkey management (#155).** The companion `@osn/ui/auth/PasskeysView` surfaces the *credential* side of device management — list / add / rename / remove passkeys, each destructive operation step-up-gated. It mounts in `@osn/social`'s Settings Security section and, as of #155, in the cire organiser portal's `SecurityPanel`. Because the deployed osn-api runs with email degraded ([[email]]), cire mounts it with `StepUpDialog`'s `passkeyOnly` flag so the OTP step-up factor is suppressed (an OTP that can't be mailed would dead-end the ceremony). New-device help (a backed-up/synced passkey, the cross-device QR ceremony above, or a recovery code) is covered on [[passkey-primary]].
 
 ## Threat model
 
@@ -145,4 +145,4 @@ Gives the user a fast lever to react to:
 - Suspected compromise → `Sign out everywhere else` from a known-good device.
 - Routine hygiene → surface all devices currently holding a valid cookie.
 
-Combined with 5-min access tokens and rotation-on-refresh, the effective attacker window post-revocation is <5 min.
+With 5-min access tokens and rotation-on-refresh, the attacker's window after revocation is under 5 minutes.

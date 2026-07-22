@@ -8,12 +8,12 @@ related:
   - "[[tracing]]"
   - "[[metrics]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-04-15
+last-reviewed: 2026-07-22
 ---
 
 # Logging
 
-Use `Effect.logInfo` / `Effect.logWarn` / `Effect.logError` inside Effect pipelines. Trace context is attached automatically -- no manual `traceId` plumbing.
+Use `Effect.logInfo` / `Effect.logWarn` / `Effect.logError` inside Effect pipelines. The logger attaches trace context automatically -- no manual `traceId` plumbing.
 
 ## Log level guide
 
@@ -46,7 +46,7 @@ The JSON logger keeps annotations as structured fields; interpolated strings are
 
 ## Redaction
 
-Redaction is non-negotiable, but the deny-list is kept minimal. The logger layer in `@shared/observability` applies a key-name scrubber to every log entry before serialization.
+Redaction is non-negotiable, but keep the deny-list minimal. The logger layer in `@shared/observability` applies a key-name scrubber to every log entry before serialisation.
 
 ### Deny-list location
 
@@ -77,7 +77,7 @@ Redaction is non-negotiable, but the deny-list is kept minimal. The logger layer
 
 ## Dev-mode OTP logging
 
-Dev-mode step-up OTP logging uses `Effect.logDebug` gated on `OSN_ENV` being unset or `"dev"` (S-L2). The guard excludes both staging and production, providing defence in depth alongside the log-level minimum. The OTP code is interpolated into the message string (not annotations) so the redacting logger doesn't scrub it — the whole point of the dev log is to expose the value to the developer. In production these branches never run because `config.sendEmail` is wired up.
+Dev-mode step-up OTP logging uses `Effect.logDebug` gated on `OSN_ENV` being unset or `"dev"` (S-L2). The guard excludes both staging and production. It gives defence in depth alongside the log-level minimum. The log interpolates the OTP code into the message string, not into annotations, so the redacting logger does not scrub it — the dev log exists to show the value to the developer. In production these branches never run because `config.sendEmail` is wired up.
 
 ## Route-level logger wiring
 
@@ -85,4 +85,4 @@ Dev-mode step-up OTP logging uses `Effect.logDebug` gated on `OSN_ENV` being uns
 
 Without this wiring, per-request Effect pipelines use Effect's default logger (which drops `Debug` and doesn't redact).
 
-**When adding a new route factory that runs Effect pipelines**, follow the same pattern: accept `loggerLayer`, provide it inside the `run()` helper alongside `dbLayer`.
+**When you add a new route factory that runs Effect pipelines**, follow the same pattern: accept `loggerLayer`, provide it inside the `run()` helper alongside `dbLayer`.

@@ -8,7 +8,7 @@ related:
   - "[[soc2]]"
   - "[[data-map]]"
   - "[[cire]]"
-last-reviewed: 2026-07-17
+last-reviewed: 2026-07-22
 ---
 
 # Subprocessor Register
@@ -40,15 +40,15 @@ that touches personal data adds a row before merge. The
 
 ### Link-outs (not processors)
 
-User-initiated outbound links where no OSN-held personal data is transmitted on our behalf — no DPA required; listed to pre-answer the audit question:
+User-initiated outbound links that send no OSN-held personal data on our behalf — no DPA required; listed here to answer the audit question in advance:
 
 - **Google Maps** — Pulse venue page "Open in Maps" builds a `google.com/maps/search` URL from the venue address; nothing loads until the user deliberately clicks, so no ePrivacy consent trigger. See [[venues]].
 
 ## Sub-subprocessors
 
 Sub-processors of our processors (e.g. Cloudflare's hosting providers,
-Grafana's underlying cloud). The DPAs require they be listed; we mirror
-the vendor's published list and re-check quarterly.
+Grafana's underlying cloud). The DPAs require us to list them; we mirror
+the vendor's published list and re-check it quarterly.
 
 - Cloudflare: see https://www.cloudflare.com/cloudflare-customer-subprocessors/
 - Grafana Labs: see https://grafana.com/legal/subprocessors/
@@ -64,8 +64,7 @@ the vendor's published list and re-check quarterly.
 
 ## Per-vendor diligence checklist
 
-When adding a new processor, run through this before merging the PR that
-introduces them:
+Work through this list before you merge the PR that adds a new processor:
 
 - [ ] DPA executed with Art. 28 + CCPA service-provider language
 - [ ] SCCs in place if data leaves the EEA (or adequacy decision applies)
@@ -80,7 +79,7 @@ introduces them:
 
 ## Vendor offboarding
 
-When removing a processor:
+Do this when you remove a processor:
 
 - [ ] Confirm data deletion certificate (or contractual deletion within DPA's offboarding window)
 - [ ] Update [[data-map]] to remove the recipient

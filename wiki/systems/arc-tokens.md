@@ -22,7 +22,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-07-05
+last-reviewed: 2026-07-22
 security-fixes:
   - S-H100
   - S-H101
@@ -83,11 +83,11 @@ sequenceDiagram
 - **ES256 (ECDSA P-256)** -- compact, fast, no shared secret
 - **Self-issued:** each service signs its own token with its private key
 - **Short-lived (5 min TTL);** cached in-memory, re-issued 30s before expiry
-- **Scope-gated:** `scope` claim limits what the token can do. Scope format is `/^[a-z0-9_:-]+$/` — hyphens are valid and load-bearing (`step-up:verify`, `app-enrollment:write`, `graph:resolve-account`); until 2026-07-05 the signer's `SCOPE_PATTERN` wrongly rejected `-`, breaking every Flow B leave-app token mint (S-H arc-scope-pattern, see [[changelog/security-fixes]]). The scope taxonomy is the server-side `PERMITTED_SCOPES` allowlist in `osn/api/src/routes/graph-internal.ts`: `graph:read` (general internal-graph reads), `graph:resolve-account` (profileId → accountId only — least privilege on the multi-account invariant, granted to pulse-api + cire-api), `account:erase`, `step-up:verify`, `app-enrollment:write`
+- **Scope-gated:** `scope` claim limits what the token can do. Scope format is `/^[a-z0-9_:-]+$/` — hyphens are valid and load-bearing (`step-up:verify`, `app-enrollment:write`, `graph:resolve-account`). Until 2026-07-05 the signer's `SCOPE_PATTERN` wrongly rejected `-`, which broke every Flow B leave-app token mint (S-H arc-scope-pattern, see [[changelog/security-fixes]]). The scope list is the server-side `PERMITTED_SCOPES` allowlist in `osn/api/src/routes/graph-internal.ts`: `graph:read` (general internal-graph reads), `graph:resolve-account` (profileId → accountId only — least privilege on the multi-account invariant, granted to pulse-api + cire-api), `account:erase`, `step-up:verify`, `app-enrollment:write`
 - **Audience-scoped:** `aud` claim names the target service (e.g. `"osn-core"`)
 - **`kid`-keyed:** JWT protected header carries `kid` (key ID UUID); receiver looks up the specific key row, not just the issuer
-- **Public key discovery:** first-party services have rows in `service_accounts` (allowed scopes) + `service_account_keys` (key material per `kid`); third-party apps use JWKS URL derived from `iss`
-- **Automatic rotation:** ephemeral keys are rotated before expiry via `startKeyRotation()` — no manual key management required
+- **Public key discovery:** first-party services have rows in `service_accounts` (allowed scopes) + `service_account_keys` (key material per `kid`); third-party apps use the JWKS URL derived from `iss`
+- **Automatic rotation:** `startKeyRotation()` rotates ephemeral keys before expiry — no manual key management
 
 ## Location
 
@@ -123,7 +123,7 @@ evictExpiredTokens()                                           // → force-swee
 |----------|----------|-----|
 | `@pulse/api` -> `@osn/api` graph | **Yes** | HTTP call to `/graph/internal/*` must prove caller identity |
 | Third-party app -> any OSN endpoint | **Yes** | Caller has no shared secret; presents its public key via JWKS |
-| User-facing API call | No | Use user JWT (Bearer access token); ARC is machine-to-machine only |
+| User-facing API call | No | Use the access token (`Authorization: Bearer`); ARC is machine-to-machine only |
 | Background job -> `@osn/api` | **Yes** | Job acts as a service, not a user |
 
 ## Calling Service (Token Issuer) — Typical Pattern
@@ -199,13 +199,13 @@ Ephemeral key auto-rotation is the only supported strategy. Pre-distributed stab
 
 Behaviour when `INTERNAL_SERVICE_SECRET` is unset:
 
-- **Non-local env** (`OSN_ENV != "local"`): throws at startup so misconfiguration is caught immediately rather than failing silently on the first S2S call.
-- **Local dev** (`OSN_ENV` unset or `"local"`): registration is skipped, a warning is logged, and the server still boots. Any S2S call to `osn/api` will fail until the secret is configured — useful for unrelated local work that doesn't need the social graph bridge.
+- **Non-local env** (`OSN_ENV != "local"`): throws at startup, so a bad config fails fast instead of failing silently on the first S2S call.
+- **Local dev** (`OSN_ENV` unset or `"local"`): the service skips registration, logs a warning, and still boots. Every S2S call to `osn/api` fails until you set the secret — useful for unrelated local work that doesn't need the social graph bridge.
 
 Behaviour when `osn/api` is unreachable (`ConnectionRefused`, DNS failure, etc):
 
-- **Non-local env**: throws at startup and the process exits. Deployment ordering is expected to guarantee `osn/api` is up first; a race here signals a real misconfiguration.
-- **Local dev**: a warning is logged, `startKeyRotation()` returns `"pending-retry"`, and a background retry is scheduled with exponential backoff (5 s, 10 s, 20 s… capped at 5 min) plus ±1 s symmetric jitter until registration succeeds. Lets `bun run dev:pulse` boot both services in parallel without a crash when `pulse-api` wins the startup race. The retry classifier uses an explicit allowlist of Bun/Node network-error codes (`ConnectionRefused`, `ECONNREFUSED`, `ECONNRESET`, `ENOTFOUND`, `ETIMEDOUT`, `EAI_AGAIN`, `EHOSTUNREACH`, `ENETUNREACH`, `UND_ERR_CONNECT_TIMEOUT`, `UND_ERR_SOCKET`) — HTTP 4xx/5xx responses and any other error still throw and exit. The retry reuses the same ephemeral key across attempts; this is safe because `/register-service` upserts both `service_accounts` (by `serviceId`) and `service_account_keys` (by `keyId`) via `ON CONFLICT DO UPDATE`, so repeated POSTs are idempotent.
+- **Non-local env**: throws at startup and the process exits. Deploy order is expected to bring `osn/api` up first; a race here signals a real config error.
+- **Local dev**: the service logs a warning, `startKeyRotation()` returns `"pending-retry"`, and a background retry runs with exponential backoff (5 s, 10 s, 20 s… capped at 5 min) plus ±1 s symmetric jitter until registration succeeds. This lets `bun run dev:pulse` boot both services in parallel without a crash when `pulse-api` wins the startup race. The retry classifier uses an explicit allowlist of Bun/Node network-error codes (`ConnectionRefused`, `ECONNREFUSED`, `ECONNRESET`, `ENOTFOUND`, `ETIMEDOUT`, `EAI_AGAIN`, `EHOSTUNREACH`, `ENETUNREACH`, `UND_ERR_CONNECT_TIMEOUT`, `UND_ERR_SOCKET`) — HTTP 4xx/5xx responses and any other error still throw and exit. The retry reuses the same ephemeral key across attempts; this is safe because `/register-service` upserts both `service_accounts` (by `serviceId`) and `service_account_keys` (by `keyId`) via `ON CONFLICT DO UPDATE`, so repeated POSTs are idempotent.
 
 Env vars: `INTERNAL_SERVICE_SECRET`, `KEY_TTL_HOURS` (default 24), `KEY_ROTATION_BUFFER_HOURS` (default 2).
 
@@ -232,11 +232,11 @@ to each downstream — otherwise the first `/internal/account-deleted` POST is
 - **Workers path** (`osn/api/src/index.ts` `scheduled`): a workerd isolate has
   no boot hook, so `registerOutboundKeysOnce()` runs inside the cron
   `scheduled` handler, **before** the fan-out sweeps, registering once per
-  isolate (a module-level latch suppresses re-POSTing on later ticks; the
-  downstream upsert makes a repeat harmless anyway). A registration failure is
-  logged via `Effect.logError` and swallowed so a transient downstream outage
-  never aborts the sweeps — the next tick retries (the latch only flips on full
-  success). The lazy key init in `outbound-arc.ts` only *mints* the keypair; it
+  isolate (a module-level latch stops it re-POSTing on later ticks; the
+  downstream upsert makes a repeat harmless anyway). The handler logs a
+  registration failure via `Effect.logError` and swallows it, so a short
+  downstream outage never aborts the sweeps — the next tick retries (the latch
+  only flips on full success). The lazy key init in `outbound-arc.ts` only *mints* the keypair; it
   does **not** publish the public key, so this explicit registration is required.
 
 ### Key revocation
@@ -294,7 +294,7 @@ The in-process token cache key is `kid:iss:aud:canonical(scope):ttl`:
 - **S-M100 (fixed):** `peekClaims` uses base64url decode (RFC 7515 §2) — `-` and `_` in UUID `kid`s are handled correctly.
 - **S-M101 (fixed):** `/register-service` validates `allowedScopes` against `PERMITTED_SCOPES` allowlist — services cannot self-promote.
 - **S-M102 (fixed):** `resolvePublicKey` cache hit stores `allowedScopes` and validates scopes on every hit — no bypass when `tokenScopes` is omitted.
-- ARC tokens are machine-to-machine only. Never use them for user-facing authentication (use user JWTs for that).
+- ARC tokens are machine-to-machine only. Never use them for user-facing authentication — use access tokens for that.
 - The `Authorization: ARC ...` header is the trust boundary for inbound trace context propagation -- only ARC-authenticated callers have their `traceparent` honoured.
 
 ## Metrics

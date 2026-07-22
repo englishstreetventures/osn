@@ -8,7 +8,7 @@ packages:
   - "@pulse/api"
   - "@pulse/db"
 port: 3001
-last-reviewed: 2026-06-11
+last-reviewed: 2026-07-22
 ---
 
 # Pulse
@@ -52,13 +52,13 @@ Full event lifecycle management:
 
 Events move through statuses: `upcoming` → `ongoing` → `finished`. Events can also be `cancelled` at any point by the organiser.
 
-Events created **without an explicit `endTime`** follow a tighter ladder so they don't linger as `ongoing` indefinitely:
+Events created **without an explicit `endTime`** follow a tighter ladder so they do not stay `ongoing` for ever:
 
 1. At `MAYBE_FINISHED_AFTER_HOURS` (8h) past `startTime`, `deriveStatus` projects them as **`maybe_finished`** — a display-only status shown to guests as "maybe finished". This projection is **not persisted**; `applyTransition` skips the DB write for this transition, so no-endTime events still only produce one stored write over their lifetime.
 2. At `AUTO_CLOSE_NO_END_TIME_HOURS` (12h) past `startTime`, the event auto-transitions to `finished` and the transition is persisted.
 3. The organiser can manually `PATCH /events/:id { status: "finished" }` at any time to close the event early.
 
-Events **with** an explicit `endTime` keep the original single-transition behaviour at `endTime`. A defence-in-depth cap of `MAX_EVENT_DURATION_HOURS` (48h) is enforced on both `POST /events` and `PATCH /events/:id` — excessive durations return 422 with `metricEventValidationFailure(op, "duration_exceeds_max")`.
+Events **with** an explicit `endTime` keep the original single-transition behaviour at `endTime`. Both `POST /events` and `PATCH /events/:id` enforce a defence-in-depth cap of `MAX_EVENT_DURATION_HOURS` (48h) — a longer duration returns 422 with `metricEventValidationFailure(op, "duration_exceeds_max")`.
 
 ### RSVP System
 
@@ -69,7 +69,7 @@ Users can RSVP to events with one of four statuses:
 - **not_going** -- declined
 - **invited** -- added by organiser, not yet responded
 
-RSVP visibility is filtered through the social graph. The system supports counts, latest RSVPs, and attendee lists with close-friend indicators.
+The social graph filters RSVP visibility. The system serves counts, latest RSVPs, and attendee lists with close-friend indicators.
 
 ### Visibility Filtering
 
@@ -88,7 +88,7 @@ Every direct-fetch route (`GET /events/:id`, `/ics`, `/comms`, `/rsvps`, `/rsvps
 
 - **`category`** — first-class filter, indexed (`events_category_idx`).
 - **`from` / `to`** — startTime window. Default `from = now` so past events never surface.
-- **`lat` / `lng` / `radiusKm`** — bbox range-scan (`events_lat_lng_idx`) plus a JS haversine pass to convert the bounding square into an actual circle. Max 500 km.
+- **`lat` / `lng` / `radiusKm`** — bbox range-scan (`events_lat_lng_idx`) plus a JS haversine pass to convert the bounding square into a circle. Max 500 km.
 - **`priceMin` / `priceMax` / `currency`** — price in minor units under the given currency. Events in other currencies drop out. `priceMax=0` keeps null-priced rows (`null` ≡ free); `priceMin > 0` excludes them.
 - **`friendsOnly=true`** — union of events hosted by a connection OR RSVPed by a connection. RSVPs are restricted to **positive engagement only** (`going`, `interested`); `invited` (organiser-only pre-RSVP marker) and `not_going` (explicit decline) never surface. The RSVP branch LEFT-JOINs `pulse_users` and respects `attendance_visibility = 'no_one'` (the viewer's own RSVP is excluded — it isn't a *friend* signal). When the viewer has zero connections, the predicate uses a sentinel ID so the SQL still runs and timing matches the populated case.
 
@@ -102,7 +102,7 @@ Observability: `pulse.discovery.search` span wraps the whole query with a nested
 
 ### iCal Export
 
-Events can be exported in iCal format for calendar integration.
+Events export in iCal format for calendar apps.
 
 ### Pricing
 
@@ -129,7 +129,7 @@ Event organisers can send communications to attendees.
 
 ### Event Chat (Placeholder)
 
-Event group chats are planned via the Zap messaging backend. Users will not need a Zap install to participate in event group chats -- the messaging backend is a shared service.
+Event group chats are planned on the Zap messaging backend. Users will not need a Zap install to join event group chats -- the messaging backend is a shared service.
 
 ## Cross-Service Integration
 
@@ -168,7 +168,7 @@ The `RsvpAvatar` component reads the constant, and both `RsvpSection` and `RsvpM
 
 ## Platform Limits
 
-Limits are defined in `pulse/api/src/lib/limits.ts`. Schemas, route bodies, and documentation reference the named constant -- never inline the number.
+`pulse/api/src/lib/limits.ts` defines the limits. Schemas, route bodies, and documentation reference the named constant -- never inline the number.
 
 | Constant | Value | Notes |
 |----------|-------|-------|
