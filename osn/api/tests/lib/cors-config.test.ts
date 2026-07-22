@@ -7,6 +7,7 @@ describe("resolveCorsOrigins", () => {
     expect(resolveCorsOrigins({}, false)).toEqual([
       "http://localhost:1420",
       "http://localhost:1422",
+      "http://localhost:4321",
       "http://localhost:4322",
     ]);
   });

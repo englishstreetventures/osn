@@ -2,3 +2,6 @@ telemetry = false
 
 [install]
 minimumReleaseAge = 259200
+# Escape hatch for advisory fixes younger than the gate: fast-uri 3.1.4 patches
+# GHSA-v2hh-gcrm-f6hx (high) and was published inside the 3-day window.
+minimumReleaseAgeExcludes = ["fast-uri"]
