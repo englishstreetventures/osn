@@ -15,6 +15,7 @@
     "@kobalte/core": "^0.13.11",
     "@osn/client": "workspace:*",
     "@osn/ui": "workspace:*",
+    "@shared/invite-designs": "workspace:*",
     "@simplewebauthn/browser": "^13.3.0",
     "@tailwindcss/vite": "^4.3.0",
     "astro": "^7.1.1",

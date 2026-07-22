@@ -23,6 +23,7 @@
         "@shared/crypto": "workspace:*",
         "@shared/email": "workspace:*",
         "@shared/feature-flags": "workspace:*",
+        "@shared/invite-designs": "workspace:*",
         "@shared/observability": "workspace:*",
         "@shared/osn-auth-client": "workspace:*",
         "@shared/rate-limit": "workspace:*",
@@ -79,6 +80,7 @@
         "@kobalte/core": "^0.13.11",
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
+        "@shared/invite-designs": "workspace:*",
         "@simplewebauthn/browser": "^13.3.0",
         "@tailwindcss/vite": "^4.3.0",
         "astro": "^7.1.1",
@@ -136,6 +138,7 @@
         "@cire/theme": "workspace:*",
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
+        "@shared/invite-designs": "workspace:*",
         "@tailwindcss/vite": "^4.3.0",
         "astro": "^7.1.1",
         "motion": "^12.40.0",
@@ -241,7 +244,7 @@
     },
     "osn/social": {
       "name": "@osn/social",
-      "version": "0.3.14",
+      "version": "0.4.0",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -437,11 +440,19 @@
     },
     "shared/feature-flags": {
       "name": "@shared/feature-flags",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@growthbook/growthbook": "^1.6.0",
         "@shared/observability": "workspace:*",
       },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "vitest": "^4.1.8",
+      },
+    },
+    "shared/invite-designs": {
+      "name": "@shared/invite-designs",
+      "version": "0.1.0",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "vitest": "^4.1.8",
@@ -1274,6 +1285,8 @@
     "@shared/email": ["@shared/email@workspace:shared/email"],
 
     "@shared/feature-flags": ["@shared/feature-flags@workspace:shared/feature-flags"],
+
+    "@shared/invite-designs": ["@shared/invite-designs@workspace:shared/invite-designs"],
 
     "@shared/observability": ["@shared/observability@workspace:shared/observability"],
 
