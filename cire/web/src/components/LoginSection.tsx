@@ -164,7 +164,10 @@ export function LoginSection(props: LoginSectionProps) {
               spellcheck={false}
               disabled={loading()}
               maxLength={48}
-              pattern="[A-Za-z0-9-]+"
+              // NB: the hyphen must be escaped — Chrome compiles `pattern` with
+              // the `v` flag, where a trailing unescaped `-` is a syntax error
+              // that voids the whole pattern.
+              pattern="[A-Za-z0-9\-]+"
             />
             <Show when={error()}>
               <p class="font-body text-error py-2 text-[0.82rem]" role="alert">

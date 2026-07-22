@@ -4,7 +4,7 @@ tags: [todo, web]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-07-17
+last-reviewed: 2026-07-22
 ---
 
 # cire/web
@@ -24,6 +24,8 @@ Completed feature history is archived in `[[changelog/completed-features]]` (Mig
 - [x] **"Link my Pulse account" affordance (account-linking frontend)** (`feat/cire-pulse-account-link`) — `PulseAccountLink.tsx` renders post-claim (non-preview) inside `InvitePage.tsx`, wrapped in its own `@osn/client` `AuthProvider`. Probes `GET /api/account/link` first: 503 ⇒ feature hidden (linking disabled). Signed-out guests get an OSN passkey ceremony (reuses `@osn/ui`'s `SignIn`/`Register`, same as the organiser portal — `@osn/client` + `@osn/ui` added to `cire/web`); signed-in guests pick which household member they are, then `POST /api/account/link` with `{ guestId }` via `useAuth().authFetch` (OSN bearer + silent 401 refresh) and the `cire_session` cookie. 409 already-linked is treated as linked (not an error); per-member linked/unlinked indicators come from the GET; unlink issues `DELETE /api/account/link/:guestId` (optimistic). Purely additive — every failure path degrades quietly, never breaking the core invite. CSP `connect-src` gained `id.cireweddings.com` (+ localhost:4000) for the OSN issuer. Tests: `PulseAccountLink.test.tsx` (probe/disabled, sign-in gate, pick→POST, GET indicator, 409, unlink→DELETE) + `InvitePage.test.tsx` post-claim/preview mount assertions. **Wants a real-browser eyeball** — the OSN passkey ceremony + gold-panel layout render in a real browser, not jsdom.
 
 ## Recently completed (kept inline for context)
+
+- [x] **Guest saw NO events after a successful claim — Motion One → v12 API drift in the unlock reveal** (`fix/invite-events-reveal`) — prod bug (claim `NGUYEN-KOI-AYXVP4`): claim succeeded, welcome banner rendered, all event cards were in the DOM, but the events `<section>` sat at its base `opacity-0` class forever. Root cause: `UnlockReveal.motion.ts` was written against Motion One (v10) semantics but the repo has shipped `motion` v12 since the animation landed — v12 silently ignores the removed `easing` option AND does not persist a keyframe animation's final value, so the section animated 0→1 then reverted to the `opacity-0` base. Fix: each reveal step now writes its end state as an inline style (keyframes only paint the transition), `easing`→`ease` + stagger `{start}`→`{startDelay}` across `UnlockReveal.motion.ts`/`Modal.motion.ts`, every animate call guarded (throw or stalled `finished` can no longer hide the invite; 1s cap per step), and `InvitePage.handleClaimed` force-reveals on a failed motion-chunk import. Drive-bys: escaped the code input's `pattern` hyphen (Chrome v-flag rejected the whole pattern), and `deploy.yml` now bakes `PUBLIC_OSN_ISSUER_URL` into the guest-site build (bundle was dialling `http://localhost:4000` for the Pulse account-link island in prod). Verified end-to-end with headless Chromium against the live site with the fixed chunk route-swapped in.
 
 Full history in `[[changelog/completed-features]]`.
 

@@ -1,6 +1,32 @@
 import { animate, stagger } from "motion";
 
 /**
+ * Motion v12 does NOT persist a keyframe animation's final value: when the
+ * animation finishes, the element reverts to its base styles. The events
+ * section's base is the `opacity-0` utility class, so relying on the animation
+ * alone left the whole invite invisible after the reveal (guests saw no
+ * events). Every step below therefore writes its end state as an inline style
+ * — the keyframes only paint the transition — and each animate call is guarded
+ * so a throwing or stalled animation can never hide the invite.
+ */
+
+/** Longest we wait on one animation before the reveal proceeds without it. */
+const STEP_TIMEOUT_MS = 1000;
+
+function tryAnimate(run: () => { finished: Promise<unknown> }): Promise<unknown> {
+  try {
+    const { finished } = run();
+    // Race against a cap so a stalled animation can't wedge the sequence.
+    return Promise.race([
+      finished,
+      new Promise((resolve) => setTimeout(resolve, STEP_TIMEOUT_MS)),
+    ]).catch(() => {});
+  } catch {
+    return Promise.resolve();
+  }
+}
+
+/**
  * Plays the unlock reveal sequence:
  * 1. Login form fades out
  * 2. Welcome message fades in with a gold shimmer
@@ -12,55 +38,68 @@ export async function unlockRevealSequence(
   eventsSection: HTMLElement,
 ) {
   // 1. Fade out the login form
-  const fadeOut = animate(
-    loginForm,
-    { opacity: [1, 0], transform: ["translateY(0)", "translateY(-12px)"] },
-    { duration: 0.35, easing: "ease-in" },
+  await tryAnimate(() =>
+    animate(
+      loginForm,
+      { opacity: [1, 0], transform: ["translateY(0)", "translateY(-12px)"] },
+      { duration: 0.35, ease: "easeIn" },
+    ),
   );
-  await fadeOut.finished;
   loginForm.style.display = "none";
 
   // 2. Reveal welcome message
   welcomeEl.style.display = "";
-  animate(
-    welcomeEl,
-    { opacity: [0, 1], transform: ["translateY(16px)", "translateY(0)"] },
-    { duration: 0.5, easing: [0.22, 1, 0.36, 1] },
+  welcomeEl.style.opacity = "1";
+  void tryAnimate(() =>
+    animate(
+      welcomeEl,
+      { opacity: [0, 1], transform: ["translateY(16px)", "translateY(0)"] },
+      { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
+    ),
   );
 
   // Gold shimmer on the heading
   const heading = welcomeEl.querySelector("h2");
   if (heading) {
-    animate(
-      heading,
-      { opacity: [0.4, 1, 0.85, 1] },
-      {
-        duration: 1.2,
-        easing: "ease-in-out",
-      },
+    void tryAnimate(() =>
+      animate(
+        heading,
+        { opacity: [0.4, 1, 0.85, 1] },
+        {
+          duration: 1.2,
+          ease: "easeInOut",
+        },
+      ),
     );
   }
 
-  // 3. Reveal events section with staggered cards
+  // 3. Reveal events section with staggered cards. The inline opacity is the
+  // real reveal (it outlives the animation and overrides the `opacity-0`
+  // class); the keyframes replay 0 → 1 on top of it for the entrance.
   eventsSection.style.display = "";
   await new Promise((r) => setTimeout(r, 200));
+  eventsSection.style.opacity = "1";
 
-  animate(
-    eventsSection,
-    { opacity: [0, 1], transform: ["translateY(32px)", "translateY(0)"] },
-    { duration: 0.5, easing: [0.22, 1, 0.36, 1] },
+  void tryAnimate(() =>
+    animate(
+      eventsSection,
+      { opacity: [0, 1], transform: ["translateY(32px)", "translateY(0)"] },
+      { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
+    ),
   );
 
   const cards = eventsSection.querySelectorAll("[data-event-card]");
   if (cards.length > 0) {
-    animate(
-      cards as NodeListOf<HTMLElement>,
-      { opacity: [0, 1], transform: ["translateY(24px)", "translateY(0)"] },
-      {
-        duration: 0.45,
-        easing: [0.22, 1, 0.36, 1],
-        delay: stagger(0.12, { start: 0.15 }),
-      },
+    void tryAnimate(() =>
+      animate(
+        cards as NodeListOf<HTMLElement>,
+        { opacity: [0, 1], transform: ["translateY(24px)", "translateY(0)"] },
+        {
+          duration: 0.45,
+          ease: [0.22, 1, 0.36, 1],
+          delay: stagger(0.12, { startDelay: 0.15 }),
+        },
+      ),
     );
   }
 }

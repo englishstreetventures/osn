@@ -168,6 +168,10 @@ jobs:
           # Domain reshuffle 2026-07-16: the guest site now lives on the `invite.`
           # subdomain (apex serves the marketing landing site).
           PUBLIC_SITE_URL: https://invite.cireweddings.com
+          # OSN identity issuer for the guest "Link my Pulse account" island.
+          # Without it the bundle falls back to the dev default
+          # (http://localhost:4000) and the linking flow dials localhost in prod.
+          PUBLIC_OSN_ISSUER_URL: https://id.cireweddings.com
           PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
           # Google Maps Embed API key (public, referrer-restricted to *.cireweddings.com).
           # Present ⇒ real Embed iframe; absent ⇒ CSS-card fallback (key-optional).

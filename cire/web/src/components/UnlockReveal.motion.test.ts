@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { animateMock, staggerMock } = vi.hoisted(() => ({
   animateMock: vi.fn(() => ({ finished: Promise.resolve() })),
-  staggerMock: vi.fn((duration: number, opts: { start: number }) => duration + opts.start),
+  staggerMock: vi.fn(
+    (duration: number, opts: { startDelay: number }) => duration + opts.startDelay,
+  ),
 }));
 vi.mock("motion", () => ({ animate: animateMock, stagger: staggerMock }));
 
@@ -16,6 +18,7 @@ describe("unlockRevealSequence", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     animateMock.mockClear();
+    animateMock.mockImplementation(() => ({ finished: Promise.resolve() }));
     staggerMock.mockClear();
     loginForm = document.createElement("div");
     welcomeEl = document.createElement("div");
@@ -45,6 +48,52 @@ describe("unlockRevealSequence", () => {
     expect(eventsSection.style.display).toBe("");
   });
 
+  // Motion v12 reverts an element to its base styles when a keyframe animation
+  // finishes — the events section's base is the `opacity-0` utility class, so
+  // without an inline end-state the section ends up invisible after the reveal
+  // (the prod "no events" bug).
+  it("persists the events section's final opacity as an inline style", async () => {
+    const p = unlockRevealSequence(loginForm, welcomeEl, eventsSection);
+    await vi.advanceTimersByTimeAsync(300);
+    await p;
+    expect(eventsSection.style.opacity).toBe("1");
+  });
+
+  it("still reveals everything when animate throws", async () => {
+    animateMock.mockImplementation(() => {
+      throw new Error("boom");
+    });
+    const p = unlockRevealSequence(loginForm, welcomeEl, eventsSection);
+    await vi.advanceTimersByTimeAsync(300);
+    await p;
+    expect(loginForm.style.display).toBe("none");
+    expect(welcomeEl.style.display).toBe("");
+    expect(eventsSection.style.display).toBe("");
+    expect(eventsSection.style.opacity).toBe("1");
+  });
+
+  it("still reveals the events section when the fade-out never settles", async () => {
+    animateMock.mockImplementation(() => ({ finished: new Promise(() => {}) }));
+    const p = unlockRevealSequence(loginForm, welcomeEl, eventsSection);
+    await vi.advanceTimersByTimeAsync(5000);
+    await p;
+    expect(eventsSection.style.opacity).toBe("1");
+  });
+
+  // Motion v12 renamed Motion One's `easing` option to `ease` — the old key is
+  // silently ignored, which dropped every custom curve in the sequence.
+  it("passes v12 `ease` options, never the removed `easing` key", async () => {
+    const p = unlockRevealSequence(loginForm, welcomeEl, eventsSection);
+    await vi.advanceTimersByTimeAsync(300);
+    await p;
+    expect(animateMock).toHaveBeenCalled();
+    for (const call of animateMock.mock.calls) {
+      const options = call[2] as Record<string, unknown>;
+      expect(options).not.toHaveProperty("easing");
+      expect(options).toHaveProperty("ease");
+    }
+  });
+
   it("animates heading shimmer when h2 exists", async () => {
     const h2 = document.createElement("h2");
     welcomeEl.appendChild(h2);
@@ -70,12 +119,14 @@ describe("unlockRevealSequence", () => {
     expect(h2Calls).toHaveLength(0);
   });
 
+  // Motion One's `{ start }` stagger option is `{ startDelay }` in v12 — the
+  // old key was silently ignored too.
   it("staggers event cards when present", async () => {
     eventsSection.innerHTML = "<div data-event-card></div><div data-event-card></div>";
     const p = unlockRevealSequence(loginForm, welcomeEl, eventsSection);
     await vi.advanceTimersByTimeAsync(300);
     await p;
-    expect(staggerMock).toHaveBeenCalledWith(0.12, { start: 0.15 });
+    expect(staggerMock).toHaveBeenCalledWith(0.12, { startDelay: 0.15 });
   });
 
   it("skips stagger when no event cards exist", async () => {

@@ -142,8 +142,16 @@ export default function InvitePage(props: InvitePageProps) {
     await new Promise((r) => setTimeout(r, 0));
 
     if (loginFormRef && welcomeRef && eventsSectionRef) {
-      const { unlockRevealSequence } = await import("./UnlockReveal.motion");
-      unlockRevealSequence(loginFormRef, welcomeRef, eventsSectionRef);
+      try {
+        const { unlockRevealSequence } = await import("./UnlockReveal.motion");
+        await unlockRevealSequence(loginFormRef, welcomeRef, eventsSectionRef);
+      } catch {
+        // The motion chunk failed to load (offline mid-session, stale deploy) —
+        // reveal without the animation; the invite must never stay hidden.
+        eventsSectionRef.style.opacity = "1";
+      }
+    } else if (eventsSectionRef) {
+      eventsSectionRef.style.opacity = "1";
     }
   }
 
