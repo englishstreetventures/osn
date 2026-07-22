@@ -1410,6 +1410,26 @@ describe("hero display sliders (migration 0018)", () => {
     });
   });
 
+  describe("invite designId", () => {
+    it("defaults to classic on the public invite", async () => {
+      const { app } = buildApp();
+      const res = await appRequest(app, `/api/invite/${SLUG}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { designId: string };
+      expect(body.designId).toBe("classic");
+    });
+
+    it("defaults to classic on the organiser GET", async () => {
+      const { app } = buildApp();
+      const res = await appRequest(app, orgBase, {
+        headers: await authHeaders(BOOTSTRAP_OWNER),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { designId: string };
+      expect(body.designId).toBe("classic");
+    });
+  });
+
   it("a blur change busts the served hero-bg cache (re-runs the binding, new entry)", async () => {
     const cache = createCacheStub();
     await withCaches(cache.caches, async () => {
