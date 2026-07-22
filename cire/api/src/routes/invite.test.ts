@@ -4,10 +4,13 @@ import {
   BOOTSTRAP_WEDDING_ID,
   events,
   weddings,
+  weddingEntitlements,
   weddingHosts,
   weddingInviteCustomisations,
 } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
+import { DESIGNS } from "@shared/invite-designs";
+import type { DesignMeta } from "@shared/invite-designs";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
@@ -38,7 +41,11 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
-function buildApp(opts?: { inviteLimiter?: RateLimiterBackend; images?: ImagesBindingLike }) {
+function buildApp(opts?: {
+  inviteLimiter?: RateLimiterBackend;
+  images?: ImagesBindingLike;
+  inviteDesigns?: readonly DesignMeta[];
+}) {
   const db = createDb(":memory:");
   seedDb(db);
   const assets = createAssetsStub();
@@ -50,6 +57,7 @@ function buildApp(opts?: { inviteLimiter?: RateLimiterBackend; images?: ImagesBi
     // tests; the rate-limit test below injects a tight one.
     inviteLimiter:
       opts?.inviteLimiter ?? createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),
+    inviteDesigns: opts?.inviteDesigns,
   });
   return { db, app, assets };
 }
@@ -1698,5 +1706,123 @@ describe("image crop (migration 0021)", () => {
       const rows = (await eventsRes.json()) as { id: string; imageCrop: unknown }[];
       expect(rows.find((e) => e.id === EVENT_ID)?.imageCrop).toBeNull();
     });
+  });
+});
+
+// Test-only catalog: a second free design (so the happy path can change the
+// stored value) and a premium design (so the dormant entitlement gate is
+// exercised — the launch catalog is all-free).
+const TEST_CATALOG = [
+  ...DESIGNS,
+  { id: "test-free", name: "Test Free", tier: "free" },
+  { id: "test-premium", name: "Test Premium", tier: "premium" },
+] as const satisfies readonly DesignMeta[];
+
+describe("PUT /invite/design (organiser)", () => {
+  const putDesign = (body: unknown) => ({
+    method: "PUT" as const,
+    headers: { "Content-Type": "application/json" },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+
+  it("401 without a token", async () => {
+    const { app } = buildApp({ inviteDesigns: TEST_CATALOG });
+    const res = await appRequest(app, `${orgBase}/design`, putDesign({ designId: "classic" }));
+    expect(res.status).toBe(401);
+  });
+
+  it("403 for a non-member", async () => {
+    const { app } = buildApp({ inviteDesigns: TEST_CATALOG });
+    const res = await appRequest(app, `${orgBase}/design`, {
+      ...putDesign({ designId: "classic" }),
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders("usr_someone_else")),
+      },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("400 for a malformed body", async () => {
+    const { app } = buildApp({ inviteDesigns: TEST_CATALOG });
+    const res = await appRequest(app, `${orgBase}/design`, {
+      ...putDesign("{"),
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders(BOOTSTRAP_OWNER)),
+      },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("422 for an unknown design id", async () => {
+    const { app } = buildApp({ inviteDesigns: TEST_CATALOG });
+    const res = await appRequest(app, `${orgBase}/design`, {
+      ...putDesign({ designId: "not-a-design" }),
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders(BOOTSTRAP_OWNER)),
+      },
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it("403 for a premium design without the entitlement", async () => {
+    const { app } = buildApp({ inviteDesigns: TEST_CATALOG });
+    const res = await appRequest(app, `${orgBase}/design`, {
+      ...putDesign({ designId: "test-premium" }),
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders(BOOTSTRAP_OWNER)),
+      },
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("premium_design");
+  });
+
+  it("saves a premium design when the wedding holds premium_templates", async () => {
+    const { app, db } = buildApp({ inviteDesigns: TEST_CATALOG });
+    // Grant the entitlement directly — columns match `weddingEntitlements`.
+    db.insert(weddingEntitlements)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        entitlement: "premium_templates",
+        source: "comp",
+        grantedAt: new Date(),
+        grantedBy: "test-harness",
+      })
+      .run();
+    const res = await appRequest(app, `${orgBase}/design`, {
+      ...putDesign({ designId: "test-premium" }),
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders(BOOTSTRAP_OWNER)),
+      },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { designId: string };
+    expect(body.designId).toBe("test-premium");
+  });
+
+  it("persists a free design and surfaces it on both GETs", async () => {
+    const { app } = buildApp({ inviteDesigns: TEST_CATALOG });
+    const res = await appRequest(app, `${orgBase}/design`, {
+      ...putDesign({ designId: "test-free" }),
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders(BOOTSTRAP_OWNER)),
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { designId: string }).designId).toBe("test-free");
+
+    const organiserRes = await appRequest(app, orgBase, {
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+    });
+    expect(((await organiserRes.json()) as { designId: string }).designId).toBe("test-free");
+
+    const publicRes = await appRequest(app, `/api/invite/${SLUG}`);
+    expect(((await publicRes.json()) as { designId: string }).designId).toBe("test-free");
   });
 });

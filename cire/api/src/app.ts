@@ -3,6 +3,7 @@ import { EmailService, makeLogEmailLive } from "@shared/email";
 import type { SendEmailInput } from "@shared/email";
 import { createFeatureFlags } from "@shared/feature-flags";
 import type { FeatureFlags } from "@shared/feature-flags";
+import type { DesignMeta } from "@shared/invite-designs";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
@@ -170,6 +171,8 @@ export interface AppOptions {
   exportLimiter?: RateLimiterBackend;
   /** Override the invite-builder write rate limiter (useful for testing). */
   inviteLimiter?: RateLimiterBackend;
+  /** Test seam: override the invite design catalog (e.g. to add a premium fixture). */
+  inviteDesigns?: readonly DesignMeta[];
   /** Override the host preview-code rate limiter (useful for testing). */
   previewLimiter?: RateLimiterBackend;
   /** Override the wedding-create rate limiter (useful for testing). */
@@ -314,6 +317,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     accountLinkLimiter = defaultAccountLinkLimiter,
     exportLimiter = defaultExportLimiter,
     inviteLimiter = defaultInviteLimiter,
+    inviteDesigns,
     previewLimiter = defaultPreviewLimiter,
     weddingCreateLimiter = defaultWeddingCreateLimiter,
     remintLimiter = defaultRemintLimiter,
@@ -554,7 +558,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // Invite builder. Public reads (guest site) + organiser writes split into
       // sibling instances so the guest GET isn't behind osnAuth.
       .use(createInvitePublicRoutes(db, assets, images))
-      .use(createInviteOrganiserRoutes(db, assets, osnAuthOptions, inviteLimiter))
+      .use(createInviteOrganiserRoutes(db, assets, osnAuthOptions, inviteLimiter, inviteDesigns))
       // Account linking. Two sibling instances on the same prefix: GET/DELETE
       // need only the guest session; the POST link additionally requires an OSN
       // token. Splitting them is what method-gates `osnAuth` to POST without

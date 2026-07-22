@@ -341,3 +341,13 @@ export const InviteThemeBody = Schema.Struct({
   titleBackdropBlur: sliderField(TITLE_BACKDROP_BLUR_MIN, TITLE_BACKDROP_BLUR_MAX),
 });
 export type InviteThemeBody = Schema.Schema.Type<typeof InviteThemeBody>;
+
+/**
+ * Body for `PUT /invite/design`. Deliberately just "a string" here — catalog
+ * membership (and the premium entitlement) is checked in the route against
+ * `@shared/invite-designs`, so an unknown id is a 422, not a 400.
+ */
+export const InviteDesignBody = Schema.Struct({
+  designId: Schema.String,
+});
+export type InviteDesignBody = Schema.Schema.Type<typeof InviteDesignBody>;

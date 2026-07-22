@@ -1,3 +1,5 @@
+import { DESIGNS } from "@shared/invite-designs";
+import type { DesignMeta } from "@shared/invite-designs";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
@@ -14,10 +16,12 @@ import { weddingMember } from "../middleware/wedding-member";
 import { runCire } from "../observability";
 import {
   ImageCropBody,
+  InviteDesignBody,
   InviteTextBody,
   InviteThemeBody,
   isInviteImageSlot,
 } from "../schemas/invite";
+import { entitlementService } from "../services/entitlements";
 import { eventImageService } from "../services/event-image";
 import { inviteService } from "../services/invite";
 import {
@@ -378,6 +382,7 @@ export const createInvitePublicRoutes = (
  *   GET    /weddings/:weddingId/invite             → current customisation
  *   PUT    /weddings/:weddingId/invite/text        → text overrides
  *   PUT    /weddings/:weddingId/invite/theme       → per-section fonts + colours
+ *   PUT    /weddings/:weddingId/invite/design      → which design pack renders
  *   POST   /weddings/:weddingId/invite/image/:slot      → upload an image
  *   DELETE /weddings/:weddingId/invite/image/:slot      → reset slot to default
  *   PUT    /weddings/:weddingId/invite/image/:slot/crop → save/reset a crop rect
@@ -390,6 +395,7 @@ export const createInviteOrganiserRoutes = (
   assets: AssetsBucket | undefined,
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
+  designs: readonly DesignMeta[] = DESIGNS,
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     // Per-IP cap on invite writes (IB-S-L1) — runs before auth so it also blunts
@@ -497,6 +503,62 @@ export const createInviteOrganiserRoutes = (
                 Effect.catchAllDefect(() =>
                   Effect.gen(function* () {
                     yield* Effect.logError("invite theme save failed", { weddingId });
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
+              ),
+            );
+          },
+          manualParse,
+        )
+        // Which design pack the invite renders as. The id must be in the
+        // catalog (unknown → 422, so a newer organiser build can't half-save)
+        // and a premium tier requires the wedding's `premium_templates`
+        // entitlement (403 otherwise — the client greys locked cards out, but
+        // the server is the gate).
+        .put(
+          "/invite/design",
+          async ({ request, weddingId, set }) => {
+            if (!weddingId) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknown(InviteDesignBody)(raw);
+                const design = designs.find((d) => d.id === body.designId);
+                if (!design) {
+                  set.status = 422;
+                  return { error: "Unknown design" };
+                }
+                if (design.tier === "premium") {
+                  const entitled = yield* entitlementService.has(weddingId, "premium_templates");
+                  if (!entitled) {
+                    set.status = 403;
+                    return { error: "premium_design" };
+                  }
+                }
+                yield* inviteService.setDesign(weddingId, design.id);
+                return yield* inviteService.getForWeddingId(weddingId);
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("ParseError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
+                Effect.catchTag("WeddingNotFound", () =>
+                  Effect.sync(() => {
+                    set.status = 404;
+                    return { error: "Not found" };
+                  }),
+                ),
+                Effect.catchAllDefect(() =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError("invite design save failed", { weddingId });
                     set.status = 500;
                     return { error: "Internal error" };
                   }),

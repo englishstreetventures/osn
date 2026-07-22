@@ -510,6 +510,32 @@ export const inviteService = {
   },
 
   /**
+   * Set which design pack the wedding's invite renders as. The id has already
+   * passed catalog + entitlement checks at the route boundary. Bumps
+   * `updatedAt` only — NEVER `imagesUpdatedAt` — a design switch changes no
+   * stored image bytes, so the guest image transform caches stay warm
+   * (WT-P-I1).
+   */
+  setDesign(weddingId: string, designId: string): Effect.Effect<void, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const now = new Date();
+      yield* dbQuery(() =>
+        db
+          .insert(weddingInviteCustomisations)
+          .values({ weddingId, designId, updatedAt: now })
+          .onConflictDoUpdate({
+            target: weddingInviteCustomisations.weddingId,
+            set: { designId, updatedAt: now },
+          })
+          .run(),
+      );
+      yield* Effect.logInfo("invite design saved", { weddingId, designId });
+      yield* Effect.sync(() => metricInviteSaved("ok"));
+    }).pipe(Effect.withSpan("cire.invite.setDesign"));
+  },
+
+  /**
    * Store an uploaded image for a slot and point the row at it, deleting the
    * superseded object best-effort. Returns the new public image path.
    */
