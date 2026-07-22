@@ -103,10 +103,14 @@ describe("<Sidebar /> — authenticated avatar menu", () => {
     // trigger relies on pointer-capture semantics that happy-dom does
     // not reproduce faithfully.
     const result = renderSidebar();
-    const trigger = result.getByRole("button", { expanded: false });
+    // Two collapsed-popover buttons now exist (theme toggle + avatar menu);
+    // pick the avatar trigger by its profile-name content.
+    const trigger = result
+      .getAllByRole("button", { expanded: false })
+      .find((b) => b.textContent?.includes("Alice"));
     expect(trigger).toBeDefined();
     // The active profile's display name is rendered inside the trigger.
-    expect(trigger.textContent).toContain("Alice");
+    expect(trigger?.textContent).toContain("Alice");
   });
 
   it("renders the four primary nav links", () => {

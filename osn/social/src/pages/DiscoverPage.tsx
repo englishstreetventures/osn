@@ -38,8 +38,8 @@ export function DiscoverPage() {
   return (
     <main class="mx-auto w-full max-w-2xl px-8 py-8">
       <div class="mb-6">
-        <h1 class="text-foreground text-xl font-semibold tracking-tight">Discover</h1>
-        <p class="text-muted-foreground mt-1 text-sm">
+        <h1 class="text-foreground text-display font-medium">Discover</h1>
+        <p class="text-muted-foreground text-body mt-1">
           People you may know based on mutual connections.
         </p>
       </div>
@@ -47,7 +47,7 @@ export function DiscoverPage() {
       <Show
         when={session()}
         fallback={
-          <div class="text-muted-foreground border-border rounded-lg border border-dashed py-16 text-center text-sm">
+          <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
             Sign in to discover people.
           </div>
         }
@@ -57,7 +57,7 @@ export function DiscoverPage() {
           fallback={
             <div class="grid gap-3 sm:grid-cols-2">
               {Array.from({ length: 4 }, () => (
-                <div class="bg-muted/50 h-28 animate-pulse rounded-lg" />
+                <div class="bg-muted/50 rounded-card h-28 animate-pulse" />
               ))}
             </div>
           }
@@ -65,7 +65,7 @@ export function DiscoverPage() {
           <Show
             when={(recommendations()?.suggestions.length ?? 0) > 0}
             fallback={
-              <div class="text-muted-foreground border-border rounded-lg border border-dashed py-16 text-center text-sm">
+              <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
                 No suggestions yet. Connect with more people to get recommendations.
               </div>
             }
@@ -73,7 +73,7 @@ export function DiscoverPage() {
             <div class="grid gap-3 sm:grid-cols-2">
               <For each={recommendations()?.suggestions}>
                 {(suggestion) => (
-                  <div class="border-border hover:bg-muted/30 flex flex-col gap-3 rounded-lg border p-4 transition-colors">
+                  <div class="border-border hover:bg-muted/30 rounded-card flex flex-col gap-3 border p-4 transition-colors">
                     <div class="flex items-center gap-3">
                       <Avatar class="h-10 w-10">
                         <Show when={safeAvatarUrl(suggestion.avatarUrl)}>
@@ -86,26 +86,26 @@ export function DiscoverPage() {
                             />
                           )}
                         </Show>
-                        <AvatarFallback class="text-xs">
+                        <AvatarFallback class="text-meta">
                           {suggestion.handle.slice(0, 2).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div class="min-w-0 flex-1">
-                        <p class="text-foreground truncate text-sm font-medium">
+                        <p class="text-foreground text-title truncate font-medium">
                           {suggestion.displayName || `@${suggestion.handle}`}
                         </p>
                         <Show when={suggestion.displayName}>
-                          <p class="text-muted-foreground truncate text-xs">@{suggestion.handle}</p>
+                          <p class="text-subtle text-meta truncate">@{suggestion.handle}</p>
                         </Show>
                       </div>
                     </div>
                     <div class="flex items-center justify-between">
-                      <span class="text-muted-foreground text-xs">
+                      <span class="text-subtle text-meta">
                         {suggestion.mutualCount} mutual{suggestion.mutualCount !== 1 ? "s" : ""}
                       </span>
                       <Button
                         size="sm"
-                        class="h-7 text-xs"
+                        class="text-body rounded-pill h-7"
                         disabled={sending().has(suggestion.handle)}
                         onClick={() => connect(suggestion.handle)}
                       >

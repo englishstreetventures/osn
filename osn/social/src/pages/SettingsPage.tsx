@@ -37,14 +37,14 @@ export function SettingsPage() {
   return (
     <main class="mx-auto w-full max-w-2xl px-8 py-8">
       <div class="mb-6">
-        <h1 class="text-foreground text-xl font-semibold tracking-tight">Settings</h1>
-        <p class="text-muted-foreground mt-1 text-sm">Manage your OSN identity and account.</p>
+        <h1 class="text-foreground text-display font-medium">Settings</h1>
+        <p class="text-muted-foreground text-body mt-1">Manage your OSN identity and account.</p>
       </div>
 
       <Show
         when={session()}
         fallback={
-          <div class="text-muted-foreground border-border rounded-lg border border-dashed py-16 text-center text-sm">
+          <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
             Sign in to manage your settings.
           </div>
         }
@@ -61,7 +61,7 @@ export function SettingsPage() {
               <button
                 type="button"
                 class={clsx(
-                  "border-b-2 px-3 pb-2.5 text-[13px] font-medium transition-colors",
+                  "border-b-2 px-3 pb-2.5 text-body font-medium transition-colors",
                   section() === s.value
                     ? "border-foreground text-foreground"
                     : "text-muted-foreground hover:text-foreground border-transparent",
@@ -76,7 +76,7 @@ export function SettingsPage() {
 
         {/* Profile section */}
         <Show when={section() === "profile"}>
-          <Card class="flex flex-col gap-5 p-5">
+          <Card class="rounded-card flex flex-col gap-5 p-5">
             <div class="flex items-center gap-4">
               <Avatar class="h-16 w-16">
                 <Show when={safeAvatarUrl(activeProfile()?.avatarUrl)}>
@@ -89,55 +89,57 @@ export function SettingsPage() {
                     />
                   )}
                 </Show>
-                <AvatarFallback class="text-lg">{profileInitials(activeProfile())}</AvatarFallback>
+                <AvatarFallback class="text-display">
+                  {profileInitials(activeProfile())}
+                </AvatarFallback>
               </Avatar>
               <div>
                 <p class="text-foreground font-medium">
                   {activeProfile()?.displayName || `@${claims().handle}`}
                 </p>
-                <p class="text-muted-foreground text-sm">@{claims().handle}</p>
+                <p class="text-muted-foreground text-body">@{claims().handle}</p>
               </div>
             </div>
 
             <div class="flex flex-col gap-1.5">
-              <Label class="text-muted-foreground text-xs">Handle</Label>
-              <Input value={`@${claims().handle ?? ""}`} disabled class="bg-muted/50 text-sm" />
-              <p class="text-muted-foreground text-[11px]">Handles cannot be changed.</p>
+              <Label class="text-subtle text-meta">Handle</Label>
+              <Input value={`@${claims().handle ?? ""}`} disabled class="bg-muted/50 text-body" />
+              <p class="text-subtle text-meta">Handles cannot be changed.</p>
             </div>
 
             <div class="flex flex-col gap-1.5">
-              <Label class="text-muted-foreground text-xs">Display name</Label>
+              <Label class="text-subtle text-meta">Display name</Label>
               <Input
                 value={activeProfile()?.displayName ?? ""}
                 disabled
                 placeholder="No display name set"
-                class="text-sm"
+                class="text-body"
               />
-              <p class="text-muted-foreground text-[11px]">Profile editing coming soon.</p>
+              <p class="text-subtle text-meta">Profile editing coming soon.</p>
             </div>
           </Card>
         </Show>
 
         {/* Account section */}
         <Show when={section() === "account"}>
-          <Card class="flex flex-col gap-5 p-5">
+          <Card class="rounded-card flex flex-col gap-5 p-5">
             <div class="flex flex-col gap-1.5">
-              <Label class="text-muted-foreground text-xs">Email</Label>
-              <Input value={claims().email ?? ""} disabled class="bg-muted/50 text-sm" />
+              <Label class="text-subtle text-meta">Email</Label>
+              <Input value={claims().email ?? ""} disabled class="bg-muted/50 text-body" />
             </div>
 
             <div class="flex flex-col gap-1.5">
-              <Label class="text-muted-foreground text-xs">Profile ID</Label>
+              <Label class="text-subtle text-meta">Profile ID</Label>
               <Input
                 value={claims().profileId ?? ""}
                 disabled
-                class="bg-muted/50 font-mono text-xs"
+                class="bg-muted/50 text-meta font-mono"
               />
             </div>
 
             <div class="border-border border-t pt-4">
-              <h3 class="text-foreground text-sm font-semibold">Danger zone</h3>
-              <p class="text-muted-foreground mt-1 mb-3 text-xs">
+              <h3 class="text-foreground text-title font-medium">Danger zone</h3>
+              <p class="text-subtle text-meta mt-1 mb-3">
                 Account deletion is permanent and cannot be undone.
               </p>
               <Button variant="ghost" size="sm" class="text-destructive" disabled>
@@ -149,14 +151,14 @@ export function SettingsPage() {
 
         {/* Security section — manage passkeys (add / rename / delete). */}
         <Show when={section() === "security"}>
-          <Card class="flex flex-col gap-3 p-5">
+          <Card class="rounded-card flex flex-col gap-3 p-5">
             <Show
               when={accessToken() && claims().profileId}
               fallback={
-                <p class="text-muted-foreground text-sm">Sign in to manage your passkeys.</p>
+                <p class="text-muted-foreground text-body">Sign in to manage your passkeys.</p>
               }
             >
-              <Suspense fallback={<p class="text-muted-foreground text-sm">Loading…</p>}>
+              <Suspense fallback={<p class="text-muted-foreground text-body">Loading…</p>}>
                 <SecuritySection accessToken={accessToken()!} profileId={claims().profileId!} />
               </Suspense>
             </Show>
@@ -165,38 +167,38 @@ export function SettingsPage() {
 
         {/* Connected apps section */}
         <Show when={section() === "apps"}>
-          <Card class="flex flex-col gap-4 p-5">
-            <p class="text-muted-foreground text-sm">
+          <Card class="rounded-card flex flex-col gap-4 p-5">
+            <p class="text-muted-foreground text-body">
               Apps connected to your OSN account can access parts of your identity and social graph.
             </p>
 
             {/* Static list of known apps for now */}
             <div class="flex flex-col gap-2">
-              <div class="border-border flex items-center justify-between rounded-lg border px-4 py-3">
+              <div class="border-border rounded-card flex items-center justify-between border px-4 py-3">
                 <div>
-                  <p class="text-foreground text-sm font-medium">Pulse</p>
-                  <p class="text-muted-foreground text-xs">
+                  <p class="text-foreground text-title font-medium">Pulse</p>
+                  <p class="text-subtle text-meta">
                     Events platform — reads your profile and connections
                   </p>
                 </div>
-                <Button variant="secondary" size="sm" class="h-7 text-xs" disabled>
+                <Button variant="secondary" size="sm" class="text-body rounded-pill h-7" disabled>
                   Connected
                 </Button>
               </div>
-              <div class="border-border flex items-center justify-between rounded-lg border px-4 py-3">
+              <div class="border-border rounded-card flex items-center justify-between border px-4 py-3">
                 <div>
-                  <p class="text-foreground text-sm font-medium">Zap</p>
-                  <p class="text-muted-foreground text-xs">
+                  <p class="text-foreground text-title font-medium">Zap</p>
+                  <p class="text-subtle text-meta">
                     Messaging — reads your profile and connections
                   </p>
                 </div>
-                <Button variant="secondary" size="sm" class="h-7 text-xs" disabled>
+                <Button variant="secondary" size="sm" class="text-body rounded-pill h-7" disabled>
                   Connected
                 </Button>
               </div>
             </div>
 
-            <p class="text-muted-foreground text-[11px]">
+            <p class="text-subtle text-meta">
               App authorization management and scope controls coming soon.
             </p>
           </Card>

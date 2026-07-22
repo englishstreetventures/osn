@@ -127,17 +127,20 @@ export function OrgDetailPage() {
                   <AvatarFallback>{orgData().name.slice(0, 2).toUpperCase()}</AvatarFallback>
                 </Avatar>
                 <div>
-                  <h1 class="text-foreground text-xl font-semibold tracking-tight">
-                    {orgData().name}
-                  </h1>
-                  <p class="text-muted-foreground text-sm">@{orgData().handle}</p>
+                  <h1 class="text-foreground text-display font-medium">{orgData().name}</h1>
+                  <p class="text-muted-foreground text-body">@{orgData().handle}</p>
                   <Show when={orgData().description}>
-                    <p class="text-muted-foreground mt-1 text-sm">{orgData().description}</p>
+                    <p class="text-muted-foreground text-body mt-1">{orgData().description}</p>
                   </Show>
                 </div>
               </div>
               <div class="flex gap-1.5">
-                <Button variant="secondary" size="sm" onClick={openEdit}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  class="text-body rounded-pill"
+                  onClick={openEdit}
+                >
                   Edit
                 </Button>
                 <Button variant="ghost" size="sm" class="text-destructive" onClick={handleDelete}>
@@ -149,7 +152,7 @@ export function OrgDetailPage() {
             {/* Members */}
             <div>
               <div class="mb-3 flex items-center justify-between">
-                <h2 class="text-foreground text-sm font-semibold">Members</h2>
+                <h2 class="text-foreground text-title font-medium">Members</h2>
               </div>
               <Show
                 when={!members.loading}
@@ -176,26 +179,26 @@ export function OrgDetailPage() {
                               />
                             )}
                           </Show>
-                          <AvatarFallback class="text-[10px]">
+                          <AvatarFallback class="text-meta">
                             {member.profile.handle.slice(0, 2).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
                         <div class="min-w-0 flex-1">
-                          <p class="text-foreground text-sm font-medium">
+                          <p class="text-foreground text-title font-medium">
                             {member.profile.displayName || `@${member.profile.handle}`}
                           </p>
                           <Show when={member.profile.displayName}>
-                            <p class="text-muted-foreground text-xs">@{member.profile.handle}</p>
+                            <p class="text-subtle text-meta">@{member.profile.handle}</p>
                           </Show>
                         </div>
-                        <Badge variant="secondary" class="text-[11px]">
+                        <Badge variant="secondary" class="text-meta">
                           {member.role}
                         </Badge>
                         <Show when={member.role !== "admin"}>
                           <Button
                             variant="ghost"
                             size="sm"
-                            class="text-muted-foreground h-7 text-xs"
+                            class="text-muted-foreground text-body h-7"
                             onClick={() => removeMember(member.profile.id, member.profile.handle)}
                           >
                             Remove
@@ -213,7 +216,7 @@ export function OrgDetailPage() {
 
       {/* Edit dialog */}
       <Dialog open={showEdit()} onOpenChange={setShowEdit}>
-        <DialogContent class="max-w-sm">
+        <DialogContent class="rounded-card max-w-sm">
           <DialogHeader>
             <DialogTitle>Edit organisation</DialogTitle>
           </DialogHeader>
@@ -241,11 +244,12 @@ export function OrgDetailPage() {
                 type="button"
                 variant="secondary"
                 size="sm"
+                class="text-body rounded-pill"
                 onClick={() => setShowEdit(false)}
               >
                 Cancel
               </Button>
-              <Button type="submit" size="sm" disabled={saving()}>
+              <Button type="submit" size="sm" class="text-body rounded-pill" disabled={saving()}>
                 {saving() ? "Saving..." : "Save"}
               </Button>
             </div>

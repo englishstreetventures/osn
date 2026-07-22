@@ -21,6 +21,7 @@ import { toast } from "solid-toast";
 
 import { registrationClient, loginClient, recoveryClient } from "../lib/authClients";
 import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface NavItem {
   href: string;
@@ -31,7 +32,7 @@ interface NavItem {
 function IconConnections() {
   return (
     <svg
-      class="h-[18px] w-[18px]"
+      class="h-3.5 w-3.5"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -50,7 +51,7 @@ function IconConnections() {
 function IconDiscover() {
   return (
     <svg
-      class="h-[18px] w-[18px]"
+      class="h-3.5 w-3.5"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -69,7 +70,7 @@ function IconDiscover() {
 function IconOrganisations() {
   return (
     <svg
-      class="h-[18px] w-[18px]"
+      class="h-3.5 w-3.5"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -87,7 +88,7 @@ function IconOrganisations() {
 function IconSettings() {
   return (
     <svg
-      class="h-[18px] w-[18px]"
+      class="h-3.5 w-3.5"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -145,27 +146,30 @@ export function Sidebar() {
     <>
       <aside class="border-border flex h-screen w-60 shrink-0 flex-col border-r">
         {/* Logo */}
-        <div class="flex items-center gap-2 px-5 pt-6 pb-2">
-          <span class="text-foreground text-lg font-semibold tracking-tight">OSN</span>
-          <span class="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-            Social
-          </span>
+        <div class="flex items-center justify-between px-4 pt-6 pb-1">
+          <div class="flex items-baseline gap-1.5">
+            <span class="text-foreground text-title font-medium">OSN</span>
+            <span class="text-subtle text-meta tracking-[0.06em] uppercase">Social</span>
+          </div>
+          <ThemeToggle />
         </div>
 
         {/* Navigation */}
-        <nav class="flex flex-1 flex-col gap-0.5 px-3 pt-4">
+        <nav class="flex flex-1 flex-col gap-0.5 px-3 pt-5">
           <For each={NAV_ITEMS}>
             {(item) => (
               <A
                 href={item.href}
                 class={clsx(
-                  "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors",
+                  "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-body font-medium transition-colors",
                   isActive(item.href)
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                 )}
               >
-                {item.icon()}
+                <span class={clsx(isActive(item.href) ? "text-foreground" : "text-subtle")}>
+                  {item.icon()}
+                </span>
                 {item.label}
               </A>
             )}
@@ -180,7 +184,7 @@ export function Sidebar() {
               <div class="flex flex-col gap-1.5">
                 <Button
                   size="sm"
-                  class="w-full"
+                  class="text-body rounded-pill w-full"
                   onClick={() => {
                     setShowSignIn(false);
                     setShowRegister(true);
@@ -191,7 +195,7 @@ export function Sidebar() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  class="w-full"
+                  class="text-body rounded-pill w-full"
                   onClick={() => {
                     setShowRegister(false);
                     setShowSignIn(true);
@@ -203,7 +207,7 @@ export function Sidebar() {
             }
           >
             <DropdownMenu>
-              <DropdownMenuTrigger class="hover:bg-muted flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors outline-none">
+              <DropdownMenuTrigger class="hover:bg-muted flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors outline-none">
                 <Avatar class="h-8 w-8">
                   <Show when={safeAvatarUrl(activeProfile()?.avatarUrl)}>
                     {(url) => (
@@ -215,18 +219,16 @@ export function Sidebar() {
                       />
                     )}
                   </Show>
-                  <AvatarFallback class="text-[10px]">
+                  <AvatarFallback class="text-meta">
                     {profileInitials(activeProfile())}
                   </AvatarFallback>
                 </Avatar>
                 <div class="flex min-w-0 flex-1 flex-col">
-                  <span class="text-foreground truncate text-[13px] font-medium">
+                  <span class="text-foreground text-body truncate font-medium">
                     {activeProfile()?.displayName || `@${claims().handle ?? "..."}`}
                   </span>
                   <Show when={activeProfile()?.displayName}>
-                    <span class="text-muted-foreground truncate text-[11px]">
-                      @{claims().handle}
-                    </span>
+                    <span class="text-subtle text-meta truncate">@{claims().handle}</span>
                   </Show>
                 </div>
               </DropdownMenuTrigger>
@@ -250,12 +252,12 @@ export function Sidebar() {
 
       {/* Auth dialogs */}
       <Dialog open={showRegister() && !session()} onOpenChange={setShowRegister}>
-        <DialogContent class="max-w-sm p-0">
+        <DialogContent class="rounded-card max-w-sm p-0">
           <Register client={registrationClient} onCancel={() => setShowRegister(false)} />
         </DialogContent>
       </Dialog>
       <Dialog open={showSignIn() && !session()} onOpenChange={setShowSignIn}>
-        <DialogContent class="max-w-sm p-0">
+        <DialogContent class="rounded-card max-w-sm p-0">
           <SignIn
             client={loginClient}
             recoveryClient={recoveryClient}
@@ -267,9 +269,9 @@ export function Sidebar() {
 
       {/* Profile switcher */}
       <Dialog open={showSwitcher()} onOpenChange={setShowSwitcher}>
-        <DialogContent class="max-w-xs">
+        <DialogContent class="rounded-card max-w-xs">
           <div class="flex flex-col gap-1 py-2">
-            <p class="text-foreground mb-2 px-3 text-sm font-semibold">Switch profile</p>
+            <p class="text-foreground text-title mb-2 px-3 font-medium">Switch profile</p>
             <For each={profiles() ?? []}>
               {(profile) => {
                 const active = () => profile.id === activeProfileId();
@@ -277,10 +279,8 @@ export function Sidebar() {
                   <button
                     type="button"
                     class={clsx(
-                      "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors",
-                      active()
-                        ? "bg-accent text-accent-foreground"
-                        : "hover:bg-muted text-foreground",
+                      "text-body flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors",
+                      active() ? "bg-muted text-foreground" : "hover:bg-muted/60 text-foreground",
                     )}
                     disabled={switching()}
                     onClick={() => handleSwitch(profile)}
@@ -296,20 +296,16 @@ export function Sidebar() {
                           />
                         )}
                       </Show>
-                      <AvatarFallback class="text-[10px]">
-                        {profileInitials(profile)}
-                      </AvatarFallback>
+                      <AvatarFallback class="text-meta">{profileInitials(profile)}</AvatarFallback>
                     </Avatar>
                     <span class="flex-1 truncate">
                       @{profile.handle}
                       <Show when={profile.displayName}>
-                        <span class="text-muted-foreground ml-1 text-xs">
-                          ({profile.displayName})
-                        </span>
+                        <span class="text-subtle text-meta ml-1">({profile.displayName})</span>
                       </Show>
                     </span>
                     <Show when={active()}>
-                      <span class="text-primary text-xs">&#10003;</span>
+                      <span class="text-foreground text-meta">&#10003;</span>
                     </Show>
                   </button>
                 );

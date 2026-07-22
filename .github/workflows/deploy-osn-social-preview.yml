@@ -1,0 +1,73 @@
+name: Preview — osn/social
+
+# Deploys ONLY the @osn/social app to its own NON-APEX Cloudflare Pages project
+# (osn-social → osn-social.pages.dev) so any social feature branch gets a hosted
+# preview to review. Runs automatically on every push to a non-main branch that
+# touches osn/social, and can be run manually from the Actions tab.
+#
+# It touches NOTHING else — no API deploy, no D1 migrations — so it is safe to
+# run from a feature branch. It uses the `production` environment's Cloudflare
+# credentials (the same token that already deploys the landing Pages projects).
+#
+# @osn/social is a Vite SPA: `osn/social/public/_redirects` rewrites every path
+# to index.html (200) so client-side routes deep-link correctly on Pages.
+on:
+  push:
+    branches-ignore: [main]
+    paths:
+      - "osn/social/**"
+      - "osn/ui/**"
+      - "osn/client/**"
+      - ".github/workflows/deploy-osn-social-preview.yml"
+  workflow_dispatch:
+
+# This job authenticates to Cloudflare with its own token and never needs
+# GITHUB_TOKEN write access — drop it to read-only (checkout needs read).
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-osn-social-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build + deploy osn/social preview
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build osn/social
+        run: bun run --cwd osn/social build
+        env:
+          # Point the hosted preview at the live identity issuer so auth works;
+          # otherwise the app defaults to http://localhost:4000 and only the
+          # logged-out surfaces render.
+          VITE_OSN_ISSUER_URL: https://id.cireweddings.com
+
+      # Idempotent: creates the Pages project on first run, no-ops (|| true) once
+      # it already exists.
+      - name: Ensure the osn-social Pages project exists
+        run: bunx wrangler pages project create osn-social --production-branch main || true
+        working-directory: osn/social
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Deploy to the project's production branch so it serves at the clean
+      # osn-social.pages.dev. Concurrent social PRs share this single URL — the
+      # newest push wins; use per-branch aliases if that ever collides.
+      - name: Deploy to Cloudflare Pages
+        run: bunx wrangler pages deploy dist --project-name osn-social --branch main --commit-dirty=true
+        working-directory: osn/social
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

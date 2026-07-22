@@ -127,14 +127,14 @@ export function ConnectionsPage() {
   return (
     <main class="mx-auto w-full max-w-2xl px-8 py-8">
       <div class="mb-6">
-        <h1 class="text-foreground text-xl font-semibold tracking-tight">Connections</h1>
-        <p class="text-muted-foreground mt-1 text-sm">People in your social network on OSN.</p>
+        <h1 class="text-foreground text-display font-medium">Connections</h1>
+        <p class="text-muted-foreground text-body mt-1">People in your social network on OSN.</p>
       </div>
 
       <Show
         when={session()}
         fallback={
-          <div class="text-muted-foreground border-border rounded-lg border border-dashed py-16 text-center text-sm">
+          <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
             Sign in to view your connections.
           </div>
         }
@@ -146,7 +146,7 @@ export function ConnectionsPage() {
               <button
                 type="button"
                 class={clsx(
-                  "border-b-2 px-3 pb-2.5 text-[13px] font-medium transition-colors",
+                  "border-b-2 px-3 pb-2.5 text-body font-medium transition-colors",
                   tab() === t.value
                     ? "border-foreground text-foreground"
                     : "text-muted-foreground hover:text-foreground border-transparent",
@@ -173,23 +173,23 @@ export function ConnectionsPage() {
                   {(conn: ConnectionEntry) => (
                     <div class="hover:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
                       <Avatar class="h-9 w-9">
-                        <AvatarFallback class="text-xs">
+                        <AvatarFallback class="text-meta">
                           {conn.handle.slice(0, 2).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div class="min-w-0 flex-1">
-                        <p class="text-foreground text-sm font-medium">
+                        <p class="text-foreground text-title font-medium">
                           {conn.displayName || `@${conn.handle}`}
                         </p>
                         <Show when={conn.displayName}>
-                          <p class="text-muted-foreground text-xs">@{conn.handle}</p>
+                          <p class="text-subtle text-meta">@{conn.handle}</p>
                         </Show>
                       </div>
                       <div class="flex items-center gap-1.5">
                         <Button
                           variant="ghost"
                           size="sm"
-                          class="text-destructive h-7 text-xs"
+                          class="text-destructive text-body h-7"
                           onClick={() => requestRemove(conn)}
                         >
                           Remove
@@ -215,22 +215,22 @@ export function ConnectionsPage() {
                   {(req: PendingRequestEntry) => (
                     <div class="hover:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
                       <Avatar class="h-9 w-9">
-                        <AvatarFallback class="text-xs">
+                        <AvatarFallback class="text-meta">
                           {req.handle.slice(0, 2).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div class="min-w-0 flex-1">
-                        <p class="text-foreground text-sm font-medium">
+                        <p class="text-foreground text-title font-medium">
                           {req.displayName || `@${req.handle}`}
                         </p>
-                        <p class="text-muted-foreground text-xs">
+                        <p class="text-subtle text-meta">
                           Requested {new Date(req.requestedAt).toLocaleDateString()}
                         </p>
                       </div>
                       <div class="flex items-center gap-1.5">
                         <Button
                           size="sm"
-                          class="h-7 text-xs"
+                          class="text-body rounded-pill h-7"
                           onClick={() => acceptRequest(req.handle)}
                         >
                           Accept
@@ -238,7 +238,7 @@ export function ConnectionsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          class="text-muted-foreground h-7 text-xs"
+                          class="text-muted-foreground text-body h-7"
                           onClick={() => rejectRequest(req.handle)}
                         >
                           Decline
@@ -261,7 +261,7 @@ export function ConnectionsPage() {
             if (!open) setRemoveTarget(null);
           }}
         >
-          <DialogContent class="max-w-sm">
+          <DialogContent class="rounded-card max-w-sm">
             <DialogHeader>
               <DialogTitle>
                 Remove {removeTarget()?.displayName || `@${removeTarget()?.handle}`} as a friend?
@@ -274,6 +274,7 @@ export function ConnectionsPage() {
                   type="button"
                   variant="secondary"
                   size="sm"
+                  class="text-body rounded-pill"
                   onClick={() => setRemoveTarget(null)}
                 >
                   Cancel
@@ -282,6 +283,7 @@ export function ConnectionsPage() {
                   type="button"
                   variant="destructive"
                   size="sm"
+                  class="text-body rounded-pill"
                   onClick={() => {
                     void confirmRemove();
                   }}
@@ -305,17 +307,17 @@ export function ConnectionsPage() {
                   {(profile: ProfileEntry) => (
                     <div class="hover:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
                       <Avatar class="h-9 w-9">
-                        <AvatarFallback class="text-xs">
+                        <AvatarFallback class="text-meta">
                           {profile.handle.slice(0, 2).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div class="min-w-0 flex-1">
-                        <p class="text-foreground text-sm font-medium">@{profile.handle}</p>
+                        <p class="text-foreground text-title font-medium">@{profile.handle}</p>
                       </div>
                       <Button
                         variant="secondary"
                         size="sm"
-                        class="h-7 text-xs"
+                        class="text-body rounded-pill h-7"
                         onClick={() => unblock(profile.handle)}
                       >
                         Unblock
@@ -334,7 +336,7 @@ export function ConnectionsPage() {
 
 function EmptyState(props: { message: string }) {
   return (
-    <div class="text-muted-foreground border-border rounded-lg border border-dashed py-12 text-center text-sm">
+    <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-12 text-center">
       {props.message}
     </div>
   );

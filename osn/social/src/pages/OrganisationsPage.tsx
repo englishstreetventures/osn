@@ -54,8 +54,8 @@ export function OrganisationsPage() {
     <main class="mx-auto w-full max-w-2xl px-8 py-8">
       <div class="mb-6 flex items-center justify-between">
         <div>
-          <h1 class="text-foreground text-xl font-semibold tracking-tight">Organisations</h1>
-          <p class="text-muted-foreground mt-1 text-sm">Groups and teams you belong to.</p>
+          <h1 class="text-foreground text-display font-medium">Organisations</h1>
+          <p class="text-muted-foreground text-body mt-1">Groups and teams you belong to.</p>
         </div>
         <Show when={session()}>
           <Button size="sm" onClick={() => setShowCreate(true)}>
@@ -67,7 +67,7 @@ export function OrganisationsPage() {
       <Show
         when={session()}
         fallback={
-          <div class="text-muted-foreground border-border rounded-lg border border-dashed py-16 text-center text-sm">
+          <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
             Sign in to view your organisations.
           </div>
         }
@@ -77,7 +77,7 @@ export function OrganisationsPage() {
           fallback={
             <div class="flex flex-col gap-2">
               {Array.from({ length: 2 }, () => (
-                <div class="bg-muted/50 h-20 animate-pulse rounded-lg" />
+                <div class="bg-muted/50 rounded-card h-20 animate-pulse" />
               ))}
             </div>
           }
@@ -85,7 +85,7 @@ export function OrganisationsPage() {
           <Show
             when={(orgs()?.organisations.length ?? 0) > 0}
             fallback={
-              <div class="text-muted-foreground border-border rounded-lg border border-dashed py-16 text-center text-sm">
+              <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
                 You're not part of any organisations yet.
               </div>
             }
@@ -95,7 +95,7 @@ export function OrganisationsPage() {
                 {(org) => (
                   <A
                     href={`/organisations/${org.id}`}
-                    class="border-border hover:bg-muted/30 flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors"
+                    class="border-border hover:bg-muted/30 rounded-card flex items-center gap-3 border px-4 py-3 transition-colors"
                   >
                     <Avatar class="h-10 w-10">
                       <Show when={safeAvatarUrl(org.avatarUrl)}>
@@ -108,21 +108,21 @@ export function OrganisationsPage() {
                           />
                         )}
                       </Show>
-                      <AvatarFallback class="text-xs">
+                      <AvatarFallback class="text-meta">
                         {org.name.slice(0, 2).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                     <div class="min-w-0 flex-1">
-                      <p class="text-foreground text-sm font-medium">{org.name}</p>
-                      <p class="text-muted-foreground text-xs">@{org.handle}</p>
+                      <p class="text-foreground text-title font-medium">{org.name}</p>
+                      <p class="text-subtle text-meta">@{org.handle}</p>
                     </div>
                     <Show when={org.description}>
-                      <p class="text-muted-foreground hidden max-w-48 truncate text-xs sm:block">
+                      <p class="text-subtle text-meta hidden max-w-48 truncate sm:block">
                         {org.description}
                       </p>
                     </Show>
                     <svg
-                      class="text-muted-foreground h-4 w-4 shrink-0"
+                      class="text-subtle h-5 w-5 shrink-0"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
@@ -142,7 +142,7 @@ export function OrganisationsPage() {
 
       {/* Create org dialog */}
       <Dialog open={showCreate()} onOpenChange={setShowCreate}>
-        <DialogContent class="max-w-sm">
+        <DialogContent class="rounded-card max-w-sm">
           <DialogHeader>
             <DialogTitle>Create organisation</DialogTitle>
           </DialogHeader>
@@ -158,9 +158,7 @@ export function OrganisationsPage() {
                 }
                 required
               />
-              <p class="text-muted-foreground text-[11px]">
-                Lowercase letters, numbers, and underscores only.
-              </p>
+              <p class="text-subtle text-meta">Lowercase letters, numbers, and underscores only.</p>
             </div>
             <div class="flex flex-col gap-1.5">
               <Label for="org-name">Name</Label>
@@ -187,11 +185,17 @@ export function OrganisationsPage() {
                 type="button"
                 variant="secondary"
                 size="sm"
+                class="text-body rounded-pill"
                 onClick={() => setShowCreate(false)}
               >
                 Cancel
               </Button>
-              <Button type="submit" size="sm" disabled={creating() || !handle() || !name()}>
+              <Button
+                type="submit"
+                size="sm"
+                class="text-body rounded-pill"
+                disabled={creating() || !handle() || !name()}
+              >
                 {creating() ? "Creating..." : "Create"}
               </Button>
             </div>
