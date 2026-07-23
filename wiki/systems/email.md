@@ -22,7 +22,7 @@ related:
 packages:
   - "@shared/email"
   - "@osn/api"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # Email Transport
@@ -186,12 +186,16 @@ priority order:
 `OSN_EMAIL_OPTIONAL` is a non-secret boolean `[vars]` entry (truthy =
 `true`/`1`/`yes`/`on`). It is the *only* way to suppress the non-local
 email requirement, so degradation is always explicit and observable —
-never silent. **Once `RESEND_API_KEY` is set the opt-in is unnecessary**
-and should be removed so email is required/fail-closed again. See
-[[production-deploy]] §1.1 for the Resend setup steps.
+never silent. It is **not set in any tier's `wrangler.toml`**: `RESEND_API_KEY` is
+set on the production osn-api Worker, and the opt-in was removed from
+`osn/api/wrangler.toml` in #160 once delivery was confirmed, so email is
+required and fails closed again. The escape valve stays in the code for a
+future degraded deploy. See [[production-deploy]] §1.1 for the Resend
+setup steps.
 
-> **Email is live again via Resend.** Setting `RESEND_API_KEY` on the
-> deployed `id.cireweddings.com` osn-api Worker re-enables the full
+> **Email is live via Resend** — confirmed delivering from
+> `hello@cireweddings.com` on 2026-06-18. `RESEND_API_KEY` on the
+> deployed `id.cireweddings.com` osn-api Worker carries the full
 > transactional surface: OTP step-up codes, email-change OTPs, and
 > security-notice emails (recovery codes, passkey added/removed,
 > cross-device login) are all delivered again. This **supersedes** the
@@ -224,7 +228,8 @@ Before you deploy (Resend — the live path):
 3. `wrangler secret put RESEND_API_KEY --env production` on osn-api, and set
    `OSN_EMAIL_FROM=hello@cireweddings.com`.
 4. Once you have confirmed delivery, remove `OSN_EMAIL_OPTIONAL` so email is
-   required/fail-closed again. See [[production-deploy]] §1.1.
+   required/fail-closed again. Done for production in #160. See
+   [[production-deploy]] §1.1.
 
 The Cloudflare Email Service path remains available as a fallback (onboard
 the sender domain in Cloudflare Email Sending, create an Email-Send token,
@@ -287,7 +292,7 @@ exactly as before this transport landed):
    synthetic inbox. Watch `osn.email.send.attempts{outcome="sent"}` by
    template, then the `outcome="failed"` rate for 24h.
 3. Once you have confirmed delivery, **remove `OSN_EMAIL_OPTIONAL`** so email is
-   required/fail-closed again.
+   required/fail-closed again. Done for production in #160.
 
 ## Deferred decisions
 

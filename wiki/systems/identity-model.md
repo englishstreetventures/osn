@@ -10,7 +10,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 p4-completed: 2026-04-14
 p2-completed: 2026-04-14
 p3-completed: 2026-04-14
@@ -185,7 +185,7 @@ interface AccountSession {
 
 ## Session load on mount — durable refresh across reloads
 
-`@osn/client` exposes `loadSession()` (the entry point the SolidJS `AuthProvider` calls on mount via the `session` resource). Because the access token has a **5-minute TTL** and lives only in memory, the `AccountSession` JSON persisted in `localStorage` almost always carries a **stale access token after a page reload**. The HttpOnly `__Host-osn_session` refresh cookie (30-day sliding window) is what actually keeps the organiser signed in; `loadSession` must consult it rather than trust the cached access token alone.
+`@osn/client` exposes `loadSession()` (the entry point the SolidJS `AuthProvider` calls on mount via the `session` resource). The access token is persisted in the `AccountSession` JSON alongside everything else, but its **5-minute TTL** is far shorter than the gap between sessions, so that copy almost always reads as a **stale access token after a page reload**. The HttpOnly `__Host-osn_session` refresh cookie (30-day sliding window) is what actually keeps the organiser signed in; `loadSession` must consult it rather than trust the cached access token alone.
 
 `loadSession` resolves three cases, in order (`osn/client/src/service.ts`):
 

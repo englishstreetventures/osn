@@ -19,7 +19,7 @@ packages:
   - "@pulse/api"
   - "@osn/api"
   - "@zap/api"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # Backend Code Patterns
@@ -157,11 +157,16 @@ pair, validates the session-IP pepper, initialises Redis-backed stores + rate
 limiters, selects the email transport, and builds the Effect layer graph once
 into the shared `appRuntime`; `startBunServer()` keeps `app.listen`, the
 ephemeral-key warning, outbound ARC key rotation, and the account-erasure
-sweeper). This is Phase 1 (P1) of the Cloudflare Workers migration — the
-Workers `fetch` entry (`index.ts` + `main` in `wrangler.toml`) and the
-Upstash-REST Redis backend are later phases (see [[TODO]] "OSN core → Workers
-hosting"). Zap/Pulse already ship `createApp` + `local.ts` + Workers `index.ts`
-per [[database-environments]].
+sweeper). This was Phase 1 (P1) of the Cloudflare Workers migration; the later
+phases have since shipped too — osn-api runs a Workers `fetch` entry
+(`src/index.ts` + `main` in `wrangler.toml`) on `id.cireweddings.com` against
+Upstash-REST Redis. Zap/Pulse ship the same `createApp` + `local.ts` + Workers
+`index.ts` shape per [[database-environments]].
+
+The two entries differ in what they wire: `local.ts` starts the OTel SDK through
+`initObservability()`, while `index.ts` builds the redacting logger layer alone
+and sets `includeObservabilityPlugin: false` (the per-request plugin calls
+`process.hrtime.bigint()`, absent on workerd). See [[logging]].
 
 ## Error Handling Pattern
 

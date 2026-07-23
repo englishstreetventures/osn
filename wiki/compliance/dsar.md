@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # DSAR Runbook
@@ -137,13 +137,13 @@ profile-id string with **no cross-DB FK**. Two consequences:
   assist as processor.
 
 **Cross-DB deletion orphan — decision: orphan-tolerance (for now).** Nothing
-fans OSN-account deletion out into cire. Erasing an OSN account today
-therefore **orphans** the wedding + guest data in cire's D1/R2, and the
-planned `GET /account/export` / `DELETE /account` cannot reach it. We had two
-options: (a) build the ARC fan-out into cire now, or (b)
+fans OSN-account deletion out into cire. `DELETE /account` and
+`GET /account/export` are live on osn-api (C-H2), but they fan out only to
+Pulse and Zap over ARC; cire/api exposes no `internal/account-deleted`, so
+erasing an OSN account today **orphans** the wedding + guest data in cire's
+D1/R2. We had two options: (a) build the ARC fan-out into cire now, or (b)
 document an orphan-tolerance rationale and revisit. **We choose (b)** because
-there is no `DELETE /account` endpoint to hook yet, and the orphan-tolerance
-framing is defensible on the merits:
+the orphan-tolerance framing is defensible on the merits:
 
 - A wedding is a **jointly-owned record with its own lifecycle** — it
   belongs as much to the couple's event as to one organiser's OSN login.
@@ -153,9 +153,9 @@ framing is defensible on the merits:
   obligation to erase it survives the organiser's OSN-account deletion and is
   discharged through the organiser, not by cascading from OSN identity.
 
-**Recorded decision.** Orphan-tolerance is the interim position. It is
-**revisited when `DELETE /account` lands** (planned C-H2): at that point we
-either (i) add a cire ARC bridge so deletion fans out, or (ii) re-affirm
+**Recorded decision.** Orphan-tolerance is the interim position. Its revisit
+trigger — `DELETE /account` landing (C-H2) — **has now fired**, so the choice is
+live: either (i) add a cire ARC bridge so deletion fans out, or (ii) re-affirm
 orphan-tolerance with a privacy-notice disclosure that wedding/guest records
 persist independently of the organiser's OSN account. Tracked as **C-M1**
 (below).
@@ -170,7 +170,7 @@ Document refusals in the response with the specific exemption.
 
 ### Art. 18 — Restriction of processing
 
-Sets `accounts.processing_restricted_at` (planned column with C-H2). Effect: account cannot post events, send messages, accept connections, but data is preserved. Used pending dispute.
+Sets `accounts.processing_restricted_at`. The column exists and `findAccountById` reads it, but **nothing writes it and no route enforces it yet** — an operator sets it by hand in the DB, and the intended effect (account cannot post events, send messages, accept connections, while data is preserved) is not enforced in code. Used pending dispute.
 
 ### Art. 20 — Portability
 
@@ -230,4 +230,5 @@ Tracked with `C-` IDs, all rolled up under **C-M1** (DSAR runbook):
    for organiser-scoped export/erasure of cire D1 + R2 data, mirroring the
    pulse/zap `internal/account-deleted` + export pattern. Until built, cire
    DSARs are manual. **Decision: orphan-tolerance** for OSN-account deletion
-   (see "Cire data" above) — revisit when `DELETE /account` (C-H2) lands.
+   (see "Cire data" above) — the revisit is now due, because `DELETE /account`
+   (C-H2) has landed.

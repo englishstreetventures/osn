@@ -11,7 +11,7 @@ packages:
   - "@osn/client"
   - "@osn/ui"
   - "@cire/organiser"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # Passkey-Primary Login
@@ -74,19 +74,22 @@ UI surface (`@osn/ui/auth`):
   recovery code) — see "New-device onboarding" below.
   - **`passkeyOnly` prop** — when set, the step-up dialog suppresses the OTP
     ("email me a code") factor and drives the passkey ceremony directly.
-    Required wherever transactional email is degraded. The cire organiser
-    portal sets it because its osn-api runs with `OSN_EMAIL_OPTIONAL=true`
-    (Cloudflare email degraded), so an OTP step-up would dead-end on a code
-    that never arrives. Every passkey-management gate accepts a passkey
-    step-up (delete defaults to `webauthn`-only AMR; rename/register accept
-    `webauthn`), so the flow stays fully functional without email.
+    Required wherever transactional email is degraded, so that an OTP
+    step-up cannot dead-end on a code that never arrives. Every
+    passkey-management gate accepts a passkey step-up (delete defaults to
+    `webauthn`-only AMR; rename/register accept `webauthn`), so the flow
+    stays fully functional without email.
+    The cire organiser portal still sets it, but the reason no longer holds:
+    it was set while osn-api ran with `OSN_EMAIL_OPTIONAL=true`, and osn-api
+    has delivered mail through Resend since 2026-06-18 ([[email]]). Whether
+    to drop the prop there is an open decision — see `wiki/TODO.md`.
 
 ### Surfaces that mount `<PasskeysView>`
 
 | App | Mount point | Notes |
 |---|---|---|
 | `@osn/social` | lazy `SecuritySection` (Settings → Security) | OTP factor available. |
-| `@cire/organiser` | `SecurityPanel.tsx`, reached via the top-level **Security** nav item (`#security`) in `OrganiserApp` | `passkeyOnly` forced on (degraded email). Wires the WebAuthn ceremonies with `@simplewebauthn/browser`; reads `accessToken` + `activeProfileId` from `useAuth()`. |
+| `@cire/organiser` | `SecurityPanel.tsx`, reached via the top-level **Security** nav item (`#security`) in `OrganiserApp` | `passkeyOnly` still forced on, from the pre-Resend degraded-email era — open decision, see `wiki/TODO.md`. Wires the WebAuthn ceremonies with `@simplewebauthn/browser`; reads `accessToken` + `activeProfileId` from `useAuth()`. |
 
 ## New-device onboarding
 

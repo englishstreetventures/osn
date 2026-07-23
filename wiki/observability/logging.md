@@ -8,7 +8,7 @@ related:
   - "[[tracing]]"
   - "[[metrics]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # Logging
@@ -81,7 +81,7 @@ Dev-mode step-up OTP logging uses `Effect.logDebug` gated on `OSN_ENV` being uns
 
 ## Route-level logger wiring
 
-`createAuthRoutes` and `createGraphRoutes` accept an optional `loggerLayer: Layer.Layer<never>` parameter (default `Layer.empty`). The host application (`osn/api/src/index.ts`) passes its `observabilityLayer` from `initObservability()` so that `Effect.logDebug` / `Effect.logError` calls inside service pipelines actually fire through the configured logger + redactor.
+`createAuthRoutes` and `createGraphRoutes` accept an optional `loggerLayer: Layer.Layer<never>` parameter (default `Layer.empty`). Each host entry passes its own layer so that `Effect.logDebug` / `Effect.logError` calls inside service pipelines fire through the configured logger + redactor: the Bun entry (`osn/api/src/local.ts`) passes the `observabilityLayer` from `initObservability()`; the Workers entry (`osn/api/src/index.ts`) passes the redacting logger layer alone, because the OTel SDK does not run on workerd.
 
 Without this wiring, per-request Effect pipelines use Effect's default logger (which drops `Debug` and doesn't redact).
 

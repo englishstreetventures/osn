@@ -11,7 +11,7 @@ related:
   - "[[database-environments]]"
   - "[[observability-setup]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -35,7 +35,7 @@ last-reviewed: 2026-07-22
 | **Cloudflare D1** | `osn-db-prod` (osn-api), `cire-db` (cire-api) | — |
 | **Cloudflare Pages** | `cire/web` (guest), `cire/organiser`, `@osn/social`, `@osn/landing` | the Worker APIs |
 | **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) | osn-api (uses Upstash) |
-| **Turnstile** (code shipped, inert until a widget exists) | osn-api register + passkey-login, cire-api guest claim + RSVP — gated only once the secret/sitekey are set | — |
+| **Turnstile** (widget live; the cire gate is inert — see the 2026-07-20 incident below) | osn-api register + passkey-login, cire-api guest claim + RSVP — gated only while the Worker secret is set | — |
 
 > **Key accuracy note:** **cire-api does NOT use Upstash/Redis.** Its only
 > rate limiter is the native Cloudflare Workers Rate Limiting binding
@@ -208,7 +208,7 @@ needed for our volume.
 
 ---
 
-## Turnstile (Free) — code shipped, inert until a widget exists
+## Turnstile (Free) — widget live, the cire gate currently inert
 
 **Source:** Cloudflare Turnstile pricing — re-verify when activating (`/turnstile-spin`).
 
@@ -218,20 +218,40 @@ it is **not a capacity risk** for us. The integration **already shipped** (#154,
 `@shared/turnstile` + osn-api register/passkey-login + cire-api claim/RSVP);
 full design on [[turnstile]]. It is **key-optional + fail-closed**: with no
 secret set the gate is a true no-op (no token expected, the flow runs exactly
-as before), so it is inert in production today.
+as before); with a secret set, every request needs a valid token.
+
+The widget itself is live. `PUBLIC_TURNSTILE_SITEKEY` is a repo Variable and
+`deploy.yml` injects it into the cire web, organiser and vendor builds (#160),
+so the guest bundle renders a widget. What decides whether the gate bites is
+the **Worker secret**.
 
 > **Warning:** once the secret is present, a missing, invalid, duplicate or
-> unreachable token rejects the request (400/403). Confirm the sitekey reaches
-> the frontend before you set the secret, or every gated form breaks.
+> unreachable token rejects the request (400/403). Confirm that the sitekey
+> reaching the frontend is the **matching half of the same widget** before you
+> set the secret, or every gated form breaks.
 
-To activate Turnstile:
+**2026-07-20 incident.** A `TURNSTILE_SECRET_KEY` on `cire-api-production` that
+did not match the shipped sitekey rejected **every guest claim** with
+`403 {"error":"Verification failed. Please try again."}` — guests with a valid
+code saw no events. Fix applied:
+`bunx wrangler secret delete TURNSTILE_SECRET_KEY --env production`, which
+reverts the gate to a no-op; the new Worker version rolled out on its own in
+under two minutes, with no redeploy. **The cire gate is inert today because that
+secret is absent.** osn-api's secret state is not recorded here — check it with
+`bunx wrangler secret list --env production` from `osn/api` before assuming
+either way.
+
+To (re-)activate Turnstile:
 
 1. Re-verify that the free tier is still unlimited.
-2. Create the managed widget in the CF dashboard.
-3. Set the public sitekey in `[vars]` or the Pages env, per the
-   [[production-deploy]] secret checklist.
-4. Confirm the sitekey reaches the frontend.
+2. Create the managed widget in the CF dashboard, scoped to the hostnames that
+   serve the gated forms (`invite.cireweddings.com` for guest claim + RSVP).
+3. Set the public sitekey — the repo Variable `PUBLIC_TURNSTILE_SITEKEY` for the
+   frontend builds — per the [[production-deploy]] secret checklist.
+4. Confirm that sitekey reaches the frontend **and belongs to the same widget as
+   the secret you are about to set**.
 5. Set `TURNSTILE_SECRET_KEY` (Worker secret) on osn-api and cire-api.
+6. Run one real end-to-end claim before trusting the gate.
 
 ---
 
@@ -286,10 +306,10 @@ fail-open vs fail-closed split is NOT uniform — read this table, don't guess.*
 
 ## Monitoring
 
-With **Workers observability now enabled** on cire-api (`[observability]` +
-`[env.production.observability]` in `cire/api/wrangler.toml`, this PR) and on
-osn-api (sibling PR), Workers Logs + invocation records persist for **7 days**
-and are viewable in the CF dashboard.
+With **Workers observability enabled** on cire-api (`[observability]` +
+`[env.production.observability]` in `cire/api/wrangler.toml`) and on osn-api
+(`[observability]` in `osn/api/wrangler.toml`), Workers Logs + invocation
+records persist for **7 days** and are viewable in the CF dashboard.
 
 - **Where to watch:** CF dashboard → **Workers & Pages → cire-api / osn-api →
   Observability / Logs** (and the Query Builder). D1 + Workers request metrics

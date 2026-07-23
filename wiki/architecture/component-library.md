@@ -20,7 +20,7 @@ related:
 packages:
   - "@osn/ui"
   - "@pulse/app"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # Component Library (Zaidan)
@@ -41,7 +41,7 @@ All shared UI primitives live in `@osn/ui`:
 ```
 osn/ui/src/
 ├── lib/
-│   └── utils.ts              ← bx(), clsx re-export, cn() (fallback)
+│   └── utils.ts              ← clsx re-export, cn() (fallback), deprecated bx()
 ├── components/
 │   └── ui/
 │       ├── avatar.tsx         ← Avatar, AvatarImage, AvatarFallback
@@ -83,9 +83,9 @@ import { cn } from "@osn/ui/lib/utils";     // only if you need Tailwind conflic
 
 These are dependencies of `@osn/ui`. Consuming apps get them transitively — no extra installs needed.
 
-## Class Composition: `bx()`, `clsx()`, and `cn()`
+## Class Composition: the `base:` prefix, `clsx()`, and `cn()`
 
-Three utilities handle class composition at different levels:
+Three mechanisms handle class composition at different levels:
 
 ### `base:` prefix — component defaults (zero-specificity via CSS)
 
@@ -278,10 +278,10 @@ Tailwind maps these via `@theme inline` to utility classes (`bg-primary`, `text-
 ## Adding a New Component
 
 1. Create the file in `osn/ui/src/components/ui/<name>.tsx`
-2. Follow the existing pattern: `splitProps` for `class`, use `bx()` for base defaults and `clsx()` for composition with `local.class`, spread `...others`
+2. Follow the existing pattern: `splitProps` for `class`, write `base:` prefixed defaults literally in the class string, use `clsx()` to compose them with `local.class`, spread `...others`
 3. For interactive components, use Kobalte primitives from `@kobalte/core/<name>`
-4. For variant components, use CVA with `bx()` for each variant string, and export both the component and the `variants` function
-5. For internal child elements that don't accept consumer `class` overrides, use `bx()` directly (no `clsx` needed)
+4. For variant components, use CVA with a literal `base:` prefixed string for each variant, and export both the component and the `variants` function
+5. For internal child elements that don't accept consumer `class` overrides, write the `base:` prefixed string directly (no `clsx` needed)
 6. Add a subpath export in `osn/ui/package.json`:
    ```json
    "./ui/<name>": "./src/components/ui/<name>.tsx"
@@ -299,6 +299,6 @@ Tailwind maps these via `@theme inline` to utility classes (`bg-primary`, `text-
 ## Source Files
 
 - [osn/ui/src/components/ui/](../../osn/ui/src/components/ui/) — all component source
-- [osn/ui/src/lib/utils.ts](../../osn/ui/src/lib/utils.ts) — `bx()`, `clsx`, `cn()` utilities
+- [osn/ui/src/lib/utils.ts](../../osn/ui/src/lib/utils.ts) — `clsx`, `cn()`, and the deprecated `bx()` identity function
 - [osn/ui/package.json](../../osn/ui/package.json) — subpath exports
 - [pulse/app/src/App.css](../../pulse/app/src/App.css) — CSS variable theme + `@custom-variant base`

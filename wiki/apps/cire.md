@@ -17,7 +17,7 @@ related:
   - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # Cire
@@ -33,8 +33,9 @@ Cire is a digital wedding invite: an animated guest-facing site plus an organise
 | `@cire/api` | `cire/api` | 8787 | Elysia on Cloudflare Workers + Effect services + Drizzle on D1 |
 | `@cire/db` | `cire/db` | — | Drizzle schema + D1 SQL migrations |
 | `@cire/landing` | `cire/landing` | 4323 | Static marketing site for the apex `cireweddings.com` — see [[cire-landing]] |
+| `@cire/vendor` | `cire/vendor` | 4326 | Vendor portal (Astro + SolidJS) — listing claim, enquiry inbox, quotes; prod `vendor.cireweddings.com` |
 
-Note: `@cire/api` runs Elysia with `aot: false` — Elysia's ahead-of-time compilation builds handlers via `new Function`, which Cloudflare Workers forbids. Organiser auth uses the shared Elysia adapter (`@shared/osn-auth-client/middleware/elysia`), same as the other backends. (Migrated from Hono 2026-06-12 — see `[[changelog/completed-features]]`.)
+Note: `@cire/api` runs Elysia with `aot: false` — Elysia's ahead-of-time compilation builds handlers via `new Function`, which Cloudflare Workers forbids. Organiser auth uses the shared Elysia adapter (`@shared/osn-auth-client/middleware/elysia`), same as the other backends. (Migrated from Hono 2026-06-12 — see [[completed-features]].)
 
 ## Auth model (summary)
 
@@ -45,12 +46,12 @@ Two separate systems by design — full contract in [[cire-auth]]:
 - **Multiple weddings + co-hosts** — an organiser lists / selects / creates weddings (`GET`/`POST /api/organiser/weddings`, #147); every wedding-scoped route carries an explicit `:weddingId` (the import routes were rescoped from global to `/api/organiser/weddings/:weddingId/import/*`). An organiser adds co-hosts **by OSN handle** (#148): `cire/api` resolves the handle via an ARC-gated osn-api `GET /graph/internal/profile-by-handle` call and writes a `wedding_hosts` row; co-hosts get the read dashboard via `weddingMember()` but nothing destructive.
 - **Optional guest account linking** (backend shipped; frontend deferred) — an invitee may attach their seat to an OSN/Pulse account. `POST /api/account/link` is the one dual-credential route (guest cookie + OSN token); it resolves the profile to an account id over ARC and writes `guest_account_links`. Full contract + the 401/dual-credential nuances in [[cire-auth]].
 
-## Guest + organiser features (this session)
+## Guest + organiser features (shipped by 2026-07-22)
 
 - **Per-section invite theming (#152)** — organisers theme each invite section with a bounded set of fonts + colours (migration `0014`). The allowlist is CSS-injection-safe: only known font keys and validated colour values reach the rendered styles, so a malicious value can't break out into arbitrary CSS. The colour validator's single source of truth is the zero-dependency `@cire/theme` package (`isSafeCssColor`) — `cire/api` validates at write time and `cire/web` re-checks at render time from the same definition (IB-S-L1, fixed 2026-07-03). A shared **scoped token bridge** (`sectionTokenBridge`, 2026-07-09) re-points the guest site's Tailwind tokens at the validated `--invite-*` vars per section, so the theme reaches every descendant (event-card buttons, hover states, the RSVP/details modals). This fixed the reported "details theme only changed the header" bug. Migration `0028` made the last hardcoded guest-facing copy editable (events-section eyebrow/heading + the post-claim welcome greeting), and the guest tab `<title>` follows the couple's hero title. Full contract in `cire/wiki/architecture/invite-builder.md`.
 - **Google Maps Embed preview (#146)** — venue/location previews use the Maps Embed API, key-optional with a CSS-card fallback when no key is set (same graceful-degradation pattern as Turnstile and the optional email).
 - **Turnstile bot protection (#154)** — guest claim + RSVP (and the organiser-portal OSN register/login) are gated by Cloudflare Turnstile, key-optional + fail-closed; **inert until a widget is created**. See [[turnstile]].
-- **Organiser Security / Devices section (#155)** — the portal's `SecurityPanel` mounts `@osn/ui`'s `PasskeysView` to list / add / rename / remove passkeys, with passkey-only step-up (the `passkeyOnly` flag on `StepUpDialog`). The portal suppresses OTP step-up because the deployed osn-api runs with email degraded ([[email]]), so it could not deliver an OTP. New-device help points at synced/backed-up passkeys, the cross-device QR ceremony, or a recovery code. See [[passkey-primary]], [[sessions]].
+- **Organiser Security / Devices section (#155)** — the portal's `SecurityPanel` mounts `@osn/ui`'s `PasskeysView` to list / add / rename / remove passkeys, with passkey-only step-up (the `passkeyOnly` flag on `StepUpDialog`). The flag is still forced on, but its original reason has expired: it was set because the deployed osn-api ran with email degraded, and osn-api has delivered through Resend since 2026-06-18 ([[email]]). Whether to re-enable the OTP factor is an open decision (see [[TODO]]); the code comment in `cire/organiser/src/components/SecurityPanel.tsx` still cites the degraded-email reason. New-device help points at synced/backed-up passkeys, the cross-device QR ceremony, or a recovery code. See [[passkey-primary]], [[sessions]].
 
 ## Data model
 

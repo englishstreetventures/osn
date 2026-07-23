@@ -15,7 +15,8 @@ related:
   - "[[pulse]]"
   - "[[zap]]"
   - "[[social]]"
-  - "[[landing]]"
+  - "[[osn-landing]]"
+  - "[[cire]]"
 packages:
   - "@osn/api"
   - "@osn/client"
@@ -26,20 +27,32 @@ packages:
   - "@pulse/app"
   - "@pulse/api"
   - "@pulse/db"
+  - "@pulse/landing"
   - "@zap/api"
   - "@zap/db"
+  - "@cire/api"
+  - "@cire/db"
+  - "@cire/landing"
+  - "@cire/organiser"
+  - "@cire/theme"
+  - "@cire/vendor"
+  - "@cire/web"
   - "@shared/crypto"
   - "@shared/db-utils"
+  - "@shared/email"
+  - "@shared/feature-flags"
   - "@shared/observability"
+  - "@shared/osn-auth-client"
   - "@shared/rate-limit"
   - "@shared/redis"
+  - "@shared/turnstile"
   - "@shared/typescript-config"
-last-reviewed: 2026-07-03
+last-reviewed: 2026-07-23
 ---
 
 # Monorepo Structure
 
-The monorepo is organised by **domain**. Four top-level directories, four workspace-name prefixes, one prefix per directory — no mixing.
+The monorepo is organised by **domain**. Five top-level directories, five workspace-name prefixes, one prefix per directory — no mixing.
 
 ## Directory-to-Prefix Mapping
 
@@ -48,6 +61,7 @@ The monorepo is organised by **domain**. Four top-level directories, four worksp
 | `osn/` | `@osn/*` | Identity stack — auth, social graph, organisations, recommendations, SDK, UI components, landing site, social management app |
 | `pulse/` | `@pulse/*` | Events stack — Tauri client, events API (port 3001), DB |
 | `zap/` | `@zap/*` | Messaging stack — API (port 3002), DB. App is planned |
+| `cire/` | `@cire/*` | Wedding-invite stack — guest site, organiser portal, vendor portal, API, DB, theme validators, marketing site |
 | `shared/` | `@shared/*` | Cross-cutting utilities consumable by any stack |
 
 ## Full Directory Tree
@@ -59,28 +73,31 @@ osn/
   db/                  # @osn/db — Drizzle + SQLite (accounts, profiles, passkeys, sessions, graph, orgs, service accounts)
   ui/                  # @osn/ui — shared SolidJS auth components (<SignIn>, <Register>, <RecoveryCodesView>, etc.)
   social/              # @osn/social — SolidJS web app for identity + graph management (port 1422)
-  landing/             # @osn/landing — Astro + Solid marketing site
+  landing/             # @osn/landing — Astro + Solid marketing site (port 4324)
 pulse/
   app/                 # @pulse/app — Tauri + SolidJS (iOS target ready)
     src/               #   SolidJS frontend
     src-tauri/         #   Rust + Tauri native layer
   api/                 # @pulse/api — Elysia + Eden events server (port 3001)
   db/                  # @pulse/db — Drizzle + SQLite (events, RSVPs)
+  landing/             # @pulse/landing — Astro + Solid marketing site (port 4325)
 zap/
   api/                 # @zap/api — Elysia messaging server (port 3002) — M0 scaffolded; M1+ in flight (see TODO.md)
   db/                  # @zap/db — Drizzle schema (chats, messages, group state)
                        # @zap/app — planned (Tauri + SolidJS messaging client)
 cire/
-  web/                 # @cire/web — Astro + SolidJS guest invite site (port 4321; prod cireweddings.com)
-  organiser/           # @cire/organiser — Astro + SolidJS organiser portal (port 4322)
+  web/                 # @cire/web — Astro + SolidJS guest invite site (port 4321; prod invite.cireweddings.com)
+  organiser/           # @cire/organiser — Astro + SolidJS organiser portal (port 4322; prod host.cireweddings.com)
+  vendor/              # @cire/vendor — Astro + SolidJS vendor portal (port 4326; prod vendor.cireweddings.com)
   api/                 # @cire/api — Elysia on Cloudflare Workers (port 8787; prod api.cireweddings.com)
   db/                  # @cire/db — Drizzle schema + D1 migrations
   theme/               # @cire/theme — zero-dep shared theming validators (CSS-colour allow-list, IB-S-L1)
-  landing/             # @cire/landing — Astro + Solid marketing site for the apex (port 4323)
+  landing/             # @cire/landing — Astro + Solid marketing site for the apex (port 4323; prod cireweddings.com)
 shared/
   crypto/              # @shared/crypto — ARC tokens (S2S), recovery codes; Signal Protocol pending
   db-utils/            # @shared/db-utils — createDrizzleClient, makeDbLive, commitBatch
   email/               # @shared/email — EmailService Tag: Resend / Cloudflare / Log / Noop transports
+  feature-flags/       # @shared/feature-flags — key-optional, fail-safe GrowthBook flag client
   observability/       # @shared/observability — OTel logger / tracer / metric helpers, Elysia plugin, instrumentedFetch
   osn-auth-client/     # @shared/osn-auth-client — downstream access-JWT verification (JWKS cache, Elysia adapter)
   rate-limit/          # @shared/rate-limit — per-IP / per-user fixed-window limiter primitives, getClientIp trust policy
@@ -114,7 +131,7 @@ Cross-domain access (e.g. Pulse reading OSN's social graph) goes through a bridg
 
 ## Tech Stack
 
-Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite (migrating to Supabase), Eden+REST, WebSockets, Signal Protocol (planned), SolidJS, Astro, Tauri, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest.
+Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite locally and Cloudflare D1 in the deployed tiers (a Supabase Postgres migration is deferred — see `wiki/TODO.md`), Eden+REST, WebSockets, Signal Protocol (planned), SolidJS, Astro, Tauri, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest.
 
 ## Source Files
 

@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[cire-auth]]"
   - "[[cire]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # Access Control
@@ -52,8 +52,8 @@ The matrix that needs to exist, by environment + system + role.
 | Cire Cloudflare R2 (`cire-sheets`, raw guest CSVs) | Read-write (operator) | <named humans> | ✓ | Manual + audit log | Quarterly |
 | Domain registrar | Owner | <named humans> | ✓ | Manual | Annual |
 | Stripe (when ticketing lands) | Admin | <named humans> | ✓ | Manual | Quarterly |
-| Email provider (Cloudflare Email Service today) | Admin | Same as Cloudflare | ✓ | — | — |
-| Redis provider (TBD) | Admin | <named humans> | ✓ | Manual | Quarterly |
+| Email provider (Resend today; Cloudflare Email Service is the legacy fallback) | Admin | <named humans> | ✓ | Manual | Quarterly |
+| Redis provider (Upstash, `ap-southeast-2`) | Admin | <named humans> | ✓ | Manual | Quarterly |
 
 This page is the template; the matrix with named humans lives in
 a private successor under `wiki/compliance/access-matrix/<YYYY>-<Q>.md`
