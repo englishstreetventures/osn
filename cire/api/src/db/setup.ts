@@ -174,6 +174,7 @@ CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
   details_tone TEXT,
   welcome_tone TEXT,
   invite_message TEXT,
+  design_id TEXT NOT NULL DEFAULT 'classic',
   updated_at INTEGER NOT NULL,
   images_updated_at INTEGER
 );

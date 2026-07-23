@@ -1,23 +1,13 @@
 ---
-import '../styles/global.css'
-import { inviteTitle } from '../lib/invite-title'
-import InviteHeader, { type InviteCustomisation } from './InviteHeader'
+import '../../styles/global.css'
+import { inviteTitle } from '../../lib/invite-title'
+import InviteHeader from './InviteHeader'
 import InvitePage from './InvitePage'
-import { paletteRootVars, styleAttr } from './invite-theme'
-import SiteFooter from './SiteFooter.astro'
+import { paletteRootVars, styleAttr } from '../../components/invite-theme'
+import SiteFooter from '../../components/SiteFooter.astro'
+import type { InviteDesignProps } from '../types'
 
-interface Props {
-  /** cire-api origin the islands fetch from at runtime. */
-  apiUrl: string
-  /** The wedding slug resolved from the request path; threaded to the islands. */
-  slug: string
-  /** Invite customisation fetched server-side for this slug (per request), so the
-   *  hero paints with the real image + copy in the SSR'd HTML — no client fetch
-   *  waterfall on the LCP element. The islands still revalidate on mount. */
-  initialInvite: InviteCustomisation | null
-  /** Canonical guest-site origin for share metadata (PUBLIC_SITE_URL). */
-  siteUrl?: string
-}
+type Props = InviteDesignProps
 
 const { apiUrl, slug, initialInvite, siteUrl } = Astro.props
 
@@ -40,7 +30,7 @@ const pageTitle = inviteTitle(initialInvite?.hero.title)
 const paletteStyle = styleAttr(paletteRootVars(initialInvite?.theme ?? null))
 
 const heroSep = heroBase?.includes('?') ? '&' : '?'
-// Must stay in step with HERO_BG_VARIANT in InviteHeader.tsx.
+// Must stay in step with HERO_BG_VARIANT in components/invite-images.ts.
 const preloadHeroHref = heroBase ? `${heroBase}${heroSep}variant=hero-bg` : null
 ---
 <!DOCTYPE html>

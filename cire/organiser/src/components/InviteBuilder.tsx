@@ -1,3 +1,4 @@
+import { DESIGNS } from "@cire/invite-designs";
 import {
   derivePalette,
   FONT_CHOICES,
@@ -104,10 +105,20 @@ interface InviteCustomisation {
   // Optional host override for the first line of the copyable invite message
   // (the line above the auto-appended guest-site URL + family code).
   inviteMessage: string | null;
+  designId?: string;
 }
 
 interface InviteBuilderProps {
   weddingId: string;
+  /** The wedding's entitlement keys — locks premium designs in the selector. */
+  entitlements: string[];
+}
+
+/** Whether a catalog design is locked for this wedding (premium without the
+ *  `premium_templates` entitlement). The server enforces this regardless —
+ *  this only drives the disabled state + lock badge. */
+export function isDesignLocked(tier: "free" | "premium", entitlements: readonly string[]): boolean {
+  return tier === "premium" && !entitlements.includes("premium_templates");
 }
 
 /** A "default" font selection collapses to null (keep the built-in token). */
@@ -384,6 +395,32 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     }
   }
 
+  // Fires immediately on card click — no dirty-tracking, one PUT per selection.
+  const [savingDesign, setSavingDesign] = createSignal(false);
+
+  const selectDesign = async (designId: string) => {
+    if (savingDesign() || (data()?.designId ?? "classic") === designId) return;
+    setSavingDesign(true);
+    try {
+      const res = await authFetch(apiUrl(`${base()}/design`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ designId }),
+      });
+      if (!res.ok) throw new Error(`Design save failed (${res.status})`);
+      mutate((await res.json()) as InviteCustomisation);
+      toast.success("Design updated");
+    } catch (err) {
+      if (isAuthExpired(err)) {
+        redirectToLogin();
+        return;
+      }
+      toast.error("Could not update the design");
+    } finally {
+      setSavingDesign(false);
+    }
+  };
+
   async function uploadImage(slot: ImageSlot, file: File) {
     setError(null);
     try {
@@ -463,6 +500,43 @@ export default function InviteBuilder(props: InviteBuilderProps) {
           seed(d());
           return (
             <div class="flex flex-col gap-8">
+              {/* ── Design ───────────────────────────────────────────── */}
+              <fieldset class="border-border flex flex-col gap-5 rounded-sm border p-4">
+                <legend class="font-body text-gold-dim px-2 text-[0.72rem] tracking-[0.1em] uppercase">
+                  Design
+                </legend>
+                <div class="flex flex-wrap gap-3" role="radiogroup" aria-label="Invite design">
+                  <For each={[...DESIGNS]}>
+                    {(design) => (
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={(d().designId ?? "classic") === design.id}
+                        disabled={isDesignLocked(design.tier, props.entitlements) || savingDesign()}
+                        onClick={() => void selectDesign(design.id)}
+                        class="border-border flex min-w-[8rem] flex-col items-start gap-1 rounded-sm border px-4 py-3 text-left disabled:cursor-not-allowed disabled:opacity-50"
+                        classList={{ "border-gold": (d().designId ?? "classic") === design.id }}
+                      >
+                        <span class="font-body text-[0.85rem]">{design.name}</span>
+                        <Show when={isDesignLocked(design.tier, props.entitlements)}>
+                          <span class="text-gold-dim text-[0.7rem] tracking-[0.08em] uppercase">
+                            Locked
+                          </span>
+                        </Show>
+                        <Show when={(d().designId ?? "classic") === design.id}>
+                          <span class="text-gold text-[0.7rem] tracking-[0.08em] uppercase">
+                            Current
+                          </span>
+                        </Show>
+                      </button>
+                    )}
+                  </For>
+                </div>
+                <p class="text-gold-dim text-[0.78rem]">
+                  Saved instantly — open your invite link to preview it live.
+                </p>
+              </fieldset>
+
               {/* ── Look (global): typography + the colour scheme ────── */}
               <fieldset class="border-border flex flex-col gap-5 rounded-sm border p-4">
                 <legend class="font-body text-gold-dim px-2 text-[0.72rem] tracking-[0.1em] uppercase">

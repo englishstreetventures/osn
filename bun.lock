@@ -18,6 +18,7 @@
       "name": "@cire/api",
       "dependencies": {
         "@cire/db": "workspace:*",
+        "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
         "@elysiajs/cors": "^1.4.2",
         "@shared/crypto": "workspace:*",
@@ -50,6 +51,13 @@
         "drizzle-kit": "^0.31.10",
       },
     },
+    "cire/invite-designs": {
+      "name": "@cire/invite-designs",
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "vitest": "^4.1.8",
+      },
+    },
     "cire/landing": {
       "name": "@cire/landing",
       "dependencies": {
@@ -75,6 +83,7 @@
       "name": "@cire/organiser",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.1",
+        "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
         "@kobalte/core": "^0.13.11",
         "@osn/client": "workspace:*",
@@ -133,6 +142,7 @@
       "dependencies": {
         "@astrojs/cloudflare": "^14.1.3",
         "@astrojs/solid-js": "^7.0.1",
+        "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -241,7 +251,7 @@
     },
     "osn/social": {
       "name": "@osn/social",
-      "version": "0.3.14",
+      "version": "0.4.0",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -437,7 +447,7 @@
     },
     "shared/feature-flags": {
       "name": "@shared/feature-flags",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@growthbook/growthbook": "^1.6.0",
         "@shared/observability": "workspace:*",
@@ -742,6 +752,8 @@
     "@cire/api": ["@cire/api@workspace:cire/api"],
 
     "@cire/db": ["@cire/db@workspace:cire/db"],
+
+    "@cire/invite-designs": ["@cire/invite-designs@workspace:cire/invite-designs"],
 
     "@cire/landing": ["@cire/landing@workspace:cire/landing"],
 

@@ -1,7 +1,7 @@
 import { Show } from "solid-js";
 
 import { cropAspectRatio, cropBackgroundStyle } from "./image-crop";
-import { buildSrcSet, variantSrc } from "./InviteHeader";
+import { buildSrcSet, variantSrc } from "./invite-images";
 
 // The event card photo's default display aspect (4∶3) — used when a crop carries
 // no source dimensions (a legacy crop), so the box keeps today's fixed shape.

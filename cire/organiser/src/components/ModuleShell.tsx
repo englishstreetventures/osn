@@ -270,7 +270,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                   </p>
                 }
               >
-                <InviteBuilder weddingId={props.weddingId} />
+                <InviteBuilder weddingId={props.weddingId} entitlements={props.entitlements} />
               </Show>
             </Show>
             <Show when={active() === "codes" && props.canManage}>

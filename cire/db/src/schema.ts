@@ -714,6 +714,9 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   // (never rendered as HTML), so no escaping is needed; the API only trims it,
   // collapses empty/whitespace to NULL, and bounds its length on write.
   inviteMessage: text("invite_message"),
+  // Which design pack the invite renders as (invite design selector, 0045).
+  // Always a concrete id; unknown values fall back to 'classic' on read.
+  designId: text("design_id").notNull().default("classic"),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   // The guest IMAGE cache version (migration 0029) — bumped ONLY by image
   // upload/remove/crop and a hero-blur change, never by copy/theme-colour

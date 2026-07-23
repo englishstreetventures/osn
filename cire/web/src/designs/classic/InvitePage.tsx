@@ -2,14 +2,19 @@ import { AuthProvider } from "@osn/client/solid";
 import { createEffect, createMemo, createResource, createSignal, Show, For } from "solid-js";
 import { Toaster } from "solid-toast";
 
-import { OSN_ISSUER_URL } from "../lib/osn";
-import { DetailsModal } from "./DetailsModal";
-import { EventCard } from "./EventCard";
-import { applyPaletteToRoot, filterThemeVars, type InviteTheme, sectionVars } from "./invite-theme";
-import { LoginSection } from "./LoginSection";
-import { PulseAccountLink } from "./PulseAccountLink";
-import { RsvpModal } from "./RsvpModal";
-import type { ClaimResult, EventSummary, RsvpSummary } from "./types";
+import { DetailsModal } from "../../components/DetailsModal";
+import { EventCard } from "../../components/EventCard";
+import {
+  applyPaletteToRoot,
+  filterThemeVars,
+  type InviteTheme,
+  sectionVars,
+} from "../../components/invite-theme";
+import { LoginSection } from "../../components/LoginSection";
+import { PulseAccountLink } from "../../components/PulseAccountLink";
+import { RsvpModal } from "../../components/RsvpModal";
+import type { ClaimResult, EventSummary, RsvpSummary } from "../../components/types";
+import { OSN_ISSUER_URL } from "../../lib/osn";
 
 // Public Turnstile sitekey, baked in at build time. Undefined ⇒ key-optional
 // (no widget rendered; osn-api also skips siteverify). Shared with the claim

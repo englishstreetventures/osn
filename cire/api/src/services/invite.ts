@@ -113,6 +113,9 @@ export interface InviteCustomisation {
   // (migration 0023). `null` ⇒ the organiser falls back to the built-in default
   // prose. Surfaced on the organiser GET only (the guest site never reads it).
   inviteMessage: string | null;
+  // Which design pack the invite renders as (0045). Always concrete — a
+  // missing row or a pre-0045 null reads as "classic".
+  designId: string;
 }
 
 const EMPTY_THEME: InviteTheme = {
@@ -139,6 +142,7 @@ const EMPTY: InviteCustomisation = {
   heroDisplay: DEFAULT_HERO_DISPLAY,
   theme: EMPTY_THEME,
   inviteMessage: null,
+  designId: "classic",
 };
 
 /** Public path the invite image is served from. Clients prepend the API origin. */
@@ -187,6 +191,8 @@ function toCustomisation(
     detailsTone: string | null;
     welcomeTone: string | null;
     inviteMessage: string | null;
+    // NOT NULL column, but a LEFT JOIN miss (no customisation row) yields null.
+    designId: string | null;
     updatedAt: Date | null;
     imagesUpdatedAt: Date | null;
   },
@@ -247,6 +253,7 @@ function toCustomisation(
       },
     },
     inviteMessage: c.inviteMessage,
+    designId: c.designId ?? "classic",
   };
 }
 
@@ -322,6 +329,7 @@ export const inviteService = {
             detailsTone: weddingInviteCustomisations.detailsTone,
             welcomeTone: weddingInviteCustomisations.welcomeTone,
             inviteMessage: weddingInviteCustomisations.inviteMessage,
+            designId: weddingInviteCustomisations.designId,
             updatedAt: weddingInviteCustomisations.updatedAt,
             imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
           })
@@ -499,6 +507,32 @@ export const inviteService = {
       yield* Effect.logInfo("invite theme customisation saved", { weddingId });
       yield* Effect.sync(() => metricInviteSaved("ok"));
     }).pipe(Effect.withSpan("cire.invite.upsertTheme"));
+  },
+
+  /**
+   * Set which design pack the wedding's invite renders as. The id has already
+   * passed catalog + entitlement checks at the route boundary. Bumps
+   * `updatedAt` only — NEVER `imagesUpdatedAt` — a design switch changes no
+   * stored image bytes, so the guest image transform caches stay warm
+   * (WT-P-I1).
+   */
+  setDesign(weddingId: string, designId: string): Effect.Effect<void, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const now = new Date();
+      yield* dbQuery(() =>
+        db
+          .insert(weddingInviteCustomisations)
+          .values({ weddingId, designId, updatedAt: now })
+          .onConflictDoUpdate({
+            target: weddingInviteCustomisations.weddingId,
+            set: { designId, updatedAt: now },
+          })
+          .run(),
+      );
+      yield* Effect.logInfo("invite design saved", { weddingId, designId });
+      yield* Effect.sync(() => metricInviteSaved("ok"));
+    }).pipe(Effect.withSpan("cire.invite.setDesign"));
   },
 
   /**
