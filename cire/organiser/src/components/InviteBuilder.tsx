@@ -88,6 +88,10 @@ interface InviteCustomisation {
     subtitle: string | null;
     imageUrl: string | null;
     imageCrop: ImageCrop | null;
+    // Phone-specific hero crop (0046) — the guest site applies it below its
+    // desktop breakpoint. Optional so a mid-deploy payload from an older API
+    // reads as "no phone crop" instead of crashing the builder.
+    imageCropMobile?: ImageCrop | null;
   };
   story: {
     eyebrow: string | null;
@@ -532,14 +536,17 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     }
   }
 
-  // Save (or reset, with `crop: null`) a slot's crop rectangle. Mutates the loaded
-  // data with the returned customisation so the thumbnail re-renders the new crop.
-  // Throws on failure so the modal can keep itself open and surface a retry.
-  async function saveCrop(slot: ImageSlot, crop: ImageCrop | null) {
+  // Save (or reset, with `crop: null`) a slot's crop rectangle. `screen` picks
+  // which of the hero's two rectangles a save targets (0046): "desktop" (the
+  // default, and the only option for the story slot) or the hero's "mobile"
+  // phone rectangle. Mutates the loaded data with the returned customisation so
+  // the thumbnail re-renders the new crop. Throws on failure so the modal can
+  // keep itself open and surface a retry.
+  async function saveCrop(slot: ImageSlot, crop: ImageCrop | null, screen?: "desktop" | "mobile") {
     const res = await authFetch(apiUrl(`${base()}/image/${slot}/crop`), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ crop }),
+      body: JSON.stringify(screen ? { crop, screen } : { crop }),
     });
     if (res.status === 401) {
       redirectToLogin();
@@ -550,7 +557,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       throw new Error(body.error ?? `Save failed (${res.status})`);
     }
     mutate((await res.json()) as InviteCustomisation);
-    toast.success(crop ? "Crop saved" : "Crop reset");
+    const noun = screen === "mobile" ? "Phone crop" : "Crop";
+    toast.success(crop ? `${noun} saved` : `${noun} reset`);
   }
 
   return (
@@ -665,9 +673,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   slot="hero"
                   url={d().hero.imageUrl}
                   crop={d().hero.imageCrop}
+                  cropMobile={d().hero.imageCropMobile ?? null}
                   onSelect={(f) => void uploadImage("hero", f)}
                   onRemove={() => void removeImage("hero")}
                   onSaveCrop={(c) => saveCrop("hero", c)}
+                  onSaveCropMobile={(c) => saveCrop("hero", c, "mobile")}
                 />
                 <TextField
                   label="Couple title"
@@ -1273,11 +1283,19 @@ function ImageField(props: {
   slot: CropSlot;
   url: string | null;
   crop: ImageCrop | null;
+  /** The hero's phone rectangle (0046). Pass it (with `onSaveCropMobile`) to
+   *  offer a second, phone-targeted crop of the same image. */
+  cropMobile?: ImageCrop | null;
   onSelect: (file: File) => void;
   onRemove: () => void;
   onSaveCrop: (crop: ImageCrop | null) => Promise<void>;
+  onSaveCropMobile?: (crop: ImageCrop | null) => Promise<void>;
 }) {
-  const [cropping, setCropping] = createSignal(false);
+  // Which crop editor is open: the slot's main (desktop) rectangle, the phone
+  // one, or neither. The two editors crop the SAME uploaded image — the phone
+  // one just opens on a tall 9:16 frame and saves to the mobile rectangle.
+  const [cropping, setCropping] = createSignal<"desktop" | "mobile" | null>(null);
+  const hasMobileCrop = () => props.onSaveCropMobile !== undefined;
   // Absolute, cache-busted image URL for the thumbnail + the cropper. The crop
   // editor works against the ORIGINAL (full) image so the organiser can re-frame
   // freely, so it always loads the unmodified `src`.
@@ -1289,40 +1307,64 @@ function ImageField(props: {
     const url = absoluteUrl();
     return url ? cropBackgroundStyle(url, props.crop) : null;
   };
+  // Phone thumbnail — the tall rectangle guests see below the desktop
+  // breakpoint. Only rendered when a phone crop is actually saved.
+  const cropMobileStyle = () => {
+    const url = absoluteUrl();
+    return url ? cropBackgroundStyle(url, props.cropMobile ?? null) : null;
+  };
 
   return (
     <div class="flex flex-col gap-2">
       <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
         {props.label}
       </span>
-      <Show when={absoluteUrl()}>
-        {(url) => (
-          <Show
-            when={cropStyle()}
-            fallback={
-              <img
-                src={url()}
-                alt=""
-                class="border-border h-32 w-full max-w-xs rounded-sm border object-cover"
-              />
-            }
-          >
-            {(style) => (
-              <div
-                aria-label={`${props.label} (cropped)`}
-                // WYSIWYG with the guest render: the box adopts the crop's true
-                // pixel aspect, and the region scales uniformly inside it — what the
-                // organiser sees here is exactly what guests get (no stretch).
-                class="border-border w-full max-w-xs overflow-hidden rounded-sm border"
-                style={{
-                  ...style(),
-                  "aspect-ratio": String(cropAspectRatio(props.crop, CROP_ASPECT[props.slot])),
-                }}
-              />
-            )}
-          </Show>
-        )}
-      </Show>
+      <div class="flex flex-wrap items-end gap-3">
+        <Show when={absoluteUrl()}>
+          {(url) => (
+            <Show
+              when={cropStyle()}
+              fallback={
+                <img
+                  src={url()}
+                  alt=""
+                  class="border-border h-32 w-full max-w-xs rounded-sm border object-cover"
+                />
+              }
+            >
+              {(style) => (
+                <div
+                  aria-label={`${props.label} (cropped)`}
+                  // WYSIWYG with the guest render: the box adopts the crop's true
+                  // pixel aspect, and the region scales uniformly inside it — what the
+                  // organiser sees here is exactly what guests get (no stretch).
+                  class="border-border w-full max-w-xs overflow-hidden rounded-sm border"
+                  style={{
+                    ...style(),
+                    "aspect-ratio": String(cropAspectRatio(props.crop, CROP_ASPECT[props.slot])),
+                  }}
+                />
+              )}
+            </Show>
+          )}
+        </Show>
+        <Show when={cropMobileStyle()}>
+          {(style) => (
+            <div
+              aria-label={`${props.label} (phone crop)`}
+              // Same WYSIWYG contract as the main thumbnail, at a phone-ish
+              // height: the tall region guests see below the desktop breakpoint.
+              class="border-border h-32 overflow-hidden rounded-sm border"
+              style={{
+                ...style(),
+                "aspect-ratio": String(
+                  cropAspectRatio(props.cropMobile ?? null, CROP_ASPECT["hero-mobile"]),
+                ),
+              }}
+            />
+          )}
+        </Show>
+      </div>
       <div class="flex flex-wrap items-center gap-3">
         <input
           type="file"
@@ -1337,11 +1379,20 @@ function ImageField(props: {
         <Show when={props.url}>
           <button
             type="button"
-            onClick={() => setCropping(true)}
+            onClick={() => setCropping("desktop")}
             class="font-body text-gold text-[0.82rem] underline-offset-4 hover:underline"
           >
             Crop
           </button>
+          <Show when={hasMobileCrop()}>
+            <button
+              type="button"
+              onClick={() => setCropping("mobile")}
+              class="font-body text-gold text-[0.82rem] underline-offset-4 hover:underline"
+            >
+              Phone crop
+            </button>
+          </Show>
           <button
             type="button"
             onClick={() => props.onRemove()}
@@ -1351,7 +1402,13 @@ function ImageField(props: {
           </button>
         </Show>
       </div>
-      <Show when={cropping() && absoluteUrl()}>
+      <Show when={hasMobileCrop()}>
+        <p class="font-body text-text-muted text-[0.72rem]">
+          Phones show a tall slice of this photo — use “Phone crop” to choose which part, so the
+          people in it stay in view on small screens.
+        </p>
+      </Show>
+      <Show when={cropping() === "desktop" && absoluteUrl()}>
         {(url) => (
           <Suspense>
             <ImageCropModal
@@ -1360,7 +1417,21 @@ function ImageField(props: {
               initialCrop={props.crop}
               onSave={props.onSaveCrop}
               onReset={() => props.onSaveCrop(null)}
-              onClose={() => setCropping(false)}
+              onClose={() => setCropping(null)}
+            />
+          </Suspense>
+        )}
+      </Show>
+      <Show when={cropping() === "mobile" && absoluteUrl()}>
+        {(url) => (
+          <Suspense>
+            <ImageCropModal
+              imageUrl={url()}
+              slot="hero-mobile"
+              initialCrop={props.cropMobile ?? null}
+              onSave={(c) => props.onSaveCropMobile!(c)}
+              onReset={() => props.onSaveCropMobile!(null)}
+              onClose={() => setCropping(null)}
             />
           </Suspense>
         )}

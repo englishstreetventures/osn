@@ -8,6 +8,7 @@ import { metricInviteAssetUploaded, metricInviteSaved } from "../metrics";
 import {
   decodeCrop,
   HERO_BLUR_DEFAULT,
+  type CropScreen,
   type FontChoice,
   type ImageCrop,
   type InviteImageSlot,
@@ -88,6 +89,11 @@ export interface InviteCustomisation {
     // Normalised crop rectangle `{x,y,w,h}` (0..1 source fractions) the guest
     // site applies in CSS, or null for the default centre `object-cover`.
     imageCrop: ImageCrop | null;
+    // Phone-specific hero crop (migration 0046) — applied by the guest site
+    // below its desktop breakpoint. Null ⇒ narrow viewports fall back to
+    // `imageCrop` (today's behaviour). Hero-only: the other images render at a
+    // single aspect and keep one rectangle.
+    imageCropMobile: ImageCrop | null;
   };
   story: {
     eyebrow: string | null;
@@ -135,7 +141,7 @@ const DEFAULT_HERO_DISPLAY: HeroDisplay = {
 };
 
 const EMPTY: InviteCustomisation = {
-  hero: { title: null, subtitle: null, imageUrl: null, imageCrop: null },
+  hero: { title: null, subtitle: null, imageUrl: null, imageCrop: null, imageCropMobile: null },
   story: { eyebrow: null, heading: null, body: null, imageUrl: null, imageCrop: null },
   details: { eyebrow: null, heading: null },
   welcome: { message: null },
@@ -172,6 +178,7 @@ function toCustomisation(
     heroImageKey: string | null;
     storyImageKey: string | null;
     heroImageCrop: string | null;
+    heroImageCropMobile: string | null;
     storyImageCrop: string | null;
     // NOT NULL columns, but a LEFT JOIN miss (no customisation row) yields null —
     // coalesced to the today's-look default below.
@@ -212,6 +219,7 @@ function toCustomisation(
       // a since-removed image is inert. `decodeCrop` drops a malformed/legacy
       // value to null so a bad rectangle never reaches the guest-facing style.
       imageCrop: c.heroImageKey ? decodeCrop(c.heroImageCrop) : null,
+      imageCropMobile: c.heroImageKey ? decodeCrop(c.heroImageCropMobile) : null,
     },
     story: {
       eyebrow: c.storyEyebrow,
@@ -312,6 +320,7 @@ export const inviteService = {
             heroImageKey: weddingInviteCustomisations.heroImageKey,
             storyImageKey: weddingInviteCustomisations.storyImageKey,
             heroImageCrop: weddingInviteCustomisations.heroImageCrop,
+            heroImageCropMobile: weddingInviteCustomisations.heroImageCropMobile,
             storyImageCrop: weddingInviteCustomisations.storyImageCrop,
             heroBlur: weddingInviteCustomisations.heroBlur,
             heroTitleBackdropOpacity: weddingInviteCustomisations.heroTitleBackdropOpacity,
@@ -565,8 +574,12 @@ export const inviteService = {
       const now = new Date();
       const keyColumn = slot === "hero" ? "heroImageKey" : "storyImageKey";
       // A fresh image invalidates the previous crop (it framed a different photo),
-      // so reset the slot's crop to the full-frame default on every upload.
-      const cropColumn = slot === "hero" ? "heroImageCrop" : "storyImageCrop";
+      // so reset the slot's crop(s) to the full-frame default on every upload —
+      // for the hero that means BOTH rectangles (desktop + the 0046 mobile one).
+      const cropResets =
+        slot === "hero"
+          ? { heroImageCrop: null, heroImageCropMobile: null }
+          : { storyImageCrop: null };
 
       yield* dbQuery(() =>
         db
@@ -574,13 +587,13 @@ export const inviteService = {
           .values({
             weddingId,
             [keyColumn]: newKey,
-            [cropColumn]: null,
+            ...cropResets,
             updatedAt: now,
             imagesUpdatedAt: now,
           })
           .onConflictDoUpdate({
             target: weddingInviteCustomisations.weddingId,
-            set: { [keyColumn]: newKey, [cropColumn]: null, updatedAt: now, imagesUpdatedAt: now },
+            set: { [keyColumn]: newKey, ...cropResets, updatedAt: now, imagesUpdatedAt: now },
           })
           .run(),
       );
@@ -616,7 +629,10 @@ export const inviteService = {
           ? weddingInviteCustomisations.heroImageKey
           : weddingInviteCustomisations.storyImageKey;
       const keyColumn = slot === "hero" ? "heroImageKey" : "storyImageKey";
-      const cropColumn = slot === "hero" ? "heroImageCrop" : "storyImageCrop";
+      const cropResets =
+        slot === "hero"
+          ? { heroImageCrop: null, heroImageCropMobile: null }
+          : { storyImageCrop: null };
 
       const [existing] = yield* dbQuery(() =>
         db
@@ -628,12 +644,12 @@ export const inviteService = {
 
       yield* dbQuery(() =>
         db
-          // Clear the crop alongside the key — the slot is back to its default, so
-          // a later re-upload starts full-frame, not with a stale crop.
+          // Clear the crop(s) alongside the key — the slot is back to its default,
+          // so a later re-upload starts full-frame, not with a stale crop.
           .update(weddingInviteCustomisations)
           .set({
             [keyColumn]: null,
-            [cropColumn]: null,
+            ...cropResets,
             updatedAt: new Date(),
             imagesUpdatedAt: new Date(),
           })
@@ -659,15 +675,26 @@ export const inviteService = {
    * to JSON-encode and persist. Bumping `updatedAt` is what makes the new crop
    * surface on the guest invite's no-store revalidation (and freshens the image
    * URL's `?v=` cache-buster, harmless under the CSS-render path).
+   *
+   * `screen` picks which rectangle a hero save targets (migration 0046):
+   * `desktop` (the default — every pre-0046 caller) writes `heroImageCrop`,
+   * `mobile` writes `heroImageCropMobile`. The route has already rejected
+   * `mobile` for the story slot, so the story mapping ignores it.
    */
   setCrop(
     weddingId: string,
     slot: InviteImageSlot,
     crop: ImageCrop | null,
+    screen: CropScreen = "desktop",
   ): Effect.Effect<void, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const keyColumn = slot === "hero" ? "heroImageCrop" : "storyImageCrop";
+      const keyColumn =
+        slot === "hero"
+          ? screen === "mobile"
+            ? "heroImageCropMobile"
+            : "heroImageCrop"
+          : "storyImageCrop";
       const encoded = crop ? JSON.stringify(crop) : null;
       const now = new Date();
       yield* dbQuery(() =>

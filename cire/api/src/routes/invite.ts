@@ -691,6 +691,10 @@ export const createInviteOrganiserRoutes = (
         // persisted (it is interpolated into a guest-facing inline style). The
         // save bumps the row's `updatedAt`, so the guest invite's no-store
         // revalidation picks up the new crop.
+        //
+        // `screen` (optional, default `desktop`) targets the hero's phone
+        // rectangle (migration 0046). Only the hero renders at both viewport
+        // aspects, so `screen: "mobile"` on any other slot is a 400.
         .put(
           "/invite/image/:slot/crop",
           async ({ request, params, weddingId, set }) => {
@@ -707,7 +711,12 @@ export const createInviteOrganiserRoutes = (
             return runCire(
               Effect.gen(function* () {
                 const body = yield* Schema.decodeUnknown(ImageCropBody)(raw);
-                yield* inviteService.setCrop(weddingId, slot, body.crop);
+                const screen = body.screen ?? "desktop";
+                if (screen === "mobile" && slot !== "hero") {
+                  set.status = 400;
+                  return { error: "Only the hero image has a phone crop" };
+                }
+                yield* inviteService.setCrop(weddingId, slot, body.crop, screen);
                 return yield* inviteService.getForWeddingId(weddingId);
               }).pipe(
                 Effect.provideService(DbService, db),
@@ -873,6 +882,12 @@ export const createInviteOrganiserRoutes = (
             return runCire(
               Effect.gen(function* () {
                 const body = yield* Schema.decodeUnknown(ImageCropBody)(raw);
+                // Event images render at a single aspect — only the hero has a
+                // phone rectangle (0046), so a mobile-targeted save here is a 400.
+                if (body.screen === "mobile") {
+                  set.status = 400;
+                  return { error: "Only the hero image has a phone crop" };
+                }
                 yield* eventImageService.setCrop(weddingId, eventId, body.crop);
                 return { eventId, crop: body.crop };
               }).pipe(

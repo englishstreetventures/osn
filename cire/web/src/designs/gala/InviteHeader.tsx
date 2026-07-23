@@ -4,7 +4,9 @@ import { createHeroBackdrop } from "../../components/hero-backdrop";
 import {
   cropAspectRatio,
   cropBackgroundStyle,
-  heroCropBackgroundStyle,
+  heroCropLayers,
+  heroImgRevealClass,
+  type HeroCropLayers,
 } from "../../components/image-crop";
 import { isHeroEmpty, isStoryEmpty } from "../../components/invite-emptiness";
 import { buildSrcSet, HERO_BG_VARIANT, variantSrc } from "../../components/invite-images";
@@ -148,18 +150,21 @@ export default function InviteHeader(props: InviteHeaderProps) {
   // src re-arm) — shared with every design pack's header. See hero-backdrop.ts.
   const heroBackdrop = createHeroBackdrop(heroBackdropSrc);
 
-  // The organiser's crop for the hero backdrop (or null ⇒ default centre cover).
-  // When present we render the cropped region as a background layer over the same
-  // server-blurred `hero-bg` source — the crop pans/zooms the already-blurred
-  // backdrop, so blur + crop compose without any extra Cloudflare transform. The
-  // `<img>` stays mounted purely as the load/error detector for the fade.
-  const heroCropStyle = (): Record<string, string> | null => {
+  // The organiser's crop(s) for the hero backdrop, resolved into per-breakpoint
+  // layers (0046): the desktop rectangle governs `md:` and up, the optional
+  // mobile rectangle governs narrow viewports (falling back to the desktop one —
+  // the pre-0046 render — when unset). When present, a layer renders the cropped
+  // region as a background div over the same server-blurred `hero-bg` source —
+  // the crop pans/zooms the already-blurred backdrop, so blur + crop compose
+  // without any extra Cloudflare transform. The `<img>` stays mounted purely as
+  // the load/error detector for the fade.
+  const heroCrops = (): HeroCropLayers => {
     const src = heroBackdropSrc();
-    const crop = hero()?.imageCrop ?? null;
-    // The hero box is the full viewport section, not the crop's aspect, so we
-    // render the crop as a COVER focal point (uniform scale, centred on the crop
-    // region) — never a stretch, never a letterbox.
-    return src ? heroCropBackgroundStyle(src, crop) : null;
+    if (!src) return { wide: null, narrow: null };
+    // The hero box is the full viewport section, not the crop's aspect, so each
+    // layer renders its crop as a COVER focal point (uniform scale, centred on
+    // the crop region) — never a stretch, never a letterbox.
+    return heroCropLayers(src, hero()?.imageCrop ?? null, hero()?.imageCropMobile ?? null);
   };
 
   return (
@@ -200,19 +205,38 @@ export default function InviteHeader(props: InviteHeaderProps) {
                   alt=""
                   onLoad={heroBackdrop.onLoad}
                   onError={heroBackdrop.onError}
-                  class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
-                  style={{
-                    opacity: heroBackdrop.state() === "loaded" && !heroCropStyle() ? "1" : "0",
-                  }}
+                  // Once loaded, visibility is breakpoint-aware classes (the img
+                  // shows only where no crop layer covers); before that it holds
+                  // at opacity-0 so the fade lifecycle is unchanged.
+                  class={`absolute inset-0 h-full w-full object-cover transition-opacity duration-700 ${
+                    heroBackdrop.state() === "loaded"
+                      ? heroImgRevealClass(heroCrops())
+                      : "opacity-0"
+                  }`}
                 />
-                {/* Cropped backdrop region — the organiser's pan/zoom over the same
-                  server-blurred source. Rendered only when a crop is set; fades in
-                  with the same lifecycle as the plain <img>. */}
-                <Show when={heroCropStyle()}>
+                {/* Cropped backdrop regions — the organiser's pan/zoom over the
+                  same server-blurred source, one layer per breakpoint class
+                  (0046): the desktop rectangle from `md:` up, the phone one
+                  (falling back to desktop) below. Each is rendered only when its
+                  crop resolves, and fades in with the same lifecycle as the
+                  plain <img>. */}
+                <Show when={heroCrops().wide}>
                   {(cropStyle) => (
                     <div
                       aria-hidden="true"
-                      class="absolute inset-0 h-full w-full bg-cover transition-opacity duration-700"
+                      class="absolute inset-0 hidden h-full w-full bg-cover transition-opacity duration-700 md:block"
+                      style={{
+                        ...cropStyle(),
+                        opacity: heroBackdrop.state() === "loaded" ? "1" : "0",
+                      }}
+                    />
+                  )}
+                </Show>
+                <Show when={heroCrops().narrow}>
+                  {(cropStyle) => (
+                    <div
+                      aria-hidden="true"
+                      class="absolute inset-0 h-full w-full bg-cover transition-opacity duration-700 md:hidden"
                       style={{
                         ...cropStyle(),
                         opacity: heroBackdrop.state() === "loaded" ? "1" : "0",

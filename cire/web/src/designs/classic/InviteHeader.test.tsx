@@ -73,11 +73,93 @@ describe("InviteHeader render", () => {
       img = container.querySelector("section img") as HTMLImageElement;
       expect(img).not.toBeNull();
     });
-    // Pending: invisible until the load event resolves.
-    expect(img.style.opacity).toBe("0");
+    // Pending: invisible until the load event resolves. (Visibility moved from
+    // an inline style to breakpoint-aware classes with the 0046 phone crop.)
+    expect(img.className).toContain("opacity-0");
 
     img.dispatchEvent(new Event("load"));
-    await waitFor(() => expect(img.style.opacity).toBe("1"));
+    // Loaded, no crops ⇒ visible at every breakpoint.
+    await waitFor(() => expect(img.className).toContain("opacity-100"));
+  });
+
+  it("renders per-breakpoint crop layers: desktop from md: up, the phone crop below (0046)", async () => {
+    const initial: InviteCustomisation = {
+      hero: {
+        title: "A & B",
+        subtitle: null,
+        imageUrl: "/api/invite/s/image/hero?v=1",
+        // Desktop focal centre (50%, 30%); phone focal centre (75%, 45%).
+        imageCrop: { x: 0.25, y: 0.1, w: 0.5, h: 0.4 },
+        imageCropMobile: { x: 0.6, y: 0, w: 0.3, h: 0.9 },
+      },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { container } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    let img!: HTMLImageElement;
+    await waitFor(() => {
+      img = container.querySelector("section img") as HTMLImageElement;
+      expect(img).not.toBeNull();
+    });
+    img.dispatchEvent(new Event("load"));
+
+    // The wide layer (hidden below md:) carries the desktop focal point; the
+    // narrow layer (md:hidden) carries the phone one. Both cover-render the same
+    // hero-bg source.
+    const wide = container.querySelector("section div.md\\:block") as HTMLDivElement;
+    const narrow = container.querySelector("section div.md\\:hidden") as HTMLDivElement;
+    expect(wide).not.toBeNull();
+    expect(narrow).not.toBeNull();
+    expect(wide.className).toContain("hidden");
+    expect(wide.style.backgroundPosition).toBe("50% 30%");
+    expect(narrow.style.backgroundPosition).toBe("75% 45%");
+    expect(wide.style.backgroundImage).toContain("variant=hero-bg");
+    expect(narrow.style.backgroundImage).toContain("variant=hero-bg");
+    // With a wide layer present every breakpoint is covered — the plain <img>
+    // stays hidden everywhere, even once loaded.
+    await waitFor(() => expect(img.className).toContain("opacity-0"));
+  });
+
+  it("a desktop-only crop covers every breakpoint (narrow falls back — pre-0046 render)", async () => {
+    const initial: InviteCustomisation = {
+      hero: {
+        title: "A & B",
+        subtitle: null,
+        imageUrl: "/api/invite/s/image/hero?v=1",
+        imageCrop: { x: 0.25, y: 0.1, w: 0.5, h: 0.4 },
+        imageCropMobile: null,
+      },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { container } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    await waitFor(() => {
+      expect(container.querySelector("section img")).not.toBeNull();
+    });
+    // Both layers render, both carrying the SAME desktop focal point — narrow
+    // viewports keep the single-crop behaviour they had before the phone crop.
+    const wide = container.querySelector("section div.md\\:block") as HTMLDivElement;
+    const narrow = container.querySelector("section div.md\\:hidden") as HTMLDivElement;
+    expect(wide.style.backgroundPosition).toBe("50% 30%");
+    expect(narrow.style.backgroundPosition).toBe("50% 30%");
   });
 
   it("drops the hero backdrop on a failed load so the gradient shows (T-M3)", async () => {
@@ -361,7 +443,7 @@ describe("InviteHeader render", () => {
     // is the onMount complete-check.
     await waitFor(() => {
       const img = container.querySelector("section img") as HTMLImageElement;
-      expect(img?.style.opacity).toBe("1");
+      expect(img?.className).toContain("opacity-100");
     });
 
     completeSpy.mockRestore();
@@ -403,12 +485,14 @@ describe("InviteHeader render", () => {
     });
     // Load it (the not-yet-loaded path).
     img.dispatchEvent(new Event("load"));
-    await waitFor(() => expect(img.style.opacity).toBe("1"));
+    await waitFor(() => expect(img.className).toContain("opacity-100"));
 
     // Let the revalidation settle, then assert it's STILL visible (not reset to 0).
     await Promise.resolve();
     await new Promise((r) => setTimeout(r, 0));
-    expect((container.querySelector("section img") as HTMLImageElement).style.opacity).toBe("1");
+    expect((container.querySelector("section img") as HTMLImageElement).className).toContain(
+      "opacity-100",
+    );
   });
 
   // ── Feature 1: hero backdrop always requests hero-bg (server applies blur) ──

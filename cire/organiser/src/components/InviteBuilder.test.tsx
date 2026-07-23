@@ -44,6 +44,40 @@ vi.mock("@cire/invite-designs", () => ({
   ],
 }));
 
+// Stand-in for the lazy-loaded cropperjs editor: cropperjs v2 web components
+// can't mount in happy-dom, and what these tests pin is the WIRING — which slot
+// the modal opens on and what body the save PUTs — not the crop interaction.
+// The fake exposes save/reset triggers that call through with a fixed rectangle.
+vi.mock("./ImageCropModal", () => ({
+  default: (props: {
+    slot: string;
+    initialCrop: unknown;
+    onSave: (crop: unknown) => Promise<void>;
+    onReset: () => Promise<void>;
+    onClose: () => void;
+  }) => (
+    <div data-testid="mock-crop-modal" data-slot={props.slot}>
+      <button
+        onClick={() => {
+          void props
+            .onSave({ x: 0.6, y: 0, w: 0.3, h: 0.9 })
+            .then(() => props.onClose())
+            .catch(() => {});
+        }}
+      >
+        mock-save
+      </button>
+      <button
+        onClick={() => {
+          void props.onReset().catch(() => {});
+        }}
+      >
+        mock-reset
+      </button>
+    </div>
+  ),
+}));
+
 import InviteBuilder, { isDesignLocked } from "./InviteBuilder";
 
 function json(body: unknown, status = 200) {
@@ -826,5 +860,108 @@ describe("design selector", () => {
     const gala = screen.getByRole("radio", { name: /Gala/ });
     await waitFor(() => expect(tabbable()).toEqual([gala]));
     expect(tabbable().length).toBe(1);
+  });
+});
+
+describe("InviteBuilder hero phone crop (migration 0046)", () => {
+  afterEach(() => {
+    cleanup();
+    authFetchMock.mockReset();
+    redirectSpy.mockReset();
+    toastSuccess.mockReset();
+    toastError.mockReset();
+  });
+
+  // A customisation with both images uploaded, no crops saved yet.
+  const WITH_IMAGES = {
+    ...EMPTY_CUSTOMISATION,
+    hero: {
+      title: null,
+      subtitle: null,
+      imageUrl: "/api/organiser/weddings/wed_1/invite/image/hero?v=1",
+      imageCrop: null,
+      imageCropMobile: null,
+    },
+    story: {
+      eyebrow: null,
+      heading: null,
+      body: null,
+      imageUrl: "/api/organiser/weddings/wed_1/invite/image/story?v=1",
+      imageCrop: null,
+    },
+  };
+
+  it("offers 'Phone crop' on the hero image only (the story renders at one aspect)", async () => {
+    authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES));
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+
+    await waitFor(() => screen.getByRole("button", { name: "Phone crop" }));
+    // Both slots offer the plain crop; only the hero offers the phone one.
+    expect(screen.getAllByRole("button", { name: "Crop" }).length).toBe(2);
+    expect(screen.getAllByRole("button", { name: "Phone crop" }).length).toBe(1);
+  });
+
+  it("a phone-crop save PUTs { crop, screen: 'mobile' } to the hero crop route", async () => {
+    authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES)); // initial load
+    authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES)); // crop save
+
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+
+    fireEvent.click(await waitFor(() => screen.getByRole("button", { name: "Phone crop" })));
+    // The phone editor opens on the tall hero-mobile frame, seeded empty.
+    const modal = await waitFor(() => screen.getByTestId("mock-crop-modal"));
+    expect(modal.getAttribute("data-slot")).toBe("hero-mobile");
+
+    fireEvent.click(screen.getByRole("button", { name: "mock-save" }));
+    await waitFor(() =>
+      expect(sentBody("/image/hero/crop")).toEqual({
+        crop: { x: 0.6, y: 0, w: 0.3, h: 0.9 },
+        screen: "mobile",
+      }),
+    );
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Phone crop saved"));
+  });
+
+  it("a plain crop save PUTs { crop } with NO screen key (pre-0046 body unchanged)", async () => {
+    authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES)); // initial load
+    authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES)); // crop save
+
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+
+    // The hero card comes first, so its "Crop" is the first of the two.
+    const cropButtons = await waitFor(() => screen.getAllByRole("button", { name: "Crop" }));
+    fireEvent.click(cropButtons[0]);
+    const modal = await waitFor(() => screen.getByTestId("mock-crop-modal"));
+    expect(modal.getAttribute("data-slot")).toBe("hero");
+
+    fireEvent.click(screen.getByRole("button", { name: "mock-save" }));
+    // Exact equality: a stray `screen` key here would misroute the save into
+    // the desktop column semantics on older-API deploys.
+    await waitFor(() =>
+      expect(sentBody("/image/hero/crop")).toEqual({ crop: { x: 0.6, y: 0, w: 0.3, h: 0.9 } }),
+    );
+  });
+
+  it("renders the phone thumbnail only when a phone crop is saved", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        ...WITH_IMAGES,
+        hero: { ...WITH_IMAGES.hero, imageCropMobile: { x: 0.6, y: 0, w: 0.3, h: 0.9 } },
+      }),
+    );
+    const first = render(() => (
+      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+    ));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Hero background image (phone crop)")).toBeTruthy(),
+    );
+    first.unmount();
+    authFetchMock.mockReset();
+
+    // Without a saved phone crop the thumbnail is absent.
+    authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES));
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    await waitFor(() => screen.getByRole("button", { name: "Phone crop" }));
+    expect(screen.queryByLabelText("Hero background image (phone crop)")).toBeNull();
   });
 });

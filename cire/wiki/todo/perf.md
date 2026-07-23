@@ -11,6 +11,12 @@ last-reviewed: 2026-07-23
 
 See [[review-findings]] for severity prefix conventions.
 
+### Hero phone crop — review findings (claude/hero-image-responsive-crop-b6b74u, 2026-07-23)
+
+Raised by the pre-merge performance review of the per-device hero crop. See [[web]] and the root wiki's `[[invite-builder]]`.
+
+- [ ] **P-I1** — `setCrop` bumps `imagesUpdatedAt` on every crop save, although under the CSS-render path a crop changes no served bytes: the bump rotates the guest image URL's `?v=` (guests re-download identical bytes) and mints a fresh per-call-billed transform cache key. Pre-existing behaviour for the desktop crop; noted now because the phone crop doubles the number of crop-save events per hero. **Fix:** stop bumping `imagesUpdatedAt` in `setCrop` (keep `updatedAt` for the no-store invite JSON) — needs a check that nothing else keys off the image version moving on crop saves (WT-P-I1 analysis in reverse).
+
 ### Guest invite taste pass — review findings (fix/cire-invite-taste-pass, 2026-07-22)
 
 Raised by the pre-merge performance review of the typography + affordance pass. See [[web]].

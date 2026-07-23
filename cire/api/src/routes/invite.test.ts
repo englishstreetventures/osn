@@ -1624,6 +1624,137 @@ describe("image crop (migration 0021)", () => {
     });
   });
 
+  describe("hero phone crop (migration 0046)", () => {
+    const MOBILE_CROP = { x: 0.55, y: 0, w: 0.3, h: 0.9, natW: 4000, natH: 3000 };
+    type HeroCrops = { hero: { imageCrop: unknown; imageCropMobile: unknown } };
+
+    async function putCrop(
+      app: ReturnType<typeof buildApp>["app"],
+      body: Record<string, unknown>,
+      slot = "hero",
+    ) {
+      return appRequest(app, `${orgBase}/image/${slot}/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify(body),
+      });
+    }
+
+    it("saves the phone rectangle independently of the desktop one and surfaces both", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+
+      // Desktop rectangle via the pre-0046 body (no `screen`), phone via
+      // `screen: "mobile"` — the two must not clobber each other.
+      expect((await putCrop(app, { crop: VALID_CROP })).status).toBe(200);
+      expect((await putCrop(app, { crop: MOBILE_CROP, screen: "mobile" })).status).toBe(200);
+
+      const pub = (await (await appRequest(app, `/api/invite/${SLUG}`)).json()) as HeroCrops;
+      expect(pub.hero.imageCrop).toEqual(VALID_CROP);
+      expect(pub.hero.imageCropMobile).toEqual(MOBILE_CROP);
+
+      // Organiser read (so the builder re-opens the saved phone crop) too.
+      const org = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
+      const orgBody = (await org.json()) as HeroCrops;
+      expect(orgBody.hero.imageCrop).toEqual(VALID_CROP);
+      expect(orgBody.hero.imageCropMobile).toEqual(MOBILE_CROP);
+    });
+
+    it("screen: 'desktop' is an explicit spelling of the default rectangle", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+      expect((await putCrop(app, { crop: VALID_CROP, screen: "desktop" })).status).toBe(200);
+      const pub = (await (await appRequest(app, `/api/invite/${SLUG}`)).json()) as HeroCrops;
+      expect(pub.hero.imageCrop).toEqual(VALID_CROP);
+      expect(pub.hero.imageCropMobile).toBeNull();
+    });
+
+    it("crop: null with screen: 'mobile' resets only the phone rectangle", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+      await putCrop(app, { crop: VALID_CROP });
+      await putCrop(app, { crop: MOBILE_CROP, screen: "mobile" });
+
+      expect((await putCrop(app, { crop: null, screen: "mobile" })).status).toBe(200);
+      const pub = (await (await appRequest(app, `/api/invite/${SLUG}`)).json()) as HeroCrops;
+      expect(pub.hero.imageCropMobile).toBeNull();
+      // The desktop rectangle survives the phone reset.
+      expect(pub.hero.imageCrop).toEqual(VALID_CROP);
+    });
+
+    it("rejects a phone crop on the story slot with 400 (hero-only)", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+      const bad = await putCrop(app, { crop: VALID_CROP, screen: "mobile" }, "story");
+      expect(bad.status).toBe(400);
+    });
+
+    it("rejects a phone crop on the event crop route with 400 (hero-only)", async () => {
+      const { app } = buildApp();
+      const bad = await appRequest(app, `${orgEventImagePath(EVENT_ID)}/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify({ crop: VALID_CROP, screen: "mobile" }),
+      });
+      expect(bad.status).toBe(400);
+    });
+
+    it("rejects an unknown screen value with 400", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+      const bad = await putCrop(app, { crop: VALID_CROP, screen: "tablet" });
+      expect(bad.status).toBe(400);
+    });
+
+    it("rejects an out-of-range phone rectangle with 400 and never persists it", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+      const bad = await putCrop(app, { crop: { x: 0.8, y: 0, w: 0.5, h: 0.5 }, screen: "mobile" });
+      expect(bad.status).toBe(400);
+      const pub = (await (await appRequest(app, `/api/invite/${SLUG}`)).json()) as HeroCrops;
+      expect(pub.hero.imageCropMobile).toBeNull();
+    });
+
+    it("removing the hero image clears BOTH rectangles (no stale phone crop on re-upload)", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+      await putCrop(app, { crop: VALID_CROP });
+      await putCrop(app, { crop: MOBILE_CROP, screen: "mobile" });
+
+      // The remove path is a separate UPDATE from the upload upsert — it must
+      // clear the phone rectangle too, or a later re-upload would resurrect a
+      // crop framed for a different photo.
+      const del = await appRequest(app, `${orgBase}/image/hero`, {
+        method: "DELETE",
+        headers: await authHeaders(BOOTSTRAP_OWNER),
+      });
+      expect(del.status).toBe(200);
+
+      await uploadHero(app);
+      const pub = (await (await appRequest(app, `/api/invite/${SLUG}`)).json()) as HeroCrops;
+      expect(pub.hero.imageCrop).toBeNull();
+      expect(pub.hero.imageCropMobile).toBeNull();
+    });
+
+    it("re-uploading the hero clears BOTH rectangles", async () => {
+      const { app } = buildApp();
+      await uploadHero(app);
+      await putCrop(app, { crop: VALID_CROP });
+      await putCrop(app, { crop: MOBILE_CROP, screen: "mobile" });
+      // A fresh upload frames a different photo → both crops reset to full.
+      await uploadHero(app);
+      const pub = (await (await appRequest(app, `/api/invite/${SLUG}`)).json()) as HeroCrops;
+      expect(pub.hero.imageCrop).toBeNull();
+      expect(pub.hero.imageCropMobile).toBeNull();
+    });
+
+    it("does not surface a phone crop when the hero has no image", async () => {
+      const { app } = buildApp();
+      const pub = (await (await appRequest(app, `/api/invite/${SLUG}`)).json()) as HeroCrops;
+      expect(pub.hero.imageCropMobile).toBeNull();
+    });
+  });
+
   describe("event crop", () => {
     async function uploadEvent(app: ReturnType<typeof buildApp>["app"]) {
       const up = await appRequest(app, orgEventImagePath(EVENT_ID), {

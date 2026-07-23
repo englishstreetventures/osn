@@ -139,13 +139,30 @@ const CropField = Schema.NullOr(
 );
 
 /**
+ * Which viewport class a crop rectangle targets (migration 0046). The hero is
+ * the one full-bleed image rendered at both wide-desktop and tall-phone
+ * aspects, so it carries TWO rectangles: `desktop` (the default — also what
+ * every pre-0046 client saves) governs wide viewports, `mobile` governs narrow
+ * ones. Closed union on purpose: it is persisted into a bounded column choice,
+ * never a free-form string.
+ */
+export const CROP_SCREENS = ["desktop", "mobile"] as const;
+export type CropScreen = (typeof CROP_SCREENS)[number];
+
+/**
  * Request body for saving a single image's crop rectangle (the wedding-slot
  * `hero`/`story` and the per-event image share this shape). `crop: null` resets
  * the image to the default centre crop. The rectangle is validated against the
  * bounds above before it reaches the service.
+ *
+ * `screen` is optional and defaults to `desktop` (the pre-0046 behaviour, so an
+ * older client's body keeps meaning what it always did). `mobile` is only
+ * meaningful for the `hero` slot — the route rejects it elsewhere; the story and
+ * event images render at a single aspect and keep one rectangle.
  */
 export const ImageCropBody = Schema.Struct({
   crop: CropField,
+  screen: Schema.optional(Schema.Literal(...CROP_SCREENS)),
 });
 export type ImageCropBody = Schema.Schema.Type<typeof ImageCropBody>;
 

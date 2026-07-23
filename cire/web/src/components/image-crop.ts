@@ -145,3 +145,57 @@ function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0;
   return Math.min(1, Math.max(0, n));
 }
+
+/**
+ * The hero's per-breakpoint crop layers (migration 0046). The hero is the one
+ * full-bleed image rendered at both wide-desktop and tall-phone aspects, so the
+ * organiser can save TWO focal rectangles: the desktop crop governs wide
+ * viewports, the optional mobile crop governs narrow ones. Each layer is a
+ * {@link heroCropBackgroundStyle} result (or `null` ⇒ that breakpoint keeps the
+ * plain centre-cover `<img>`).
+ *
+ * The design packs render `wide` in a `hidden md:block` div and `narrow` in a
+ * `md:hidden` div — `md` being the packs' existing mobile/desktop boundary.
+ */
+export interface HeroCropLayers {
+  /** Layer for the desktop breakpoint (`md:` and up), or null ⇒ plain cover. */
+  wide: Record<string, string> | null;
+  /** Layer for narrow viewports (below `md:`), or null ⇒ plain cover. */
+  narrow: Record<string, string> | null;
+}
+
+/**
+ * Resolve both hero crop layers with the fallback chain: the mobile rectangle
+ * wins below the breakpoint when set; otherwise narrow viewports fall back to
+ * the DESKTOP rectangle — exactly the pre-0046 render, where the single crop
+ * applied at every width. An absent/identity rectangle on both ⇒ both layers
+ * null ⇒ the plain centre-cover `<img>` everywhere (also unchanged).
+ */
+export function heroCropLayers(
+  imageUrl: string,
+  desktopCrop: ImageCrop | null | undefined,
+  mobileCrop: ImageCrop | null | undefined,
+): HeroCropLayers {
+  const wide = heroCropBackgroundStyle(imageUrl, desktopCrop);
+  const narrow = heroCropBackgroundStyle(imageUrl, mobileCrop) ?? wide;
+  return { wide, narrow };
+}
+
+/**
+ * Opacity classes for the plain hero `<img>` once it has LOADED: visible only at
+ * the breakpoints no crop layer covers, so the img and the crop divs never
+ * paint over each other. (Before load the caller keeps it at `opacity-0`
+ * regardless.) Breakpoint-conditional visibility has to be classes, not the old
+ * inline `opacity` style — an inline value can't vary with the viewport.
+ *
+ * Three cases, returned as full literals so Tailwind's scanner sees them:
+ *  - a wide layer exists ⇒ every breakpoint is covered (`narrow` falls back to
+ *    it), img stays hidden everywhere;
+ *  - only a narrow layer ⇒ img hidden on phones, visible from `md:` up;
+ *  - no layers ⇒ img visible everywhere (the pre-crop behaviour).
+ */
+export function heroImgRevealClass(layers: HeroCropLayers): string {
+  if (layers.wide) return "opacity-0";
+  if (layers.narrow) return "opacity-0 md:opacity-100";
+  return "opacity-100";
+}

@@ -655,6 +655,12 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   // no-store invite JSON the guest reads carries the new rectangle immediately.
   heroImageCrop: text("hero_image_crop"),
   storyImageCrop: text("story_image_crop"),
+  // Phone-specific hero crop (migration 0046). The hero renders full-bleed at
+  // wildly different viewport aspects, so it gets a SECOND rectangle (same JSON
+  // shape) that the guest site applies below its desktop breakpoint. NULL ⇒
+  // narrow viewports fall back to `hero_image_crop` (today's behaviour).
+  // Hero-only: the story/event images render at one aspect.
+  heroImageCropMobile: text("hero_image_crop_mobile"),
   // Fine-grained hero display sliders (organiser choice; migration 0018 replaced
   // the coarse 0017 enums). All three default to the values that reproduce
   // TODAY's look, so an un-customised wedding renders exactly as before, and the

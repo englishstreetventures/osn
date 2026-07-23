@@ -32,13 +32,17 @@ export interface ImageCrop {
  * Each customisable slot's DEFAULT crop aspect (width ÷ height) — the box the
  * editor opens on, re-framed as a sensible starting preset rather than a hard
  * lock:
- *   - `hero`  — full-viewport backdrop; a wide 16∶9 frame.
- *   - `story` — the two-column story photo; a gentle 3∶2.
- *   - `event` — the event card photo; 4∶3.
+ *   - `hero`        — full-viewport backdrop; a wide 16∶9 frame.
+ *   - `hero-mobile` — the hero's PHONE rectangle (0046); a tall 9∶16 frame
+ *                     matching the portrait viewport it targets. Not an upload
+ *                     slot — the same hero image, framed a second time.
+ *   - `story`       — the two-column story photo; a gentle 3∶2.
+ *   - `event`       — the event card photo; 4∶3.
  * The guest render is exact for any chosen shape (it reads the captured dims).
  */
 export const CROP_ASPECT = {
   hero: 16 / 9,
+  "hero-mobile": 9 / 16,
   story: 3 / 2,
   event: 4 / 3,
 } as const;
@@ -51,7 +55,15 @@ export type CropSlot = keyof typeof CROP_ASPECT;
  * Cropper.js). The rest are fixed ratios. `Original`/`Freeform` resolve their
  * concrete value per-slot at use time (`presetAspectRatio`).
  */
-export type AspectPresetId = "original" | "16:9" | "3:2" | "4:3" | "1:1" | "4:5" | "freeform";
+export type AspectPresetId =
+  | "original"
+  | "16:9"
+  | "3:2"
+  | "4:3"
+  | "1:1"
+  | "4:5"
+  | "9:16"
+  | "freeform";
 
 export interface AspectPreset {
   id: AspectPresetId;
@@ -67,6 +79,8 @@ export const ASPECT_PRESETS: readonly AspectPreset[] = [
   { id: "4:3", label: "4:3", ratio: 4 / 3 },
   { id: "1:1", label: "1:1", ratio: 1 },
   { id: "4:5", label: "4:5", ratio: 4 / 5 },
+  // Tall portrait — the hero-mobile slot's default shape, offered everywhere.
+  { id: "9:16", label: "9:16", ratio: 9 / 16 },
   { id: "freeform", label: "Free", ratio: null },
 ];
 

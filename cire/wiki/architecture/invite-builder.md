@@ -520,6 +520,23 @@ colour after three keystrokes — while shorthand still commits on blur via
 Kobalte's normalisation), so the UI can never submit a colour the server
 allow-list would reject.
 
+**Hero phone crop (migration `0046`).** The hero is the one full-bleed image
+rendered at both wide-desktop and tall-phone aspects, so a single rectangle
+can't frame both — subjects framed to the side of a wide crop fell outside the
+tall centre-cover window on mobile. The hero therefore carries **two**
+rectangles: the existing `hero_image_crop` governs the guest packs' `md:`
+breakpoint and up, and `hero_image_crop_mobile` (same JSON shape, hero-only)
+governs narrower viewports, **falling back to the desktop rectangle when
+unset** so every pre-0046 invite renders unchanged. Saves go through the same
+`PUT …/invite/image/hero/crop` route with an optional `screen: "desktop" |
+"mobile"` body field (default `desktop`; `mobile` on any other slot or the
+event crop route is a 400). Guest-side the packs render one focal cover layer
+per breakpoint (`heroCropLayers` + `heroImgRevealClass` in
+`cire/web/src/components/image-crop.ts`); builder-side the hero `ImageField`
+gains a "Phone crop" button opening the same modal on a tall `hero-mobile`
+9∶16 default aspect, plus a phone-shaped WYSIWYG thumbnail. Upload/remove of
+the hero image resets **both** rectangles.
+
 **Crop editor.** Per-slot "Crop" opens `ImageCropModal.tsx` (cropperjs **v2**
 web components wrapped by the `Cropper` class). Two v1→v2 behaviour gaps are
 compensated in the modal — v2's `initial-coverage` covers the **canvas**, not

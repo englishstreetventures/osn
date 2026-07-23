@@ -77,6 +77,40 @@ describe("ImageCropBody decode", () => {
     expect(decodeBody({ crop: "nope" })._tag).toBe("Left");
     expect(decodeBody(null)._tag).toBe("Left");
   });
+
+  // `screen` picks which hero rectangle a save targets (migration 0046). It is
+  // a CLOSED union — the column choice it maps to must never be a free-form
+  // string — and optional, so every pre-0046 body keeps decoding unchanged.
+  it("accepts screen: 'desktop' and 'mobile' (the closed 0046 union)", () => {
+    const RECT = { x: 0.1, y: 0.2, w: 0.4, h: 0.3 };
+    for (const screen of ["desktop", "mobile"] as const) {
+      const r = decodeBody({ crop: RECT, screen });
+      expect(r._tag).toBe("Right");
+      if (r._tag === "Right") expect(r.right.screen).toBe(screen);
+    }
+  });
+
+  it("accepts screen alongside crop: null (a per-screen reset)", () => {
+    const r = decodeBody({ crop: null, screen: "mobile" });
+    expect(r._tag).toBe("Right");
+    if (r._tag === "Right") {
+      expect(r.right.crop).toBeNull();
+      expect(r.right.screen).toBe("mobile");
+    }
+  });
+
+  it("omitting screen decodes with screen undefined (pre-0046 bodies unchanged)", () => {
+    const r = decodeBody({ crop: { x: 0.1, y: 0.2, w: 0.4, h: 0.3 } });
+    expect(r._tag).toBe("Right");
+    if (r._tag === "Right") expect(r.right.screen).toBeUndefined();
+  });
+
+  it("rejects an out-of-union or non-string screen", () => {
+    const RECT = { x: 0.1, y: 0.2, w: 0.4, h: 0.3 };
+    expect(decodeBody({ crop: RECT, screen: "tablet" })._tag).toBe("Left");
+    expect(decodeBody({ crop: RECT, screen: 1 })._tag).toBe("Left");
+    expect(decodeBody({ crop: RECT, screen: null })._tag).toBe("Left");
+  });
 });
 
 describe("decodeCrop (read path defence-in-depth)", () => {

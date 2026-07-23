@@ -1,0 +1,17 @@
+-- Phone-specific crop for the hero backdrop. The hero is the one full-bleed
+-- image rendered at wildly different viewport aspects (wide desktop vs tall
+-- phone), so a single crop can't frame both: subjects framed to the side of a
+-- wide crop fall outside the tall centre-cover window on mobile. This column
+-- stores a SECOND normalised crop rectangle (same JSON shape as
+-- `hero_image_crop`: `{x,y,w,h}` source fractions 0..1 + optional `natW`/`natH`)
+-- that the guest site applies BELOW its desktop breakpoint; the existing
+-- `hero_image_crop` keeps governing wide viewports.
+--
+-- NULL ⇒ no phone-specific framing: narrow viewports fall back to the desktop
+-- crop (or the default centre `object-cover` when that is NULL too), so every
+-- existing wedding renders exactly as before. Validated server-side on write by
+-- the same `ImageCropBody` gate as the other crop columns; hero-only (the story
+-- and event images render at one aspect, so they keep a single crop).
+--
+-- Pure forward-only ADD COLUMN — every existing row defaults to NULL.
+ALTER TABLE `wedding_invite_customisations` ADD `hero_image_crop_mobile` text;

@@ -27,6 +27,10 @@ export interface InviteCustomisation {
     imageUrl: string | null;
     // Optional so a mid-deploy payload (older API) without it falls back to no crop.
     imageCrop?: ImageCrop | null;
+    // Phone-specific hero crop (migration 0046), applied below the packs' `md:`
+    // breakpoint. Optional for the same mid-deploy reason; absent/null ⇒ narrow
+    // viewports fall back to `imageCrop` (the pre-0046 render).
+    imageCropMobile?: ImageCrop | null;
   };
   story: {
     eyebrow: string | null;

@@ -4,6 +4,8 @@ import {
   cropAspectRatio,
   cropBackgroundStyle,
   heroCropBackgroundStyle,
+  heroCropLayers,
+  heroImgRevealClass,
   isRenderableCrop,
 } from "./image-crop";
 
@@ -149,5 +151,59 @@ describe("heroCropBackgroundStyle (full-bleed focal cover)", () => {
     })!;
     expect(style["background-size"]).toBe("cover"); // uniform, no stretch, no letterbox
     expect(style["background-position"]).toBe("50.0000% 30.0000%");
+  });
+});
+
+describe("heroCropLayers (per-breakpoint hero crops, migration 0046)", () => {
+  const DESKTOP = { x: 0.25, y: 0.1, w: 0.5, h: 0.4 };
+  const MOBILE = { x: 0.6, y: 0, w: 0.3, h: 0.9 };
+
+  it("no crops ⇒ both layers null (the plain centre-cover img everywhere)", () => {
+    const layers = heroCropLayers("u", null, null);
+    expect(layers.wide).toBeNull();
+    expect(layers.narrow).toBeNull();
+  });
+
+  it("desktop crop only ⇒ narrow FALLS BACK to the desktop layer (pre-0046 render)", () => {
+    const layers = heroCropLayers("u", DESKTOP, null);
+    expect(layers.wide).not.toBeNull();
+    // Same focal style on both layers — the single crop applies at every width,
+    // exactly what the one-rectangle render did.
+    expect(layers.narrow).toEqual(layers.wide);
+  });
+
+  it("both crops ⇒ each breakpoint gets its own focal point", () => {
+    const layers = heroCropLayers("u", DESKTOP, MOBILE);
+    // Desktop focal centre: (0.25+0.25, 0.1+0.2) = (50%, 30%).
+    expect(layers.wide!["background-position"]).toBe("50.0000% 30.0000%");
+    // Mobile focal centre: (0.6+0.15, 0+0.45) = (75%, 45%).
+    expect(layers.narrow!["background-position"]).toBe("75.0000% 45.0000%");
+  });
+
+  it("mobile crop only ⇒ a narrow layer with no wide layer", () => {
+    const layers = heroCropLayers("u", null, MOBILE);
+    expect(layers.wide).toBeNull();
+    expect(layers.narrow).not.toBeNull();
+  });
+
+  it("an identity mobile crop is ignored (falls back to desktop)", () => {
+    const layers = heroCropLayers("u", DESKTOP, { x: 0, y: 0, w: 1, h: 1 });
+    expect(layers.narrow).toEqual(layers.wide);
+  });
+});
+
+describe("heroImgRevealClass (img visible only where no crop layer covers)", () => {
+  const STYLE = { "background-image": 'url("u")' };
+
+  it("no layers ⇒ visible everywhere", () => {
+    expect(heroImgRevealClass({ wide: null, narrow: null })).toBe("opacity-100");
+  });
+
+  it("a wide layer ⇒ hidden everywhere (narrow always falls back to it)", () => {
+    expect(heroImgRevealClass({ wide: STYLE, narrow: STYLE })).toBe("opacity-0");
+  });
+
+  it("narrow-only ⇒ hidden on phones, visible from md: up", () => {
+    expect(heroImgRevealClass({ wide: null, narrow: STYLE })).toBe("opacity-0 md:opacity-100");
   });
 });

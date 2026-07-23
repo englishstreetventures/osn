@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
   story_image_key TEXT,
   hero_image_crop TEXT,
   story_image_crop TEXT,
+  hero_image_crop_mobile TEXT,
   hero_blur INTEGER NOT NULL DEFAULT 28,
   hero_title_backdrop_opacity INTEGER NOT NULL DEFAULT 0,
   hero_title_backdrop_blur INTEGER NOT NULL DEFAULT 0,

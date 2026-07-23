@@ -2,12 +2,16 @@
 title: "Completed Features"
 tags: [changelog]
 related: [[TODO]], [[index]]
-last-reviewed: 2026-07-09
+last-reviewed: 2026-07-23
 ---
 
 # Completed Features
 
 Archive of completed feature work, moved here from [[TODO]] (and the per-area `wiki/todo/` shards) as PRs merge.
+
+### Hero phone crop — per-device framing for the full-bleed backdrop (`claude/hero-image-responsive-crop-b6b74u`)
+
+- [x] **Hero phone crop** (`claude/hero-image-responsive-crop-b6b74u`, 2026-07-23) — organiser report: with the subjects framed to one side of the photo, the mobile auto-crop (centre `object-cover` on a tall viewport) cut them out entirely. The hero now carries **two** crop rectangles: the existing desktop crop governs the guest packs' `md:` breakpoint and up, and a new hero-only `hero_image_crop_mobile` (migration `0046`, same JSON shape) governs narrower viewports — falling back to the desktop rectangle when unset, so every existing invite renders unchanged. Same `PUT …/invite/image/hero/crop` route with an optional `screen: "desktop" | "mobile"` body field (`mobile` on the story slot or event crop route is a 400); upload/remove resets both rectangles. Guest packs (classic + gala) render one focal cover layer per breakpoint via new `heroCropLayers`/`heroImgRevealClass` (`cire/web/src/components/image-crop.ts`), with the `<img>`'s load-fade visibility moved from an inline style to breakpoint-aware classes. Builder: the hero `ImageField` gains a "Phone crop" button opening `ImageCropModal` on a tall `hero-mobile` 9∶16 default aspect (new `9:16` preset offered everywhere), plus a phone-shaped WYSIWYG thumbnail and a hint line. Tests at every layer (route round-trips/isolation/400s, pure layer-fallback units, classic per-breakpoint markup). See [[invite-builder]].
 
 ### Invite customisation gaps closed — theme reaches everything, last hardcoded copy editable (`claude/cire-invite-customization-na91kv`)
 
