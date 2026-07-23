@@ -1,0 +1,72 @@
+---
+import '../../styles/global.css'
+import { inviteTitle } from '../../lib/invite-title'
+import InviteHeader from './InviteHeader'
+import InvitePage from './InvitePage'
+import { paletteRootVars, styleAttr } from '../../components/invite-theme'
+import SiteFooter from '../../components/SiteFooter.astro'
+import type { InviteDesignProps } from '../types'
+
+type Props = InviteDesignProps
+
+const { apiUrl, slug, initialInvite, siteUrl } = Astro.props
+
+// Preload the hero (the LCP element). It is ONE fixed-purpose variant, not a
+// responsive set: `InviteHeader` always renders `?variant=hero-bg` (the
+// server-blurred backdrop) with no srcset. So preload that exact URL — an
+// imagesrcset of thumb/card/hero would make the browser fetch a second,
+// sharp 1600w render at top priority that the page never displays, competing
+// with the real LCP image for the same connection.
+const heroBase = initialInvite?.hero.imageUrl ? `${apiUrl}${initialInvite.hero.imageUrl}` : null
+
+// Tab title follows the couple's hero title when they've set one (e.g.
+// "Anita & Ben — You're Invited"); the built-in default otherwise.
+const pageTitle = inviteTitle(initialInvite?.hero.title)
+// The invite's colour scheme, derived once and written into the SSR'd HTML so
+// the FIRST paint is already themed. Without this a cream invite would flash
+// the built-in dark green until the island hydrated. The islands re-apply it on
+// their no-store revalidation (`applyPaletteToRoot`) so a colour the organiser
+// just saved lands without a rebuild.
+const paletteStyle = styleAttr(paletteRootVars(initialInvite?.theme ?? null))
+
+const heroSep = heroBase?.includes('?') ? '&' : '?'
+// Must stay in step with HERO_BG_VARIANT in components/invite-images.ts.
+const preloadHeroHref = heroBase ? `${heroBase}${heroSep}variant=hero-bg` : null
+---
+<!DOCTYPE html>
+<html lang="en" style={paletteStyle}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    {/* S-L1: keep the ?code= preview credential out of cross-origin Referer headers. */}
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>{pageTitle}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
+    </noscript>
+    {preloadHeroHref && <link rel="preload" as="image" href={preloadHeroHref} />}
+  </head>
+  <body>
+    <InviteHeader client:load apiUrl={apiUrl} slug={slug} initial={initialInvite} />
+    <InvitePage
+      client:visible
+      apiUrl={apiUrl}
+      slug={slug}
+      siteUrl={siteUrl}
+      theme={initialInvite?.theme ?? null}
+      details={initialInvite?.details ?? null}
+      welcomeMessage={initialInvite?.welcome?.message ?? null}
+    />
+    {/* Sign the invite off in the couple's name, so the last thing a guest
+        reads is who invited them and not the legal links. */}
+    <SiteFooter closing={initialInvite?.hero.title ?? null} />
+  </body>
+</html>

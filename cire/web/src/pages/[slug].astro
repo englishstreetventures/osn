@@ -10,6 +10,7 @@ import { fetchInvite, API_URL } from '../lib/invite'
 import NotFoundDocument from '../components/NotFoundDocument.astro'
 import { registry } from '../designs/registry'
 import { resolveDesignId } from '../designs/resolve'
+import { isDesignId } from '@cire/invite-designs'
 
 const { slug } = Astro.params
 
@@ -29,10 +30,13 @@ const siteUrl = import.meta.env.PUBLIC_SITE_URL
 
 // Which design pack renders this wedding — resolved server-side off the same
 // SSR fetch (zero extra round-trips, no client-side design switch, no flash).
-// Unknown/missing ids fall back to classic; an API error renders the classic
-// shell with defaults, same as before.
+// `?design=<id>` is an ORGANISER PREVIEW override: render this request in that
+// design without persisting anything. Unknown override → the wedding's own
+// design; unknown/missing stored id → classic.
+const designOverride = Astro.url.searchParams.get('design')
 const invite = result.kind === 'ok' ? result.invite : null
-const { Document } = registry[resolveDesignId(invite?.designId)]
+const designId = isDesignId(designOverride) ? designOverride : resolveDesignId(invite?.designId)
+const { Document } = registry[designId]
 ---
 {result.kind === 'not-found' ? (
   <NotFoundDocument />

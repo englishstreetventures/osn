@@ -8,7 +8,11 @@ describe("resolveDesignId", () => {
   });
 
   it("falls back to classic for an unknown id", () => {
-    expect(resolveDesignId("gala")).toBe("classic");
+    expect(resolveDesignId("not-a-design")).toBe("classic");
+  });
+
+  it("accepts gala", () => {
+    expect(resolveDesignId("gala")).toBe("gala");
   });
 
   it("falls back to classic for missing or malformed values", () => {

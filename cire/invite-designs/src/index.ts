@@ -12,14 +12,15 @@ export interface DesignMeta {
  * entitlement tiers. `@cire/api` validates writes against it, the organiser
  * renders the selector from it, and `@cire/web` keys its design registry off
  * the derived `DesignId` union (a catalog entry without a matching component
- * pack is a type error there). Launch catalog is `classic` only; the gate for
- * `premium` tiers is built and tested but dormant.
+ * pack is a type error there). Catalog: `classic` and `gala`, both free; the
+ * gate for `premium` tiers is built and tested but dormant.
  */
 export const DESIGNS = [
   { id: "classic", name: "Classic", tier: "free" },
+  { id: "gala", name: "Gala", tier: "free" },
 ] as const satisfies readonly DesignMeta[];
 
-/** Union of catalog design ids (`"classic"` at launch). */
+/** Union of catalog design ids (`"classic" | "gala"`). */
 export type DesignId = (typeof DESIGNS)[number]["id"];
 
 /** The design every wedding starts on and every unknown id falls back to. */
