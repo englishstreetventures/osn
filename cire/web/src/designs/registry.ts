@@ -1,6 +1,7 @@
 import type { DesignId } from "@cire/invite-designs";
 
 import ClassicDocument from "./classic/Document.astro";
+import GalaDocument from "./gala/Document.astro";
 
 /** One renderable design pack. */
 export interface DesignEntry {
@@ -18,4 +19,5 @@ export interface DesignEntry {
  */
 export const registry: Record<DesignId, DesignEntry> = {
   classic: { Document: ClassicDocument },
+  gala: { Document: GalaDocument },
 };

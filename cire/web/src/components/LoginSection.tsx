@@ -1,9 +1,9 @@
-import { createSignal, onMount, Show, For } from "solid-js";
+import { Show, For } from "solid-js";
 
+import { createClaimCode } from "./claim-code";
 import { filterThemeVars } from "./invite-theme";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 import type { ClaimResult } from "./types";
-import { isValidClaimResponse } from "./utils";
 
 interface LoginSectionProps {
   apiUrl: string;
@@ -29,13 +29,11 @@ interface LoginSectionProps {
 const DEFAULT_WELCOME_MESSAGE = "We are delighted to invite you to celebrate with us.";
 
 export function LoginSection(props: LoginSectionProps) {
-  const [code, setCode] = createSignal("");
-  const [loading, setLoading] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
-  // Turnstile token. `null` until the widget solves; only REQUIRED when a
-  // sitekey is configured (`turnstileEnabled()`). When Turnstile is off, this
-  // stays null and submit proceeds without it.
-  const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
+  const claim = createClaimCode({
+    apiUrl: props.apiUrl,
+    result: () => props.result,
+    onClaimed: (result) => props.onClaimed(result),
+  });
 
   // A claim code can cover one guest or a whole household. A single-guest code
   // greets the person individually ("Dear {name}"); a multi-guest code greets
@@ -48,77 +46,6 @@ export function LoginSection(props: LoginSectionProps) {
     if (!m) return "";
     return m.nickname?.trim() ? m.nickname.trim() : m.firstName;
   };
-
-  async function submitCode(rawCode: string) {
-    const publicId = rawCode.trim().toUpperCase();
-    if (!publicId) return;
-    // Block submit until the challenge is solved when Turnstile is configured.
-    const token = turnstileToken();
-    if (turnstileEnabled() && !token) {
-      setError("Please complete the verification challenge below.");
-      return;
-    }
-    setError(null);
-    setLoading(true);
-
-    try {
-      const res = await fetch(`${props.apiUrl}/api/claim`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // Include cookies so the API's Set-Cookie response sticks for follow-up
-        // calls (e.g. /api/rsvp). Requires CORS `credentials: true` server-side.
-        credentials: "include",
-        // `turnstileToken` is included only when present; the server treats a
-        // missing token as a hard fail ONLY when it has a secret configured.
-        body: JSON.stringify(token ? { publicId, turnstileToken: token } : { publicId }),
-      });
-
-      if (res.status === 401) {
-        setError("That code doesn't look right. Check your invitation and try again.");
-        setLoading(false);
-        return;
-      }
-
-      if (!res.ok) {
-        setError("Something went wrong. Please try again.");
-        setLoading(false);
-        return;
-      }
-
-      const data: unknown = await res.json();
-      if (!isValidClaimResponse(data)) {
-        setError("Something went wrong. Please try again.");
-        setLoading(false);
-        return;
-      }
-      props.onClaimed(data);
-    } catch {
-      setError("Could not connect. Please check your connection.");
-      setLoading(false);
-    }
-  }
-
-  async function handleSubmit(e: SubmitEvent) {
-    e.preventDefault();
-    await submitCode(code());
-  }
-
-  // Organiser "Preview invite" deep-link: ?code=<host code> auto-claims so the
-  // host lands straight on the events view without retyping the code.
-  onMount(() => {
-    if (typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    const prefill = url.searchParams.get("code");
-    if (prefill && !props.result) {
-      setCode(prefill.trim().toUpperCase());
-      // S-L1: strip the credential from the address bar + forward history
-      // immediately. submitCode already captured the value, and the claim sets
-      // the session cookie, so the URL copy is no longer needed.
-      url.searchParams.delete("code");
-      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-      void submitCode(prefill);
-    }
-  });
 
   return (
     <section
@@ -145,7 +72,7 @@ export function LoginSection(props: LoginSectionProps) {
           <p class="text-text-muted mb-8 text-[0.92rem] leading-[1.6] font-light">
             Enter the code from your invitation to see your events.
           </p>
-          <form class="mx-auto flex max-w-[360px] flex-col gap-3" onSubmit={handleSubmit}>
+          <form class="mx-auto flex max-w-[360px] flex-col gap-3" onSubmit={claim.handleSubmit}>
             {/* maxLength 48 comfortably fits the worst-case code: SURNAME(16) +
                 "-" + longest word(10) + "-" + secure hash "XXXXX-XXXXX"(11) = 39
                 chars, so a long code like THENGUYENFAMILY-BANISTER-DM65HQ (31) is
@@ -157,32 +84,36 @@ export function LoginSection(props: LoginSectionProps) {
               // on a text field — the pointer belongs on buttons only.
               class="border-border font-body text-text placeholder:text-text-muted focus:border-gold w-full cursor-text rounded-sm border bg-transparent px-4 py-3.5 text-center text-base tracking-[0.1em] uppercase transition-colors duration-200 placeholder:tracking-[0.04em] placeholder:normal-case focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50"
               placeholder="e.g. PATEL-JOY-RK97"
-              value={code()}
-              onInput={(e) => setCode(e.currentTarget.value)}
+              value={claim.code()}
+              onInput={(e) => claim.setCode(e.currentTarget.value)}
               autocapitalize="characters"
               autocorrect="off"
               spellcheck={false}
-              disabled={loading()}
+              disabled={claim.loading()}
               maxLength={48}
               // NB: the hyphen must be escaped — Chrome compiles `pattern` with
               // the `v` flag, where a trailing unescaped `-` is a syntax error
               // that voids the whole pattern.
               pattern="[A-Za-z0-9\-]+"
             />
-            <Show when={error()}>
+            <Show when={claim.error()}>
               <p class="font-body text-error py-2 text-[0.82rem]" role="alert">
-                {error()}
+                {claim.error()}
               </p>
             </Show>
             {/* Turnstile challenge — renders only when a sitekey is configured;
                 otherwise this is nothing and the form is unchanged. */}
-            <TurnstileWidget onToken={setTurnstileToken} class="flex justify-center" />
+            <TurnstileWidget onToken={claim.setTurnstileToken} class="flex justify-center" />
             <button
               type="submit"
               class="border-gold font-body text-gold hover:bg-gold hover:text-bg disabled:hover:text-gold rounded-sm border bg-transparent px-6 py-3.5 text-[0.88rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-              disabled={loading() || !code().trim() || (turnstileEnabled() && !turnstileToken())}
+              disabled={
+                claim.loading() ||
+                !claim.code().trim() ||
+                (turnstileEnabled() && !claim.turnstileToken())
+              }
             >
-              {loading() ? "Checking\u2026" : "Open Invitation"}
+              {claim.loading() ? "Checking\u2026" : "Open Invitation"}
             </button>
           </form>
         </div>

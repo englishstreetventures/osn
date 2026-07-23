@@ -1436,6 +1436,23 @@ describe("hero display sliders (migration 0018)", () => {
       const body = (await res.json()) as { designId: string };
       expect(body.designId).toBe("classic");
     });
+
+    it("accepts gala from the real catalog and surfaces it on the public invite", async () => {
+      const { app } = buildApp();
+      const res = await appRequest(app, `${orgBase}/design`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...(await authHeaders(BOOTSTRAP_OWNER)),
+        },
+        body: JSON.stringify({ designId: "gala" }),
+      });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { designId: string }).designId).toBe("gala");
+
+      const publicRes = await appRequest(app, `/api/invite/${SLUG}`);
+      expect(((await publicRes.json()) as { designId: string }).designId).toBe("gala");
+    });
   });
 
   it("a blur change busts the served hero-bg cache (re-runs the binding, new entry)", async () => {

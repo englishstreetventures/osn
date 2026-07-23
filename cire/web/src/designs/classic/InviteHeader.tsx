@@ -1,5 +1,6 @@
-import { createEffect, createResource, createSignal, onMount, Show } from "solid-js";
+import { createEffect, createResource, Show } from "solid-js";
 
+import { createHeroBackdrop } from "../../components/hero-backdrop";
 import {
   cropAspectRatio,
   cropBackgroundStyle,
@@ -131,15 +132,6 @@ export default function InviteHeader(props: InviteHeaderProps) {
     return url ? `${props.apiUrl}${url}` : null;
   };
 
-  // Hero backdrop load lifecycle. The image fades in on `loaded`; on `error` (a
-  // 404'd / unreachable image) we DROP it entirely so the gradient base layer
-  // shows through, instead of leaving a permanently-invisible 0-opacity <img>
-  // pinned over the gradient (the old single-`onLoad` gate had no failure path,
-  // so any failed load left the hero blank). `pending` keeps it at 0 opacity only
-  // until the first load/error event resolves.
-  type HeroState = "pending" | "loaded" | "error";
-  const [heroState, setHeroState] = createSignal<HeroState>("pending");
-
   // The full `src` the hero backdrop currently shows — variant-resolved, so a
   // change of EITHER the base URL (a freshly uploaded image) OR the variant
   // (organiser flips blurred↔regular) re-arms the lifecycle. Built once here so
@@ -148,6 +140,10 @@ export default function InviteHeader(props: InviteHeaderProps) {
     const url = heroImageUrl();
     return url ? variantSrc(url, HERO_BG_VARIANT) : null;
   };
+
+  // Hero backdrop load lifecycle (pending/loaded/error, cached-image detection,
+  // src re-arm) — shared with every design pack's header. See hero-backdrop.ts.
+  const heroBackdrop = createHeroBackdrop(heroBackdropSrc);
 
   // The organiser's crop for the hero backdrop (or null ⇒ default centre cover).
   // When present we render the cropped region as a background layer over the same
@@ -162,45 +158,6 @@ export default function InviteHeader(props: InviteHeaderProps) {
     // region) — never a stretch, never a letterbox.
     return src ? heroCropBackgroundStyle(src, crop) : null;
   };
-
-  // SSR-hydration fix: on an SSR page the browser starts loading the server-
-  // rendered <img> during HTML parse, and its `load` event commonly fires BEFORE
-  // this Solid island hydrates and attaches `onLoad` — so `onLoad` would never
-  // run and the image stays at opacity 0 forever. We hold a ref and, on mount,
-  // check `complete && naturalWidth > 0`: if the browser already finished
-  // loading, mark it loaded immediately. `onLoad`/`onError` still cover the
-  // not-yet-loaded path.
-  let heroImgEl: HTMLImageElement | undefined;
-  const revealIfAlreadyLoaded = () => {
-    const el = heroImgEl;
-    if (el && el.complete && el.naturalWidth > 0) setHeroState("loaded");
-  };
-  onMount(revealIfAlreadyLoaded);
-
-  // Re-arm the lifecycle ONLY when the resolved backdrop src actually changes
-  // (a new upload or a variant flip). The on-mount no-store revalidation returns
-  // the SAME url, so without this guard it would reset a shown image back to
-  // `pending` (opacity 0) while the <img src> stays unchanged — meaning the
-  // browser never re-fires `load`, leaving it stuck invisible (the live bug). On
-  // a genuine src change we reset to `pending`; the new src fires a fresh `load`,
-  // and the ref-check below also catches an already-cached new src.
-  let prevHeroSrc: string | null | undefined;
-  createEffect(() => {
-    const src = heroBackdropSrc();
-    if (prevHeroSrc === undefined) {
-      // First run: adopt the SSR src without forcing pending (the onMount ref
-      // check owns the already-loaded case).
-      prevHeroSrc = src;
-      return;
-    }
-    if (src !== prevHeroSrc) {
-      prevHeroSrc = src;
-      setHeroState("pending");
-      // The new src may already be in the browser cache (so no `load` fires);
-      // re-check the ref after the DOM updates.
-      queueMicrotask(revealIfAlreadyLoaded);
-    }
-  });
 
   return (
     <>
@@ -224,9 +181,9 @@ export default function InviteHeader(props: InviteHeaderProps) {
             hero. */}
           <Show when={heroBackdropSrc()}>
             {(src) => (
-              <Show when={heroState() !== "error"}>
+              <Show when={heroBackdrop.state() !== "error"}>
                 <img
-                  ref={heroImgEl}
+                  ref={heroBackdrop.setImgRef}
                   // A single fixed-purpose variant (blurred backdrop or sharp full
                   // image) — one 1600px width is enough, so no responsive srcset.
                   // The blur radius (for `hero-bg`) is a server constant keyed off
@@ -238,11 +195,11 @@ export default function InviteHeader(props: InviteHeaderProps) {
                   // Hero spans the full viewport width at every breakpoint.
                   sizes="100vw"
                   alt=""
-                  onLoad={() => setHeroState("loaded")}
-                  onError={() => setHeroState("error")}
+                  onLoad={heroBackdrop.onLoad}
+                  onError={heroBackdrop.onError}
                   class="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
                   style={{
-                    opacity: heroState() === "loaded" && !heroCropStyle() ? "1" : "0",
+                    opacity: heroBackdrop.state() === "loaded" && !heroCropStyle() ? "1" : "0",
                   }}
                 />
                 {/* Cropped backdrop region — the organiser's pan/zoom over the same
@@ -255,7 +212,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                       class="absolute inset-0 h-full w-full bg-cover transition-opacity duration-700"
                       style={{
                         ...cropStyle(),
-                        opacity: heroState() === "loaded" ? "1" : "0",
+                        opacity: heroBackdrop.state() === "loaded" ? "1" : "0",
                       }}
                     />
                   )}

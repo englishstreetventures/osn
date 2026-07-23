@@ -21,6 +21,7 @@ import {
   type ImageCrop,
 } from "../lib/image-crop";
 import { isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
+import { CIRE_WEB_URL } from "../lib/osn";
 import PaletteField, { type PaletteState, resolvedSeeds } from "./PaletteField";
 
 /** The four sections whose tone an organiser chooses. */
@@ -110,6 +111,8 @@ interface InviteCustomisation {
 
 interface InviteBuilderProps {
   weddingId: string;
+  /** The wedding's slug — builds the public guest-invite preview link. */
+  weddingSlug: string;
   /** The wedding's entitlement keys — locks premium designs in the selector. */
   entitlements: string[];
 }
@@ -421,6 +424,79 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     }
   };
 
+  // Roving tabindex over the design radiogroup. `activeDesignId` tracks which
+  // card is currently tabbable — it starts in sync with the server-selected
+  // design and moves independently of the in-flight save, so keyboard focus
+  // never stalls waiting on the network. Falls back to the server value
+  // whenever nothing has moved focus yet.
+  const [activeDesignId, setActiveDesignId] = createSignal<string | null>(null);
+  const activeDesignIdOrDefault = () => activeDesignId() ?? data()?.designId ?? "classic";
+
+  // Imperative refs so keyboard navigation can move DOM focus onto the next
+  // card — Solid has no built-in roving-tabindex primitive.
+  const radioRefs = new Map<string, HTMLButtonElement>();
+
+  /** Design ids that are selectable — locked (premium, unentitled) cards are
+   *  never a keyboard-nav stop. */
+  const unlockedDesignIds = (): string[] =>
+    DESIGNS.filter((design) => !isDesignLocked(design.tier, props.entitlements)).map(
+      (design): string => design.id,
+    );
+
+  /** The unlocked design one step (±1) from `fromId`, wrapping around. */
+  function stepDesign(fromId: string, delta: 1 | -1): string | undefined {
+    const ids = unlockedDesignIds();
+    if (ids.length === 0) return undefined;
+    const from = ids.indexOf(fromId);
+    const fromIndex = from === -1 ? 0 : from;
+    return ids[(fromIndex + delta + ids.length) % ids.length];
+  }
+
+  /** Roving-tabindex keyboard handler: moves focus AND selects (radio
+   *  semantics), skipping locked cards, via the existing save path. */
+  function onDesignKeyDown(e: KeyboardEvent, currentId: string) {
+    const ids = unlockedDesignIds();
+    if (ids.length === 0) return;
+    let nextId: string | undefined;
+    switch (e.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        nextId = stepDesign(currentId, 1);
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        nextId = stepDesign(currentId, -1);
+        break;
+      case "Home":
+        nextId = ids[0];
+        break;
+      case "End":
+        nextId = ids[ids.length - 1];
+        break;
+      default:
+        return;
+    }
+    if (!nextId) return;
+    e.preventDefault();
+    setActiveDesignId(nextId);
+    radioRefs.get(nextId)?.focus();
+    void selectDesign(nextId);
+  }
+
+  // The wedding's public guest-invite URL — same path-routed pattern used by
+  // PreviewInviteButton / buildInviteMessage (the guest site is SSR +
+  // path-routed, so the slug must be in the PATH; the bare origin would
+  // resolve to whatever wedding is primary, not necessarily this one).
+  const guestBaseUrl = () => `${CIRE_WEB_URL}/${encodeURIComponent(props.weddingSlug)}`;
+
+  /** The "Preview live" link target for a design card — the guest invite URL
+   *  with `?design=<id>` appended (`&` if a query is already present). */
+  function designPreviewHref(designId: string): string {
+    const url = guestBaseUrl();
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}design=${encodeURIComponent(designId)}`;
+  }
+
   async function uploadImage(slot: ImageSlot, file: File) {
     setError(null);
     try {
@@ -507,29 +583,54 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 </legend>
                 <div class="flex flex-wrap gap-3" role="radiogroup" aria-label="Invite design">
                   <For each={[...DESIGNS]}>
-                    {(design) => (
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={(d().designId ?? "classic") === design.id}
-                        disabled={isDesignLocked(design.tier, props.entitlements) || savingDesign()}
-                        onClick={() => void selectDesign(design.id)}
-                        class="border-border flex min-w-[8rem] flex-col items-start gap-1 rounded-sm border px-4 py-3 text-left disabled:cursor-not-allowed disabled:opacity-50"
-                        classList={{ "border-gold": (d().designId ?? "classic") === design.id }}
-                      >
-                        <span class="font-body text-[0.85rem]">{design.name}</span>
-                        <Show when={isDesignLocked(design.tier, props.entitlements)}>
-                          <span class="text-gold-dim text-[0.7rem] tracking-[0.08em] uppercase">
-                            Locked
-                          </span>
-                        </Show>
-                        <Show when={(d().designId ?? "classic") === design.id}>
-                          <span class="text-gold text-[0.7rem] tracking-[0.08em] uppercase">
-                            Current
-                          </span>
-                        </Show>
-                      </button>
-                    )}
+                    {(design) => {
+                      const locked = () => isDesignLocked(design.tier, props.entitlements);
+                      const checked = () => (d().designId ?? "classic") === design.id;
+                      return (
+                        <div
+                          class="border-border flex flex-col items-start gap-2 rounded-sm border px-4 py-3"
+                          classList={{ "border-gold": checked() }}
+                        >
+                          <button
+                            type="button"
+                            role="radio"
+                            ref={(el) => radioRefs.set(design.id, el)}
+                            aria-checked={checked()}
+                            tabIndex={activeDesignIdOrDefault() === design.id ? 0 : -1}
+                            disabled={locked() || savingDesign()}
+                            onClick={() => {
+                              setActiveDesignId(design.id);
+                              void selectDesign(design.id);
+                            }}
+                            onKeyDown={(e) => onDesignKeyDown(e, design.id)}
+                            class="flex min-w-[8rem] flex-col items-start gap-1 text-left disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <DesignThumbnail id={design.id} />
+                            <span class="font-body text-[0.85rem]">{design.name}</span>
+                            <Show when={locked()}>
+                              <span class="text-gold-dim text-[0.7rem] tracking-[0.08em] uppercase">
+                                Locked
+                              </span>
+                            </Show>
+                            <Show when={checked()}>
+                              <span class="text-gold text-[0.7rem] tracking-[0.08em] uppercase">
+                                Current
+                              </span>
+                            </Show>
+                          </button>
+                          <Show when={!locked()}>
+                            <a
+                              href={designPreviewHref(design.id)}
+                              target="_blank"
+                              rel="noopener"
+                              class="font-body text-gold-dim text-[0.7rem] tracking-[0.08em] uppercase underline-offset-4 hover:underline"
+                            >
+                              Preview live
+                            </a>
+                          </Show>
+                        </div>
+                      );
+                    }}
                   </For>
                 </div>
                 <p class="text-gold-dim text-[0.78rem]">
@@ -1070,6 +1171,62 @@ function HeroPreview(props: {
       </div>
     </div>
   );
+}
+
+/**
+ * Abstract per-design thumbnail — a small sketch of the pack's structure, not
+ * a screenshot. Purely decorative (`aria-hidden`), so it never competes with
+ * the card's own accessible name. `currentColor` only (no raw colours): it
+ * inherits the card's `text-text-muted` token, same as the rest of the
+ * builder's muted chrome.
+ */
+function ClassicThumbnail() {
+  return (
+    <svg viewBox="0 0 120 84" width="120" height="84" aria-hidden="true" class="text-text-muted">
+      <line x1="30" y1="14" x2="90" y2="14" stroke="currentColor" stroke-width="2" />
+      <line x1="36" y1="22" x2="84" y2="22" stroke="currentColor" stroke-width="2" />
+      <line x1="42" y1="30" x2="78" y2="30" stroke="currentColor" stroke-width="2" />
+      <rect
+        x="35"
+        y="40"
+        width="50"
+        height="34"
+        fill="currentColor"
+        fill-opacity="0.15"
+        stroke="currentColor"
+        stroke-width="2"
+      />
+    </svg>
+  );
+}
+
+/** Gala's thumbnail: left-anchored lines + an offset image block — the
+ *  asymmetric layout that distinguishes it from Classic's centered stack. */
+function GalaThumbnail() {
+  return (
+    <svg viewBox="0 0 120 84" width="120" height="84" aria-hidden="true" class="text-text-muted">
+      <line x1="10" y1="14" x2="70" y2="14" stroke="currentColor" stroke-width="2" />
+      <line x1="10" y1="22" x2="60" y2="22" stroke="currentColor" stroke-width="2" />
+      <line x1="10" y1="30" x2="50" y2="30" stroke="currentColor" stroke-width="2" />
+      <rect
+        x="55"
+        y="38"
+        width="55"
+        height="36"
+        fill="currentColor"
+        fill-opacity="0.15"
+        stroke="currentColor"
+        stroke-width="2"
+      />
+    </svg>
+  );
+}
+
+/** Dispatches to the design's thumbnail by id; unrecognised ids (a newer
+ *  catalog entry, or a test-only fixture) fall back to the centered-stack
+ *  sketch rather than rendering nothing. */
+function DesignThumbnail(props: { id: string }) {
+  return props.id === "gala" ? <GalaThumbnail /> : <ClassicThumbnail />;
 }
 
 function FontField(props: { label: string; value: string; onChange: (v: string) => void }) {

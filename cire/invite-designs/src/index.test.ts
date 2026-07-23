@@ -20,9 +20,13 @@ describe("invite design catalog", () => {
   });
 
   it("rejects unknown ids and non-strings", () => {
-    expect(isDesignId("gala")).toBe(false);
+    expect(isDesignId("not-a-design")).toBe(false);
     expect(isDesignId(42)).toBe(false);
     expect(isDesignId(null)).toBe(false);
     expect(isDesignId(undefined)).toBe(false);
+  });
+
+  it("contains gala as a free design", () => {
+    expect(DESIGNS).toContainEqual({ id: "gala", name: "Gala", tier: "free" });
   });
 });
