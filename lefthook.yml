@@ -13,7 +13,11 @@ pre-push:
   parallel: true
   commands:
     typecheck:
-      run: bun run check
+      # Guarded wrapper, not `bun run check` directly: a worktree made with
+      # `git worktree add` has no `node_modules`, so `turbo` is absent and the
+      # hook failed with exit 127 — which reads like a type error and pushes
+      # people towards `LEFTHOOK=0`. The script installs first when it must.
+      run: bash scripts/pre-push-typecheck.sh
     audit:
       # Refuse to push if any installed package has a `high` or `critical`
       # advisory. Pairs with `bunfig.toml`'s `minimumReleaseAge` — one stops
