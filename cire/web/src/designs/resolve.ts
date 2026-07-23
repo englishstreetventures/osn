@@ -1,4 +1,4 @@
-import { DEFAULT_DESIGN_ID, isDesignId, type DesignId } from "@shared/invite-designs";
+import { DEFAULT_DESIGN_ID, isDesignId, type DesignId } from "@cire/invite-designs";
 
 /**
  * Resolve a stored design id to a renderable catalog id. Unknown, missing, or

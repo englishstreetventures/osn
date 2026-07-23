@@ -1,3 +1,4 @@
+import { DESIGNS } from "@cire/invite-designs";
 import {
   derivePalette,
   FONT_CHOICES,
@@ -8,7 +9,6 @@ import {
   type SectionTone,
 } from "@cire/theme";
 import { useAuth } from "@osn/client/solid";
-import { DESIGNS } from "@shared/invite-designs";
 import { createMemo, createResource, createSignal, For, lazy, Show, Suspense } from "solid-js";
 import { toast } from "solid-toast";
 

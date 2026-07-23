@@ -9,8 +9,8 @@ import {
   weddingInviteCustomisations,
 } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
-import { DESIGNS } from "@shared/invite-designs";
-import type { DesignMeta } from "@shared/invite-designs";
+import { DESIGNS } from "@cire/invite-designs";
+import type { DesignMeta } from "@cire/invite-designs";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";

@@ -1,6 +1,5 @@
 {
-  "name": "@shared/invite-designs",
-  "version": "0.1.0",
+  "name": "@cire/invite-designs",
   "private": true,
   "type": "module",
   "exports": {

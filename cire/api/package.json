@@ -17,7 +17,7 @@
     "@shared/crypto": "workspace:*",
     "@shared/email": "workspace:*",
     "@shared/feature-flags": "workspace:*",
-    "@shared/invite-designs": "workspace:*",
+    "@cire/invite-designs": "workspace:*",
     "@shared/observability": "workspace:*",
     "@shared/osn-auth-client": "workspace:*",
     "@shared/rate-limit": "workspace:*",

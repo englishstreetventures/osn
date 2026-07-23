@@ -16,7 +16,7 @@ round-trips.
 
 ## Pieces
 
-- **Catalog** — `@shared/invite-designs`: `DESIGNS` (`{ id, name, tier }`),
+- **Catalog** — `@cire/invite-designs`: `DESIGNS` (`{ id, name, tier }`),
   `DesignId` union, `isDesignId`, `DEFAULT_DESIGN_ID`. Single source of truth
   for api validation, the organiser selector, and the web registry keys.
 - **API** — both invite GETs surface `designId`;
@@ -37,7 +37,7 @@ round-trips.
 
 ## Adding a design
 
-1. Catalog entry in `@shared/invite-designs` (type error in the web registry
+1. Catalog entry in `@cire/invite-designs` (type error in the web registry
    until step 2 lands).
 2. New pack folder `cire/web/src/designs/<id>/` + registry entry. Each pack's
    `Document.astro` owns its font preloads and islands, so guests never

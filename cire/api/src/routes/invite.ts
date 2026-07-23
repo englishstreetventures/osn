@@ -1,5 +1,5 @@
-import { DESIGNS } from "@shared/invite-designs";
-import type { DesignMeta } from "@shared/invite-designs";
+import { DESIGNS } from "@cire/invite-designs";
+import type { DesignMeta } from "@cire/invite-designs";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";

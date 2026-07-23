@@ -345,7 +345,7 @@ export type InviteThemeBody = Schema.Schema.Type<typeof InviteThemeBody>;
 /**
  * Body for `PUT /invite/design`. Deliberately just "a string" here — catalog
  * membership (and the premium entitlement) is checked in the route against
- * `@shared/invite-designs`, so an unknown id is a 422, not a 400.
+ * `@cire/invite-designs`, so an unknown id is a 422, not a 400.
  */
 export const InviteDesignBody = Schema.Struct({
   designId: Schema.String,

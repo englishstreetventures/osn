@@ -1,4 +1,4 @@
-import type { DesignId } from "@shared/invite-designs";
+import type { DesignId } from "@cire/invite-designs";
 
 import ClassicDocument from "./classic/Document.astro";
 
