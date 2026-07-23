@@ -4,7 +4,7 @@ tags: [todo, deferred]
 related:
   - "[[index]]"
   - "[[platform-plan]]"
-last-reviewed: 2026-07-16
+last-reviewed: 2026-07-23
 ---
 
 # Deferred Decisions
@@ -20,7 +20,7 @@ Open architectural questions with options + a trigger for revisiting. When a dec
 | Event invitations per-family vs per-guest | Per-guest matches sheet exactly (current schema); per-family simpler but loses fidelity                   | After first import lands and real spreadsheet variation is observed |
 | Surname collision handling in publicId    | Accept multiple `PATEL-*-*` IDs (different word/hash disambiguates) vs. enforce uniqueness on family_name | Stay on current accept-multiple unless aesthetic problem reported   |
 | Astro → Solid Start migration             | Keep Astro+islands vs migrate guest-facing app to Solid Start for tighter SPA flows                       | Post-platformisation — only if SaaS direction is taken              |
-| SMS OTP fallback                          | Twilio/similar vs email-only                                                                              | If magic link proves insufficient                                   |
+| SMS OTP fallback                          | Twilio/similar vs email-only                                                                              | If magic link is not enough                                         |
 | Photo collections                         | Cloudflare R2 + upload UI                                                                                 | Post-MVP                                                            |
 | Vendor business identity (directory v2)   | Plain OSN account (recommended start) vs OSN **org** with staff                                           | When directory self-serve opens — see [[platform-plan]] §5.2        |
 | External vendor-discovery overlay         | None (recommended start) vs Google Places live-search layer (ToS: display-only, never stored in D1)       | After directory v1 proves thin coverage — see [[platform-plan]] §5.2 |

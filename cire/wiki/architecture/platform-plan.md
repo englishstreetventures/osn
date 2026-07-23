@@ -7,7 +7,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[platform]]"
   - "[[guest-event-editor]]"
-last-reviewed: 2026-07-16
+last-reviewed: 2026-07-23
 pr4-shipped: 2026-07-15
 pr4-reversed: 2026-07-15
 ---
@@ -119,7 +119,7 @@ Existing co-hosts map to `editor` (they already have import + invite-builder wri
 | 4 | ⛔ Households ≠ codes — shipped then **REVERSED 2026-07-15** (product-owner: every household carries a code; migration 0033 restores `public_id NOT NULL` + full unique) | 0 |
 | 5 | Guest/event editing (batch draft-save — design + E1–E6 slicing in [[guest-event-editor]]) + organiser RSVPs + provenance | 3 (E5 editor-created households **auto-mint a code** — there is no code-less path) |
 
-PRs 0–2 are parallelisable. The IA shell deliberately lands **early** (not last) so CRUD is built directly into its module home instead of into the old tabs and moved later.
+PRs 0–2 can run in parallel. The IA shell deliberately lands **early** (not last) so CRUD is built directly into its module home instead of into the old tabs and moved later.
 
 ## 4. Phase 1 — planning core (Overview, Checklist, Budget v1)
 
@@ -212,7 +212,7 @@ Context-aware estimates from the wedding profile: guest count, date (season + we
 
 - **Single Worker.** cire-api stays one Worker with module route factories (mirrors the osn-api single-Worker decision). D1 stays the store; everything cascades from `weddings`.
 - **Observability**: per-module `cire.*` counters/histograms via the existing typed `metrics.ts`; category enums keep attribute cardinality bounded; no `console.*`; every `Effect.catchAll` logs.
-- **Testing**: platform convention (`it.effect` + `createTestLayer()`), route tests per module factory; pricing engine is pure-function gold for table-driven tests; migration lockstep test (T-S1) becomes load-bearing with this much new DDL — pull it forward into Phase 0.
+- **Testing**: platform convention (`it.effect` + `createTestLayer()`), route tests per module factory; pricing engine is pure — ideal for table-driven tests; migration lockstep test (T-S1) becomes load-bearing with this much new DDL — pull it forward into Phase 0.
 - **Free tier** (root `wiki/runbooks/free-tier-limits`): directory search is the only new read-hot path — one indexed query per search, no N+1; availability join bounded by date equality. D1 storage growth from vendors/tasks/budget is trivial next to R2 images. Watch Worker CPU on haversine ordering at scale.
 - **Rate limiting**: writes ride the existing per-user limiter pattern; directory search + enquiries get their own Upstash limiters (enquiries are a spam vector).
 
@@ -241,7 +241,7 @@ Flag to the root compliance programme as each phase lands (root `wiki/compliance
 
 **P0 (foundation)** → **P1 (checklist + budget v1)** → **P2 (vendor CRM → directory + availability)** → **P3 (pricing v1 → v2)** → **P4 (seating, comms, registry)**.
 
-P1 and the vendor-CRM half of P2 are independent after P0 and can run in parallel branches (disjoint tables/routes). Directory v2 and pricing v2 are the long poles — both gated on real-world content (listings, quotes), not code. Ship order optimises for *an organiser gets planning value on day one* (checklist + budget + CRM) while the two-sided directory grows underneath.
+P1 and the vendor-CRM half of P2 are independent after P0 and can run in parallel branches (disjoint tables/routes). Directory v2 and pricing v2 take longest — both gated on real-world content (listings, quotes), not code. Ship order favours *an organiser gets planning value on day one* (checklist + budget + CRM) while the two-sided directory grows underneath.
 
 Per-phase checklists: [[platform]].
 

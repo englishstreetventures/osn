@@ -5,7 +5,7 @@ related:
   - "[[cire-auth]]"
   - "[[budget]]"
   - "[[checklist-tasks]]"
-last-reviewed: 2026-07-18
+last-reviewed: 2026-07-23
 ---
 
 # Vendors — directory, CRM, and email-verification claim
@@ -20,7 +20,7 @@ The Vendors slice introduces a **three-tier principal model** (guests / organise
 
 ### `directory_vendors`
 
-Global directory of vendors. One row per vendor business (not per wedding). Seeded by the organiser CRM (see claim flow below).
+Global directory of vendors. One row per vendor business (not per wedding). The organiser CRM seeds it (see claim flow below).
 
 | Column | Notes |
 |---|---|
@@ -35,7 +35,7 @@ Global directory of vendors. One row per vendor business (not per wedding). Seed
 | `status` | `enum('active','suspended','pending')` |
 | `created_at`, `updated_at` | Timestamps |
 
-**Constraint:** `org_id UNIQUE` — one directory profile per OSN org. A brand with multiple verticals (e.g. photo + video) uses a second OSN org (one profile per org).
+**Constraint:** `org_id UNIQUE` — one directory profile per OSN org. A brand with more than one line of business (e.g. photo + video) uses a second OSN org (one profile per org).
 
 ### `directory_vendor_categories`
 
@@ -43,7 +43,7 @@ Reference enum table for vendor service categories (photographer, florist, cater
 
 ### `vendors`
 
-Wedding-scoped vendor CRM rows. Each represents an organiser's record of a vendor they are researching or have booked for **a specific wedding**. Linked to `directory_vendors` via `directory_vendor_id` (nullable — a CRM entry may precede the vendor having a directory profile, or the organiser may not have verified the link yet).
+Wedding-scoped vendor CRM rows. Each represents an organiser's record of a vendor they are researching or have booked for **a specific wedding**. Linked to `directory_vendors` via `directory_vendor_id` (nullable — a CRM entry can exist before the vendor has a directory profile, or the organiser may not have verified the link yet).
 
 | Column | Notes |
 |---|---|
@@ -105,7 +105,7 @@ Guests and the guest cookie path are unchanged (see [[cire-auth]] §Guest path).
 
 **ARC bridge pattern:** identical to the existing `graph:read` / `graph:resolve-account` bridges (co-host handle resolution, guest account-linking). Key-optional + fail-soft: absent ARC key → 503, never a bypass.
 
-**One profile per org / many-categories per profile:** `directory_vendors.org_id` is UNIQUE — one directory listing per OSN org. An org wanting separate listings per vertical (photo vs video) needs a second OSN org. Many service categories are supported via the `vendors_to_categories` join table.
+**One profile per org / many-categories per profile:** `directory_vendors.org_id` is UNIQUE — one directory listing per OSN org. An org wanting separate listings per line of business (photo vs video) needs a second OSN org. The `vendors_to_categories` join table supports many service categories.
 
 ---
 
@@ -120,9 +120,9 @@ The claim flow lets an organiser assert "this CRM entry is the same business as 
    - Mints a 256-bit claim token; stores its SHA-256 hash in `vendor_claims` (`status: 'pending'`, 7-day TTL).
    - Returns the claim link (`/claim?token=<raw>`) **to the organiser** in the response body.
 
-2. **Organiser receives the claim link.** The link is returned in the API response — the organiser can forward it to the vendor (copy-paste, WhatsApp, email). A **fail-soft email** is also attempted: `@shared/email` `vendor-claim-invite` template fires asynchronously; if it fails (missing `RESEND_API_KEY`, unreachable Resend), the error is logged but the HTTP response is not affected.
+2. **Organiser receives the claim link.** The link is returned in the API response — the organiser can forward it to the vendor (copy-paste, WhatsApp, email). cire-api also attempts a **fail-soft email**: the `@shared/email` `vendor-claim-invite` template fires asynchronously; if it fails (missing `RESEND_API_KEY`, unreachable Resend), cire-api logs the error and the HTTP response is unaffected.
 
-3. **Vendor consumes the claim.** The vendor navigates to `vendor.cireweddings.com/claim?token=<raw>` (PR B — not yet live), signs in with their OSN account, picks an OSN org they belong to (creating an org, if they have none, happens in the OSN app first — not the portal), and `POST /api/vendor/claim` is called with the raw token + their org id. cire-api:
+3. **Vendor consumes the claim.** The vendor navigates to `vendor.cireweddings.com/claim?token=<raw>` (PR B — not yet live), signs in with their OSN account, picks an OSN org they belong to (creating an org, if they have none, happens in the OSN app first — not the portal), and the portal calls `POST /api/vendor/claim` with the raw token + their org id. cire-api:
    - Looks up `vendor_claims` by token hash (SHA-256 of the raw value presented).
    - Validates: `status = 'pending'`, `expires_at > now`.
    - Sets `directory_vendors.org_id = <their org>` (atomically in a D1 batch with the claim status update to `consumed`).
@@ -166,7 +166,7 @@ Routes: `/api/vendor/*` — gated by `vendorOrgMember()`.
 
 ## Vendor portal (`cire/vendor`)
 
-The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS Cloudflare Pages app living in `cire/vendor/`. It is the browser surface vendors use after receiving a claim link from an organiser.
+The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS Cloudflare Pages app living in `cire/vendor/`. It is the browser surface vendors use after an organiser sends them a claim link.
 
 ### Screens (left-to-right user flow)
 
@@ -214,7 +214,7 @@ Returns **live-only** (`listed = 'live'`) directory listings. Filters:
 | `location` | Case-insensitive substring match on `location_text` |
 | `limit` / `offset` | Pagination (`limit` clamped 1..50 default 24; `offset` ≥0; `total` count returned) |
 
-Each listing in the response includes an `inWedding` boolean — `true` if a `vendors` CRM row already links this listing to the requesting wedding (i.e. it was previously added via the `/add` endpoint below). Organiser contact details (`email`, `phone`) from `directory_vendors` are included in the response and displayed to the wedding's authenticated organisers.
+Each listing in the response includes an `inWedding` boolean — `true` if a `vendors` CRM row already links this listing to the requesting wedding (i.e. it was already added via the `/add` endpoint below). The response includes organiser contact details (`email`, `phone`) from `directory_vendors`; they are displayed to the wedding's authenticated organisers.
 
 Service: `directoryService.browse` in `cire/api/src/services/directory.ts`. Fail-soft: a DB error returns an empty result set rather than a 500.
 
@@ -226,13 +226,13 @@ Adds a directory listing to the wedding's Vendor CRM. The handler:
 
 1. Resolves the listing via `directoryService.getLiveListingById` — returns 404 `listing_not_found` if missing or not `listed = 'live'` (draft listings cannot be added).
 2. Validates the request body's `category` is one of the listing's categories (400 `invalid_category` otherwise), then snapshots the listing's `name`, `email`, `phone` into a new `vendors` CRM row for the wedding under the chosen `category`, with `status = 'researching'` and `directory_vendor_id` linked.
-3. Deduplication: an `existsForDirectory` pre-check returns **409** `already_in_wedding` for the common case; the `vendors_wedding_directory_uniq` **partial unique index** (`UNIQUE (wedding_id, directory_vendor_id) WHERE directory_vendor_id IS NOT NULL`) is the hard backstop for a concurrent race (the route maps that `UNIQUE constraint` defect to the same **409** `already_in_wedding`).
+3. Deduplication: an `existsForDirectory` pre-check returns **409** `already_in_wedding` for the common case; the `vendors_wedding_directory_uniq` **partial unique index** (`UNIQUE (wedding_id, directory_vendor_id) WHERE directory_vendor_id IS NOT NULL`) catches a concurrent race (the route maps that `UNIQUE constraint` defect to the same **409** `already_in_wedding`).
 
 Service: `vendorsService.existsForDirectory` (pre-check) + `directoryService.getLiveListingById` + `vendorsService.create`; routes in `cire/api/src/routes/vendor-directory.ts`.
 
 ### Migration 0041
 
-Additive index-only migration adding the `vendors_wedding_directory_uniq` partial unique index to the existing `vendors` table. No column changes. Applied by CI (`wrangler d1 migrations apply --remote`) on merge — a prod D1 additive index is non-destructive and requires no downtime.
+Additive index-only migration adding the `vendors_wedding_directory_uniq` partial unique index to the existing `vendors` table. No column changes. CI applies it (`wrangler d1 migrations apply --remote`) on merge — a prod D1 additive index is non-destructive and needs no downtime.
 
 ---
 

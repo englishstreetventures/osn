@@ -5,7 +5,7 @@ related:
   - "[[overview]]"
   - "[[invite-builder]]"
   - "[[contributing]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # Preview Tier
@@ -21,23 +21,23 @@ infrastructure. Deployed by `.github/workflows/deploy-cire-preview.yml`.
 
 ## Why a whole tier, not just a preview frontend
 
-Because a **schema change cannot be reviewed until the schema has changed**, and
+Because a **schema change cannot be reviewed until the schema changes**, and
 doing that to production before merge is not an option. Pointing a preview guest
 site at the prod API would show the old shape — for a change like the invite
 colour scheme (migration `0044`, which DROPS columns) the preview would render
 the fallback look and prove nothing.
 
-So the preview API is bound to its own D1, `cire-db-preview`
+So the preview API binds to its own D1, `cire-db-preview`
 (`28d615d2-1e15-4592-9e44-cbf9c5af953a`, created 2026-07-22, OC/Sydney like the
 rest of the infra), and the `-preview` R2 buckets. A branch's migrations run
-there. **Preview data is disposable** — the workflow re-seeds on every push and
-nothing should be expected to survive.
+there. **Preview data is disposable** — the workflow re-seeds on every push, so
+expect nothing to survive.
 
 ## What is shared with production, and what is not
 
 **Shared:** the OSN identity issuer (`id.cireweddings.com`). A reviewer signs in
 with their real passkey, which is what makes the organiser portal reviewable at
-all — no separate identity tier to provision. Weddings they create land in the
+all — no separate identity tier to set up. Weddings they create land in the
 preview database.
 
 **Not shared:** the database, both R2 buckets, the Worker names, the routes, and
@@ -63,14 +63,14 @@ real email to a real vendor; the rest of the enquiry flow still works.
   the CORS origin guard.
 - **`events.slug` is UNIQUE across ALL weddings**, not per wedding. The preview
   seed's three sample ceremonies therefore need distinct slugs
-  (`evergreen-ceremony`, `chapel-ceremony`, …) or two of the three rows are
-  silently dropped by `INSERT OR IGNORE` and their `guest_events` fail the FK.
+  (`evergreen-ceremony`, `chapel-ceremony`, …) or `INSERT OR IGNORE` silently
+  drops two of the three rows and their `guest_events` fail the FK.
 
 ## Seed
 
 `cire/db/seed/preview-seed.sql` — three sample weddings identical in content and
-differing only in colour scheme (built-in / `chapel` / `jewel`), so schemes can
-be compared side by side. Idempotent: content rows are `INSERT OR IGNORE`, the
+differing only in colour scheme (built-in / `chapel` / `jewel`), so a reviewer
+can compare schemes side by side. Idempotent: content rows are `INSERT OR IGNORE`, the
 customisation rows are `INSERT OR REPLACE` so an edited scheme actually lands on
 the next push.
 

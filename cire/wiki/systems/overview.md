@@ -2,7 +2,7 @@
 title: Organiser Overview
 tags: [systems, cire, organiser]
 related: [checklist-tasks, budget]
-last-reviewed: 2026-07-16
+last-reviewed: 2026-07-23
 ---
 
 # Organiser Overview
@@ -16,8 +16,8 @@ landing view: "how's the wedding tracking?" at a glance. For a brand-new wedding
 - **What's next** (full-width band) — one chronological agenda merging upcoming
   schedule events, unpaid budget payments with a due date, and open checklist
   tasks with a due date. Built by the pure `lib/overview-agenda.ts`
-  (`buildAgenda`). Overdue payments/tasks surface at the top; past events are
-  excluded. Horizon 90 days, ≤ 6 upcoming items + all overdue. Each row links to
+  (`buildAgenda`). Overdue payments/tasks surface at the top; the agenda drops
+  past events. Horizon 90 days, ≤ 6 upcoming items + all overdue. Each row links to
   its module (event → Schedule, payment → Budget, task → Checklist).
 - **Countdown** — days to the wedding date.
 - **RSVPs** — rolled-up totals + a responded/invited progress bar + a per-event
@@ -28,10 +28,10 @@ landing view: "how's the wedding tracking?" at a glance. For a brand-new wedding
 
 ## Data
 
-No dedicated Overview endpoint. Everything is read from the shared weddingId-keyed
-stores (events, guests, tasks, budget) plus light `/settings` + `/rsvps` reads,
-all fired in parallel by one `createResource`. Any source that fails to load
-simply contributes nothing to its widget (soft-fail) — the page never blanks.
+No dedicated Overview endpoint. The Overview reads everything from the shared
+weddingId-keyed stores (events, guests, tasks, budget) plus light `/settings` +
+`/rsvps` reads, all fired in parallel by one `createResource`. Any source that
+fails to load contributes nothing to its widget (soft-fail) — the page never blanks.
 
 ## Agenda merge rules (`overview-agenda.ts`)
 

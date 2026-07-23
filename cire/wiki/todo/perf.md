@@ -4,7 +4,7 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # Performance Backlog
@@ -121,7 +121,7 @@ were FIXED on the branch (`dd7e50b3`). The rest are deferred — all in
 `cire/organiser/src/components/Overview.tsx`, all micro-inefficiencies at the
 current data scale (a wedding has tens of payments/tasks, not thousands):
 
-- [x] **OV-P-W1** — Budget card calls `upcomingPayments(weddingId)` 3× per render (`.length`, `[0].label`, `[0].dueAt`); each re-filters + re-sorts the payments array. Wrap in one component-level `createMemo` when convenient. Only bites if a wedding ever holds hundreds of payment rows. — **Fixed** (feat/cire-overview-perf-followups): added `upcomingPaymentsMemo = createMemo(() => upcomingPayments(props.weddingId))` at component scope; all three Budget-card reads now access the memo.
+- [x] **OV-P-W1** — Budget card calls `upcomingPayments(weddingId)` 3× per render (`.length`, `[0].label`, `[0].dueAt`); each re-filters + re-sorts the payments array. Wrap in one component-level `createMemo` when convenient. Only matters if a wedding ever holds hundreds of payment rows. — **Fixed** (feat/cire-overview-perf-followups): added `upcomingPaymentsMemo = createMemo(() => upcomingPayments(props.weddingId))` at component scope; all three Budget-card reads now access the memo.
 - [x] **OV-P-I2** — Budget card calls `spentSoFar(weddingId)` 2× per render (outer `Show` + amount format); each re-reduces all budget items. Same `createMemo` fix as OV-P-W1. — **Fixed** (feat/cire-overview-perf-followups): added `spentSoFarMemo = createMemo(() => spentSoFar(props.weddingId))` at component scope; both Budget-card reads now access the memo.
 - [x] **OV-P-W3** — Countdown card's `daysUntil` reads a fresh `new Date()` at render, so the countdown (and its "Today!/Tomorrow!" copy) goes stale if the dashboard is left open across midnight — the same class of bug as the fixed OV-P-W2 but on the Countdown, which was outside that fix's agenda-only scope. Fix by feeding the Countdown from the same midnight-refreshing `nowMs()` signal already added for the agenda. — **Fixed** (feat/cire-overview-perf-followups): `daysUntil` now accepts an optional `nowMs` parameter (defaults to `Date.now()`); the `countdown` memo is defined after the `nowMs` signal and passes `nowMs()` so it recomputes at midnight.
 

@@ -4,7 +4,7 @@ tags: [systems, cire, entitlements, phase1]
 related:
   - "[[vendors]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-07-18
+last-reviewed: 2026-07-23
 ---
 
 # Entitlements — per-wedding capability gates
@@ -32,7 +32,7 @@ Added by migration 0042.
 
 ## Entitlement keys
 
-Five opaque capability flags. Keys are stored as plain strings; the meaning is determined by how the application checks for them.
+Five opaque capability flags. The table stores keys as plain strings. How the application checks a key decides what it means.
 
 | Key | What its presence enables |
 |---|---|
@@ -42,7 +42,7 @@ Five opaque capability flags. Keys are stored as plain strings; the meaning is d
 | `capacity_500` | Guest import ceiling raised to 500 |
 | `capacity_1000` | Guest import ceiling raised to 1000 |
 
-Boolean capability flags (`premium_templates`, `vendors`, `ai`) are presence-only: the row either exists or it doesn't. Capacity flags are treated differently — see below.
+Boolean capability flags (`premium_templates`, `vendors`, `ai`) are presence-only: the row either exists or it doesn't. Capacity flags work differently — see below.
 
 ---
 
@@ -89,7 +89,7 @@ weddingEntitlement(db, key)   ← entitlement gate (402 if capability absent)
 rateLimiter            ← rate limiting
 ```
 
-The entitlement gate sits **after** the role gate. A viewer on an entitled wedding is already blocked by a 403 from the role gate before reaching this middleware. A `402` from this middleware means: the caller's role is sufficient, but the wedding itself does not have the capability.
+The entitlement gate sits **after** the role gate. The role gate already returns a 403 to a viewer on an entitled wedding, before this middleware runs. A `402` from this middleware means: the caller's role is enough, but the wedding itself does not have the capability.
 
 **402 response contract:**
 
@@ -105,9 +105,9 @@ A missing `weddingId` in `params` (should not occur after the role gate validate
 
 ## Capacity enforcement in `applyImport`
 
-`applyImport` (in `cire/api/src/services/import.ts`) calls `entitlementService.assertGuestCapacity(weddingId, netGuestDelta)` — where `netGuestDelta = guestCreates.length - guestRemoves.length` — **before** writing any rows. The check is skipped when the net delta is zero or negative (a churn import that removes K and adds K at cap succeeds). The check and the subsequent D1 batch write are sequenced atomically: if the capacity check fails, no guests are written. There are no partial writes.
+`applyImport` (in `cire/api/src/services/import.ts`) calls `entitlementService.assertGuestCapacity(weddingId, netGuestDelta)` — where `netGuestDelta = guestCreates.length - guestRemoves.length` — **before** writing any rows. `applyImport` skips the check when the net delta is zero or negative (a churn import that removes K and adds K at cap succeeds). The check and the D1 batch write that follows are sequenced atomically: if the capacity check fails, no guests are written. There are no partial writes.
 
-The check counts real guests only — the synthetic `host`-kind family row used for invite previews is excluded from the count via a `ne(families.kind, 'host')` filter.
+The check counts real guests only — a `ne(families.kind, 'host')` filter excludes the synthetic `host`-kind family row used for invite previews.
 
 ---
 
@@ -121,13 +121,15 @@ The check counts real guests only — the synthetic `host`-kind family row used 
 bun run cire/api/scripts/grant-entitlement.ts <weddingId> <key,key,...> [grantedBy]
 ```
 
-**Production (D1):** the script prints idempotent `INSERT OR IGNORE` SQL. Apply via:
+**Production (D1):** the script prints idempotent `INSERT OR IGNORE` SQL.
+
+**Warning:** a prod D1 write needs explicit human authorisation naming `cire-db`. Get it before you run the command below. This is a deploy-time step, not an automated path.
+
+Apply via:
 
 ```bash
 wrangler d1 execute cire-db --remote --command "<printed SQL>"
 ```
-
-A prod D1 write requires explicit human authorization naming `cire-db` before running — this is a deploy-time step, not an automated path.
 
 ---
 

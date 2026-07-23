@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[platform-plan]]"
   - "[[platform]]"
-last-reviewed: 2026-07-16
+last-reviewed: 2026-07-23
 ---
 
 # Checklist / Tasks
@@ -37,8 +37,8 @@ touched):
 
 ## Bucket single-source
 
-The eight lead-time buckets are defined in TWO sibling files that must be kept
-in sync manually whenever a bucket is added or a label is reworded:
+TWO sibling files define the eight lead-time buckets. Keep them in sync by hand
+whenever you add a bucket or reword a label:
 
 | File | Package |
 |---|---|
@@ -77,7 +77,7 @@ read/write split pattern used by the hosts routes in `app.ts`):
 | `DELETE` | `/tasks/:taskId` | `weddingEditor` | `createTaskWriteRoutes` |
 
 `/tasks/reorder` is registered **before** `/tasks/:taskId` in the factory so the
-literal path wins over the param route — same ordering invariant as Elysia
+literal path wins over the param route — the ordering invariant Elysia
 requires.
 
 The `reorder` endpoint accepts `{ timeframeBucket, orderedIds: string[] }` and
@@ -93,9 +93,9 @@ delete them.
 
 `cire/organiser/src/lib/tasks-store.ts` is a `weddingId`-keyed SolidJS signal
 cache — the sibling of `guests-store.ts` and `events-store.ts`. The fetch-lift
-pattern means switching modules does not refetch: both the **Overview widget**
-(`openTaskCount`) and the **ChecklistView** read from the same signal. Effect
-is deliberately NOT imported (frontend code only).
+pattern means a module switch does not refetch: both the **Overview widget**
+(`openTaskCount`) and the **ChecklistView** read from the same signal. This file
+deliberately does NOT import Effect (frontend code only).
 
 Public API:
 
@@ -113,8 +113,8 @@ Public API:
 
 ## Deferred items
 
-The following items are noted in the spec but were deliberately NOT built in v1
-and should be added additively:
+The spec notes these items. v1 deliberately leaves them out; add them
+additively:
 
 | Item | Notes |
 |---|---|
@@ -133,5 +133,5 @@ and should be added additively:
   regression test (`tasks.test.ts` — "reorder is wedding-scoped") proves an
   owner of wedding B cannot shuffle wedding A's checklist. Complements the
   existing update/delete tenancy tests.
-- **`TIMEFRAME_BUCKET_KEYS`** is annotated `readonly TimeframeBucket[]` — the
-  single source of truth for bucket keys can't be mutated by a consumer.
+- **`TIMEFRAME_BUCKET_KEYS`** is annotated `readonly TimeframeBucket[]` — a
+  consumer cannot mutate the single source of truth for bucket keys.

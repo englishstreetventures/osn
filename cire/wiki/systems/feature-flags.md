@@ -4,21 +4,21 @@ tags: [systems, cire, feature-flags, growthbook]
 related:
   - "[[overview]]"
   - "[[observability]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # Feature flags — GrowthBook
 
 Flag + experiment evaluation for `cire/api`, via the shared
 `@shared/feature-flags` package (used by every Workers backend). Chosen over an
-all-in-one analytics-plus-flags tool so flags and analytics stay decoupled —
+all-in-one analytics-plus-flags tool so flags and analytics stay separate —
 GrowthBook does flags/experiments only.
 
 ## Why GrowthBook on Workers
 
-Flags evaluate **offline** at the edge. The GrowthBook SDK is handed a
-pre-fetched payload (`initSync`) and does no I/O and needs no Node APIs, so it
-runs cleanly in workerd. The only network is a cached fetch of the SDK payload,
+Flags evaluate **offline** at the edge. cire/api hands the GrowthBook SDK a
+pre-fetched payload (`initSync`); the SDK does no I/O and needs no Node APIs, so
+it runs cleanly in workerd. The only network is a cached fetch of the SDK payload,
 and that fetch fails safe. A flag read never blocks a request on GrowthBook and
 never throws.
 
@@ -26,7 +26,7 @@ never throws.
 
 - **Key-optional.** `GROWTHBOOK_CLIENT_KEY` unset ⇒ every flag reads its coded
   default from the `FLAGS` registry with zero network. This is the state before
-  a GrowthBook account exists — the code ships and deploys inert, behaving
+  a GrowthBook account exists — the code ships and deploys inert and behaves
   exactly as it did before flags. Same pattern as `@shared/turnstile` and the
   maps-embed key.
 - **Fail-safe ladder.** Fresh CDN fetch → last-good cached payload → registry
@@ -81,8 +81,8 @@ and `KV_GB_PAYLOAD` setup. Named envs do NOT inherit top-level `[vars]` /
 See `shared/feature-flags/README.md` for the full checklist. In short: create a
 GrowthBook Cloud account (free Starter — unlimited flags + experiments, 3
 seats), make an SDK connection, set `GROWTHBOOK_CLIENT_KEY` (secret or var),
-optionally create the `KV_GB_PAYLOAD` namespace, redeploy. Flag changes
-propagate within the cache TTL (~60s). No webhook required.
+optionally create the `KV_GB_PAYLOAD` namespace, redeploy. Flag changes take
+effect within the cache TTL (~60s). No webhook required.
 
 ## Observability
 

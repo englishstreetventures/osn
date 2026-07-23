@@ -4,7 +4,7 @@ tags: [todo, status]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-07-21
+last-reviewed: 2026-07-23
 ---
 
 # Status + Up Next
@@ -31,7 +31,7 @@ Monorepo built and functional. `cire/db` models families with a shareable `publi
 - [x] Migrate from `X-Organiser-Token` shared secret to organiser passkey auth — done in the OSN merge; token path deleted
 - [x] Inline OSN account creation on the organiser login page — `SignInPanel` toggles `<SignIn>` ⇄ `<Register>` (from `@osn/ui`, via `@osn/client`'s registration client) so organisers without an OSN account can register without leaving cire; first vitest harness for `@cire/organiser`. See `[[wiki/systems/cire-auth]]`
 - [x] **Observability standards** — `cire/api` adopted `@shared/observability` (workerd-safe subpaths): redacting logger (`runCire`/`runCireSync` → `cireLoggerLayer`), spans on every service fn, `instrumentedFetch` on the S2S ARC call, and `cire/api/src/metrics.ts` (typed `cire.*` counters/histograms, define-now-export-later). See `[[observability/overview]]` + `[[deferred]]` (export on workerd is the one open item).
-- [x] ~~Bootstrap owner env-driven + fail-loud~~ — **Removed** (`feat/cire-organiser-open-access`). Vestigial once multi-wedding + create-wedding landed: any authenticated OSN user is a first-class organiser (sign in → empty wedding list for a new account → create their own via `POST /api/organiser/weddings`; no 503, no seeded owner). Deleted the `BOOTSTRAP_OWNER_PROFILE_ID` boot gate (`ensureBootstrapOwner` + `bootstrap-owner.ts`); migration `0015_drop_bootstrap_wedding.sql` DELETEs the orphaned `wed_bootstrap` demo row so prod starts clean. **cire-api no longer needs the `BOOTSTRAP_OWNER_PROFILE_ID` secret.** Per-wedding authz (`weddingOwner`/`weddingMember`) unchanged; security review confirmed no cross-tenant leak.
+- [x] ~~Bootstrap owner env-driven + fail-loud~~ — **Removed** (`feat/cire-organiser-open-access`). Redundant once multi-wedding + create-wedding landed: any authenticated OSN user is a first-class organiser (sign in → empty wedding list for a new account → create their own via `POST /api/organiser/weddings`; no 503, no seeded owner). Deleted the `BOOTSTRAP_OWNER_PROFILE_ID` boot gate (`ensureBootstrapOwner` + `bootstrap-owner.ts`); migration `0015_drop_bootstrap_wedding.sql` DELETEs the orphaned `wed_bootstrap` demo row so prod starts clean. **cire-api no longer needs the `BOOTSTRAP_OWNER_PROFILE_ID` secret.** Per-wedding authz (`weddingOwner`/`weddingMember`) unchanged; security review confirmed no cross-tenant leak.
 - [x] Migrate runtime DB layer in `cire/api/src/index.ts` from 503 stub to real D1 — `index.ts` is now a Workers `fetch` handler building a per-request Drizzle-D1 client from `env.DB`; `Db` broadened over `"sync" | "async"` so the same service code runs on bun:sqlite (local/tests) and D1 (prod) via a `dbQuery` bridge. Pure JWK helpers split into DB-free `@shared/crypto/jwk` so the `osnAuth` verify path no longer drags `bun:sqlite` into the Worker bundle (build is green). The real `database_id` is now wired; no bootstrap-owner secret is required (mechanism removed — see the bootstrap-owner item above).
 - [x] Per-person per-event RSVP with dietary requirements
 - [x] Rate-limit claim attempts to prevent brute force — see [[overview]] for logging rules
@@ -41,3 +41,14 @@ Monorepo built and functional. `cire/db` models families with a shareable `publi
 - [x] **Host invite preview** — "Preview invite" button on the organiser dashboard opens the guest invite with a per-wedding `HOST-*` code that sees every event. Synthetic host family (`families.kind = 'host'`, migration `0010_family_kind.sql`), owner-gated `POST /api/organiser/weddings/:weddingId/preview-code` (`hostCodeService.ensureForWedding`), `preview: true` in the claim response (web shows banner + disables RSVP), host families excluded from the import diff and barred from RSVP. New env `PUBLIC_CIRE_WEB_URL`. See `[[wiki/systems/cire-auth]]` (root, Host preview code).
 - [ ] **Invite builder follow-ups** — create the `cire-assets` (+ preview) R2 bucket before first deploy; consider a live preview pane + more slots (footer/RSVP banner) once the basic version proves out.
 - [x] **Vendors S4 PR B — cire enquiry backend** — `vendor_enquiries` table + couple + vendor enquiry routes, cire→zap ARC c2b client, enquiry emails (Resend), quote→Budget integration, claim-flush. PR A (#286) merged; PR C (vendor + organiser enquiry frontends) is the remaining slice.
+
+## Docs drift
+
+Contradictions found by the writing-rules copy-edit of `cire/wiki/` (2026-07-23). Each needs someone who knows the code to say which side is right — the copy-edit changed prose only, never facts.
+
+- [ ] **[[vendors]] — "this PR" names nothing.** The CORS line ("Both allowlists are widened in this PR's `cire/api/wrangler.toml` and `osn/api/wrangler.toml`") reads as a branch note on a merged page. Name the PR number or state the end result.
+- [ ] **[[vendors]] — directory browse is both shipped and deferred.** "Directory browse" sits under "Deferred to later cycles (NOT in this PR)", while the "Directory browse (organiser, S3)" section says "Shipped 2026-07-18". Drop the deferred row if S3 is live.
+- [ ] **[[vendors]] — vendor portal is both "not yet live" and documented as done.** One line says "(PR B — not yet live)"; the "Vendor portal (`cire/vendor`)" section describes the portal, its `_headers` file, the CORS widening and the deploy pipeline in the present tense.
+- [ ] **[[invite-builder]] — `PUBLIC_WEDDING_SLUG` contradiction.** The guest-rendering section says there is no build-time `PUBLIC_WEDDING_SLUG` (path-routed SSR); the env table still lists it as the var that selects which wedding the guest site renders.
+- [ ] **[[invite-builder]] — per-section colour language survives migration 0044.** Three places still describe per-section accent/surface pickers, while the "Tones replace per-section colour" section records that 0044 dropped those eight columns for five seeds plus tones.
+- [ ] **[[spreadsheet-import]] vs [[platform]] — editor chain status disagrees.** `spreadsheet-import` lists E2–E6 as open `- [ ]` items; `platform` PR 5a records "editor chain E1–E6 COMPLETE 2026-07-16" with every slice ticked.

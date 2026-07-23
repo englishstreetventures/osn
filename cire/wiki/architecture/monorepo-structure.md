@@ -2,7 +2,7 @@
 title: "Monorepo Structure"
 tags: [architecture]
 related: [[contributing]], [[index]]
-last-reviewed: 2026-06-18
+last-reviewed: 2026-07-23
 ---
 
 # Monorepo Structure
@@ -50,7 +50,7 @@ Cire lives inside the **OSN monorepo** as the `cire/` workspace directory (merge
 - Package manager: **bun** — always use `bun run`, `bunx --bun`, `bun add`.
 - Workspaces defined in the **OSN root** `package.json`: `cire/*` alongside `osn/*`, `pulse/*`, `zap/*`, `shared/*`.
 - Scope commands with `--cwd` from the repo root: e.g., `bun run --cwd cire/api test`.
-- `bun run dev:cire` (repo root) starts `@cire/api` + `@cire/web` + `@cire/organiser` + `@osn/api` (the OSN issuer is needed for organiser passkey sign-in).
+- `bun run dev:cire` (repo root) starts `@cire/api` + `@cire/web` + `@cire/organiser` + `@osn/api` (organiser passkey sign-in needs the OSN issuer).
 
 ## Dependency Flow
 
@@ -65,7 +65,7 @@ cire/api ──import──▶ @shared/osn-auth-client, @shared/rate-limit
 ```
 
 - `web / organiser → api`: runtime dependency via `fetch` calls. No direct import.
-- `web + api → db`: both import Drizzle schema types. Only `api` performs queries.
+- `web + api → db`: both import Drizzle schema types. Only `api` runs queries.
 - Effect is backend + DB only — never import it in `cire/web` or `cire/organiser`.
 
 ## Ports (Local Dev)

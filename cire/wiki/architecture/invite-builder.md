@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-templates]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # Invite Builder
@@ -284,9 +284,9 @@ allowlisted **variant** — `cire/api/src/services/invite-image-transform.ts`
 | `hero`    | 1600px | —               | a crisp full-res hero, where wanted        |
 | `hero-bg` | 1600px | **server-side** | the **blurred** full-bleed hero backdrop   |
 
-Named variants (not an arbitrary `?w=` / `?blur=`) are deliberate: cardinality is
-exactly four per slot, which keeps the edge cache hot and denies an attacker the
-ability to mint unbounded distinct transform URLs (a cache-poisoning / cost
+Named variants (not an arbitrary `?w=` / `?blur=`) are deliberate: the count is
+exactly four per slot, which keeps the edge cache hot and stops an attacker
+minting endless distinct transform URLs (a cache-poisoning / cost
 amplifier — the Images binding bills per call). An unknown/absent `?variant=`
 collapses to `card`, never a 400.
 
@@ -497,7 +497,7 @@ server-acknowledged snapshot (seeded on load, refreshed per successful PUT)
 and **skipped when unchanged**: a copy-only edit PUTs only `/invite/text`, a
 colour-only edit only `/invite/theme`, and a no-op save makes no network call.
 This keeps writes proportional to actual changes (P-W1) and pairs with the
-server-side decoupling below: since migration `0029` the guest image-cache
+server-side split below: since migration `0029` the guest image-cache
 version is a dedicated `images_updated_at` column — bumped only by image
 upload/remove/crop and a `heroBlur` change (the one theme field that alters
 the served bytes), backfilled from `updated_at`, coalesced to it when NULL —
@@ -566,7 +566,7 @@ preview stays faithful.
 
 ## Observability
 
-cire/api now adopts `@shared/observability` (workerd-safe subpaths) — see
+cire/api uses `@shared/observability` (workerd-safe subpaths) — see
 `[[overview]]`. The invite-builder surface is instrumented with spans, the
 redacting logger, and metrics:
 

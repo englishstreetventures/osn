@@ -5,7 +5,7 @@ related:
   - "[[platform-plan]]"
   - "[[checklist-tasks]]"
   - "[[deferred]]"
-last-reviewed: 2026-07-16
+last-reviewed: 2026-07-23
 ---
 
 # Budget
@@ -92,7 +92,7 @@ itemSpend = actual ?? quoted ?? estimate ?? 0
 (same rule, computed from local state)
 ```
 
-Both sides use the **same precedence** — no divergence on what "spent" means. Live budget vs cap comparison: `totalSpend` vs `weddings.budget_total_minor`.
+Both sides use the **same precedence** — no disagreement on what "spent" means. Live budget vs cap comparison: `totalSpend` vs `weddings.budget_total_minor`.
 
 ## Client-Store Fetch-Lift
 
@@ -108,7 +108,7 @@ Sibling pattern: `guests-store.ts`, `events-store.ts` (shared Astro signals acro
 
 Previously: `Budget` v0 (Phase 1 spec artifact) had the cap editor in the Settings tab.
 
-**Decision:** Settings is for profile + co-host roles; budget cap is domain-specific and grows with the feature (Phase 2: vendor links, Phase 3: pricing seeding). Surfacing it in Budget tab keeps concerns decoupled and mirrors the "upcoming payments" widget landing on Overview (another Phase 1 surface).
+**Decision:** Settings is for profile + co-host roles; budget cap is domain-specific and grows with the feature (Phase 2: vendor links, Phase 3: pricing seeding). Putting it in the Budget tab keeps the concerns separate and mirrors the "upcoming payments" widget on Overview (another Phase 1 surface).
 
 **Governance:** `weddingOwner()` gate on the `PUT .../budget/cap` endpoint (organiser can only set their own wedding's cap).
 
