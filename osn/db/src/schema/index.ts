@@ -523,3 +523,147 @@ export const deletionJobs = sqliteTable(
 
 export type DeletionJob = typeof deletionJobs.$inferSelect;
 export type NewDeletionJob = typeof deletionJobs.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// OIDC relying parties (OAuth 2.1 authorization-code clients)
+//
+// OSN is the identity provider for every product in the family and for any
+// third party that wants to sign users in. Relying parties never call
+// `navigator.credentials` themselves — they redirect to `/authorize`, where the
+// passkey ceremony runs on the issuer's own origin and the WebAuthn RP ID
+// natively matches. That is what lets the provider carry an unbounded number
+// of relying parties: Related Origin Requests are capped at five registrable
+// labels by client policy, the redirect flow is capped by nothing.
+//
+// See [[wiki/systems/oidc-provider]].
+// ---------------------------------------------------------------------------
+
+export const oauthClients = sqliteTable(
+  "oauth_clients",
+  {
+    id: text("id").primaryKey(), // "oc_" prefix
+    /** Public identifier the relying party sends as `client_id`. "cid_" prefix. */
+    clientId: text("client_id").notNull().unique(),
+    /** Shown on the consent screen. */
+    name: text("name").notNull(),
+    logoUrl: text("logo_url"),
+    /**
+     * JSON array of redirect URIs. Matched by exact string equality — no
+     * wildcards, no prefix matching, no scheme coercion. An open redirect here
+     * hands an attacker every authorization code the client can obtain.
+     */
+    redirectUris: text("redirect_uris", { mode: "json" }).$type<string[]>().notNull(),
+    /**
+     * SHA-256(client secret), hex. NULL marks a PUBLIC client (native app or
+     * browser SPA) whose only proof of possession is PKCE. Secrets are 256-bit
+     * random strings, so a plain SHA-256 is the right hash — the same reasoning
+     * that governs session tokens in `sessions.id`. Never store the plaintext.
+     */
+    clientSecretHash: text("client_secret_hash"),
+    /**
+     * Sector for pairwise subject derivation. Every client sharing a sector
+     * sees the same `sub` for a given profile; clients in different sectors
+     * cannot correlate their users against each other. Defaults to the host of
+     * the first redirect URI at registration time.
+     */
+    sectorIdentifier: text("sector_identifier").notNull(),
+    /** Space-separated scopes this client may request. Requests beyond it are trimmed. */
+    allowedScopes: text("allowed_scopes").notNull().default("openid profile email"),
+    /**
+     * First-party clients skip the consent screen — the user still picks which
+     * profile to present, but is not asked to approve a company they already
+     * have an account with. Third-party clients always see consent on first
+     * authorization: that screen IS the "choose to link" step.
+     */
+    isFirstParty: integer("is_first_party", { mode: "boolean" }).notNull().default(false),
+    /** Unix seconds. */
+    createdAt: integer("created_at").notNull(),
+    /** Unix seconds. Non-null = client is disabled; every request is rejected. */
+    disabledAt: integer("disabled_at"),
+  },
+  (t) => [index("oauth_clients_sector_idx").on(t.sectorIdentifier)],
+);
+
+export type OauthClient = typeof oauthClients.$inferSelect;
+export type NewOauthClient = typeof oauthClients.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Authorization codes
+//
+// Single-use, 60-second, PKCE-bound. Only the SHA-256 of the code is stored,
+// so a leaked database row cannot be redeemed. Consumption is a single
+// `DELETE ... RETURNING`, which is atomic in SQLite and D1 alike — a
+// read-then-delete pair would let two concurrent redemptions both win.
+// ---------------------------------------------------------------------------
+
+export const oauthAuthorizationCodes = sqliteTable(
+  "oauth_authorization_codes",
+  {
+    /** SHA-256(raw code), hex. */
+    id: text("id").primaryKey(),
+    clientId: text("client_id").notNull(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    /** The profile the user chose to present. Drives the pairwise `sub`. */
+    profileId: text("profile_id")
+      .notNull()
+      .references(() => users.id),
+    /** Bound at issue; the token exchange must present the identical value. */
+    redirectUri: text("redirect_uri").notNull(),
+    scope: text("scope").notNull(),
+    /** PKCE S256 challenge. `plain` is not accepted, so no method column. */
+    codeChallenge: text("code_challenge").notNull(),
+    /** Echoed into the id_token. Replay defence owned by the relying party. */
+    nonce: text("nonce"),
+    /** Unix seconds — when the underlying session was established. */
+    authTime: integer("auth_time").notNull(),
+    /** Unix seconds. */
+    expiresAt: integer("expires_at").notNull(),
+    /** Unix seconds. */
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("oauth_codes_expires_idx").on(t.expiresAt)],
+);
+
+export type OauthAuthorizationCode = typeof oauthAuthorizationCodes.$inferSelect;
+export type NewOauthAuthorizationCode = typeof oauthAuthorizationCodes.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Consent grants
+//
+// One row per (account, client). Records that the user chose to link this
+// account to this relying party, and which profile they present to it. The row
+// is what makes `prompt=none` seamless on later visits: the profile is already
+// decided, so the redirect resolves without a single interaction.
+//
+// Auto-recognition, never auto-link — no row is ever written without the user
+// approving it on the consent screen.
+// ---------------------------------------------------------------------------
+
+export const oauthConsents = sqliteTable(
+  "oauth_consents",
+  {
+    id: text("id").primaryKey(), // "ocs_" prefix
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    clientId: text("client_id").notNull(),
+    /** The profile presented to this client. Stable across re-authorizations. */
+    profileId: text("profile_id")
+      .notNull()
+      .references(() => users.id),
+    /** Space-separated scopes granted so far. */
+    scope: text("scope").notNull(),
+    /** Unix seconds. */
+    grantedAt: integer("granted_at").notNull(),
+    /** Unix seconds. Non-null = the user unlinked; treated as no consent. */
+    revokedAt: integer("revoked_at"),
+  },
+  // The unique `(account_id, client_id)` index already serves every lookup keyed
+  // on `account_id` alone via its leftmost prefix, so no separate account index.
+  (t) => [unique("oauth_consents_account_client_uq").on(t.accountId, t.clientId)],
+);
+
+export type OauthConsent = typeof oauthConsents.$inferSelect;
+export type NewOauthConsent = typeof oauthConsents.$inferInsert;

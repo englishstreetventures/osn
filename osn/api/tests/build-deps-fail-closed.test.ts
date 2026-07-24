@@ -86,6 +86,7 @@ describe("buildAppDeps OSN_ORIGIN non-local guard (S-L5)", () => {
           OSN_JWT_PRIVATE_KEY: privB64,
           OSN_JWT_PUBLIC_KEY: pubB64,
           OSN_SESSION_IP_PEPPER: "x".repeat(32),
+          OSN_PAIRWISE_SALT: "p".repeat(32),
         },
         nonLocalParts(),
       ),
@@ -141,6 +142,7 @@ describe("buildAll Upstash gate non-local (S-L1)", () => {
       OSN_JWT_PRIVATE_KEY: privB64,
       OSN_JWT_PUBLIC_KEY: pubB64,
       OSN_SESSION_IP_PEPPER: "x".repeat(32),
+      OSN_PAIRWISE_SALT: "p".repeat(32),
       // CF email present so the Upstash gate (which runs first) is the guard
       // that fires.
       CLOUDFLARE_ACCOUNT_ID: "acct",
@@ -171,6 +173,7 @@ describe("buildAll email fail-closed + degraded opt-in (non-local)", () => {
       OSN_JWT_PRIVATE_KEY: privB64,
       OSN_JWT_PUBLIC_KEY: pubB64,
       OSN_SESSION_IP_PEPPER: "x".repeat(32),
+      OSN_PAIRWISE_SALT: "p".repeat(32),
       UPSTASH_REDIS_REST_URL: "https://upstash.test",
       UPSTASH_REDIS_REST_TOKEN: "tok",
       ...over,

@@ -757,12 +757,24 @@ describe("auth routes", () => {
       expect(res.status).toBe(200);
       const json = (await res.json()) as {
         issuer: string;
+        authorization_endpoint: string;
         token_endpoint: string;
         grant_types_supported: string[];
+        response_types_supported: string[];
+        code_challenge_methods_supported: string[];
+        subject_types_supported: string[];
+        userinfo_endpoint?: string;
       };
       expect(json.issuer).toBe("http://localhost:4000");
-      expect(json.token_endpoint).toBe("http://localhost:4000/token");
-      expect(json.grant_types_supported).toEqual(["refresh_token"]);
+      expect(json.authorization_endpoint).toBe("http://localhost:4000/authorize");
+      expect(json.token_endpoint).toBe("http://localhost:4000/oidc/token");
+      expect(json.grant_types_supported).toEqual(["authorization_code", "refresh_token"]);
+      expect(json.response_types_supported).toEqual(["code"]);
+      // PKCE `plain` is never offered — a downgrade to it defeats the exchange.
+      expect(json.code_challenge_methods_supported).toEqual(["S256"]);
+      expect(json.subject_types_supported).toEqual(["pairwise"]);
+      // Nothing serves this, so nothing may advertise it.
+      expect(json.userinfo_endpoint).toBeUndefined();
     });
   });
 

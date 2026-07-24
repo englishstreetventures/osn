@@ -294,6 +294,7 @@ cd osn/api
 bunx wrangler secret put OSN_JWT_PRIVATE_KEY        --env <dev|staging|production>
 bunx wrangler secret put OSN_JWT_PUBLIC_KEY         --env <dev|staging|production>
 bunx wrangler secret put OSN_SESSION_IP_PEPPER      --env <dev|staging|production>
+bunx wrangler secret put OSN_PAIRWISE_SALT          --env <dev|staging|production>
 bunx wrangler secret put UPSTASH_REDIS_REST_URL     --env <dev|staging|production>
 bunx wrangler secret put UPSTASH_REDIS_REST_TOKEN   --env <dev|staging|production>
 # Email — REQUIRED non-local UNLESS OSN_EMAIL_OPTIONAL is set (§1.1). RESEND_API_KEY
@@ -318,6 +319,8 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 | `OSN_JWT_PRIVATE_KEY` | `wrangler secret put` | **Yes** | base64 ES256 JWK. Throws if missing in non-local. §1.2 |
 | `OSN_JWT_PUBLIC_KEY` | `wrangler secret put` | **Yes** | base64 ES256 JWK; published at `/.well-known/jwks.json`. §1.2 |
 | `OSN_SESSION_IP_PEPPER` | `wrangler secret put` | **Yes** | ≥32 bytes or throws. §1.3 |
+| `OSN_PAIRWISE_SALT` | `wrangler secret put` | **Yes** | ≥32 bytes or throws (`build-deps.ts`). HMAC key behind every OIDC pairwise `sub`. **Never rotate it** once clients hold tokens — every subject changes and every client sees its users as strangers. Generate like the pepper in §1.3. [[oidc-provider]] |
+| `OSN_AUTHORIZE_UI_URL` | `[env.<env>.vars]` | Optional | Absolute URL of the OIDC consent screen. Unset ⇒ `/authorize` on the first `OSN_ORIGIN`. Set it once the screen has a home. [[oidc-provider]] |
 | `OSN_RP_ID` | `[env.<env>.vars]` | **Yes** | WebAuthn RP ID — must be a **registrable domain**. Prod = **`cireweddings.com`** (the registrable apex shared by every `*.cireweddings.com` passkey surface). Prod passkeys are now UNBLOCKED. |
 | `OSN_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep accepted WebAuthn origins; prod **https** origins. Prod = **`https://host.cireweddings.com,https://vendor.cireweddings.com,https://invite.cireweddings.com`** (organiser portal, vendor portal, and the guest site's account-linking island). |
 | `OSN_ISSUER_URL` | `[env.<env>.vars]` | **Yes** | Public https base URL of osn-api → JWT `iss`; must match what cire verifies. Prod = **`https://id.cireweddings.com`** (custom-domain route in `wrangler.toml` `[env.production]`). |

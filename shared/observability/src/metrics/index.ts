@@ -58,4 +58,7 @@ export {
   type EmailChangeStep,
   type PasskeyAction,
   type CrossDeviceStep,
+  type OidcAuthorizeResult,
+  type OidcTokenResult,
+  type OidcClientKind,
 } from "./attrs";

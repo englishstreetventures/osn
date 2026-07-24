@@ -190,6 +190,27 @@ export type OriginGuardRejectionReason = "missing" | "mismatch";
 /** Cross-device login protocol steps. */
 export type CrossDeviceStep = "begin" | "poll" | "approve" | "reject";
 
+/**
+ * Outcome of a call to the OIDC authorization endpoint. Mirrors the OAuth
+ * error codes we are allowed to emit, plus the two success shapes: straight
+ * back to the relying party with a code, or handed to the consent UI.
+ */
+export type OidcAuthorizeResult =
+  | "redirected"
+  | "interaction"
+  | "login_required"
+  | "consent_required"
+  | "access_denied"
+  | "invalid_request"
+  | "invalid_client"
+  | "server_error";
+
+/** Outcome of an OIDC token exchange. */
+export type OidcTokenResult = "ok" | "invalid_grant" | "invalid_client" | "invalid_request";
+
+/** Whether the relying party belongs to us. Two values — safe to dimension by. */
+export type OidcClientKind = "first_party" | "third_party";
+
 /** Auth endpoints subject to IP-based rate limiting (S-H1). */
 export type AuthRateLimitedEndpoint =
   | "register_begin"
@@ -225,4 +246,8 @@ export type AuthRateLimitedEndpoint =
   | "cross_device_reject"
   | "account_delete"
   | "account_restore"
-  | "account_deletion_status";
+  | "account_deletion_status"
+  | "oidc_authorize"
+  | "oidc_authorize_context"
+  | "oidc_authorize_decision"
+  | "oidc_token";

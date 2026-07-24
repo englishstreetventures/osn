@@ -28,4 +28,6 @@ export type RedisNamespace =
   | "pending_email_change"
   | "cross_device"
   // O2: per-account recovery-code lockout counter.
-  | "recovery_lockout";
+  | "recovery_lockout"
+  // OIDC: validated /authorize requests parked while the consent UI runs.
+  | "oidc_authorize_request";

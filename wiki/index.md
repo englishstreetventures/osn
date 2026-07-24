@@ -33,6 +33,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[recovery-codes]] — single-use account-recovery tokens (Copenhagen Book M2)
 - [[step-up]] — short-lived sudo tokens gating sensitive endpoints (M-PK1)
 - [[sessions]] — session introspection, per-device revocation, "sign out everywhere else", device/passkey management UI
+- [[oidc-provider]] — OpenID Connect provider: how other apps recognise an OSN account without holding a passkey
 - [[turnstile]] — Cloudflare Turnstile bot protection (key-optional, fail-closed; shipped inert)
 - [[social-graph]] — connections, blocks
 - [[pulse-close-friends]] — Pulse-scoped close-friends list (feed boost + hosting affordance)

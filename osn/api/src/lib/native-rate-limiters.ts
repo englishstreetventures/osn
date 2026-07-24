@@ -86,6 +86,13 @@ export const NATIVE_BINDING_FOR_AUTH_LIMITER = {
   crossDevicePoll: { tier: "RL_AUTH_IP_60_60", ns: "cross_device_poll" },
   crossDeviceApprove: { tier: "RL_AUTH_IP_10_60", ns: "cross_device_approve" },
   crossDeviceReject: { tier: "RL_AUTH_IP_10_60", ns: "cross_device_reject" },
+  oidcAuthorize: { tier: "RL_AUTH_IP_20_60", ns: "oidc_authorize" },
+  oidcAuthorizeContext: { tier: "RL_AUTH_IP_30_60", ns: "oidc_authorize_context" },
+  oidcAuthorizeDecision: { tier: "RL_AUTH_IP_10_60", ns: "oidc_authorize_decision" },
+  // The key here is the relying party's server IP, not a person's, so the
+  // budget is a brake on a broken client rather than an abuse gate — a code is
+  // single-use and bound to its PKCE verifier, which is the real defence.
+  oidcToken: { tier: "RL_AUTH_IP_60_60", ns: "oidc_token" },
 } satisfies Partial<Record<keyof AuthRateLimiters, { tier: TierName; ns: string }>>;
 
 /**

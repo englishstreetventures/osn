@@ -24,6 +24,7 @@ import { createCrossDeviceRoutes } from "./cross-device";
 import { createEmailChangeRoutes } from "./email-change";
 import { createDefaultAuthRateLimiters, type AuthRateLimiters } from "./limiters";
 import { createPasskeyLoginRoutes } from "./login";
+import { createOidcRoutes } from "./oidc";
 import { createPasskeyEnrollRoutes } from "./passkey-enroll";
 import { createPasskeyManagementRoutes } from "./passkey-management";
 import { createProfileSwitchRoutes } from "./profile-switch";
@@ -127,5 +128,6 @@ export function createAuthRoutes(
     .use(createSecurityEventRoutes(ctx))
     .use(createPasskeyManagementRoutes(ctx))
     .use(createCrossDeviceRoutes(ctx))
+    .use(createOidcRoutes(ctx))
     .use(createWellKnownRoutes(ctx));
 }

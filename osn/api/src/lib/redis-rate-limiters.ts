@@ -71,6 +71,10 @@ export function createRedisAuthRateLimiters(client: RedisClient): AuthRateLimite
     crossDevicePoll: rl("auth:cross_device_poll", 60),
     crossDeviceApprove: rl("auth:cross_device_approve", 10),
     crossDeviceReject: rl("auth:cross_device_reject", 10),
+    oidcAuthorize: rl("auth:oidc_authorize", 20),
+    oidcAuthorizeContext: rl("auth:oidc_authorize_context", 30),
+    oidcAuthorizeDecision: rl("auth:oidc_authorize_decision", 10),
+    oidcToken: rl("auth:oidc_token", 60),
   };
 }
 

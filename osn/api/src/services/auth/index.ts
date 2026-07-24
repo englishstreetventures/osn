@@ -20,6 +20,7 @@ import { createAuthContext } from "./context";
 import { createCrossDeviceModule } from "./cross-device";
 import { createEmailChangeModule } from "./email-change";
 import { hashSessionToken } from "./helpers";
+import { createOidcModule } from "./oidc";
 import { createPasskeyManagementModule } from "./passkey-management";
 import { createPasskeysModule } from "./passkeys";
 import { createProfileSwitchModule } from "./profile-switch";
@@ -31,13 +32,25 @@ import { createSessionsModule } from "./sessions";
 import { createStepUpModule } from "./step-up";
 import { createTokensModule } from "./tokens";
 
-export { AuthError, DatabaseError, ValidationError } from "./errors";
+export { AuthError, DatabaseError, OidcError, ValidationError } from "./errors";
+export type { OidcErrorCode } from "./errors";
 export type { AuthConfig } from "./config";
+export type {
+  AuthorizeOutcome,
+  AuthorizeParams,
+  AuthorizeValidation,
+  DecisionInput,
+  DecisionResult,
+  OidcClient,
+  OidcTokenResponse,
+  ValidatedAuthorizeRequest,
+} from "./oidc";
 export type {
   AccountCapLimiter,
   CeremonyStores,
   ChallengeEntry,
   CrossDeviceRequest,
+  PendingAuthorizeRequest,
   PendingEmailChange,
   PendingRegistration,
   StepUpJtiStore,
@@ -69,6 +82,7 @@ export function createAuthService(config: AuthConfig) {
   const recovery = createRecoveryModule(ctx, profiles, tokens);
   const emailChange = createEmailChangeModule(ctx, stepUp);
   const crossDevice = createCrossDeviceModule(ctx, profiles, tokens, securityEvents);
+  const oidc = createOidcModule(ctx, profiles);
 
   return {
     findProfileByEmail: profiles.findProfileByEmail,
@@ -135,6 +149,16 @@ export function createAuthService(config: AuthConfig) {
     getCrossDeviceLoginStatus: crossDevice.getCrossDeviceLoginStatus,
     approveCrossDeviceLogin: crossDevice.approveCrossDeviceLogin,
     rejectCrossDeviceLogin: crossDevice.rejectCrossDeviceLogin,
+    findOidcClient: oidc.findClient,
+    validateAuthorizeRequest: oidc.validateAuthorizeRequest,
+    prepareAuthorization: oidc.prepareAuthorization,
+    loadAuthorizeRequest: oidc.loadAuthorizeRequest,
+    completeAuthorization: oidc.completeAuthorization,
+    buildOidcCodeRedirect: oidc.buildCodeRedirect,
+    buildOidcErrorRedirect: oidc.buildErrorRedirect,
+    exchangeAuthorizationCode: oidc.exchangeAuthorizationCode,
+    findOidcConsent: oidc.findConsent,
+    revokeOidcConsent: oidc.revokeConsent,
     hashSessionToken: (token: string) => hashSessionToken(token),
   };
 }

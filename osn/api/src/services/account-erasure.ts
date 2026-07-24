@@ -4,6 +4,8 @@ import {
   blocks,
   connections,
   deletionJobs,
+  oauthAuthorizationCodes,
+  oauthConsents,
   organisationMembers,
   passkeys,
   recoveryCodes,
@@ -545,6 +547,15 @@ const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasur
           db.delete(passkeys).where(eq(passkeys.accountId, accountId)),
           db.delete(recoveryCodes).where(eq(recoveryCodes.accountId, accountId)),
           db.delete(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
+          // OIDC provider records (Art. 17). Both are account-scoped and
+          // PII-bearing: `oauth_consents` names every relying party the user
+          // linked, `oauth_authorization_codes` is a live grant in flight. A
+          // deletion mid-flow must take the pending code with it — leaving it
+          // would let an outstanding code redeem against a tombstoned account.
+          db.delete(oauthConsents).where(eq(oauthConsents.accountId, accountId)),
+          db
+            .delete(oauthAuthorizationCodes)
+            .where(eq(oauthAuthorizationCodes.accountId, accountId)),
           db
             .update(appEnrollments)
             .set({ leftAt: Math.floor(Date.now() / 1_000) })

@@ -63,6 +63,7 @@ Phase 1 surfaces:
 | Write new Effect service or Elysia route | `[[wiki/architecture/backend-patterns]]`, `[[wiki/architecture/schema-layers]]` |
 | Understand accounts, profiles, orgs | `[[wiki/systems/identity-model]]` |
 | Add or verify ARC S2S tokens | `[[wiki/systems/arc-tokens]]` |
+| Let another app sign a user in with their OSN account (OIDC, PKCE, consent, pairwise `sub`) | `[[wiki/systems/oidc-provider]]` |
 | Add rate limiting to endpoint | `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]` |
 | Instrument logging, tracing, metrics | `[[wiki/observability/overview]]`, then specific page |
 | Write or review tests | `[[wiki/conventions/testing-patterns]]` |
@@ -137,6 +138,7 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | Step-up (sudo) tokens | Short-lived `aud: "osn-step-up"` JWTs from fresh passkey/OTP ceremony. Required by `/recovery/generate`, `/account/email/complete`, security-event ack, passkey rename/delete. Single-use via `StepUpJtiStore`. | `[[wiki/systems/step-up]]` |
 | Recovery Codes | Copenhagen Book M2 — 10 × 64-bit single-use codes, hashed at rest. Generate/consume both in `security_events` and surfaced via in-app banner. | `[[wiki/systems/recovery-codes]]` |
 | Session Introspection | `GET/DELETE /sessions[/:id]`, `POST /sessions/revoke-all-other`. Coarse UA labels + HMAC-peppered IP hashes. | `[[wiki/systems/sessions]]` |
+| OIDC Provider | `@osn/api` is an OpenID Connect provider, so other apps recognise an OSN account without holding a passkey. Authorization code + PKCE (S256 only), pairwise `sub` per client sector, consent stored per (account, client). Invalid client / redirect URI **renders** an error, never redirects (open-redirect guard). Codes hashed, single use, 60s TTL. No refresh tokens, never an `osn-access` audience. | `[[wiki/systems/oidc-provider]]` |
 | Cross-Device Login | QR-code mediated session transfer. Device B begins + polls; device A scans QR, approves. 256-bit secret, SHA-256 hashed at rest, one-time consumption, 5-min TTL. In-memory store (Redis Phase 4). | `[[wiki/systems/sessions]]` |
 | Email Change | Step-up gated; OTP to NEW address; atomically swaps email + revokes other sessions. Cap 2 changes / 7 days. | `[[wiki/systems/identity-model]]` |
 | Email Transport | Transactional-only (OTPs + security notices). `EmailService` Effect Tag in `@shared/email`; `ResendEmailLive` POSTs to Resend's HTTP API (`api.resend.com/emails`, bearer-authed) — **preferred live transport** (works on workerd); `CloudflareEmailLive` is a legacy fallback; `LogEmailLive` captures in-memory for dev + tests. Selection precedence Resend → Cloudflare → Log (local) → Noop (`OSN_EMAIL_OPTIONAL`) → throw. With `RESEND_API_KEY` set the opt-in is unneeded. | `[[wiki/systems/email]]` |

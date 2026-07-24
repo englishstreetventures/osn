@@ -28,6 +28,9 @@ import type {
   EmailChangeStep,
   GraphBlockAction,
   GraphConnectionAction,
+  OidcAuthorizeResult,
+  OidcClientKind,
+  OidcTokenResult,
   OrgAction,
   OrgMemberAction,
   OriginGuardRejectionReason,
@@ -110,6 +113,10 @@ export const OSN_METRICS = {
   // C-H2 — app enrollments
   appEnrollmentJoined: "osn.account.app_enrollment.joined",
   appEnrollmentLeft: "osn.account.app_enrollment.left",
+  // OIDC provider
+  oidcAuthorize: "osn.oidc.authorize",
+  oidcToken: "osn.oidc.token",
+  oidcConsentGranted: "osn.oidc.consent.granted",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -686,6 +693,37 @@ const authJwksServed = createCounter<Record<never, never>>({
 });
 
 export const metricAuthJwksServed = (): void => authJwksServed.inc({});
+
+// ---------------------------------------------------------------------------
+// OIDC provider
+// ---------------------------------------------------------------------------
+
+type OidcAuthorizeAttrs = { result: OidcAuthorizeResult; clientKind: OidcClientKind };
+type OidcTokenAttrs = { result: OidcTokenResult; clientKind: OidcClientKind };
+type OidcConsentAttrs = { clientKind: OidcClientKind };
+
+const oidcAuthorize = createCounter<OidcAuthorizeAttrs>({
+  name: OSN_METRICS.oidcAuthorize,
+  description: "Calls to the OIDC authorization endpoint, by outcome",
+  unit: "{request}",
+});
+
+const oidcToken = createCounter<OidcTokenAttrs>({
+  name: OSN_METRICS.oidcToken,
+  description: "Authorization-code exchanges at the OIDC token endpoint, by outcome",
+  unit: "{exchange}",
+});
+
+const oidcConsentGranted = createCounter<OidcConsentAttrs>({
+  name: OSN_METRICS.oidcConsentGranted,
+  description: "Accounts newly linked to a relying party (first consent granted)",
+  unit: "{grant}",
+});
+
+export const metricOidcAuthorize = (attrs: OidcAuthorizeAttrs): void => oidcAuthorize.inc(attrs);
+export const metricOidcToken = (attrs: OidcTokenAttrs): void => oidcToken.inc(attrs);
+export const metricOidcConsentGranted = (clientKind: OidcClientKind): void =>
+  oidcConsentGranted.inc({ clientKind });
 
 // ---------------------------------------------------------------------------
 // Step-up (sudo mode)

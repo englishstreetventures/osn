@@ -8,6 +8,9 @@ const BASE_CONFIG = {
   rpName: "OSN Test",
   origin: "http://localhost:5173",
   issuerUrl: "http://localhost:4000",
+  // Any stable 32+ byte string works — the salt only has to be constant
+  // within a test run for pairwise `sub` values to be reproducible.
+  pairwiseSalt: "test-pairwise-salt-0123456789abcdef",
 } as const;
 
 /**

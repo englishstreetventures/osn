@@ -30,9 +30,19 @@ const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  */
 const S2S_PREFIXES = ["/graph/internal", "/organisations/internal", "/internal"];
 
+/**
+ * OAuth endpoints called by a relying party's server, not by a browser. They
+ * carry no cookie and set none, and they authenticate the caller with its own
+ * client credentials plus a PKCE verifier — so there is no ambient authority
+ * for a cross-site request to borrow, which is the only thing Origin checking
+ * defends. Demanding an Origin header here would simply lock out every
+ * server-side client, since HTTP clients do not send one.
+ */
+const OAUTH_S2S_PREFIXES = ["/oidc/token"];
+
 /** True when `path` equals a prefix or continues it at a segment boundary. */
-function matchesS2sPrefix(path: string): boolean {
-  return S2S_PREFIXES.some((prefix) => {
+function matchesPrefix(path: string, prefixes: readonly string[]): boolean {
+  return prefixes.some((prefix) => {
     if (!path.startsWith(prefix)) return false;
     const next = path.charAt(prefix.length);
     return next === "" || next === "/" || next === "?";
@@ -71,7 +81,8 @@ export function createOriginGuard(config: OriginGuardConfig) {
     // pathname without a full URL parse to avoid a per-request allocation.
     const pathStart = request.url.indexOf("/", request.url.indexOf("//") + 2);
     const path = pathStart >= 0 ? request.url.slice(pathStart) : request.url;
-    if (matchesS2sPrefix(path)) return;
+    if (matchesPrefix(path, S2S_PREFIXES)) return;
+    if (matchesPrefix(path, OAUTH_S2S_PREFIXES)) return;
 
     // In dev mode (no allowlist configured), skip validation
     if (config.allowedOrigins.size === 0) return;

@@ -108,3 +108,38 @@ export const LAST_USED_AT_COALESCE_MS = 60_000;
  */
 export const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX = 3;
+
+// ---------------------------------------------------------------------------
+// OIDC provider
+// ---------------------------------------------------------------------------
+
+/**
+ * Authorization-code lifetime in seconds. The code travels one hop — a
+ * redirect from the browser to the relying party, which exchanges it at once
+ * from its own back end. OAuth 2.1 recommends a maximum of one minute and
+ * nothing legitimate needs longer.
+ */
+export const AUTHORIZATION_CODE_TTL_SEC = 60;
+
+/**
+ * How long a validated `/authorize` request waits in the ceremony store while
+ * the user signs in, picks a profile, or reads the consent screen. Long enough
+ * to enrol a passkey on a slow phone, short enough that an abandoned tab does
+ * not keep a valid request alive for the rest of the day.
+ */
+export const AUTHORIZE_REQUEST_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * ID-token lifetime in seconds. It is a statement about a sign-in that just
+ * happened, consumed the moment the relying party receives it, so it does not
+ * need to outlive the exchange by much. Matches the access-token default.
+ */
+export const ID_TOKEN_TTL_SEC = 300;
+
+/**
+ * Hard ceiling on the raw length of any single `/authorize` parameter we echo
+ * or store (`state`, `nonce`, `code_challenge`). Nothing legitimate approaches
+ * it; without it a relying party could park kilobytes in the ceremony store on
+ * every unauthenticated request.
+ */
+export const OIDC_PARAM_MAX_LENGTH = 512;

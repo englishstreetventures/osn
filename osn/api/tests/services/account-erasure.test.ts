@@ -3,6 +3,8 @@ import {
   accounts,
   appEnrollments,
   deletionJobs,
+  oauthAuthorizationCodes,
+  oauthConsents,
   passkeys,
   recoveryCodes,
   securityEvents,
@@ -376,6 +378,64 @@ describe("account-erasure: hard-delete sweeper", () => {
         db.select().from(securityEvents).where(eq(securityEvents.accountId, accountId)),
       );
       expect(audit).toHaveLength(1);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("erases OIDC consents and authorization codes at hard-delete (Art. 17)", () =>
+    Effect.gen(function* () {
+      const { accountId, profileId } = yield* seedAccountAndProfile();
+      const { db } = yield* Db;
+      // Consent record + a live authorization code, both account-scoped PII.
+      yield* Effect.promise(() =>
+        db.insert(oauthConsents).values({
+          id: "ocon_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+          accountId,
+          clientId: "cli_pulse",
+          profileId,
+          scope: "openid profile email",
+          grantedAt: 900,
+          revokedAt: null,
+        }),
+      );
+      yield* Effect.promise(() =>
+        db.insert(oauthAuthorizationCodes).values({
+          id: "ocode_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+          clientId: "cli_pulse",
+          accountId,
+          profileId,
+          redirectUri: "https://pulse.example/callback",
+          scope: "openid profile email",
+          codeChallenge: crypto.randomUUID(),
+          nonce: null,
+          authTime: 900,
+          expiresAt: 5_000_960,
+          createdAt: 900,
+        }),
+      );
+      yield* Effect.promise(() =>
+        db.insert(deletionJobs).values({
+          accountId,
+          softDeletedAt: 1_000,
+          hardDeleteAt: 2_000,
+          pulseDoneAt: 1_500,
+          zapDoneAt: 1_500,
+          reason: "user_request",
+          cancelSessionId: null,
+        }),
+      );
+      yield* accountErasure.runHardDeleteSweep({ nowMs: 5_000_000 });
+
+      const remainingConsents = yield* Effect.promise(() =>
+        db.select().from(oauthConsents).where(eq(oauthConsents.accountId, accountId)),
+      );
+      expect(remainingConsents).toHaveLength(0);
+      const remainingCodes = yield* Effect.promise(() =>
+        db
+          .select()
+          .from(oauthAuthorizationCodes)
+          .where(eq(oauthAuthorizationCodes.accountId, accountId)),
+      );
+      expect(remainingCodes).toHaveLength(0);
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

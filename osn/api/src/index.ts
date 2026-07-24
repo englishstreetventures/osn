@@ -11,6 +11,7 @@ import { registerOutboundKeysOnce } from "./lib/outbound-arc";
 import { osnLoggerLayer } from "./observability";
 import { initRedisClientFromEnv } from "./redis";
 import * as accountErasure from "./services/account-erasure";
+import { runExpiredAuthCodeSweep } from "./services/auth/oidc";
 
 // ---------------------------------------------------------------------------
 // Cloudflare Workers entry for @osn/api.
@@ -58,6 +59,10 @@ export interface Env {
   // non-local env, osn-api boots with a no-op email transport (transactional
   // mail discarded, not delivered) instead of throwing. Unset = fail-closed.
   OSN_EMAIL_OPTIONAL?: string;
+  // Where `/authorize` sends the browser when a request needs the user —
+  // sign-in, profile choice, or consent. Unset falls back to `/authorize` on
+  // the first configured origin.
+  OSN_AUTHORIZE_UI_URL?: string;
   PULSE_API_URL?: string;
   ZAP_API_URL?: string;
   TRUSTED_PROXY_COUNT?: string;
@@ -65,6 +70,10 @@ export interface Env {
   OSN_JWT_PRIVATE_KEY?: string;
   OSN_JWT_PUBLIC_KEY?: string;
   OSN_SESSION_IP_PEPPER?: string;
+  // HMAC key behind every pairwise OIDC `sub`. Permanent: rotating it changes
+  // every subject a relying party has on file. `wrangler secret put
+  // OSN_PAIRWISE_SALT`.
+  OSN_PAIRWISE_SALT?: string;
   UPSTASH_REDIS_REST_URL?: string;
   UPSTASH_REDIS_REST_TOKEN?: string;
   // Preferred email transport (Resend HTTP API). When set in a non-local env,
@@ -289,6 +298,21 @@ export const handler: {
         accountErasure.runHardDeleteSweep().pipe(
           Effect.catchAll((err) =>
             Effect.logError("scheduled hard-delete sweep failed", { reason: String(err) }),
+          ),
+          Effect.provide(dbLayer),
+          Effect.provide(osnLoggerLayer),
+        ),
+      ),
+    );
+
+    // Reap OIDC authorization codes that were minted and never exchanged. A
+    // redeemed code deletes itself; only abandoned or endpoint-spammed codes
+    // outlive their 60s TTL, and left unswept they grow without bound.
+    ctx.waitUntil(
+      Effect.runPromise(
+        runExpiredAuthCodeSweep().pipe(
+          Effect.catchAll((err) =>
+            Effect.logError("scheduled OIDC code sweep failed", { reason: String(err) }),
           ),
           Effect.provide(dbLayer),
           Effect.provide(osnLoggerLayer),

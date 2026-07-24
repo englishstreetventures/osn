@@ -113,4 +113,22 @@ export interface AuthConfig {
    */
   profileSwitchCap?: AccountCapLimiter;
   emailChangeBeginCap?: AccountCapLimiter;
+  /**
+   * HMAC key for pairwise subject identifiers. Every relying party sees a
+   * different `sub` for the same profile, derived from this key plus the
+   * client's sector — so two relying parties comparing notes cannot tell they
+   * are looking at the same person. Must be at least 32 bytes of unguessable
+   * material outside local dev.
+   *
+   * Rotating it changes every `sub` we have ever issued, which every relying
+   * party reads as "all my users are new people". Treat it as permanent.
+   */
+  pairwiseSalt?: string;
+  /**
+   * Where to send the browser when a `/authorize` request needs the user —
+   * sign-in, profile choice, or consent. The UI is handed an opaque request
+   * id and reads the request back over `/authorize/context`; it never sees or
+   * echoes the raw OAuth parameters. Defaults to the first configured origin.
+   */
+  authorizeUiUrl?: string;
 }

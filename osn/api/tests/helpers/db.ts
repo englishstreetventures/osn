@@ -7,6 +7,15 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Layer } from "effect";
 
 export function createTestLayer() {
+  return createTestLayerWithSqlite().layer;
+}
+
+/**
+ * Same layer, plus the raw SQLite handle behind it. Tests that need to seed a
+ * table with no route to write it — the OAuth client registry, for one — insert
+ * through this handle rather than through a fixture the service does not have.
+ */
+export function createTestLayerWithSqlite() {
   const sqlite = new Database(":memory:");
   sqlite.run(`
     CREATE TABLE accounts (
@@ -200,10 +209,54 @@ export function createTestLayer() {
   sqlite.run(
     `CREATE INDEX deletion_jobs_zap_pending_idx ON deletion_jobs (soft_deleted_at) WHERE zap_done_at IS NULL`,
   );
+  sqlite.run(`
+    CREATE TABLE oauth_clients (
+      id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      logo_url TEXT,
+      redirect_uris TEXT NOT NULL,
+      client_secret_hash TEXT,
+      sector_identifier TEXT NOT NULL,
+      allowed_scopes TEXT NOT NULL DEFAULT 'openid profile email',
+      is_first_party INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      disabled_at INTEGER
+    )
+  `);
+  sqlite.run(`CREATE INDEX oauth_clients_sector_idx ON oauth_clients (sector_identifier)`);
+  sqlite.run(`
+    CREATE TABLE oauth_authorization_codes (
+      id TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      profile_id TEXT NOT NULL REFERENCES users(id),
+      redirect_uri TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      code_challenge TEXT NOT NULL,
+      nonce TEXT,
+      auth_time INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  sqlite.run(`CREATE INDEX oauth_codes_expires_idx ON oauth_authorization_codes (expires_at)`);
+  sqlite.run(`
+    CREATE TABLE oauth_consents (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL REFERENCES accounts(id),
+      client_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL REFERENCES users(id),
+      scope TEXT NOT NULL,
+      granted_at INTEGER NOT NULL,
+      revoked_at INTEGER,
+      UNIQUE (account_id, client_id)
+    )
+  `);
   const db = drizzle(sqlite, { schema });
   const dbLayer = Layer.succeed(Db, { db });
   const emailLayer = makeLogEmailLive().layer;
-  return Layer.merge(dbLayer, emailLayer);
+  return { layer: Layer.merge(dbLayer, emailLayer), sqlite, db };
 }
 
 /**

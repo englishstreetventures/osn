@@ -219,6 +219,16 @@ export async function buildAppDeps(env: EnvRecord, parts: BuildParts): Promise<B
     throw new Error("OSN_ORIGIN must be set in non-local environments (WebAuthn origin allowlist)");
   }
 
+  // The HMAC key behind every pairwise `sub` an OIDC relying party has ever
+  // seen. Rotating it re-identifies every user at every client — their accounts
+  // over there simply stop resolving — so it is set once and kept, and a
+  // non-local deploy that forgets it must fail at boot rather than mint
+  // subjects under a default nobody can reproduce later.
+  const pairwiseSalt = env.OSN_PAIRWISE_SALT;
+  if (envNonLocal && (!pairwiseSalt || pairwiseSalt.length < 32)) {
+    throw new Error("OSN_PAIRWISE_SALT must be set to at least 32 bytes in non-local environments");
+  }
+
   const authConfig = {
     rpId: env.OSN_RP_ID || "localhost",
     rpName: env.OSN_RP_NAME || "OSN",
@@ -234,6 +244,11 @@ export async function buildAppDeps(env: EnvRecord, parts: BuildParts): Promise<B
     accessTokenTtl: Number(env.OSN_ACCESS_TOKEN_TTL) || 300,
     refreshTokenTtl: Number(env.OSN_REFRESH_TOKEN_TTL) || 2592000,
     sessionIpPepper,
+    pairwiseSalt,
+    // Where a `/authorize` request that needs the user is sent. Unset falls
+    // back to `/authorize` on the first configured origin, which is right for
+    // local dev and wrong the moment the consent screen lives anywhere else.
+    authorizeUiUrl: env.OSN_AUTHORIZE_UI_URL,
   };
 
   // S-H1: cluster-safe single-use guard for step-up JWTs.

@@ -20,6 +20,7 @@ import type {
   CeremonyStores,
   ChallengeEntry,
   CrossDeviceRequest,
+  PendingAuthorizeRequest,
   PendingEmailChange,
   PendingRegistration,
   StepUpOtpEntry,
@@ -73,6 +74,7 @@ export function createRedisCeremonyStores(
     stepUpOtp: make<StepUpOtpEntry>("step_up_otp"),
     pendingEmailChanges: make<PendingEmailChange>("pending_email_change"),
     crossDeviceRequests: make<CrossDeviceRequest>("cross_device"),
+    authorizeRequests: make<PendingAuthorizeRequest>("oidc_authorize_request"),
   };
 
   const recoveryLockoutStore = createRedisRecoveryLockoutStore(client, {

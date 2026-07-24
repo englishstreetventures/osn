@@ -15,6 +15,13 @@
       "when": 1781830756703,
       "tag": "0001_exotic_lady_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784862226652,
+      "tag": "0002_wet_gamora",
+      "breakpoints": true
     }
   ]
 }

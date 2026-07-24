@@ -54,6 +54,23 @@ export type AuthRateLimiters = Readonly<{
   crossDeviceApprove: RateLimiterBackend;
   /** Cross-device login reject (authenticated, per-IP). */
   crossDeviceReject: RateLimiterBackend;
+  /**
+   * OIDC authorization endpoint (per-IP). A top-level navigation, so the
+   * budget covers a person bouncing between two or three relying parties
+   * rather than a script.
+   */
+  oidcAuthorize: RateLimiterBackend;
+  /** Consent-screen context read (per-IP — one call per screen, plus reloads). */
+  oidcAuthorizeContext: RateLimiterBackend;
+  /** Consent decision (per-IP — a request id is single-use, so retries are few). */
+  oidcAuthorizeDecision: RateLimiterBackend;
+  /**
+   * OIDC token exchange (per-IP). Server-to-server, so the IP is the relying
+   * party's, not a person's — the budget is a brake on a broken client, and
+   * the real defence is that a code is single-use and bound to its PKCE
+   * verifier.
+   */
+  oidcToken: RateLimiterBackend;
 }>;
 
 /**
@@ -114,5 +131,9 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     crossDevicePoll: createRateLimiter({ maxRequests: 60, windowMs: 60_000 }),
     crossDeviceApprove: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     crossDeviceReject: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    oidcAuthorize: createRateLimiter({ maxRequests: 20, windowMs: 60_000 }),
+    oidcAuthorizeContext: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
+    oidcAuthorizeDecision: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    oidcToken: createRateLimiter({ maxRequests: 60, windowMs: 60_000 }),
   };
 }

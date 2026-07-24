@@ -35,6 +35,7 @@ function nonLocalEnv(over: Partial<Record<string, string>> = {}): EnvRecord {
     OSN_JWT_PRIVATE_KEY: privB64,
     OSN_JWT_PUBLIC_KEY: pubB64,
     OSN_SESSION_IP_PEPPER: "x".repeat(32),
+    OSN_PAIRWISE_SALT: "p".repeat(32),
     ...over,
   };
 }

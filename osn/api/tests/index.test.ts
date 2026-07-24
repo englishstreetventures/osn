@@ -80,8 +80,8 @@ describe("OSN auth server (Workers-shaped factory wiring)", () => {
         grant_types_supported: string[];
       };
       expect(json.issuer).toContain("localhost");
-      expect(json.token_endpoint).toContain("/token");
-      expect(json.grant_types_supported).toEqual(["refresh_token"]);
+      expect(json.token_endpoint).toContain("/oidc/token");
+      expect(json.grant_types_supported).toEqual(["authorization_code", "refresh_token"]);
     });
   });
 });

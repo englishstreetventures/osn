@@ -32,6 +32,7 @@ export interface CeremonyStores {
   stepUpOtp: CeremonyStore<StepUpOtpEntry>;
   pendingEmailChanges: CeremonyStore<PendingEmailChange>;
   crossDeviceRequests: CeremonyStore<CrossDeviceRequest>;
+  authorizeRequests: CeremonyStore<PendingAuthorizeRequest>;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,6 +94,27 @@ export interface PendingEmailChange {
   newEmail: string;
   codeHash: string;
   attempts: number;
+  expiresAt: number;
+}
+
+/**
+ * A `/authorize` request that passed validation but still needs the user —
+ * to sign in, to pick a profile, or to approve the relying party.
+ *
+ * The whole request is parked SERVER-side and the browser is redirected to
+ * the consent UI carrying nothing but an opaque id. The UI therefore cannot
+ * alter the scope, the redirect URI, or the client it is asking about: the
+ * parameters the user approves are, by construction, the parameters that were
+ * validated. Nothing here is secret, but everything here is load-bearing.
+ */
+export interface PendingAuthorizeRequest {
+  clientId: string;
+  redirectUri: string;
+  scope: string;
+  state: string | null;
+  nonce: string | null;
+  codeChallenge: string;
+  /** Milliseconds. */
   expiresAt: number;
 }
 
@@ -165,6 +187,10 @@ export function createDefaultCeremonyStores(): CeremonyStores {
       observer,
     ),
     crossDeviceRequests: createInMemoryCeremonyStore<CrossDeviceRequest>("cross_device", observer),
+    authorizeRequests: createInMemoryCeremonyStore<PendingAuthorizeRequest>(
+      "oidc_authorize_request",
+      observer,
+    ),
   };
 }
 

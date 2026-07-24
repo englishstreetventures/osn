@@ -40,6 +40,10 @@ describe("createRedisAuthRateLimiters", () => {
       "crossDevicePoll",
       "crossDeviceApprove",
       "crossDeviceReject",
+      "oidcAuthorize",
+      "oidcAuthorizeContext",
+      "oidcAuthorizeDecision",
+      "oidcToken",
     ] as const;
 
     for (const key of expectedKeys) {
