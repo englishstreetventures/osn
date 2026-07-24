@@ -1,5 +1,11 @@
 # @shared/osn-auth-client
 
+## 0.2.8
+
+### Patch Changes
+
+- @shared/crypto@0.8.8
+
 ## 0.2.7
 
 ### Patch Changes

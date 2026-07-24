@@ -1,6 +1,6 @@
 {
   "name": "@osn/api",
-  "version": "3.9.11",
+  "version": "3.10.0",
   "private": true,
   "type": "module",
   "scripts": {
