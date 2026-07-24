@@ -220,11 +220,13 @@ export function createTestLayerWithSqlite() {
       sector_identifier TEXT NOT NULL,
       allowed_scopes TEXT NOT NULL DEFAULT 'openid profile email',
       is_first_party INTEGER NOT NULL DEFAULT 0,
+      owner_account_id TEXT REFERENCES accounts(id),
       created_at INTEGER NOT NULL,
       disabled_at INTEGER
     )
   `);
   sqlite.run(`CREATE INDEX oauth_clients_sector_idx ON oauth_clients (sector_identifier)`);
+  sqlite.run(`CREATE INDEX oauth_clients_owner_idx ON oauth_clients (owner_account_id)`);
   sqlite.run(`
     CREATE TABLE oauth_authorization_codes (
       id TEXT PRIMARY KEY,

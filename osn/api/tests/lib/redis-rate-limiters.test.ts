@@ -44,6 +44,11 @@ describe("createRedisAuthRateLimiters", () => {
       "oidcAuthorizeContext",
       "oidcAuthorizeDecision",
       "oidcToken",
+      "oidcConnectionsList",
+      "oidcConnectionsRevoke",
+      "oidcClientCreate",
+      "oidcClientList",
+      "oidcClientDisable",
     ] as const;
 
     for (const key of expectedKeys) {

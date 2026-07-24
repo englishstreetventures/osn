@@ -6,12 +6,25 @@ related:
   - "[[redis]]"
   - "[[arc-tokens]]"
   - "[[component-library]]"
-last-reviewed: 2026-07-03
+last-reviewed: 2026-07-24
 ---
 
 # Performance Fixes — Completed
 
 Archived completed performance findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Performance Backlog in [[TODO]].
+
+## OIDC provider P-W batch (2026-07-24)
+
+The micro-optimisation batch deferred out of PR #315, plus the two [x] rows archived from the backlog.
+
+- **P-C1 / S-L2 (oidc)** — _fixed in PR #315 itself, archived here._ Expired `oauth_authorization_codes` were never purged; `runExpiredAuthCodeSweep` (`lte(expiresAt, now)` batch delete riding `oauth_codes_expires_idx`) runs as a third `ctx.waitUntil` in the Worker's `scheduled` handler.
+- **P-W1 (oidc)** — `/token` re-read the client row purely to label the success counter. `exchangeAuthorizationCode` now returns `{ response, isFirstParty }`, so the route emits the metric from data the exchange already held — one D1 read saved per successful exchange.
+- **P-W2 (oidc)** — same shape on the decision path: the route pre-read the parked request **and** the client before calling `completeAuthorization` (which read both again) just to label the consent-granted metric. `DecisionResult` now carries `isFirstParty`; the pre-reads are gone — one ceremony-store `get` + one D1 read saved per decision.
+- **P-W3 (oidc)** — **declined, documented.** The `/token` reads are dependency-ordered, not independent: consuming the code before client authentication succeeds would burn a victim's code on an attacker's failed auth attempt (today a failed `invalid_client` leaves the code redeemable by the real client), and the profile read needs the consumed row's `profileId`. Parallelising would trade a correctness property for ~one round-trip on a low-QPS endpoint. Not re-raising.
+- **P-W4 (oidc)** — `recordConsent` is now insert-first: a single `INSERT … ON CONFLICT DO NOTHING … RETURNING` serves the first-link path in one statement; only re-consent pays the read-merge-write (a scope UNION cannot be expressed in a conflict clause). The unique-index race the finding described is gone for new links.
+- **P-W5 (oidc)** — the ID-token + access-token signatures run concurrently under `Effect.all({ concurrency: 2 })`; the key was already resident, so the win is the serial await, not a key load.
+- **P-I3 (oidc)** — `findClient` / `findConsent` (and the new `listConsents`) use explicit column projections instead of `SELECT *`.
+- **P-I2 (oidc)** stays open-by-design in the backlog (forward-looking sector index, documented so it isn't re-flagged).
 
 ## Code-quality review sweep (2026-07-03)
 

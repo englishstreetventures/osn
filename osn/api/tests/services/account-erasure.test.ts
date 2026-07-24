@@ -4,6 +4,7 @@ import {
   appEnrollments,
   deletionJobs,
   oauthAuthorizationCodes,
+  oauthClients,
   oauthConsents,
   passkeys,
   recoveryCodes,
@@ -436,6 +437,45 @@ describe("account-erasure: hard-delete sweeper", () => {
           .where(eq(oauthAuthorizationCodes.accountId, accountId)),
       );
       expect(remainingCodes).toHaveLength(0);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("disables and unlinks OIDC clients the erased account registered", () =>
+    Effect.gen(function* () {
+      const { accountId } = yield* seedAccountAndProfile();
+      const { db } = yield* Db;
+      yield* Effect.promise(() =>
+        db.insert(oauthClients).values({
+          id: "oc_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+          clientId: "cid_owned_by_erased",
+          name: "Erased Founder's App",
+          redirectUris: ["https://app.example/cb"],
+          sectorIdentifier: "app.example",
+          ownerAccountId: accountId,
+          createdAt: 900,
+        }),
+      );
+      yield* Effect.promise(() =>
+        db.insert(deletionJobs).values({
+          accountId,
+          softDeletedAt: 1_000,
+          hardDeleteAt: 2_000,
+          pulseDoneAt: 1_500,
+          zapDoneAt: 1_500,
+          reason: "user_request",
+          cancelSessionId: null,
+        }),
+      );
+      yield* accountErasure.runHardDeleteSweep({ nowMs: 5_000_000 });
+
+      // The row survives (other users' consents may reference it) but is
+      // disabled — so it stops authorising — and the ownership link is gone.
+      const rows = yield* Effect.promise(() =>
+        db.select().from(oauthClients).where(eq(oauthClients.clientId, "cid_owned_by_erased")),
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.disabledAt).not.toBeNull();
+      expect(rows[0]!.ownerAccountId).toBeNull();
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

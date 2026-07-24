@@ -34,6 +34,8 @@ const {
   blocks,
   connections,
   emailChanges,
+  oauthClients,
+  oauthConsents,
   organisationMembers,
   organisations,
   passkeys,
@@ -61,6 +63,8 @@ export const EXPORT_SECTIONS = [
   "security_events",
   "recovery_codes",
   "email_changes",
+  "oidc_consents",
+  "oidc_clients_owned",
   "connections",
   "blocks",
   "organisations",
@@ -312,6 +316,56 @@ export async function* exportLines(opts: {
     const { _cursor, ...record } = row;
     void _cursor;
     yield jsonLine({ section: "email_changes", record });
+  }
+
+  // oidc_consents — the apps this account authorised via the OIDC provider
+  // (C-M1 oidc). Revoked grants are included with their `revokedAt`: the
+  // history of a withdrawal is still the person's data. Left join — a consent
+  // outlives a hand-deleted client row, so the name may be null.
+  for await (const row of keyset(async (cursor) =>
+    db
+      .select({
+        _cursor: oauthConsents.id,
+        clientId: oauthConsents.clientId,
+        clientName: oauthClients.name,
+        profileId: oauthConsents.profileId,
+        scope: oauthConsents.scope,
+        grantedAt: oauthConsents.grantedAt,
+        revokedAt: oauthConsents.revokedAt,
+      })
+      .from(oauthConsents)
+      .leftJoin(oauthClients, eq(oauthClients.clientId, oauthConsents.clientId))
+      .where(and(eq(oauthConsents.accountId, accountId), gt(oauthConsents.id, cursor)))
+      .orderBy(asc(oauthConsents.id))
+      .limit(PAGE_SIZE),
+  )) {
+    const { _cursor, ...record } = row;
+    void _cursor;
+    yield jsonLine({ section: "oidc_consents", record });
+  }
+
+  // oidc_clients_owned — relying parties this account registered via
+  // POST /oidc/clients. Ownership is the account's own data (Art. 15);
+  // never the secret hash, never the internal accountId.
+  for await (const row of keyset(async (cursor) =>
+    db
+      .select({
+        _cursor: oauthClients.id,
+        clientId: oauthClients.clientId,
+        name: oauthClients.name,
+        redirectUris: oauthClients.redirectUris,
+        sectorIdentifier: oauthClients.sectorIdentifier,
+        createdAt: oauthClients.createdAt,
+        disabledAt: oauthClients.disabledAt,
+      })
+      .from(oauthClients)
+      .where(and(eq(oauthClients.ownerAccountId, accountId), gt(oauthClients.id, cursor)))
+      .orderBy(asc(oauthClients.id))
+      .limit(PAGE_SIZE),
+  )) {
+    const { _cursor, ...record } = row;
+    void _cursor;
+    yield jsonLine({ section: "oidc_clients_owned", record });
   }
 
   // connections — both directions, resolved to the peers' handles (not ids).

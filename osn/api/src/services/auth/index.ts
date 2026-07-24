@@ -38,13 +38,20 @@ export type { AuthConfig } from "./config";
 export type {
   AuthorizeOutcome,
   AuthorizeParams,
+  AuthorizeSession,
   AuthorizeValidation,
+  ClientRegistrationInput,
+  ClientRegistrationResult,
   DecisionInput,
   DecisionResult,
+  ExchangeResult,
   OidcClient,
+  OidcConnectionSummary,
   OidcTokenResponse,
+  OwnedClientSummary,
   ValidatedAuthorizeRequest,
 } from "./oidc";
+export { validateClientRegistration } from "./oidc";
 export type {
   AccountCapLimiter,
   CeremonyStores,
@@ -159,6 +166,10 @@ export function createAuthService(config: AuthConfig) {
     exchangeAuthorizationCode: oidc.exchangeAuthorizationCode,
     findOidcConsent: oidc.findConsent,
     revokeOidcConsent: oidc.revokeConsent,
+    listOidcConsents: oidc.listConsents,
+    registerOidcClient: oidc.registerClient,
+    listOwnedOidcClients: oidc.listOwnedClients,
+    disableOwnedOidcClient: oidc.disableOwnedClient,
     hashSessionToken: (token: string) => hashSessionToken(token),
   };
 }

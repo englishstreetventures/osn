@@ -7,7 +7,7 @@ import { createAccountExportRoutes } from "../../src/routes/account-export";
 import { exportLines, type ExportDownstream } from "../../src/services/account-export";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 
@@ -210,6 +210,83 @@ describe("GET /account/export — bundle", () => {
     const recovery = bySection("recovery_codes");
     expect(recovery).toHaveLength(1);
     expect(recovery[0]).toMatchObject({ total: expect.any(Number), used: expect.any(Number) });
+  });
+
+  it("includes the account's OIDC consents (C-M1 oidc)", async () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    const { auth, profile, accessToken } = await seed(layer);
+    sqlite.run(
+      `INSERT INTO oauth_clients
+         (id, client_id, name, logo_url, redirect_uris, client_secret_hash,
+          sector_identifier, allowed_scopes, is_first_party, owner_account_id,
+          created_at, disabled_at)
+       VALUES ('oc_rp', 'cid_rp', 'Relying Party', NULL, '["https://rp.example.com/cb"]',
+               'deadbeef', 'rp.example.com', 'openid profile email', 0, ?, 1000, NULL)`,
+      [profile.accountId],
+    );
+    sqlite.run(
+      `INSERT INTO oauth_consents
+         (id, account_id, client_id, profile_id, scope, granted_at, revoked_at)
+       VALUES ('ocs_x', ?, 'cid_rp', ?, 'openid profile', 1000, NULL)`,
+      [profile.accountId, profile.id],
+    );
+    // A withdrawn grant — the export must keep it (the withdrawal is the
+    // person's record), with its revokedAt visible.
+    sqlite.run(
+      `INSERT INTO oauth_consents
+         (id, account_id, client_id, profile_id, scope, granted_at, revoked_at)
+       VALUES ('ocs_y', ?, 'cid_gone', ?, 'openid', 2000, 3000)`,
+      [profile.accountId, profile.id],
+    );
+
+    const app = makeApp(layer);
+    const res = await app.handle(
+      new Request("http://localhost/account/export", {
+        headers: {
+          ...IP_HEADERS,
+          Authorization: `Bearer ${accessToken}`,
+          "x-step-up-token": await mintStepUp(auth, profile.accountId),
+        },
+      }),
+    );
+    const text = await res.text();
+    expect(text).not.toContain(profile.accountId);
+
+    const lines = text
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(lines[0]!.sections).toContain("oidc_consents");
+
+    const consents = lines
+      .filter((l) => l.section === "oidc_consents")
+      .map((l) => l.record as Record<string, unknown>);
+    expect(consents).toHaveLength(2);
+    expect(consents[0]).toMatchObject({
+      clientId: "cid_rp",
+      clientName: "Relying Party",
+      scope: "openid profile",
+      grantedAt: 1000,
+      revokedAt: null,
+    });
+    // Revoked grant included; its client has no registry row (hand-deleted),
+    // so the left join yields a null name rather than dropping the record.
+    expect(consents[1]).toMatchObject({
+      clientId: "cid_gone",
+      clientName: null,
+      revokedAt: 3000,
+    });
+    expect(consents[0]).not.toHaveProperty("accountId");
+
+    // Clients the account REGISTERED appear too — without the secret hash.
+    const owned = lines
+      .filter((l) => l.section === "oidc_clients_owned")
+      .map((l) => l.record as Record<string, unknown>);
+    expect(owned).toHaveLength(1);
+    expect(owned[0]).toMatchObject({ clientId: "cid_rp", name: "Relying Party" });
+    expect(owned[0]).not.toHaveProperty("clientSecretHash");
+    expect(owned[0]).not.toHaveProperty("accountId");
+    expect(text).not.toContain("deadbeef");
   });
 
   it("emits a degraded line when a downstream bridge fails", async () => {

@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-24
 ---
 
 # Data Map
@@ -55,6 +55,10 @@ the compliance checklist.
 | `recovery_codes.used_at` | Single-use enforcement; security-event reasoning | Art. 6(1)(c)+(f) | While account active | `@osn/api` only | [[recovery-codes]] |
 | `email_changes` audit | Anti-abuse cap (2/7d) + audit | Art. 6(1)(c)+(f) | 90 d | `@osn/api` only | [[identity-model]] |
 | `cdl_requests.cdl_secret_hash` | Cross-device login secret | Art. 6(1)(b) | 5 min TTL | `@osn/api` only | [[sessions]] |
+| `oauth_consents` (`account_id`, `client_id`, `profile_id`, `scope`, `granted_at`, `revoked_at`) | Record of the user linking their account to an OIDC relying party; drives silent re-recognition and the user-facing connections list | Art. 6(1)(a) — consent (the row IS the consent record); withdrawal via `DELETE /oidc/connections/:clientId` (Art. 7(3)) | Until account deletion (hard-delete purge) or explicit withdrawal; revoked rows kept as the withdrawal record until account deletion | `@osn/api` only; client name shown back to the owner | [[oidc-provider]] |
+| `oauth_authorization_codes` (hash-keyed; `account_id`, `profile_id`, `redirect_uri`, `scope`, `auth_time`) | One-hop authorization-code exchange state | Art. 6(1)(a)+(b) | 60 s TTL; deleted on redemption, on consent revoke, on account erasure; expired rows reaped by the scheduled sweep | `@osn/api` only (only the SHA-256 of the code is stored) | [[oidc-provider]] |
+| Pairwise `sub` (derived, not stored: `HMAC-SHA256(salt, sector \| profile_id)`) | The subject identifier a relying party sees; prevents cross-client correlation of one person | Art. 6(1)(a); Art. 25(1) data-protection-by-design (pseudonymisation) | Not retained by OSN (recomputed per token); lives in the relying party's records under their own controllership | The authorised relying party, inside ID/access tokens | [[oidc-provider]] |
+| `oauth_clients.owner_account_id` | Links a self-registered OIDC client to the account that stewards it (list/disable authz) | Art. 6(1)(b) — contract (the developer's own registration) | While the client is owned; erasure disables the client and NULLs the link (the remaining row holds no personal data) | `@osn/api` only; the owner via `GET /oidc/clients` and the DSAR `oidc_clients_owned` section | [[oidc-provider]] |
 
 ## Social graph (`@osn/api` — `connections`, `blocks`, `organisations`, `organisation_members`)
 

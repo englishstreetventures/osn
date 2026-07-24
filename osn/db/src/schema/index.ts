@@ -576,12 +576,24 @@ export const oauthClients = sqliteTable(
      * authorization: that screen IS the "choose to link" step.
      */
     isFirstParty: integer("is_first_party", { mode: "boolean" }).notNull().default(false),
+    /**
+     * The account that registered this client via `POST /oidc/clients`, and
+     * the only account allowed to list or disable it. NULL for hand-seeded
+     * rows and for clients whose owner was erased (erasure disables the
+     * client and severs the link — the row carries no personal data once
+     * unlinked).
+     */
+    ownerAccountId: text("owner_account_id").references(() => accounts.id),
     /** Unix seconds. */
     createdAt: integer("created_at").notNull(),
     /** Unix seconds. Non-null = client is disabled; every request is rejected. */
     disabledAt: integer("disabled_at"),
   },
-  (t) => [index("oauth_clients_sector_idx").on(t.sectorIdentifier)],
+  (t) => [
+    index("oauth_clients_sector_idx").on(t.sectorIdentifier),
+    // Serves the owner's "my clients" list and the erasure unlink pass.
+    index("oauth_clients_owner_idx").on(t.ownerAccountId),
+  ],
 );
 
 export type OauthClient = typeof oauthClients.$inferSelect;

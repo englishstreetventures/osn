@@ -8,7 +8,7 @@ related:
   - "[[dsar]]"
   - "[[cire]]"
   - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-24
 ---
 
 # Retention
@@ -34,6 +34,10 @@ already enforces some of them; the rest need a sweeper job.
 | `recovery_codes` | While account active. Used codes retain `used_at` for security-event reasoning. | App code | OK | Identity |
 | `cdl_requests` | 5 min TTL; in-memory expiry on poll | App code | OK; consider lazy eviction P-W1 (cdl) | Identity |
 | `otpStore`, `magicStore`, `pendingRegistrations` | 5 min TTL; current Map has no sweeper (P-W4) | Migrate to Redis with native TTL (Redis Phase 4) | **TODO** — Redis Phase 4 in TODO | Identity |
+| `oauth_authorization_codes` (OIDC) | 60 s TTL. Deleted on redemption (`DELETE … RETURNING`), on consent revoke (in-flight purge), and on account erasure; abandoned rows reaped by `runExpiredAuthCodeSweep` on the Worker `scheduled` cron. | App code + scheduled sweep | OK | Identity |
+| `oauth_consents` (OIDC) | Until account deletion (hard-delete purge, C-H1 oidc) or explicit withdrawal (`DELETE /oidc/connections/:clientId`, C-M3 oidc). Revoked rows retain `revoked_at` as the withdrawal record until account deletion. | App code (erasure `commitBatch` + revoke route) | OK | Identity |
+| Parked `/authorize` requests + binding-cookie hashes (ceremony store) | 10 min TTL (`AUTHORIZE_REQUEST_TTL_MS`); consumed on decision | Store TTL (Redis PX / in-memory expiry) | OK | Identity |
+| `oauth_clients.owner_account_id` (OIDC self-registration) | While owned. Owner erasure disables the client and NULLs the link in the hard-delete batch; the unlinked row persists (other users' consents reference it) holding no personal data. | App code (erasure `commitBatch`) | OK | Identity |
 | `events` (Pulse) | While host has not deleted; archived 90 d after `endTime` (read-only) | Sweeper job + host-controlled hard-delete | **TODO** — archival not built. | Pulse |
 | `event_rsvps` | Same as parent event | Cascade on event hard-delete | OK once archival lands | Pulse |
 | `event_rsvps.shareSource*` (attribution) | Same as parent RSVP row — no independent retention | Cascade on RSVP/event hard-delete; no separate sweeper needed (columns live on the RSVP row) | OK once archival lands | Pulse |

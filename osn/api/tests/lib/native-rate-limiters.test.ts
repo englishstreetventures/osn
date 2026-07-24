@@ -52,6 +52,15 @@ function fallbackBundle(): AuthRateLimiters {
         "crossDevicePoll",
         "crossDeviceApprove",
         "crossDeviceReject",
+        "oidcAuthorize",
+        "oidcAuthorizeContext",
+        "oidcAuthorizeDecision",
+        "oidcToken",
+        "oidcConnectionsList",
+        "oidcConnectionsRevoke",
+        "oidcClientCreate",
+        "oidcClientList",
+        "oidcClientDisable",
       ] as const
     ).map((k) => [k, rl()]),
   ) as unknown as AuthRateLimiters;
@@ -120,7 +129,7 @@ describe("selectAuthRateLimiters — limiter routing", () => {
     expect(totalNativeCalls).toBe(sixtySecondCount);
   });
 
-  it("keeps the three 1-hour per-IP limiters on the Redis fallback (NOT native)", async () => {
+  it("keeps the 1-hour per-IP limiters on the Redis fallback (NOT native)", async () => {
     const tiers = {
       RL_AUTH_IP_5_60: recordingBinding(),
       RL_AUTH_IP_10_60: recordingBinding(),
@@ -142,9 +151,10 @@ describe("selectAuthRateLimiters — limiter routing", () => {
     for (const key of HOUR_WINDOW_IP_AUTH_LIMITERS) {
       expect(selected[key]).toBe(fallback[key]);
     }
-    // Sanity: the set is exactly the three 1-hour windows.
+    // Sanity: the set is exactly the four 1-hour windows.
     expect([...HOUR_WINDOW_IP_AUTH_LIMITERS].toSorted((a, b) => a.localeCompare(b))).toEqual([
       "emailChangeBegin",
+      "oidcClientCreate",
       "recoveryComplete",
       "recoveryGenerate",
     ]);

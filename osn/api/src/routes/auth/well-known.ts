@@ -37,7 +37,20 @@ export function createWellKnownRoutes(ctx: AuthRouteContext) {
           "client_secret_post",
           "none",
         ],
-        claims_supported: ["sub", "iss", "aud", "exp", "iat", "nonce", "name", "email"],
+        claims_supported: [
+          "sub",
+          "iss",
+          "aud",
+          "exp",
+          "iat",
+          "auth_time",
+          "nonce",
+          "name",
+          "preferred_username",
+          "picture",
+          "email",
+          "email_verified",
+        ],
       }))
       .get("/.well-known/jwks.json", ({ set }) => {
         // S-H1: explicit caching contract — aligns with pulse-side JWKS_CACHE_TTL_MS (5 min).

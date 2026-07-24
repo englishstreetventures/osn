@@ -171,7 +171,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   const verifyRefreshToken = (
     token: string,
   ): Effect.Effect<
-    { accountId: string; familyId: string; sessionId: string },
+    { accountId: string; familyId: string; sessionId: string; authenticatedAt: number },
     AuthError | DatabaseError,
     Db
   > =>
@@ -223,7 +223,17 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         });
       }
 
-      return { accountId: session.accountId, familyId: session.familyId, sessionId };
+      // `authenticatedAt` is the session row's creation time — the moment the
+      // user actually authenticated on this device. The sliding-window extend
+      // above never touches `createdAt`, so this is the honest `auth_time` for
+      // the OIDC provider (S-H1 oidc); a 29-day-old session reads as 29 days
+      // old, not as "just signed in".
+      return {
+        accountId: session.accountId,
+        familyId: session.familyId,
+        sessionId,
+        authenticatedAt: session.createdAt,
+      };
     });
 
   // -------------------------------------------------------------------------

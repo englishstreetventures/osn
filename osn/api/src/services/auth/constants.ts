@@ -143,3 +143,44 @@ export const ID_TOKEN_TTL_SEC = 300;
  * every unauthenticated request.
  */
 export const OIDC_PARAM_MAX_LENGTH = 512;
+
+/**
+ * Upper bound on `max_age` seconds (10 years). Anything larger is a typo or a
+ * probe, and an unbounded parse would let a relying party park 2^53 in a
+ * comparison that only ever needs "recent or not".
+ */
+export const OIDC_MAX_AGE_CEILING_SEC = 315_360_000;
+
+/**
+ * Client identifiers no relying party may ever hold (S-M2 oidc). Each value is
+ * (or is reserved to become) a first-party JWT audience or an ARC S2S
+ * audience; a client registered under one of these names would mint OIDC
+ * access tokens whose `aud` collides with an internal verifier's pin.
+ * Enforced at lookup time — a row seeded with one of these ids reads as
+ * absent — and the future client-registration route must reject them at
+ * write time using {@link isReservedOidcClientId}.
+ */
+export const RESERVED_OIDC_CLIENT_IDS: ReadonlySet<string> = new Set([
+  "osn-access",
+  "osn-step-up",
+  "osn-api",
+  "pulse-api",
+  "zap-api",
+  "cire-api",
+]);
+
+export function isReservedOidcClientId(clientId: string): boolean {
+  return RESERVED_OIDC_CLIENT_IDS.has(clientId);
+}
+
+/**
+ * Cap on live (non-disabled) OIDC clients one account may register. A relying
+ * party is a durable credential surface; nobody legitimate needs dozens, and
+ * the cap keeps a compromised access token from carpeting the registry.
+ */
+export const MAX_OIDC_CLIENTS_PER_ACCOUNT = 5;
+
+/** Bounds on client registration inputs — see `validateClientRegistration`. */
+export const OIDC_CLIENT_NAME_MAX_LENGTH = 64;
+export const OIDC_CLIENT_MAX_REDIRECT_URIS = 8;
+export const OIDC_CLIENT_URI_MAX_LENGTH = 512;

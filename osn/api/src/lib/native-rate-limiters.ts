@@ -93,6 +93,10 @@ export const NATIVE_BINDING_FOR_AUTH_LIMITER = {
   // budget is a brake on a broken client rather than an abuse gate — a code is
   // single-use and bound to its PKCE verifier, which is the real defence.
   oidcToken: { tier: "RL_AUTH_IP_60_60", ns: "oidc_token" },
+  oidcConnectionsList: { tier: "RL_AUTH_IP_30_60", ns: "oidc_connections_list" },
+  oidcConnectionsRevoke: { tier: "RL_AUTH_IP_10_60", ns: "oidc_connections_revoke" },
+  oidcClientList: { tier: "RL_AUTH_IP_30_60", ns: "oidc_client_list" },
+  oidcClientDisable: { tier: "RL_AUTH_IP_10_60", ns: "oidc_client_disable" },
 } satisfies Partial<Record<keyof AuthRateLimiters, { tier: TierName; ns: string }>>;
 
 /**
@@ -104,6 +108,7 @@ export const HOUR_WINDOW_IP_AUTH_LIMITERS: ReadonlySet<keyof AuthRateLimiters> =
   "recoveryGenerate",
   "recoveryComplete",
   "emailChangeBegin",
+  "oidcClientCreate",
 ]);
 
 /**

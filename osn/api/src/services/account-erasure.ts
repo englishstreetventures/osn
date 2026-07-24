@@ -5,6 +5,7 @@ import {
   connections,
   deletionJobs,
   oauthAuthorizationCodes,
+  oauthClients,
   oauthConsents,
   organisationMembers,
   passkeys,
@@ -556,6 +557,15 @@ const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasur
           db
             .delete(oauthAuthorizationCodes)
             .where(eq(oauthAuthorizationCodes.accountId, accountId)),
+          // Clients the account REGISTERED (owner side): disable them and
+          // sever the ownership link. The rows themselves stay — other users'
+          // consents reference them by client_id, and once unlinked they hold
+          // no personal data — but a client whose steward is gone must stop
+          // authorising (disabled reads as absent everywhere).
+          db
+            .update(oauthClients)
+            .set({ disabledAt: Math.floor(Date.now() / 1_000), ownerAccountId: null })
+            .where(eq(oauthClients.ownerAccountId, accountId)),
           db
             .update(appEnrollments)
             .set({ leftAt: Math.floor(Date.now() / 1_000) })

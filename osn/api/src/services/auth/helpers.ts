@@ -41,9 +41,16 @@ export async function signJwt(
   kid: string,
   ttl: number,
   issuer: string,
+  /**
+   * Optional `typ` header (RFC 9068 §2.1 uses "at+jwt" for access tokens).
+   * A typed header lets a verifier reject a token presented outside its class
+   * even when `aud` alone would be ambiguous. Omitted for legacy token kinds
+   * so their verifiers see byte-identical headers.
+   */
+  typ?: string,
 ): Promise<string> {
   return new SignJWT(payload)
-    .setProtectedHeader({ alg: "ES256", kid })
+    .setProtectedHeader(typ ? { alg: "ES256", kid, typ } : { alg: "ES256", kid })
     .setIssuedAt()
     .setIssuer(issuer)
     .setExpirationTime(Math.floor(Date.now() / 1000) + ttl)

@@ -57,6 +57,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 
 - [[osn-core]] — identity / auth stack (`@osn/api` + SDK + UI)
 - [[social]] — identity & social-graph management UI (`@osn/social`)
+- [[authorize-ui]] — spec for the OIDC consent screen (`/authorize` in `@osn/social`) — planned
 - [[pulse]] — events app (`@pulse/app` + `@pulse/api` + `@pulse/db`)
 - [[zap]] — messaging app (`@zap/api` + `@zap/db` scaffolded; client app planned)
 - [[cire]] — wedding-invite stack (`@cire/web` + `@cire/organiser` + `@cire/api` + `@cire/db`)

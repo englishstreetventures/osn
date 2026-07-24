@@ -71,6 +71,20 @@ export type AuthRateLimiters = Readonly<{
    * verifier.
    */
   oidcToken: RateLimiterBackend;
+  /** Connections list (authenticated, settings read — mirrors sessionList). */
+  oidcConnectionsList: RateLimiterBackend;
+  /** Connections revoke (authenticated, infrequent settings write). */
+  oidcConnectionsRevoke: RateLimiterBackend;
+  /**
+   * Client registration (authenticated, hour-window). Each call mints a
+   * durable credential row, so the budget mirrors emailChangeBegin's shape:
+   * a person registers a handful ever, a script gets stopped.
+   */
+  oidcClientCreate: RateLimiterBackend;
+  /** Owned-client list (authenticated, settings read). */
+  oidcClientList: RateLimiterBackend;
+  /** Owned-client disable (authenticated, infrequent settings write). */
+  oidcClientDisable: RateLimiterBackend;
 }>;
 
 /**
@@ -135,5 +149,10 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     oidcAuthorizeContext: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
     oidcAuthorizeDecision: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     oidcToken: createRateLimiter({ maxRequests: 60, windowMs: 60_000 }),
+    oidcConnectionsList: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
+    oidcConnectionsRevoke: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    oidcClientCreate: createRateLimiter({ maxRequests: 5, windowMs: 3_600_000 }),
+    oidcClientList: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
+    oidcClientDisable: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
   };
 }

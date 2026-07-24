@@ -763,6 +763,7 @@ describe("auth routes", () => {
         response_types_supported: string[];
         code_challenge_methods_supported: string[];
         subject_types_supported: string[];
+        claims_supported: string[];
         userinfo_endpoint?: string;
       };
       expect(json.issuer).toBe("http://localhost:4000");
@@ -773,6 +774,11 @@ describe("auth routes", () => {
       // PKCE `plain` is never offered — a downgrade to it defeats the exchange.
       expect(json.code_challenge_methods_supported).toEqual(["S256"]);
       expect(json.subject_types_supported).toEqual(["pairwise"]);
+      // Relying parties key off this list — auth_time in particular backs the
+      // S-H1 max_age/prompt=login behaviour and must stay advertised.
+      expect(json.claims_supported).toEqual(
+        expect.arrayContaining(["sub", "auth_time", "email", "email_verified"]),
+      );
       // Nothing serves this, so nothing may advertise it.
       expect(json.userinfo_endpoint).toBeUndefined();
     });

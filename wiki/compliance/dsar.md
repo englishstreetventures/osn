@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-24
 ---
 
 # DSAR Runbook
@@ -65,6 +65,8 @@ Use `GET /account/export`. The endpoint returns a JSON bundle:
 - `security_events[]` — kind, metadata, created_at, acknowledged_at.
 - `recovery_codes` — `total`, `used` (counts only; never the hashes).
 - `email_changes[]` — old / new email, timestamp.
+- `oidc_consents[]` — the apps this account authorised via the OIDC provider (C-M1 oidc, added 2026-07-24): `clientId`, `clientName` (null if the client row was hand-deleted), `profileId`, `scope`, `grantedAt`, `revokedAt`. Revoked grants are **included** — the withdrawal itself is the person's record. Never the internal `accountId`.
+- `oidc_clients_owned[]` — the relying parties this account registered via `POST /oidc/clients` (added 2026-07-24): `clientId`, `name`, `redirectUris`, `sectorIdentifier`, `createdAt`, `disabledAt`. **Never** the secret hash, never the internal `accountId`.
 - `connections[]` — requester / addressee handles + status + timestamps.
 - `blocks[]` — blocked handles + timestamps.
 - `organisations[]` — orgs the account's profiles own or are members of.

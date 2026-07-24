@@ -19,13 +19,21 @@
  * See [[wiki/systems/oidc-provider]].
  */
 
+import { createHash, timingSafeEqual } from "node:crypto";
+
 import type { OidcAuthorizeResult, OidcTokenResult } from "@shared/observability/metrics";
 import { Effect, Either } from "effect";
 import { Elysia, t } from "elysia";
 
+import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
 import { readSessionCookie } from "../../lib/cookie-session";
+import {
+  buildBindingCookie,
+  buildClearBindingCookie,
+  readBindingCookie,
+} from "../../lib/oidc-binding-cookie";
 import { metricOidcAuthorize, metricOidcConsentGranted, metricOidcToken } from "../../metrics";
-import type { OidcClient, OidcErrorCode } from "../../services/auth";
+import type { AuthorizeSession, OidcErrorCode } from "../../services/auth";
 import type { AuthRouteContext } from "./context";
 
 /** The wire codes that map onto their own authorize metric bucket. */
@@ -45,7 +53,8 @@ const authorizeResultOf = (code: OidcErrorCode): OidcAuthorizeResult =>
 const tokenResultOf = (code: OidcErrorCode): OidcTokenResult =>
   code === "invalid_grant" || code === "invalid_client" ? code : "invalid_request";
 
-const clientKindOf = (client: OidcClient) => (client.isFirstParty ? "first_party" : "third_party");
+const clientKindOf = (client: { isFirstParty: boolean }) =>
+  client.isFirstParty ? "first_party" : "third_party";
 
 /**
  * Pulls an `OidcError` out of an Effect failure. `Either` keeps the failure
@@ -104,16 +113,46 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
   };
 
   /**
-   * Resolves the session cookie to an account id, or null when this device is
-   * not signed in. A bad cookie is not an error here — "not signed in" is a
-   * normal state at the authorization endpoint, and the answer to it is the
-   * sign-in screen.
+   * S-M1: does this browser hold the binding cookie for the parked request?
+   * An undefined stored hash (request parked by a pre-upgrade instance)
+   * matches unconditionally so a mid-deploy flow still completes.
    */
-  const resolveAccountId = async (cookieHeader: string | undefined): Promise<string | null> => {
+  const bindingMatches = (
+    bindingHash: string | undefined,
+    cookieHeader: string | undefined,
+    requestId: string,
+  ): boolean => {
+    if (bindingHash === undefined) return true;
+    const secret = readBindingCookie(cookieHeader, requestId, cookieConfig);
+    if (secret === null) return false;
+    // Constant-time, matching the repo rule for hash comparisons — both sides
+    // are digests, so a prefix leak reveals nothing, but it costs nothing to
+    // do properly.
+    const computed = createHash("sha256").update(secret).digest();
+    let stored: Buffer;
+    try {
+      stored = Buffer.from(bindingHash, "hex");
+    } catch {
+      return false;
+    }
+    if (stored.length !== computed.length) return false;
+    return timingSafeEqual(computed, stored);
+  };
+
+  /**
+   * Resolves the session cookie to the account id plus the session's real
+   * authentication time, or null when this device is not signed in. A bad
+   * cookie is not an error here — "not signed in" is a normal state at the
+   * authorization endpoint, and the answer to it is the sign-in screen.
+   */
+  const resolveSession = async (
+    cookieHeader: string | undefined,
+  ): Promise<AuthorizeSession | null> => {
     const token = readSessionCookie(cookieHeader, cookieConfig);
     if (!token) return null;
     const result = await run(Effect.either(auth.verifyRefreshToken(token)));
-    return Either.isRight(result) ? result.right.accountId : null;
+    if (!Either.isRight(result)) return null;
+    return { accountId: result.right.accountId, authTime: result.right.authenticatedAt };
   };
 
   return (
@@ -157,6 +196,7 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
           codeChallenge: q["code_challenge"] ?? null,
           codeChallengeMethod: q["code_challenge_method"] ?? "",
           prompt: q["prompt"] ?? null,
+          maxAge: q["max_age"] ?? null,
         };
 
         const validated = await run(Effect.either(auth.validateAuthorizeRequest(params)));
@@ -195,11 +235,11 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
 
         const { request: authorizeRequest, prompts } = outcome;
         const clientKind = clientKindOf(authorizeRequest.client);
-        const accountId = await resolveAccountId(headers.cookie);
+        const session = await resolveSession(headers.cookie);
 
         let prepared;
         try {
-          prepared = await run(auth.prepareAuthorization(authorizeRequest, prompts, accountId));
+          prepared = await run(auth.prepareAuthorization(authorizeRequest, prompts, session));
         } catch (e) {
           metricOidcAuthorize({ result: "server_error", clientKind });
           const { status, body } = handleError(e);
@@ -219,6 +259,14 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
         }
         if (prepared.kind === "interaction") {
           metricOidcAuthorize({ result: "interaction", clientKind });
+          // S-M1: bind the parked request to this browser. The consent screen's
+          // context + decision calls must arrive with this cookie, so a leaked
+          // or guessed request id approves nothing anywhere else.
+          set.headers["set-cookie"] = buildBindingCookie(
+            prepared.requestId,
+            prepared.bindingSecret,
+            cookieConfig,
+          );
           set.headers["location"] = buildInteractionRedirect(prepared.requestId, prepared.reason);
           return "";
         }
@@ -256,7 +304,10 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
 
           try {
             const parked = await run(auth.loadAuthorizeRequest(query.request));
-            if (!parked) {
+            // S-M1: a context read without the binding cookie is answered
+            // exactly like an unknown id — an attacker holding a leaked
+            // request id learns nothing, not even that it exists.
+            if (!parked || !bindingMatches(parked.bindingHash, headers.cookie, query.request)) {
               set.status = 404;
               return { error: "invalid_request", error_description: "Unknown or expired request" };
             }
@@ -270,7 +321,8 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
               };
             }
 
-            const accountId = await resolveAccountId(headers.cookie);
+            const session = await resolveSession(headers.cookie);
+            const accountId = session?.accountId ?? null;
             const profiles =
               accountId === null ? [] : (await run(auth.listAccountProfiles(accountId))).profiles;
             const consent =
@@ -321,24 +373,21 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             return rlErr;
           }
 
-          const accountId = await resolveAccountId(headers.cookie);
-          if (accountId === null) {
+          const session = await resolveSession(headers.cookie);
+          if (session === null) {
             set.status = 401;
             return { error: "unauthorized" };
           }
-
-          // Read the client before deciding: approval consumes the parked
-          // request, so afterwards there is nothing left to name it by.
-          const parked = await run(auth.loadAuthorizeRequest(body.requestId));
-          const client = parked === null ? null : await run(auth.findOidcClient(parked.clientId));
 
           const result = await run(
             Effect.either(
               auth.completeAuthorization({
                 requestId: body.requestId,
-                accountId,
+                accountId: session.accountId,
                 profileId: body.profileId,
                 approved: body.approved,
+                authTime: session.authTime,
+                bindingSecret: readBindingCookie(headers.cookie, body.requestId, cookieConfig),
               }),
             ),
           );
@@ -350,14 +399,20 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
               set.status = status;
               return errBody;
             }
+            // `login_required` deliberately leaves the parked request alive:
+            // the screen sends the user to re-authenticate and retries the
+            // same request id with the fresh session.
             set.status = oidc.code === "invalid_client" ? 401 : 400;
             return { error: oidc.code, error_description: oidc.description };
           }
 
           if (result.right.isNewLink) {
-            metricOidcConsentGranted(client ? clientKindOf(client) : "third_party");
+            metricOidcConsentGranted(result.right.isFirstParty ? "first_party" : "third_party");
           }
 
+          // The request is consumed either way, so the binding cookie has
+          // nothing left to bind — expire it rather than let it linger.
+          set.headers["set-cookie"] = buildClearBindingCookie(body.requestId, cookieConfig);
           return { redirectTo: result.right.redirectTo };
         },
         {
@@ -456,12 +511,13 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             return fail(oidc.code === "invalid_client" ? 401 : 400, oidc.code, oidc.description);
           }
 
-          const client = await run(auth.findOidcClient(clientId));
+          // P-W1: the exchange already read the client — no second lookup
+          // just to label the counter.
           metricOidcToken({
             result: "ok",
-            clientKind: client ? clientKindOf(client) : "third_party",
+            clientKind: result.right.isFirstParty ? "first_party" : "third_party",
           });
-          return result.right;
+          return result.right.response;
         },
         {
           body: t.Object({
@@ -473,6 +529,94 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             client_secret: t.Optional(t.String()),
           }),
         },
+      )
+      // -----------------------------------------------------------------------
+      // GET /oidc/connections — the apps this account has authorised.
+      //
+      // The user-facing half of `oauth_consents` (S-M3 oidc): what the
+      // settings surface lists, and the record Art. 15 says the person may
+      // see. Access-token authed like every other settings read.
+      // -----------------------------------------------------------------------
+      .get("/oidc/connections", async ({ headers, set, server, request }) => {
+        set.headers["cache-control"] = "no-store";
+
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "oidc_connections_list",
+          rl.oidcConnectionsList,
+        );
+        if (rlErr) {
+          set.status = 429;
+          return rlErr;
+        }
+        try {
+          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+          if (!claims) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          const profile = await run(auth.findProfileById(claims.profileId));
+          if (!profile) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          const connections = await run(auth.listOidcConsents(profile.accountId));
+          return { connections };
+        } catch (e) {
+          const { status, body: errBody } = handleError(e);
+          set.status = status;
+          return errBody;
+        }
+      })
+      // -----------------------------------------------------------------------
+      // DELETE /oidc/connections/:clientId — withdraw an app's authorization.
+      //
+      // Art. 7(3): revoking must be as easy as granting (C-M3 oidc). Revoking
+      // marks the consent row and kills any authorization code in flight for
+      // the pair; the relying party's next /authorize gets `consent_required`.
+      // -----------------------------------------------------------------------
+      .delete(
+        "/oidc/connections/:clientId",
+        async ({ params, headers, set, server, request }) => {
+          set.headers["cache-control"] = "no-store";
+
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "oidc_connections_revoke",
+            rl.oidcConnectionsRevoke,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const { revoked } = await run(
+              auth.revokeOidcConsent(profile.accountId, params.clientId),
+            );
+            if (!revoked) {
+              set.status = 404;
+              return { error: "not_found" };
+            }
+            return { success: true };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        { params: t.Object({ clientId: t.String({ minLength: 1, maxLength: 128 }) }) },
       )
   );
 }

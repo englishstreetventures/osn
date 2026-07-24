@@ -114,6 +114,27 @@ export interface PendingAuthorizeRequest {
   state: string | null;
   nonce: string | null;
   codeChallenge: string;
+  /**
+   * The relying party's `max_age` in seconds, or null when absent. Re-checked
+   * at decision time: the user can sit on the consent screen long enough for a
+   * session that satisfied `max_age` at `/authorize` to stop satisfying it.
+   */
+  maxAge: number | null;
+  /**
+   * Unix seconds. When set, the deciding session must have been CREATED at or
+   * after this instant — i.e. the user re-authenticated after the request was
+   * parked. Set when `prompt=login` was demanded or `max_age` was already
+   * exceeded at `/authorize` (S-H1 oidc). Null when any live session may decide.
+   */
+  requireAuthAfter: number | null;
+  /**
+   * SHA-256 hex of the browser-binding secret handed out as a short-TTL
+   * HttpOnly cookie alongside the interaction redirect (S-M1 oidc). The
+   * decision (and context read) must present the matching cookie, so a leaked
+   * or guessed request id is useless in any other browser. Optional so parked
+   * requests written by a pre-upgrade instance still resolve mid-deploy.
+   */
+  bindingHash?: string;
   /** Milliseconds. */
   expiresAt: number;
 }

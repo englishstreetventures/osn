@@ -7,6 +7,7 @@ packages:
   - "@osn/social"
 related:
   - "[[osn-core]]"
+  - "[[authorize-ui]]"
   - "[[social-graph]]"
   - "[[identity-model]]"
   - "[[passkey-primary]]"

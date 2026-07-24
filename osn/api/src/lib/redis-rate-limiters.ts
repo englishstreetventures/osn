@@ -75,6 +75,15 @@ export function createRedisAuthRateLimiters(client: RedisClient): AuthRateLimite
     oidcAuthorizeContext: rl("auth:oidc_authorize_context", 30),
     oidcAuthorizeDecision: rl("auth:oidc_authorize_decision", 10),
     oidcToken: rl("auth:oidc_token", 60),
+    oidcConnectionsList: rl("auth:oidc_connections_list", 30),
+    oidcConnectionsRevoke: rl("auth:oidc_connections_revoke", 10),
+    oidcClientCreate: createRedisRateLimiter(client, {
+      namespace: "auth:oidc_client_create",
+      maxRequests: 5,
+      windowMs: ONE_HOUR_MS,
+    }),
+    oidcClientList: rl("auth:oidc_client_list", 30),
+    oidcClientDisable: rl("auth:oidc_client_disable", 10),
   };
 }
 
