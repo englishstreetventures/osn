@@ -78,6 +78,24 @@ unauthenticated door is `POST /login/recovery/complete`.
 Recovery-code login is RP-ID-independent (identifier + code, no WebAuthn),
 which is exactly why it survives the flip.
 
+**A passkey cannot be migrated to a new RP ID.** The `passkeys` table holds
+only the public half; the private key lives in the authenticator and is bound
+to the RP ID at creation. Nothing written to D1 re-points an existing
+credential — after the flip both rows are dead weight and both users enroll
+fresh. Enrolment requires an authenticated session, hence the bridge.
+
+Confirmed prod inventory (2026-07-25) — the whole blast radius is two
+credentials on two accounts, and **neither account has any recovery codes**:
+
+| Account | Passkey | Last used | Unused codes |
+|---|---|---|---|
+| `owner@example.com` | `pk_000000000001` | 2026-07-23 | 0 |
+| `second-account@example.com` | `pk_000000000002` | 2026-07-19 | 0 |
+
+Small enough that re-enrolment is a chore rather than a migration — but both
+accounts still need a code set minted before the flip, or neither has a way
+back in.
+
 **Before touching the RP ID, for every account that must survive:**
 
 1. Sign in on the current domain while passkeys still work.
