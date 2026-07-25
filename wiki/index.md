@@ -102,6 +102,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 
 - [[production-deploy]] — first production cut-over of osn-api + the cire stack (secret/var checklist, migrations, CI pipeline, smoke checks)
 - [[free-tier-limits]] — provider free-tier ceilings (Upstash / Workers / D1 / Pages / Turnstile / WAF), what breaks at each cap, the unavailability playbook, and the Cloudflare security-hardening TODO
+- [[musubi-identity-migration]] — moving osn-api to `id.musubi.dev` and making musubi.dev the OSN identity home (blockers, credential bridge, config inventory, cutover order)
 - [[auth-failure]] — passkey / recovery / refresh / step-up debugging
 - [[rate-limit-incident]] — false positives, tuning, Redis health
 - [[observability-setup]] — Grafana Cloud provisioning, OTEL wiring
