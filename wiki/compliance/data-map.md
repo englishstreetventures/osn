@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-07-24
+last-reviewed: 2026-07-26
 ---
 
 # Data Map
@@ -50,6 +50,7 @@ the compliance checklist.
 | `sessions.ua_label` | Coarse "Firefox on macOS" for the user-facing sessions list | Art. 6(1)(b) | 30 d sliding | `@osn/api` only | [[sessions]] |
 | `sessions.ip_hash` (HMAC-SHA256 with pepper) | Anomaly detection; user-facing sessions list | Art. 6(1)(f) — legit interest in fraud detection | 30 d sliding | `@osn/api` only | [[sessions]] |
 | `sessions.last_used_at` | UX | Art. 6(1)(f) | 30 d sliding | `@osn/api` only | [[sessions]] |
+| `osn_sid` access-token claim (derived, not stored: `sha256(session_hash \| ":" \| profile_id)`, 128 bits) | Lets a cookieless Bearer caller name its own session, so passkey add/remove spares it instead of signing the account out everywhere. Per-profile by construction, so it cannot correlate two profiles of one account (P6) | Art. 6(1)(b) — contract (keeping the caller signed in through a security ceremony) | Not retained — recomputed per token and changes on every rotation | `@osn/api`, plus any service that verifies an `osn-access` token | [[sessions]] |
 | `security_events.kind` + `metadata` | Audit trail of security-relevant actions | Art. 6(1)(c) — legal obligation under GDPR Art. 32; Art. 6(1)(f) | 12 months then purge | `@osn/api`; user via `/account/security-events` | [[recovery-codes]] |
 | `recovery_codes.code_hash` | Account recovery | Art. 6(1)(b) | While account active | `@osn/api` only | [[recovery-codes]] |
 | `recovery_codes.used_at` | Single-use enforcement; security-event reasoning | Art. 6(1)(c)+(f) | While account active | `@osn/api` only | [[recovery-codes]] |

@@ -134,6 +134,11 @@ export function createPasskeyManagementModule(
   const deletePasskey = (
     accountId: string,
     passkeyId: string,
+    /**
+     * Hashed id of the caller's own session, so H1 invalidation spares it.
+     * The route derives it from the HttpOnly cookie, falling back to the
+     * access token's `osn_sid` binding — never from body input (S-H1).
+     */
     currentSessionHash: string | null,
     eventMeta?: SessionMeta,
   ): Effect.Effect<{ remaining: number }, AuthError | DatabaseError, Db | EmailService> =>
@@ -215,11 +220,12 @@ export function createPasskeyManagementModule(
       if (currentSessionHash) {
         yield* invalidateOtherAccountSessions(accountId, currentSessionHash, "passkey_delete");
       } else {
-        // S-L3: caller has no session cookie (e.g. the delete came in via an
-        // enrollment-token path or the cookie was stripped by a proxy). We
-        // nuke every session on the account because there's no "self" to
-        // preserve. This branch is rare and forensically distinct, so log it
-        // out-of-band and emit the security-invalidation metric explicitly.
+        // S-L3: the caller has no identifiable session at all — the route
+        // found neither a cookie nor a live session matching the access
+        // token's `osn_sid` binding. We nuke every session on the account
+        // because there is genuinely no "self" to preserve. This branch is
+        // rare and forensically distinct, so log it out-of-band and emit the
+        // security-invalidation metric explicitly.
         yield* Effect.logWarning("auth.passkey.delete: nuking all sessions (no caller session)");
         yield* Effect.tryPromise({
           try: () => db.delete(sessions).where(eq(sessions.accountId, accountId)),

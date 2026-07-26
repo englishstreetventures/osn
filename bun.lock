@@ -164,7 +164,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.9.11",
+      "version": "3.11.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@osn/db": "workspace:*",
@@ -210,7 +210,7 @@
     },
     "osn/db": {
       "name": "@osn/db",
-      "version": "0.17.3",
+      "version": "0.19.0",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -303,7 +303,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.24.5",
+      "version": "0.24.7",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -331,7 +331,7 @@
     },
     "pulse/app": {
       "name": "@pulse/app",
-      "version": "0.16.8",
+      "version": "0.16.10",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -403,7 +403,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.8.7",
+      "version": "0.8.9",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -434,7 +434,7 @@
     },
     "shared/email": {
       "name": "@shared/email",
-      "version": "0.4.1",
+      "version": "0.4.3",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "^3.21.2",
@@ -447,7 +447,7 @@
     },
     "shared/feature-flags": {
       "name": "@shared/feature-flags",
-      "version": "0.2.0",
+      "version": "0.2.2",
       "dependencies": {
         "@growthbook/growthbook": "^1.6.0",
         "@shared/observability": "workspace:*",
@@ -459,7 +459,7 @@
     },
     "shared/observability": {
       "name": "@shared/observability",
-      "version": "0.12.1",
+      "version": "0.12.3",
       "dependencies": {
         "@effect/opentelemetry": "^0.63.0",
         "@opentelemetry/api": "^1.9.1",
@@ -483,7 +483,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.2.7",
+      "version": "0.2.9",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "^6.2.3",
@@ -507,7 +507,7 @@
     },
     "shared/redis": {
       "name": "@shared/redis",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "dependencies": {
         "@upstash/redis": "^1.38.0",
         "effect": "^3.21.2",
@@ -521,7 +521,7 @@
     },
     "shared/turnstile": {
       "name": "@shared/turnstile",
-      "version": "0.2.4",
+      "version": "0.2.6",
       "dependencies": {
         "@shared/observability": "workspace:*",
       },
@@ -536,7 +536,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.8.3",
+      "version": "0.8.5",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -588,8 +588,9 @@
     "fast-uri": "^3.1.4",
     "js-yaml": "^4.3.0",
     "picomatch": "^4.0.4",
-    "postcss": "^8.5.15",
+    "postcss": "^8.5.18",
     "protobufjs": "^7.5.5",
+    "seroval": "^1.5.3",
     "sharp": "^0.35.0",
     "smol-toml": "^1.6.1",
     "svgo": "^4.0.2",
@@ -2009,7 +2010,7 @@
 
     "multipasta": ["multipasta@0.2.7", "", {}, "sha512-KPA58d68KgGil15oDqXjkUBEBYc00XvbPj5/X+dyzeo/lWm9Nc25pQRlf1D+gv4OpK7NM0J1odrbu9JNNGvynA=="],
 
-    "nanoid": ["nanoid@3.3.12", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-ZB9RH/39qpq5Vu6Y+NmUaFhQR6pp+M2Xt76XBnEwDaGcVAqhlvxrl3B2bKS5D3NH3QR76v3aSrKaF/Kiy7lEtQ=="],
+    "nanoid": ["nanoid@3.3.16", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-bzlKTyNJ7+LdGIIwy8ijFpIqEQIvafahV7eYykJ8Cvh42EdJeODoJ6gUJXpQJvej1BddH8OqTXZNE/KfbWAu8Q=="],
 
     "napi-build-utils": ["napi-build-utils@2.0.0", "", {}, "sha512-GEbrYkbfF7MoNaoh2iGG84Mnf/WZfB0GdGEsM8wz7Expx/LlWf5U8t9nvJKXSp3qr5IsEbK04cBGhol/KwOsWA=="],
 
@@ -2089,7 +2090,7 @@
 
     "pify": ["pify@4.0.1", "", {}, "sha512-uB80kBFb/tfd68bVleG9T5GGsGPjJrLAUpR5PZIrhBnIaRTQRjqdJSsIKkOP6OAIFbj7GOrcudc5pNjZ+geV2g=="],
 
-    "postcss": ["postcss@8.5.15", "", { "dependencies": { "nanoid": "^3.3.12", "picocolors": "^1.1.1", "source-map-js": "^1.2.1" } }, "sha512-FfR8sjd4em2T6fb3I2MwAJU7HWVMr9zba+enmQeeWFfCbm+UOC/0X4DS8XtpUTMwWMGbjKYP7xjfNekzyGmB3A=="],
+    "postcss": ["postcss@8.5.22", "", { "dependencies": { "nanoid": "^3.3.16", "picocolors": "^1.1.1", "source-map-js": "^1.2.1" } }, "sha512-KBDEIpLrvpv16pp3K0Fw+UCoZfopFjjgeB+0tA/aaThfEE74kKDLrgg603YvOWJyg3+WYtyq3xYsQWsIyZlPqQ=="],
 
     "prebuild-install": ["prebuild-install@7.1.3", "", { "dependencies": { "detect-libc": "^2.0.0", "expand-template": "^2.0.3", "github-from-package": "0.0.0", "minimist": "^1.2.3", "mkdirp-classic": "^0.5.3", "napi-build-utils": "^2.0.0", "node-abi": "^3.3.0", "pump": "^3.0.0", "rc": "^1.2.7", "simple-get": "^4.0.0", "tar-fs": "^2.0.0", "tunnel-agent": "^0.6.0" }, "bin": { "prebuild-install": "bin.js" } }, "sha512-8Mf2cbV7x1cXPUILADGI3wuhfqWvtiLA1iclTDbFRZkgRQS0NqsPZphna9V+HyTEadheuPmjaJMsbzKQFOzLug=="],
 
@@ -2175,7 +2176,7 @@
 
     "semver": ["semver@7.7.4", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-vFKC2IEtQnVhpT78h1Yp8wzwrf8CM+MzKMHGJZfBtzhZNycRFnXsHk6E5TxIkkMsgNS7mdX3AGB7x2QM2di4lA=="],
 
-    "seroval": ["seroval@1.5.2", "", {}, "sha512-xcRN39BdsnO9Tf+VzsE7b3JyTJASItIV1FVFewJKCFcW4s4haIKS3e6vj8PGB9qBwC7tnuOywQMdv5N4qkzi7Q=="],
+    "seroval": ["seroval@1.5.6", "", {}, "sha512-rVQVWjjSvlINzaQPZH5JFqsqEsIWdTxY3iJZCnTL/5gQbXIRooVZKI60tVCkOVfzcRPejboxO2t0P89dg5mQaA=="],
 
     "seroval-plugins": ["seroval-plugins@1.5.2", "", { "peerDependencies": { "seroval": "^1.0" } }, "sha512-qpY0Cl+fKYFn4GOf3cMiq6l72CpuVaawb6ILjubOQ+diJ54LfOWaSSPsaswN8DRPIPW4Yq+tE1k5aKd7ILyaFg=="],
 

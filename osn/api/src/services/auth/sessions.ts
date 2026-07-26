@@ -9,11 +9,31 @@ import type { SecurityInvalidationTrigger } from "@shared/observability/metrics"
 import { and, desc, eq, like, ne } from "drizzle-orm";
 import { Effect } from "effect";
 
+import { timingSafeEqualString } from "../../lib/timing-safe";
 import { metricSessionSecurityInvalidation, withSessionOp } from "../../metrics";
 import { MAX_SESSIONS_PER_ACCOUNT } from "./constants";
 import { AuthError, DatabaseError } from "./errors";
-import { hashSessionToken, sessionHandleFromHash } from "./helpers";
+import { deriveSessionBinding, hashSessionToken, sessionHandleFromHash } from "./helpers";
 import type { SessionSummary } from "./types";
+
+/**
+ * Finds the session id whose per-profile binding equals `sessionBinding`.
+ *
+ * The comparison is constant-time even though the presented value arrives
+ * inside a JWT this server signed — nobody can iterate candidates today, and
+ * keeping the digest comparison uniform means that stays true if `osn_sid`
+ * ever becomes settable from another surface.
+ */
+function matchBinding(
+  sessionIds: readonly string[],
+  profileId: string,
+  sessionBinding: string,
+): string | null {
+  const match = sessionIds.find((id) =>
+    timingSafeEqualString(deriveSessionBinding(id, profileId), sessionBinding),
+  );
+  return match ?? null;
+}
 
 export function createSessionsModule() {
   /**
@@ -30,6 +50,80 @@ export function createSessionsModule() {
         catch: (cause) => new DatabaseError({ cause }),
       });
     });
+
+  /**
+   * The account's live session ids, most recently used first.
+   *
+   * `MAX_SESSIONS_PER_ACCOUNT` is enforced read-then-delete in `issueTokens`
+   * and D1 has no interactive transaction, so two concurrent logins can leave
+   * the account one or two rows over the cap. The ordering makes that
+   * harmless: the caller's own session is by definition recently used, so it
+   * sits at the front of the window rather than being the row that falls off
+   * the end. `sessions_account_last_used_idx` covers the sort.
+   */
+  const liveSessionIds = (accountId: string): Effect.Effect<string[], DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ id: sessions.id })
+            .from(sessions)
+            .where(eq(sessions.accountId, accountId))
+            .orderBy(desc(sessions.lastUsedAt))
+            .limit(MAX_SESSIONS_PER_ACCOUNT),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      return rows.map((row) => row.id);
+    });
+
+  /**
+   * Resolves the caller's own session row from an access token's `osn_sid`
+   * claim. Recomputes the binding over the account's session ids and
+   * returns the matching hash, or null when nothing matches (token minted
+   * before the claim existed, or its session has since been revoked).
+   *
+   * This is the Bearer-token equivalent of reading the session cookie:
+   * routes that must preserve "this session" while revoking the rest no
+   * longer depend on a cookie riding along with the request.
+   */
+  const resolveSessionByBinding = (
+    accountId: string,
+    profileId: string,
+    sessionBinding: string,
+  ): Effect.Effect<string | null, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const ids = yield* liveSessionIds(accountId);
+      return matchBinding(ids, profileId, sessionBinding);
+    }).pipe(Effect.withSpan("auth.session.resolve_binding"));
+
+  /**
+   * Names the caller's own live session for the paths that revoke every
+   * OTHER session on the account (H1 on passkey register, S-L3 on passkey
+   * delete). Both inputs are server-derived: the hash comes from the
+   * HttpOnly cookie, the binding from the signed access token. Neither is
+   * ever read from the request body (S-H1).
+   *
+   * The cookie wins when it names a session that is still live, but it does
+   * NOT win merely by being present. A cookie holding a revoked, expired or
+   * rotated-out token hashes to a value matching no row, and handing that to
+   * `invalidateOtherAccountSessions` deletes everything — the same
+   * sign-you-out-everywhere failure the binding exists to prevent, reached
+   * through a stale cookie instead of a missing one. Checking membership
+   * costs nothing extra: the fallback already reads these rows.
+   */
+  const resolveCallerSession = (
+    accountId: string,
+    profileId: string,
+    caller: { cookieSessionHash?: string | null; sessionBinding?: string | null },
+  ): Effect.Effect<string | null, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { cookieSessionHash, sessionBinding } = caller;
+      if (!cookieSessionHash && !sessionBinding) return null;
+      const ids = yield* liveSessionIds(accountId);
+      if (cookieSessionHash && ids.includes(cookieSessionHash)) return cookieSessionHash;
+      return sessionBinding ? matchBinding(ids, profileId, sessionBinding) : null;
+    }).pipe(Effect.withSpan("auth.session.resolve_caller"));
 
   /**
    * Invalidates ALL sessions for an account. Used when a security event
@@ -176,6 +270,8 @@ export function createSessionsModule() {
 
   return {
     invalidateSession,
+    resolveSessionByBinding,
+    resolveCallerSession,
     invalidateAccountSessions,
     invalidateOtherAccountSessions,
     listAccountSessions,

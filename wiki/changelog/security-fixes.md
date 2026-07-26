@@ -7,12 +7,16 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-07-24
+last-reviewed: 2026-07-26
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## Access-token session binding — `osn_sid` (2026-07-26)
+
+- **S-M1 (passkey-cookieless-revocation)** — **a Bearer-only passkey add or remove signed the caller out of every device.** **Issue:** passkey register (H1) and passkey delete (S-L3) revoke every session on the account except the caller's own, and the caller's own session was read *only* from the HttpOnly session cookie. A request that authenticated with a Bearer access token but carried no cookie — a cross-origin call, a proxy that strips cookies, a native client — looked sessionless, so both paths took the "no self to preserve" branch and deleted **every** session on the account, including the one making the request. **Why:** an availability failure on the two ceremonies a user reaches for *because* they are worried about their account; the account-wide wipe also masks the signal it was meant to raise. **Solution:** access tokens now carry a `osn_sid` claim — `sha256(session_hash + ":" + profile_id)` truncated to 128 bits. It is one-way (the session hash is itself a SHA-256 of a 160-bit random token) and per-profile, because sessions are account-scoped and shared across profile switches, so a plain session id would let an observer tie two profiles of one account together (P6 forbids that). Recognition is by recomputation over the account's session rows, bounded by `MAX_SESSIONS_PER_ACCOUNT`, via the new `resolveSessionByBinding`; no new secret and no schema change. `issueTokens` and `refreshTokens` mint the session token *before* signing so the JWT binds to the session it ships with — on refresh, the rotated-in one, not the retired one. `switchProfile` resolves the caller's session from the old profile's `osn_sid` and re-derives it for the target profile. Both routes call one helper, `resolveCallerSession`, where the cookie wins only when it names a session that is still live — a stale cookie hashes to a value matching no row, and passing that on would wipe every session, the same failure through a different door. **Rationale:** with neither a live cookie nor a resolvable `osn_sid` the account-wide revocation stands, so a token minted before the claim existed degrades to the old behaviour rather than failing. **Reach:** the origin guard 403s cross-origin and native-client writes, so the case that actually bit was a request from an **allowlisted** origin where `SameSite=Lax` kept the cookie off the fetch. See [[sessions]].
 
 ## OIDC provider deferred-hardening batch (2026-07-24)
 

@@ -11,7 +11,9 @@ import { Effect } from "effect";
 import { withProfileSwitch } from "../../metrics";
 import type { AuthContext } from "./context";
 import { AuthError, DatabaseError } from "./errors";
+import { deriveSessionBinding } from "./helpers";
 import type { ProfilesModule } from "./profiles";
+import type { SessionsModule } from "./sessions";
 import type { TokensModule } from "./tokens";
 import type { PublicProfile } from "./types";
 import { toPublicProfile } from "./types";
@@ -20,10 +22,12 @@ export function createProfileSwitchModule(
   ctx: AuthContext,
   profiles: ProfilesModule,
   tokens: TokensModule,
+  sessions: SessionsModule,
 ) {
   const { accessTokenTtl, profileSwitchCap } = ctx;
   const { findProfileById } = profiles;
   const { issueAccessToken } = tokens;
+  const { resolveCallerSession } = sessions;
 
   /**
    * Lists all profiles belonging to the given account.
@@ -60,6 +64,11 @@ export function createProfileSwitchModule(
   const switchProfile = (
     accountId: string,
     targetProfileId: string,
+    caller?: {
+      profileId: string;
+      sessionBinding: string | null;
+      cookieSessionHash?: string | null;
+    },
   ): Effect.Effect<
     { accessToken: string; expiresIn: number; profile: PublicProfile },
     AuthError | DatabaseError,
@@ -82,12 +91,26 @@ export function createProfileSwitchModule(
           new AuthError({ message: "Profile does not belong to this account" }),
         );
       }
+      // The session is account-scoped and unchanged, but its binding is
+      // per-profile: find the caller's session, then re-derive the binding
+      // for the profile being switched to. P-W1: when the route saw a
+      // session cookie the lookup is a membership test on the id list, which
+      // skips deriving a binding for every session on the account. Drops to
+      // null when the caller has neither a live cookie nor a resolvable
+      // `osn_sid` — the new token is then simply unbound, same as before.
+      const sessionHash = caller
+        ? yield* resolveCallerSession(accountId, caller.profileId, {
+            cookieSessionHash: caller.cookieSessionHash,
+            sessionBinding: caller.sessionBinding,
+          })
+        : null;
       // Issue only a new access token — the session token is account-scoped and unchanged.
       const accessToken = yield* issueAccessToken(
         profile.id,
         profile.email,
         profile.handle,
         profile.displayName,
+        sessionHash ? deriveSessionBinding(sessionHash, profile.id) : null,
       );
       return {
         accessToken,

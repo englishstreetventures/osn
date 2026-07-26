@@ -219,13 +219,26 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
    * using the token issued by `/register/complete`; existing users add more
    * with a normal session access token.
    */
-  type Principal = { unauthorized: true } | { unauthorized: false; accountId: string };
+  type Principal =
+    | { unauthorized: true }
+    | {
+        unauthorized: false;
+        accountId: string;
+        profileId: string;
+        /** `osn_sid` — lets a cookieless caller still name its own session. */
+        sessionBinding: string | null;
+      };
   async function resolvePasskeyEnrollPrincipal(authHeader: string | undefined): Promise<Principal> {
     const claims = await resolveAccessTokenPrincipal(auth, authHeader);
     if (!claims) return { unauthorized: true };
     const profile = await run(auth.findProfileById(claims.profileId));
     if (!profile) return { unauthorized: true };
-    return { unauthorized: false, accountId: profile.accountId };
+    return {
+      unauthorized: false,
+      accountId: profile.accountId,
+      profileId: claims.profileId,
+      sessionBinding: claims.sessionBinding,
+    };
   }
 
   return {

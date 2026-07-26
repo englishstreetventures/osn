@@ -1,10 +1,11 @@
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
+import { readSessionCookie } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 
 export function createProfileSwitchRoutes(ctx: AuthRouteContext) {
-  const { auth, run, handleError, rateLimit, socketIpOf, rl } = ctx;
+  const { auth, run, handleError, rateLimit, socketIpOf, rl, cookieConfig } = ctx;
   return (
     new Elysia()
       // -------------------------------------------------------------------------
@@ -67,7 +68,18 @@ export function createProfileSwitchRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            const result = await run(auth.switchProfile(profile.accountId, body.profile_id));
+            // The new access token keeps the caller bound to the same
+            // session under the new profile. The cookie is the cheap path
+            // (membership test, no per-session derivation); the `osn_sid`
+            // binding covers cookieless callers.
+            const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
+            const result = await run(
+              auth.switchProfile(profile.accountId, body.profile_id, {
+                profileId: claims.profileId,
+                sessionBinding: claims.sessionBinding,
+                cookieSessionHash: cookieToken ? auth.hashSessionToken(cookieToken) : null,
+              }),
+            );
             return {
               access_token: result.accessToken,
               expires_in: result.expiresIn,

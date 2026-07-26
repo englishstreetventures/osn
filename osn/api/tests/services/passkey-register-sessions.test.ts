@@ -78,10 +78,46 @@ describe("O4 completePasskeyRegistration session invalidation", () => {
       yield* auth.completePasskeyRegistration(
         alice.accountId,
         fakeAttestation(),
-        current.refreshToken,
+        auth.hashSessionToken(current.refreshToken),
       );
 
       // Caller session survives; the other session is revoked (H1).
+      yield* auth.verifyRefreshToken(current.refreshToken);
+      const err = yield* Effect.flip(auth.verifyRefreshToken(other.refreshToken));
+      expect(err._tag).toBe("AuthError");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // The Bearer-only enrolment: no cookie reaches us, so the route resolves
+  // the caller's session from the access token's `osn_sid` binding and hands the
+  // hash straight in. That caller must survive H1 just like the cookie one.
+  it.effect("cookieless but sid-bound: keeps the caller, revokes other sessions", () =>
+    Effect.gen(function* () {
+      const dave = yield* auth.registerProfile("pkreg-sid@example.com", "pkregsid");
+      const current = yield* auth.issueTokens(
+        dave.id,
+        dave.accountId,
+        dave.email,
+        dave.handle,
+        dave.displayName,
+      );
+      const other = yield* auth.issueTokens(
+        dave.id,
+        dave.accountId,
+        dave.email,
+        dave.handle,
+        dave.displayName,
+      );
+      const claims = yield* auth.verifyAccessToken(current.accessToken);
+      // Exactly what the route does on a cookieless call.
+      const callerHash = yield* auth.resolveCallerSession(dave.accountId, dave.id, {
+        cookieSessionHash: null,
+        sessionBinding: claims.sessionBinding,
+      });
+
+      yield* auth.beginPasskeyRegistration(dave.accountId);
+      yield* auth.completePasskeyRegistration(dave.accountId, fakeAttestation(), callerHash);
+
       yield* auth.verifyRefreshToken(current.refreshToken);
       const err = yield* Effect.flip(auth.verifyRefreshToken(other.refreshToken));
       expect(err._tag).toBe("AuthError");

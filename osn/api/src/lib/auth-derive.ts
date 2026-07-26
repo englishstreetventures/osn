@@ -16,6 +16,8 @@ export async function resolveAccessTokenPrincipal(
   email: string;
   handle: string;
   displayName: string | null;
+  /** `osn_sid` — one-way binding to the session this token was minted from. */
+  sessionBinding: string | null;
 } | null> {
   if (!authHeader || !/^Bearer\s+/i.test(authHeader)) return null;
   const token = authHeader.replace(/^Bearer\s+/i, "");

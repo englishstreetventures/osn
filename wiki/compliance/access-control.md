@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[cire-auth]]"
   - "[[cire]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-26
 ---
 
 # Access Control
@@ -23,7 +23,7 @@ Already strong; documented elsewhere.
 | Surface | Mechanism | Page |
 |---|---|---|
 | Account login | Passkey-primary (WebAuthn `userVerification: "required"`) | [[passkey-primary]] |
-| API access | ES256 access tokens, 5 min TTL, JWKS-verified | [[identity-model]] |
+| API access | ES256 access tokens, 5 min TTL, JWKS-verified. Carries `osn_sid`, a one-way per-profile binding to the session it was minted from, so a cookieless caller can still name its own session on the paths that revoke all the others | [[identity-model]], [[sessions]] |
 | Sensitive ops | Step-up tokens (`aud: "osn-step-up"`, single-use JTI) | [[step-up]] |
 | Recovery | 64-bit single-use codes (Copenhagen Book M2) | [[recovery-codes]] |
 | Service-to-service | ARC tokens (ES256, scoped, kid-pinned, revocable, scope-validated on cache hit) | [[arc-tokens]] |

@@ -95,7 +95,7 @@ describe("passkey management routes", () => {
       return step_up_token;
     };
 
-    return { app: appWithOtp, accessToken, profile, mintOtpStepUp };
+    return { app: appWithOtp, accessToken, tokens, profile, mintOtpStepUp };
   }
 
   async function seedPasskey(accountId: string, label: string | null = null) {
@@ -257,6 +257,49 @@ describe("passkey management routes", () => {
       const json = (await res.json()) as { success?: boolean; remaining?: number };
       expect(json.success).toBe(true);
       expect(json.remaining).toBe(1);
+    });
+
+    // S-L3: a Bearer-only delete (no session cookie) must still identify the
+    // caller's own session, via the access token's `osn_sid` binding. Before that
+    // fallback existed this branch nuked EVERY session on the account — the
+    // caller logged themselves out of every device by removing a passkey.
+    it("keeps the caller's session and revokes the others without a cookie", async () => {
+      const { app: verifiedApp, accessToken, tokens, profile, mintOtpStepUp } = await setupStepUp();
+      const other = await Effect.runPromise(
+        svc
+          .issueTokens(
+            profile.id,
+            profile.accountId,
+            profile.email,
+            profile.handle,
+            profile.displayName,
+          )
+          .pipe(Effect.provide(layer)),
+      );
+      const pk = await seedPasskey(profile.accountId);
+      await seedPasskey(profile.accountId);
+      const stepUp = await mintOtpStepUp();
+
+      const res = await verifiedApp.handle(
+        new Request(`http://localhost/passkeys/${pk}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "X-Step-Up-Token": stepUp,
+          },
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      // The caller's session — named only by `osn_sid` — survives.
+      await Effect.runPromise(
+        svc.verifyRefreshToken(tokens.refreshToken).pipe(Effect.provide(layer)),
+      );
+      // Every other session on the account is gone (H1).
+      const err = await Effect.runPromise(
+        Effect.flip(svc.verifyRefreshToken(other.refreshToken)).pipe(Effect.provide(layer)),
+      );
+      expect(err._tag).toBe("AuthError");
     });
 
     // S-L4: default config rejects OTP step-up for delete. The dedicated

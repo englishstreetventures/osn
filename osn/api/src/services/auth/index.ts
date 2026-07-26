@@ -83,7 +83,7 @@ export function createAuthService(config: AuthConfig) {
   const stepUp = createStepUpModule(ctx);
   const securityEvents = createSecurityEventsModule(ctx, stepUp);
   const registration = createRegistrationModule(ctx, profiles, tokens);
-  const profileSwitch = createProfileSwitchModule(ctx, profiles, tokens);
+  const profileSwitch = createProfileSwitchModule(ctx, profiles, tokens, sessions);
   const passkeys = createPasskeysModule(ctx, profiles, tokens, sessions, stepUp, securityEvents);
   const passkeyManagement = createPasskeyManagementModule(ctx, sessions, securityEvents);
   const recovery = createRecoveryModule(ctx, profiles, tokens);
@@ -117,6 +117,8 @@ export function createAuthService(config: AuthConfig) {
     renamePasskey: passkeyManagement.renamePasskey,
     deletePasskey: passkeyManagement.deletePasskey,
     invalidateSession: sessions.invalidateSession,
+    resolveSessionByBinding: sessions.resolveSessionByBinding,
+    resolveCallerSession: sessions.resolveCallerSession,
     invalidateAccountSessions: sessions.invalidateAccountSessions,
     invalidateOtherAccountSessions: sessions.invalidateOtherAccountSessions,
     generateRecoveryCodesForAccount: recovery.generateRecoveryCodesForAccount,

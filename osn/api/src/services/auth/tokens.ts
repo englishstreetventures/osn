@@ -21,7 +21,14 @@ import {
 import { LAST_USED_AT_COALESCE_MS, MAX_SESSIONS_PER_ACCOUNT, ROTATION_GRACE_MS } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, DatabaseError } from "./errors";
-import { generateSessionToken, genId, hashSessionToken, signJwt, verifyJwt } from "./helpers";
+import {
+  deriveSessionBinding,
+  generateSessionToken,
+  genId,
+  hashSessionToken,
+  signJwt,
+  verifyJwt,
+} from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import type { SessionMeta, TokenSet } from "./types";
 
@@ -55,6 +62,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     email: string,
     handle: string,
     displayName: string | null,
+    sessionBinding?: string | null,
   ) =>
     Effect.tryPromise({
       try: () => {
@@ -73,6 +81,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
           scope: "openid profile",
         };
         if (displayName !== null) payload["displayName"] = displayName;
+        // S-L3: session binding. One-way, per-profile (see
+        // `deriveSessionBinding`) — lets a Bearer-only caller be matched to
+        // its own session row without a cookie and without leaking either
+        // the session id or the account behind the profile.
+        if (sessionBinding) payload["osn_sid"] = sessionBinding;
         return signJwt(
           payload,
           config.jwtPrivateKey,
@@ -104,11 +117,18 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     sessionMeta?: SessionMeta,
   ): Effect.Effect<TokenSet, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const accessToken = yield* issueAccessToken(profileId, email, handle, displayName);
-
-      // Generate opaque session token + store SHA-256 hash in DB
+      // Generate opaque session token + store SHA-256 hash in DB. This runs
+      // BEFORE the access token is signed: the JWT carries a binding to the
+      // session it was minted from (`osn_sid`).
       const sessionToken = generateSessionToken();
       const sessionId = hashSessionToken(sessionToken);
+      const accessToken = yield* issueAccessToken(
+        profileId,
+        email,
+        handle,
+        displayName,
+        deriveSessionBinding(sessionId, profileId),
+      );
       const nowSec = Math.floor(Date.now() / 1000);
       const fam = familyId ?? genId("sfam_");
 
@@ -436,18 +456,21 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
 
+      // Rotate: delete old session, insert new one in the same family,
+      // preserving the old session's metadata (UA label + IP hash) so the
+      // device keeps its identity across rotations. The new session id is
+      // minted first so the access token binds to the session the caller
+      // will actually hold after this grant, not the one being rotated out.
+      const newSessionToken = generateSessionToken();
+      const newSessionId = hashSessionToken(newSessionToken);
+
       const accessToken = yield* issueAccessToken(
         profile.id,
         profile.email,
         profile.handle,
         profile.displayName,
+        deriveSessionBinding(newSessionId, profile.id),
       );
-
-      // Rotate: delete old session, insert new one in the same family,
-      // preserving the old session's metadata (UA label + IP hash) so the
-      // device keeps its identity across rotations.
-      const newSessionToken = generateSessionToken();
-      const newSessionId = hashSessionToken(newSessionToken);
       const nowSec = Math.floor(Date.now() / 1000);
 
       const { db } = yield* Db;
@@ -523,7 +546,13 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   const verifyAccessToken = (
     token: string,
   ): Effect.Effect<
-    { profileId: string; email: string; handle: string; displayName: string | null },
+    {
+      profileId: string;
+      email: string;
+      handle: string;
+      displayName: string | null;
+      sessionBinding: string | null;
+    },
     AuthError
   > =>
     Effect.gen(function* () {
@@ -547,6 +576,10 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         email: payload["email"],
         handle: payload["handle"],
         displayName: typeof payload["displayName"] === "string" ? payload["displayName"] : null,
+        // Absent on tokens minted before this claim existed, and on any
+        // future path that mints one outside a session. Callers must treat
+        // null as "session unknown", never as "no session".
+        sessionBinding: typeof payload["osn_sid"] === "string" ? payload["osn_sid"] : null,
       };
     });
 

@@ -149,6 +149,30 @@ export function hashSessionToken(token: string): string {
 }
 
 /**
+ * Session binding for an access token (the `osn_sid` claim). Ties a minted
+ * access token back to the session row it came from, so a Bearer-only
+ * caller (no cookie — cross-origin fetch, a proxy that strips it, a native
+ * client) can still be recognised as "this session" server-side.
+ *
+ * Two properties matter:
+ *
+ * 1. **One-way.** `sessionHash` is itself the SHA-256 of a 160-bit random
+ *    token, so a leaked `osn_sid` yields nothing usable — it can't be turned
+ *    back into a session id, let alone the token.
+ * 2. **Per-profile.** The profile id is mixed in, so the same session seen
+ *    through two profiles of one account produces two unrelated values.
+ *    Without that, `osn_sid` would re-introduce exactly the cross-profile
+ *    correlation the P6 invariant keeps `accountId` out of the token for.
+ *
+ * The server recognises a `osn_sid` by recomputing it over the account's
+ * session rows (bounded by MAX_SESSIONS_PER_ACCOUNT) — no reverse lookup.
+ * 128 bits is ample for matching within one account's session list.
+ */
+export function deriveSessionBinding(sessionHash: string, profileId: string): string {
+  return createHash("sha256").update(`${sessionHash}:${profileId}`).digest("hex").slice(0, 32);
+}
+
+/**
  * Public revocation handle for a session — first 16 hex chars of the
  * SHA-256 hash. 64 bits of collision resistance within a single account's
  * session list is more than enough; exposing the full hash would let a

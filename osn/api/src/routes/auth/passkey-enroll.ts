@@ -93,12 +93,24 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
+            // Identify the caller's own session so H1 invalidation spares it.
+            // The cookie is the cheap path but only counts when it names a
+            // live row; otherwise fall back to the access token's `osn_sid`
+            // binding. Without that fallback a cookieless — but fully
+            // authenticated — enrolment took the O4 branch and logged the
+            // account out of every device.
             const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
+            const callerSessionHash = await run(
+              auth.resolveCallerSession(principal.accountId, principal.profileId, {
+                cookieSessionHash: cookieToken ? auth.hashSessionToken(cookieToken) : null,
+                sessionBinding: principal.sessionBinding,
+              }),
+            );
             const result = await run(
               auth.completePasskeyRegistration(
                 principal.accountId,
                 body.attestation,
-                cookieToken,
+                callerSessionHash,
                 sessionMetaFrom(headers, socketIpOf({ server, request })),
               ),
             );
