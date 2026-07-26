@@ -1,0 +1,14 @@
+/*
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# Framing is the one thing a consent screen must never allow, so it is covered
+# twice (frame-ancestors + X-Frame-Options).
+#
+# No script-src/connect-src yet, for the same reason cire/organiser has none:
+# the app talks to the OSN issuer, whose origin differs per environment, and a
+# wrong connect-src breaks sign-in outright. Building the policy from
+# VITE_OSN_ISSUER_URL is tracked as S-L3 in wiki/TODO.md.

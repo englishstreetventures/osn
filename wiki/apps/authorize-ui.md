@@ -2,7 +2,7 @@
 title: Authorize UI (OIDC consent screen)
 description: Spec for the interaction surface behind /authorize — sign-in handoff, profile picker, consent, and the login_required retry loop
 tags: [app, identity, oidc, spec]
-status: planned
+status: active
 packages:
   - "@osn/social"
 related:
@@ -11,18 +11,24 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[sessions]]"
-last-reviewed: 2026-07-24
+  - "[[musubi-identity-migration]]"
+last-reviewed: 2026-07-26
 ---
 
 # Authorize UI — the OIDC consent screen
 
-The one page the OIDC provider still lacks. Everything behind it already
-exists and is hardened: `/authorize` parks the request and redirects here;
-this page reads it back, walks the user through sign-in / profile choice /
-consent, posts the decision, and navigates to wherever the provider says.
-This spec is written so the page can be built without re-deriving any
-server contract — every rule below is enforced server-side already and has
-test coverage in `osn/api/tests/routes/oidc.test.ts`.
+`/authorize` parks the request and redirects here; this page reads it back,
+walks the user through sign-in / profile choice / consent, posts the
+decision, and navigates to wherever the provider says. Every rule below is
+enforced server-side as well, with test coverage in
+`osn/api/tests/routes/oidc.test.ts`.
+
+**Built 2026-07-26.** The page lives at `osn/social/src/pages/AuthorizePage.tsx`
+and talks to the provider through `createAuthorizeClient` in
+`osn/client/src/authorize.ts`. Tests: `osn/social/tests/components/AuthorizePage.test.tsx`
+and `osn/client/tests/authorize.test.ts`. The only step left is
+deployment — set `OSN_AUTHORIZE_UI_URL` on osn-api once `@osn/social` is
+served from the identity domain.
 
 ## Where it lives
 
@@ -124,14 +130,50 @@ short-circuits consent), so state 4's copy can assume a third party.
 
 ## Build order (estimate: one focused PR)
 
-1. Route + loading/expired/signed-out states wired to `<SignIn>` (the
-   components exist in `@osn/ui`; this is assembly).
-2. Consent card + scope humanisation + decision POST + redirect.
-3. Profile picker (only sequenced last because single-profile accounts —
-   the common case — never see it; states 1–2 alone ship a working flow).
+1. ~~Route + loading/expired/signed-out states wired to `<SignIn>`~~ — done.
+2. ~~Consent card + scope humanisation + decision POST + redirect~~ — done.
+3. ~~Profile picker~~ — done. It only leads when there is a real choice:
+   two or more profiles, and either `reason=select_account` or the client
+   has never seen any of them. Single-profile accounts never see it.
 4. Set `OSN_AUTHORIZE_UI_URL` in prod vars; smoke: full authorize →
    consent → token round-trip against a self-registered client
    (`POST /oidc/clients` makes this testable without an operator).
+   **Still open** — waits on `@osn/social` being served from the identity
+   domain; see [[musubi-identity-migration]].
+
+### What the build settled
+
+- The page is served on a bare layout — no sidebar, nothing to click but
+  the decision itself — via a route allow-list in `osn/social/src/App.tsx`.
+- `invalid_client` arrives from the decision route as **401**, not 400
+  (`set.status = oidc.code === "invalid_client" ? 401 : 400`). The client
+  branches on the `error` code, never the status.
+- `login_required` and `unauthorized` hold the user's answer, re-run
+  `<SignIn>`, refetch context and replay the answer against the **same**
+  request id. Only `invalid_request` and `invalid_client` are terminal.
+- The replay is **reconciled first**. A re-authentication can land on a
+  different account, so the page compares the profile set before and after:
+  same set, replay the held answer; different set, drop it, clear the chosen
+  profile and say so. Otherwise one person's "Allow" could be spent by
+  whoever signed in second.
+- `reason=login` (the server's `prompt=login` / `max_age` path) puts the
+  ceremony **before** the decision, even when the browser already has a
+  session. The page tracks whether the ceremony happened *here*; a session
+  the relying party has already rejected is not enough to show Allow.
+- A failed context read that is not terminal — a 429, a dropped connection —
+  gets its own screen with the message and a retry, not an endless spinner.
+- The page runs **outside `AuthProvider`**. Mounting it calls `POST /token`,
+  which *rotates* the refresh session, and then lists profiles the page never
+  reads: `GET /authorize/context` already carries the session state and the
+  profiles. `<SignIn>` needs the provider, so the provider moved into
+  `AuthorizeSignIn`, a `lazy()` island that loads only when a ceremony is
+  actually required. The signed-in path — the common one — touches neither.
+- A logo URL from the client record is untrusted input: it is rendered as
+  an `<img src>` through `safeAvatarUrl` with `referrerpolicy="no-referrer"`
+  and nowhere else.
+- `osn/social/public/_headers` carries `frame-ancestors 'none'`,
+  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and
+  `Referrer-Policy: strict-origin-when-cross-origin`.
 
 ## Open questions (decide at build time, none block starting)
 

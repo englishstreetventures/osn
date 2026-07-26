@@ -12,7 +12,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-26
 ---
 
 # Social
@@ -39,6 +39,10 @@ No Tauri wrapper yet — the app ships as a web build only. Tauri wrapping is tr
 | `/organisations` | `OrganisationsPage` | Orgs the user owns or belongs to; create new |
 | `/organisations/:id` | `OrgDetailPage` | Org detail + member management |
 | `/settings` | `SettingsPage` | Profile / Account / **Security** (passkey add/rename/delete, step-up gated) / Connected apps tabs. The Security tab is lazy-loaded (`SecuritySection` chunk) so `@simplewebauthn/browser` only ships when opened. |
+| `/authorize` | `AuthorizePage` | The OIDC consent screen — another app asking to sign the user in with their OSN account. Lazy-loaded, and the one route on a **bare layout**: no sidebar, nothing to click but the decision. Full contract in [[authorize-ui]]. |
+
+`BARE_ROUTES` in `src/App.tsx` is the allow-list that strips the sidebar. Add
+a route there only when leaving the flow would be a security problem.
 
 ## Client surface
 
@@ -66,6 +70,12 @@ Environment variables (all prefixed `VITE_`):
 
 Uses `AuthProvider` from `@osn/client/solid` with the standard OSN passkey-primary login model — see [[passkey-primary]]. Access tokens live in `localStorage` (the only auth secret there after Copenhagen Book C3); the refresh token lives in an HttpOnly cookie. `OsnAuthService.authFetch` handles silent refresh on 401. A "Lost your passkey?" link routes to the recovery-code login form.
 
+## Response headers
+
+`osn/social/public/_headers` is served by Pages on every path: `frame-ancestors 'none'`
+plus `X-Frame-Options: DENY` (a consent screen must never be framed),
+`X-Content-Type-Options: nosniff`, and `Referrer-Policy: strict-origin-when-cross-origin`.
+
 ## Rate limits
 
 Per-user Redis-backed limiter on the recommendations endpoint (20 req/min, fail-closed) — see `[[rate-limiting]]` and `createRedisRecommendationRateLimiter` in `@osn/api`.
@@ -73,3 +83,5 @@ Per-user Redis-backed limiter on the recommendations endpoint (20 req/min, fail-
 ## Testing
 
 `osn/social/tests/` covers the sidebar mount path under `AuthContext` + `MemoryRouter` using `@solidjs/testing-library` + `happy-dom`. The tests do not assert the full open-and-click interaction for the Kobalte dropdown: Kobalte's trigger relies on pointer-capture behaviour that happy-dom does not reproduce.
+
+`tests/components/AuthorizePage.test.tsx` drives the consent screen the same way, with the authorize client mocked and `location.assign` stubbed: a malformed request id never reaches the API, a 404 is terminal, the decision carries the chosen profile, `login_required` keeps the request alive, and `invalid_client` ends the flow naming the app.

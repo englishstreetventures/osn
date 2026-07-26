@@ -7,7 +7,7 @@ related:
   - "[[sessions]]"
   - "[[step-up]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-07-24
+last-reviewed: 2026-07-26
 ---
 
 # OIDC provider
@@ -173,5 +173,6 @@ The issuer string is an identifier, not branding. Moving the provider to a prett
 
 - **`/userinfo`** — the ID token carries what clients need for now.
 - **`offline_access`** — third parties get no refresh token, so a long-lived integration must send the user through `/authorize` again.
-- **The consent screen itself** — the endpoints behind it exist (context, decision, connections); the page does not. **Full build-ready spec: [[authorize-ui]]** — states, exhaustive decision-error handling (incl. the `login_required` retry loop), and the rules the page must not break.
 - **The apex worker** serving `/.well-known/webauthn`, `apple-app-site-association` and `assetlinks.json`. Blocked on the identity domain being bought. That is layers 2 and 3; layer 0 works without it.
+
+The consent screen is built (2026-07-26): `/authorize` in `@osn/social` — see [[authorize-ui]]. It is not reachable in production yet; set `OSN_AUTHORIZE_UI_URL` once `@osn/social` is served from the identity domain.
