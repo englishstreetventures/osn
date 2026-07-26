@@ -47,7 +47,7 @@ packages:
   - "@shared/redis"
   - "@shared/turnstile"
   - "@shared/typescript-config"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-26
 ---
 
 # Monorepo Structure
@@ -95,7 +95,7 @@ cire/
   landing/             # @cire/landing — Astro + Solid marketing site for the apex (port 4323; prod cireweddings.com)
 shared/
   crypto/              # @shared/crypto — ARC tokens (S2S), recovery codes; Signal Protocol pending
-  db-utils/            # @shared/db-utils — createDrizzleClient, makeDbLive, commitBatch
+  db-utils/            # @shared/db-utils — createDrizzleClient, makeDbLive, commitBatch, rowsChanged
   email/               # @shared/email — EmailService Tag: Resend / Cloudflare / Log / Noop transports
   feature-flags/       # @shared/feature-flags — key-optional, fail-safe GrowthBook flag client
   observability/       # @shared/observability — OTel logger / tracer / metric helpers, Elysia plugin, instrumentedFetch

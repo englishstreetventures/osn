@@ -19,6 +19,7 @@
  * are enforced upstream (Task 8).
  */
 import { directoryVendorCategories, directoryVendors, vendorClaims, vendors } from "@cire/db";
+import { rowsChanged } from "@shared/db-utils";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
@@ -615,15 +616,8 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
         // two writes leaves the token consumed-but-unbound (safe — a new invite
         // is needed) rather than bound-but-reusable (unsafe).
         //
-        // `rowsChanged` normalises the run-result across drivers:
-        //   bun:sqlite  → `{ changes: number }`
-        //   Cloudflare D1 → `{ meta: { changes: number } }`
-        function rowsChanged(result: unknown): number {
-          if (typeof result !== "object" || result === null) return 0;
-          const r = result as { changes?: number; meta?: { changes?: number } };
-          return r.meta?.changes ?? r.changes ?? 0;
-        }
-
+        // `rowsChanged` normalises the run-result across drivers — read it
+        // through nothing else, or the gate inverts on D1.
         const burnResult = yield* dbQuery(() =>
           db
             .update(vendorClaims)

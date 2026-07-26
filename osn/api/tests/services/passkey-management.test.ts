@@ -28,6 +28,69 @@ function makeEmailCapture() {
 }
 
 /**
+ * Wrap a drizzle query builder so the value it finally resolves to passes
+ * through `reshape`. Builders are themselves thenable and chain by returning
+ * more builders, so we proxy every method — and intercept `then`, which is the
+ * one point where the driver's raw result surfaces.
+ */
+function wrapChain(node: object, reshape: (real: unknown) => unknown): object {
+  return new Proxy(node, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value !== "function") return value;
+      if (prop === "then") {
+        return (onFulfilled?: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
+          (value as (...a: unknown[]) => unknown).call(
+            target,
+            (real: unknown) => {
+              const shaped = reshape(real);
+              return onFulfilled ? onFulfilled(shaped) : shaped;
+            },
+            onRejected,
+          );
+      }
+      return (...args: unknown[]) => {
+        const out = (value as (...a: unknown[]) => unknown).apply(target, args);
+        return out !== null && typeof out === "object" ? wrapChain(out, reshape) : out;
+      };
+    },
+  });
+}
+
+/**
+ * A test layer whose UPDATEs report their row count the way Cloudflare D1
+ * does — under `meta.changes`, with no top-level `changes` / `rowsAffected`.
+ * Everything else runs for real against the in-memory SQLite.
+ */
+function makeD1ShapedUpdateLayer() {
+  const base = createTestLayer();
+  const real = Effect.runSync(
+    Effect.provide(
+      Effect.gen(function* () {
+        return yield* Db;
+      }),
+      base,
+    ),
+  ).db;
+  const reshape = (result: unknown) => ({
+    success: true,
+    meta: { changes: (result as { changes?: number }).changes ?? 0, duration: 0.1 },
+    results: [],
+  });
+  const proxied = new Proxy(real as object, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (prop === "update" && typeof value === "function") {
+        return (...args: unknown[]) =>
+          wrapChain((value as (...a: unknown[]) => object).apply(target, args), reshape);
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as typeof real;
+  return Layer.merge(Layer.succeed(Db, { db: proxied }), makeLogEmailLive().layer);
+}
+
+/**
  * Passkey management service tests (M-PK):
  *   • list returns a public-safe shape (no publicKey / counter).
  *   • rename enforces label validation + scoping.
@@ -146,6 +209,32 @@ describe("renamePasskey", () => {
       const err = yield* Effect.flip(auth.renamePasskey(alice.accountId, pkId, "x".repeat(65)));
       expect(err._tag).toBe("ValidationError");
     }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // Regression: the rows-updated gate must read D1's shape. Tests run on
+  // bun:sqlite (`{ changes }`), production runs on D1 (`{ meta: { changes } }`),
+  // so a reader that only knows the top-level field answered "Passkey not
+  // found" for every successful production rename.
+  it.effect("succeeds when the driver reports its count D1-style, under `meta.changes`", () =>
+    Effect.gen(function* () {
+      const alice = yield* auth.registerProfile("pk-rn-d1@example.com", "pkrnd1");
+      const pkId = yield* seedPasskey(alice.accountId, { label: null });
+      yield* auth.renamePasskey(alice.accountId, pkId, "Phone");
+      const { passkeys: rows } = yield* auth.listPasskeys(alice.accountId);
+      expect(rows[0]!.label).toBe("Phone");
+    }).pipe(Effect.provide(makeD1ShapedUpdateLayer())),
+  );
+
+  it.effect("still reports not-found when a D1-shaped update matches no row", () =>
+    Effect.gen(function* () {
+      const alice = yield* auth.registerProfile("pk-rn-d1-miss@example.com", "pkrnd1miss");
+      yield* seedPasskey(alice.accountId);
+      const err = yield* Effect.flip(
+        auth.renamePasskey(alice.accountId, "pk_ffffffffffff", "Nope"),
+      );
+      expect(err._tag).toBe("AuthError");
+      expect(err.message).toMatch(/Passkey not found/);
+    }).pipe(Effect.provide(makeD1ShapedUpdateLayer())),
   );
 });
 

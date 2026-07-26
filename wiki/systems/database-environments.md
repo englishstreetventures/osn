@@ -14,7 +14,7 @@ related:
   - "[[backend-patterns]]"
   - "[[schema-layers]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-26
 ---
 
 # Database Environments
@@ -59,6 +59,13 @@ bun:sqlite result is a harmless no-op; D1 returns a real Promise.
   layer, built per-isolate from `env.DB` inside the Workers entry.
 - `dbQuery(() => …)` — normalises a sync-or-Promise Drizzle result into an
   `Effect` (use `Effect.tryPromise` instead when you need a typed error).
+- `rowsChanged(result)` — how many rows a write touched. The drivers disagree
+  here too: bun:sqlite and better-sqlite3 answer `{ changes }`, libsql
+  `{ rowsAffected }`, D1 `{ success, meta: { changes } }`. Every rows-affected
+  check must go through this. Reading the top-level fields alone passes on the
+  bun:sqlite the tests run against and returns 0 for every write on D1, which
+  inverted two of `@osn/api`'s compare-and-swap gates in production — see
+  [[sessions]].
 
 ## Per-service wiring
 

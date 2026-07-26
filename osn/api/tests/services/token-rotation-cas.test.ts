@@ -53,7 +53,16 @@ import { createTestLayer } from "../helpers/db";
  * We build the underlying in-memory SQLite the same way `createTestLayer()`
  * does — reusing that layer's schema by extracting its `db`, then proxying it.
  */
-function makeCasLosingLayer() {
+function makeDeleteInterceptingLayer(
+  /**
+   * Rewrites the awaited result of an intercepted `db.delete(...)`. The real
+   * delete still runs — only what the caller reads back changes. `real` is the
+   * driver's own result (bun:sqlite's `{ changes }`).
+   */
+  reshape: (real: unknown) => unknown,
+  /** `"once"` intercepts only after `arm()`; `"always"` reshapes every delete. */
+  when: "once" | "always" = "once",
+) {
   // Borrow the fully-migrated in-memory DB from the shared helper so we don't
   // duplicate the CREATE TABLE DDL here.
   const baseLayer = createTestLayer();
@@ -71,7 +80,7 @@ function makeCasLosingLayer() {
   const realDb = realDbService.db;
 
   // Arm the interception for exactly one `db.delete(...)` call.
-  let armed = false;
+  let armed = when === "always";
   const arm = () => {
     armed = true;
   };
@@ -84,19 +93,18 @@ function makeCasLosingLayer() {
           // The real drizzle delete builder (thenable via `.where(...)`).
           const builder = (value as (...a: unknown[]) => unknown).apply(target, args);
           if (!armed) return builder;
-          armed = false;
+          if (when === "once") armed = false;
           // Wrap the builder so `.where(...)` executes the real delete (the
-          // row genuinely disappears) but the awaited result reports 0 rows —
-          // exactly the state a lost CAS observes.
+          // row genuinely disappears) but the awaited result is reshaped —
+          // either to 0 rows (a lost CAS) or to another driver's shape.
           return new Proxy(builder as object, {
             get(bt, bprop, br) {
               const bval = Reflect.get(bt, bprop, br);
               if (bprop === "where" && typeof bval === "function") {
                 return (...wargs: unknown[]) => {
-                  // Run the real delete to actually remove the row, then
-                  // resolve to changes: 0.
+                  // Run the real delete, then hand back the reshaped result.
                   const inner = (bval as (...a: unknown[]) => Promise<unknown>).apply(bt, wargs);
-                  return Promise.resolve(inner).then(() => ({ changes: 0, rowsAffected: 0 }));
+                  return Promise.resolve(inner).then(reshape);
                 };
               }
               return typeof bval === "function" ? bval.bind(bt) : bval;
@@ -111,6 +119,28 @@ function makeCasLosingLayer() {
   const dbLayer = Layer.succeed(Db, { db: proxiedDb });
   return { layer: Layer.merge(dbLayer, emailLayer), realDb, arm };
 }
+
+/** One delete reports 0 rows affected while genuinely removing the row. */
+const makeCasLosingLayer = () =>
+  makeDeleteInterceptingLayer(() => ({ changes: 0, rowsAffected: 0 }));
+
+/**
+ * Every delete reports its count the way Cloudflare D1 does — under
+ * `meta.changes`, with no top-level `changes` / `rowsAffected` at all. Tests
+ * run on bun:sqlite, production runs on D1, so without this the CAS gate can
+ * read `undefined ?? 0` in production and stay green here. It did: every
+ * production refresh deleted its session, skipped the insert, and returned
+ * `invalid_grant`.
+ */
+const makeD1ShapedLayer = () =>
+  makeDeleteInterceptingLayer(
+    (real) => ({
+      success: true,
+      meta: { changes: (real as { changes?: number }).changes ?? 0, duration: 0.1 },
+      results: [],
+    }),
+    "always",
+  );
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 
@@ -249,6 +279,50 @@ describe("refresh rotation CAS 0-rows → benign race (family preserved)", () =>
           familyRevokedSpy.mockRestore();
         }),
       ),
+    );
+  });
+
+  // Regression: the CAS must read D1's rows-affected shape. On D1 the delete
+  // result carries its count under `meta.changes`; a reader that only knows
+  // `changes` / `rowsAffected` sees `undefined` and treats every successful
+  // rotation as a lost race — deleting the session and failing the grant.
+  it.effect("reads D1's `meta.changes` shape — a real rotation is not mistaken for a race", () => {
+    const auth = createAuthService(config);
+    const rotationRaceSpy = vi.spyOn(metrics, "metricSessionRotationRace");
+    const { layer, realDb } = makeD1ShapedLayer();
+
+    return Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("d1-shape@example.com", "d1shape");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+
+      rotationRaceSpy.mockClear();
+
+      const refreshed = yield* auth.refreshTokens(tokens.refreshToken);
+      expect(refreshed.refreshToken).not.toBe(tokens.refreshToken);
+
+      // The rotation swapped one row for another — it did not leave the
+      // account session-less.
+      const after = yield* Effect.tryPromise(() =>
+        realDb.select().from(sessions).where(eq(sessions.accountId, profile.accountId)),
+      );
+      expect(after.length).toBe(1);
+
+      // And it was never counted as a race.
+      expect(rotationRaceSpy).not.toHaveBeenCalled();
+
+      // The new refresh token works too — proving the swap left a usable
+      // session, not just any row.
+      const again = yield* auth.refreshTokens(refreshed.refreshToken);
+      expect(again.refreshToken).not.toBe(refreshed.refreshToken);
+    }).pipe(
+      Effect.provide(layer),
+      Effect.ensuring(Effect.sync(() => rotationRaceSpy.mockRestore())),
     );
   });
 });

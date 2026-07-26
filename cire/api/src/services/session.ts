@@ -1,4 +1,5 @@
 import { sessions } from "@cire/db";
+import { rowsChanged } from "@shared/db-utils";
 import { eq, lte } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
@@ -14,16 +15,6 @@ export class SessionWriteError extends Data.TaggedError("SessionWriteError")<{
   op: "insert" | "delete" | "deleteAllForFamily" | "sweep";
   reason: string;
 }> {}
-
-/**
- * Rows changed by a Drizzle `.run()` write, normalised across drivers.
- * bun:sqlite returns `{ changes }`; Cloudflare D1 returns `{ meta: { changes } }`.
- */
-function rowsChanged(result: unknown): number {
-  if (typeof result !== "object" || result === null) return 0;
-  const r = result as { changes?: number; meta?: { changes?: number } };
-  return r.meta?.changes ?? r.changes ?? 0;
-}
 
 const DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60;
 

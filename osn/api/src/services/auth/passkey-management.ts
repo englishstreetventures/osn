@@ -7,7 +7,7 @@
 
 import { passkeys, securityEvents, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { commitBatch } from "@shared/db-utils";
+import { commitBatch, rowsChanged } from "@shared/db-utils";
 import { EmailService } from "@shared/email";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { Effect, Schema } from "effect";
@@ -106,13 +106,11 @@ export function createPasskeyManagementModule(
             .where(and(eq(passkeys.id, passkeyId), eq(passkeys.accountId, accountId))),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      // better-sqlite3 returns `{ changes }`, libsql returns `{ rowsAffected }`.
       // Treat 0 rows updated as not-found without leaking whether another
-      // account owns the id.
-      const affected =
-        (result as unknown as { changes?: number; rowsAffected?: number }).changes ??
-        (result as unknown as { changes?: number; rowsAffected?: number }).rowsAffected ??
-        0;
+      // account owns the id. Driver shapes differ — `rowsChanged` normalises
+      // them; reading only the top-level field made every production rename
+      // answer "Passkey not found" after a successful update.
+      const affected = rowsChanged(result);
       if (affected === 0) {
         return yield* Effect.fail(new AuthError({ message: "Passkey not found" }));
       }

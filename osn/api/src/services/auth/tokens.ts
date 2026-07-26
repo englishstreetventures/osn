@@ -5,6 +5,7 @@
 
 import { sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { rowsChanged } from "@shared/db-utils";
 import { desc, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -489,14 +490,16 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       // already rotated out (concurrent refresh or replay), which is treated as
       // C2 reuse: revoke the whole family instead of minting a sibling session.
       // Mirrors the recovery-code CAS already used in this service.
+      //
+      // Rows-affected goes through `rowsChanged` — D1 reports it under
+      // `meta.changes`, and reading only the top-level field made this gate
+      // read 0 for every grant in production (the DELETE had already run), so
+      // every refresh destroyed the session it was renewing.
       const delResult = yield* Effect.tryPromise({
         try: () => db.delete(sessions).where(eq(sessions.id, oldSessionId)),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      const rotated =
-        (delResult as unknown as { changes?: number; rowsAffected?: number }).changes ??
-        (delResult as unknown as { changes?: number; rowsAffected?: number }).rowsAffected ??
-        0;
+      const rotated = rowsChanged(delResult);
 
       if (rotated === 0) {
         // CAS lost: the row was PRESENT at verify but GONE by DELETE, so a

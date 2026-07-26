@@ -1,4 +1,5 @@
 import { events, families, guests, imports, rsvps } from "@cire/db";
+import { rowsChanged } from "@shared/db-utils";
 import { inArray, lt, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Data, Effect } from "effect";
@@ -44,16 +45,6 @@ export class RetentionWriteError extends Data.TaggedError("RetentionWriteError")
  * here (and the notice copy) to move the line. 365 days in milliseconds.
  */
 export const RETENTION_AFTER_FINAL_EVENT_MS = 365 * 24 * 60 * 60 * 1000;
-
-/**
- * Rows changed by a Drizzle `.run()` write, normalised across drivers.
- * bun:sqlite returns `{ changes }`; Cloudflare D1 returns `{ meta: { changes } }`.
- */
-function rowsChanged(result: unknown): number {
-  if (typeof result !== "object" || result === null) return 0;
-  const r = result as { changes?: number; meta?: { changes?: number } };
-  return r.meta?.changes ?? r.changes ?? 0;
-}
 
 /**
  * `events.end_at` is an ISO-8601 string that begins with a zero-padded
