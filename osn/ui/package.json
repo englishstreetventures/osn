@@ -15,6 +15,7 @@
     "./auth/PasskeysView": "./src/auth/PasskeysView.tsx",
     "./auth/ProfileOnboarding": "./src/auth/ProfileOnboarding.tsx",
     "./auth/ProfileSwitcher": "./src/auth/ProfileSwitcher.tsx",
+    "./auth/RecoveryCodesView": "./src/auth/RecoveryCodesView.tsx",
     "./lib/utils": "./src/lib/utils.ts",
     "./ui/avatar": "./src/components/ui/avatar.tsx",
     "./ui/badge": "./src/components/ui/badge.tsx",

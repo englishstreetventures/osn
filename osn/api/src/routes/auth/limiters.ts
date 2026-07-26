@@ -18,6 +18,8 @@ export type AuthRateLimiters = Readonly<{
   profileList: RateLimiterBackend;
   /** Recovery code generation (authenticated) — per-account quota. */
   recoveryGenerate: RateLimiterBackend;
+  /** Recovery code status (authenticated, settings read — mirrors sessionList). */
+  recoveryStatus: RateLimiterBackend;
   /** Recovery code login — per-IP quota, stricter than normal login completers. */
   recoveryComplete: RateLimiterBackend;
   /** Step-up passkey begin (authenticated, issues a challenge). */
@@ -113,6 +115,9 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     // relied on previously for S-M1). Keep a coarse per-IP throttle in
     // place so the endpoint isn't trivially floodable.
     recoveryGenerate: createRateLimiter({ maxRequests: 10, windowMs: 3_600_000 }),
+    // Read-only count, polled by the settings panel on mount and after every
+    // generate — same budget as the other authenticated listing surfaces.
+    recoveryStatus: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
     // Recovery login is an IP-side limit; the underlying DB hash comparison
     // is already constant-time, but per-IP throttling curbs online brute
     // force across different account identifiers.

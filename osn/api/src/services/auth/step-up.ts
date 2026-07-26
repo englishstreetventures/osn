@@ -411,12 +411,25 @@ export function createStepUpModule(ctx: AuthContext) {
       yield* verifyStepUpToken(stepUpToken, accountId, passkeyRegisterAllowedAmr);
     });
 
+  /**
+   * Step-up verifier for `POST /recovery/generate`.
+   *
+   * S-M1: requires the token's `purpose` claim to be `"recovery_generate"`.
+   * Generating burns the account's whole existing set, so a token minted for
+   * any other ceremony — an email change, a passkey delete — must not be
+   * replayable here.
+   */
   const verifyStepUpForRecoveryGenerate = (
     accountId: string,
     stepUpToken: string,
   ): Effect.Effect<void, AuthError> =>
     Effect.gen(function* () {
-      yield* verifyStepUpToken(stepUpToken, accountId, recoveryGenerateAllowedAmr);
+      yield* verifyStepUpToken(
+        stepUpToken,
+        accountId,
+        recoveryGenerateAllowedAmr,
+        "recovery_generate",
+      );
     });
 
   /**

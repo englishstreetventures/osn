@@ -443,10 +443,19 @@ export function createRecoveryModule(
       return { session, profile: toPublicProfile(profile, profile.email) };
     }).pipe(withAuthLogin("recovery_code"));
 
-  /** Returns the count of unused recovery codes for the account. */
+  /**
+   * Returns the count of unused recovery codes for the account, plus when the
+   * current set was minted (`generatedAt`, unix seconds, null when the account
+   * has never generated a set). Generation replaces the whole set atomically,
+   * so the newest `created_at` dates the set as a whole.
+   */
   const countActiveRecoveryCodes = (
     accountId: string,
-  ): Effect.Effect<{ active: number; total: number }, DatabaseError, Db> =>
+  ): Effect.Effect<
+    { active: number; total: number; generatedAt: number | null },
+    DatabaseError,
+    Db
+  > =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       // P-I1: SQL aggregate instead of SELECTing full rows (including the
@@ -457,13 +466,19 @@ export function createRecoveryModule(
             .select({
               active: sql<number>`sum(case when ${recoveryCodes.usedAt} is null then 1 else 0 end)`,
               total: sql<number>`count(*)`,
+              generatedAt: sql<number | null>`max(${recoveryCodes.createdAt})`,
             })
             .from(recoveryCodes)
             .where(eq(recoveryCodes.accountId, accountId)),
         catch: (cause) => new DatabaseError({ cause }),
       });
       // SUM over zero rows is NULL — coalesce both to 0 for empty accounts.
-      return { active: Number(rows[0]?.active ?? 0), total: Number(rows[0]?.total ?? 0) };
+      const generatedAt = rows[0]?.generatedAt;
+      return {
+        active: Number(rows[0]?.active ?? 0),
+        total: Number(rows[0]?.total ?? 0),
+        generatedAt: generatedAt == null ? null : Number(generatedAt),
+      };
     });
 
   return {

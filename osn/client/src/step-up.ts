@@ -29,6 +29,26 @@ export interface StepUpToken {
   expiresIn: number;
 }
 
+/**
+ * Ceremony a step-up token is minted for. The server stamps it into the
+ * token as a `purpose` claim, and gated endpoints that name a purpose
+ * reject tokens minted for any other one — so a token taken from an
+ * email-change flow cannot be replayed to burn recovery codes.
+ *
+ * Mirrors `StepUpPurpose` in `@shared/observability`; kept as a local
+ * literal union so the browser SDK stays free of a server-side dep.
+ */
+export type StepUpPurpose =
+  | "recovery_generate"
+  | "passkey_register"
+  | "passkey_delete"
+  | "email_change"
+  | "security_event_ack"
+  | "account_delete"
+  | "account_export"
+  | "pulse_app_delete"
+  | "zap_app_delete";
+
 export interface StepUpClient {
   /**
    * Fetch a WebAuthn assertion challenge scoped to the authenticated
@@ -36,10 +56,19 @@ export interface StepUpClient {
    * `options`, then calls `passkeyComplete`.
    */
   passkeyBegin(input: { accessToken: string }): Promise<{ options: unknown }>;
-  passkeyComplete(input: { accessToken: string; assertion: unknown }): Promise<StepUpToken>;
+  passkeyComplete(input: {
+    accessToken: string;
+    assertion: unknown;
+    /** Binds the minted token to one ceremony. Omit only for legacy gates. */
+    purpose?: StepUpPurpose;
+  }): Promise<StepUpToken>;
   /** Sends an OTP to the authenticated account's verified email. */
   otpBegin(input: { accessToken: string }): Promise<{ sent: true }>;
-  otpComplete(input: { accessToken: string; code: string }): Promise<StepUpToken>;
+  otpComplete(input: {
+    accessToken: string;
+    code: string;
+    purpose?: StepUpPurpose;
+  }): Promise<StepUpToken>;
 }
 
 async function postJson<T>(url: string, bearer: string, body: unknown): Promise<T> {
@@ -77,7 +106,9 @@ export function createStepUpClient(config: StepUpClientConfig): StepUpClient {
         await postJson<{ step_up_token: string; expires_in: number }>(
           `${base}/step-up/passkey/complete`,
           input.accessToken,
-          { assertion: input.assertion },
+          // `JSON.stringify` drops an undefined `purpose`, so an unbound
+          // ceremony still posts the legacy body shape.
+          { assertion: input.assertion, purpose: input.purpose },
         ),
       ),
     otpBegin: (input) =>
@@ -87,7 +118,7 @@ export function createStepUpClient(config: StepUpClientConfig): StepUpClient {
         await postJson<{ step_up_token: string; expires_in: number }>(
           `${base}/step-up/otp/complete`,
           input.accessToken,
-          { code: input.code },
+          { code: input.code, purpose: input.purpose },
         ),
       ),
   };

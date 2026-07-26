@@ -22,6 +22,7 @@ describe("createRedisAuthRateLimiters", () => {
       "profileSwitch",
       "profileList",
       "recoveryGenerate",
+      "recoveryStatus",
       "recoveryComplete",
       "stepUpPasskeyBegin",
       "stepUpPasskeyComplete",

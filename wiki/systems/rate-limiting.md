@@ -30,7 +30,7 @@ packages:
   - "@cire/api"
   - "@shared/rate-limit"
   - "@shared/redis"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-26
 ---
 
 # Rate Limiting
@@ -72,8 +72,8 @@ osn-api runs on Cloudflare Workers. The **60-second-window, per-IP auth limiters
 
 | Limiter group | Backend | Why |
 |---|---|---|
-| 60s-window per-IP auth limiters (register/login/passkey/step-up-complete/session/security-event/passkey-mgmt/cross-device — 25 endpoints) | **Native binding** | Brute-force-facing pre-auth throttles; the native binding's global+atomic edge enforcement beats the per-isolate in-memory fallback |
-| 1-hour-window per-IP limiters (`recoveryGenerate`, `recoveryComplete`, `emailChangeBegin`) | **Upstash** | The native binding only supports `period` 10 or 60s — 1-hour windows cannot move |
+| 60s-window per-IP auth limiters (register/login/passkey/step-up-complete/session/security-event/passkey-mgmt/cross-device/recovery-status/OIDC — 35 endpoints) | **Native binding** | Brute-force-facing pre-auth throttles; the native binding's global+atomic edge enforcement beats the per-isolate in-memory fallback |
+| 1-hour-window per-IP limiters (`recoveryGenerate`, `recoveryComplete`, `emailChangeBegin`, `oidcClientCreate`) | **Upstash** | The native binding only supports `period` 10 or 60s — 1-hour windows cannot move |
 | Per-user / per-account limiters (graph/org writes, recommendations, `profileSwitchCap`, `emailChangeBeginCap`) | **Upstash** | Keyed by user/account, not IP |
 | Stateful stores (recovery lockout, step-up JTI, rotated-session, ceremony stores) | **Upstash** | Need durable cross-isolate state |
 
@@ -134,7 +134,8 @@ Send `maxRequests + 1` requests and assert the last returns 429.
 | `/register/begin`, `/step-up/otp/begin`, `/account/email/begin` | 5 | OTP / email send — prevents email bombing |
 | `/register/complete`, `/login/passkey/begin`, `/login/passkey/complete`, `/passkey/register/{begin,complete}`, `/step-up/{passkey,otp}/complete`, `/account/email/complete`, `/handle/:handle` | 10 | Verify / complete — higher, to allow legitimate retries |
 | `/login/recovery/complete` | 5/hr | Brute-force defence on the lost-device escape hatch |
-| `/recovery/generate` | 1/day | Stop-gap for S-M1 — flood control on a destructive action |
+| `/recovery/generate` | 10/hr | Flood control on a destructive action — each call burns the previous set |
+| `GET /recovery/status` | 30 | Counts-only read; the settings panel polls it on mount and after each generate |
 | `PATCH /passkeys/:id` (rename) | 20 | Cheap settings action; label-only writes |
 | `DELETE /passkeys/:id` | 10 | Step-up is the primary gate; per-IP throttle is defence in depth |
 | `GET /passkeys` | 30 | Settings listing — cheap reads |

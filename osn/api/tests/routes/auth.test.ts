@@ -105,6 +105,8 @@ async function mintStepUp(
   freshApp: ReturnType<typeof createAuthRoutes>,
   accessToken: string,
   latestCode: () => string | undefined,
+  /** Binds the token to one gate — required by `/recovery/generate` (S-M1). */
+  purpose?: string,
 ): Promise<string> {
   await freshApp.handle(
     new Request("http://localhost/step-up/otp/begin", {
@@ -119,7 +121,7 @@ async function mintStepUp(
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ code: latestCode() }),
+      body: JSON.stringify({ code: latestCode(), purpose }),
     }),
   );
   const { step_up_token: stepUpToken } = (await stepUpRes.json()) as {
@@ -1603,7 +1605,7 @@ describe("auth routes", () => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${accessToken}`,
           },
-          body: JSON.stringify({ code: stepUpCode }),
+          body: JSON.stringify({ code: stepUpCode, purpose: "recovery_generate" }),
         }),
       );
       const stepUpJson = (await stepUpRes.json()) as { step_up_token: string };
@@ -1663,6 +1665,52 @@ describe("auth routes", () => {
       );
       expect(res.status).toBe(403);
       expect(((await res.json()) as { error: string }).error).toBe("step_up_required");
+    });
+
+    it("GET /recovery/status reports an empty set before any generate", async () => {
+      const { accessToken } = await registerForRecovery();
+      const res = await app.handle(
+        new Request("http://localhost/recovery/status", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ active: 0, total: 0, generatedAt: null });
+    });
+
+    it("GET /recovery/status counts the generated set and dates it", async () => {
+      const { accessToken, stepUpToken } = await registerForRecovery();
+      await app.handle(
+        new Request("http://localhost/recovery/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ step_up_token: stepUpToken }),
+        }),
+      );
+      const res = await app.handle(
+        new Request("http://localhost/recovery/status", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as {
+        active: number;
+        total: number;
+        generatedAt: number | null;
+      };
+      expect(json.active).toBe(10);
+      expect(json.total).toBe(10);
+      expect(json.generatedAt).toBeTypeOf("number");
+    });
+
+    // Counts only, no secret — but still the caller's own account, so an
+    // anonymous read must not resolve to anybody's numbers.
+    it("GET /recovery/status without an access token returns 401", async () => {
+      const res = await app.handle(new Request("http://localhost/recovery/status"));
+      expect(res.status).toBe(401);
     });
 
     it("POST /login/recovery/complete returns a session cookie on success", async () => {
@@ -1820,7 +1868,7 @@ describe("auth routes", () => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${accessToken}`,
           },
-          body: JSON.stringify({ code: captured.code }),
+          body: JSON.stringify({ code: captured.code, purpose: "recovery_generate" }),
         }),
       );
       expect(completeRes.status).toBe(200);
@@ -2184,7 +2232,7 @@ describe("auth routes", () => {
         session: { access_token: accessToken },
       } = (await completeRes.json()) as { session: { access_token: string } };
 
-      const stepUpToken = await mintStepUp(freshApp, accessToken, cap.code);
+      const stepUpToken = await mintStepUp(freshApp, accessToken, cap.code, "recovery_generate");
 
       // Generate recovery codes — this records the security_events row.
       await freshApp.handle(
@@ -2331,7 +2379,12 @@ describe("auth routes", () => {
       // Generate two more events so there are 3 unacked rows.
       for (const _ of [1, 2]) {
         // eslint-disable-next-line no-await-in-loop -- step-up OTP capture is sequential
-        const freshStepUp = await mintStepUp(freshApp, accessToken, latestCode);
+        const freshStepUp = await mintStepUp(
+          freshApp,
+          accessToken,
+          latestCode,
+          "recovery_generate",
+        );
         // eslint-disable-next-line no-await-in-loop -- each generate depends on the prior step-up mint
         await freshApp.handle(
           new Request("http://localhost/recovery/generate", {

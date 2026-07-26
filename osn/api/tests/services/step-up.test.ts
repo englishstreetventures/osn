@@ -55,7 +55,11 @@ describe("step-up OTP ceremony", () => {
       yield* auth.beginStepUpOtp(profile.accountId);
       expect(cap.latest()).toMatch(/^\d{6}$/);
 
-      const { stepUpToken } = yield* auth.completeStepUpOtp(profile.accountId, cap.latest()!);
+      const { stepUpToken } = yield* auth.completeStepUpOtp(
+        profile.accountId,
+        cap.latest()!,
+        "recovery_generate",
+      );
       expect(stepUpToken).toMatch(/^eyJ/);
 
       // Accepted by the /recovery/generate gate.
@@ -70,7 +74,11 @@ describe("step-up OTP ceremony", () => {
       const bob = yield* registered("su-cross-b@example.com", "sucrossb");
 
       yield* auth.beginStepUpOtp(alice.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(alice.accountId, cap.latest()!);
+      const { stepUpToken } = yield* auth.completeStepUpOtp(
+        alice.accountId,
+        cap.latest()!,
+        "recovery_generate",
+      );
 
       // Alice's token must NOT pass when Bob is the caller.
       const err = yield* Effect.flip(
@@ -85,7 +93,11 @@ describe("step-up OTP ceremony", () => {
     return Effect.gen(function* () {
       const profile = yield* registered("su-replay@example.com", "sureplay");
       yield* auth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(profile.accountId, cap.latest()!);
+      const { stepUpToken } = yield* auth.completeStepUpOtp(
+        profile.accountId,
+        cap.latest()!,
+        "recovery_generate",
+      );
 
       // First verification succeeds.
       yield* auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken);
@@ -117,7 +129,11 @@ describe("step-up OTP ceremony", () => {
         recoveryGenerateAllowedAmr: ["webauthn"],
       });
       yield* strictAuth.beginStepUpOtp(profile.accountId);
-      const { stepUpToken } = yield* strictAuth.completeStepUpOtp(profile.accountId, cap.latest()!);
+      const { stepUpToken } = yield* strictAuth.completeStepUpOtp(
+        profile.accountId,
+        cap.latest()!,
+        "recovery_generate",
+      );
       const err = yield* Effect.flip(
         strictAuth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
       );
@@ -177,9 +193,42 @@ describe("step-up OTP ceremony", () => {
 });
 
 // T-S1: account deletion is the highest-stakes step-up consumer (Flow A —
-// full account erasure) and had no direct coverage. Its verifier is the
-// only purpose-REQUIRING gate on the recovery-AMR allow-list, so pin both
-// directions of the S-C1 confused-deputy guard.
+// full account erasure) and had no direct coverage. It shares the recovery
+// AMR allow-list, so pin both directions of the S-C1 confused-deputy guard.
+// S-M1: generating burns the account's whole existing set, so the gate
+// requires a token minted for exactly that ceremony. Pin both directions.
+describe("verifyStepUpForRecoveryGenerate (S-M1 purpose binding)", () => {
+  it.effect("rejects a purposeless token", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const profile = yield* registered("su-rec-nop@example.com", "surecnop");
+      yield* auth.beginStepUpOtp(profile.accountId);
+      const { stepUpToken } = yield* auth.completeStepUpOtp(profile.accountId, cap.latest()!);
+      const err = yield* Effect.flip(
+        auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
+      );
+      expect(err._tag).toBe("AuthError");
+    }).pipe(Effect.provide(cap.layer));
+  });
+
+  it.effect("rejects a token minted for a different purpose", () => {
+    const cap = makeEmailCapture();
+    return Effect.gen(function* () {
+      const profile = yield* registered("su-rec-cross@example.com", "sureccross");
+      yield* auth.beginStepUpOtp(profile.accountId);
+      const { stepUpToken } = yield* auth.completeStepUpOtp(
+        profile.accountId,
+        cap.latest()!,
+        "email_change",
+      );
+      const err = yield* Effect.flip(
+        auth.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
+      );
+      expect(err._tag).toBe("AuthError");
+    }).pipe(Effect.provide(cap.layer));
+  });
+});
+
 describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
   it.effect("accepts a token minted with purpose account_delete", () => {
     const cap = makeEmailCapture();
@@ -200,8 +249,8 @@ describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
     return Effect.gen(function* () {
       const profile = yield* registered("su-del-noplan@example.com", "sudelnop");
       yield* auth.beginStepUpOtp(profile.accountId);
-      // Minted without a purpose — valid for recovery/passkey gates, but the
-      // account-delete verifier must refuse it.
+      // Minted without a purpose — still valid for the legacy passkey gates,
+      // but the account-delete verifier must refuse it.
       const { stepUpToken } = yield* auth.completeStepUpOtp(profile.accountId, cap.latest()!);
       const err = yield* Effect.flip(
         auth.verifyStepUpForAccountDelete(profile.accountId, stepUpToken),

@@ -226,6 +226,7 @@ export type AuthRateLimitedEndpoint =
   | "profile_delete"
   | "profile_set_default"
   | "recovery_generate"
+  | "recovery_status"
   | "recovery_complete"
   | "step_up_passkey_begin"
   | "step_up_passkey_complete"

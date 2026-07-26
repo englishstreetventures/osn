@@ -74,6 +74,7 @@ export const NATIVE_BINDING_FOR_AUTH_LIMITER = {
   stepUpPasskeyComplete: { tier: "RL_AUTH_IP_10_60", ns: "step_up_passkey_complete" },
   stepUpOtpBegin: { tier: "RL_AUTH_IP_5_60", ns: "step_up_otp_begin" },
   stepUpOtpComplete: { tier: "RL_AUTH_IP_10_60", ns: "step_up_otp_complete" },
+  recoveryStatus: { tier: "RL_AUTH_IP_30_60", ns: "recovery_status" },
   sessionList: { tier: "RL_AUTH_IP_30_60", ns: "session_list" },
   sessionRevoke: { tier: "RL_AUTH_IP_10_60", ns: "session_revoke" },
   emailChangeComplete: { tier: "RL_AUTH_IP_10_60", ns: "email_change_complete" },

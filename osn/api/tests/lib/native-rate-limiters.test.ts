@@ -34,6 +34,7 @@ function fallbackBundle(): AuthRateLimiters {
         "profileSwitch",
         "profileList",
         "recoveryGenerate",
+        "recoveryStatus",
         "recoveryComplete",
         "stepUpPasskeyBegin",
         "stepUpPasskeyComplete",

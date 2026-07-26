@@ -1,4 +1,4 @@
-import type { StepUpClient, StepUpToken } from "@osn/client";
+import type { StepUpClient, StepUpPurpose, StepUpToken } from "@osn/client";
 import { createSignal, onMount, Show } from "solid-js";
 
 import { Button } from "../components/ui/button";
@@ -40,6 +40,12 @@ export interface StepUpDialogProps {
    * auto-starts the passkey ceremony on mount and offers a retry on failure.
    */
   passkeyOnly?: boolean;
+  /**
+   * Ceremony the minted token is for. Endpoints that name a purpose reject
+   * tokens minted for a different one, so a token this dialog produces for
+   * one action can't be replayed at another.
+   */
+  purpose?: StepUpPurpose;
 }
 
 type Mode = "choose" | "passkey" | "otp";
@@ -70,6 +76,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
       const token = await props.client.passkeyComplete({
         accessToken: props.accessToken,
         assertion,
+        purpose: props.purpose,
       });
       props.onToken(token);
     } catch (e) {
@@ -103,6 +110,7 @@ export function StepUpDialog(props: StepUpDialogProps) {
       const token = await props.client.otpComplete({
         accessToken: props.accessToken,
         code: code(),
+        purpose: props.purpose,
       });
       props.onToken(token);
     } catch (e) {

@@ -1,6 +1,7 @@
-import { createPasskeysClient, createStepUpClient } from "@osn/client";
+import { createPasskeysClient, createRecoveryClient, createStepUpClient } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
-import { PasskeysView } from "@osn/ui/auth";
+import { PasskeysView } from "@osn/ui/auth/PasskeysView";
+import { RecoveryCodesView } from "@osn/ui/auth/RecoveryCodesView";
 import {
   browserSupportsWebAuthn,
   startAuthentication,
@@ -14,11 +15,14 @@ import { OSN_ISSUER_URL } from "../lib/osn";
 // rest of the portal authenticates against (id.cireweddings.com in prod).
 const passkeysClient = createPasskeysClient({ issuerUrl: OSN_ISSUER_URL });
 const stepUpClient = createStepUpClient({ issuerUrl: OSN_ISSUER_URL });
+const recoveryClient = createRecoveryClient({ issuerUrl: OSN_ISSUER_URL });
 
 /**
  * Security → Devices panel for the organiser portal. Renders the shared
  * `@osn/ui` `PasskeysView` so a signed-in organiser can list, rename, and
- * remove their passkeys, and enrol a new device.
+ * remove their passkeys, and enrol a new device — then `RecoveryCodesView`
+ * so they can mint the codes that get them back in when every one of those
+ * devices is gone.
  *
  * passkeyOnly is forced on: cire's osn-api deployment runs with
  * `OSN_EMAIL_OPTIONAL=true` (Cloudflare email is degraded), so the OTP
@@ -76,15 +80,37 @@ export default function SecurityPanel() {
           }
         >
           {(token) => (
-            <PasskeysView
-              client={passkeysClient}
-              stepUpClient={stepUpClient}
-              accessToken={token()}
-              profileId={activeProfileId() ?? undefined}
-              passkeyOnly
-              runPasskeyCeremony={runPasskeyCeremony}
-              runPasskeyRegistration={runPasskeyRegistration}
-            />
+            <div class="flex flex-col gap-8">
+              <PasskeysView
+                client={passkeysClient}
+                stepUpClient={stepUpClient}
+                accessToken={token()}
+                profileId={activeProfileId() ?? undefined}
+                passkeyOnly
+                runPasskeyCeremony={runPasskeyCeremony}
+                runPasskeyRegistration={runPasskeyRegistration}
+              />
+
+              <div class="border-text-muted/15 flex flex-col gap-4 border-t pt-8">
+                <div class="flex flex-col gap-1">
+                  <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">
+                    Backup
+                  </p>
+                  <h2 class="font-display text-[1.4rem]">Recovery codes</h2>
+                  <p class="font-body text-text-muted text-[0.88rem]">
+                    Keep a set somewhere away from your devices. If you lose every device that holds
+                    a passkey, a recovery code is the only way back into your account.
+                  </p>
+                </div>
+                <RecoveryCodesView
+                  client={recoveryClient}
+                  stepUpClient={stepUpClient}
+                  accessToken={token()}
+                  passkeyOnly
+                  runPasskeyCeremony={runPasskeyCeremony}
+                />
+              </div>
+            </div>
           )}
         </Show>
       </Show>

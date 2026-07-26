@@ -129,6 +129,7 @@ The review found these sound: the token-verification core (audience enforced ins
 - [x] Organisation frontend — standalone `@osn/social` app delivered (2026-04-16); Tauri wrapping deferred
 - [x] Merge `@osn/core` into `@osn/api`, move `@osn/crypto` → `@shared/crypto`; ARC audience updated `"osn-core"` → `"osn-api"`
 - [x] Step-up (sudo) tokens (M-PK1) — ES256 JWTs with `aud: "osn-step-up"`, passkey/OTP ceremonies, required on `/recovery/generate` + `/account/email/complete` — see [[step-up]]
+- [x] Recovery codes reach the user (2026-07-26) — `GET /recovery/status` (counts only, no step-up, `RL_AUTH_IP_30_60`, `no-store`), `@osn/client` now sends the step-up token on `POST /recovery/generate` (it posted an empty body before, so the call always answered 403), and that gate is pinned to `purpose: "recovery_generate"` so a token minted for another ceremony cannot be replayed against it. `RecoveryCodesView` mounts in `@osn/social` Settings → Security and in the cire organiser Security panel — until now it rendered nowhere, which is why no account had codes. See [[recovery-codes]], [[step-up]]
 - [x] Session introspection + per-device revocation — `GET /sessions`, `DELETE /sessions/:id`, `POST /sessions/revoke-all-other`, coarse UA labels, HMAC-peppered IP hash, `last_used_at` — see [[sessions]]
 - [x] Email-change ceremony — step-up gated, OTP to new address, transactional other-session revoke, 2-per-7-days cap, `email_changes` audit table
 - [x] Session + `AccountSession` types drop `refreshToken` — cookie-only first-party; `AccountSession.hasSession` replaces stored refresh token. `/logout` body no longer accepts `refresh_token`.
@@ -487,6 +488,8 @@ eligible under the Digital ID Act 2024.
 
 ### UI Components (`osn/ui`)
 
+- [x] `RecoveryCodesView` exported at `@osn/ui/auth/RecoveryCodesView` and mounted in both apps; `StepUpDialog` takes a `purpose` prop and forwards it to `/step-up/{passkey,otp}/complete` — see [[step-up]]
+- [ ] Loading skeleton for the recovery-codes status line — today the generate button is simply disabled until the first `GET /recovery/status` read settles, which reads as a dead button on a slow link. Cosmetic; do it when the panel next gets design attention — see [[recovery-codes]]
 - [ ] Design system / tokens
 - [ ] Button, Input, Card basics
 - [ ] Chat interface (shared between Pulse and Messaging)

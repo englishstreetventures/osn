@@ -73,7 +73,10 @@ describe("countActiveRecoveryCodes", () => {
       );
       yield* auth.consumeRecoveryCode("count-a@example.com", codes[0]!);
       const counts = yield* auth.countActiveRecoveryCodes(profile.accountId);
-      expect(counts).toEqual({ active: 9, total: 10 });
+      expect(counts.active).toBe(9);
+      expect(counts.total).toBe(10);
+      // max(created_at) over the current set — dates the set as a whole.
+      expect(counts.generatedAt).toBeTypeOf("number");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -85,7 +88,7 @@ describe("countActiveRecoveryCodes", () => {
         // No generateRecoveryCodesForAccount call — zero recovery_codes rows, so
         // the SQL SUM aggregate yields NULL and must coalesce to 0, not NaN.
         const counts = yield* auth.countActiveRecoveryCodes(profile.accountId);
-        expect(counts).toEqual({ active: 0, total: 0 });
+        expect(counts).toEqual({ active: 0, total: 0, generatedAt: null });
       }).pipe(Effect.provide(createTestLayer())),
   );
 });

@@ -5,13 +5,14 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
+  - "[[step-up]]"
 packages:
   - "@shared/crypto"
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
   - "@osn/ui"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-26
 updated: 2026-06-16
 ---
 
@@ -46,14 +47,29 @@ Migration: `osn/db/drizzle/0004_add_recovery_codes.sql`.
 ```
 POST /recovery/generate
   Authorization: Bearer <access_token>
-  Body: {}
+  Body: { step_up_token: "<jwt>" }   (or the x-step-up-token header)
   → 200 { recoveryCodes: [ "xxxx-xxxx-xxxx-xxxx", ... × 10 ] }
-  Rate limited: 1/day/IP (recoveryGenerate) — stop-gap for S-M1
+  → 403 { error: "step_up_required" }  when the token is missing or stale
+  Rate limited: 10/hour/IP (recoveryGenerate)
 ```
+
+Step-up gated (M-PK1): a stolen access token on its own must not be able to burn the account's codes. Run the ceremony first (`[[step-up]]`) and pass the token it mints. Allowed factors default to `["webauthn", "otp"]`.
+
+**Purpose-bound (S-M1).** The token must carry `purpose: "recovery_generate"`. Generating destroys the whole existing set, so a token minted for another ceremony — an email change, a passkey delete — must not be replayable here. Callers pass `purpose` to `/step-up/passkey/complete` or `/step-up/otp/complete`; a purposeless token is refused with `step_up_required`. See `[[step-up]]`.
 
 Wire field is `recoveryCodes` (not `codes`) so the redaction deny-list entry matches (S-L2). Emits `osn.auth.session.security_invalidation{trigger="recovery_code_generate"}` on every successful generate so out-of-band regeneration is visible in the existing session-invalidation dashboard.
 
 Regenerating atomically replaces any previous set — the transaction deletes the existing rows and inserts the new ones. The previous codes become permanently invalid.
+
+```
+GET /recovery/status
+  Authorization: Bearer <access_token>
+  → 200 { active: 7, total: 10, generatedAt: 1750000000 }
+  → 200 { active: 0, total: 0, generatedAt: null }   account has never generated
+  Rate limited: 30/min/IP (recoveryStatus)
+```
+
+**No step-up.** The response carries counts only, never a code, and gating it would be circular — this answer is what tells a user whether starting a ceremony is worth it. It is still account-scoped, so an anonymous read returns 401. `generatedAt` is `max(created_at)` over the set (unix seconds); generation replaces the whole set atomically, so the newest row dates the set as a whole.
 
 ```
 POST /login/recovery/complete
@@ -76,7 +92,7 @@ All failure modes — unknown identifier, bad code, used code — surface as `{ 
 - `generateRecoveryCodesForAccount(accountId, eventMeta?) → { recoveryCodes: string[] }` — transactional replace + insert. The optional `eventMeta` (UA label + IP) is persisted on the paired `security_events` audit row (see **Regeneration notification** below).
 - `consumeRecoveryCode(identifier, code) → { profile }` — verify, mark used, revoke sessions, return profile.
 - `completeRecoveryLogin(identifier, code) → { session, profile }` — `consumeRecoveryCode` + `issueTokens`, wrapped with the standard `withAuthLogin("recovery_code")` metric span.
-- `countActiveRecoveryCodes(accountId)` — helper for a "codes remaining" UI badge.
+- `countActiveRecoveryCodes(accountId) → { active, total, generatedAt }` — one SQL aggregate (P-I1), never SELECTs the secret-bearing `code_hash`. Backs `GET /recovery/status`.
 - `listUnacknowledgedSecurityEvents(accountId) → { events }` — drives the Settings banner.
 - `acknowledgeSecurityEvent(accountId, id) → { acknowledged }` — idempotent, scoped to the owning account.
 
@@ -98,11 +114,32 @@ Migration: `osn/db/drizzle/0006_security_events.sql`.
 `createRecoveryClient({ issuerUrl })` in `@osn/client`:
 
 ```ts
-await client.generateRecoveryCodes({ accessToken });  // → { codes }
+await client.generateRecoveryCodes({ accessToken, stepUpToken });  // → { codes }
+await client.getRecoveryCodesStatus({ accessToken });  // → { active, total, generatedAt }
 await client.loginWithRecoveryCode({ identifier, code });  // → { session, profile }
 ```
 
-UI: `RecoveryCodesView` (settings panel, show-once with copy + download) and `RecoveryLoginForm` (sign-in recovery modal).
+`stepUpToken` is optional in the type only so the call compiles in hosts that thread it separately; omit it and the server answers 403.
+
+## UI
+
+`RecoveryCodesView` (`@osn/ui/auth/RecoveryCodesView`) is the settings surface. It:
+
+- reads `GET /recovery/status` on mount, and again once the user dismisses a fresh set, and says outright when the account has **no** codes — the failure mode this view exists to catch is a user who never made any;
+- runs the step-up ceremony through `StepUpDialog` before generating, with `purpose="recovery_generate"`, and passes the minted token straight to generate;
+- confirms before rotating an existing set (the previous codes die immediately), and treats an **unreadable** count as "might have codes" so a failed status read never skips the warning (S-L1);
+- holds the generate button until the first status read settles — before that the view cannot tell a first set from a rotation;
+- shows the codes once with copy + `.txt` download, and gates the Done button on an explicit "I've saved these" checkbox;
+- fails soft on a status read error — the count goes unknown, generation still works.
+
+Props: `client`, `stepUpClient`, `accessToken`, plus optional `runPasskeyCeremony` (kept caller-side so `@osn/ui` doesn't depend on `@simplewebauthn/browser`), `passkeyOnly`, `onSaved`.
+
+Mounted in:
+
+- `osn/social/src/components/SecuritySection.tsx` — Settings → Security, under the passkey list.
+- `cire/organiser/src/components/SecurityPanel.tsx` — same position, `passkeyOnly` forced (that deployment's OTP factor can't be relied on).
+
+`RecoveryLoginForm` is the redemption side, mounted in `@osn/ui/auth/SignIn`.
 
 ## Observability
 

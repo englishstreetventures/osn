@@ -16,6 +16,12 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
       //                            single-use recovery codes as plaintext once.
       //                            Replaces any existing set. Tight rate limit.
       //
+      // GET  /recovery/status    — authenticated. How many codes are left and
+      //                            when the set was minted. No step-up: the
+      //                            answer is what tells a user whether a
+      //                            ceremony is worth starting, and it carries
+      //                            no secret — counts only, never a code.
+      //
       // POST /login/recovery/complete — unauthenticated. Exchanges an identifier
       //                            + recovery code for a full session + profile,
       //                            and revokes all other sessions for the account.
@@ -75,6 +81,39 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
           }),
         },
       )
+      .get("/recovery/status", async ({ headers, set, server, request }) => {
+        const rlErr = await rateLimit(
+          headers,
+          socketIpOf({ server, request }),
+          "recovery_status",
+          rl.recoveryStatus,
+        );
+        if (rlErr) {
+          set.status = 429;
+          return rlErr;
+        }
+        try {
+          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+          if (!claims) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          const profile = await run(auth.findProfileById(claims.profileId));
+          if (!profile) {
+            set.status = 401;
+            return { error: "unauthorized" };
+          }
+          const counts = await run(auth.countActiveRecoveryCodes(profile.accountId));
+          // Account-scoped and it changes the moment a code is burnt — never
+          // let a shared cache hand one account's counts to another request.
+          set.headers["cache-control"] = "no-store";
+          return counts;
+        } catch (e) {
+          const { status, body: errBody } = handleError(e);
+          set.status = status;
+          return errBody;
+        }
+      })
       .post(
         "/login/recovery/complete",
         async ({ body, set, headers, server, request }) => {
