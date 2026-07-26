@@ -1,5 +1,16 @@
 # @osn/api
 
+## 0.24.9
+
+### Patch Changes
+
+- Updated dependencies [43a88ae]
+  - @shared/db-utils@0.4.0
+  - @pulse/db@0.18.4
+  - @zap/db@0.5.2
+  - @shared/crypto@0.8.11
+  - @shared/osn-auth-client@0.2.11
+
 ## 0.24.8
 
 ### Patch Changes
