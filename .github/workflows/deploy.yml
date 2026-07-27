@@ -363,9 +363,15 @@ jobs:
   # and musubi.social is attached to it in the dashboard (a Pages custom domain,
   # not a wrangler route) — see the runbook.
   #
-  # Feature-branch previews go to a SEPARATE `osn-social-preview` project
-  # (deploy-osn-social-preview.yml); they must never touch this one, whose
-  # production deployment now serves a real hostname.
+  # There is NO feature-branch preview for this app. `deploy-osn-social-preview.yml`
+  # (a separate `osn-social-preview` Pages project) was removed on 2026-07-27: a
+  # preview on `*.pages.dev` can neither run a passkey ceremony nor complete an
+  # OIDC round-trip — wrong RP ID, and the `__Host-` cookies are bound to
+  # id.musubi.social — so it could only ever be looked at, and it cost a
+  # prod-scoped Cloudflare token on every branch push (TODO.md S-M
+  # preview-ci-prod-token). Review social changes locally with `bun run dev:osn`.
+  # If a preview is ever reinstated it must NOT target this project, whose
+  # production deployment serves a real hostname.
   deploy-osn-social:
     name: Deploy osn/social (Pages)
     needs: build
@@ -392,10 +398,40 @@ jobs:
       # VITE_OSN_ISSUER_URL bakes in at build time. Without it the bundle falls
       # back to http://localhost:4000 and every call from the deployed app dials
       # the user's own machine.
+      #
+      # VITE_TURNSTILE_SITEKEY is the CLIENT half of the Turnstile gate, and is
+      # NOT optional here: osn-api already holds TURNSTILE_SECRET_KEY (set in
+      # #160), so `/register/begin` and the identifier-bound
+      # `/login/passkey/begin` fail closed (400 turnstile_failed) on any request
+      # without a token. Until 2026-07-27 the only surface running those
+      # ceremonies was cire/organiser, whose Astro build did read the sitekey;
+      # the musubi.social move (#321) plus the organiser's OIDC swap (#322)
+      # relocated them to this app, which was never wired up — so sign-in on
+      # musubi.social broke. Same repo Variable as the cire builds (one widget,
+      # one sitekey); musubi.social must be in the widget's Domains list.
+      # Fail the deploy rather than ship an app nobody can sign into. An unset or
+      # renamed repo Variable expands to "", the app normalises that to "no
+      # widget", and osn-api then rejects every register/login with
+      # `400 turnstile_failed` — with a green build and a green deploy. That
+      # silent pairing is exactly what broke on 2026-07-27, and the unit tests
+      # cannot see it: they prove the sitekey is threaded to the components, not
+      # that a real value was baked into the bundle.
+      - name: Require the Turnstile sitekey
+        run: |
+          if [ -z "${VITE_TURNSTILE_SITEKEY}" ]; then
+            echo "::error::Repo Variable PUBLIC_TURNSTILE_SITEKEY is empty or unset."
+            echo "osn-api has TURNSTILE_SECRET_KEY set, so a build without the sitekey"
+            echo "fails closed on every sign-in and registration. See wiki/systems/turnstile.md."
+            exit 1
+          fi
+        env:
+          VITE_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
+
       - name: Build osn/social
         run: bun run --cwd osn/social build
         env:
           VITE_OSN_ISSUER_URL: https://id.musubi.social
+          VITE_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
 
       # Idempotent: creates the project on the first run, no-ops (|| true) after.
       # `pages deploy` against a project that does not exist fails outright in a

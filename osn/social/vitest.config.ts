@@ -9,7 +9,10 @@ export default defineConfig({
     coverage: {
       provider: "istanbul",
       include: ["src/**/*.{ts,tsx}"],
-      exclude: ["src/index.tsx", "src/lib/auth.ts", "src/App.tsx"],
+      // `src/lib/auth.ts` was excluded while it held a single constant. It now
+      // carries the Turnstile sitekey normalisation, which has tests — keep it
+      // visible so a regression there shows up as a coverage drop.
+      exclude: ["src/index.tsx", "src/App.tsx"],
       reporter: ["text", "html"],
     },
   },

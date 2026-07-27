@@ -100,12 +100,15 @@ future `*.musubi.social` surface with a single credential.
   routes deep-link; `public/_headers` ships the framing denial.
 - The custom domain is attached in the Cloudflare dashboard, not by wrangler —
   see [[production-deploy]] §5.4.
-- Feature branches deploy to a **separate** `osn-social-preview` project
-  (`deploy-osn-social-preview.yml` → `osn-social-preview.pages.dev`). It must
-  stay separate: that workflow publishes to a project's production deployment,
-  so pointed at `osn-social` it would put branch code on a live hostname. A
-  preview cannot sign anyone in — wrong RP ID, wrong cookie host — so it is for
-  looking at, not for exercising auth.
+- **No feature-branch preview.** `deploy-osn-social-preview.yml` (project
+  `osn-social-preview`) was removed on 2026-07-27. A `*.pages.dev` preview could
+  never sign anyone in — the RP ID is `musubi.social` and the `__Host-` session
+  and OIDC binding cookies are host-bound to `id.musubi.social` — so it could
+  only be looked at, while still spending a prod-scoped Cloudflare token on every
+  branch push (the open S-M `preview-ci-prod-token` finding). Review social
+  changes locally with `bun run dev:osn`. If one is ever reinstated it must
+  target its own project, never `osn-social`, whose production deployment serves
+  a live hostname.
 
 The move from `id.cireweddings.com` happened 2026-07-27 — see
 [[musubi-identity-migration]].

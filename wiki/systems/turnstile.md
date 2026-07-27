@@ -1,7 +1,7 @@
 ---
 title: Turnstile bot protection
 tags: [systems, security, cloudflare, bot-protection]
-status: shipped-inert
+status: active (osn-api gates live; cire-api gate inert)
 related:
   - "[[cire-auth]]"
   - "[[passkey-primary]]"
@@ -12,6 +12,8 @@ related:
 packages:
   - "@shared/turnstile"
   - "@osn/api"
+  - "@osn/social"
+  - "@osn/ui"
   - "@cire/api"
   - "@cire/web"
   - "@cire/organiser"
@@ -45,9 +47,13 @@ verifier** and `RsvpModal` renders no widget. The `rsvp.ts` route keeps the
 key-optional gate parameter (defaults to a no-op) so it can be re-armed if abuse
 ever appears. Removed in the RSVP-friction fix (2026-06-19).
 
-Frontends: cire/web guest claim form, cire/organiser SignIn + Register (via `@osn/ui`).
-The organiser SignIn/Register run the OSN ceremonies, so the osn-api gates above
-are what enforce them server-side.
+Frontends: cire/web guest claim form, and **`@osn/social`'s SignIn + Register**
+(via `@osn/ui`) — the sidebar auth dialogs and the `/authorize` consent screen's
+sign-in island. Since the 2026-07-27 OIDC swap, `musubi.social` is the **only**
+origin that runs the OSN ceremonies (the RP ID lives on the apex and cire signs
+in by redirect), so it is the only frontend that must carry the osn-api sitekey.
+cire/organiser and cire/vendor still receive `PUBLIC_TURNSTILE_SITEKEY` in their
+builds, but no longer render an OSN ceremony form.
 
 ## The shared primitive — `@shared/turnstile`
 
@@ -86,8 +92,9 @@ limiter keys on — see [[rate-limiting]].
 
 | Var | Where | Kind | Effect |
 |---|---|---|---|
-| `TURNSTILE_SECRET_KEY` | osn-api + cire-api Worker secret (`wrangler secret put`) | Secret, key-optional | Server half. Set ⇒ gates require + verify a token (fail-closed). Unset ⇒ gates skipped. |
-| `PUBLIC_TURNSTILE_SITEKEY` | cire/web + cire/organiser build var (`import.meta.env`, statically inlined) | Public sitekey, key-optional | Client half. Set ⇒ the widget renders + a token rides in the submit body. Unset/blank ⇒ no widget, no token sent. |
+| `TURNSTILE_SECRET_KEY` | osn-api + cire-api Worker secret (`wrangler secret put`) | Secret, key-optional | Server half. Set ⇒ gates require + verify a token (fail-closed). Unset ⇒ gates skipped. **Set on osn-api-production** since #160; unset on cire-api-production. |
+| `PUBLIC_TURNSTILE_SITEKEY` | cire/web + cire/organiser + cire/vendor build var (`import.meta.env`, statically inlined) | Public sitekey, key-optional | Client half for the cire surfaces. |
+| `VITE_TURNSTILE_SITEKEY` | `@osn/social` build var (Vite, statically inlined; `src/lib/auth.ts` normalises blank → `undefined`) | Public sitekey, **required in practice** | Client half for the OSN register/login ceremonies. Fed from the same repo Variable `PUBLIC_TURNSTILE_SITEKEY` — one widget, one sitekey; the name differs only because Vite exposes `VITE_*` while Astro exposes `PUBLIC_*`. osn-api's secret **is** set, so leaving this blank breaks sign-in outright. |
 
 **Same widget for both backends.** One sitekey + one secret; the widget's
 domains cover `invite.cireweddings.com` (guest), `host.cireweddings.com`
@@ -134,14 +141,52 @@ osn-api does not gate it (#163 Bug C).
 
 ## Activation (the rollout order matters)
 
-The integration is inert in production today (no secret set). To turn it on,
-follow [[production-deploy]] §3.4. The **load-bearing rule: never ship the secret
-first.** Each backend *requires* a token the moment its secret is present, so the
-**sitekey must reach the frontend** — and the widget must render and send a token
-— **before** the secret lands on the Worker. Ship the sitekey while the secret is
-absent → harmless (the widget renders, the server ignores the token). Ship the
-secret while the sitekey is absent → the server requires a token the UI never
-sends, and **every gated form 400/403s**.
+**State today: ACTIVE on osn-api, inert on cire-api.** The widget and the
+`PUBLIC_TURNSTILE_SITEKEY` repo Variable exist, and `TURNSTILE_SECRET_KEY` is set
+on `osn-api-production` (#160), so the register/login gates bite. The cire-api
+secret was deleted on 2026-07-20 after a mismatched value rejected every guest
+claim, which reverted the claim gate to a no-op. To (re)activate a backend follow
+[[production-deploy]] §3.4.
+
+The **load-bearing rule: never ship the secret first.** Each backend *requires* a
+token the moment its secret is present, so the **sitekey must reach the frontend**
+— and the widget must render and send a token — **before** the secret lands on the
+Worker. Ship the sitekey while the secret is absent → harmless (the widget
+renders, the server ignores the token). Ship the secret while the sitekey is
+absent → the server requires a token the UI never sends, and **every gated form
+400/403s**.
+
+The same rule has a **second edge, and it is the one that actually bit**: the
+secret does not have to move for the pairing to break — the *form* can move out
+from under it.
+
+> **musubi.social sign-in outage (2026-07-27).** Every typed-identifier sign-in
+> and every registration on `musubi.social` failed with `400 turnstile_failed`.
+>
+> The secret stayed set on osn-api throughout; what changed is which app renders
+> the ceremony. Before the migration the only surface calling `/register/begin`
+> and the identifier-bound `/login/passkey/begin` was **cire/organiser**, whose
+> Astro build read `PUBLIC_TURNSTILE_SITEKEY` — so a token always rode along.
+> The musubi.social move (#321) relocated the ceremonies to `@osn/social`, and
+> the organiser's OIDC swap (#322) removed its ceremony forms entirely. But the
+> `deploy-osn-social` job passed only `VITE_OSN_ISSUER_URL`, and `Sidebar` /
+> `AuthorizeSignIn` passed no `turnstileSiteKey` — so no widget rendered, no
+> token was sent, and osn-api fail-closed on every gated call. Both halves were
+> individually correct; the pairing was severed by relocation.
+>
+> Fixed by threading `VITE_TURNSTILE_SITEKEY` through the `deploy-osn-social`
+> build into all three call sites. Guarded by
+> `osn/social/tests/components/turnstile-wiring.test.tsx`, which fails if any
+> ceremony call site drops the prop, and by a non-empty check on the variable in
+> the deploy job — the test proves the prop is threaded, only the deploy check
+> can prove a real value reached it. (The osn-social preview workflow was deleted
+> in the same change, so `musubi.social` is the only origin building this app.)
+>
+> **Rule this leaves behind:** the sitekey/secret pairing is a property of the
+> *deployed surface that renders the form*, not of the repo. Whenever an auth
+> ceremony moves to a new app or origin, re-check three things together — the
+> new app's build var, the props at the call sites, and the widget's Domains
+> list — because the server half keeps enforcing silently across the move.
 
 ## Observability
 

@@ -1,7 +1,7 @@
 import { AuthProvider } from "@osn/client/solid";
 import { SignIn } from "@osn/ui/auth/SignIn";
 
-import { OSN_ISSUER_URL } from "../lib/auth";
+import { OSN_ISSUER_URL, TURNSTILE_SITEKEY } from "../lib/auth";
 import { loginClient, recoveryClient } from "../lib/authClients";
 
 /**
@@ -21,6 +21,7 @@ export function AuthorizeSignIn(props: { onSuccess: () => void }) {
       <SignIn
         client={loginClient}
         recoveryClient={recoveryClient}
+        turnstileSiteKey={TURNSTILE_SITEKEY}
         onSuccess={() => props.onSuccess()}
       />
     </AuthProvider>

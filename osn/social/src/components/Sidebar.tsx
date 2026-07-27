@@ -19,6 +19,7 @@ import { A, useLocation } from "@solidjs/router";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
+import { TURNSTILE_SITEKEY } from "../lib/auth";
 import { registrationClient, loginClient, recoveryClient } from "../lib/authClients";
 import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
 import { ThemeToggle } from "./ThemeToggle";
@@ -253,7 +254,11 @@ export function Sidebar() {
       {/* Auth dialogs */}
       <Dialog open={showRegister() && !session()} onOpenChange={setShowRegister}>
         <DialogContent class="rounded-card max-w-sm p-0">
-          <Register client={registrationClient} onCancel={() => setShowRegister(false)} />
+          <Register
+            client={registrationClient}
+            turnstileSiteKey={TURNSTILE_SITEKEY}
+            onCancel={() => setShowRegister(false)}
+          />
         </DialogContent>
       </Dialog>
       <Dialog open={showSignIn() && !session()} onOpenChange={setShowSignIn}>
@@ -261,6 +266,7 @@ export function Sidebar() {
           <SignIn
             client={loginClient}
             recoveryClient={recoveryClient}
+            turnstileSiteKey={TURNSTILE_SITEKEY}
             onCancel={() => setShowSignIn(false)}
             onSuccess={() => setShowSignIn(false)}
           />
