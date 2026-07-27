@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
-vi.mock("@osn/client/solid", () => ({
+vi.mock("@shared/rp-auth/solid", () => ({
   AuthProvider: (props: any) => props.children,
   useAuth: () => ({
     session: () => ({ profile: { id: "p1" } }),

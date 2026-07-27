@@ -47,14 +47,28 @@ const stubOrgMembership: OsnOrgMembershipResolver = async (orgId, profileId) => 
   return null;
 };
 
+/** Minimal org summary in the shape osn-api's internal profile-orgs route returns. */
+function orgSummary(id: string, handle: string, name: string) {
+  return {
+    id,
+    handle,
+    name,
+    description: null,
+    avatarUrl: null,
+    ownerId: VENDOR,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
 /**
- * Stub `profileOrgs(profileId)` — the caller's org ids, used to SCOPE the list
+ * Stub `profileOrgs(profileId)` — the caller's orgs, used to SCOPE the list
  * query before the scan:
  *   - VENDOR → [ORG_OK]   (member of the org that owns DV_CLAIMED)
  *   - anyone else → []    (fail-closed: empty list, no cross-tenant scan)
  */
 const stubProfileOrgs: OsnProfileOrgsResolver = async (profileId) => {
-  if (profileId === VENDOR) return [ORG_OK];
+  if (profileId === VENDOR) return [orgSummary(ORG_OK, "ok-events", "OK Events")];
   return [];
 };
 

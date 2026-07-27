@@ -5,6 +5,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { generateToken, hashToken } from "../lib/opaque-token";
 import { metricSessionCreated, metricSessionSwept } from "../metrics";
 
 export class SessionInvalid extends Data.TaggedError("SessionInvalid")<{
@@ -17,35 +18,6 @@ export class SessionWriteError extends Data.TaggedError("SessionWriteError")<{
 }> {}
 
 const DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60;
-
-/**
- * 256 bits of `crypto.getRandomValues` entropy → base64url (no padding).
- * 43 chars; URL-safe; safe to drop straight into a Set-Cookie header.
- */
-function generateToken(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-/**
- * SHA-256 hex of the raw token. The DB stores the hash so a leaked DB dump
- * cannot be replayed as a session cookie. Cookie still carries the raw token
- * — we hash on every validate/revoke lookup and match that. SHA-256 hex is
- * deterministic so the existing UNIQUE index on `sessions.token` keeps working.
- */
-function hashToken(raw: string): Effect.Effect<string> {
-  return Effect.promise(async () => {
-    const data = new TextEncoder().encode(raw);
-    const digest = await crypto.subtle.digest("SHA-256", data);
-    return Array.from(new Uint8Array(digest))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-  });
-}
 
 export interface CreatedSession {
   token: string;

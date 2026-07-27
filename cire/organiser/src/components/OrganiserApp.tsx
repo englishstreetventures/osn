@@ -1,4 +1,4 @@
-import { AuthProvider, useAuth } from "@osn/client/solid";
+import { AuthProvider, useAuth } from "@shared/rp-auth/solid";
 import {
   createEffect,
   createResource,
@@ -20,7 +20,7 @@ import {
   parseRoute,
   serializeRoute,
 } from "../lib/dashboard-route";
-import { OSN_ISSUER_URL } from "../lib/osn";
+import { CIRE_API_URL } from "../lib/osn";
 import type { WeddingSummary } from "./CreateWeddingForm";
 import ModuleShell from "./ModuleShell";
 import PreviewInviteButton from "./PreviewInviteButton";
@@ -418,7 +418,7 @@ function Dashboard() {
  */
 export default function OrganiserApp() {
   return (
-    <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }}>
+    <AuthProvider config={{ apiBase: CIRE_API_URL }}>
       <RequireAuth>
         <Dashboard />
       </RequireAuth>

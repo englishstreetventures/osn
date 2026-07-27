@@ -1,67 +1,62 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * SignInPanel owns the only new logic in the organiser portal's login
- * surface: a signin/register mode toggle that lets an organiser without an
- * OSN account create one without leaving the page. The OSN ceremonies
- * themselves are exhaustively covered in @osn/ui (SignIn/Register tests),
- * so this test stubs those components and @osn/client and asserts only the
- * wiring it introduces — which view shows, and that the toggle/cancel
- * controls flip between them.
+ * The login surface is now one hand-off: the portal cannot run a WebAuthn
+ * ceremony for `musubi.social`, so it sends the organiser to cire/api's OIDC
+ * start leg. What is worth asserting here is the wiring — that the button
+ * leaves for the API with the dashboard as the return target, and that a
+ * failed attempt coming back through `?auth_error` is shown once and then
+ * wiped from the address bar.
  */
 
-vi.mock("@osn/client", () => ({
-  createLoginClient: () => ({}),
-  createRecoveryClient: () => ({}),
-  createRegistrationClient: () => ({}),
-}));
+const startSignIn = vi.fn();
+const clearAuthError = vi.fn();
+let authError: string | null = null;
 
-vi.mock("@osn/client/solid", () => ({
-  // Pass children straight through; the real provider only supplies context
-  // the stubbed SignIn/Register don't read.
-  AuthProvider: (props: { children: unknown }) => props.children,
-}));
-
-vi.mock("@osn/ui/auth", () => ({
-  SignIn: () => <div data-testid="signin-view">sign in</div>,
-  Register: (props: { onCancel: () => void }) => (
-    <div data-testid="register-view">
-      <button onClick={() => props.onCancel()}>register-cancel</button>
-    </div>
-  ),
-}));
-
-vi.mock("solid-toast", () => ({
-  Toaster: () => null,
-  toast: { success: vi.fn(), error: vi.fn() },
+vi.mock("@shared/rp-auth", () => ({
+  startSignIn: (...args: unknown[]) => startSignIn(...args),
+  clearAuthError: () => clearAuthError(),
+  readAuthError: () => authError,
 }));
 
 import SignInPanel from "./SignInPanel";
 
 describe("SignInPanel", () => {
+  beforeEach(() => {
+    authError = null;
+    startSignIn.mockClear();
+    clearAuthError.mockClear();
+  });
   afterEach(() => cleanup());
 
-  it("shows the sign-in view by default, with a create-account toggle", () => {
+  it("sends the organiser to the issuer, returning to the dashboard", () => {
     render(() => <SignInPanel />);
-    expect(screen.getByTestId("signin-view")).toBeTruthy();
-    expect(screen.queryByTestId("register-view")).toBeNull();
-    expect(screen.getByRole("button", { name: /Create an account/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Continue with musubi/i }));
+
+    expect(startSignIn).toHaveBeenCalledTimes(1);
+    const [, returnTo] = startSignIn.mock.calls[0]!;
+    expect(new URL(returnTo as string).pathname).toBe("/");
   });
 
-  it("switches to the register view when 'Create an account' is clicked", () => {
+  it("shows nothing alarming when sign-in was never attempted", () => {
     render(() => <SignInPanel />);
-    fireEvent.click(screen.getByRole("button", { name: /Create an account/i }));
-    expect(screen.getByTestId("register-view")).toBeTruthy();
-    expect(screen.queryByTestId("signin-view")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(clearAuthError).not.toHaveBeenCalled();
   });
 
-  it("returns to the sign-in view when Register cancels", () => {
+  it("explains a cancelled sign-in and strips the marker", () => {
+    authError = "sign_in_declined";
     render(() => <SignInPanel />);
-    fireEvent.click(screen.getByRole("button", { name: /Create an account/i }));
-    fireEvent.click(screen.getByRole("button", { name: /register-cancel/i }));
-    expect(screen.getByTestId("signin-view")).toBeTruthy();
-    expect(screen.queryByTestId("register-view")).toBeNull();
+
+    expect(screen.getByRole("alert").textContent).toMatch(/cancelled/i);
+    expect(clearAuthError).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to the generic message for an unknown marker", () => {
+    authError = "something_new";
+    render(() => <SignInPanel />);
+    expect(screen.getByRole("alert").textContent).toMatch(/did not go through/i);
   });
 });

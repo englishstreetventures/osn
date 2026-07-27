@@ -97,7 +97,8 @@ jobs:
         env:
           PUBLIC_API_URL: https://api-preview.cireweddings.com
           PUBLIC_SITE_URL: https://invite-preview.cireweddings.com
-          PUBLIC_OSN_ISSUER_URL: https://id.musubi.social
+          # No OSN issuer var: since the OIDC swap (2026-07-27) the guest site
+          # never talks to the issuer — cire-api runs the code exchange.
           PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
           PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
 
@@ -134,9 +135,13 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
   # ── Preview organiser portal (Astro static → Pages) ─────────────────────────
-  # Its own Pages project, so the live portal is untouched. Sign-in uses the REAL
-  # OSN identity issuer — a reviewer signs in with their usual passkey, creates a
-  # wedding in the preview database, and edits it there.
+  # Its own Pages project, so the live portal is untouched. Sign-in redirects to
+  # the REAL OSN identity issuer (id.musubi.social) and the preview API exchanges
+  # the code with the shared cid_cire client — a reviewer signs in with their
+  # usual passkey, creates a wedding in the preview database, and edits it there.
+  # The preview callback URI is registered on the client and
+  # CIRE_OIDC_CLIENT_SECRET must be set on cire-api-preview too, else sign-in
+  # answers 503 sign_in_unavailable.
   organiser:
     name: Deploy cire/organiser preview (Pages)
     needs: api
@@ -156,10 +161,11 @@ jobs:
         run: bun run --cwd cire/organiser build
         env:
           PUBLIC_CIRE_API_URL: https://api-preview.cireweddings.com
-          PUBLIC_OSN_ISSUER_URL: https://id.musubi.social
+          # Account management (passkeys, recovery codes) lives on musubi's own
+          # origin; sign-in goes through cire-api.
+          PUBLIC_OSN_ACCOUNT_URL: https://musubi.social
           # "View live invite" links point at the preview guest site, not prod.
           PUBLIC_CIRE_WEB_URL: https://invite-preview.cireweddings.com
-          PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
 
       # Idempotent: creates the project on first run, no-ops once it exists.
       - name: Ensure the cire-organiser-preview Pages project exists

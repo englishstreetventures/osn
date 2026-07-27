@@ -9,10 +9,10 @@ import { createHash } from "node:crypto";
 
 import { securityEvents } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { EmailService } from "@shared/email";
 import { Effect } from "effect";
 
-import { timingSafeEqualString } from "../../lib/timing-safe";
 import { metricSecurityEventRecorded, withCrossDeviceOp } from "../../metrics";
 import { CDL_TTL_SECONDS } from "./constants";
 import type { AuthContext } from "./context";

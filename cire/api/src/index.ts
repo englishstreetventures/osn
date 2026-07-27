@@ -11,6 +11,7 @@ import { createD1Db, DbService } from "./db";
 import { setExecutionCtx } from "./lib/execution-ctx";
 import { runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
+import { organiserSessionService } from "./services/organiser-session";
 import {
   createAccountResolverFromEnv,
   createHandleResolverFromEnv,
@@ -44,6 +45,18 @@ export interface Env {
   WEB_ORIGIN: string;
   OSN_JWKS_URL: string;
   OSN_AUDIENCE: string;
+  // Organiser sign-in over OIDC. `OSN_ISSUER_URL` is the issuer origin
+  // (`https://id.musubi.social`) and must equal the `iss` claim byte-for-byte;
+  // `CIRE_API_ORIGIN` is this Worker's own public origin, used to build the
+  // redirect URI registered with the issuer — also byte-for-byte, at both legs.
+  // Both are plain vars. `CIRE_OIDC_CLIENT_SECRET` is a wrangler secret. Any of
+  // the four missing ⇒ `/api/auth/oidc/*` answers 503 and nobody can sign in;
+  // the guest invite site keeps working, so this is scoped to the routes that
+  // genuinely cannot function, not the whole Worker.
+  OSN_ISSUER_URL?: string;
+  CIRE_API_ORIGIN?: string;
+  CIRE_OIDC_CLIENT_ID?: string;
+  CIRE_OIDC_CLIENT_SECRET?: string;
   // Optional — present only where guest account-linking is enabled. Base URL of
   // osn-api plus cire-api's ARC signing key (a wrangler secret, ES256 JWK) and
   // its `kid` (matching the public key registered in osn-api's service_accounts
@@ -269,6 +282,32 @@ const handler: ExportedHandler<Env> = {
         apiHost: env.GROWTHBOOK_API_HOST,
         kv: env.KV_GB_PAYLOAD,
       });
+      // OIDC relying-party config for organiser sign-in. All four pieces or
+      // none: a half-configured client cannot complete a single exchange, so
+      // `null` (⇒ 503 on the sign-in routes) is the honest state. Loud in a
+      // deployed tier, silent locally where `bun run dev:cire` runs without an
+      // issuer.
+      const issuerBase = env.OSN_ISSUER_URL?.replace(/\/+$/, "");
+      const apiOrigin = env.CIRE_API_ORIGIN?.replace(/\/+$/, "");
+      const oidc =
+        issuerBase && apiOrigin && env.CIRE_OIDC_CLIENT_ID && env.CIRE_OIDC_CLIENT_SECRET
+          ? {
+              issuer: issuerBase,
+              jwksUrl: env.OSN_JWKS_URL,
+              clientId: env.CIRE_OIDC_CLIENT_ID,
+              clientSecret: env.CIRE_OIDC_CLIENT_SECRET,
+              redirectUri: `${apiOrigin}/api/auth/oidc/callback`,
+              allowedReturnOrigins: origins,
+            }
+          : null;
+      if (!oidc && isDeployedTier()) {
+        await runCire(
+          Effect.logError("OIDC client config incomplete — organiser sign-in disabled", {
+            detail:
+              "set OSN_ISSUER_URL, CIRE_API_ORIGIN, CIRE_OIDC_CLIENT_ID and the CIRE_OIDC_CLIENT_SECRET secret",
+          }),
+        );
+      }
       cached = {
         dbBinding: env.DB,
         app: createApp(db, {
@@ -288,6 +327,7 @@ const handler: ExportedHandler<Env> = {
           images: env.IMAGES,
           osnJwksUrl: env.OSN_JWKS_URL,
           osnAudience: env.OSN_AUDIENCE,
+          oidc,
           resolveOsnAccountId,
           resolveOsnProfileByHandle,
           resolveOsnProfileDisplays,
@@ -347,6 +387,22 @@ const handler: ExportedHandler<Env> = {
         sessionService.sweepExpired().pipe(
           Effect.catchAll((err) =>
             Effect.logError("scheduled session sweep failed", { reason: err.reason }),
+          ),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+
+    // Organiser sessions expire but do not delete themselves — `validate` only
+    // reports expiry. Same reasoning as the guest sweep above: without this the
+    // table grows for the life of the product, and every row holds a login-time
+    // snapshot of an OSN profile (email, handle, display name), so keeping dead
+    // ones is a data-retention problem as well as a size one.
+    ctx.waitUntil(
+      Effect.runPromise(
+        organiserSessionService.sweepExpired().pipe(
+          Effect.catchAll((err) =>
+            Effect.logError("scheduled organiser session sweep failed", { reason: err.reason }),
           ),
           Effect.provide(dbLayer),
         ),

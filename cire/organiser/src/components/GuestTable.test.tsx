@@ -16,7 +16,7 @@ const toastSuccess = vi.fn();
 const toastError = vi.fn();
 const writeText = vi.fn<(t: string) => Promise<void>>();
 
-vi.mock("@osn/client/solid", () => ({
+vi.mock("@shared/rp-auth/solid", () => ({
   useAuth: () => ({ authFetch: authFetchMock }),
 }));
 

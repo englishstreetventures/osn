@@ -18,7 +18,7 @@ import { __resetEnquiriesCache, setCachedEnquiries } from "../lib/enquiries-stor
 const authFetch = vi.fn();
 const activeProfileId = vi.fn(() => "p_me");
 
-vi.mock("@osn/client/solid", () => ({
+vi.mock("@shared/rp-auth/solid", () => ({
   useAuth: () => ({ authFetch, activeProfileId }),
 }));
 

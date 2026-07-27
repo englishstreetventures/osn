@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { AuthProvider } from "@osn/client/solid";
+import { AuthProvider } from "@shared/rp-auth/solid";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { type JSX } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as store from "../lib/vendor-store";
 import ListingEditor from "./ListingEditor";
 
-vi.mock("@osn/client/solid", () => ({
+vi.mock("@shared/rp-auth/solid", () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   AuthProvider: (props: { children: JSX.Element | any }) => props.children,
   useAuth: () => ({ authFetch: vi.fn() }),

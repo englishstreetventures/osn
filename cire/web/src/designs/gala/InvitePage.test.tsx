@@ -30,14 +30,14 @@ vi.mock("../../components/DetailsModal", () => ({
   },
 }));
 
-// The PulseAccountLink island pulls in @osn/client + @osn/ui (real auth +
-// passkey deps). Stub it to a marker so InvitePage's tests assert only the
-// mount wiring (post-claim, non-preview) without exercising the OSN stack.
+// Stub the PulseAccountLink island to a marker so InvitePage's tests assert
+// only the mount wiring (post-claim, non-preview) without probing the account
+// API.
 vi.mock("../../components/PulseAccountLink", () => ({
   PulseAccountLink: () => <div data-testid="pulse-account-link-stub" />,
 }));
 
-vi.mock("@osn/client/solid", () => ({
+vi.mock("@shared/rp-auth/solid", () => ({
   AuthProvider: (props: { children: unknown }) => props.children,
 }));
 

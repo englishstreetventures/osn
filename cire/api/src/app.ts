@@ -14,6 +14,7 @@ import type { Db } from "./db";
 import { originGuard } from "./lib/origin-guard";
 import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
+import { createAuthOidcRoutes } from "./routes/auth-oidc";
 import { createBudgetReadRoutes, createBudgetWriteRoutes } from "./routes/budget";
 import { createClaimRoutes } from "./routes/claim";
 import { createCspReportRoutes } from "./routes/csp-report";
@@ -49,6 +50,7 @@ import { createDirectoryService } from "./services/directory";
 import { createEnquiryService } from "./services/enquiries";
 import type { AssetsBucket } from "./services/invite-assets";
 import type { ImagesBindingLike } from "./services/invite-image-transform";
+import type { OidcConfig } from "./services/oidc-login";
 import type {
   OsnAccountResolver,
   OsnHandleResolver,
@@ -212,6 +214,14 @@ export interface AppOptions {
   /** Test-only: inject the verifying key and skip the JWKS fetch. */
   osnTestKey?: CryptoKey;
   /**
+   * OIDC relying-party credentials for organiser sign-in. Absent ⇒ the
+   * `/api/auth/oidc/*` routes answer 503 and nobody can sign in — which is the
+   * honest state of a tier that has no client secret, not a silent downgrade.
+   * Built in `index.ts` from `OSN_ISSUER_URL` + `CIRE_OIDC_CLIENT_ID` +
+   * `CIRE_OIDC_CLIENT_SECRET`.
+   */
+  oidc?: OidcConfig | null;
+  /**
    * Resolves an OSN profile id to its account id (server-to-server, ARC) for
    * the optional guest account-linking POST. When omitted, the link endpoint
    * answers 503 — linking is an additive, opt-in surface, so a deployment
@@ -333,6 +343,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     osnJwksUrl = "http://localhost:4000/.well-known/jwks.json",
     osnAudience = "osn-access",
     osnTestKey,
+    oidc = null,
     resolveOsnAccountId,
     resolveOsnProfileByHandle,
     resolveOsnProfileDisplays,
@@ -396,10 +407,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
     threadBaseUrl: `${organiserOrigin.replace(/\/+$/, "")}/vendors/enquiries`,
   });
 
+  // `db` turns on the organiser session cookie path in `osnAuth` — the way every
+  // browser authenticates now that the passkey ceremony lives on musubi.social.
   const osnAuthOptions = {
     jwksUrl: osnJwksUrl,
     audience: osnAudience,
     _testKey: osnTestKey,
+    db,
   };
 
   // Capture the chain so we can conditionally mount the payment webhook below.
@@ -469,6 +483,16 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // same allowlist CORS echoes. Mounted before the route factories so it
       // gates the whole app. Empty allowlist (dev) disables it.
       .use(originGuard(corsOrigins))
+      // Organiser sign-in (OIDC relying party) + the session probe and sign-out.
+      // Mounted early: it is the one authenticated surface that must work before
+      // the caller has any session at all. `secure` tracks `webOrigin`'s scheme,
+      // the same test the guest session cookie uses.
+      .use(
+        createAuthOidcRoutes(db, {
+          oidc,
+          secureCookies: webOrigin.startsWith("https://"),
+        }),
+      )
       // Public bare-domain resolver for the guest site (`/` → /<slug>). No auth
       // — the slug is the public invite URL. Mounted first so it's plainly a
       // public read alongside the guest claim + invite routes.
@@ -584,6 +608,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
           {
             directoryService: vendorDirectoryService,
             orgMembership: vendorOrgMembership,
+            profileOrgs: vendorProfileOrgs,
             enquiryService,
           },
           osnAuthOptions,

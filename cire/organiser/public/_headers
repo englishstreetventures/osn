@@ -7,10 +7,10 @@
 
 # Mirrors cire/web's baseline: framing (X-Frame-Options + frame-ancestors),
 # MIME-sniffing (nosniff), and referrer protections for the higher-privilege
-# organiser portal (OSN access tokens, full guest lists).
+# organiser portal (session cookie for the whole account, full guest lists).
 #
-# Deliberately NO restrictive `script-src`/`connect-src` CSP here: the portal
-# talks to two origins (the OSN issuer and cire/api) and loads @osn/ui, and a
-# locked-down connect/script policy would break the passkey ceremony and
-# authFetch's silent-refresh. A full hardened CSP for the portal is a tracked
-# follow-up (S-L1) — see cire/wiki/todo/security.md.
+# Deliberately NO restrictive `script-src`/`connect-src` CSP here yet. The
+# portal now talks to one origin only (cire/api — sign-in is a top-level
+# redirect to musubi, not a fetch), so a locked-down policy is finally within
+# reach; writing and testing it is a tracked follow-up (S-L1) — see
+# cire/wiki/todo/security.md.

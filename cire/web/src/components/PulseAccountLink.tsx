@@ -1,6 +1,4 @@
-import { createLoginClient, createRecoveryClient, createRegistrationClient } from "@osn/client";
-import { useAuth } from "@osn/client/solid";
-import { Register, SignIn } from "@osn/ui/auth";
+import { useAuth } from "@shared/rp-auth/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import type { FamilyMember } from "./types";
@@ -8,21 +6,27 @@ import type { FamilyMember } from "./types";
 /**
  * Guest-facing "Link my Pulse account" affordance, shown after a guest claims
  * their invite. Purely ADDITIVE: the core invite never depends on this — every
- * failure path (linking disabled, OSN unreachable, token expired) degrades to a
- * hidden/quiet control rather than breaking the claimed invite.
+ * failure path (linking disabled, OSN unreachable, session expired) degrades to
+ * a hidden/quiet control rather than breaking the claimed invite.
  *
  * Flow:
  *   1. Probe `GET /api/account/link` for the current linked state of the
  *      household. A 503 (deployment has no ARC key ⇒ linking disabled) hides the
  *      whole feature. The guest session cookie alone authorises this read.
- *   2. The guest signs in to OSN (passkey ceremony via `@osn/ui`'s SignIn /
- *      Register, which adopt the session through `useAuth()`), so we hold an OSN
- *      access token.
+ *   2. The guest signs in with their musubi account. That is a redirect to the
+ *      identity app and back — the invite origin cannot run the passkey
+ *      ceremony itself, because the credential is bound to the `musubi.social`
+ *      RP ID. cire-api takes the code and sets its own session cookie.
  *   3. The guest picks WHICH household member they are, then we
- *      `POST /api/account/link` with `{ guestId }` + `Authorization: Bearer` (via
- *      `authFetch`, which silent-refreshes on 401) + the `cire_session` cookie.
+ *      `POST /api/account/link` with `{ guestId }` — the cire OSN session cookie
+ *      names the account, the `cire_session` guest cookie binds the household,
+ *      and both ride along on `credentials: "include"`.
  *   4. Per-member linked/unlinked indicators reflect the GET; an unlink control
  *      issues `DELETE /api/account/link/:guestId`.
+ *
+ * Coming back from the redirect lands on the invite URL again, where the guest
+ * cookie re-opens the claimed view — so the picker is waiting where they left
+ * it.
  *
  * Must render inside an `<AuthProvider>` (mounted by the parent island) so
  * `useAuth()` resolves.
@@ -33,10 +37,6 @@ interface PulseAccountLinkProps {
   apiUrl: string;
   /** The household members from the claim response — the seats to pick from. */
   members: FamilyMember[];
-  /** OSN issuer origin, threaded for the sign-in clients. */
-  issuerUrl: string;
-  /** Public Turnstile sitekey (build-time); gates the OSN sign-in / register. */
-  turnstileSiteKey?: string;
 }
 
 /** Shape of the `GET /api/account/link` response (per-member linked state). */
@@ -53,15 +53,11 @@ interface LinkStatusResponse {
 type ProbeState = { kind: "disabled" } | { kind: "ready"; linked: Set<string> } | { kind: "error" };
 
 export function PulseAccountLink(props: PulseAccountLinkProps) {
-  const { session, authFetch } = useAuth();
+  const { session, authFetch, signIn } = useAuth();
 
-  const loginClient = createLoginClient({ issuerUrl: props.issuerUrl });
-  const recoveryClient = createRecoveryClient({ issuerUrl: props.issuerUrl });
-  const registrationClient = createRegistrationClient({ issuerUrl: props.issuerUrl });
-
-  // Whether the OSN sign-in ceremony is expanded. The affordance opens it.
-  const [signingIn, setSigningIn] = createSignal(false);
-  const [mode, setMode] = createSignal<"signin" | "register">("signin");
+  // Set when a link attempt found the session gone. The control then says so
+  // rather than silently doing nothing.
+  const [expired, setExpired] = createSignal(false);
 
   // The member the guest selected to link (their seat). Null until chosen.
   const [selected, setSelected] = createSignal<string | null>(null);
@@ -108,8 +104,8 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
     setError(null);
     setLinking(true);
     try {
-      // authFetch attaches the OSN bearer + silent-refreshes on 401; the
-      // cire_session cookie rides via credentials:"include".
+      // authFetch sends the cire OSN session cookie and throws on 401; the
+      // cire_session guest cookie rides along on the same credentialed request.
       const res = await authFetch(`${props.apiUrl}/api/account/link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -133,9 +129,9 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
       }
       setError("Couldn't link your account. Please try again.");
     } catch {
-      // authFetch throws AuthExpiredError when silent refresh fails — the OSN
-      // session lapsed. Drop back to the sign-in step so the guest re-auths.
-      setSigningIn(true);
+      // authFetch throws AuthExpiredError on a 401 — the cire OSN session
+      // lapsed. Flag it so the guest is offered sign-in again.
+      setExpired(true);
       setError("Your sign-in expired. Please sign in again.");
     } finally {
       setLinking(false);
@@ -182,51 +178,25 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
         </p>
 
         <Show
-          when={session()}
+          when={session() && !expired()}
           fallback={
-            <Show
-              when={signingIn()}
-              fallback={
-                <button
-                  type="button"
-                  onClick={() => setSigningIn(true)}
-                  class="border-gold font-body text-gold hover:bg-gold hover:text-bg rounded-sm border bg-transparent px-5 py-2.5 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200"
-                >
-                  Sign in with OSN
-                </button>
-              }
-            >
-              {/* OSN passkey ceremony — adopts the session via useAuth(); on
-                  success `session()` becomes truthy and the picker below shows. */}
-              <Show
-                when={mode() === "register"}
-                fallback={
-                  <div class="flex flex-col gap-3">
-                    <SignIn
-                      client={loginClient}
-                      recoveryClient={recoveryClient}
-                      turnstileSiteKey={props.turnstileSiteKey}
-                    />
-                    <p class="text-text-muted text-center text-[0.8rem]">
-                      New to OSN?{" "}
-                      <button
-                        type="button"
-                        class="text-gold font-medium hover:underline"
-                        onClick={() => setMode("register")}
-                      >
-                        Create an account
-                      </button>
-                    </p>
-                  </div>
-                }
-              >
-                <Register
-                  client={registrationClient}
-                  onCancel={() => setMode("signin")}
-                  turnstileSiteKey={props.turnstileSiteKey}
-                />
+            // Sign-in is a full-page trip to the identity app and back: the
+            // guest cookie survives it, so they return to the claimed invite
+            // with this panel signed in.
+            <div class="flex flex-col gap-3">
+              <Show when={error()}>
+                <p class="text-error text-[0.8rem]" role="alert">
+                  {error()}
+                </p>
               </Show>
-            </Show>
+              <button
+                type="button"
+                onClick={() => signIn(window.location.href)}
+                class="border-gold font-body text-gold hover:bg-gold hover:text-bg self-start rounded-sm border bg-transparent px-5 py-2.5 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200"
+              >
+                Sign in with musubi
+              </button>
+            </div>
           }
         >
           {/* Signed in to OSN — pick which household member you are, then link. */}

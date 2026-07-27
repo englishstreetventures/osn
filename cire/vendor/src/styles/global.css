@@ -1,14 +1,12 @@
 @import "tailwindcss";
 
 /*
- * @osn/ui components (SignIn etc.) ship raw Tailwind classes — scan their
- * sources so the utilities they use are generated. They also rely on a
- * `base:` variant (lowest-specificity defaults) and the shadcn-style
- * semantic tokens, which we map onto the cire palette below.
+ * The portal used to render @osn/ui's sign-in components, so this file scanned
+ * `osn/ui/src` for their Tailwind classes and declared the `base:` variant they
+ * relied on. Sign-in is a redirect to musubi now and no @osn/ui component is
+ * mounted here, so both are gone. The shadcn-style semantic tokens below stay —
+ * cire's own components are written against them.
  */
-@source "../../../../osn/ui/src";
-
-@custom-variant base (:where(&));
 
 @theme {
   --color-bg: oklch(19.96% 0.0331 147.34);

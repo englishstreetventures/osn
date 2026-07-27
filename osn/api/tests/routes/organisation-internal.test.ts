@@ -162,7 +162,7 @@ describe("internal organisation routes (ARC-protected)", () => {
   // -------------------------------------------------------------------------
 
   describe("GET /organisations/internal/profile-orgs", () => {
-    it("returns org IDs for a user with orgs", async () => {
+    it("returns org summaries for a user with orgs", async () => {
       const { token } = await setupArcService();
       const profileId = await registerProfile("alice@example.com", "alice");
       await runWithLayer(org.createOrganisation(profileId, "acme", "Acme Corp"));
@@ -174,8 +174,17 @@ describe("internal organisation routes (ARC-protected)", () => {
         }),
       );
       expect(res.status).toBe(200);
-      const json = (await res.json()) as { organisationIds: string[] };
-      expect(json.organisationIds).toHaveLength(2);
+      const json = (await res.json()) as {
+        organisations: { id: string; handle: string; name: string }[];
+      };
+      expect(json.organisations).toHaveLength(2);
+      // The id + display fields are what cire-api's vendor portal renders and
+      // addresses listings by, so assert them rather than just the count.
+      expect(json.organisations.map((o) => o.handle).sort()).toEqual(["acme", "globex"]);
+      for (const o of json.organisations) {
+        expect(o.id).toMatch(/^org_/);
+      }
+      expect(json.organisations.find((o) => o.handle === "acme")?.name).toBe("Acme Corp");
     });
 
     it("returns empty list for user with no orgs", async () => {
@@ -188,8 +197,8 @@ describe("internal organisation routes (ARC-protected)", () => {
         }),
       );
       expect(res.status).toBe(200);
-      const json = (await res.json()) as { organisationIds: string[] };
-      expect(json.organisationIds).toHaveLength(0);
+      const json = (await res.json()) as { organisations: unknown[] };
+      expect(json.organisations).toHaveLength(0);
     });
   });
 

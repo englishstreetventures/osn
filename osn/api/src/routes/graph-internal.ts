@@ -1,13 +1,13 @@
 import { accounts, serviceAccounts, serviceAccountKeys, users } from "@osn/db/schema";
 import { Db, DbLive } from "@osn/db/service";
 import { evictPublicKeyCacheEntry, importKeyFromJwk } from "@shared/crypto";
+import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { and, asc, inArray, eq, isNull, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { requireArc } from "../lib/arc-middleware";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
-import { timingSafeEqualString } from "../lib/timing-safe";
 import { createGraphService } from "../services/graph";
 
 // ---------------------------------------------------------------------------

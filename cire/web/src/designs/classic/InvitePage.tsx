@@ -1,4 +1,4 @@
-import { AuthProvider } from "@osn/client/solid";
+import { AuthProvider } from "@shared/rp-auth/solid";
 import { createEffect, createMemo, createResource, createSignal, Show, For } from "solid-js";
 import { Toaster } from "solid-toast";
 
@@ -14,12 +14,6 @@ import { LoginSection } from "../../components/LoginSection";
 import { PulseAccountLink } from "../../components/PulseAccountLink";
 import { RsvpModal } from "../../components/RsvpModal";
 import type { ClaimResult, EventSummary, RsvpSummary } from "../../components/types";
-import { OSN_ISSUER_URL } from "../../lib/osn";
-
-// Public Turnstile sitekey, baked in at build time. Undefined ⇒ key-optional
-// (no widget rendered; osn-api also skips siteverify). Shared with the claim
-// flow's TurnstileWidget; reused here for the OSN sign-in ceremony.
-const TURNSTILE_SITEKEY = import.meta.env.PUBLIC_TURNSTILE_SITEKEY;
 
 /** Events ("details") section header copy. `null` ⇒ the built-in defaults. */
 export interface DetailsCopy {
@@ -221,18 +215,13 @@ export default function InvitePage(props: InvitePageProps) {
             {/* Optional, additive "Link my Pulse account" affordance. Shown only
                 post-claim (it lives inside this claimed-state Show), and never in
                 preview mode (a host previewing isn't a guest seat to link). Wrapped
-                in its own AuthProvider so it can obtain an OSN access token via
-                @osn/client without the rest of the guest site depending on OSN
-                auth. The component self-hides when linking is disabled (503) or
+                in its own AuthProvider, which reads the cire session cookie from
+                cire-api — the rest of the guest site stays free of any OSN
+                dependency. The component self-hides when linking is disabled (503) or
                 unavailable, so it can never break the core invite. */}
             <Show when={!data().preview}>
-              <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }}>
-                <PulseAccountLink
-                  apiUrl={props.apiUrl}
-                  members={data().members}
-                  issuerUrl={OSN_ISSUER_URL}
-                  turnstileSiteKey={TURNSTILE_SITEKEY}
-                />
+              <AuthProvider config={{ apiBase: props.apiUrl }}>
+                <PulseAccountLink apiUrl={props.apiUrl} members={data().members} />
                 <Toaster position="bottom-right" />
               </AuthProvider>
             </Show>

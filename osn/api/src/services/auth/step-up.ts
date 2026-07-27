@@ -9,6 +9,7 @@
 
 import { accounts, passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { type EmailError, EmailService } from "@shared/email";
 import type {
   StepUpFactor,
@@ -27,7 +28,6 @@ import type {
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { timingSafeEqualString } from "../../lib/timing-safe";
 import {
   metricAuthOtpSent,
   metricStepUpIssued,

@@ -6,7 +6,7 @@ import { __resetBudgetCache, type BudgetSnapshot, setCachedBudget } from "../lib
 import BudgetView from "./BudgetView";
 
 const authFetch = vi.fn();
-vi.mock("@osn/client/solid", () => ({ useAuth: () => ({ authFetch }) }));
+vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 
 const snap = (over: Partial<BudgetSnapshot>): BudgetSnapshot => ({
   items: [],

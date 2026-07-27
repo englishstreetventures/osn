@@ -53,11 +53,13 @@ describe("buildCsp", () => {
     expect(csp).toMatch(/connect-src[^;]*https:\/\/api\.cireweddings\.com/);
   });
 
-  it("allowlists the OSN issuer origin for the Pulse account-link sign-in", () => {
-    // The "Link my Pulse account" flow fetches the OSN issuer (token grant +
-    // profile + account-link), so connect-src must include it. The issuer moved
-    // to its own domain on 2026-07-27 — see root `wiki/runbooks/musubi-identity-migration`.
-    expect(csp).toMatch(/connect-src[^;]*https:\/\/id\.musubi\.social/);
+  it("does NOT allowlist the OSN issuer — sign-in is a top-level redirect", () => {
+    // Account linking used to fetch the OSN issuer straight from the browser.
+    // Since the OIDC swap the guest site never talks to the issuer: it navigates
+    // to it (a top-level navigation is not a connect-src subject) and cire-api
+    // runs the code exchange server-side. Keep the issuer OUT of connect-src so
+    // a regression that re-adds a browser-side issuer fetch fails loudly.
+    expect(csp).not.toMatch(/musubi\.social/);
   });
 
   it("keeps script-src host-restricted (no wildcard, no bare scheme source)", () => {

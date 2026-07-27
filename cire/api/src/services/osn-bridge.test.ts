@@ -435,15 +435,31 @@ describe("createHandleSearchResolverFromEnv", () => {
 });
 
 describe("createArcProfileOrgsResolver", () => {
-  it("signs an ARC token with org:read scope and returns organisationIds", async () => {
+  it("signs an ARC token with org:read scope and returns org summaries", async () => {
     const { privateKey } = await testKeyMaterial();
     let seen: { url: string; auth: string | null } | undefined;
     globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
       seen = { url: String(url), auth: headers.get("authorization") };
-      return new Response(JSON.stringify({ organisationIds: ["org_1", "org_2"] }), {
-        status: 200,
-      });
+      return new Response(
+        JSON.stringify({
+          organisations: [
+            {
+              id: "org_1",
+              handle: "one",
+              name: "Org One",
+              description: null,
+              avatarUrl: null,
+              ownerId: "usr_x",
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-02T00:00:00.000Z",
+            },
+            // Malformed neighbour: no id → dropped, the good one still returns.
+            { handle: "two", name: "Org Two" },
+          ],
+        }),
+        { status: 200 },
+      );
     }) as typeof fetch;
 
     const resolve = createArcProfileOrgsResolver({
@@ -453,7 +469,18 @@ describe("createArcProfileOrgsResolver", () => {
     });
     const result = await resolve("usr_x");
 
-    expect(result).toEqual(["org_1", "org_2"]);
+    expect(result).toEqual([
+      {
+        id: "org_1",
+        handle: "one",
+        name: "Org One",
+        description: null,
+        avatarUrl: null,
+        ownerId: "usr_x",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      },
+    ]);
     // Trailing slash trimmed; profileId query-encoded.
     expect(seen?.url).toBe(
       "https://osn.example/organisations/internal/profile-orgs?profileId=usr_x",

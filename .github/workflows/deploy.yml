@@ -168,10 +168,9 @@ jobs:
           # Domain reshuffle 2026-07-16: the guest site now lives on the `invite.`
           # subdomain (apex serves the marketing landing site).
           PUBLIC_SITE_URL: https://invite.cireweddings.com
-          # OSN identity issuer for the guest "Link my Pulse account" island.
-          # Without it the bundle falls back to the dev default
-          # (http://localhost:4000) and the linking flow dials localhost in prod.
-          PUBLIC_OSN_ISSUER_URL: https://id.musubi.social
+          # No OSN issuer var: since the OIDC swap (2026-07-27) the guest site
+          # never talks to the issuer. "Link my Pulse account" navigates to
+          # cire-api's /api/auth/oidc/start, and cire-api runs the exchange.
           PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
           # Google Maps Embed API key (public, referrer-restricted to *.cireweddings.com).
           # Present ⇒ real Embed iframe; absent ⇒ CSS-card fallback (key-optional).
@@ -206,8 +205,9 @@ jobs:
 
   # ── cire organiser (Astro → Cloudflare Pages) ──────────────────────────────
   # The organiser portal is a separate static Astro build + Pages project from
-  # the guest site. Its PUBLIC_* vars (cire-api origin, OSN issuer for passkey
-  # sign-in, guest-site URL for the preview link) bake in at build time. The
+  # the guest site. Its PUBLIC_* vars (cire-api origin, musubi account origin for
+  # the security deep-link, guest-site URL for the preview link) bake in at build
+  # time; sign-in itself is a redirect through cire-api, so no issuer var. The
   # `cire-organiser` Pages project must exist in the account before first run
   # (create once in the dashboard or `wrangler pages project create`).
   deploy-cire-organiser:
@@ -237,14 +237,13 @@ jobs:
         run: bun run --cwd cire/organiser build
         env:
           PUBLIC_CIRE_API_URL: https://api.cireweddings.com
-          PUBLIC_OSN_ISSUER_URL: https://id.musubi.social
+          # The account pages (passkeys, recovery codes) live on musubi's own
+          # origin — the security panel deep-links there. Sign-in itself goes
+          # through cire-api, so the issuer origin is not needed here.
+          PUBLIC_OSN_ACCOUNT_URL: https://musubi.social
           # Domain reshuffle 2026-07-16: the guest site (this is the organiser's
           # "preview / view live invite" link) now lives on `invite.`.
           PUBLIC_CIRE_WEB_URL: https://invite.cireweddings.com
-          # Optional Cloudflare Turnstile sitekey (public) for organiser passkey
-          # sign-in. Uncomment once the widget exists; omitted ⇒ key-optional
-          # no-op. Matching TURNSTILE_SECRET_KEY is a wrangler secret on osn-api.
-          PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
 
       - name: Deploy cire/organiser to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire-organiser
@@ -285,8 +284,8 @@ jobs:
         run: bun run --cwd cire/vendor build
         env:
           PUBLIC_CIRE_API_URL: https://api.cireweddings.com
-          PUBLIC_OSN_ISSUER_URL: https://id.musubi.social
-          PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
+          # Account management deep link (see the organiser build above).
+          PUBLIC_OSN_ACCOUNT_URL: https://musubi.social
 
       - name: Deploy cire/vendor to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire-vendor

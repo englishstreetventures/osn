@@ -5,12 +5,12 @@
 
 import { accounts, emailChanges, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { commitBatch } from "@shared/db-utils";
 import { type EmailError, EmailService } from "@shared/email";
 import { and, count as countFn, eq, gte, ne } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 
-import { timingSafeEqualString } from "../../lib/timing-safe";
 import {
   metricAuthOtpSent,
   metricSessionSecurityInvalidation,

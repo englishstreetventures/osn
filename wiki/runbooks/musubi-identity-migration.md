@@ -2,7 +2,7 @@
 title: Migrating OSN identity to musubi.social
 description: Cutover plan for moving osn-api from id.cireweddings.com to id.musubi.social and making musubi.social the full OSN identity home
 tags: [runbook, identity, migration, oidc, webauthn]
-status: cutover-done-pr-c-outstanding
+status: cutover-done
 related:
   - "[[production-deploy]]"
   - "[[oidc-provider]]"
@@ -12,6 +12,7 @@ related:
   - "[[sessions]]"
   - "[[social]]"
   - "[[recovery-codes]]"
+  - "[[cire-auth]]"
 last-reviewed: 2026-07-27
 ---
 
@@ -32,14 +33,17 @@ consent screen. This is the "dedicated OSN domain" that
 > - **Every passkey enrolled under `cireweddings.com` is dead.** Both prod
 >   accounts have recovery-code sets (minted 2026-07-26, step 2) and those are
 >   the only way back in.
-> - **cire sign-in is down** — organiser, vendor, and the guest account-linking
+> - **cire sign-in went down** — organiser, vendor, and the guest account-linking
 >   island. All three ran their own WebAuthn ceremony from a cireweddings.com
 >   origin, which is now a different registrable domain from the RP ID.
+>   **Restored on 2026-07-27 by step 6 below**: all three now redirect to
+>   `id.musubi.social/authorize` and cire-api exchanges the code server-side.
 > - Bearer-token verification is untouched. cire-api and zap-api verify against
 >   the new JWKS URL and nothing about `aud`/signature checking changed.
 >
-> **PR C is the remaining work, and it is now on the critical path** rather than
-> a step ahead of the flip. Until it lands, cire has no sign-in.
+> **Step 6 has landed.** It went from "a step ahead of the flip" to the critical
+> path the moment the RP ID moved, and it is now done — see [[cire-auth]] for
+> the flow and [[oidc-provider]] for the client registration.
 
 **This is not a hostname swap.** The two dependencies below were the reason.
 They are kept as written because they explain the shape of what broke.
@@ -159,8 +163,8 @@ ladder did not move.
 | ″ `[[env.production.routes]]` | `pattern` | `id.cireweddings.com` → **`id.musubi.social`**, `custom_domain = true` |
 | `cire/api/wrangler.toml` | `OSN_JWKS_URL`, `OSN_ISSUER_URL` | both, in `[env.production]` **and** `[env.preview]` — the preview tier shares prod identity by design |
 | `zap/api/wrangler.toml` | `OSN_JWKS_URL`, `OSN_API_URL` | both |
-| `.github/workflows/deploy.yml` | `PUBLIC_OSN_ISSUER_URL` | three occurrences |
-| `.github/workflows/deploy-cire-preview.yml` | `PUBLIC_OSN_ISSUER_URL` | two occurrences |
+| `.github/workflows/deploy.yml` | `PUBLIC_OSN_ISSUER_URL` | three occurrences — then **deleted** the same day by the OIDC swap. The cire frontends no longer call the issuer at all: sign-in is a top-level redirect to cire-api, which runs the code exchange server-side. Two of the three became `PUBLIC_OSN_ACCOUNT_URL=https://musubi.social` (organiser, vendor — "manage your account" links); the guest build lost its issuer var outright. See [[cire-auth]]. |
+| `.github/workflows/deploy-cire-preview.yml` | `PUBLIC_OSN_ISSUER_URL` | two occurrences — same story, same day: one became `PUBLIC_OSN_ACCOUNT_URL`, one went away |
 | `.github/workflows/deploy.yml` | `VITE_OSN_ISSUER_URL` (`deploy-osn-social`) | one occurrence |
 | `.github/workflows/deploy-osn-social-preview.yml` | `VITE_OSN_ISSUER_URL` | one occurrence |
 | `cire/web/src/lib/security-headers.ts` | `osnIssuer` + CSP `connect-src` | hardcoded — must track the issuer |
@@ -201,9 +205,11 @@ Out-of-band, not in the repo:
 5. ✅ Add an osn-social Pages job to `deploy.yml` (2026-07-26). Written for
    `me.cireweddings.com`, retargeted to the **`musubi.social` apex** before it ever
    served a hostname.
-6. ⬜ **Outstanding — this is now the critical path.** Register cire as an OIDC
-   client; convert organiser, vendor and web from direct `@osn/client`
-   ceremonies to the redirect flow.
+6. ✅ Registered cire as a first-party OIDC client (`cid_cire`, seeded by hand
+   in prod D1 — see `[[production-deploy]]` §3.5) and converted organiser,
+   vendor and web from direct `@osn/client` ceremonies to the redirect flow
+   (2026-07-27). cire-api runs the exchange and mints its own session cookie;
+   no cire browser holds an OSN token. See `[[cire-auth]]`.
 7. ✅ Flipped the osn-api vars + route on 2026-07-27, and the downstream
    verifiers (cire-api, zap-api) with them. The apex is attached to the
    `osn-social` Pages project and `musubi.social` is on the Turnstile widget,
@@ -227,10 +233,11 @@ costs:
   where the binding and session cookies already worked — and prove the
   authorize → consent → token round-trip before moving anything. In the event
   the hostname was never attached and B merged into D.
-- **C — convert cire to the redirect flow.** ⬜ **Not done.** Register cire as
-  an OIDC client and move organiser, vendor and web off direct `@osn/client`
-  passkey ceremonies. This is the change that removes cire's dependence on the
-  RP ID.
+- **C — convert cire to the redirect flow.** ✅ Done 2026-07-27, after D rather
+  than before it. cire is a registered OIDC client and organiser, vendor and web
+  are off direct `@osn/client` passkey ceremonies. This is the change that
+  removes cire's dependence on the RP ID — a future identity-domain move cannot
+  take cire's sign-in with it.
 - **D — the move itself.** ✅ Shipped 2026-07-27: vars, route, RP ID, and the
   osn-social Pages target.
 

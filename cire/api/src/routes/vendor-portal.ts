@@ -11,7 +11,7 @@ import { runCire } from "../observability";
 import { ConsumeClaimBody, UpsertListingBody } from "../schemas/vendors";
 import type { createDirectoryService } from "../services/directory";
 import type { createEnquiryService } from "../services/enquiries";
-import type { OsnOrgMembershipResolver } from "../services/osn-bridge";
+import type { OsnOrgMembershipResolver, OsnProfileOrgsResolver } from "../services/osn-bridge";
 
 // Sentinel parse hook — the handler parses by hand so a malformed payload
 // degrades to the schema's 400 (same idiom as the other organiser write routes).
@@ -49,6 +49,12 @@ export interface VendorPortalDeps {
   directoryService: ReturnType<typeof createDirectoryService>;
   orgMembership: OsnOrgMembershipResolver;
   /**
+   * The caller's OSN organisations, resolved over ARC. The portal cannot read
+   * osn-api itself — it holds a cire session cookie, not an OSN token — so
+   * `GET /orgs` proxies this.
+   */
+  profileOrgs: OsnProfileOrgsResolver;
+  /**
    * Couple-side enquiry BFF service. After a successful claim we flush any
    * enquiries buffered against the just-claimed listing (`onVendorClaimed`) —
    * best-effort (its error channel is `never`), so a flush hiccup never fails
@@ -62,6 +68,7 @@ export interface VendorPortalDeps {
  *
  *   GET  /api/vendor/claims/:token              — preview (no auth required)
  *   POST /api/vendor/claims/:token/consume      — consume claim (osnAuth + org member gate)
+ *   GET  /api/vendor/orgs                       — the caller's OSN orgs (osnAuth)
  *   GET  /api/vendor/orgs/:orgId/listing        — read listing (osnAuth + org member gate)
  *   PUT  /api/vendor/orgs/:orgId/listing        — upsert listing (osnAuth + org member gate)
  *
@@ -82,7 +89,7 @@ export function createVendorPortalRoutes(
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
 ) {
-  const { directoryService, orgMembership, enquiryService } = deps;
+  const { directoryService, orgMembership, profileOrgs, enquiryService } = deps;
 
   return (
     new Elysia({ prefix: "/api/vendor" })
@@ -146,6 +153,18 @@ export function createVendorPortalRoutes(
         },
         manualParse,
       )
+      // GET /api/vendor/orgs — the caller's OSN organisations.
+      // Scoped to the caller by construction (the resolver keys on the profile
+      // id from the verified session), so no extra gate applies. Fail-soft: an
+      // ARC hiccup resolves to an empty list, which the portal renders as "no
+      // organisations yet" rather than an error.
+      .get("/orgs", async ({ set, ...ctx }) => {
+        const profileId = (ctx as unknown as { osnProfileId?: string }).osnProfileId;
+        if (!profileId) return unauthorisedSync(set);
+
+        const organisations = await profileOrgs(profileId);
+        return { organisations };
+      })
       // GET /api/vendor/orgs/:orgId/listing
       .get("/orgs/:orgId/listing", async ({ params, set, ...ctx }) => {
         const profileId = (ctx as unknown as { osnProfileId?: string }).osnProfileId;

@@ -6,7 +6,7 @@ import type { EnquiryListItem } from "../lib/enquiries-store";
 
 const authFetch = vi.fn();
 
-vi.mock("@osn/client/solid", () => ({
+vi.mock("@shared/rp-auth/solid", () => ({
   useAuth: () => ({ authFetch }),
 }));
 

@@ -1,9 +1,9 @@
-import { AuthProvider, useAuth } from "@osn/client/solid";
+import { AuthProvider, useAuth } from "@shared/rp-auth/solid";
 import { createEffect, createSignal, onCleanup, onMount, type ParentProps, Show } from "solid-js";
 import { Toaster } from "solid-toast";
 
 import { redirectToLogin } from "../lib/api";
-import { OSN_ISSUER_URL } from "../lib/osn";
+import { CIRE_API_URL } from "../lib/osn";
 import type { OrgSummary } from "../lib/vendor-store";
 import ListingEditor from "./ListingEditor";
 import OrgPicker from "./OrgPicker";
@@ -229,7 +229,7 @@ function Dashboard() {
  */
 export default function VendorApp() {
   return (
-    <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }}>
+    <AuthProvider config={{ apiBase: CIRE_API_URL }}>
       <RequireAuth>
         <Dashboard />
       </RequireAuth>

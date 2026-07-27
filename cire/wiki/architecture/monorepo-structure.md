@@ -2,7 +2,7 @@
 title: "Monorepo Structure"
 tags: [architecture]
 related: [[contributing]], [[index]]
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-27
 ---
 
 # Monorepo Structure
@@ -22,7 +22,7 @@ Cire lives inside the **OSN monorepo** as the `cire/` workspace directory (merge
 │   │   ├── astro.config.mjs
 │   │   └── package.json
 │   ├── organiser/       # @cire/organiser — Astro + SolidJS organiser portal, port 4322
-│   │   └── src/             # OSN passkey sign-in via @osn/client + @osn/ui
+│   │   └── src/             # OSN sign-in by OIDC redirect via @shared/rp-auth
 │   ├── api/             # @cire/api — Elysia on Cloudflare Workers, port 8787 (local)
 │   │   ├── src/
 │   │   │   ├── routes/      # One route factory per domain
@@ -50,14 +50,15 @@ Cire lives inside the **OSN monorepo** as the `cire/` workspace directory (merge
 - Package manager: **bun** — always use `bun run`, `bunx --bun`, `bun add`.
 - Workspaces defined in the **OSN root** `package.json`: `cire/*` alongside `osn/*`, `pulse/*`, `zap/*`, `shared/*`.
 - Scope commands with `--cwd` from the repo root: e.g., `bun run --cwd cire/api test`.
-- `bun run dev:cire` (repo root) starts `@cire/api` + `@cire/web` + `@cire/organiser` + `@osn/api` (organiser passkey sign-in needs the OSN issuer).
+- `bun run dev:cire` (repo root) starts `@cire/api` + `@cire/web` + `@cire/organiser` + `@osn/api` (organiser sign-in redirects to the OSN issuer). Local sign-in also needs an `oauth_clients` row in the local OSN D1 and `CIRE_OIDC_CLIENT_SECRET` in `cire/api/.dev.vars` — without them `/api/auth/oidc/*` answers 503 and the rest of cire works as normal.
 
 ## Dependency Flow
 
 ```
 cire/web ──fetch──▶ cire/api          (runtime, via HTTP)
-cire/organiser ──fetch──▶ cire/api    (runtime, via HTTP; Bearer JWT from @osn/client)
-cire/organiser ──import──▶ @osn/client + @osn/ui   (passkey sign-in)
+cire/organiser ──fetch──▶ cire/api    (runtime, via HTTP; cire_org_session cookie)
+cire/organiser ──import──▶ @shared/rp-auth   (redirect sign-in + session reads)
+cire/api ──redirect──▶ osn/api        (OIDC authorize + server-side code exchange)
 
 cire/web ──import──▶ cire/db          (schema types only)
 cire/api ──import──▶ cire/db          (schema + query building)

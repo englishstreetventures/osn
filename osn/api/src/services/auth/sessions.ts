@@ -5,11 +5,11 @@
 
 import { sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import type { SecurityInvalidationTrigger } from "@shared/observability/metrics";
 import { and, desc, eq, like, ne } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { timingSafeEqualString } from "../../lib/timing-safe";
 import { metricSessionSecurityInvalidation, withSessionOp } from "../../metrics";
 import { MAX_SESSIONS_PER_ACCOUNT } from "./constants";
 import { AuthError, DatabaseError } from "./errors";

@@ -7,18 +7,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // Each test can overwrite these before render; factories read them at call
 // time so tests are fully isolated.
 
-let mockSession: { profile: { id: string } } | null = { profile: { id: "p1" } };
+let mockSession: { profileId: string } | null = { profileId: "usr_1" };
 let mockFetchClaimPreview: () => Promise<{ directoryVendorId: string; name: string } | null> = () =>
   Promise.resolve({ directoryVendorId: "d1", name: "Preview Co" });
 let mockConsumeClaim: () => Promise<void> = () => Promise.resolve();
+const signInMock = vi.fn();
 
 // ─── Module mocks ──────────────────────────────────────────────────────────
 
-vi.mock("@osn/client/solid", () => ({
+vi.mock("@shared/rp-auth/solid", () => ({
   AuthProvider: (props: { children: JSX.Element }) => props.children,
   useAuth: () => ({
     session: () => mockSession,
     authFetch: vi.fn(),
+    signIn: signInMock,
   }),
 }));
 
@@ -63,11 +65,6 @@ vi.mock("./OrgPicker", () => ({
   ),
 }));
 
-// Mock SignIn so we don't pull in WebAuthn / WASM in tests.
-vi.mock("@osn/ui/auth", () => ({
-  SignIn: () => <div data-testid="sign-in-widget">Sign in</div>,
-}));
-
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 import ClaimApp from "./ClaimApp";
@@ -84,8 +81,12 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   history.replaceState(null, "", "/claim");
+  // The token is parked in sessionStorage across the sign-in redirect, so it
+  // outlives a render — clear it or the next test inherits it.
+  sessionStorage.clear();
+  signInMock.mockReset();
   // Reset mutable state to defaults for the next test.
-  mockSession = { profile: { id: "p1" } };
+  mockSession = { profileId: "usr_1" };
   mockFetchClaimPreview = () => Promise.resolve({ directoryVendorId: "d1", name: "Preview Co" });
   mockConsumeClaim = () => Promise.resolve();
 });
@@ -133,13 +134,51 @@ describe("ClaimApp", () => {
     expect(document.body.textContent).not.toContain("already consumed");
   });
 
-  it("null session → sign-in widget shown, OrgPicker not shown", async () => {
+  it("null session → sign-in control shown, OrgPicker not shown", async () => {
     mockSession = null;
     renderClaim("valid-token");
 
-    // Preview loads; then the auth gate shows sign-in instead of OrgPicker.
-    await waitFor(() => expect(screen.getByTestId("sign-in-widget")).toBeInTheDocument());
-
+    // Preview loads; then the auth gate offers sign-in instead of the picker.
+    const button = await waitFor(() =>
+      screen.getByRole("button", { name: /Continue with musubi/i }),
+    );
     expect(screen.queryByTestId("mock-org-picker")).not.toBeInTheDocument();
+
+    button.click();
+    // Sign-in is a full-page redirect; the return-to brings them back to /claim,
+    // where the parked token is picked up again.
+    expect(signInMock).toHaveBeenCalledWith(`${window.location.origin}/claim`);
+  });
+
+  it("parks the token in sessionStorage so it survives the sign-in redirect", async () => {
+    renderClaim("round-trip-token");
+    await waitFor(() => expect(screen.getByText(/Preview Co/)).toBeInTheDocument());
+    expect(sessionStorage.getItem("cire.vendor.claim-token")).toBe("round-trip-token");
+  });
+
+  it("recovers the parked token when returning from sign-in with no ?token", async () => {
+    sessionStorage.setItem("cire.vendor.claim-token", "parked-token");
+    const seen: string[] = [];
+    mockFetchClaimPreview = ((token: string) => {
+      seen.push(token);
+      return Promise.resolve({ directoryVendorId: "d1", name: "Preview Co" });
+    }) as typeof mockFetchClaimPreview;
+
+    history.replaceState(null, "", "/claim");
+    render(() => <ClaimApp />);
+
+    await waitFor(() => expect(screen.getByText(/Preview Co/)).toBeInTheDocument());
+    expect(seen).toContain("parked-token");
+  });
+
+  it("drops the parked token when the claim is rejected", async () => {
+    // A spent or rejected token must not stay parked — a reload would replay it.
+    mockConsumeClaim = () => Promise.reject(new Error("spent"));
+    renderClaim("spend-me");
+    await waitFor(() => expect(screen.getByTestId("mock-org-picker")).toBeInTheDocument());
+
+    screen.getByTestId("mock-org-picker").click();
+
+    await waitFor(() => expect(sessionStorage.getItem("cire.vendor.claim-token")).toBeNull());
   });
 });

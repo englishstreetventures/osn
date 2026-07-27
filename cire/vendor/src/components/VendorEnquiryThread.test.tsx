@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mockAuthFetch = vi.fn();
 
-vi.mock("@osn/client/solid", () => ({
+vi.mock("@shared/rp-auth/solid", () => ({
   AuthProvider: (props: any) => props.children,
   useAuth: () => ({
     session: () => ({ profile: { id: "p-vendor" } }),

@@ -1,17 +1,17 @@
-// All cire/api calls go through useAuth().authFetch so the OSN access
-// token is attached + silently refreshed. Components call useAuth()
-// directly (they all render under the single AuthProvider root in
-// OrganiserApp) rather than importing a fetch singleton — authFetch
-// lives in the AuthProvider context.
+// All cire/api calls go through useAuth().authFetch so the cire session
+// cookie rides along on every request. Components call useAuth() directly
+// (they all render under the single AuthProvider root in VendorApp)
+// rather than importing a fetch singleton — authFetch lives in the
+// AuthProvider context.
 import { CIRE_API_URL } from "./osn";
 
 export const apiUrl = (path: string) => `${CIRE_API_URL}${path}`;
 
 /**
- * `authFetch` rejects when the access token is expired and the silent
- * refresh cycle has failed (`AuthExpiredError` from @osn/client, surfaced
- * through Effect's runtime as a FiberFailure whose printout carries the
- * tag). Callers should redirect to sign-in when this returns true.
+ * `authFetch` rejects with `AuthExpiredError` (from `@shared/rp-auth`) when
+ * cire/api answers 401 — the session cookie is gone or expired. The error may
+ * arrive wrapped, so the string check catches a FiberFailure printout too.
+ * Callers should redirect to sign-in when this returns true.
  */
 export function isAuthExpired(err: unknown): boolean {
   if (typeof err === "object" && err !== null && "_tag" in err) {

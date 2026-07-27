@@ -26,7 +26,7 @@ const authFetch = vi.fn(async (url: string) => {
     return json({ items: [], payments: [], budgetTotalMinor: null, currency: "AUD" });
   return json({}, 404);
 });
-vi.mock("@osn/client/solid", () => ({ useAuth: () => ({ authFetch }) }));
+vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("../lib/api", () => ({
   apiUrl: (path: string) => `https://api.test${path}`,
   isAuthExpired: () => false,

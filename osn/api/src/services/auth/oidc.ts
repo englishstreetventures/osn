@@ -1009,6 +1009,16 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
         auth_time: row.authTime,
       };
       if (row.nonce !== null) claims["nonce"] = row.nonce;
+      // First-party only: the real, stable `usr_*` profile id alongside the
+      // pairwise `sub`. Our own apps key their data on profile ids and reach
+      // the graph over ARC with them (co-host by handle, org membership), so a
+      // pairwise subject alone would orphan every row they already hold. The
+      // pairwise `sub` stays the subject identifier — this is an extra claim,
+      // not a replacement — and it only ever travels back-channel to the
+      // client-authenticated token endpoint. `is_first_party` is hand-seeded
+      // (see `registerClient`, which forces it false), so no self-registered
+      // client can ask for it.
+      if (client.isFirstParty) claims["osn_profile_id"] = profile.id;
       if (scopes.has("profile")) {
         claims["preferred_username"] = profile.handle;
         if (profile.displayName !== null) claims["name"] = profile.displayName;

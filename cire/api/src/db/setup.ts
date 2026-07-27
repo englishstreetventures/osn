@@ -22,6 +22,11 @@ export { DEV_OWNER_PROFILE_ID };
 // production rejects. Enforced mechanically by src/db/ddl-lockstep.test.ts
 // (T-S1), which diffs this DDL and the Drizzle schema against the full
 // migration chain.
+//
+// No `--` comments inside the string: d1-integration.test.ts splits it on `;`
+// and prepares each chunk, and miniflare rejects a chunk whose leading lines
+// are a comment ("SQL code did not contain a statement"). Explain a table here
+// in JS, or in its migration file.
 export const DDL = `
 CREATE TABLE IF NOT EXISTS weddings (
   id TEXT PRIMARY KEY,
@@ -128,6 +133,21 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS organiser_sessions (
+  id TEXT PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,
+  osn_profile_id TEXT NOT NULL,
+  osn_sub TEXT NOT NULL,
+  email TEXT,
+  handle TEXT,
+  display_name TEXT,
+  avatar_url TEXT,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS organiser_sessions_profile_idx ON organiser_sessions(osn_profile_id);
+CREATE INDEX IF NOT EXISTS organiser_sessions_expires_idx ON organiser_sessions(expires_at);
 
 CREATE TABLE IF NOT EXISTS guest_account_links (
   id TEXT PRIMARY KEY,

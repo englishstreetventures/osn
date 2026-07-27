@@ -7,7 +7,7 @@ import ChecklistView from "./ChecklistView";
 
 // useAuth: a stub authFetch we drive per-test.
 const authFetch = vi.fn();
-vi.mock("@osn/client/solid", () => ({ useAuth: () => ({ authFetch }) }));
+vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 
 const row = (over: Partial<TaskRow>): TaskRow => ({
   id: "tsk_1",

@@ -6,7 +6,7 @@ import { __resetVendorsCache, setCachedVendors, type VendorRow } from "../lib/ve
 import VendorsView from "./VendorsView";
 
 const authFetch = vi.fn();
-vi.mock("@osn/client/solid", () => ({ useAuth: () => ({ authFetch }) }));
+vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 
 const vendor = (over: Partial<VendorRow>): VendorRow => ({
   id: "ven_1",

@@ -82,13 +82,13 @@ Records of in-progress or completed email-verification claims. An organiser seed
 
 | | Guest | Organiser | Vendor |
 |---|---|---|---|
-| Credential | Claim-code → `cire_session` cookie | OSN passkey → ES256 access JWT | OSN passkey → ES256 access JWT **+ OSN org membership** |
-| Token | Opaque 256-bit session (hashed at rest) | `aud:"osn-access"` JWT, `sub = usr_*` | Same access JWT; org membership resolved over ARC |
+| Credential | Claim-code → `cire_session` cookie | OSN sign-in via OIDC → `cire_org_session` cookie | Same `cire_org_session` cookie **+ OSN org membership** |
+| Token | Opaque 256-bit session (hashed at rest) | Opaque 256-bit session (hashed at rest), row carries the `usr_*` profile id | Same session; org membership resolved over ARC |
 | Routes gated | `/api/rsvp` | `/api/organiser/*` | `/api/vendor/*` |
-| Middleware | `sessionAuth()` | `osnAuth()` + `weddingOwner/Editor/Member()` | `osnAuth()` + `vendorOrgMember()` |
+| Middleware | `sessionAuth()` | `osnAuth()` + `weddingOwner/Editor/Member()` | `osnAuth()` + inline org-member check |
 | Source of identity | `families.public_id` claim code | OSN account / profile | OSN account + OSN org (`org_*`) |
 
-Guests and the guest cookie path are unchanged (see [[cire-auth]] §Guest path). Organisers are unchanged ([[cire-auth]] §Organiser path). Vendors are the new third principal.
+Guests and the guest cookie path are unchanged (see [[cire-auth]] §Guest path). Vendors are the third principal, and since 2026-07-27 they share the organiser credential: `osnAuth()` reads the `cire_org_session` cookie first and falls back to an `Authorization: Bearer` OSN access token for callers that are not this browser (`cire/api/src/middleware/osn-auth.ts`). Everything downstream still keys on the `usr_*` profile id, so the role gates and ARC bridges did not move.
 
 ---
 
@@ -172,17 +172,17 @@ The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS
 
 | Screen | Path | Description |
 |---|---|---|
-| Sign-in | `/` (unauthenticated) | OSN passkey sign-in or register; handled by `SignInPanel` island |
+| Sign-in | `/` (unauthenticated) | One button. `SignInPanel` calls `startSignIn` from `@shared/rp-auth`, a top-level navigation to cire-api's `/api/auth/oidc/start`; the passkey ceremony happens on musubi's own origin |
 | Org picker | `/` (authenticated, no listing) | `OrgPicker` island — lists the vendor's existing OSN orgs; on pick, transitions to the listing editor. **The portal does NOT create organisations** — an org is an OSN account-level entity created in the OSN app. A vendor with no org sees an empty-state ("No organisations are associated with your account… create one in your OSN account") and must create one in OSN first. _Follow-up: once the OSN org-management surface is deployed to a reachable URL, the empty-state becomes a link to it — tracked in [[todo/platform]]._ |
 | Listing editor | `/` (authenticated, listing found) | `ListingEditor` island — loads the vendor's directory listing via `GET /api/vendor/listing` and lets them update name, description, category, website URL; saves via `PUT /api/vendor/listing` |
 | Claim landing | `/claim` | `ClaimApp` island — renders a claim preview (listing name + organiser) from `GET /api/vendor/claim/preview?token=<raw>`; on "Accept" calls `POST /api/vendor/claim` with the raw token + selected org id; strips the token from the URL via `history.replaceState` immediately on mount (**token-strip**) |
 
 ### API surface
 
-- **osn-api** — `GET /organisations` (list the caller's orgs) only, called via `authFetch` with the OSN access JWT in the `Authorization` header. **The portal does not call `POST /organisations`** — org creation lives in the OSN app, not the vendor portal. This is a cross-origin call (portal origin → `id.musubi.social`), so osn-api's `OSN_CORS_ORIGIN` must include `vendor.cireweddings.com`. It is **no longer in `OSN_ORIGIN`**: that list is the WebAuthn expected-origin allowlist, and since the 2026-07-27 identity move the RP ID is `musubi.social`, so a ceremony on a cireweddings.com host is illegal whatever the list says. Bearer-token calls still need CORS, which is why the origin stays in the second list.
-- **cire-api** — `/api/vendor/*` routes gated by `vendorOrgMember()` (OSN access JWT + ARC org-membership check). Called via `authFetch`. Also cross-origin (portal → `api.cireweddings.com`), so cire-api's `WEB_ORIGIN` must include `vendor.cireweddings.com`.
+- **osn-api** — the portal does not call it at all. Since the 2026-07-27 OIDC swap the browser holds a cire session cookie, not an OSN token, so it has nothing to send. The caller's orgs come from cire-api's `GET /api/vendor/orgs`, which resolves them over ARC (`profileOrgs` in `cire/api/src/routes/vendor-portal.ts:52`). **Org creation is still not here** — an org is an OSN account-level entity, created in the OSN app.
+- **cire-api** — `/api/vendor/*` routes gated by `osnAuth()` plus an inline ARC org-membership check. Called via the `authFetch` from `@shared/rp-auth`, which sends `credentials: "include"`. Cross-origin (portal → `api.cireweddings.com`), so cire-api's `WEB_ORIGIN` must include `vendor.cireweddings.com`.
 
-Both allowlists are widened in this PR's `cire/api/wrangler.toml` and `osn/api/wrangler.toml` (production + local blocks) — they ship on merge via the normal CI deploy jobs.
+`vendor.cireweddings.com` stays in osn-api's `OSN_CORS_ORIGIN` for now but no longer earns its place; pruning is tracked in `[[wiki/runbooks/production-deploy]]`. It is **not** in `OSN_ORIGIN` — that list is the WebAuthn expected-origin allowlist, and with the RP ID on `musubi.social` a ceremony from a cireweddings.com host is illegal whatever the list says.
 
 ### Token-stripping + Referrer-Policy
 
@@ -193,16 +193,15 @@ The `/claim?token=<raw>` URL carries a 256-bit claim secret. Two defences preven
 
 ### Auth flow
 
-`@osn/client/solid` `createOsnSession` hook manages the OSN access JWT + silent token refresh (HttpOnly session cookie on `id.musubi.social`). `authFetch` in `cire/vendor/src/lib/auth-fetch.ts` wraps `fetch` with the current access JWT and handles 401→silent-refresh→retry. No cire guest cookie is involved — the vendor portal uses OSN identity only.
+**Rewritten 2026-07-27.** The portal no longer runs a passkey ceremony of its own — it cannot, the RP ID is `musubi.social` and `vendor.cireweddings.com` is a different registrable domain. Sign-in is now a redirect:
 
-> **Vendor sign-in is broken as of 2026-07-27** and stays broken until the portal
-> moves to the OIDC redirect flow. The identity move put the issuer on
-> `musubi.social`, a different registrable domain from `vendor.cireweddings.com`, so
-> the `SameSite=Lax` session cookie is not sent on the silent-refresh `POST
-> /token` — and the passkey ceremony that would rebuild a session cannot run
-> under the new RP ID either. The fix is to register cire as an OIDC client and
-> hand sign-in to `musubi.social/authorize`, which needs neither. See the OSN wiki's
-> `[[wiki/runbooks/musubi-identity-migration]]`.
+1. `startSignIn` (`@shared/rp-auth`) navigates the tab to cire-api `/api/auth/oidc/start`, carrying where to come back to.
+2. cire-api redirects to `id.musubi.social/authorize` with PKCE S256; the ceremony and consent run on musubi's own origin.
+3. The issuer redirects back to cire-api's `/api/auth/oidc/callback`. cire-api exchanges the code **server-side**, reads `osn_profile_id` off the ID token, and sets its own opaque session cookie before bouncing the browser back to the portal.
+
+The browser never holds an OSN token. `useAuth` from `@shared/rp-auth/solid` reads the session with `GET /api/auth/session` and gives islands an `authFetch` that sends the cookie; a 401 means the session is gone and the panel offers sign-in again. Account management — passkeys, recovery codes, connected apps — links out to `PUBLIC_OSN_ACCOUNT_URL` (`cire/vendor/src/lib/osn.ts`), because those are bound to the `musubi.social` RP ID.
+
+Full contract in the OSN wiki: `[[wiki/systems/cire-auth]]`, `[[wiki/systems/oidc-provider]]`, `[[wiki/runbooks/musubi-identity-migration]]`.
 
 ---
 

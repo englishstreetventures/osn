@@ -1,18 +1,16 @@
-import { createLoginClient, createRecoveryClient } from "@osn/client";
-import { AuthProvider, useAuth } from "@osn/client/solid";
-import { SignIn } from "@osn/ui/auth";
+import { AuthProvider, useAuth } from "@shared/rp-auth/solid";
 import { createResource, createSignal, onMount, Show } from "solid-js";
 
-import { OSN_ISSUER_URL } from "../lib/osn";
+import { CIRE_API_URL } from "../lib/osn";
 import { consumeClaim, fetchClaimPreview } from "../lib/vendor-store";
 import type { OrgSummary } from "../lib/vendor-store";
 import OrgPicker from "./OrgPicker";
 
-const loginClient = createLoginClient({ issuerUrl: OSN_ISSUER_URL });
-const recoveryClient = createRecoveryClient({ issuerUrl: OSN_ISSUER_URL });
+/** Where the invite token waits while the vendor is away signing in. */
+const CLAIM_TOKEN_KEY = "cire.vendor.claim-token";
 
 function ClaimContent() {
-  const { session, authFetch } = useAuth();
+  const { session, authFetch, signIn } = useAuth();
 
   // Step 1: Read token from URL and immediately strip it from the visible URL.
   // Guard typeof window — this component is only used client:only but be safe.
@@ -22,11 +20,17 @@ function ClaimContent() {
   onMount(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    const t = params.get("token") ?? "";
-    setToken(t);
-    // Immediately strip the token from the URL to prevent it appearing in
-    // browser history, referrer headers, or server logs.
-    history.replaceState(null, "", "/claim");
+    const fromUrl = params.get("token") ?? "";
+    if (fromUrl) {
+      // Sign-in is a redirect to musubi and back, so the page unloads and an
+      // in-memory token would not survive it. Park it in sessionStorage:
+      // same-origin, tab-scoped, and dropped as soon as the claim lands.
+      sessionStorage.setItem(CLAIM_TOKEN_KEY, fromUrl);
+      // Immediately strip the token from the URL to prevent it appearing in
+      // browser history, referrer headers, or server logs.
+      history.replaceState(null, "", "/claim");
+    }
+    setToken(fromUrl || (sessionStorage.getItem(CLAIM_TOKEN_KEY) ?? ""));
   });
 
   // Step 2: Fetch invite preview (unauthenticated).
@@ -39,8 +43,11 @@ function ClaimContent() {
   const handleClaim = async (org: OrgSummary) => {
     try {
       await consumeClaim(authFetch, token(), org.id);
+      sessionStorage.removeItem(CLAIM_TOKEN_KEY);
       window.location.href = "/#/orgs/" + org.id;
     } catch {
+      // Spent or rejected either way — do not leave it parked for a reload.
+      sessionStorage.removeItem(CLAIM_TOKEN_KEY);
       setInvalidLink(true);
     }
   };
@@ -68,8 +75,16 @@ function ClaimContent() {
           when={session() !== null && session() !== undefined}
           fallback={
             <div class="flex flex-col gap-4">
-              <p class="text-text-muted text-[0.85rem]">Sign in to your OSN account to continue.</p>
-              <SignIn client={loginClient} recoveryClient={recoveryClient} onSuccess={() => {}} />
+              <p class="text-text-muted text-[0.85rem]">
+                Sign in with your musubi account to continue. We'll bring you straight back here.
+              </p>
+              <button
+                type="button"
+                onClick={() => signIn(new URL("/claim", window.location.origin).toString())}
+                class="border-gold font-body text-gold hover:bg-gold hover:text-bg self-start rounded-sm border px-5 py-2.5 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200"
+              >
+                Continue with musubi
+              </button>
             </div>
           }
         >
@@ -102,7 +117,7 @@ function ClaimContent() {
  */
 export default function ClaimApp() {
   return (
-    <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }}>
+    <AuthProvider config={{ apiBase: CIRE_API_URL }}>
       <ClaimContent />
     </AuthProvider>
   );

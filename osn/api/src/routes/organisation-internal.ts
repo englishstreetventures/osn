@@ -20,6 +20,34 @@ void _SCOPE_ORG_WRITE;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Wire shape for one organisation on the internal profile-orgs route. Ids are
+ * included (unlike the public `/organisations` projection, which keys on handle)
+ * because the caller — cire-api's vendor portal — addresses listings by org id.
+ * Dates are ISO strings so the payload survives JSON.
+ */
+function orgSummary(o: {
+  id: string;
+  handle: string;
+  name: string;
+  description: string | null;
+  avatarUrl: string | null;
+  ownerId: string;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: o.id,
+    handle: o.handle,
+    name: o.name,
+    description: o.description ?? null,
+    avatarUrl: o.avatarUrl ?? null,
+    ownerId: o.ownerId,
+    createdAt: o.createdAt.toISOString(),
+    updatedAt: o.updatedAt.toISOString(),
+  };
+}
+
 function safeError(e: unknown): string {
   if (e instanceof Error) {
     if ("_tag" in e && (e._tag === "OrgError" || e._tag === "NotFoundError")) {
@@ -51,7 +79,7 @@ export function createInternalOrganisationRoutes(
 
         try {
           const list = await run(org.listProfileOrganisations(query.profileId));
-          return { organisationIds: list.map((o) => o.id) };
+          return { organisations: list.map(orgSummary) };
         } catch (e) {
           set.status = 500;
           return { error: safeError(e) };

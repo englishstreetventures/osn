@@ -33,15 +33,11 @@ const ORIGINS = {
   api: "https://api.cireweddings.com",
   /** Local dev API origin (the PUBLIC_API_URL default in `lib/invite.ts`). */
   apiLocal: "http://localhost:8787",
-  /**
-   * OSN identity API (the "Link my Pulse account" flow — token grant + profile
-   * + account-link calls go to the issuer). Production issuer is
-   * `id.musubi.social` (see root `CLAUDE.md`); it moved off `id.cireweddings.com`
-   * on 2026-07-27 and this must track it or the calls are blocked by CSP.
-   */
-  osnIssuer: "https://id.musubi.social",
-  /** Local dev OSN issuer origin (the PUBLIC_OSN_ISSUER_URL default). */
-  osnIssuerLocal: "http://localhost:4000",
+  // No OSN issuer origin here on purpose. The "Link my Pulse account" flow used
+  // to fetch the issuer directly; it now signs in by TOP-LEVEL redirect to
+  // musubi and cire-api does the code exchange, so the guest site never fetches
+  // a second origin. A top-level navigation is not a `connect-src` subject, so
+  // nothing needs to be allowlisted for it.
   // Pinterest moodboard widget (PinterestBoard.tsx / pinterest.ts).
   pinterestScript: "https://assets.pinterest.com", // pinit_main.js
   pinterestConnect: "https://widgets.pinterest.com", // pidgets data fetch
@@ -129,17 +125,10 @@ export const CSP_DIRECTIVES: Record<string, readonly string[]> = {
     ORIGINS.googleMapsImg,
     ORIGINS.googleMapsImg2,
   ],
-  // Runtime fetches: cire-api (invite JSON + revalidation + account-link), the
-  // OSN issuer (Pulse account-link sign-in: /token grant, profile + account
-  // calls), and the Pinterest pidgets data endpoint the widget calls.
-  "connect-src": [
-    "'self'",
-    ORIGINS.api,
-    ORIGINS.apiLocal,
-    ORIGINS.osnIssuer,
-    ORIGINS.osnIssuerLocal,
-    ORIGINS.pinterestConnect,
-  ],
+  // Runtime fetches: cire-api (invite JSON + revalidation + account-link,
+  // including the session probe behind the Pulse account-link panel) and the
+  // Pinterest pidgets data endpoint the widget calls.
+  "connect-src": ["'self'", ORIGINS.api, ORIGINS.apiLocal, ORIGINS.pinterestConnect],
   // Embedded iframes: the Google Maps embed, the Pinterest board widget, and
   // the Turnstile challenge.
   "frame-src": ["'self'", ORIGINS.googleMapsFrame, ORIGINS.pinterestFrame, ORIGINS.turnstile],

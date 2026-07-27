@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const authFetchMock = vi.fn();
 const redirectSpy = vi.fn();
 
-vi.mock("@osn/client/solid", () => ({
+vi.mock("@shared/rp-auth/solid", () => ({
   useAuth: () => ({ authFetch: authFetchMock }),
 }));
 

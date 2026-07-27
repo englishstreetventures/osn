@@ -1,36 +1,62 @@
 // @vitest-environment happy-dom
-import { render, screen } from "@solidjs/testing-library";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@osn/client", () => ({
-  createLoginClient: () => ({}),
-  createRecoveryClient: () => ({}),
-  createRegistrationClient: () => ({}),
-}));
+/**
+ * The login surface is now one hand-off: the portal cannot run a WebAuthn
+ * ceremony for `musubi.social`, so it sends the vendor to cire/api's OIDC
+ * start leg. What is worth asserting here is the wiring — that the button
+ * leaves for the API with the dashboard as the return target, and that a
+ * failed attempt coming back through `?auth_error` is shown once and then
+ * wiped from the address bar.
+ */
 
-vi.mock("@osn/client/solid", () => ({
-  AuthProvider: (props: { children: unknown }) => props.children,
-}));
+const startSignIn = vi.fn();
+const clearAuthError = vi.fn();
+let authError: string | null = null;
 
-vi.mock("@osn/ui/auth", () => ({
-  SignIn: () => <div data-testid="signin-view">sign in</div>,
-  Register: (props: { onCancel: () => void }) => (
-    <div data-testid="register-view">
-      <button onClick={() => props.onCancel()}>register-cancel</button>
-    </div>
-  ),
-}));
-
-vi.mock("solid-toast", () => ({
-  Toaster: () => null,
-  toast: { success: vi.fn(), error: vi.fn() },
+vi.mock("@shared/rp-auth", () => ({
+  startSignIn: (...args: unknown[]) => startSignIn(...args),
+  clearAuthError: () => clearAuthError(),
+  readAuthError: () => authError,
 }));
 
 import SignInPanel from "./SignInPanel";
 
 describe("SignInPanel", () => {
-  it("renders the sign-in form with a create-account switch", () => {
+  beforeEach(() => {
+    authError = null;
+    startSignIn.mockClear();
+    clearAuthError.mockClear();
+  });
+  afterEach(() => cleanup());
+
+  it("sends the vendor to the issuer, returning to the dashboard", () => {
     render(() => <SignInPanel />);
-    expect(screen.getByText(/create an account/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Continue with musubi/i }));
+
+    expect(startSignIn).toHaveBeenCalledTimes(1);
+    const [, returnTo] = startSignIn.mock.calls[0]!;
+    expect(new URL(returnTo as string).pathname).toBe("/");
+  });
+
+  it("shows nothing alarming when sign-in was never attempted", () => {
+    render(() => <SignInPanel />);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(clearAuthError).not.toHaveBeenCalled();
+  });
+
+  it("explains a cancelled sign-in and strips the marker", () => {
+    authError = "sign_in_declined";
+    render(() => <SignInPanel />);
+
+    expect(screen.getByRole("alert").textContent).toMatch(/cancelled/i);
+    expect(clearAuthError).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to the generic message for an unknown marker", () => {
+    authError = "something_new";
+    render(() => <SignInPanel />);
+    expect(screen.getByRole("alert").textContent).toMatch(/did not go through/i);
   });
 });

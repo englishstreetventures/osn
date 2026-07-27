@@ -8,7 +8,7 @@ import {
   SECTION_TONES,
   type SectionTone,
 } from "@cire/theme";
-import { useAuth } from "@osn/client/solid";
+import { useAuth } from "@shared/rp-auth/solid";
 import { createMemo, createResource, createSignal, For, lazy, Show, Suspense } from "solid-js";
 import { toast } from "solid-toast";
 

@@ -1,4 +1,4 @@
-import { useAuth } from "@osn/client/solid";
+import { useAuth } from "@shared/rp-auth/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 

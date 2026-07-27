@@ -12,7 +12,7 @@ const jsonRes = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 describe("vendor-store", () => {
-  it("listMyOrgs GETs osn-api /organisations and returns the array", async () => {
+  it("listMyOrgs GETs cire-api /api/vendor/orgs and returns the array", async () => {
     const authFetch = vi.fn().mockResolvedValue(
       jsonRes({
         organisations: [
@@ -32,7 +32,9 @@ describe("vendor-store", () => {
     const orgs = await listMyOrgs(authFetch);
     expect(orgs).toHaveLength(1);
     expect(orgs[0]!.id).toBe("o1");
-    expect(String(authFetch.mock.calls[0]![0])).toContain("/organisations");
+    // Goes through cire-api, not straight to osn-api: the portal holds a cire
+    // session cookie, so the org list is proxied over ARC.
+    expect(String(authFetch.mock.calls[0]![0])).toContain("/api/vendor/orgs");
   });
 
   it("fetchListing returns the listing on 200", async () => {

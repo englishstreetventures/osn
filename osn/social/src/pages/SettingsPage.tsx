@@ -6,7 +6,7 @@ import { Button } from "@osn/ui/ui/button";
 import { Card } from "@osn/ui/ui/card";
 import { Input } from "@osn/ui/ui/input";
 import { Label } from "@osn/ui/ui/label";
-import { createMemo, createSignal, For, lazy, Show, Suspense } from "solid-js";
+import { createMemo, createSignal, For, lazy, onCleanup, onMount, Show, Suspense } from "solid-js";
 
 import { registrationClient } from "../lib/authClients";
 import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
@@ -24,9 +24,37 @@ const SECTIONS: { value: Section; label: string }[] = [
   { value: "apps", label: "Connected apps" },
 ];
 
+/**
+ * The tab named by the URL fragment (`/settings#security`), falling back to
+ * Profile for a missing or unknown one. Other apps deep-link in: the cire
+ * organiser portal sends people to `#security`, because passkeys are bound to
+ * this origin's RP ID and can only be managed here.
+ */
+function sectionFromHash(): Section {
+  if (typeof window === "undefined") return "profile";
+  const hash = window.location.hash.replace(/^#/, "");
+  return SECTIONS.some((s) => s.value === hash) ? (hash as Section) : "profile";
+}
+
 export function SettingsPage() {
   const { session, profiles, activeProfileId } = useAuth();
-  const [section, setSection] = createSignal<Section>("profile");
+  const [section, setSection] = createSignal<Section>(sectionFromHash());
+
+  // Keep tab and fragment in step both ways: Back/Forward or a fresh deep link
+  // moves the tab, and a click rewrites the fragment so the tab survives a
+  // reload and can be shared.
+  onMount(() => {
+    const onHashChange = () => setSection(sectionFromHash());
+    window.addEventListener("hashchange", onHashChange);
+    onCleanup(() => window.removeEventListener("hashchange", onHashChange));
+  });
+
+  const selectSection = (value: Section) => {
+    setSection(value);
+    // replaceState, not a hash assignment: switching tabs should not pile up
+    // history entries between the page you came from and the page you leave to.
+    window.history.replaceState(null, "", `#${value}`);
+  };
 
   const accessToken = () => session()?.accessToken ?? null;
   const claims = createMemo(() => getTokenClaims(accessToken()));
@@ -66,7 +94,7 @@ export function SettingsPage() {
                     ? "border-foreground text-foreground"
                     : "text-muted-foreground hover:text-foreground border-transparent",
                 )}
-                onClick={() => setSection(s.value)}
+                onClick={() => selectSection(s.value)}
               >
                 {s.label}
               </button>

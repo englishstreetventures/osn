@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const authFetch = vi.fn();
-vi.mock("@osn/client/solid", () => ({ useAuth: () => ({ authFetch }) }));
+vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("../lib/vendors-store", () => ({ invalidateVendors: vi.fn() }));
 
 import { invalidateVendors } from "../lib/vendors-store";

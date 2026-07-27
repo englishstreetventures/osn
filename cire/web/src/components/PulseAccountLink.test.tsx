@@ -5,12 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FamilyMember } from "./types";
 
 /**
- * PulseAccountLink owns the guest "Link my Pulse account" flow. The OSN sign-in
- * ceremony itself is covered in @osn/ui; here we stub @osn/client + @osn/ui and
- * assert the wiring this component introduces:
+ * PulseAccountLink owns the guest "Link my Pulse account" flow. Sign-in itself
+ * is a redirect to the identity app, owned by `@shared/rp-auth` — stubbed here.
+ * What this file asserts is the wiring the component introduces:
  *   - the affordance only appears when the household's link state probes "ready"
  *     (503 ⇒ disabled ⇒ hidden; the core invite is never affected)
- *   - signed-out ⇒ a "Sign in with OSN" control gates the picker
+ *   - signed-out ⇒ a "Sign in with musubi" control gates the picker, and it
+ *     hands `signIn` the current invite URL so the guest lands back here
  *   - signed-in ⇒ pick a member → POST /api/account/link with { guestId }
  *   - the GET probe seeds the linked/unlinked indicators
  *   - unlink issues DELETE /api/account/link/:guestId
@@ -22,24 +23,15 @@ import type { FamilyMember } from "./types";
 // directly, so they read through these mutable refs).
 const sessionRef = { current: null as unknown };
 const authFetchMock = vi.fn();
+const signInMock = vi.fn();
 
-vi.mock("@osn/client", () => ({
-  createLoginClient: () => ({}),
-  createRecoveryClient: () => ({}),
-  createRegistrationClient: () => ({}),
-}));
-
-vi.mock("@osn/client/solid", () => ({
+vi.mock("@shared/rp-auth/solid", () => ({
   AuthProvider: (props: { children: unknown }) => props.children,
   useAuth: () => ({
     session: () => sessionRef.current,
     authFetch: authFetchMock,
+    signIn: signInMock,
   }),
-}));
-
-vi.mock("@osn/ui/auth", () => ({
-  SignIn: () => <div data-testid="osn-signin">sign in ceremony</div>,
-  Register: () => <div data-testid="osn-register">register ceremony</div>,
 }));
 
 vi.mock("solid-toast", () => ({
@@ -56,9 +48,7 @@ function member(firstName: string, id = `g-${firstName}`): FamilyMember {
 }
 
 function renderLink(members: FamilyMember[]) {
-  return render(() => (
-    <PulseAccountLink apiUrl={API} members={members} issuerUrl="http://osn.test" />
-  ));
+  return render(() => <PulseAccountLink apiUrl={API} members={members} />);
 }
 
 /** Build a minimal Response-like object for the global fetch mock. */
@@ -75,6 +65,7 @@ const realFetch = globalThis.fetch;
 beforeEach(() => {
   sessionRef.current = null;
   authFetchMock.mockReset();
+  signInMock.mockReset();
 });
 
 afterEach(() => {
@@ -97,15 +88,20 @@ describe("PulseAccountLink", () => {
     globalThis.fetch = vi.fn(async () => jsonResponse(200, { links: [] })) as typeof fetch;
     renderLink([member("Chidi")]);
     await waitFor(() => expect(screen.getByText(/Link your Pulse account/i)).toBeTruthy());
-    // Signed out → the OSN sign-in control gates the picker.
-    const button = screen.getByRole("button", { name: /Sign in with OSN/i });
+    // Signed out → the sign-in control gates the picker, and the picker itself
+    // is nowhere on the page.
+    const button = screen.getByRole("button", { name: /Sign in with musubi/i });
     expect(button).toBeTruthy();
+    expect(screen.queryByText(/Which guest are you/i)).toBeNull();
+
     fireEvent.click(button);
-    await waitFor(() => expect(screen.getByTestId("osn-signin")).toBeTruthy());
+    // The return-to is the invite URL itself — the guest cookie re-opens the
+    // claimed view when they come back.
+    expect(signInMock).toHaveBeenCalledWith(window.location.href);
   });
 
   it("links the picked member via POST when signed in", async () => {
-    sessionRef.current = { accessToken: "tok", expiresAt: Date.now() + 60_000 };
+    sessionRef.current = { profileId: "usr_chidi" };
     globalThis.fetch = vi.fn(async () => jsonResponse(200, { links: [] })) as typeof fetch;
     // POST link → 201 created.
     authFetchMock.mockResolvedValue(jsonResponse(201, { linked: true, guestId: "g-Chidi" }));
@@ -131,7 +127,7 @@ describe("PulseAccountLink", () => {
   });
 
   it("reflects already-linked members from the GET probe", async () => {
-    sessionRef.current = { accessToken: "tok", expiresAt: Date.now() + 60_000 };
+    sessionRef.current = { profileId: "usr_chidi" };
     globalThis.fetch = vi.fn(async () =>
       jsonResponse(200, { links: [{ guestId: "g-Ada", linkedAt: 123 }] }),
     ) as typeof fetch;
@@ -143,7 +139,7 @@ describe("PulseAccountLink", () => {
   });
 
   it("treats a 409 conflict as linked rather than an error", async () => {
-    sessionRef.current = { accessToken: "tok", expiresAt: Date.now() + 60_000 };
+    sessionRef.current = { profileId: "usr_chidi" };
     globalThis.fetch = vi.fn(async () => jsonResponse(200, { links: [] })) as typeof fetch;
     authFetchMock.mockResolvedValue(jsonResponse(409, { error: "already_linked" }));
 
@@ -158,7 +154,7 @@ describe("PulseAccountLink", () => {
   });
 
   it("unlinks a linked member via DELETE", async () => {
-    sessionRef.current = { accessToken: "tok", expiresAt: Date.now() + 60_000 };
+    sessionRef.current = { profileId: "usr_chidi" };
     const fetchMock = vi.fn();
     // First call: the GET probe (Ada already linked). Subsequent: the DELETE.
     fetchMock.mockResolvedValueOnce(

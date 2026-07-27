@@ -1,4 +1,4 @@
-import { AuthProvider } from "@osn/client/solid";
+import { AuthProvider } from "@shared/rp-auth/solid";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 // @vitest-environment happy-dom
 import { type JSX } from "solid-js";
@@ -9,7 +9,7 @@ import OrgPicker from "./OrgPicker";
 
 const authFetch = vi.fn();
 
-vi.mock("@osn/client/solid", () => ({
+vi.mock("@shared/rp-auth/solid", () => ({
   AuthProvider: (props: { children: JSX.Element }) => props.children,
   useAuth: () => ({ authFetch }),
 }));

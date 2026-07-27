@@ -579,6 +579,65 @@ describe("POST /oidc/token", () => {
     expect(claims.iss).toBe(config.issuerUrl);
   });
 
+  it("withholds osn_profile_id from a third-party client", async () => {
+    const h = setup();
+    h.seedClient();
+    const code = await mintCode(h, "third@example.com", "third_user");
+
+    const res = await h.app.handle(
+      tokenRequest({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: REDIRECT_URI,
+        code_verifier: VERIFIER,
+        client_id: "cid_rp",
+      }),
+    );
+
+    const { id_token } = (await res.json()) as { id_token: string };
+    const claims = JSON.parse(
+      Buffer.from(id_token.split(".")[1], "base64url").toString("utf8"),
+    ) as {
+      osn_profile_id?: string;
+    };
+    expect(claims.osn_profile_id).toBeUndefined();
+  });
+
+  it("carries the real profile id to a first-party client alongside the pairwise sub", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const cookie = await signIn(h, "fp@example.com", "fp_user");
+    // First party skips consent, so /authorize hands back a code directly.
+    const authRes = await h.app.handle(
+      new Request(authorizeUrl(goodParams), { headers: { cookie } }),
+    );
+    const code = new URL(authRes.headers.get("location")!).searchParams.get("code")!;
+
+    const res = await h.app.handle(
+      tokenRequest({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: REDIRECT_URI,
+        code_verifier: VERIFIER,
+        client_id: "cid_rp",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const { id_token } = (await res.json()) as { id_token: string };
+    const claims = JSON.parse(
+      Buffer.from(id_token.split(".")[1], "base64url").toString("utf8"),
+    ) as {
+      sub: string;
+      osn_profile_id: string;
+    };
+    const profile = h.sqlite.query("SELECT id FROM users LIMIT 1").get() as { id: string };
+    expect(claims.osn_profile_id).toBe(profile.id);
+    // The subject stays pairwise — the extra claim is additive, not a swap.
+    expect(claims.sub).toMatch(/^pw_/);
+    expect(claims.sub).not.toBe(profile.id);
+  });
+
   it("rejects a wrong code_verifier", async () => {
     const h = setup();
     h.seedClient();

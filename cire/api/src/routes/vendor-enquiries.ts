@@ -168,7 +168,8 @@ export function createVendorEnquiriesRoutes(
 
         return runCire(
           Effect.gen(function* () {
-            const callerOrgIds = yield* Effect.promise(() => profileOrgs(profileId));
+            const callerOrgs = yield* Effect.promise(() => profileOrgs(profileId));
+            const callerOrgIds = callerOrgs.map((o) => o.id);
             // No memberships (or resolver unavailable) → empty, never an
             // unscoped scan. Preserves the "any member of the owner org sees the
             // org's enquiries" semantic: the DB filter below keys on membership.

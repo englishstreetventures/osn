@@ -7,6 +7,8 @@ related:
   - "[[sessions]]"
   - "[[step-up]]"
   - "[[rate-limiting]]"
+  - "[[cire-auth]]"
+  - "[[musubi-identity-migration]]"
 last-reviewed: 2026-07-27
 ---
 
@@ -91,6 +93,8 @@ Everything is `cache-control: no-store`. `GET /authorize` also sends `Referrer-P
 
 **Pairwise subjects.** `sub` is `pw_` + base64url of `HMAC-SHA256(salt, sectorIdentifier + "|" + profileId)`. Two clients holding tokens for the same person see two unrelated ids, so they cannot join their records on user id. Derived from the **profile**, not the account — switching profiles gives the client a different subject, which is the point.
 
+**A first-party ID token also carries `osn_profile_id`.** Pairwise subjects are the right default and the wrong primitive for a relying party whose rows already key on OSN profile ids — cire's `wedding_hosts.profile_id`, its listings, its ownership checks. Told only `pw_…`, cire would have to build a second identity table and migrate every existing row. So `buildIdTokenClaims` adds the real profile id **for first-party clients only** (`osn/api/src/services/auth/oidc.ts:1021`); a third-party token never gets it, and the pairwise isolation those clients rely on is untouched. The relying-party side treats it as required: `@shared/osn-auth-client/verify-id-token` surfaces it, and cire refuses a token that lacks it (`token_invalid`) rather than falling back to `sub` — a silent fallback would key rows on an id that changes the moment the sector or salt does. See [[cire-auth]].
+
 **Client authentication is exclusive.** Basic *and* body credentials together is `invalid_request`. A public client presenting any secret is `invalid_client`. A failed Basic attempt gets 401 plus `WWW-Authenticate: Basic realm="oidc"`.
 
 **No refresh tokens, and never an `osn-access` audience.** The token endpoint returns an ID token and a scoped access token bound to the client. It cannot be used to mint a first-party session.
@@ -125,11 +129,24 @@ First-party clients skip the consent screen — the link is recorded for the def
 
 Three tables in `@osn/db` (migration `0002_wet_gamora`):
 
-- `oauth_clients` — the registry. `redirect_uris` is a JSON array; exact match, no wildcards. `sector_identifier` feeds the pairwise subject. `client_secret_hash` is null for public clients. There is no write route yet; rows are seeded by hand.
+- `oauth_clients` — the registry. `redirect_uris` is a JSON array; exact match, no wildcards. `sector_identifier` feeds the pairwise subject. `client_secret_hash` is null for public clients. Confidential clients register themselves through the routes below; first-party rows are seeded by hand, because `is_first_party` is not a registration input.
 - `oauth_authorization_codes` — id is the hash of the code. 60-second TTL. A redeemed code is deleted on the spot; an abandoned one is left behind, so `runExpiredAuthCodeSweep` (a `DELETE … WHERE expires_at <= now`, riding `oauth_codes_expires_idx`) runs from the Worker's `scheduled` handler alongside the session and deletion sweeps. Nothing reads an expired code — the sweep only keeps the table from growing without bound.
 - `oauth_consents` — one row per (account, client), holding the linked profile and the granted scope. Scope **merges** on re-consent, never replaces. The write is insert-first (`INSERT … ON CONFLICT DO NOTHING`, then merge only on conflict). Revoking (`DELETE /oidc/connections/:clientId`) stamps `revoked_at`, deletes the pair's in-flight codes, and the row is kept as the withdrawal record until account erasure purges it.
 
 `code_challenge_method` has no column. S256 is the only value the provider accepts, so storing it would only record a constant.
+
+**Registered clients (production).** One so far — cire, seeded by hand on 2026-07-27 because first-party status cannot be self-served:
+
+| Column | Value |
+|---|---|
+| `id` / `client_id` | `oc_cire` / `cid_cire` |
+| `redirect_uris` | `https://api.cireweddings.com/api/auth/oidc/callback`, `https://api-preview.cireweddings.com/api/auth/oidc/callback` |
+| `sector_identifier` | `cireweddings.com` |
+| `allowed_scopes` | `openid profile email` |
+| `is_first_party` | `1` |
+| `owner_account_id` | null — a platform client, owned by nobody, so account erasure cannot disable it |
+
+Both redirect URIs point at **cire-api**, never at a browser origin: cire runs the exchange server-side and mints its own cookie, so no OSN token reaches the browser. The secret lives in two places that must move together — `CIRE_OIDC_CLIENT_SECRET` on the cire-api Workers (production and preview) and `oauth_clients.client_secret_hash` here. Rotating one alone locks organisers out at the token endpoint. Local development needs its own row in the local D1, with a `http://localhost:8787/…` callback.
 
 ## Rate limits
 

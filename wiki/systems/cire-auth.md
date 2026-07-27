@@ -9,7 +9,9 @@ related:
   - "[[data-map]]"
   - "[[access-control]]"
   - "[[arc-tokens]]"
-last-reviewed: 2026-07-22
+  - "[[oidc-provider]]"
+  - "[[musubi-identity-migration]]"
+last-reviewed: 2026-07-27
 ---
 
 # Cire auth model
@@ -18,20 +20,24 @@ Cire runs **three deliberately separate auth principal classes**. Guests are wed
 
 | | Guests | Organisers | Vendors |
 |---|---|---|---|
-| Credential | Family claim code (`families.public_id`) | OSN passkey ([[passkey-primary]]) | OSN passkey + OSN org membership |
-| Token | Opaque 256-bit session token | ES256 access token (JWT), `aud: "osn-access"`, 5-min TTL | Same access token; org membership resolved over ARC (`org:read`) |
-| Storage at rest | SHA-256 hash in cire's `sessions` table | Nothing in cire — verification is stateless via JWKS | Nothing in cire — org membership verified S2S per request |
-| Transport | `cire_session` HttpOnly cookie (30 days) | `Authorization: Bearer` via `@osn/client` `authFetch` | Same Bearer transport |
+| Credential | Family claim code (`families.public_id`) | OSN passkey ([[passkey-primary]]), spent on `musubi.social` and carried back by [[oidc-provider\|OIDC]] | Same, plus OSN org membership |
+| Token | Opaque 256-bit session token | Opaque 256-bit session token, minted by cire-api after the code exchange | Same session token; org membership resolved over ARC (`org:read`) |
+| Storage at rest | SHA-256 hash in cire's `sessions` table | SHA-256 hash in cire's `organiser_sessions` table | Same |
+| Transport | `cire_session` HttpOnly cookie (30 days) | `cire_org_session` HttpOnly cookie (7 days) via `@shared/rp-auth` `authFetch` | Same cookie transport |
 | Middleware | `sessionAuth()` (`cire/api/src/middleware/auth.ts`) | `osnAuth()` + `weddingOwner()` / `weddingEditor()` / `weddingMember()` | `osnAuth()` + `vendorOrgMember()` |
 | Routes | `/api/rsvp` | `/api/organiser/*` | `/api/vendor/*` |
+
+`osnAuth()` still accepts an `Authorization: Bearer` OSN access token as a second way in, for callers that are not a cire browser — a first-party OSN surface holding a live `aud: "osn-access"` token, and the route tests. No browser uses it any more.
 
 ## Vendor principal — the third principal class (Phase 2)
 
 Vendors are **OSN account holders who are members of an OSN organisation (`org_*`)**. The vendor's org is the unit of identity in cire's directory — one directory listing per org (`directory_vendors.org_id UNIQUE`). A vendor with multiple brands uses separate OSN orgs.
 
-`vendorOrgMember()` (`cire/api/src/middleware/vendor-org-member.ts`) gates `/api/vendor/*`. It runs `osnAuth()` (access-token verification, sets `c.var.osnProfileId`) and then makes an ARC-gated call to `@osn/api` `GET /organisations/internal/:orgId/membership` (**scope `org:read`**) to confirm the caller's OSN profile is an active member of the target org. On success it sets `c.var.vendorOrgId` + `c.var.directoryVendorId`. On ARC failure it fails-soft to **503** (never a bypass). An authenticated-but-non-member caller gets **403**.
+`vendorOrgMember()` (`cire/api/src/middleware/vendor-org-member.ts`) gates `/api/vendor/*`. It runs `osnAuth()` (session cookie or access token, sets `c.var.osnProfileId`) and then makes an ARC-gated call to `@osn/api` `GET /organisations/internal/membership?orgId=&profileId=` (**scope `org:read`**) to confirm the caller's OSN profile is an active member of the target org. On success it sets `c.var.vendorOrgId` + `c.var.directoryVendorId`. On ARC failure it fails-soft to **503** (never a bypass). An authenticated-but-non-member caller gets **403**.
 
 The `org:read` scope is the ARC bridge that connects cire-api to osn-api's org-membership resolver. cire-api's ARC key registration (`POST /graph/internal/register-service`) must list `org:read` alongside `graph:read` and `graph:resolve-account` — see [[production-deploy]] §6.2 and the [[arc-tokens]] pattern. Until the widened registration runs **per environment** (after the `@osn/api` `PERMITTED_SCOPES` change deploys), `vendorOrgMember()` fails-soft to null and org-gated vendor writes return **503** — the organiser CRM and claim-link generation work regardless.
+
+**The org list is proxied, not read direct.** `GET /api/vendor/orgs` returns the caller's OSN organisations over the same `org:read` ARC bridge (`GET /organisations/internal/profile-orgs?profileId=`, whole summaries — id, handle, name, avatar — not bare ids). Before the OIDC swap the portal called osn-api itself with the user's access token; it now holds a cire session cookie, which osn-api will not accept, so cire-api is the only path. Gated by `osnAuth()` alone and scoped by construction (the resolver keys on the profile id from the verified session), and fail-soft: an ARC hiccup resolves to an empty list, which the portal renders as "no organisations yet".
 
 See [[systems/vendors]] (cire wiki) for the full vendor principal model, the four new tables, and the email-verification claim flow.
 
@@ -71,27 +77,54 @@ Every wedding can have **one synthetic host family** (`families.kind = 'host'`, 
 - **Import-safe.** Host families are excluded from the spreadsheet-import diff (`kind != 'host'` on the family/guest/link scans), so a CSV re-import never removes or churns them. New events created by an import are picked up on the next preview-code call (the re-link step).
 - The organiser dashboard's "Preview invite" button POSTs the endpoint, then opens the guest site (`PUBLIC_CIRE_WEB_URL`) at `?code=<host code>`, which the web app auto-claims on mount.
 
-## Organiser path: OSN passkey → access token → wedding ownership
+## Organiser path: OIDC redirect → cire session cookie → wedding ownership
 
-Organisers sign in on the organiser portal (`@cire/organiser`, :4322) using the standard OSN `<SignIn>` component from `@osn/ui` driven by `@osn/client` — a normal OSN passkey ceremony against the OSN issuer (`@osn/api`, :4000). Cire adds no login surface of its own.
+**Why it changed (2026-07-27).** Identity moved to its own zone and the WebAuthn RP ID became `musubi.social` ([[musubi-identity-migration]]). A passkey ceremony may only run on an origin same-site with the RP ID, so `host.cireweddings.com` can no longer mint an OSN credential, and it cannot silent-refresh an access token either — OSN's session cookie is cross-site to it. The portal therefore stopped talking to the issuer at all. It sends the organiser to musubi to sign in, and cire-api takes it from there.
 
-Organisers who don't yet have an OSN account can create one from the same page: `SignInPanel` toggles between `<SignIn>` and the `<Register>` component (also from `@osn/ui`, driven by `@osn/client`'s registration client), so the email-OTP + first-passkey ceremony runs against the OSN issuer just like sign-in. The account is created on OSN, not cire — cire still owns no identity store. A new account is signed in at once (the `<Register>` `onSuccess` callback redirects to the dashboard), so it flows into the same access-token verification chain below.
+The shape is **backend-for-frontend**: cire-api is a registered OIDC relying party, it runs the code exchange server-side, and it hands the browser its *own* session cookie. The browser never holds an OSN token.
 
-### Verification chain (request → claims)
+Cire still adds no login surface of its own, and still owns no identity store — an organiser without an OSN account creates one on musubi, at the end of the same redirect.
+
+### Sign-in chain (click → cookie)
 
 ```
-@osn/client authFetch                 attaches Bearer <access JWT>; silent-refreshes on 401
-  └─▶ cire/api osnAuth()              thin wrapper over @shared/osn-auth-client (Elysia adapter)
-        ├─▶ extractClaims()           verifies ES256 signature + exp against the issuer key
-        │     └─▶ JWKS cache          resolves kid → CryptoKey from /.well-known/jwks.json
-        │                             (LRU, 256 entries, 5-min TTL; cache key includes the
-        │                             JWKS URL so multi-issuer kids never collide; one
-        │                             cache-bypass retry on verify failure for key rotation)
-        └─▶ tokenMatchesAudience()    pins aud === "osn-access" (extractClaims doesn't check aud)
-              └─▶ c.var.osnProfileId = sub
+@shared/rp-auth startSignIn()          top-level navigation, never fetch
+  └─▶ GET /api/auth/oidc/start?return_to=…    cire-api (cire/api/src/routes/auth-oidc.ts)
+        │  mints state + nonce + PKCE verifier (S256), stashes them with return_to
+        │  in a 10-min HttpOnly tx cookie; return_to checked against the CORS allowlist
+        └─▶ 302 → {OSN_ISSUER_URL}/authorize      passkey ceremony + consent on musubi.social
+              └─▶ 302 → /api/auth/oidc/callback   the ONE registered redirect URI
+                    ├─▶ state match               constant-time, against the tx cookie
+                    ├─▶ POST /oidc/token          client_secret_post + code_verifier
+                    ├─▶ verifyIdToken()           @shared/osn-auth-client/verify-id-token —
+                    │                             ES256 via JWKS, iss/aud/exp/nonce all pinned
+                    ├─▶ osn_profile_id claim      first-party only; absent ⇒ token_invalid
+                    └─▶ organiserSessionService.create()
+                          └─▶ Set-Cookie cire_org_session=<256-bit>   302 → return_to
 ```
 
-`osnAuth()` is mounted on `/api/organiser/*`. It only authenticates — it says "this is OSN profile `usr_…`", nothing about which wedding they may touch.
+Four routes make up the surface, plus the middleware:
+
+| | |
+|---|---|
+| `GET /api/auth/oidc/start?return_to=` | Leaves for the issuer. Missing OIDC config ⇒ **503** `sign_in_unavailable` — an honest "this tier cannot sign anyone in", not a silent downgrade. |
+| `GET /api/auth/oidc/callback` | Exchanges the code and sets the cookie. Every failure redirects back to `return_to` with `?auth_error=sign_in_declined` (the user said no) or `sign_in_failed` (everything else). The issuer's own error string is never echoed back to the browser. |
+| `GET /api/auth/session` | Who is signed in. Answers **200 `{signedIn: false}`** when nobody is — deliberately not 401, so the probe never trips `authFetch`'s session-expired path on a page a signed-out visitor may legitimately open. |
+| `POST /api/auth/signout[?all=1]` | Revokes this session, or every session for the profile. Always 200, idempotent. |
+
+**Why `osn_profile_id`, not `sub`.** OIDC hands out a **pairwise** `sub` (`pw_*`) — a different string per client sector, so no two relying parties can correlate a user. Every cire row keys on the real OSN profile id (`weddings.owner_osn_profile_id`, `wedding_hosts`, all three ARC bridges), so a `pw_*` sub would have orphaned the entire existing dataset. Cire is registered **first-party**, and a first-party ID token carries an extra `osn_profile_id` claim holding the real `usr_*`. A token that arrives without it is refused (`token_invalid`) rather than falling back to `sub` — a fallback would silently mint sessions keyed on the wrong identity.
+
+**The cookie.** `cire_org_session`, 256 bits from `crypto.getRandomValues`, stored **SHA-256-hashed** in `organiser_sessions` (migration `0047`), `HttpOnly; SameSite=Lax; Path=/`, 7-day TTL, host-scoped to the API origin (`api.cireweddings.com`) — so the portal's own origin can never read it and every call rides `credentials: "include"`. `Secure` tracks the configured web origin's scheme, the same test the guest cookie uses.
+
+**Why `SameSite=Lax` and not `Strict`.** The callback is a cross-site top-level GET arriving from `musubi.social`; `Strict` would drop the cookie on exactly the navigation that sets it. Lax plus the app-wide `originGuard` is the pair that covers organiser writes — see [CSRF origin guard](#csrf-origin-guard-c5--s-l3). Both have to stay.
+
+**Open-redirect guard.** Exactly one redirect URI is registered per environment (`…/api/auth/oidc/callback` on the API host), so the issuer's own allowlist is a single value. The real destination rides in the tx cookie, not in the URL, and is re-validated against the CORS allowlist both when it goes in and when it comes back out.
+
+**Client auth is `client_secret_post`, never Basic.** The issuer's token endpoint rejects a request that carries both (RFC 6749 §2.3). `CIRE_OIDC_CLIENT_SECRET` is a wrangler secret; its SHA-256 lives in osn-api's `oauth_clients.client_secret_hash`. Rotating it means changing **both** — see [[production-deploy]].
+
+`osnAuth()` is mounted on `/api/organiser/*`. It resolves the cookie against `organiser_sessions` first and falls back to Bearer-token verification (`@shared/osn-auth-client` `extractClaims` → ES256 + JWKS cache → `aud === "osn-access"`) for non-browser callers. Either way it only authenticates — it says "this is OSN profile `usr_…`", nothing about which wedding they may touch.
+
+**Account management stays on musubi.** Passkeys, recovery codes, sessions and email changes are all step-up-gated ceremonies that must run on the RP-ID origin. The portal's `SecurityPanel` no longer renders them; it links out to `PUBLIC_OSN_ACCOUNT_URL` (`https://musubi.social`) instead.
 
 ### Authorisation: wedding ownership
 
@@ -144,18 +177,22 @@ Co-hosts live in the `wedding_hosts(wedding_id, osn_profile_id, role, …)` tabl
 
 ### Error-code design: 403 vs 401 (real bug class)
 
-`authFetch` in `@osn/client` treats **401 as "access token expired"**: it silently refreshes from the HttpOnly session cookie and retries; if refresh fails it drops the session and the UI bounces to sign-in. So an *authenticated-but-forbidden* caller (valid JWT, not the wedding owner) **must get 403, never 401** — a 401 here would make the client discard a valid OSN session and log the organiser out over an authorisation problem. We hit this during the merge; the middlewares are written around it:
+`authFetch` in `@shared/rp-auth` treats **401 as "the session is gone"**: it throws `AuthExpiredError`, and the portal drops its cached session and bounces to sign-in. So an *authenticated-but-forbidden* caller (valid session, not the wedding owner) **must get 403, never 401** — a 401 here would log the organiser out over an authorisation problem. We hit this during the merge; the middlewares are written around it:
 
-- 401 → only from `osnAuth()` (missing/invalid/expired token) — that is, "re-authenticate".
+- 401 → only from `osnAuth()` (no cookie, unknown/expired session, bad token) — that is, "sign in again".
 - 403 → authenticated, not authorised (`weddingOwner()` owner mismatch, or `weddingMember()` neither-owner-nor-co-host) — "you can't touch this".
 - 404 → resource existence not disclosed (unknown wedding, no owned weddings).
 - 400 → ambiguous request shape (`multiple_weddings`).
 
-Related debt: `@osn/client` should export an `isAuthExpiredError()` helper — `cire/organiser/src/lib/api.ts` currently string-matches `"AuthExpiredError"` because Effect's FiberFailure wrapping defeats `instanceof`. Tracked in `wiki/TODO.md` Platform.
+The same rule is why `GET /api/auth/session` answers **200 `{signedIn: false}`** rather than 401 — the probe would otherwise report "expired" to every signed-out visitor.
+
+`@shared/rp-auth` exports `isAuthExpired(err)`; nothing string-matches `"AuthExpiredError"` any more (Effect's FiberFailure wrapping defeats `instanceof`, so the helper checks the `_tag`). The old `@osn/client` debt note is closed.
 
 ## No overlap
 
-The two middlewares never run on the same route **except the account-link POST below**, and even there they are not a privilege ladder. `sessionAuth()` gates guest routes (`/api/rsvp`); `osnAuth()` (+ ownership middleware) gates `/api/organiser/*`. Outside the linking POST there is no route that accepts either credential, no privilege ladder from guest session to organiser, and no shared token format — a leaked guest cookie can never reach organiser surface and an organiser JWT is meaningless on the RSVP endpoint. The interim `X-Organiser-Token` shared secret that predated this model is fully deleted.
+The two middlewares never run on the same route **except the account-link POST below**, and even there they are not a privilege ladder. `sessionAuth()` gates guest routes (`/api/rsvp`); `osnAuth()` (+ the role gates) gates `/api/organiser/*`. Outside the linking POST there is no route that accepts either credential, no privilege ladder from guest session to organiser, and no shared token format.
+
+Both cookies now sit on the same host (`api.cireweddings.com`), so a browser holding both sends both on every call — but they are read by name and stored in **different tables**: `cire_session` → `sessions` (family-scoped), `cire_org_session` → `organiser_sessions` (profile-scoped). `sessionAuth()` never looks at the organiser cookie and `osnAuth()` never looks at the guest one, so co-residency grants nothing: a leaked guest cookie can never reach organiser surface and an organiser cookie is meaningless on the RSVP endpoint. The interim `X-Organiser-Token` shared secret that predated this model is fully deleted.
 
 ## Guest account linking (the one deliberate dual-credential route)
 
@@ -168,27 +205,36 @@ An invitee may **optionally** attach their seat to a real OSN/Pulse account so t
 | Table | `guest_account_links` (`@cire/db`) — **per invitee** (`guests` row), not per family |
 | Stored id | `osn_account_id` (account-level, so any of the user's OSN profiles can see the invitation) + `osn_profile_id` (audit). Opaque cross-DB references, no FK — same rule as `weddings.owner_osn_profile_id`. |
 
-**The bind.** `POST /api/account/link` carries `{ guestId }`. `sessionAuth()` proves the household (`familyId`); the `guestId` must belong to that family (else **403**). `osnAuth()` proves the OSN identity (`osnProfileId = sub`). The profile is resolved to its **account id** server-to-server over [[arc-tokens|ARC]] (`GET /graph/internal/profile-account`, dedicated `graph:resolve-account` scope — the endpoint rejects plain `graph:read` since S-M1 pulse-onboarding, 2026-07-05; cire-api's prod key registration must carry `graph:read,graph:resolve-account`, see [[production-deploy]] §6) — account id is S2S-only and never returned to the client. The link row staples `guestId → osn_account_id`.
+**The bind.** `POST /api/account/link` carries `{ guestId }`. `sessionAuth()` proves the household (`familyId`); the `guestId` must belong to that family (else **403**). `osnAuth()` proves the OSN identity (`osnProfileId`, resolved from the `cire_org_session` cookie the guest picked up by signing in through the OIDC redirect). Both cookies are host-scoped to the API origin, so one `credentials: "include"` fetch carries both. The profile is resolved to its **account id** server-to-server over [[arc-tokens|ARC]] (`GET /graph/internal/profile-account`, dedicated `graph:resolve-account` scope — the endpoint rejects plain `graph:read` since S-M1 pulse-onboarding, 2026-07-05; cire-api's prod key registration must carry `graph:read,graph:resolve-account`, see [[production-deploy]] §6) — account id is S2S-only and never returned to the client. The link row staples `guestId → osn_account_id`.
 
 **Uniqueness.** One link per invitee (`guest_id` unique); one OSN account can't claim two seats in the same household (`(family_id, osn_account_id)` unique); the *same* account linking across different weddings is allowed (one person, many invitations). Conflicts → generic **409 `already_linked`** (no enumeration).
 
-**401 here is correct (no 403 hazard).** Unlike the organiser 403-vs-401 rule above, a **401 from `osnAuth()` on the link POST is the right answer**: the guest's Pulse access token genuinely expired and `@osn/client` should silently refresh and retry. There is no authorisation wall to mask — the guest is *re-authenticating to OSN*, not being denied a cire resource. `GET`/`DELETE` never invoke `osnAuth()` (a guest with an expired Pulse token can still read/remove their household's links), so they can't trip it.
+**401 here is correct (no 403 hazard).** Unlike the organiser 403-vs-401 rule above, a **401 from `osnAuth()` on the link POST is the right answer**: the guest's cire session for their OSN identity has expired, and the right response is to send them back through the sign-in redirect. There is no authorisation wall to mask — the guest is *re-authenticating to OSN*, not being denied a cire resource. `GET`/`DELETE` never invoke `osnAuth()` (a guest whose OSN sign-in lapsed can still read/remove their household's links), so they can't trip it.
 
 **ARC on Workers.** cire/api runs on workerd, so it mints the outbound ARC token via the DB-free, metric-free `@shared/crypto/jwk` `signArcToken` (the barrel `@shared/crypto` and `@shared/observability` don't bundle for workerd). Key distribution is a **stable** ES256 key (`CIRE_API_ARC_PRIVATE_KEY` wrangler secret) pre-registered in osn-api's `service_accounts` under serviceId `cire-api` — not the ephemeral-key self-registration + rotation that long-lived bun services use, because a Worker has no startup hook. When the ARC key is absent the POST answers **503** (linking is opt-in; the rest of cire is unaffected). The resolver is injectable (`createApp({ resolveOsnAccountId })`) so tests stub it.
 
 **Session rotation on link (C6).** A successful `POST /api/account/link` **rotates the guest session**: it mints a fresh token and revokes the presented one in a single atomic batch, then returns a new `Set-Cookie`. Linking is a privilege change (the household becomes bound to an OSN account), so any token an attacker may have planted before the legitimate user linked is invalidated in the same commit — a session-fixation defence (`sessionService.rotate`). Rotation is best-effort: if the write fails the link still stands and the existing session is kept (logged), rather than 500-ing a completed link. Clients must use the rotated cookie for subsequent requests; the old one no longer validates.
 
-The browser-side affordance (a "link my Pulse account" button on the guest site that obtains an OSN access token and POSTs it with the guest cookie) is **deferred** — backend only for now.
+**The browser-side affordance shipped with the OIDC swap** — `cire/web/src/components/PulseAccountLink.tsx`, rendered under the claimed invite. It is strictly additive: every failure path degrades to a hidden or quiet control, never a broken invite.
+
+1. Probe `GET /api/account/link` with the guest cookie alone. **503 ⇒ the whole panel renders nothing** (that deployment has no ARC key, so linking is off). Any other non-OK ⇒ also hidden.
+2. Signed out, it offers "Sign in with musubi" — `signIn(window.location.href)`, the same top-level redirect the organiser portal uses. The guest cookie survives the round trip, so the guest comes back to the claimed invite with the panel signed in.
+3. Signed in, the guest picks **which household member they are** and the panel POSTs `{ guestId }` through `authFetch`. **409 is treated as success**, not an error: the seat is linked either way, and surfacing "already linked" as a failure would be a lie. 403 → "That isn't one of your household's guests." A thrown `AuthExpiredError` flips the panel back to the sign-in button.
+4. Unlink is optimistic and idempotent — the indicator flips at once, and a `404` from `DELETE /api/account/link/:guestId` counts as done.
 
 ## CSRF origin guard (C5 / S-L3)
 
-The guest `cire_session` cookie carries auth state, so cire needs CSRF defence beyond `SameSite=Lax`. A root-level Elysia `onBeforeHandle` (`cire/api/src/lib/origin-guard.ts`, mounted in `createApp` before the route factories) validates the `Origin` header on **every state-changing method** (POST/PUT/PATCH/DELETE) against the same allowlist CORS echoes (derived from `WEB_ORIGIN`). Missing or mismatched Origin → **403** with a bounded `cire.origin_guard.rejections{reason}` metric (`missing | mismatch`). cire has **no** inbound ARC/S2S routes (unlike osn-api, whose guard exempts them), so there is no exemption — every state-changing request is checked. An empty allowlist (local dev) disables the guard.
+**Both** cookies carry auth state — `cire_session` since the beginning, `cire_org_session` since the OIDC swap — so cire needs CSRF defence beyond `SameSite=Lax`, and the organiser surface now needs it as much as the guest one (before the swap it was Bearer-only and therefore CSRF-immune by construction). A root-level Elysia `onBeforeHandle` (`cire/api/src/lib/origin-guard.ts`, mounted in `createApp` before the route factories) validates the `Origin` header on **every state-changing method** (POST/PUT/PATCH/DELETE) against the same allowlist CORS echoes (derived from `WEB_ORIGIN`). Missing or mismatched Origin → **403** with a bounded `cire.origin_guard.rejections{reason}` metric (`missing | mismatch`). cire has **no** inbound ARC/S2S routes (unlike osn-api, whose guard exempts them), so there is no exemption — every state-changing request is checked. An empty allowlist (local dev) disables the guard.
+
+**The two OIDC legs are GETs, so the guard does not see them** — by design, since a cross-site top-level navigation is exactly what they are. `/oidc/start` mints no state and grants nothing, so it is not worth protecting. `/oidc/callback` is protected instead by the **`state` match** against the HttpOnly tx cookie: an attacker cannot forge a callback that lands a session on the victim's browser without also knowing the `state` the victim's own `/oidc/start` minted. That is the standard OIDC login-CSRF defence and it is the reason `state` is mandatory here, not optional.
 
 ## Related
 
 - [[identity-model]] — OSN accounts, profiles, access-token contract
-- [[passkey-primary]] — the passkey-only login organisers use
-- [[sessions]] — OSN's server-side session store (the refresh cookie behind `authFetch`)
+- [[oidc-provider]] — the issuer side: authorize/token endpoints, PKCE, consent, pairwise `sub`, first-party claims
+- [[musubi-identity-migration]] — the RP-ID move that forced this flow
+- [[passkey-primary]] — the passkey-only login organisers use, now spent on `musubi.social`
+- [[sessions]] — OSN's own server-side session store (separate from cire's two)
 - [[cire]] — app overview, packages, data model
 - [[data-map]] — cire personal-data fields (the `public_id` claim code is a credential; `cire_session` redacted in logs)
-- [[access-control]] — cire D1/R2 operator access + these two credential classes in the access matrix
+- [[access-control]] — cire D1/R2 operator access + these credential classes in the access matrix

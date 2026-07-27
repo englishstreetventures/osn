@@ -31,7 +31,7 @@ const authFetch = vi.fn(async (url: string) => {
     return json({ items: [], payments: [], budgetTotalMinor: null, currency: "AUD" });
   return json({});
 });
-vi.mock("@osn/client/solid", () => ({ useAuth: () => ({ authFetch }) }));
+vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 
 const snap = (over: Partial<BudgetSnapshot>): BudgetSnapshot => ({
   items: [],

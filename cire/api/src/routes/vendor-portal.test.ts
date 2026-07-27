@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "bun:test";
 import { createApp } from "../app";
 import { createDb, seedDb } from "../db/setup";
 import type { ListingDto } from "../services/directory";
-import type { OsnOrgMembershipResolver } from "../services/osn-bridge";
+import type { OsnOrgMembershipResolver, OsnProfileOrgsResolver } from "../services/osn-bridge";
 import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -32,6 +32,26 @@ const stubOrgMembership: OsnOrgMembershipResolver = async (orgId, profileId) => 
   return null;
 };
 
+/**
+ * Stub for `profileOrgs(profileId)` — the ARC-proxied org list. Only MEMBER has
+ * an org; everyone else gets the empty list the real resolver falls back to.
+ */
+const stubProfileOrgs: OsnProfileOrgsResolver = async (profileId) => {
+  if (profileId !== MEMBER) return [];
+  return [
+    {
+      id: ORG_OK,
+      handle: "ok-events",
+      name: "OK Events",
+      description: null,
+      avatarUrl: null,
+      ownerId: MEMBER,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+  ];
+};
+
 // ── Auth setup ────────────────────────────────────────────────────────────────
 
 let auth: OsnTestAuth;
@@ -47,6 +67,7 @@ function buildApp() {
   return createApp(db, {
     osnTestKey: auth.key,
     orgMembership: stubOrgMembership,
+    profileOrgs: stubProfileOrgs,
   });
 }
 
@@ -169,6 +190,33 @@ describe("vendor portal routes", () => {
       const body = (await res.json()) as { listing: ListingDto };
       expect(body.listing).toBeDefined();
       expect(body.listing.name).toBe("Hillside Blooms");
+    });
+  });
+
+  // ── GET /api/vendor/orgs ──────────────────────────────────────────────────
+
+  describe("GET /api/vendor/orgs", () => {
+    it("401 without a token", async () => {
+      const res = await req(buildApp(), "GET", "/api/vendor/orgs");
+      expect(res.status).toBe(401);
+    });
+
+    it("200 with the caller's orgs", async () => {
+      const res = await req(buildApp(), "GET", "/api/vendor/orgs", MEMBER);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { organisations: { id: string; name: string }[] };
+      expect(body.organisations).toHaveLength(1);
+      expect(body.organisations[0]!.id).toBe(ORG_OK);
+      expect(body.organisations[0]!.name).toBe("OK Events");
+    });
+
+    it("200 with an empty list for a caller who belongs to no org", async () => {
+      // Scoped by construction: the resolver keys on the profile id from the
+      // verified token, so a stranger can never see another caller's orgs.
+      const res = await req(buildApp(), "GET", "/api/vendor/orgs", STRANGER);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { organisations: unknown[] };
+      expect(body.organisations).toHaveLength(0);
     });
   });
 

@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./verify": "./src/verify.ts",
+    "./verify-id-token": "./src/verify-id-token.ts",
     "./jwks-cache": "./src/jwks-cache.ts",
     "./middleware/elysia": "./src/middleware/elysia.ts"
   },

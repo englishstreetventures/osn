@@ -8,9 +8,9 @@ let mockSession: () => { profile: { id: string } } | null | undefined = () => ({
   profile: { id: "p1" },
 });
 
-// Mock @osn/client/solid so we control the session/authFetch without a real
+// Mock @shared/rp-auth/solid so we control the session/authFetch without a real
 // OSN backend — mirror the organiser app's VendorApp/OrganiserApp test harness.
-vi.mock("@osn/client/solid", () => {
+vi.mock("@shared/rp-auth/solid", () => {
   return {
     AuthProvider: (props: any) => props.children,
     useAuth: () => ({

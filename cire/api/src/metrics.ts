@@ -42,6 +42,12 @@ export const CIRE_METRICS = {
   sessionCreated: "cire.session.created",
   // Scheduled expired-session sweep (cron).
   sessionSwept: "cire.session.swept",
+  // Organiser sessions, minted by the OSN OIDC callback.
+  organiserSessionCreated: "cire.organiser_session.created",
+  // Scheduled expired-organiser-session sweep (cron).
+  organiserSessionSwept: "cire.organiser_session.swept",
+  // OIDC sign-in outcomes, one per completed leg of the redirect flow.
+  oidcLogin: "cire.oidc.login",
   // Scheduled guest-data retention sweep (cron) — deletes guest PII 1 year
   // after a wedding's final event.
   guestDataSwept: "cire.guest_data.swept",
@@ -214,6 +220,31 @@ type ClaimAttemptsAttrs = { result: ClaimResult };
 type ClaimLookupDurationAttrs = { result: "ok" | "error" };
 type SessionCreatedAttrs = { result: "ok" | "error" };
 type SessionSweptAttrs = { result: "ok" | "error" };
+type OrganiserSessionCreatedAttrs = { result: "ok" | "error" };
+type OrganiserSessionSweptAttrs = { result: "ok" | "error" };
+/**
+ * Which leg of the OIDC redirect flow ended, and how. Closed set — never carry
+ * a client id, profile id, or the provider's error string, all of which are
+ * unbounded.
+ *
+ * `start` — we redirected the browser to the OSN authorize endpoint.
+ * `callback_ok` — the code exchanged, the ID token verified, a session exists.
+ * `provider_error` — OSN handed us back an `error=` instead of a code.
+ * `state_mismatch` — no transaction cookie, or its `state` did not match.
+ * `exchange_failed` — the back-channel token request was refused or unreachable.
+ * `token_invalid` — the ID token failed verification, or lacked a profile id.
+ * `bad_request` — the caller's own inputs were wrong (e.g. a foreign
+ *   `return_to`); nothing reached the provider.
+ */
+export type OidcLoginOutcome =
+  | "start"
+  | "callback_ok"
+  | "provider_error"
+  | "state_mismatch"
+  | "exchange_failed"
+  | "token_invalid"
+  | "bad_request";
+type OidcLoginAttrs = { outcome: OidcLoginOutcome };
 type GuestDataSweptAttrs = { result: "ok" | "error" };
 /** Which cire R2 bucket the swept objects came from — bounded label, never a key. */
 export type R2BucketAttr = "sheets" | "assets";
@@ -291,6 +322,25 @@ const sessionSwept = createCounter<SessionSweptAttrs>({
   description:
     "Expired guest sessions deleted by the scheduled sweeper — increment is the row count, so the sum tracks reclaimed rows",
   unit: "{session}",
+});
+
+const organiserSessionCreated = createCounter<OrganiserSessionCreatedAttrs>({
+  name: CIRE_METRICS.organiserSessionCreated,
+  description: "Organiser session-cookie creations after an OSN OIDC sign-in, by outcome",
+  unit: "{session}",
+});
+
+const organiserSessionSwept = createCounter<OrganiserSessionSweptAttrs>({
+  name: CIRE_METRICS.organiserSessionSwept,
+  description:
+    "Expired organiser sessions deleted by the scheduled sweeper — increment is the row count, so the sum tracks reclaimed rows",
+  unit: "{session}",
+});
+
+const oidcLogin = createCounter<OidcLoginAttrs>({
+  name: CIRE_METRICS.oidcLogin,
+  description: "OSN OIDC sign-in legs, by outcome",
+  unit: "{attempt}",
 });
 
 const guestDataSwept = createCounter<GuestDataSweptAttrs>({
@@ -504,6 +554,16 @@ export const metricSessionCreated = (result: "ok" | "error"): void =>
  *  single `error` increment. */
 export const metricSessionSwept = (result: "ok" | "error", count = 1): void =>
   sessionSwept.add(count, { result });
+
+export const metricOrganiserSessionCreated = (result: "ok" | "error"): void =>
+  organiserSessionCreated.inc({ result });
+
+/** Same shape as `metricSessionSwept`, for the organiser table. */
+export const metricOrganiserSessionSwept = (result: "ok" | "error", count = 1): void =>
+  organiserSessionSwept.add(count, { result });
+
+/** Record one leg of an OIDC sign-in. See `OidcLoginOutcome` for the values. */
+export const metricOidcLogin = (outcome: OidcLoginOutcome): void => oidcLogin.inc({ outcome });
 
 /** Record a retention sweep: on success `count` is the number of guest rows
  *  deleted, so the counter sum tracks reclaimed guest records over time. A

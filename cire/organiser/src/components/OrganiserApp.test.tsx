@@ -16,7 +16,7 @@ const logoutMock = vi.fn().mockResolvedValue(undefined);
 const redirectSpy = vi.fn();
 
 // session() returns a truthy value so RequireAuth renders its children.
-vi.mock("@osn/client/solid", () => ({
+vi.mock("@shared/rp-auth/solid", () => ({
   AuthProvider: (props: { children: unknown }) => props.children,
   useAuth: () => ({
     authFetch: authFetchMock,
@@ -93,8 +93,7 @@ vi.mock("./ModuleShell", () => ({
 vi.mock("./PreviewInviteButton", () => ({
   default: () => <div data-testid="preview-button" />,
 }));
-// SecurityPanel pulls in @osn/client + @osn/ui + @simplewebauthn/browser;
-// stub it so this suite stays focused on the Dashboard's view glue.
+// Stub SecurityPanel so this suite stays focused on the Dashboard's view glue.
 vi.mock("./SecurityPanel", () => ({
   default: () => <div data-testid="security-panel">passkeys</div>,
 }));

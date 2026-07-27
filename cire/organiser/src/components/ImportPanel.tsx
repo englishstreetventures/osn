@@ -1,4 +1,4 @@
-import { useAuth } from "@osn/client/solid";
+import { useAuth } from "@shared/rp-auth/solid";
 import type { JSX } from "solid-js";
 import { createSignal, createUniqueId, Show, For } from "solid-js";
 

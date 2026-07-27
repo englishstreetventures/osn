@@ -1,10 +1,10 @@
 // Data layer for the vendor portal. Pure async helpers over `authFetch`
 // (from useAuth()) — no module-level auth state, mirroring how the organiser
-// app threads authFetch into its stores. Org create/list hit osn-api
-// (/organisations); listing + claim hit cire-api (/api/vendor/*). One OSN
-// access token is accepted by both audiences.
+// app threads authFetch into its stores. EVERY call goes to cire-api: the
+// portal holds a cire session cookie, not an OSN token, so it cannot read
+// osn-api directly. The caller's organisations come from cire-api's
+// `GET /api/vendor/orgs`, which proxies osn-api over ARC.
 import { apiUrl } from "./api";
-import { OSN_ISSUER_URL } from "./osn";
 
 type AuthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -60,8 +60,6 @@ export interface ListingInput {
   priceMaxMinor?: number | null;
 }
 
-const ORG_BASE = `${OSN_ISSUER_URL.replace(/\/$/, "")}/organisations`;
-
 /** Read the response as JSON, or null if the body isn't JSON. */
 async function safeJson<T>(res: Response): Promise<(T & { error?: string }) | null> {
   try {
@@ -83,7 +81,7 @@ async function ensureOk(res: Response): Promise<void> {
 }
 
 export async function listMyOrgs(authFetch: AuthFetch): Promise<OrgSummary[]> {
-  const res = await authFetch(ORG_BASE);
+  const res = await authFetch(apiUrl("/api/vendor/orgs"));
   await ensureOk(res);
   const body = await safeJson<{ organisations: OrgSummary[] }>(res);
   return body?.organisations ?? [];

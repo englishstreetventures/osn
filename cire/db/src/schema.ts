@@ -567,6 +567,45 @@ export const sessions = sqliteTable("sessions", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+// Organiser sessions, minted by the OSN OIDC login flow (migration 0047).
+//
+// Identity moved to `musubi.social`, so the WebAuthn RP ID is `musubi.social`
+// and no cireweddings origin can run a passkey ceremony any more. Organisers
+// sign in by redirect through the OSN authorize endpoint and come back with an
+// ID token; cire mints this row and sets its own host-scoped cookie. Same
+// hashed-opaque-token shape as the guest `sessions` table above.
+//
+// `osnProfileId` is the real `usr_*` id from the first-party-only
+// `osn_profile_id` claim — NOT the OIDC pairwise `sub`, because every
+// authorisation row cire holds (`weddings.owner_osn_profile_id`,
+// `wedding_hosts.osn_profile_id`) and all three ARC bridges key on profile ids.
+// `osnSub` keeps the pairwise subject for audit and connection-revocation
+// matching. Like the other OSN references it is an opaque cross-database id,
+// deliberately not a foreign key.
+//
+// The four profile columns are a login-time snapshot of the ID token's claims
+// so the portal chrome has a name to render; they expire with the row and are
+// re-taken on every sign-in. See `[[wiki/systems/cire-auth]]`.
+export const organiserSessions = sqliteTable(
+  "organiser_sessions",
+  {
+    id: text("id").primaryKey(), // oss_<uuid>
+    token: text("token").notNull().unique(),
+    osnProfileId: text("osn_profile_id").notNull(),
+    osnSub: text("osn_sub").notNull(),
+    email: text("email"),
+    handle: text("handle"),
+    displayName: text("display_name"),
+    avatarUrl: text("avatar_url"),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    index("organiser_sessions_profile_idx").on(t.osnProfileId),
+    index("organiser_sessions_expires_idx").on(t.expiresAt),
+  ],
+);
+
 // Optional link between an individual invitee (a `guests` row) and a real
 // OSN/Pulse account. Opt-in and additive: the family claim-code session stays
 // the primary guest credential; this row just attaches an OSN identity so the

@@ -405,13 +405,30 @@ export async function createHandleSearchResolverFromEnv(env: {
 // Org-membership resolvers (Vendors platform — uses `org:read` scope)
 // ---------------------------------------------------------------------------
 
+/** One organisation as osn-api's internal profile-orgs route reports it. */
+export interface OsnOrgSummary {
+  id: string;
+  handle: string;
+  name: string;
+  description: string | null;
+  avatarUrl: string | null;
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /**
- * Lists the organisation ids that a profile belongs to.
+ * Lists the organisations a profile belongs to.
  * FAIL-SOFT: any transport/infra failure resolves to an EMPTY array — the
  * caller treats an absent org list as "no org memberships" rather than
  * propagating an error. Mirrors {@link createArcProfileDisplayResolver}.
+ *
+ * Returns whole summaries, not bare ids: the vendor portal renders the org name
+ * in its picker, and the portal can no longer read osn-api itself (it holds a
+ * cire session cookie, not an OSN token), so this ARC call is the only source.
+ * Callers that only need scoping ids map over the result.
  */
-export type OsnProfileOrgsResolver = (profileId: string) => Promise<string[]>;
+export type OsnProfileOrgsResolver = (profileId: string) => Promise<OsnOrgSummary[]>;
 
 /**
  * Builds an {@link OsnProfileOrgsResolver} backed by a real ARC-authenticated
@@ -419,6 +436,30 @@ export type OsnProfileOrgsResolver = (profileId: string) => Promise<string[]>;
  * scope (distinct from `graph:read`) — cire-api's registration must include
  * `org:read` in `allowedScopes` for this call to succeed.
  */
+/**
+ * Normalises one wire entry into an {@link OsnOrgSummary}, or `null` when the
+ * identifying fields are missing — the payload is never trusted as typed. The
+ * optional display fields fall back rather than dropping the whole org.
+ */
+function toOrgSummary(value: unknown): OsnOrgSummary | null {
+  if (typeof value !== "object" || value === null) return null;
+  const o = value as Record<string, unknown>;
+  if (typeof o.id !== "string" || typeof o.handle !== "string" || typeof o.name !== "string") {
+    return null;
+  }
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
+  return {
+    id: o.id,
+    handle: o.handle,
+    name: o.name,
+    description: str(o.description),
+    avatarUrl: str(o.avatarUrl),
+    ownerId: str(o.ownerId) ?? "",
+    createdAt: str(o.createdAt) ?? "",
+    updatedAt: str(o.updatedAt) ?? "",
+  };
+}
+
 export function createArcProfileOrgsResolver(config: ArcResolverConfig): OsnProfileOrgsResolver {
   const base = config.osnApiUrl.replace(/\/+$/, "");
 
@@ -438,12 +479,12 @@ export function createArcProfileOrgsResolver(config: ArcResolverConfig): OsnProf
 
       if (!res.ok) return [];
 
-      const data = (await res.json()) as { organisationIds?: unknown };
-      if (!Array.isArray(data.organisationIds)) return [];
+      const data = (await res.json()) as { organisations?: unknown };
+      if (!Array.isArray(data.organisations)) return [];
 
-      return (data.organisationIds as unknown[]).filter(
-        (id): id is string => typeof id === "string",
-      );
+      return (data.organisations as unknown[])
+        .map(toOrgSummary)
+        .filter((o): o is OsnOrgSummary => o !== null);
     } catch {
       // FAIL-SOFT: never let an org-list lookup failure break the caller.
       return [];

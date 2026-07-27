@@ -59,9 +59,9 @@ below out-of-band with `wrangler secret put` (osn-api **and** cire-api are both 
 > the **`musubi.social` apex**, WebAuthn RP ID **`musubi.social`**. Two consequences worth
 > reading before you deploy anything: **every passkey enrolled under `cireweddings.com` is
 > dead** (recovery codes are the only way in), and **cire sign-in — organiser, vendor and
-> guest linking — is broken on purpose** until those frontends move to the OIDC redirect
-> flow. Bearer-token verification is unaffected. Full reasoning + cutover order in
-> **[[musubi-identity-migration]]**.
+> guest linking — now runs through the OIDC redirect**, not a local passkey ceremony.
+> Bearer-token verification is unaffected. Full reasoning + cutover order in
+> **[[musubi-identity-migration]]**; the client registration and its secret are §3.5.
 
 ---
 
@@ -77,7 +77,7 @@ marked **TBD** blocks the deploy.
 | `OSN_RP_ID` (WebAuthn RP ID — registrable domain) | osn-api WebAuthn | **DONE — `musubi.social`** (identity's own registrable apex, as of the 2026-07-27 move — §5.4, [[musubi-identity-migration]]). It covers the apex itself plus every future `*.musubi.social` surface. **This invalidated every passkey enrolled under `cireweddings.com`** — the private half is bound to the RP ID inside the authenticator, so nothing in D1 re-points it. |
 | `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://musubi.social`** (the identity app — the one surface that can legally run a ceremony under the new RP ID). The cire origins were **removed** on 2026-07-27: a different registrable domain cannot run a ceremony for RP ID `musubi.social`, so listing them would only have hidden the failure. Picked up on merge — **osn-api auto-deploys via CI** (`deploy-osn-api` in `deploy.yml`); no manual `wrangler deploy` needed. |
 | `OSN_ISSUER_URL` (public https base of osn-api) | osn-api + cire | **DONE — `https://id.musubi.social`** (custom-domain route in `osn/api/wrangler.toml` `[env.production]`; moved off `id.cireweddings.com` 2026-07-27) |
-| `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **DONE — `https://musubi.social,https://host.cireweddings.com,https://vendor.cireweddings.com,https://invite.cireweddings.com`**. The cire origins stay here even though they left `OSN_ORIGIN` — these are two different lists. CORS governs **bearer-token** calls, which cire still makes and will still make after the redirect flow lands; `OSN_ORIGIN` governs WebAuthn ceremonies, which cire can no longer run. |
+| `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **DONE — `https://musubi.social,https://host.cireweddings.com,https://vendor.cireweddings.com,https://invite.cireweddings.com`**. The cire origins stay here even though they left `OSN_ORIGIN` — these are two different lists: CORS governs browser calls, `OSN_ORIGIN` governs WebAuthn ceremonies. Since the 2026-07-27 OIDC swap the cire entries are **vestigial**: no cire browser calls osn-api any more (the exchange is server-side on cire-api, and the `/authorize` hop is a top-level navigation, not a CORS request). Pruning them is a tidy-up, not a fix — do it in its own change so a missed caller shows up alone. |
 | `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `hello@cireweddings.com`** (Resend sender domain `cireweddings.com` verified — §1.1). **Deliberately not moved to musubi.social**: no verified musubi.social sender exists, and Resend fails closed on an unauthenticated domain — which would take OTP step-up down, the exact path back in after a recovery-code login. See [[email]]. |
 | `RESEND_API_KEY` (live email transport) | osn-api | **DONE** — set on the production Worker; delivering since 2026-06-18 (§1.1) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | optional / **legacy** (Cloudflare-email fallback transport; not used now Resend is the live path — §1.1) |
@@ -93,7 +93,8 @@ marked **TBD** blocks the deploy.
 | cire `OSN_JWKS_URL` / `OSN_ISSUER_URL` | cire-api | **DONE — `https://id.musubi.social/.well-known/jwks.json` / `https://id.musubi.social`** (must equal osn-api's own `OSN_ISSUER_URL`, so these flip in the **same** deploy as osn-api's; set on `[env.production]` **and** `[env.preview]`, which shares prod identity by design) |
 | `CIRE_API_ARC_PRIVATE_KEY` + `CIRE_API_ARC_KEY_ID` + `OSN_API_URL` | cire-api | needed only if guest account-linking is enabled (section 6.2) |
 | cire/web `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/web **SSR Worker** | **DONE — `https://api.cireweddings.com` / `https://invite.cireweddings.com`** (set in `deploy.yml`). No `PUBLIC_WEDDING_SLUG` — wedding resolved from the path. `invite.` is served by the `cire-invites` Worker (custom-domain route), not a Pages project — see §3.3. The apex serves the marketing landing site. |
-| cire/organiser `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ISSUER_URL`, `PUBLIC_CIRE_WEB_URL` (build-time) | cire/organiser Pages | **DONE — `https://api.cireweddings.com` / `https://id.musubi.social` / `https://invite.cireweddings.com`** (set in `deploy.yml`) |
+| cire/organiser `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ACCOUNT_URL`, `PUBLIC_CIRE_WEB_URL` (build-time) | cire/organiser Pages | **DONE — `https://api.cireweddings.com` / `https://musubi.social` / `https://invite.cireweddings.com`** (set in `deploy.yml`). `PUBLIC_OSN_ISSUER_URL` is **gone** as of the 2026-07-27 OIDC swap — the frontends never call the issuer |
+| `CIRE_OIDC_CLIENT_SECRET` + the `oauth_clients` row for cire | cire-api (secret) + osn D1 | **DONE 2026-07-27** — client `cid_cire` seeded in prod D1, secret set on the production **and** preview cire-api Workers (§3.2, §6.3) |
 | osn/social `VITE_OSN_ISSUER_URL` (build-time) | osn/social Pages (`osn-social`) | **DONE — `https://id.musubi.social`** (set in `deploy.yml`, job `deploy-osn-social`, and in `deploy-osn-social-preview.yml`) |
 | `OSN_AUTHORIZE_UI_URL` (OIDC consent screen) | osn-api wrangler.toml | **DONE — `https://musubi.social/authorize`**. Needs the apex attached to the `osn-social` Pages project (§5.4) to resolve |
 | **musubi.social zone: apex → `osn-social` Pages, `id.` → osn-api Worker** | Cloudflare dashboard | **Apex attached 2026-07-27.** The Worker side auto-provisions on first deploy (`custom_domain = true`, zone in-account) — verify `https://id.musubi.social/health` returns 200 after the merge deploy. §5.4. |
@@ -368,6 +369,9 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 | `CIRE_API_ARC_PRIVATE_KEY` | `wrangler secret put CIRE_API_ARC_PRIVATE_KEY` | **Conditional** | ES256 JWK (string). Only if guest account-linking is enabled (§6.2). Absent ⇒ linking `POST` answers 503 (`src/index.ts:78-85`, `services/osn-bridge.ts:99-113`). |
 | `CIRE_API_ARC_KEY_ID` | `wrangler secret put CIRE_API_ARC_KEY_ID` | **Conditional** | `kid` matching the public key registered in osn-api `service_accounts` for serviceId `cire-api`. §6.2 |
 | `OSN_API_URL` | `wrangler secret put OSN_API_URL` (or var) | **Conditional** | osn-api base URL the ARC bridge calls. §6.2 |
+| `CIRE_API_ORIGIN` | `wrangler.toml` `[env.production.vars]` | **Yes** | This Worker's own public origin. It builds the OIDC redirect URI (`<origin>/api/auth/oidc/callback`), which must match one of the client's registered `redirect_uris` **byte for byte**. Prod = **`https://api.cireweddings.com`**, preview = **`https://api-preview.cireweddings.com`**. |
+| `CIRE_OIDC_CLIENT_ID` | `wrangler.toml` `[env.production.vars]` | **Yes** | **`cid_cire`** — the registered client. Not a secret. |
+| `CIRE_OIDC_CLIENT_SECRET` | `wrangler secret put CIRE_OIDC_CLIENT_SECRET --env production` | **Yes** | The client secret, presented as `client_secret_post` at the token endpoint. Must be the pre-image of `oauth_clients.client_secret_hash` in osn's D1 — **rotate both together or organiser sign-in dies at the exchange** (§3.5). Set on the **preview** Worker too; preview shares prod identity. Any of the four OIDC values absent ⇒ `/api/auth/oidc/*` answers **503 `sign_in_unavailable`** and nothing else changes (`src/index.ts:291-308`). |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | `wrangler secret put` | Recommended | Worker observability. [[observability-setup]] |
 | `TURNSTILE_SECRET_KEY` | `wrangler secret put TURNSTILE_SECRET_KEY` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, the guest **`/api/claim`** + **`/api/rsvp`** endpoints require a valid Turnstile token and **fail-closed** (403 on missing/invalid/duplicate). Unset ⇒ those gates are skipped (guest flow unchanged). Same widget/secret as osn-api — the widget's domains must cover every gated origin. **Currently unset** on `cire-api-production`: a mismatched secret rejected every guest claim on 2026-07-20 and was deleted, which reverts the gate to a no-op. Create the widget in §3.4. (`src/index.ts` → `createTurnstileVerifier`). |
 | `GOOGLE_GEOCODING_API_KEY` | `wrangler secret put GOOGLE_GEOCODING_API_KEY` | **Optional (key-optional, fail-soft)** | Google Geocoding API key for the organiser per-event venue lookup (`POST /api/organiser/weddings/:id/settings/geocode`, driven from the Events tab's location editor). Unset ⇒ the endpoint answers `unavailable` and the editor falls back to manual lat/lng entry — nothing is ever sent to Google. **Before setting in prod: sign the Google Cloud DPA + confirm the EU→US transfer basis** (see `[[compliance/subprocessors]]`), restrict the key to the Geocoding API, **and set a daily quota cap** in the Google console — the per-IP edge limiter bounds each caller, but only a Google-side cap bounds aggregate spend across many IPs/accounts (S-L2). (`src/index.ts` → `createGoogleGeocoder`.) |
@@ -425,7 +429,7 @@ build outside CI, export these before `bun run --cwd <site> build`.
 | `PUBLIC_SITE_URL` | cire/web | Recommended | `https://invite.cireweddings.com` | Guest site canonical URL. The apex serves the marketing landing site since the 2026-07-16 reshuffle. |
 | `PUBLIC_GOOGLE_MAPS_EMBED_KEY` | cire/web | Optional | _(unset)_ | Google Maps Platform key with the **Maps Embed API** enabled. When set, the event "Where" section renders a real Maps Embed iframe (queried by the free-text venue address — no coordinates, no geocoding); when unset/blank it falls back to the CSS-drawn map card, so it is a pure enhancement (`cire/web/src/components/MapPreview.tsx`). **Human step:** create the key, **enable only the Maps Embed API**, and **restrict it by HTTP referrer** to the guest-site origin(s) — the key bakes into static HTML, and a referrer-restricted Embed-only key is safe to ship. |
 | `PUBLIC_CIRE_API_URL` | cire/organiser | **Yes** | `https://api.cireweddings.com` | cire-api prod origin (`cire/organiser/src/lib/osn.ts`; `PUBLIC_API_URL` honoured as legacy fallback). |
-| `PUBLIC_OSN_ISSUER_URL` | cire/organiser | **Yes** | `https://id.musubi.social` | osn-api prod origin for organiser sign-in (`osn.ts`, dev default `http://localhost:4000`). Must equal osn-api's `OSN_ISSUER_URL`. Since 2026-07-27 the passkey ceremony this drives is **illegal from a cireweddings.com origin** (RP ID is `musubi.social`), so organiser sign-in stays broken until the OIDC redirect flow lands. [[musubi-identity-migration]] |
+| `PUBLIC_OSN_ACCOUNT_URL` | cire/organiser **and** cire/vendor | Recommended | `https://musubi.social` | Where "Manage your account" links point — passkeys, recovery codes and connected apps all live on musubi's own origin now. **Replaced `PUBLIC_OSN_ISSUER_URL` on 2026-07-27**: the frontends no longer talk to the issuer at all. Sign-in is a top-level redirect to cire-api (`/api/auth/oidc/start`), which runs the code exchange server-side. [[cire-auth]], [[oidc-provider]] |
 | `PUBLIC_CIRE_WEB_URL` | cire/organiser | Recommended | `https://invite.cireweddings.com` | Guest site URL used in organiser preview links (`osn.ts`). |
 | `VITE_OSN_ISSUER_URL` | osn/social | **Yes** | `https://id.musubi.social` | osn-api prod origin for the identity app **and** the `/authorize` consent screen (`osn/social/src/lib/auth.ts`, dev default `http://localhost:4000`). A Vite SPA, so this bakes into the bundle: unset, the deployed app dials the visitor's own localhost. Set in `deploy.yml` (`deploy-osn-social`) and in `deploy-osn-social-preview.yml`. |
 | `PUBLIC_TURNSTILE_SITEKEY` | cire/web **and** cire/organiser | Optional (key-optional) | _(unset)_ | Cloudflare Turnstile **sitekey** (public — safe to embed in client HTML). When set, the guest claim + RSVP forms (cire/web) and the organiser SignIn + Register forms (cire/organiser, via `@osn/ui`) render the Turnstile challenge and gate submit on it; when unset/blank no widget renders and no token is sent (a pure enhancement). Wired in the `deploy-cire-web` / `deploy-cire-organiser` / `deploy-cire-vendor` build steps as `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}`, and the repo **Variable** is set (#160), so the widget renders. The matching `TURNSTILE_SECRET_KEY` secret decides whether the gate bites; it must be set on the cire-api Worker (claim/rsvp) and the osn-api Worker (register/login), and it is **unset on cire-api** today (§3.2). |
@@ -476,6 +480,55 @@ create it in the dashboard (or with a custom API token that has the scope).
    incident, see [[free-tier-limits]]). To back it out:
    `bunx wrangler secret delete TURNSTILE_SECRET_KEY --env production`, which returns the
    gate to a no-op within a couple of minutes and needs no redeploy.
+
+### 3.5 Register cire as an OIDC client (one-time, done 2026-07-27) 🔑
+
+Organiser, vendor and guest-linking sign-in all run through the OSN OIDC redirect
+(see [[cire-auth]]). That needs a row in osn's `oauth_clients`. `is_first_party` is
+not a self-serve registration input, so this row is **seeded by hand** — the
+self-serve `POST /oidc/clients` route can only mint third-party clients.
+
+Generate the secret, hash it, seed the row, then set the secret on cire-api:
+
+```bash
+# 1. Mint a secret and its SHA-256. Keep the raw value out of shell history and
+#    out of any file inside the repo.
+SECRET=$(openssl rand -base64 32)
+HASH=$(printf '%s' "$SECRET" | openssl dgst -sha256 -binary | xxd -p -c 64)
+
+# 2. Seed the client row in osn's PRODUCTION D1 (write the SQL to a file outside
+#    the repo; never inline the hash into a shared transcript).
+cd osn/api && bunx wrangler d1 execute osn-db-prod --remote --env production \
+  --file=/path/outside/repo/register-cire-client.sql
+
+# 3. Set the secret on BOTH cire-api tiers — preview shares prod identity.
+cd cire/api
+printf '%s' "$SECRET" | bunx wrangler secret put CIRE_OIDC_CLIENT_SECRET --env production
+printf '%s' "$SECRET" | bunx wrangler secret put CIRE_OIDC_CLIENT_SECRET --env preview
+```
+
+The row's shape — the columns that carry a trust decision are listed in
+[[oidc-provider]] → "Registered clients":
+
+| Column | Value |
+|---|---|
+| `id` / `client_id` | `oc_cire` / `cid_cire` (matches `CIRE_OIDC_CLIENT_ID`) |
+| `redirect_uris` | JSON array: `https://api.cireweddings.com/api/auth/oidc/callback` **and** `https://api-preview.cireweddings.com/api/auth/oidc/callback` |
+| `sector_identifier` | `cireweddings.com` |
+| `allowed_scopes` | `openid profile email` |
+| `is_first_party` | `1` — this is what puts the `osn_profile_id` claim in the ID token, which cire **requires** |
+| `owner_account_id` | `NULL` — a platform client, so no account erasure can disable it |
+
+> ⚠️ **The secret and the hash are one credential in two places.** Rotating
+> `CIRE_OIDC_CLIENT_SECRET` without updating `oauth_clients.client_secret_hash` (or the
+> reverse) makes every token exchange fail `invalid_client`, and organiser sign-in stops
+> dead — existing sessions survive their 7 days, so the break shows up gradually. Rotate
+> both, then redeploy cire-api to cycle the warm isolates.
+
+**Local development** needs its own row in the **local** D1 with a
+`http://localhost:8787/api/auth/oidc/callback` redirect URI, and the secret in
+`cire/api/.dev.vars`. Without them `/api/auth/oidc/*` answers 503 and the portal shows
+"sign-in unavailable" — which is the correct inert state, not a bug.
 
 ---
 
@@ -588,12 +641,12 @@ to the served URL.)
 > recovery → OTP step-up (`purpose: passkey_register`) → enroll → `POST /recovery/generate`.
 > [[musubi-identity-migration]], [[recovery-codes]]
 
-> ℹ️ **cire must point at the deployed osn-api URL.** cire-api's `OSN_JWKS_URL` =
+> ℹ️ **cire-api must point at the deployed osn-api URL.** cire-api's `OSN_JWKS_URL` =
 > `https://id.musubi.social/.well-known/jwks.json` and `OSN_ISSUER_URL` =
-> `https://id.musubi.social` (§3.2), and cire/organiser's `PUBLIC_OSN_ISSUER_URL` (§3.3)
-> = the same origin — all three must equal osn-api's own `OSN_ISSUER_URL` or token
-> verification fails. Token *verification* is unaffected by the move; what broke is how a
-> cire user gets a token in the first place (§3.1 `OSN_RP_ID`).
+> `https://id.musubi.social` (§3.2). Both must equal osn-api's own `OSN_ISSUER_URL`, or
+> token verification fails **and** the OIDC code exchange dials the wrong host. The cire
+> *frontends* no longer carry an issuer URL at all since the 2026-07-27 swap — sign-in is a
+> redirect to cire-api, which holds the client credential (§3.5).
 
 ### 5.2 cire-api (Worker)
 
@@ -620,14 +673,13 @@ equivalents:
 # guest site (Worker: cire-invites, custom domain invite.cireweddings.com)
 PUBLIC_API_URL=https://api.cireweddings.com \
 PUBLIC_SITE_URL=https://invite.cireweddings.com \
-PUBLIC_OSN_ISSUER_URL=https://id.musubi.social \
   bun run --cwd cire/web build
 # delete the adapter's `legacy_env` key first — see the §3.3 foot-gun note
 bunx wrangler deploy --config cire/web/dist/server/wrangler.json
 
 # organiser portal (Pages project: cire-organiser, host.cireweddings.com)
 PUBLIC_CIRE_API_URL=https://api.cireweddings.com \
-PUBLIC_OSN_ISSUER_URL=https://id.musubi.social \
+PUBLIC_OSN_ACCOUNT_URL=https://musubi.social \
 PUBLIC_CIRE_WEB_URL=https://invite.cireweddings.com \
   bun run --cwd cire/organiser build
 bunx wrangler pages deploy cire/organiser/dist --project-name cire-organiser
@@ -772,20 +824,29 @@ Run these in order. Each one maps to a startup requirement listed above.
    `OSN_ISSUER_URL`, `OSN_CORS_ORIGIN` (osn-api side) and `VITE_OSN_ISSUER_URL`
    (osn/social build). **Do not smoke-test this on `host.cireweddings.com`** — since the
    2026-07-27 move that ceremony is illegal (wrong RP ID) and will fail no matter how the
-   Worker is configured, so a failure there tells you nothing. Organiser sign-in comes back
-   with the OIDC redirect flow. [[musubi-identity-migration]]
-6. **Organiser dashboard works for any OSN user.** A freshly signed-in account sees an
+   Worker is configured, so a failure there tells you nothing. The organiser portal signs
+   in through the OIDC redirect instead — step 6. [[musubi-identity-migration]]
+6. **Organiser sign-in redirects and lands.** From `host.cireweddings.com`, click sign in:
+   the browser must leave for `https://musubi.social/authorize`, run the ceremony there,
+   and come back to the page it started on with the portal signed in. A **503
+   `sign_in_unavailable`** at `/api/auth/oidc/start` means one of the four OIDC values is
+   missing on cire-api (§3.2); `?auth_error=sign_in_failed` on the callback means the
+   exchange failed — check that `CIRE_OIDC_CLIENT_SECRET` still matches
+   `oauth_clients.client_secret_hash` and that the callback URI is registered byte for
+   byte (§3.5). Then confirm `GET /api/auth/session` answers `{signedIn: true}` and that
+   sign-out clears it. [[cire-auth]]
+7. **Organiser dashboard works for any OSN user.** A freshly signed-in account sees an
    **empty wedding list** (`GET /api/organiser/weddings` → `200 {weddings: []}`, never a
    404/503), and can **create their first wedding** via the portal's create form
    (`POST /api/organiser/weddings` → `201`). No bootstrap-owner config is involved.
    Confirm a created wedding then appears in the list and is owner-scoped (another
    account's list stays empty). Verify with:
    `bunx wrangler d1 execute cire-db --remote --command "SELECT count(*) FROM weddings;"`.
-7. **RSVP write succeeds.** A guest claims their family code on the guest site and submits
+8. **RSVP write succeeds.** A guest claims their family code on the guest site and submits
    an RSVP (`POST /api/rsvp`). A 2xx + a persisted row confirms cire-api ↔ D1 writes and
    the guest-session cookie path. Verify with:
    `bunx wrangler d1 execute cire-db --remote --command "SELECT count(*) FROM rsvps;"`.
-8. **(If enabled) account-linking returns non-503.** `POST /api/account/link` should not
+9. **(If enabled) account-linking returns non-503.** `POST /api/account/link` should not
    answer 503 once §6 is wired; a 503 means the ARC bridge config is missing.
 
 ---
