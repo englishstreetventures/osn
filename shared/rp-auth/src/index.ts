@@ -74,14 +74,29 @@ const authBase = (config: RpAuthConfig): string =>
 
 const doFetch = (config: RpAuthConfig): typeof fetch => config.fetch ?? fetch;
 
+export interface SignInOptions {
+  /**
+   * Ask the issuer to lead with the sign-up screen rather than the sign-in
+   * one — "Initiating User Registration via OpenID Connect 1.0". Only
+   * `create` is passed through; the API rejects anything else, so an app
+   * cannot smuggle `none` (silent authentication) through this seam.
+   */
+  prompt?: "create";
+}
+
 /**
  * Where to send the browser to sign in. `returnTo` is an absolute URL the API
  * re-validates against its own CORS allowlist, so an attacker-supplied value
  * cannot turn this into an open redirect.
  */
-export function signInUrl(config: RpAuthConfig, returnTo: string): string {
+export function signInUrl(
+  config: RpAuthConfig,
+  returnTo: string,
+  options: SignInOptions = {},
+): string {
   const url = new URL(`${authBase(config)}/oidc/start`);
   url.searchParams.set("return_to", returnTo);
+  if (options.prompt) url.searchParams.set("prompt", options.prompt);
   return url.toString();
 }
 
@@ -90,8 +105,21 @@ export function signInUrl(config: RpAuthConfig, returnTo: string): string {
  * are top-level navigations by design, and `window.open` would land the
  * session cookie in a popup the app cannot see.
  */
-export function startSignIn(config: RpAuthConfig, returnTo?: string): void {
-  window.location.assign(signInUrl(config, returnTo ?? window.location.href));
+export function startSignIn(
+  config: RpAuthConfig,
+  returnTo?: string,
+  options: SignInOptions = {},
+): void {
+  window.location.assign(signInUrl(config, returnTo ?? window.location.href, options));
+}
+
+/**
+ * The same journey, opened on the sign-up screen. Someone with no OSN account
+ * still ends up signed in to this app at the end of it, so there is one flow
+ * here, not two — only the first screen differs.
+ */
+export function startCreateAccount(config: RpAuthConfig, returnTo?: string): void {
+  startSignIn(config, returnTo, { prompt: "create" });
 }
 
 /**
@@ -133,6 +161,80 @@ export async function fetchSession(config: RpAuthConfig): Promise<RpSession | nu
     avatarUrl: payload.avatarUrl ?? null,
     expiresAt: payload.expiresAt,
   };
+}
+
+export interface ResumeSessionOptions {
+  /** Where a signed-in visitor belongs. Defaults to the site root. */
+  home?: string;
+  /**
+   * Test seam. Defaults to `sessionStorage` — per-tab, and dies with the tab,
+   * which is the right lifetime for a guard about a single navigation. Pass
+   * `null` to run without a guard.
+   */
+  storage?: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null;
+  /**
+   * Test seam. Defaults to `location.replace`, so the sign-in page leaves no
+   * history entry: `Back` from the app would otherwise land on a page that
+   * bounces forward again.
+   */
+  navigate?: (url: string) => void;
+}
+
+const RESUME_GUARD_KEY = "rp-auth.resumed-at";
+
+/**
+ * How long one resume suppresses the next. A ping-pong — sign-in page sends
+ * you to the app, the app's first 401 sends you back — completes in well under
+ * a second, so a cooldown breaks the loop after a single lap. Someone opening
+ * the sign-in page again on purpose takes longer than this, and still gets
+ * carried through.
+ */
+const RESUME_COOLDOWN_MS = 5_000;
+
+/** `sessionStorage`, or `null` where the browser refuses it. */
+function defaultStorage(): Pick<Storage, "getItem" | "setItem" | "removeItem"> | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Carry a visitor who is already signed in through to the app, instead of
+ * asking them for a session they have got.
+ *
+ * This is deliberately not the old "redirect to the issuer on mount". It asks
+ * *this* app's own API over a first-party cookie, so it is a question the
+ * browser will actually answer; and it runs behind the rendered page, so a
+ * signed-out visitor — the usual visitor here — waits for nothing and is never
+ * navigated away unasked.
+ *
+ * It cannot see a session at the issuer. That cookie is `SameSite=Lax`, so no
+ * background request from a relying party's origin will ever carry it; asking
+ * needs a top-level redirect, which is the thing this replaces.
+ *
+ * Resolves `true` when it navigated.
+ */
+export async function resumeSession(
+  config: RpAuthConfig,
+  options: ResumeSessionOptions = {},
+): Promise<boolean> {
+  const store = options.storage === undefined ? defaultStorage() : options.storage;
+  const session = await fetchSession(config);
+  if (!session) {
+    // Signed out — forget any earlier resume, so the next real one runs.
+    store?.removeItem(RESUME_GUARD_KEY);
+    return false;
+  }
+
+  const last = Number(store?.getItem(RESUME_GUARD_KEY) ?? 0);
+  if (Number.isFinite(last) && Date.now() - last < RESUME_COOLDOWN_MS) return false;
+  store?.setItem(RESUME_GUARD_KEY, String(Date.now()));
+
+  const target = options.home ?? new URL("/", window.location.origin).toString();
+  (options.navigate ?? ((url: string) => window.location.replace(url)))(target);
+  return true;
 }
 
 export interface SignOutOptions {

@@ -75,10 +75,16 @@ export interface AuthOidcRouteOptions {
 export const createAuthOidcRoutes = (db: Db, { oidc, secureCookies }: AuthOidcRouteOptions) =>
   new Elysia({ prefix: PREFIX })
     // ---------------------------------------------------------------------
-    // GET /api/auth/oidc/start?return_to=… — leg 1.
+    // GET /api/auth/oidc/start?return_to=…&prompt=create — leg 1.
     //
     // A plain link the frontends point a "Sign in" button at. `return_to` is
     // where the browser lands afterwards; it must be an allowlisted origin.
+    //
+    // `prompt` is optional and allowlisted to `create` — the "Create account"
+    // button asks the issuer to open on its sign-up screen. Every other value
+    // is dropped rather than rejected: the query string is attacker-reachable,
+    // and forwarding it blind would let anyone turn a sign-in link into
+    // `prompt=none`, which asks for a silent grant with no screen at all.
     // ---------------------------------------------------------------------
     .get("/oidc/start", async ({ query }) => {
       if (!oidc) {
@@ -89,7 +95,11 @@ export const createAuthOidcRoutes = (db: Db, { oidc, secureCookies }: AuthOidcRo
         });
       }
       const returnTo = typeof query["return_to"] === "string" ? query["return_to"] : "";
-      const started = await beginLogin(oidc, returnTo);
+      const started = await beginLogin(
+        oidc,
+        returnTo,
+        query["prompt"] === "create" ? { prompt: "create" } : {},
+      );
       if (!started) {
         metricOidcLogin("bad_request");
         return new Response(JSON.stringify({ error: "invalid_return_to" }), {

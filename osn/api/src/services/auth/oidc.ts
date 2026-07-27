@@ -120,7 +120,7 @@ export type AuthorizeOutcome =
   | {
       kind: "interaction";
       requestId: string;
-      reason: "login" | "select_account" | "consent";
+      reason: "login" | "select_account" | "consent" | "create";
       /**
        * Raw browser-binding secret (S-M1 oidc). The route sets it as a
        * short-TTL HttpOnly cookie; only its hash is parked server-side.
@@ -1264,7 +1264,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
       const nowSec = Math.floor(Date.now() / 1000);
 
       const interaction = (
-        reason: "login" | "select_account" | "consent",
+        reason: "login" | "select_account" | "consent" | "create",
         requireAuthAfter: number | null = null,
       ) =>
         Effect.map(parkRequest(request, requireAuthAfter), ({ requestId, bindingSecret }) => ({
@@ -1273,6 +1273,17 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
           reason,
           bindingSecret,
         }));
+
+      // `prompt=create` (Initiating User Registration via OIDC 1.0): the
+      // relying party is saying this person has no account yet, so lead with
+      // the sign-up screen rather than the sign-in one. It outranks every
+      // other branch — a signed-in visitor who clicked "create an account"
+      // means it, and the parked request demands a session created after this
+      // instant, exactly as `prompt=login` does. `none` was already rejected
+      // alongside it during validation.
+      if (prompts.has("create")) {
+        return yield* interaction("create", nowSec);
+      }
 
       if (session === null) {
         // `prompt=login` must record its freshness demand on THIS park path

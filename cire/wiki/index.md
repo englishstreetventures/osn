@@ -3,7 +3,7 @@ title: "Cire Wiki — Map of Content"
 tags: [index]
 aliases: [home, map of content, MOC]
 related: []
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-27
 ---
 
 # Cire Wiki
@@ -23,7 +23,13 @@ Map of Content for the Cire wedding invite project.
 
 ## Systems
 
-- [[preview-tier]] — the disposable preview stack (own D1 + R2 + Workers) for reviewing a branch on real infrastructure
+- [[systems/overview]] — the organiser overview surface
+- [[budget]] — budget lines and spend roll-ups
+- [[checklist-tasks]] — the planning checklist / tasks module
+- [[entitlements]] — per-wedding capability gates
+- [[feature-flags]] — GrowthBook flags, key-optional and fail-safe
+- [[invite-designs]] — the invite design selector
+- [[vendors]] — vendor directory, CRM, and the email-verification claim
 
 ## Observability
 

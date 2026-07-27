@@ -9,7 +9,7 @@ related:
   - "[[rate-limiting]]"
   - "[[cire-auth]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-07-27
+last-reviewed: 2026-07-28
 ---
 
 # OIDC provider
@@ -118,8 +118,11 @@ Everything is `cache-control: no-store`. `GET /authorize` also sends `Referrer-P
 | `login` | interaction | interaction |
 | `select_account` | interaction | interaction, even for a first-party client |
 | `consent` | interaction | interaction |
+| `create` | interaction, `reason=create` | interaction, `reason=create` |
 
 `none` combined with any other value is `invalid_request`, per the spec.
+
+`create` is "Initiating User Registration via OpenID Connect 1.0": the relying party is saying this person has no account yet, so the consent screen leads with the sign-up half rather than the sign-in one. It is checked **before** every other branch — a signed-in visitor who clicked "create an account" meant it — and it parks the request with the same `requireAuthAfter = now` that `prompt=login` uses, so the decision only accepts a session created after the request arrived. Registration ends in an enrolled passkey and an adopted session, which satisfies that. `reason` reaches the browser as advisory copy only; the server re-derives every requirement at decision time.
 
 `max_age` composes with the table above: a session older than `max_age` seconds is treated as "signed out" for freshness purposes — interaction with `reason=login` normally, `error=login_required` under `prompt=none`.
 
@@ -140,13 +143,13 @@ Three tables in `@osn/db` (migration `0002_wet_gamora`):
 | Column | Value |
 |---|---|
 | `id` / `client_id` | `oc_cire` / `cid_cire` |
-| `redirect_uris` | `https://api.cireweddings.com/api/auth/oidc/callback`, `https://api-preview.cireweddings.com/api/auth/oidc/callback` |
+| `redirect_uris` | `https://api.cireweddings.com/api/auth/oidc/callback` (the seeded row still carries a second entry, `https://api-preview.cireweddings.com/api/auth/oidc/callback`, left dead by the 2026-07-27 preview teardown and pending removal) |
 | `sector_identifier` | `cireweddings.com` |
 | `allowed_scopes` | `openid profile email` |
 | `is_first_party` | `1` |
 | `owner_account_id` | null — a platform client, owned by nobody, so account erasure cannot disable it |
 
-Both redirect URIs point at **cire-api**, never at a browser origin: cire runs the exchange server-side and mints its own cookie, so no OSN token reaches the browser. The secret lives in two places that must move together — `CIRE_OIDC_CLIENT_SECRET` on the cire-api Workers (production and preview) and `oauth_clients.client_secret_hash` here. Rotating one alone locks organisers out at the token endpoint. Local development needs its own row in the local D1, with a `http://localhost:8787/…` callback.
+The redirect URI points at **cire-api**, never at a browser origin: cire runs the exchange server-side and mints its own cookie, so no OSN token reaches the browser. The secret lives in two places that must move together — `CIRE_OIDC_CLIENT_SECRET` on the cire-api production Worker and `oauth_clients.client_secret_hash` here. Rotating one alone locks organisers out at the token endpoint. Local development needs its own row in the local D1, with a `http://localhost:8787/…` callback.
 
 ## Rate limits
 

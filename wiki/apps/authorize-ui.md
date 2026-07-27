@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-07-27
+last-reviewed: 2026-07-28
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -75,7 +75,7 @@ along. If the user opens the link in a *different* browser, every call
 |---|---|---|
 | `GET /authorize/context?request=<id>` | On load, and again after any sign-in | Returns `{ client: { clientId, name, logoUrl, firstParty }, scopes: string[], signedIn: boolean, profiles: PublicProfile[], linkedProfileId: string \| null }`. 404 ⇒ expired (10 min TTL), consumed, or wrong browser. |
 | `POST /authorize/decision` `{ requestId, profileId, approved }` | On Approve / Deny | Success ⇒ `{ redirectTo }` — assign `window.location`. The request id is single-use on success either way. |
-| Existing sign-in surface (`/passkey/login/*`, registration, recovery) | When `signedIn` is false or a fresh login is demanded | Reuse the `@osn/ui` `<SignIn>`/`<Register>` components; no new auth UI. |
+| Existing sign-in surface (`/passkey/login/*`, registration, recovery) | When `signedIn` is false or a fresh login is demanded | Reuse the `@osn/ui` `<SignIn>`/`<Register>` components; no new auth UI. `AuthorizeSignIn` holds both and swaps between them — a "No account yet? Create one" link under sign-in, and Cancel back from registration. Without that second half, a relying party's "Create account" button would land on a screen demanding a passkey the visitor has not got. |
 
 ### Decision error handling — exhaustive
 
@@ -171,6 +171,13 @@ short-circuits consent), so state 4's copy can assume a third party.
   ceremony **before** the decision, even when the browser already has a
   session. The page tracks whether the ceremony happened *here*; a session
   the relying party has already rejected is not enough to show Allow.
+- `reason=create` (the server's `prompt=create` path) behaves exactly the
+  same way — a session created before the request was parked will not do —
+  and additionally opens `AuthorizeSignIn` on its **registration** half
+  instead of its sign-in one. That is the whole of the difference: one flow,
+  a different first screen. The value is advisory copy; tampering with it
+  widens nothing, because the server re-derives every requirement when the
+  decision arrives.
 - A failed context read that is not terminal — a 429, a dropped connection —
   gets its own screen with the message and a retry, not an endless spinner.
 - The page runs **outside `AuthProvider`**. Mounting it calls `POST /token`,

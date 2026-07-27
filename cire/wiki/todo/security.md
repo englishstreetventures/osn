@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-28
 ---
 
 # Security Backlog
@@ -23,18 +23,15 @@ The pre-merge security review of the container-query redesign came back **clean*
 ### Preview tier — review findings (feat/cire-invite-palette, 2026-07-22)
 
 Raised by the pre-merge security review of the invite colour scheme. The palette
-itself came back clean (no High/Critical); everything below concerns the new
-disposable preview tier. See [[preview-tier]].
+itself came back clean (no High/Critical); the rest concerned the disposable
+preview tier, **which was removed on 2026-07-27** — its Workers, Pages projects,
+D1 and R2 buckets are deleted and the deploy workflow is gone. Every open finding
+against it (S-M1, S-M3, S-L3, S-L4, C-M1, C-M2) closed with the tier; they are
+archived in `[[security-fixes]]`. Only the palette findings remain below.
 
-- [x] **S-M2** (fixed on branch) — `[env.preview]` set no `OSN_ENV`, so `loadConfig` fell back to `local`, `isDeployedTier()` returned false, and the fail-closed guard for a missing `CLAIM_RATE_LIMITER` binding was skipped **on a publicly reachable Worker** — a binding typo would have silently downgraded the claim-code brute-force defence with no signal (the exact failure RL-S-M1 below exists to prevent). Also kept the logger at `debug` on a deployed tier. Fixed by `OSN_ENV = "dev"` in `cire/api/wrangler.toml`.
+- [x] **S-M2** (fixed on branch) — `[env.preview]` set no `OSN_ENV`, so `loadConfig` fell back to `local`, `isDeployedTier()` returned false, and the fail-closed guard for a missing `CLAIM_RATE_LIMITER` binding was skipped **on a publicly reachable Worker** — a binding typo would have silently downgraded the claim-code brute-force defence with no signal (the exact failure RL-S-M1 below exists to prevent). Also kept the logger at `debug` on a deployed tier. Fixed by `OSN_ENV = "dev"` in `cire/api/wrangler.toml`; that env has since been deleted with the tier, so nothing is left to regress.
 - [x] **S-L1** (fixed on branch) — `styleAttr`'s terminator filter rejected `"`, silently dropping every font declaration from the SSR'd palette (every `FONT_STACKS` entry has a quoted family name). Not exploitable — Astro escapes the attribute — but an over-broad guard that voids a feature invites someone to loosen it later without knowing which character matters. Narrowed to `;` `<` `>` `\`, with a test asserting the stacks survive.
 - [x] **S-L2** (fixed on branch) — four of five theme-var `style` sinks bypassed `filterThemeVars`. Safe as written (SolidJS object-form `style` uses `setProperty`), but it made the "the sink enforces the contract" rule documentation rather than a control. All sinks now filter.
-- [ ] **S-M1** — preview deploys run with the **production** Cloudflare API token. All three jobs in `deploy-cire-preview.yml` use `environment: production`, and `workflow_dispatch` can run them against any branch, so unreviewed branch content (including dependency postinstalls) executes with prod-scope credentials. The "touches NOTHING in production" guarantee is currently enforced only by resource names in `wrangler.toml`. **Fix:** a separate GitHub `preview` environment holding a token scoped to the preview Workers, `cire-db-preview` and the `-preview` buckets. Needs a human to mint the token.
-- [ ] **S-M3** — the preview API accepts **production-issued** OSN access tokens (same issuer + `osn-access` audience). Deliberate — it is what lets a reviewer sign in with their real passkey — but a token captured on a branch-built Worker replays directly against `api.cireweddings.com`. **Fix:** a distinct `osn-access-preview` audience that prod rejects, or Cloudflare Access in front of the three preview hostnames. Until then, an accepted documented exception.
-- [ ] **S-L3** — `cire-organiser-preview.pages.dev` sits in a credentialed CORS allowlist. If that Pages project is ever deleted the subdomain becomes claimable by another Cloudflare account, which would inherit a cross-origin channel to the preview API. **Fix:** move it to a `*-preview.cireweddings.com` custom domain like the other two, or never delete the project while the origin is allowlisted.
-- [ ] **S-L4** — with only two preview `WEB_ORIGIN` entries, `origins[2]` (the vendor portal) falls back to the **production** default, so enquiry links generated on preview would point at the live vendor portal carrying preview-database ids. Latent only: `ZAP_API_URL` is unset on preview so nothing is sent.
-- [ ] **C-M1** — the preview data tier (`cire-db-preview` + two `-preview` buckets + three public hostnames) has no row in the data map / retention / access-control pages, and a reviewer signing in with a real passkey can upload a real guest spreadsheet into it. "Disposable by design" needs a mechanism: a scheduled wipe, or a runbook rule that only synthetic data goes there. GDPR Art. 5(1)(e) + Art. 30.
-- [ ] **C-M2** — the new deploy workflow is a production-environment-consuming CI path and needs a named reviewer recorded for SOC 2 CC8 change-management evidence.
 
 ### Claim rate-limiter fail-closed (re-port of closed PR #235)
 
@@ -84,7 +81,7 @@ Deferred (platform-wide or later-slice — NOT PR B regressions):
 - [ ] **VP-S-L2 / VP-C-M1** — the vendor portal (like `@cire/organiser`, `@cire/web`, `@cire/landing`) loads Google Fonts from `fonts.googleapis.com`/`fonts.gstatic.com` via `<link>` (no SRI; sends visitor IP to Google LLC, a US processor). Platform-wide pre-existing pattern, not introduced here. Fix once, platform-wide: **self-host** the two families (`Cormorant Garamond` + `Lato`) under each app's `public/fonts/` (eliminates both the supply-chain/no-SRI gap and the GDPR Art. 44 transfer / subprocessor-registration need). Until then, note Google LLC (Fonts) is an undocumented subprocessor across all cire frontends. See `[[wiki/compliance/subprocessors]]`.
 - [ ] **VP-S-L3** — the vendor portal `_headers` ships the same deliberately-partial CSP as `@cire/organiser` (`frame-ancestors 'none'` only; no restrictive `script-src`/`connect-src`, which would break the passkey ceremony + `authFetch` silent-refresh + `@osn/ui`). A full hardened portal CSP (host-restricted `script-src`/`connect-src`/`font-src`, report-only first) is the same tracked follow-up as the organiser's — do both together. `cire/web` already has a structured CSP in `src/lib/security-headers.ts` to model from.
 - [ ] **VP-C-M3** — DSA Art. 30 trader-traceability: when the **consumer-facing directory browse** ships (Vendors S3+, not this slice — Slice 1 has no public browse surface), scope whether `cireweddings.com`'s vendor directory is a DSA "online platform allowing consumers to conclude distance contracts with traders". If yes, gate a listing going `live` behind collecting Art. 30 traceability fields (business name/address/phone/email/registration ID + self-declaration). File `wiki/compliance/dpia/dsa-trader-traceability.md` at that point. Not applicable while the directory is organiser-private + claim-only. **Update (2026-07-18 — Vendors S3 shipped):** S3 is organiser-only browse (access-controlled via `weddingMember()` gate; no public browse surface, no on-platform contracting). DSA Art. 30 still does not apply — the gate is revisited when public browse and/or enquiries ship.
-- [ ] **VP-C-L1** — the vendor portal registration surface (`SignInPanel` → `@osn/ui Register`) inherits the platform's pending age-gate (root `C-H8`). B2B audience → under-13 use extremely unlikely; gate the vendor portal behind the age-gate once C-H8 lands. Documentation-only.
+- [ ] **VP-C-L1** — the registration surface a vendor reaches from this portal inherits the platform's pending age-gate (root `C-H8`). **Moved 2026-07-28**: `SignInPanel` no longer renders `@osn/ui Register` itself — its "Create account with musubi" button sends `prompt=create` to the issuer, so the form now lives on musubi's consent screen (`AuthorizeSignIn`). The gate therefore belongs on that one screen, where it covers every relying party at once, not on this portal. B2B audience → under-13 use extremely unlikely. Documentation-only.
 
 ### Vendors S3 (directory browse) — /prep-pr review notes (`feat/cire-vendors-directory-browse`)
 

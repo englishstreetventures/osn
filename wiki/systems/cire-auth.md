@@ -11,7 +11,7 @@ related:
   - "[[arc-tokens]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-07-27
+last-reviewed: 2026-07-28
 ---
 
 # Cire auth model
@@ -85,11 +85,21 @@ The shape is **backend-for-frontend**: cire-api is a registered OIDC relying par
 
 Cire still adds no login surface of its own, and still owns no identity store — an organiser without an OSN account creates one on musubi, at the end of the same redirect.
 
+**Two doors, one journey (2026-07-28).** The login page offers *Continue with musubi* and *Create account with musubi*. Both leave for the same issuer and end in the same place, a signed-in organiser on the dashboard; the second only adds `prompt=create`, which asks the consent screen to open on its sign-up half. It earns its own button because someone here for the first time has no passkey to offer, and a screen demanding one is a dead end rather than an invitation. The page therefore does **not** redirect on mount any more — it did while there was nothing to choose. See [[oidc-provider]] for the `prompt` table and [[authorize-ui]] for the screen.
+
+**Resuming instead of redirecting (2026-07-28).** In place of the old redirect, the login page asks `GET /api/auth/session` behind the rendered page — `resumeSession()` in `@shared/rp-auth`. A visitor who still holds a cire session is sent to the dashboard with `location.replace`, so the login page leaves no history entry to bounce back through; everyone else sees the two buttons with no wait, because the check runs after the panel renders and an unreachable API reads as signed out.
+
+Two things about that check are worth keeping straight:
+
+- **It can only see cire's own cookie.** A session at the issuer is invisible from a `cireweddings.com` origin: `osn-api` sets its session cookie `SameSite=Lax` (`osn/api/src/lib/cookie-session.ts`), and a Lax cookie rides only top-level navigations, never a background request from another site. So a hidden-iframe `prompt=none` probe would report "signed out" in every browser, whatever the third-party-cookie policy — and asking properly means a top-level redirect, which is the behaviour this replaced. It is also why `prompt=none` stays off the start leg's allowlist.
+- **It backs off rather than looping.** `/` bounces a 401 to `/login`, and `/login` now bounces a session to `/`; a disagreement between the two — a session expiring between the calls — would ping-pong. `resumeSession` stamps `rp-auth.resumed-at` in `sessionStorage` and skips the next resume within 5 seconds, so a loop stops after one lap while a deliberate return visit minutes later still gets carried through. Signing out clears the stamp.
+
 ### Sign-in chain (click → cookie)
 
 ```
 @shared/rp-auth startSignIn()          top-level navigation, never fetch
-  └─▶ GET /api/auth/oidc/start?return_to=…    cire-api (cire/api/src/routes/auth-oidc.ts)
+  │  (startCreateAccount() is the same call plus prompt=create)
+  └─▶ GET /api/auth/oidc/start?return_to=…[&prompt=create]   cire-api (cire/api/src/routes/auth-oidc.ts)
         │  mints state + nonce + PKCE verifier (S256), stashes them with return_to
         │  in a 10-min HttpOnly tx cookie; return_to checked against the CORS allowlist
         └─▶ 302 → {OSN_ISSUER_URL}/authorize      passkey ceremony + consent on musubi.social
@@ -107,7 +117,7 @@ Four routes make up the surface, plus the middleware:
 
 | | |
 |---|---|
-| `GET /api/auth/oidc/start?return_to=` | Leaves for the issuer. Missing OIDC config ⇒ **503** `sign_in_unavailable` — an honest "this tier cannot sign anyone in", not a silent downgrade. |
+| `GET /api/auth/oidc/start?return_to=[&prompt=create]` | Leaves for the issuer. Missing OIDC config ⇒ **503** `sign_in_unavailable` — an honest "this tier cannot sign anyone in", not a silent downgrade. `prompt` is **allowlisted to `create`** and any other value is dropped, not rejected: the query string is attacker-reachable, and forwarding it blind would let anyone turn a sign-in link into `prompt=none` and ask for a grant with no screen at all. |
 | `GET /api/auth/oidc/callback` | Exchanges the code and sets the cookie. Every failure redirects back to `return_to` with `?auth_error=sign_in_declined` (the user said no) or `sign_in_failed` (everything else). The issuer's own error string is never echoed back to the browser. |
 | `GET /api/auth/session` | Who is signed in. Answers **200 `{signedIn: false}`** when nobody is — deliberately not 401, so the probe never trips `authFetch`'s session-expired path on a page a signed-out visitor may legitimately open. |
 | `POST /api/auth/signout[?all=1]` | Revokes this session, or every session for the profile. Always 200, idempotent. |

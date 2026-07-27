@@ -115,6 +115,31 @@ describe("GET /api/auth/oidc/start", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
 
+  it("carries prompt=create through to the issuer", async () => {
+    const app = createApp(freshDb(), { oidc: issuer.config() });
+    const res = await appRequest(
+      app,
+      `/api/auth/oidc/start?return_to=${TEST_RETURN_TO}&prompt=create`,
+    );
+
+    const location = new URL(res.headers.get("location")!);
+    expect(location.searchParams.get("prompt")).toBe("create");
+  });
+
+  it("drops any other prompt rather than forwarding it", async () => {
+    // `none` is the one that matters: forwarded, it would ask the issuer for a
+    // silent grant with no screen at all, from a query string anyone can write.
+    const app = createApp(freshDb(), { oidc: issuer.config() });
+    for (const prompt of ["none", "login", "select_account", "consent"]) {
+      const res = await appRequest(
+        app,
+        `/api/auth/oidc/start?return_to=${TEST_RETURN_TO}&prompt=${prompt}`,
+      );
+      const location = new URL(res.headers.get("location")!);
+      expect(location.searchParams.get("prompt")).toBeNull();
+    }
+  });
+
   it("marks the cookie Secure on an https tier only", async () => {
     const insecure = createApp(freshDb(), { oidc: issuer.config() });
     const insecureRes = await appRequest(

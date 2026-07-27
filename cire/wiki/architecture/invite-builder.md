@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-templates]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-27
 ---
 
 # Invite Builder
@@ -235,8 +235,8 @@ The uuid suffix means a re-upload never collides and the superseded object is
 deleted independently (best-effort; an orphan is recoverable, a failed upload is
 not).
 
-> The `cire-assets` (+ `cire-assets-preview`) buckets must be created before
-> first deploy: `bunx wrangler r2 bucket create cire-assets`.
+> The `cire-assets` bucket must be created before first deploy:
+> `bunx wrangler r2 bucket create cire-assets`.
 
 ## API surface
 

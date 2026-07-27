@@ -146,12 +146,27 @@ export function isAllowedReturnTo(returnTo: string, allowed: readonly string[]):
   });
 }
 
+export interface BeginLoginOptions {
+  /**
+   * Passed through as the `prompt` parameter. Only `create` is ever sent —
+   * "Initiating User Registration via OpenID Connect 1.0", which asks the
+   * issuer to lead with its sign-up screen. The caller allowlists the value
+   * before it reaches here; nothing else, and `none` in particular, may cross
+   * this seam from a query string.
+   */
+  prompt?: "create";
+}
+
 /**
  * Leg 1: mint PKCE + CSRF material, remember it in a cookie, and build the
  * `/authorize` URL. Returns `null` when `returnTo` is not an allowed origin —
  * the caller answers 400 rather than redirecting anywhere.
  */
-export async function beginLogin(config: OidcConfig, returnTo: string): Promise<OidcStart | null> {
+export async function beginLogin(
+  config: OidcConfig,
+  returnTo: string,
+  options: BeginLoginOptions = {},
+): Promise<OidcStart | null> {
   if (!isAllowedReturnTo(returnTo, config.allowedReturnOrigins)) return null;
 
   const state = generateToken();
@@ -168,6 +183,7 @@ export async function beginLogin(config: OidcConfig, returnTo: string): Promise<
   authorizeUrl.searchParams.set("nonce", nonce);
   authorizeUrl.searchParams.set("code_challenge", codeChallenge);
   authorizeUrl.searchParams.set("code_challenge_method", "S256");
+  if (options.prompt) authorizeUrl.searchParams.set("prompt", options.prompt);
 
   return {
     authorizeUrl: authorizeUrl.toString(),

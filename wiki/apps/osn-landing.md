@@ -10,7 +10,7 @@ related:
   - "[[social]]"
   - "[[pulse-landing]]"
   - "[[cire-landing]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-27
 ---
 
 # OSN Landing
@@ -106,8 +106,8 @@ passes regardless of canvas support. Run with
 
 ## Deferred
 
-- **CI deploy** — no deploy workflow yet (cf. cire's `deploy-landing-preview.yml`);
-  add one + a Pages project when a hosting domain is chosen.
+- **CI deploy** — no deploy workflow yet (cf. the `deploy-cire-landing` job in
+  `deploy.yml`); add one + a Pages project when a hosting domain is chosen.
 - **Real domain** — `SITE` / `PUBLIC_APP_URL` use placeholders until OSN's
   marketing + app hosts are decided.
 - **Marketing depth** — pricing, deeper feature pages, SEO/blog content.

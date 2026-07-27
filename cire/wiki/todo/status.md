@@ -4,7 +4,7 @@ tags: [todo, status]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-28
 ---
 
 # Status + Up Next
@@ -29,7 +29,7 @@ Monorepo built and functional. `cire/db` models families with a shareable `publi
 - [x] `POST /api/organiser/import/{preview,apply,revert,list}` endpoints (PR-C; now gated behind `osnAuth()` + `ownedWedding()` since the OSN merge)
 - [x] Wire organiser portal upload UI to `/api/organiser/import/*` — inline import panel on the dashboard (preview diff → apply); history/revert UI still deferred (see [[spreadsheet-import]])
 - [x] Migrate from `X-Organiser-Token` shared secret to organiser passkey auth — done in the OSN merge; token path deleted
-- [x] Inline OSN account creation on the organiser login page — `SignInPanel` toggles `<SignIn>` ⇄ `<Register>` (from `@osn/ui`, via `@osn/client`'s registration client) so organisers without an OSN account can register without leaving cire; first vitest harness for `@cire/organiser`. See `[[wiki/systems/cire-auth]]`
+- [x] Inline OSN account creation on the organiser login page — `SignInPanel` toggles `<SignIn>` ⇄ `<Register>` (from `@osn/ui`, via `@osn/client`'s registration client) so organisers without an OSN account can register without leaving cire; first vitest harness for `@cire/organiser`. See `[[wiki/systems/cire-auth]]`. **Superseded 2026-07-28** — a passkey cannot be enrolled from a cireweddings.com origin now the RP ID is `musubi.social`. The login page keeps both doors, but the second is a "Create account with musubi" button that sends `prompt=create`; the form itself runs on musubi.
 - [x] **Observability standards** — `cire/api` adopted `@shared/observability` (workerd-safe subpaths): redacting logger (`runCire`/`runCireSync` → `cireLoggerLayer`), spans on every service fn, `instrumentedFetch` on the S2S ARC call, and `cire/api/src/metrics.ts` (typed `cire.*` counters/histograms, define-now-export-later). See `[[observability/overview]]` + `[[deferred]]` (export on workerd is the one open item).
 - [x] ~~Bootstrap owner env-driven + fail-loud~~ — **Removed** (`feat/cire-organiser-open-access`). Redundant once multi-wedding + create-wedding landed: any authenticated OSN user is a first-class organiser (sign in → empty wedding list for a new account → create their own via `POST /api/organiser/weddings`; no 503, no seeded owner). Deleted the `BOOTSTRAP_OWNER_PROFILE_ID` boot gate (`ensureBootstrapOwner` + `bootstrap-owner.ts`); migration `0015_drop_bootstrap_wedding.sql` DELETEs the orphaned `wed_bootstrap` demo row so prod starts clean. **cire-api no longer needs the `BOOTSTRAP_OWNER_PROFILE_ID` secret.** Per-wedding authz (`weddingOwner`/`weddingMember`) unchanged; security review confirmed no cross-tenant leak.
 - [x] Migrate runtime DB layer in `cire/api/src/index.ts` from 503 stub to real D1 — `index.ts` is now a Workers `fetch` handler building a per-request Drizzle-D1 client from `env.DB`; `Db` broadened over `"sync" | "async"` so the same service code runs on bun:sqlite (local/tests) and D1 (prod) via a `dbQuery` bridge. Pure JWK helpers split into DB-free `@shared/crypto/jwk` so the `osnAuth` verify path no longer drags `bun:sqlite` into the Worker bundle (build is green). The real `database_id` is now wired; no bootstrap-owner secret is required (mechanism removed — see the bootstrap-owner item above).

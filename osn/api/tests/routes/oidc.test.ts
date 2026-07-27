@@ -292,6 +292,33 @@ describe("GET /authorize", () => {
     const loc = new URL(res.headers.get("location")!);
     expect(loc.searchParams.get("reason")).toBe("select_account");
   });
+
+  it("leads with registration for prompt=create even when a session exists", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const cookie = await signIn(h, "create@example.com", "create_user");
+
+    const res = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, prompt: "create" }), { headers: { cookie } }),
+    );
+
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.searchParams.get("reason")).toBe("create");
+  });
+
+  it("rejects prompt=create combined with prompt=none", async () => {
+    const h = setup();
+    h.seedClient();
+
+    const res = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, prompt: "none create" })),
+    );
+
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.origin + loc.pathname).toBe(REDIRECT_URI);
+    expect(loc.searchParams.get("error")).toBe("invalid_request");
+  });
 });
 
 describe("GET /authorize/context", () => {
@@ -920,6 +947,43 @@ describe("auth freshness (S-H1)", () => {
     h.sqlite.run(`UPDATE sessions SET created_at = created_at + 120`);
     const freshAttempt = await decide();
     expect(freshAttempt.status).toBe(200);
+  });
+
+  it("refuses a prompt=create decision from the pre-existing session too", async () => {
+    const h = setup();
+    h.seedClient();
+    const sessionCookie = await signIn(h, "newacct@example.com", "newacct_user");
+    ageSessions(h, 60);
+
+    const { requestId, binding } = await startAuthorize(h, sessionCookie, {
+      ...goodParams,
+      prompt: "create",
+    });
+    const cookie = `${sessionCookie}; ${binding}`;
+    const ctxRes = await h.app.handle(
+      new Request(`http://localhost/authorize/context?request=${requestId}`, {
+        headers: { cookie },
+      }),
+    );
+    const { profiles } = (await ctxRes.json()) as { profiles: { id: string }[] };
+
+    const decide = () =>
+      h.app.handle(
+        new Request("http://localhost/authorize/decision", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", cookie },
+          body: JSON.stringify({ requestId, profileId: profiles[0].id, approved: true }),
+        }),
+      );
+
+    // The account the registration screen makes is a new session, so the same
+    // freshness rule that backs prompt=login has to hold here.
+    const staleAttempt = await decide();
+    expect(staleAttempt.status).toBe(400);
+    expect(((await staleAttempt.json()) as { error: string }).error).toBe("login_required");
+
+    h.sqlite.run(`UPDATE sessions SET created_at = created_at + 120`);
+    expect((await decide()).status).toBe(200);
   });
 
   it("stamps auth_time from the session, not from the code mint", async () => {

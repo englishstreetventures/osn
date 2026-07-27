@@ -2,7 +2,7 @@
 title: "Security Fixes"
 tags: [changelog]
 related: [[TODO]], [[index]]
-last-reviewed: 2026-06-21
+last-reviewed: 2026-07-27
 ---
 
 # Security Fixes
@@ -120,3 +120,27 @@ New attack surface from migration 0019's one-image-per-event feature. It deliber
 - _OBS-S-L3 (metric helpers unused) — raised in review, **dismissed as a false positive**: `metricClaimAttempt`, `metricImportParseRejected`/`bucketParseReason`, `metricImportReverted` are all wired at the **service** layer (`claim.ts`, `spreadsheet.ts`, `revert.ts`) via `Effect.tap`/`tapError`, not the route layer the reviewer inspected. No action._
 - [x] **AL-C-L1** (compliance — done `feat/cire-assets-reconcile`) — the `guest_account_links` table binds a cire household to an OSN account/profile (a cross-database personal-data linkage + processing purpose). **`[[wiki/compliance/data-map]]` + `[[wiki/compliance/retention]]` rows added**: purpose = optional invitation surfacing in Pulse; lawful basis = **Art. 6(1)(a) consent / opt-in** (the dual-credential `POST /api/account/link` requires the guest's own session AND their OSN token). Cascade-delete (`ON DELETE cascade` from `guests`/`families`/`weddings`, incl. the 1-year guest-data sweep) covers guest/family/wedding erasure. The **OSN-side-account-deletion orphan** behaviour is documented: cire holds `osn_account_id`/`osn_profile_id` as opaque cross-DB references with **no FK**, so OSN deletion does NOT fan out into cire — the link row is orphaned holding a stale id. Resolution chosen: **orphan-tolerant** (cire stores no OSN-side PII, only the opaque id; a stale link surfaces nothing once the ARC resolve fails closed); a reverse ARC purge fan-out is deferred (cire has no inbound ARC purge route today). See the account-link orphan note in `[[wiki/compliance/data-map]]` + `[[wiki/compliance/retention]]`.
 </content>
+
+### Preview tier — closed by removing the tier (2026-07-27)
+
+The disposable preview tier is gone. Sign-in through it stopped working when the
+OSN issuer moved to `musubi.social` (a `*.pages.dev` or `*-preview.cireweddings.com`
+host can neither run a passkey ceremony for that RP ID nor replay the session
+cookie cross-site), and rebuilding it behind the OIDC redirect flow would have
+meant a second registered client, a second consent record and a second set of
+redirect URIs — for a tier whose whole point was that it was cheap. Deleted:
+Workers `cire-api-preview` + `cire-invites-preview`, Pages projects
+`cire-organiser-preview` + `osn-social-preview`, D1 `cire-db-preview`, R2 buckets
+`cire-assets-preview` + `cire-sheets-preview`, `[env.preview]` in
+`cire/api/wrangler.toml`, `.github/workflows/deploy-cire-preview.yml`,
+`cire/db/seed/preview-seed.sql`, and the `preview-tier` wiki page.
+
+Every finding below is closed because the thing it describes no longer exists.
+Nothing was fixed in code; read them as a record of what the tier cost.
+
+- [x] **S-M1** — preview deploys ran with the **production** Cloudflare API token. All three jobs in `deploy-cire-preview.yml` used `environment: production`, and `workflow_dispatch` could run them against any branch, so unreviewed branch content (including dependency postinstalls) executed with prod-scope credentials. The "touches NOTHING in production" guarantee was enforced only by resource names in `wrangler.toml`. The planned fix — a separate GitHub `preview` environment holding a scoped token — is unneeded now. The same shape survives in `deploy-osn-pulse-landing.yml`; it is tracked in the root `[[wiki/TODO.md]]` as S-M preview-ci-prod-token.
+- [x] **S-M3** — the preview API accepted **production-issued** OSN access tokens (same issuer + `osn-access` audience), so a token captured on a branch-built Worker replayed directly against `api.cireweddings.com`. It was an accepted documented exception; there is no longer a branch-built Worker to capture one on.
+- [x] **S-L3** — `cire-organiser-preview.pages.dev` sat in a credentialed CORS allowlist, so deleting the Pages project would have left the subdomain claimable by another Cloudflare account with a cross-origin channel to the preview API. Closed in the right order: the preview API Worker was deleted **with** the Pages project, so a squatter on the subdomain has nothing to talk to, and the allowlist entry went with `[env.preview]`.
+- [x] **S-L4** — with only two preview `WEB_ORIGIN` entries, `origins[2]` (the vendor portal) fell back to the **production** default, so enquiry links generated on preview would have pointed at the live vendor portal carrying preview-database ids. Latent only — `ZAP_API_URL` was unset on preview so nothing was sent.
+- [x] **C-M1** — the preview data tier (`cire-db-preview` + two `-preview` buckets + three public hostnames) had no row in the data map / retention / access-control pages, and a reviewer signing in with a real passkey could upload a real guest spreadsheet into it (GDPR Art. 5(1)(e) + Art. 30). The database and both buckets are deleted, which erases the data and removes the surface; no data-map row is needed for a tier that no longer exists.
+- [x] **C-M2** — the preview deploy workflow was a production-environment-consuming CI path needing a named reviewer for SOC 2 CC8 change-management evidence. The workflow is deleted.

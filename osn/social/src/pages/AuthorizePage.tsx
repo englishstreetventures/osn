@@ -95,10 +95,11 @@ export function AuthorizePage() {
   // parked request is still alive, so we re-authenticate and post the SAME
   // request id again rather than restarting the flow.
   const [reauth, setReauth] = createSignal(false);
-  // `reason=login` means the flow demands a session created after the request
-  // was parked, so the ceremony leads even when a session already exists. One
-  // sign-in on this page satisfies it — the flag is what stops the sign-in
-  // screen looping, since the URL still says `login` afterwards.
+  // `reason=login` (and `reason=create`) mean the flow demands a session
+  // created after the request was parked, so the ceremony leads even when a
+  // session already exists. One sign-in on this page satisfies it — the flag
+  // is what stops the sign-in screen looping, since the URL still says
+  // `login` / `create` afterwards.
   const [signedInHere, setSignedInHere] = createSignal(false);
   const [pending, setPending] = createSignal<boolean | null>(null);
   const [fatal, setFatal] = createSignal<string | null>(null);
@@ -157,7 +158,8 @@ export function AuthorizePage() {
     if (deadMessage()) return "dead";
     if (loadError()) return "error";
     if (context.loading || !ctx()) return "loading";
-    if (!ctx()!.signedIn || reauth() || (reason() === "login" && !signedInHere())) {
+    const fresh = reason() === "login" || reason() === "create";
+    if (!ctx()!.signedIn || reauth() || (fresh && !signedInHere())) {
       return "signedOut";
     }
     if (showPicker()) return "picker";
@@ -279,7 +281,13 @@ export function AuthorizePage() {
             <Suspense
               fallback={<p class="text-muted-foreground text-body p-4 text-center">Loading…</p>}
             >
-              <AuthorizeSignIn onSuccess={() => void afterSignIn()} />
+              {/* `reason` is advisory — it only picks which half of the panel
+                  leads. The server re-derives every requirement at decision
+                  time, so a tampered value widens nothing. */}
+              <AuthorizeSignIn
+                initialMode={reason() === "create" ? "register" : "signIn"}
+                onSuccess={() => void afterSignIn()}
+              />
             </Suspense>
           </div>
         </Match>
