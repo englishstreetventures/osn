@@ -97,7 +97,7 @@ jobs:
         env:
           PUBLIC_API_URL: https://api-preview.cireweddings.com
           PUBLIC_SITE_URL: https://invite-preview.cireweddings.com
-          PUBLIC_OSN_ISSUER_URL: https://id.cireweddings.com
+          PUBLIC_OSN_ISSUER_URL: https://id.musubi.social
           PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
           PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
 
@@ -156,7 +156,7 @@ jobs:
         run: bun run --cwd cire/organiser build
         env:
           PUBLIC_CIRE_API_URL: https://api-preview.cireweddings.com
-          PUBLIC_OSN_ISSUER_URL: https://id.cireweddings.com
+          PUBLIC_OSN_ISSUER_URL: https://id.musubi.social
           # "View live invite" links point at the preview guest site, not prod.
           PUBLIC_CIRE_WEB_URL: https://invite-preview.cireweddings.com
           PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}

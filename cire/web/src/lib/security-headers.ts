@@ -36,9 +36,10 @@ const ORIGINS = {
   /**
    * OSN identity API (the "Link my Pulse account" flow — token grant + profile
    * + account-link calls go to the issuer). Production issuer is
-   * `id.cireweddings.com` (see root `CLAUDE.md`).
+   * `id.musubi.social` (see root `CLAUDE.md`); it moved off `id.cireweddings.com`
+   * on 2026-07-27 and this must track it or the calls are blocked by CSP.
    */
-  osnIssuer: "https://id.cireweddings.com",
+  osnIssuer: "https://id.musubi.social",
   /** Local dev OSN issuer origin (the PUBLIC_OSN_ISSUER_URL default). */
   osnIssuerLocal: "http://localhost:4000",
   // Pinterest moodboard widget (PinterestBoard.tsx / pinterest.ts).

@@ -120,11 +120,12 @@ binding = "IMAGES"
 # (apex — now the static marketing landing, makes no API calls) and
 # `app.cireweddings.com` (old organiser origin) were pruned after the cutover.
 WEB_ORIGIN = "https://invite.cireweddings.com,https://host.cireweddings.com,https://vendor.cireweddings.com"
-# OSN identity (osn-api) prod origin — served on the cireweddings.com zone at
-# id.cireweddings.com. OSN_ISSUER_URL MUST equal osn-api's own OSN_ISSUER_URL or
-# access-token verification fails; OSN_JWKS_URL is that origin + the JWKS path.
-OSN_JWKS_URL = "https://id.cireweddings.com/.well-known/jwks.json"
-OSN_ISSUER_URL = "https://id.cireweddings.com"
+# OSN identity (osn-api) prod origin — served on its own zone at id.musubi.social
+# (moved off id.cireweddings.com 2026-07-27). OSN_ISSUER_URL MUST equal osn-api's
+# own OSN_ISSUER_URL or access-token verification fails, so these two flip in the
+# same deploy as osn-api's; OSN_JWKS_URL is that origin + the JWKS path.
+OSN_JWKS_URL = "https://id.musubi.social/.well-known/jwks.json"
+OSN_ISSUER_URL = "https://id.musubi.social"
 OSN_AUDIENCE = "osn-access"
 ZAP_API_URL = "https://zap.cireweddings.com"
 # GrowthBook feature flags (KEY-OPTIONAL) — see the top-level [vars] note. Named
@@ -232,8 +233,8 @@ head_sampling_rate = 1
 WEB_ORIGIN = "https://invite-preview.cireweddings.com,https://cire-organiser-preview.pages.dev"
 # Identity is shared with prod: the reviewer signs in with their real passkey,
 # so no separate OSN tier is needed to exercise the organiser portal.
-OSN_JWKS_URL = "https://id.cireweddings.com/.well-known/jwks.json"
-OSN_ISSUER_URL = "https://id.cireweddings.com"
+OSN_JWKS_URL = "https://id.musubi.social/.well-known/jwks.json"
+OSN_ISSUER_URL = "https://id.musubi.social"
 OSN_AUDIENCE = "osn-access"
 GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
 # OSN_ENV marks this as a DEPLOYED tier. Without it `loadConfig` falls back to

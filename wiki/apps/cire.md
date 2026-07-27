@@ -17,7 +17,7 @@ related:
   - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-27
 ---
 
 # Cire
@@ -103,9 +103,16 @@ Free tier throughout — see [[free-tier-limits]]). Domains (#149):
 | `cireweddings.com` (apex) | guest site (`cire/web` Pages) |
 | `app.cireweddings.com` | organiser portal (`cire/organiser` Pages) |
 | `api.cireweddings.com` | `cire-api` Worker |
-| `id.cireweddings.com` | `osn-api` Worker (the OSN issuer the organiser portal authenticates against) |
+| `id.musubi.social` | `osn-api` Worker — the OSN issuer, on a **zone of its own** since 2026-07-27 (was `id.cireweddings.com`) |
+| `musubi.social` (apex) | `@osn/social` — the identity app and the OIDC consent screen |
 
-Passkey RP ID is `cireweddings.com`. Deploys run via the **GitHub Actions
+**Passkey RP ID is `musubi.social`, not `cireweddings.com`.** The identity move
+([[musubi-identity-migration]]) took the RP ID with it, and a WebAuthn ceremony
+is only legal on an origin same-site with the RP ID — so no cireweddings.com
+host can run one any more, and the passkeys enrolled under the old RP ID are
+dead. Organiser, vendor and guest sign-in are **broken until cire moves to the
+OIDC redirect flow** (register cire as a client, hand the ceremony to
+`musubi.social/authorize`). Deploys run via the **GitHub Actions
 workflow** (`.github/workflows/deploy.yml`): gated on a build/test job, it
 applies the remote cire D1 migrations (incl. `0014` theming + `0015`
 drop-bootstrap) and deploys the **cire-api Worker** + the **cire-web / organiser

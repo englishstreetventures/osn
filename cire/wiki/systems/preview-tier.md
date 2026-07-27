@@ -5,7 +5,7 @@ related:
   - "[[overview]]"
   - "[[invite-builder]]"
   - "[[contributing]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-27
 ---
 
 # Preview Tier
@@ -35,10 +35,16 @@ expect nothing to survive.
 
 ## What is shared with production, and what is not
 
-**Shared:** the OSN identity issuer (`id.cireweddings.com`). A reviewer signs in
-with their real passkey, which is what makes the organiser portal reviewable at
-all — no separate identity tier to set up. Weddings they create land in the
-preview database.
+**Shared:** the OSN identity issuer (`id.musubi.social` since the 2026-07-27
+identity move). A reviewer signs in with their real passkey, which is what makes
+the organiser portal reviewable at all — no separate identity tier to set up.
+Weddings they create land in the preview database.
+
+> **Reviewer sign-in does not work right now.** The issuer moved to its own
+> registrable domain, so a preview host cannot run a passkey ceremony (wrong RP
+> ID) and cannot replay the session cookie (cross-site). Previews are for looking
+> at until cire moves to the OIDC redirect flow — see the OSN wiki's
+> `[[wiki/runbooks/musubi-identity-migration]]`.
 
 **Not shared:** the database, both R2 buckets, the Worker names, the routes, and
 the rate-limiter namespace (`1002`, so preview traffic cannot eat production's

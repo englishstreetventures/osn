@@ -16,7 +16,7 @@ packages:
   - "@cire/web"
   - "@cire/organiser"
 finding-ids: []
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-27
 ---
 
 # Turnstile bot protection
@@ -90,17 +90,24 @@ limiter keys on — see [[rate-limiting]].
 | `PUBLIC_TURNSTILE_SITEKEY` | cire/web + cire/organiser build var (`import.meta.env`, statically inlined) | Public sitekey, key-optional | Client half. Set ⇒ the widget renders + a token rides in the submit body. Unset/blank ⇒ no widget, no token sent. |
 
 **Same widget for both backends.** One sitekey + one secret; the widget's
-domains cover `cireweddings.com` (guest) and `app.cireweddings.com` (organiser),
-and osn-api lives on `id.cireweddings.com`.
+domains cover `invite.cireweddings.com` (guest), `host.cireweddings.com`
+(organiser) and `musubi.social` (identity). osn-api moved to its own zone on
+2026-07-27 and now lives on `id.musubi.social`, with the identity app on the
+`musubi.social` apex — see [[musubi-identity-migration]].
 
 > **Widget allowed-hostnames must include every form origin.** Turnstile only
 > issues a token on a hostname listed in the widget's **Domains** (Cloudflare
-> dashboard → Turnstile → widget). If `app.cireweddings.com` is missing, the
+> dashboard → Turnstile → widget). If `host.cireweddings.com` is missing, the
 > organiser widget fires `error-callback` (Cloudflare error `110200`), never
 > calls back with a token, and the gated form's submit stays disabled — the
 > `@osn/ui` widget surfaces this as "Couldn't load the verification challenge",
-> not a silent hang. Add **`cireweddings.com`, `app.cireweddings.com`,
-> `id.cireweddings.com`** to the widget's domain list.
+> not a silent hang. The list is a **dashboard step** — the wrangler API token
+> has no `challenge-widgets.write` scope, so it cannot be edited from CI.
+>
+> Only hostnames that **render a form** belong here. `musubi.social` does
+> (the `@osn/ui` register + login islands); `id.musubi.social` does not — osn-api
+> serves JSON, and the server half siteverifies against Cloudflare rather than
+> against the domain list. `musubi.social` was added on 2026-07-27.
 
 ## Client widget: single-use tokens must be reset after each submit
 

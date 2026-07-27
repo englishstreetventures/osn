@@ -5,7 +5,7 @@ related:
   - "[[cire-auth]]"
   - "[[budget]]"
   - "[[checklist-tasks]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-27
 ---
 
 # Vendors — directory, CRM, and email-verification claim
@@ -179,7 +179,7 @@ The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS
 
 ### API surface
 
-- **osn-api** — `GET /organisations` (list the caller's orgs) only, called via `authFetch` with the OSN access JWT in the `Authorization` header. **The portal does not call `POST /organisations`** — org creation lives in the OSN app, not the vendor portal. This is a cross-origin call (portal origin → `id.cireweddings.com`), so osn-api's `OSN_ORIGIN` / `OSN_CORS_ORIGIN` must include `vendor.cireweddings.com`.
+- **osn-api** — `GET /organisations` (list the caller's orgs) only, called via `authFetch` with the OSN access JWT in the `Authorization` header. **The portal does not call `POST /organisations`** — org creation lives in the OSN app, not the vendor portal. This is a cross-origin call (portal origin → `id.musubi.social`), so osn-api's `OSN_CORS_ORIGIN` must include `vendor.cireweddings.com`. It is **no longer in `OSN_ORIGIN`**: that list is the WebAuthn expected-origin allowlist, and since the 2026-07-27 identity move the RP ID is `musubi.social`, so a ceremony on a cireweddings.com host is illegal whatever the list says. Bearer-token calls still need CORS, which is why the origin stays in the second list.
 - **cire-api** — `/api/vendor/*` routes gated by `vendorOrgMember()` (OSN access JWT + ARC org-membership check). Called via `authFetch`. Also cross-origin (portal → `api.cireweddings.com`), so cire-api's `WEB_ORIGIN` must include `vendor.cireweddings.com`.
 
 Both allowlists are widened in this PR's `cire/api/wrangler.toml` and `osn/api/wrangler.toml` (production + local blocks) — they ship on merge via the normal CI deploy jobs.
@@ -193,7 +193,16 @@ The `/claim?token=<raw>` URL carries a 256-bit claim secret. Two defences preven
 
 ### Auth flow
 
-`@osn/client/solid` `createOsnSession` hook manages the OSN access JWT + silent token refresh (HttpOnly session cookie on `id.cireweddings.com`). `authFetch` in `cire/vendor/src/lib/auth-fetch.ts` wraps `fetch` with the current access JWT and handles 401→silent-refresh→retry. No cire guest cookie is involved — the vendor portal uses OSN identity only.
+`@osn/client/solid` `createOsnSession` hook manages the OSN access JWT + silent token refresh (HttpOnly session cookie on `id.musubi.social`). `authFetch` in `cire/vendor/src/lib/auth-fetch.ts` wraps `fetch` with the current access JWT and handles 401→silent-refresh→retry. No cire guest cookie is involved — the vendor portal uses OSN identity only.
+
+> **Vendor sign-in is broken as of 2026-07-27** and stays broken until the portal
+> moves to the OIDC redirect flow. The identity move put the issuer on
+> `musubi.social`, a different registrable domain from `vendor.cireweddings.com`, so
+> the `SameSite=Lax` session cookie is not sent on the silent-refresh `POST
+> /token` — and the passkey ceremony that would rebuild a session cannot run
+> under the new RP ID either. The fix is to register cire as an OIDC client and
+> hand sign-in to `musubi.social/authorize`, which needs neither. See the OSN wiki's
+> `[[wiki/runbooks/musubi-identity-migration]]`.
 
 ---
 

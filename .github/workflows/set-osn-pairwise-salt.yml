@@ -4,7 +4,8 @@
 # WHY THIS EXISTS. The OIDC provider derives every pairwise `sub` from this
 # salt (HMAC over sector | profile id). The boot check is FAIL-CLOSED: without
 # the secret, osn-api refuses to serve outside local — so a deploy that lands
-# before the salt is set leaves id.cireweddings.com down until it exists. And
+# before the salt is set leaves the issuer host (id.musubi.social since 2026-07-27)
+# down until it exists — every route, not just the OIDC ones. And
 # the salt must NEVER change once tokens are live: rotation makes every
 # relying party see its users as strangers, permanently.
 #

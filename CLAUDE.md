@@ -6,14 +6,14 @@ AI coding assistant ref. Full spec in README.md. Progress/decisions in `wiki/TOD
 
 OSN: Modular social platform. Users own identity + social graph. Apps opt-in/out independently.
 
-**Deployed (2026-06-18):** the cire stack is **live on the `cireweddings.com` zone** (all Cloudflare Free tier). Domain reshuffle 2026-07-16: apex `cireweddings.com` = marketing landing, `invite.cireweddings.com` = guest site, `host.cireweddings.com` = organiser portal. `osn-api` is a deployed **Cloudflare Worker** on `id.cireweddings.com` (Upstash prod secrets set; email live over Resend — the `OSN_EMAIL_OPTIONAL` degraded mode was dropped in #160); `cire-api` on `api.cireweddings.com`; guest + organiser sites on Pages with custom domains. CI auto-deploys cire-api + **osn-api** + Pages on merge (osn-api joined the `deploy.yml` pipeline 2026-07-16 — no more manual `wrangler deploy`; its D1 migrations auto-apply too). Architectural decision: **osn-api stays a single Worker** (split deferred). See `[[wiki/runbooks/production-deploy]]`, `[[wiki/runbooks/free-tier-limits]]`.
+**Deployed (2026-06-18):** the cire stack is **live on the `cireweddings.com` zone** (all Cloudflare Free tier). Domain reshuffle 2026-07-16: apex `cireweddings.com` = marketing landing, `invite.cireweddings.com` = guest site, `host.cireweddings.com` = organiser portal. **Identity moved to its own zone 2026-07-27:** `osn-api` is a deployed **Cloudflare Worker** on `id.musubi.social`, `@osn/social` (identity app + the OIDC consent screen) is on the apex `musubi.social`, and the WebAuthn RP ID is `musubi.social` — so the cireweddings.com origins can no longer run passkey ceremonies and sign in through the OIDC redirect flow instead (see `[[wiki/runbooks/musubi-identity-migration]]`). osn-api has Upstash prod secrets set; email is live over Resend from `hello@cireweddings.com` (the `OSN_EMAIL_OPTIONAL` degraded mode was dropped in #160). `cire-api` on `api.cireweddings.com`; guest + organiser sites on Pages with custom domains. CI auto-deploys cire-api + **osn-api** + Pages on merge (osn-api joined the `deploy.yml` pipeline 2026-07-16 — no more manual `wrangler deploy`; its D1 migrations auto-apply too). Architectural decision: **osn-api stays a single Worker** (split deferred). See `[[wiki/runbooks/production-deploy]]`, `[[wiki/runbooks/free-tier-limits]]`.
 
 Phase 1 surfaces:
 
 | Surface | Package(s) | Status |
 |---|---|---|
-| Identity / auth API | `@osn/api` (port 4000; prod Worker `id.cireweddings.com`) | Active — **deployed (Worker)** |
-| Identity & graph UI | `@osn/social` (port 1422) | Active |
+| Identity / auth API | `@osn/api` (port 4000; prod Worker `id.musubi.social`) | Active — **deployed (Worker)** |
+| Identity & graph UI | `@osn/social` (port 1422; prod Pages `musubi.social`) | Active — **deployed (Pages)** |
 | Events | `@pulse/app` + `@pulse/api` (port 3001) + `@pulse/db` | Active |
 | Messaging | `@zap/api` (port 3002) + `@zap/db` | M0 scaffolded; M1 in flight; client app not started |
 | Wedding invites | @cire/api (:8787, prod `api.cireweddings.com`) + @cire/web (:4321, prod `invite.cireweddings.com`) + @cire/organiser (:4322, prod `host.cireweddings.com`) + @cire/db + @cire/theme | Active — **deployed** (domain reshuffle 2026-07-16: guest→`invite.`, organiser→`host.`) |
@@ -72,7 +72,7 @@ Phase 1 surfaces:
 | Build the OIDC consent screen (states, decision-error contract, login_required retry loop) | `[[wiki/apps/authorize-ui]]` |
 | Deploy osn-api + cire to production (secrets/vars, migrations, CI pipeline, smoke checks) | `[[wiki/runbooks/production-deploy]]` |
 | Check free-tier limits / what breaks at a cap / Cloudflare hardening TODO | `[[wiki/runbooks/free-tier-limits]]` |
-| Move OSN identity to `musubi.dev` (RP-ID change, credential bridge, cutover order) | `[[wiki/runbooks/musubi-identity-migration]]` |
+| Move OSN identity to `musubi.social` (RP-ID change, credential bridge, cutover order) | `[[wiki/runbooks/musubi-identity-migration]]` |
 | Debug auth / ARC / rate-limit / event-visibility failure | `wiki/runbooks/` (`auth-failure`, `arc-token-debugging`, `rate-limit-incident`, `event-visibility-bug`) |
 | Check security or perf findings | `wiki/TODO.md` (Security Backlog / Performance Backlog sections) |
 | Check which compliance standards apply, or add personal-data field/DSAR/breach/access-review work | `[[wiki/compliance/index]]` |

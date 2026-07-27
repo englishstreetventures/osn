@@ -31,8 +31,8 @@ migrations_dir = "../db/drizzle"
 
 # ── production ───────────────────────────────────────────────────────────────
 # Custom-domain route: serves zap-api on zap.cireweddings.com (mirrors cire-api's
-# api.cireweddings.com + osn-api's id.cireweddings.com — all on the account's
-# cireweddings.com zone). `custom_domain = true` auto-provisions the DNS record +
+# api.cireweddings.com on the account's cireweddings.com zone; osn-api sits on a
+# zone of its own at id.musubi.social). `custom_domain = true` auto-provisions the DNS record +
 # cert. Named envs do NOT inherit top-level routes, so a deploy target must be
 # declared here; without it `wrangler deploy --env production` errors (no target).
 # zap-api is internal S2S (ARC-gated) + user routes (osnAuth) — auth-gated, so a
@@ -50,12 +50,12 @@ migrations_dir = "../db/drizzle"
 # Production vars: OSN identity issuer for access-token JWKS verification.
 # OSN_JWKS_URL is the only env var zap-api reads from `Env` for JWT verification
 # (src/index.ts + src/lib/jwks.ts). Mirrors the prod origin used by cire-api
-# and osn-api (id.cireweddings.com). Set before first deploy.
+# and osn-api (id.musubi.social). Set before first deploy.
 [env.production.vars]
-OSN_JWKS_URL = "https://id.cireweddings.com/.well-known/jwks.json"
+OSN_JWKS_URL = "https://id.musubi.social/.well-known/jwks.json"
 # zapGraphBridge validates OSN_API_URL is https at module load in production
-# (it sends ARC tokens to osn-api's graph). osn-api serves on id.cireweddings.com.
-OSN_API_URL = "https://id.cireweddings.com"
+# (it sends ARC tokens to osn-api's graph). osn-api serves on id.musubi.social.
+OSN_API_URL = "https://id.musubi.social"
 
 # OSN_JWT_SECRET is sensitive — set it per environment as a Worker secret, not a
 # plaintext var:

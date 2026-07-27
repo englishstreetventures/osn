@@ -147,7 +147,7 @@ export interface BuildParts {
    * Client-IP trust policy selector (Part 1 / S-M34). When `true`, per-IP
    * keying trusts Cloudflare's `cf-connecting-ip` header EXCLUSIVELY (never
    * falls back to the spoofable `x-forwarded-for`). The Workers entry sets this
-   * for non-local tiers (osn-api runs behind Cloudflare on id.cireweddings.com);
+   * for non-local tiers (osn-api runs behind Cloudflare on id.musubi.social);
    * the Bun entry leaves it `false` so local dev keeps socket-peer keying. When
    * `true`, `TRUSTED_PROXY_COUNT` is ignored (Cloudflare attribution wins).
    */
@@ -297,7 +297,7 @@ export async function buildAppDeps(env: EnvRecord, parts: BuildParts): Promise<B
   const recommendationRateLimiter = createRedisRecommendationRateLimiter(redisClient);
 
   // Client-IP trust policy (Part 1 / S-M34). Behind Cloudflare (the non-local
-  // Workers runtime — osn-api serves id.cireweddings.com), trust
+  // Workers runtime — osn-api serves id.musubi.social), trust
   // `cf-connecting-ip` EXCLUSIVELY: `getClientIp({ trustCloudflare: true })`
   // never falls back to the spoofable `x-forwarded-for`, closing the per-IP
   // rate-limit bypass where an attacker forges XFF to rotate past the auth

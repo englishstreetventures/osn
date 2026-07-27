@@ -5,7 +5,7 @@ interface ImportMetaEnv {
   readonly PUBLIC_SITE_URL?: string;
   /**
    * OSN identity API origin for the optional "Link my Pulse account" flow
-   * (dev default http://localhost:4000; prod id.cireweddings.com). The guest
+   * (dev default http://localhost:4000; prod id.musubi.social). The guest
    * obtains an OSN access token here via `@osn/client`'s silent-refresh, then
    * cire-api's POST /api/account/link verifies it.
    */

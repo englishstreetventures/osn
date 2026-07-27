@@ -7,7 +7,7 @@ related:
   - "[[sessions]]"
   - "[[step-up]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-07-26
+last-reviewed: 2026-07-27
 ---
 
 # OIDC provider
@@ -162,17 +162,17 @@ No step-up on create, deliberately: a freshly minted client is inert until a rea
 | Variable | Required | What happens without it |
 |---|---|---|
 | `OSN_PAIRWISE_SALT` | **Yes, outside local** | osn-api refuses to boot. The check is fail closed and wants 32 bytes or more |
-| `OSN_AUTHORIZE_UI_URL` | No | Falls back to `/authorize` on the web origin |
+| `OSN_AUTHORIZE_UI_URL` | No, but set it | Falls back to `/authorize` on the **first** `OSN_ORIGIN`, silently following list order. Set in prod: `https://musubi.social/authorize` |
 | `OSN_ISSUER_URL` | Yes | Already required; it is the `iss` claim and the discovery issuer |
 
 The salt must never change once tokens are live — every pairwise subject would change with it, and every client would see its users as strangers. Treat it as permanent.
 
-The issuer string is an identifier, not branding. Moving the provider to a prettier domain later costs nothing as long as `iss` and the RP ID stay put.
+The issuer string is an identifier, not branding. The provider moved to `id.musubi.social` on 2026-07-27; because `iss` and the RP ID both changed with it, every passkey was invalidated and recovery codes were the bridge — see [[musubi-identity-migration]]. Pairwise `sub` values survived, because they are keyed on the salt and the client sector, not the issuer host.
 
 ## Not built yet
 
 - **`/userinfo`** — the ID token carries what clients need for now.
 - **`offline_access`** — third parties get no refresh token, so a long-lived integration must send the user through `/authorize` again.
-- **The apex worker** serving `/.well-known/webauthn`, `apple-app-site-association` and `assetlinks.json`. Blocked on the identity domain being bought. That is layers 2 and 3; layer 0 works without it.
+- **The apex well-knowns** — `/.well-known/webauthn`, `apple-app-site-association` and `assetlinks.json`. The identity domain now exists (`musubi.social`), so this is unblocked; it needs `@osn/social` to serve those paths, or a Worker in front of the apex. That is layers 2 and 3; layer 0 works without it.
 
-The consent screen is built (2026-07-26): `/authorize` in `@osn/social` — see [[authorize-ui]]. It is not reachable in production yet; set `OSN_AUTHORIZE_UI_URL` once `@osn/social` is served from the identity domain.
+The consent screen is built (2026-07-26): `/authorize` in `@osn/social` — see [[authorize-ui]]. `@osn/social` deploys to the `osn-social` Pages project and is served from the apex `https://musubi.social`, the same registrable domain as the provider, so `OSN_AUTHORIZE_UI_URL = https://musubi.social/authorize`. The apex is also the WebAuthn RP ID, so it is the one surface that can run a ceremony — see [[musubi-identity-migration]].

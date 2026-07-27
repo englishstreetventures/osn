@@ -22,7 +22,7 @@ related:
 packages:
   - "@shared/email"
   - "@osn/api"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-27
 ---
 
 # Email Transport
@@ -195,7 +195,8 @@ setup steps.
 
 > **Email is live via Resend** — confirmed delivering from
 > `hello@cireweddings.com` on 2026-06-18. `RESEND_API_KEY` on the
-> deployed `id.cireweddings.com` osn-api Worker carries the full
+> deployed osn-api Worker (`id.musubi.social` since the 2026-07-27 identity
+> move — [[musubi-identity-migration]]) carries the full
 > transactional surface: OTP step-up codes, email-change OTPs, and
 > security-notice emails (recovery codes, passkey added/removed,
 > cross-device login) are all delivered again. This **supersedes** the
@@ -217,6 +218,16 @@ Environment variables for `@osn/api`:
 | `CLOUDFLARE_ACCOUNT_ID` | optional / legacy | Cloudflare account ID (fallback transport) |
 | `CLOUDFLARE_EMAIL_API_TOKEN` | optional / legacy | API token with Email Send permission (fallback transport) |
 | `OSN_EMAIL_FROM` | optional | Verified sender address (default: `noreply@osn.local`; prod: `hello@cireweddings.com`) |
+
+> **The sender stayed on `cireweddings.com` through the identity move.** osn-api
+> now serves `id.musubi.social`, but `cireweddings.com` is the only domain verified
+> in Resend, and Resend refuses to send from a domain it cannot authenticate — a
+> premature switch would fail closed and take **OTP step-up** with it. That is
+> exactly the wrong thing to lose right now: after the RP-ID flip invalidated
+> every passkey, the way back into an account is recovery-code login **followed
+> by an OTP step-up** to enroll a new passkey. Move `OSN_EMAIL_FROM` only after
+> verifying a musubi.social sender in Resend (steps 1–2 below, against the new
+> domain). See [[musubi-identity-migration]].
 
 Before you deploy (Resend — the live path):
 

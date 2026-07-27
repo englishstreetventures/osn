@@ -6,11 +6,12 @@ related:
   - "[[osn-core]]"
   - "[[backend-patterns]]"
   - "[[arc-tokens]]"
+  - "[[musubi-identity-migration]]"
 packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-27
 p4-completed: 2026-04-14
 p2-completed: 2026-04-14
 p3-completed: 2026-04-14
@@ -202,7 +203,9 @@ interface AccountSession {
 - **Terminal** (`/token` 4xx, e.g. `invalid_grant`): the cookie is genuinely gone/expired/rotated → fail fast, **no retry**, `loadSession` resolves to `null` (genuinely logged out, never throws).
 - **Transient** (network error, `429`, `5xx`): the cookie is probably still alive; the server just couldn't answer (cold Worker isolate, momentary blip) → **bounded exponential backoff** (3 attempts, ~0 + 200ms + 400ms) before giving up, so a single hiccup doesn't evict a live session.
 
-This keeps the short access-token TTL (XSS blast-radius cap) intact while making the *session* durable: the user stays signed in across reloads for as long as the refresh cookie lives. Cross-subdomain is a non-issue — the organiser (`app.cireweddings.com`) sends the cookie on its `credentials: "include"` `POST` to the issuer (`id.cireweddings.com`); both share the registrable domain `cireweddings.com`, so the `SameSite=Lax` `__Host-` cookie is **same-site** and is sent.
+This keeps the short access-token TTL (XSS blast-radius cap) intact while making the *session* durable: the user stays signed in across reloads for as long as the refresh cookie lives — **provided the app and the issuer share a registrable domain**. `__Host-osn_session` is `SameSite=Lax`, so a browser sends it on a credentialed `POST /token` only when the calling page is same-site with the issuer.
+
+> **This is what the 2026-07-27 identity move broke, deliberately.** The issuer is now `id.musubi.social` (see [[musubi-identity-migration]]). `@osn/social` on the `musubi.social` apex is same-site with it, so the cookie flows and the rehydrate path above works. The cire origins — `app.cireweddings.com`, `vendor.`, `invite.` — are a **different registrable domain** from `musubi.social`, so their `/token` grants are cross-site and the cookie is never sent: cold-start bootstrap and rehydrate both resolve to `null`, and the passkey ceremony that would rebuild the session is itself illegal under the new RP ID. Cire regains sessions by moving to the OIDC redirect flow, where the cookie is only ever replayed from the identity domain itself — see [[oidc-provider]].
 
 ## Registration Flow
 

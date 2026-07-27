@@ -28,7 +28,7 @@ beforeAll(async () => {
 function nonLocalEnv(over: Partial<Record<string, string>> = {}): EnvRecord {
   return {
     OSN_ENV: "production",
-    OSN_ISSUER_URL: "https://id.cireweddings.com",
+    OSN_ISSUER_URL: "https://id.musubi.social",
     OSN_CORS_ORIGIN: "https://host.cireweddings.com",
     OSN_ORIGIN: "https://host.cireweddings.com",
     OSN_RP_ID: "cireweddings.com",

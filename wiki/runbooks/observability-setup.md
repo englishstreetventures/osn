@@ -8,7 +8,7 @@ related:
   - "[[observability/metrics]]"
   - "[[observability/logging]]"
   - "[[observability/tracing]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-27
 ---
 
 # Observability Setup Runbook
@@ -24,7 +24,7 @@ The OTLP pipeline described below runs on the **Bun** entries only. `@osn/api` a
 | Runtime | Services | Logging | Traces + metrics |
 |---|---|---|---|
 | **Bun** (`src/local.ts`) | local `@osn/api`, `@pulse/api`, `@zap/api` | redacting logger, through `initObservability()` | full OTLP export to Grafana Cloud |
-| **Workers** (`src/index.ts`) | deployed `@osn/api` (`id.cireweddings.com`), `@cire/api` (`api.cireweddings.com`) | redacting logger only — `osnLoggerLayer` / `cireLoggerLayer`, built from the `@shared/observability/logger` + `/config` subpaths so no `@opentelemetry/*` module enters the bundle | **export deferred** — the recording call sites are typed and correct but are no-ops until an exporter is attached |
+| **Workers** (`src/index.ts`) | deployed `@osn/api` (`id.musubi.social`), `@cire/api` (`api.cireweddings.com`) | redacting logger only — `osnLoggerLayer` / `cireLoggerLayer`, built from the `@shared/observability/logger` + `/config` subpaths so no `@opentelemetry/*` module enters the bundle | **export deferred** — the recording call sites are typed and correct but are no-ops until an exporter is attached |
 
 So for a deployed Worker, telemetry means **Cloudflare Workers Logs** (`[observability]` in each `wrangler.toml`, 7-day retention) plus the resource Metrics tabs, not Grafana. See [[free-tier-limits]] → Monitoring. Steps 1–3 below apply to a Bun service; steps 4–6 apply to whichever surface actually exports.
 
@@ -105,7 +105,7 @@ curl http://localhost:4000/health
 curl http://localhost:3001/ready
 
 # deployed Workers
-curl https://id.cireweddings.com/health
+curl https://id.musubi.social/health
 curl https://api.cireweddings.com/health
 ```
 

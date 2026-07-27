@@ -12,7 +12,7 @@ import { createMemo, Show } from "solid-js";
 import { OSN_ISSUER_URL } from "../lib/osn";
 
 // Built once against the OSN issuer. These wrap the same osn-api endpoints the
-// rest of the portal authenticates against (id.cireweddings.com in prod).
+// rest of the portal authenticates against (id.musubi.social in prod).
 const passkeysClient = createPasskeysClient({ issuerUrl: OSN_ISSUER_URL });
 const stepUpClient = createStepUpClient({ issuerUrl: OSN_ISSUER_URL });
 const recoveryClient = createRecoveryClient({ issuerUrl: OSN_ISSUER_URL });
