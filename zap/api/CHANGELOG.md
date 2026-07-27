@@ -1,5 +1,13 @@
 # @zap/api
 
+## 0.8.8
+
+### Patch Changes
+
+- Updated dependencies [2b7a7f1]
+  - @shared/osn-auth-client@0.3.0
+  - @shared/crypto@0.9.0
+
 ## 0.8.7
 
 ### Patch Changes
