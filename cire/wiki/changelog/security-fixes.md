@@ -2,7 +2,7 @@
 title: "Security Fixes"
 tags: [changelog]
 related: [[TODO]], [[index]]
-last-reviewed: 2026-07-27
+last-reviewed: 2026-07-28
 ---
 
 # Security Fixes
@@ -12,6 +12,10 @@ Archive of completed security findings, moved here from the Security Backlog in 
 ## Migrated from security.md (archived 2026-06-21)
 
 Completed `- [x]` findings relocated verbatim from `wiki/todo/security.md` to keep that shard a lean list of OPEN findings. The two open findings (the `overrides.vite` follow-up and the `ORGANISER_TOKEN` secret-verification check) remain in `security.md`. Severity prefix conventions: see `[[review-findings]]`.
+
+### Invite typography options — review finding (fixed on the invite-typography branch, 2026-07-28)
+
+- [x] **S-L1** (typography-prototype-keys) — the new `@cire/theme` typography resolvers (`headingScale` / `fontWeightValue` / `fontStyleValue`) and the pre-existing `fontStack` resolved keys with a bare `MAP[choice] ?? null`, so prototype-chain keys (`"constructor"`, `"toString"`) returned inherited functions instead of `null`, eroding the render-time "unknown key emits nothing" half of the CSS-injection defence (no live exploit — the write-time `Schema.Literal` gate and the `styleAttr` character filter both still held). **Fixed in the same branch:** all four resolvers now guard with `Object.hasOwn` (matching the `isFontChoice` / `isPalettePresetKey` idiom), and the unknown-key test loop pins `"constructor"` / `"toString"` / `"__proto__"`. See `[[invite-builder]]`.
 
 ### Host invite preview — review findings (all fixed on the host-preview-code branch)
 
