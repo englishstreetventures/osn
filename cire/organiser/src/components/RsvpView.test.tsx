@@ -149,14 +149,14 @@ describe("RsvpView", () => {
     await waitFor(() => expect(screen.getByText(/Could not load RSVPs/i)).toBeTruthy());
   });
 
-  it("badges an organiser-entered reply distinctly from a guest-submitted one", async () => {
+  it("badges a host-entered reply distinctly from a guest-submitted one", async () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
     // Bo's row is organiser_attested → the provenance badge appears; Ada's
     // (guest) row does not carry it.
-    expect(screen.getByText(/Organiser-entered/i)).toBeTruthy();
-    expect(screen.getAllByText(/Organiser-entered/i)).toHaveLength(1);
+    expect(screen.getByText(/Host-entered/i)).toBeTruthy();
+    expect(screen.getAllByText(/Host-entered/i)).toHaveLength(1);
   });
 
   it("does not show record/edit controls for a viewer (canEdit falsy)", async () => {

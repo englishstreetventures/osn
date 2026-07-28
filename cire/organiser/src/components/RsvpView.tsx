@@ -186,7 +186,7 @@ export default function RsvpView(props: RsvpViewProps) {
         title="Replies at a glance"
         description={
           props.canEdit
-            ? "Who's coming to each event, with dietary notes. Record a phone or paper reply on a guest's behalf — it overwrites any earlier answer and is marked as organiser-entered."
+            ? "Who's coming to each event, with dietary notes. Record a phone or paper reply on a guest's behalf — it overwrites any earlier answer and is marked as host-entered."
             : "Who's coming to each event, with dietary notes — updated as guests reply. Read-only; download the full sheet from the Guests tab."
         }
       />
@@ -305,9 +305,9 @@ export default function RsvpView(props: RsvpViewProps) {
                                     {" "}
                                     <span
                                       class="border-gold/40 text-gold ml-1 inline-block rounded-sm border px-1.5 py-0.5 text-[0.55rem] tracking-[0.12em] uppercase"
-                                      title="Recorded by an organiser (phone/paper RSVP)"
+                                      title="Recorded by a host (phone/paper RSVP)"
                                     >
-                                      Organiser-entered
+                                      Host-entered
                                     </span>
                                   </Show>
                                 </td>

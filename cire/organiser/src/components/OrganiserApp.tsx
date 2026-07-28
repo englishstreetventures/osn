@@ -24,6 +24,7 @@ import { CIRE_API_URL } from "../lib/osn";
 import type { WeddingSummary } from "./CreateWeddingForm";
 import ModuleShell from "./ModuleShell";
 import PreviewInviteButton from "./PreviewInviteButton";
+import ProfileMenu from "./ProfileMenu";
 import SecurityPanel from "./SecurityPanel";
 import WeddingList from "./WeddingList";
 
@@ -153,8 +154,10 @@ function WeddingDashboard(props: {
   );
 }
 
-/** Portal-level nav (Weddings / Security). Same segmented shape as the module
- *  sub-tabs so the two levels of navigation read as one system. */
+/** Portal-level nav. Weddings is the only section that lives here — the
+ *  account-scoped views (security, sign out) sit under the profile menu on the
+ *  other side of the bar. Same segmented shape as the module sub-tabs so the
+ *  two levels of navigation read as one system. */
 const navClass = (active: boolean) =>
   `font-body rounded-sm px-3 py-1.5 text-[0.76rem] tracking-[0.12em] uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
     active ? "bg-gold/12 text-gold" : "text-text-muted hover:text-text hover:bg-surface/60"
@@ -166,7 +169,7 @@ function initialRoute(): DashboardRoute {
 }
 
 function Dashboard() {
-  const { authFetch, logout } = useAuth();
+  const { authFetch, logout, session } = useAuth();
   // Locally-tracked weddings so a freshly-created one shows up without a
   // refetch. Seeded from the initial load.
   const [weddings, setWeddings] = createSignal<WeddingSummary[] | null>(null);
@@ -342,26 +345,30 @@ function Dashboard() {
           >
             Weddings
           </button>
-          <button
-            type="button"
-            onClick={() => selectView("security")}
-            aria-current={view() === "security" ? "page" : undefined}
-            class={navClass(view() === "security")}
-          >
-            Security
-          </button>
         </nav>
-        <button
-          type="button"
-          onClick={() => void signOut()}
-          class="font-body text-text-muted hover:text-gold text-[0.82rem] tracking-[0.1em] uppercase underline-offset-4 transition hover:underline"
-        >
-          Sign out
-        </button>
+        <ProfileMenu
+          session={session()}
+          onSecurity={() => selectView("security")}
+          onSignOut={() => void signOut()}
+        />
       </div>
 
       <Show when={view() === "security"}>
-        <SecurityPanel />
+        <div class="flex flex-col gap-6">
+          {/* Security no longer sits in the top-level nav, so the view carries
+              its own way back — same affordance as a wedding's dashboard. */}
+          <button
+            type="button"
+            onClick={backToList}
+            class="font-body text-text-muted hover:text-gold self-start text-[0.72rem] tracking-[0.16em] uppercase transition-colors duration-(--dur-fast)"
+          >
+            <span aria-hidden="true" class="mr-2">
+              ←
+            </span>
+            All weddings
+          </button>
+          <SecurityPanel />
+        </div>
       </Show>
 
       <Show when={view() === "weddings"}>

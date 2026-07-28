@@ -15,13 +15,21 @@ const authFetchMock = vi.fn();
 const logoutMock = vi.fn().mockResolvedValue(undefined);
 const redirectSpy = vi.fn();
 
-// session() returns a truthy value so RequireAuth renders its children.
+// session() returns a truthy value so RequireAuth renders its children; the
+// identity fields feed the ProfileMenu (real, not stubbed) in the masthead.
 vi.mock("@shared/rp-auth/solid", () => ({
   AuthProvider: (props: { children: unknown }) => props.children,
   useAuth: () => ({
     authFetch: authFetchMock,
     logout: logoutMock,
-    session: () => ({ sub: "usr_owner" }),
+    session: () => ({
+      osnProfileId: "usr_owner",
+      displayName: "Alex Host",
+      handle: "alex",
+      email: null,
+      avatarUrl: null,
+      expiresAt: "2099-01-01T00:00:00Z",
+    }),
   }),
 }));
 
@@ -209,22 +217,58 @@ describe("OrganiserApp Dashboard", () => {
     expect(screen.getByTestId("module-shell").textContent).toContain("wed_new");
   });
 
-  it("toggles to the Security (devices / passkeys) panel from the nav", async () => {
+  it("opens the Security (devices / passkeys) panel from the profile menu", async () => {
     authFetchMock.mockResolvedValue(
       listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
     );
     render(() => <OrganiserApp />);
     await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
 
-    // Security is reachable whenever signed in, independent of any wedding.
-    fireEvent.click(screen.getByRole("button", { name: /^Security$/ }));
+    // Security lives under the avatar menu, not the section nav. Kobalte's
+    // menu trigger opens on pointerdown and items select on pointerup.
+    fireEvent.pointerDown(screen.getByRole("button", { name: /account menu/i }), { button: 0 });
+    const item = await screen.findByText(/Security & passkeys/i);
+    fireEvent.pointerUp(item, { button: 0 });
     expect(screen.getByTestId("security-panel")).toBeTruthy();
     expect(screen.queryByTestId("wedding-list")).toBeNull();
+    // Deep-linkable: the account-security view keeps its hash route.
+    expect(window.location.hash).toBe("#/security");
 
-    // And back to weddings.
-    fireEvent.click(screen.getByRole("button", { name: /^Weddings$/ }));
+    // The view carries its own way back to the weddings list. Kobalte closes
+    // the menu on a queued task (closeOnSelect → setTimeout) and un-hides the
+    // outside content then — wait for the back affordance to be queryable.
+    const back = await waitFor(() => screen.getByRole("button", { name: /All weddings/i }));
+    fireEvent.click(back);
     expect(screen.getByTestId("wedding-list")).toBeTruthy();
     expect(screen.queryByTestId("security-panel")).toBeNull();
+  });
+
+  it("restores the security view from a #/security deep link on load", async () => {
+    // With the Security nav tab gone, the hash route is the only thing keeping
+    // the view alive across a hard refresh — assert the read side too.
+    history.replaceState(null, "", "#/security");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+
+    expect(screen.getByTestId("security-panel")).toBeTruthy();
+    expect(screen.queryByTestId("wedding-list")).toBeNull();
+  });
+
+  it("signs out from the profile menu", async () => {
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /account menu/i }), { button: 0 });
+    const item = await screen.findByText(/Sign out/i);
+    fireEvent.pointerUp(item, { button: 0 });
+
+    await waitFor(() => expect(logoutMock).toHaveBeenCalled());
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
   });
 
   // ── Deep-linking + refresh persistence (the headline ask) ───────────────────
