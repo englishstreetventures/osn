@@ -32,6 +32,11 @@ describe("typography choices", () => {
       expect(resolve("comic-sans")).toBeNull();
       // A value, not a key — the maps must never pass raw input through.
       expect(resolve("italic; background: url(x)")).toBeNull();
+      // Prototype-chain keys must not leak inherited functions through the
+      // closed map (S-L1) — the resolver is the render-time injection gate.
+      expect(resolve("constructor")).toBeNull();
+      expect(resolve("toString")).toBeNull();
+      expect(resolve("__proto__")).toBeNull();
     }
   });
 

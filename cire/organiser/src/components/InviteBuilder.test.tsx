@@ -481,6 +481,30 @@ describe("InviteBuilder theme", () => {
     expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("updates the live previews' typography vars as a select changes (no save needed)", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load only
+
+    const { container } = render(() => (
+      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+    ));
+    await waitFor(() => screen.getByText("Save invite"));
+
+    const heroPreview = () =>
+      container.querySelector('[aria-label="Hero preview"]') as HTMLElement | null;
+    await waitFor(() => expect(heroPreview()).not.toBeNull());
+    // Default pick ⇒ no override var — the preview falls back to the pack look.
+    expect(heroPreview()!.style.getPropertyValue("--invite-heading-weight")).toBe("");
+
+    // The pick resolves through the SAME shared value map the guest uses, so
+    // the preview cannot show a weight the guest would not render.
+    fireEvent.change(screen.getByLabelText("Heading weight"), { target: { value: "bold" } });
+    await waitFor(() =>
+      expect(heroPreview()!.style.getPropertyValue("--invite-heading-weight")).toBe("700"),
+    );
+    // Live preview must not trigger a network save.
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("shows the live section previews with the live copy buffers", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
 

@@ -62,22 +62,30 @@ const FONT_STYLE_VALUES: Record<string, string> = {
 
 // ── Resolution ────────────────────────────────────────────────────────────────
 
+// `Object.hasOwn` (not a bare index) so prototype-chain keys ("constructor",
+// "toString", …) resolve to null like any other unknown key — this resolver is
+// the render-time half of the injection defence, so it must stay closed for
+// EVERY string, not just ones that miss the prototype (S-L1).
+function ownValue(map: Record<string, string>, choice: string): string | null {
+  return Object.hasOwn(map, choice) ? map[choice] : null;
+}
+
 /** Resolve a heading-size key to its scale factor, or `null` to keep the default. */
 export function headingScale(choice: string | null | undefined): string | null {
   if (!choice || choice === "default") return null;
-  return HEADING_SIZE_SCALES[choice] ?? null;
+  return ownValue(HEADING_SIZE_SCALES, choice);
 }
 
 /** Resolve a weight key to its numeric CSS value, or `null` to keep the default. */
 export function fontWeightValue(choice: string | null | undefined): string | null {
   if (!choice || choice === "default") return null;
-  return FONT_WEIGHT_VALUES[choice] ?? null;
+  return ownValue(FONT_WEIGHT_VALUES, choice);
 }
 
 /** Resolve a style key to its CSS `font-style`, or `null` to keep the default. */
 export function fontStyleValue(choice: string | null | undefined): string | null {
   if (!choice || choice === "default") return null;
-  return FONT_STYLE_VALUES[choice] ?? null;
+  return ownValue(FONT_STYLE_VALUES, choice);
 }
 
 // ── Root variables ────────────────────────────────────────────────────────────
