@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-templates]]"
-last-reviewed: 2026-07-27
+last-reviewed: 2026-07-28
 ---
 
 # Invite Builder
@@ -179,6 +179,32 @@ scheme (regression-tested in `cire/theme/src/palette.test.ts`):
 - the hero scrim was fixed-dark, which turned a cream invite muddy grey; it now
   tracks the page (dark page scrims dark, light page veils light).
 
+### Typography options (heading size / weight / style + body weight / style)
+
+Migration `0048` adds five **global** typography options alongside the two font
+faces: `headingSize` (`small | large` — a multiplier on each pack's existing
+`clamp(...)` curves), `headingWeight` + `bodyWeight` (`light | regular | bold`
+→ 300/400/700), and `headingStyle` + `bodyStyle` (`normal | italic`). All are
+**closed enum keys** (`HEADING_SIZE_CHOICES` / `FONT_WEIGHT_CHOICES` /
+`FONT_STYLE_CHOICES` in `@cire/theme`), NULL ⇒ the design pack's built-in look.
+
+`typographyVars` in `@cire/theme` — shared by the guest root vars and the
+organiser preview — resolves each key to a fixed CSS value and emits
+`--invite-heading-scale/-weight/-style` + `--invite-body-weight/-style` only
+when set, so nothing new crosses the CSS-injection gate (the payload never
+reaches a style; only the closed map's values do). Consumption: the packs'
+hero-title + section-heading elements carry
+`[font-weight:var(--invite-heading-weight,300)]`
+`[font-style:var(--invite-heading-style,normal)]` and wrap their size clamps in
+`calc(clamp(…)*var(--invite-heading-scale,1))` (fallbacks = the former literals,
+so an unset option renders pixel-identical); the body pair is applied by
+`global.css`'s `body` rule and cascades by inheritance, with headings pinning
+their own weight/style so an italic body never drags the headings along. Modal
+titles and event-card names deliberately keep the pack look. The weight
+vocabulary stops at 300/400/700 because those are the faces Cormorant Garamond
+AND Lato actually ship (no 500/600 in Lato — a `medium` step would faux-bold);
+the guest + organiser font links load the 700s and true italics.
+
 ### Still bounded
 
 - **Fonts** are a **closed enum** (`FONT_CHOICES`: `default`, `cormorant`,
@@ -189,6 +215,9 @@ scheme (regression-tested in `cire/theme/src/palette.test.ts`):
   dependency, no `@font-face`/SSRF surface, no render-block cost. This map used
   to exist in three hand-maintained copies (guest render, API enum, organiser
   preview); one copy is the point.
+- **Typography options** are closed enums too (see above) — the persisted key
+  is looked up in `@cire/theme`'s value maps on every side; an unknown key
+  emits nothing and degrades to the built-in look.
 - **Colours** pass a strict server-side allow-list (`isThemeColor`) — only
   `#hex` / `rgb(a)` / `hsl(a)` / `oklch(...)` with a restricted inner-character
   class (no `url()`, `expression()`, `var()`, named colours, or attribute
@@ -211,6 +240,9 @@ swatches say what guests should wear, and recolouring them would be a lie.
 `0017_hero_display_options.sql`) — one row per wedding (`wedding_id` PK + cascade
 FK ⇒ 1:1). Nullable text columns + nullable `hero_image_key` / `story_image_key` +
 nullable theme columns (`theme_heading_font`, `theme_body_font`, the five
+typography-option columns `theme_heading_size` / `theme_heading_weight` /
+`theme_heading_style` / `theme_body_weight` / `theme_body_style` from
+`0048_invite_typography.sql`, the five
 `palette_{ground,card,ink,gilt,bloom}` seeds + `palette_preset`, and the four
 `{hero,story,details,welcome}_tone` columns — all from
 `0044_invite_palette.sql`, which dropped the eight
@@ -475,8 +507,10 @@ endpoints; `solid-toast` for feedback, `isAuthExpired` / `redirectToLogin` for
 
 **Structure (2026-07-10 restructure): one card per guest-page section, in the
 order guests scroll them, each owning everything about its section.** A global
-**Typography** fieldset (two font `<select>`s, closed `FONT_OPTIONS` mirror of
-the server enum) comes first, then **Hero** (image + crop, title/subtitle,
+**Look** fieldset (two font `<select>`s plus the five typography-option
+`<select>`s — heading size/weight/style, body weight/style — all closed
+mirrors of the `@cire/theme` enums, and the colour scheme) comes first, then
+**Hero** (image + crop, title/subtitle,
 accent + background pickers, the three hero-display sliders, and one WYSIWYG
 preview compositing all of it), **Our Story** (image, eyebrow/heading/body,
 colours, preview), **Code Entry & Welcome** (welcome greeting, colours,

@@ -292,7 +292,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                 // image/subtitle-only hero). A multi-tenant product must never
                 // default to one couple's initials.
                 fallback={
-                  <span class="font-display text-gold max-w-full pb-1 text-left text-[clamp(2.75rem,9vw,6.5rem)] leading-[1.1] font-light break-words select-none">
+                  <span class="font-display text-gold max-w-full pb-1 text-left text-[calc(clamp(2.75rem,9vw,6.5rem)*var(--invite-heading-scale,1))] leading-[1.1] [font-weight:var(--invite-heading-weight,300)] break-words [font-style:var(--invite-heading-style,normal)] select-none">
                     You're Invited
                   </span>
                 }
@@ -301,7 +301,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                   // leading-[1.1] + pb-1, never leading-none: at 6.5rem a name
                   // with a descender (Jyoti, Peggy, Raj) loses its tail to the
                   // line box otherwise, on the one word the page exists for.
-                  <span class="font-display text-gold max-w-full pb-1 text-left text-[clamp(2.75rem,9vw,6.5rem)] leading-[1.1] font-light break-words select-none">
+                  <span class="font-display text-gold max-w-full pb-1 text-left text-[calc(clamp(2.75rem,9vw,6.5rem)*var(--invite-heading-scale,1))] leading-[1.1] [font-weight:var(--invite-heading-weight,300)] break-words [font-style:var(--invite-heading-style,normal)] select-none">
                     {title()}
                   </span>
                 )}
@@ -401,7 +401,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
               <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
                 {story()?.eyebrow ?? "Our Story"}
               </p>
-              <h2 class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light">
+              <h2 class="font-display text-text mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                 {story()?.heading ?? "How It All Began"}
               </h2>
               <div class="max-w-[480px]">
