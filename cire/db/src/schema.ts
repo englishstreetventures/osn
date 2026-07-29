@@ -683,8 +683,20 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   // guest name, previously hardcoded to "We are delighted to invite you to
   // celebrate with us." NULL ⇒ the built-in default copy.
   welcomeMessage: text("welcome_message"),
+  // Closing note in the invite's footer (migration 0049) — a free-text line the
+  // couple signs off with ("Looking forward to celebrating with you", "No boxed
+  // gifts please"). Unlike the welcome greeting there is NO built-in default:
+  // NULL / whitespace-only ⇒ the footer note simply doesn't render, exactly like
+  // the hero / Our-Story / dress-code segments. So an existing wedding that
+  // never sets it keeps today's footer (couple's title + legal links).
+  footerMessage: text("footer_message"),
   heroImageKey: text("hero_image_key"),
   storyImageKey: text("story_image_key"),
+  // The footer's optional image (migration 0050) — a small centred monogram /
+  // motif / signature above the closing note. Same R2-object-key storage and
+  // same crop JSON shape as the other slots; NULL ⇒ nothing renders, which is
+  // what every pre-0050 wedding reads as.
+  footerImageKey: text("footer_image_key"),
   // JSON-encoded normalised crop rectangle `{x,y,w,h}` in SOURCE FRACTIONS (0..1)
   // the organiser chose for the hero / story image (migration 0021). NULL ⇒ the
   // default centre `object-cover` crop, so an un-cropped image renders exactly as
@@ -694,6 +706,7 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   // no-store invite JSON the guest reads carries the new rectangle immediately.
   heroImageCrop: text("hero_image_crop"),
   storyImageCrop: text("story_image_crop"),
+  footerImageCrop: text("footer_image_crop"),
   // Phone-specific hero crop (migration 0046). The hero renders full-bleed at
   // wildly different viewport aspects, so it gets a SECOND rectangle (same JSON
   // shape) that the guest site applies below its desktop breakpoint. NULL ⇒

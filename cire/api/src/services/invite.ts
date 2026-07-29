@@ -1,4 +1,4 @@
-import { weddingInviteCustomisations, weddings } from "@cire/db";
+import { families, weddingInviteCustomisations, weddings } from "@cire/db";
 import type {
   FontStyleChoice,
   FontWeightChoice,
@@ -6,7 +6,7 @@ import type {
   PalettePresetKey,
   SectionTone,
 } from "@cire/theme";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
@@ -130,6 +130,15 @@ export interface InviteCustomisation {
   welcome: {
     message: string | null;
   };
+  // Footer closing note (0049) + its optional image (0050) — a small centred
+  // monogram / motif / signature above the note. Both `null` ⇒ the guest site
+  // renders NEITHER; there is no built-in default here, unlike
+  // `details` / `welcome`, and the two are independent (either alone is valid).
+  footer: {
+    message: string | null;
+    imageUrl: string | null;
+    imageCrop: ImageCrop | null;
+  };
   heroDisplay: HeroDisplay;
   theme: InviteTheme;
   // Optional host override for the first line of the copyable invite message
@@ -167,6 +176,7 @@ const EMPTY: InviteCustomisation = {
   story: { eyebrow: null, heading: null, body: null, imageUrl: null, imageCrop: null },
   details: { eyebrow: null, heading: null },
   welcome: { message: null },
+  footer: { message: null, imageUrl: null, imageCrop: null },
   heroDisplay: DEFAULT_HERO_DISPLAY,
   theme: EMPTY_THEME,
   inviteMessage: null,
@@ -176,6 +186,41 @@ const EMPTY: InviteCustomisation = {
 /** Public path the invite image is served from. Clients prepend the API origin. */
 function imagePath(slug: string, slot: InviteImageSlot, version: number): string {
   return `/api/invite/${encodeURIComponent(slug)}/image/${slot}?v=${version}`;
+}
+
+/**
+ * Which columns back each image slot. This is the ONE place the slot union maps
+ * onto storage — every read/write below indexes this table rather than branching
+ * on the slot name. That matters: while there were exactly two slots the code
+ * branched `slot === "hero" ? … : …` everywhere, and adding a third (`footer`,
+ * migration 0050) would have silently made every one of those branches treat it
+ * as the story slot — writing the footer's image into `story_image_key`.
+ *
+ * `cropMobile` is hero-only (migration 0046): the hero is the one full-bleed
+ * image rendered at both wide and tall viewport aspects, so it carries a second
+ * rectangle. `null` for every other slot, whose single aspect needs one.
+ */
+const SLOT_COLUMNS = {
+  hero: {
+    key: "heroImageKey",
+    crop: "heroImageCrop",
+    cropMobile: "heroImageCropMobile",
+  },
+  story: { key: "storyImageKey", crop: "storyImageCrop", cropMobile: null },
+  footer: { key: "footerImageKey", crop: "footerImageCrop", cropMobile: null },
+} as const satisfies Record<
+  InviteImageSlot,
+  { key: string; crop: string; cropMobile: string | null }
+>;
+
+/**
+ * The crop column(s) to null out when a slot's image is replaced or removed — a
+ * fresh image invalidates the previous rectangle (it framed a different photo),
+ * so the slot starts full-frame again. For the hero that means BOTH rectangles.
+ */
+function cropResetsFor(slot: InviteImageSlot): Record<string, null> {
+  const cols = SLOT_COLUMNS[slot];
+  return cols.cropMobile ? { [cols.crop]: null, [cols.cropMobile]: null } : { [cols.crop]: null };
 }
 
 /** Trim, then collapse an all-whitespace/empty override to `null` (use default). */
@@ -197,11 +242,14 @@ function toCustomisation(
     detailsEyebrow: string | null;
     detailsHeading: string | null;
     welcomeMessage: string | null;
+    footerMessage: string | null;
     heroImageKey: string | null;
     storyImageKey: string | null;
+    footerImageKey: string | null;
     heroImageCrop: string | null;
     heroImageCropMobile: string | null;
     storyImageCrop: string | null;
+    footerImageCrop: string | null;
     // NOT NULL columns, but a LEFT JOIN miss (no customisation row) yields null —
     // coalesced to the today's-look default below.
     heroBlur: number | null;
@@ -257,6 +305,11 @@ function toCustomisation(
     },
     details: { eyebrow: c.detailsEyebrow, heading: c.detailsHeading },
     welcome: { message: c.welcomeMessage },
+    footer: {
+      message: c.footerMessage,
+      imageUrl: c.footerImageKey ? imagePath(slug, "footer", version) : null,
+      imageCrop: c.footerImageKey ? decodeCrop(c.footerImageCrop) : null,
+    },
     heroDisplay: {
       // Persisted values already passed the clamp-on-write validation; a null
       // (no row / LEFT JOIN miss) falls back to the today's-look default so an
@@ -349,11 +402,14 @@ export const inviteService = {
             detailsEyebrow: weddingInviteCustomisations.detailsEyebrow,
             detailsHeading: weddingInviteCustomisations.detailsHeading,
             welcomeMessage: weddingInviteCustomisations.welcomeMessage,
+            footerMessage: weddingInviteCustomisations.footerMessage,
             heroImageKey: weddingInviteCustomisations.heroImageKey,
             storyImageKey: weddingInviteCustomisations.storyImageKey,
+            footerImageKey: weddingInviteCustomisations.footerImageKey,
             heroImageCrop: weddingInviteCustomisations.heroImageCrop,
             heroImageCropMobile: weddingInviteCustomisations.heroImageCropMobile,
             storyImageCrop: weddingInviteCustomisations.storyImageCrop,
+            footerImageCrop: weddingInviteCustomisations.footerImageCrop,
             heroBlur: weddingInviteCustomisations.heroBlur,
             heroTitleBackdropOpacity: weddingInviteCustomisations.heroTitleBackdropOpacity,
             heroTitleBackdropBlur: weddingInviteCustomisations.heroTitleBackdropBlur,
@@ -392,7 +448,21 @@ export const inviteService = {
     }).pipe(Effect.withSpan("cire.invite.getForWeddingId"));
   },
 
-  /** Public read by wedding slug — drives the guest site. 404 for unknown slug. */
+  /**
+   * Public read by wedding slug — drives the guest site. 404 for unknown slug.
+   *
+   * REDACTS the closing section. Everything else here (hero, story, events
+   * header, welcome greeting, theme) is public by design: it paints the invite
+   * shell that anyone opening the link sees before entering a code. The closing
+   * section is not — it is the couple's sign-off to the invited household, so it
+   * is delivered ONLY in the claim response (`claimService.lookup`), beside the
+   * events list, to a session that proved household membership.
+   *
+   * This is the enforcement point for that gate. The guest site's
+   * `<Show when={claimResult()}>` is presentation; without this redaction the
+   * note would still be one unauthenticated `curl` away, and the render gate
+   * would be decoration rather than a control.
+   */
   getForSlug(slug: string): Effect.Effect<InviteCustomisation, WeddingNotFound, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
@@ -400,8 +470,33 @@ export const inviteService = {
         db.select({ id: weddings.id }).from(weddings).where(eq(weddings.slug, slug)).all(),
       );
       if (!wedding) return yield* Effect.fail(new WeddingNotFound({ slug }));
-      return yield* inviteService.getForWedding(wedding.id, slug);
+      const full = yield* inviteService.getForWedding(wedding.id, slug);
+      return { ...full, footer: EMPTY.footer };
     }).pipe(Effect.withSpan("cire.invite.getForSlug"));
+  },
+
+  /**
+   * Does this claimed guest session belong to the wedding behind `slug`?
+   *
+   * The gate on the closing section's image. A valid `cire_session` proves the
+   * holder claimed SOME household's code — not necessarily one at this wedding —
+   * so the serve route must also bind the session to the slug it is asking for.
+   * Without this, any guest of any wedding could read every other wedding's
+   * motif, which is a lateral read, not a gate.
+   */
+  sessionOwnsWedding(familyId: string, slug: string): Effect.Effect<boolean, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({ familyId: families.id })
+          .from(families)
+          .innerJoin(weddings, eq(weddings.id, families.weddingId))
+          .where(and(eq(families.id, familyId), eq(weddings.slug, slug)))
+          .all(),
+      );
+      return Boolean(row);
+    }).pipe(Effect.withSpan("cire.invite.sessionOwnsWedding"));
   },
 
   /**
@@ -442,6 +537,7 @@ export const inviteService = {
             weddingId: weddings.id,
             heroImageKey: weddingInviteCustomisations.heroImageKey,
             storyImageKey: weddingInviteCustomisations.storyImageKey,
+            footerImageKey: weddingInviteCustomisations.footerImageKey,
             heroBlur: weddingInviteCustomisations.heroBlur,
             updatedAt: weddingInviteCustomisations.updatedAt,
             imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
@@ -455,7 +551,7 @@ export const inviteService = {
           .all(),
       );
       if (!row) return yield* Effect.fail(new WeddingNotFound({ slug }));
-      const key = slot === "hero" ? row.heroImageKey : row.storyImageKey;
+      const key = row[SLOT_COLUMNS[slot].key];
       return {
         key,
         imageVersion: row.imagesUpdatedAt ?? row.updatedAt,
@@ -477,6 +573,7 @@ export const inviteService = {
         detailsEyebrow: normaliseCopy(fields.detailsEyebrow),
         detailsHeading: normaliseCopy(fields.detailsHeading),
         welcomeMessage: normaliseCopy(fields.welcomeMessage),
+        footerMessage: normaliseCopy(fields.footerMessage),
         inviteMessage: normaliseCopy(fields.inviteMessage),
       };
       yield* dbQuery(() =>
@@ -600,10 +697,8 @@ export const inviteService = {
   ): Effect.Effect<string, AssetR2Error, DbService | AssetsR2Service> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const column =
-        slot === "hero"
-          ? weddingInviteCustomisations.heroImageKey
-          : weddingInviteCustomisations.storyImageKey;
+      const keyColumn = SLOT_COLUMNS[slot].key;
+      const column = weddingInviteCustomisations[keyColumn];
 
       const [existing] = yield* dbQuery(() =>
         db
@@ -615,14 +710,10 @@ export const inviteService = {
 
       const newKey = yield* storeAsset(weddingId, slot, bytes, contentType);
       const now = new Date();
-      const keyColumn = slot === "hero" ? "heroImageKey" : "storyImageKey";
       // A fresh image invalidates the previous crop (it framed a different photo),
       // so reset the slot's crop(s) to the full-frame default on every upload —
       // for the hero that means BOTH rectangles (desktop + the 0046 mobile one).
-      const cropResets =
-        slot === "hero"
-          ? { heroImageCrop: null, heroImageCropMobile: null }
-          : { storyImageCrop: null };
+      const cropResets = cropResetsFor(slot);
 
       yield* dbQuery(() =>
         db
@@ -667,15 +758,9 @@ export const inviteService = {
   ): Effect.Effect<void, never, DbService | AssetsR2Service> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const column =
-        slot === "hero"
-          ? weddingInviteCustomisations.heroImageKey
-          : weddingInviteCustomisations.storyImageKey;
-      const keyColumn = slot === "hero" ? "heroImageKey" : "storyImageKey";
-      const cropResets =
-        slot === "hero"
-          ? { heroImageCrop: null, heroImageCropMobile: null }
-          : { storyImageCrop: null };
+      const keyColumn = SLOT_COLUMNS[slot].key;
+      const column = weddingInviteCustomisations[keyColumn];
+      const cropResets = cropResetsFor(slot);
 
       const [existing] = yield* dbQuery(() =>
         db
@@ -732,12 +817,10 @@ export const inviteService = {
   ): Effect.Effect<void, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const keyColumn =
-        slot === "hero"
-          ? screen === "mobile"
-            ? "heroImageCropMobile"
-            : "heroImageCrop"
-          : "storyImageCrop";
+      const cols = SLOT_COLUMNS[slot];
+      // `mobile` is hero-only and the route has already rejected it elsewhere;
+      // fall back to the slot's single rectangle if one ever slips through.
+      const keyColumn = screen === "mobile" ? (cols.cropMobile ?? cols.crop) : cols.crop;
       const encoded = crop ? JSON.stringify(crop) : null;
       const now = new Date();
       yield* dbQuery(() =>

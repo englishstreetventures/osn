@@ -67,11 +67,12 @@ function createAssetsStub(
   };
 }
 
-/** Insert a wedding with a customisation row carrying hero/story keys + an event
- *  with an event-image key. Returns the keys it referenced (the "live" set). */
+/** Insert a wedding with a customisation row carrying per-slot image keys + an
+ *  event with an event-image key. Returns the keys it referenced ("live"). */
 function seedReferenced(opts: {
   hero?: string;
   story?: string;
+  footer?: string;
   eventKey?: string;
 }): Effect.Effect<void, never, DbService> {
   return Effect.gen(function* () {
@@ -88,12 +89,13 @@ function seedReferenced(opts: {
         updatedAt: now,
       })
       .run();
-    if (opts.hero || opts.story) {
+    if (opts.hero || opts.story || opts.footer) {
       db.insert(weddingInviteCustomisations)
         .values({
           weddingId,
           heroImageKey: opts.hero ?? null,
           storyImageKey: opts.story ?? null,
+          footerImageKey: opts.footer ?? null,
           updatedAt: now,
         })
         .run();
@@ -144,18 +146,23 @@ describe("assetReconcileService.reconcileOrphans", () => {
     ),
   );
 
+  // Every wedding-level image slot must be in `loadReferencedKeys`' select — a
+  // slot omitted there reads as unreferenced, so its images get swept once past
+  // the grace window. This is the regression guard for that.
   it(
-    "NEVER deletes a referenced key (hero, story, or event image)",
+    "NEVER deletes a referenced key (hero, story, footer, or event image)",
     withDb(
       Effect.gen(function* () {
         yield* seedReferenced({
           hero: "assets/wedB/hero-x",
           story: "assets/wedB/story-y",
+          footer: "assets/wedB/footer-w",
           eventKey: "assets/wedB/event-z",
         });
         const bucket = createAssetsStub([
           { key: "assets/wedB/hero-x", uploaded: OLD },
           { key: "assets/wedB/story-y", uploaded: OLD },
+          { key: "assets/wedB/footer-w", uploaded: OLD },
           { key: "assets/wedB/event-z", uploaded: OLD },
         ]);
 
@@ -163,7 +170,23 @@ describe("assetReconcileService.reconcileOrphans", () => {
 
         expect(deleted).toBe(0);
         expect(bucket.deleted.size).toBe(0);
-        expect(bucket.remaining().length).toBe(3);
+        expect(bucket.remaining().length).toBe(4);
+      }),
+    ),
+  );
+
+  // A footer image on a wedding with NO hero/story must still count as live.
+  it(
+    "NEVER deletes a footer image that is the wedding's only invite asset",
+    withDb(
+      Effect.gen(function* () {
+        yield* seedReferenced({ footer: "assets/wedB2/footer-only" });
+        const bucket = createAssetsStub([{ key: "assets/wedB2/footer-only", uploaded: OLD }]);
+
+        const deleted = yield* assetReconcileService.reconcileOrphans(bucket, NOW);
+
+        expect(deleted).toBe(0);
+        expect(bucket.remaining().length).toBe(1);
       }),
     ),
   );

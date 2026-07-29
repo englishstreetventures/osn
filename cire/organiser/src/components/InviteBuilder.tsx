@@ -24,7 +24,7 @@ import {
   type CropSlot,
   type ImageCrop,
 } from "../lib/image-crop";
-import { isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
+import { isFooterEmpty, isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
 import { CIRE_WEB_URL } from "../lib/osn";
 import PaletteField, { type PaletteState, resolvedSeeds } from "./PaletteField";
 
@@ -33,7 +33,7 @@ type ThemeSection = "hero" | "story" | "details" | "welcome";
 
 const ImageCropModal = lazy(() => import("./ImageCropModal"));
 
-type ImageSlot = "hero" | "story";
+type ImageSlot = "hero" | "story" | "footer";
 
 /**
  * The font choices, labelled for the dropdown. The KEYS come from the shared
@@ -135,6 +135,10 @@ interface InviteCustomisation {
   // fields as "use the defaults" instead of crashing the builder.
   details?: { eyebrow: string | null; heading: string | null };
   welcome?: { message: string | null };
+  // Footer closing note (0049) + its optional image (0050). Optional on the wire
+  // for the same mid-deploy reason; unlike the fields above neither has a
+  // built-in default, so absent simply means the guest footer shows neither.
+  footer?: { message: string | null; imageUrl?: string | null; imageCrop?: ImageCrop | null };
   heroDisplay: HeroDisplay;
   theme: InviteTheme;
   // Optional host override for the first line of the copyable invite message
@@ -175,6 +179,13 @@ const DEFAULTS = {
   detailsEyebrow: "Celebrate With Us",
   detailsHeading: "Your Events",
   welcomeMessage: "We are delighted to invite you to celebrate with us.",
+};
+
+/** Human-readable slot names for the upload toasts. */
+const SLOT_LABELS: Record<ImageSlot, string> = {
+  hero: "Hero",
+  story: "Story",
+  footer: "Closing",
 };
 
 /** Trimmed live copy (or the default when blank), truncated to fit a preview card. */
@@ -218,6 +229,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   const [detailsEyebrow, setDetailsEyebrow] = createSignal("");
   const [detailsHeading, setDetailsHeading] = createSignal("");
   const [welcomeMessage, setWelcomeMessage] = createSignal("");
+  const [footerMessage, setFooterMessage] = createSignal("");
   const [inviteMessage, setInviteMessage] = createSignal("");
   const [seeded, setSeeded] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
@@ -259,6 +271,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     setDetailsEyebrow(d.details?.eyebrow ?? "");
     setDetailsHeading(d.details?.heading ?? "");
     setWelcomeMessage(d.welcome?.message ?? "");
+    setFooterMessage(d.footer?.message ?? "");
     setInviteMessage(d.inviteMessage ?? "");
     setHeadingFont(d.theme.headingFont ?? "default");
     setBodyFont(d.theme.bodyFont ?? "default");
@@ -302,6 +315,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     detailsEyebrow: detailsEyebrow() || null,
     detailsHeading: detailsHeading() || null,
     welcomeMessage: welcomeMessage() || null,
+    footerMessage: footerMessage() || null,
     inviteMessage: inviteMessage() || null,
   });
 
@@ -397,6 +411,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       body: storyBody(),
       imageUrl: data()?.story.imageUrl,
     });
+  // The footer has no defaults, so its badge asks "is there anything personal
+  // here at all?" — a note, an image, or both. Neither ⇒ the guest sees the
+  // plain footer (names over the legal links).
+  const footerShown = () =>
+    !isFooterEmpty({ message: footerMessage(), imageUrl: data()?.footer?.imageUrl });
 
   /**
    * The single save. The API keeps its two endpoints (`/text` + `/theme`) but
@@ -571,7 +590,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         throw new Error(body.error ?? `Upload failed (${res.status})`);
       }
       await refetch();
-      toast.success(`${slot === "hero" ? "Hero" : "Story"} image updated`);
+      toast.success(`${SLOT_LABELS[slot]} image updated`);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setError(err instanceof Error ? err.message : "Upload failed.");
@@ -945,6 +964,63 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 />
               </fieldset>
 
+              {/* ── Closing section ──────────────────────────────────── */}
+              <fieldset class="border-border flex flex-col gap-4 rounded-sm border p-4">
+                <legend class="font-body text-gold-dim px-2 text-[0.72rem] tracking-[0.1em] uppercase">
+                  Closing Section
+                </legend>
+                <p class="font-body text-text-muted text-[0.82rem]">
+                  The last section of the invite — your own sign-off, below the events and above the
+                  page footer. A small decorative image (a monogram, motif or signature) and a
+                  closing line like "Looking forward to celebrating with you" or "No boxed gifts
+                  please". Add either, both, or neither: leave them empty and the whole section is
+                  skipped, so the invite ends on your events exactly as it does now. Guests see this
+                  only after they enter their code. The image is decorative — anything that needs to
+                  be read (including by a screen reader) should go in the note.
+                </p>
+                <SegmentBadge shown={footerShown()} />
+                <ImageField
+                  label="Closing image"
+                  slot="footer"
+                  url={d().footer?.imageUrl ?? null}
+                  crop={d().footer?.imageCrop ?? null}
+                  onSelect={(f) => void uploadImage("footer", f)}
+                  onRemove={() => void removeImage("footer")}
+                  onSaveCrop={(c) => saveCrop("footer", c)}
+                />
+                <label class="flex flex-col gap-1.5">
+                  <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+                    Closing note (optional)
+                  </span>
+                  <textarea
+                    rows={3}
+                    aria-label="Closing note (optional)"
+                    placeholder="Looking forward to celebrating with you"
+                    value={footerMessage()}
+                    onInput={(e) => setFooterMessage(e.currentTarget.value)}
+                    class="border-border bg-bg font-body text-text focus:border-gold rounded-sm border px-3 py-2 text-[0.88rem] outline-none"
+                  />
+                </label>
+                {/* No colour picker of its own — the closing section reuses the
+                    Code Entry & Welcome surface, so the couple's two direct
+                    addresses to their guests match. */}
+                <SectionPreview
+                  label="Closing Section"
+                  section="welcome"
+                  tokens={previewTokens()}
+                  surface={toneSurface("welcome")}
+                  body={
+                    footerMessage().trim().length > 0
+                      ? sampleCopy(footerMessage(), "")
+                      : "Your closing note appears here."
+                  }
+                />
+                <p class="font-body text-text-muted text-[0.78rem] italic">
+                  Uses the colours you picked for Code Entry &amp; Welcome — the closing note is you
+                  speaking to your guests, same as the greeting.
+                </p>
+              </fieldset>
+
               {/* ── Invite message (not on the guest page) ───────────── */}
               <fieldset class="border-border flex flex-col gap-4 rounded-sm border p-4">
                 <legend class="font-body text-gold-dim px-2 text-[0.72rem] tracking-[0.1em] uppercase">
@@ -1068,8 +1144,9 @@ function SectionPreview(props: {
   tokens: Record<string, string>;
   /** The surface this section's tone paints, as a `var(--color-…)` reference. */
   surface: string;
-  eyebrow: string;
-  heading: string;
+  /** Optional: the closing section is body copy only — no eyebrow or heading. */
+  eyebrow?: string;
+  heading?: string;
   body: string;
 }) {
   return (
@@ -1087,27 +1164,31 @@ function SectionPreview(props: {
         }}
         class="flex min-h-28 flex-col items-center justify-center gap-1.5 overflow-hidden rounded-sm border p-4 text-center"
       >
-        <span
-          style={{ color: "var(--color-gold)" }}
-          class="text-[0.6rem] tracking-[0.18em] uppercase opacity-80"
-        >
-          {props.eyebrow}
-        </span>
+        <Show when={props.eyebrow}>
+          <span
+            style={{ color: "var(--color-gold)" }}
+            class="text-[0.6rem] tracking-[0.18em] uppercase opacity-80"
+          >
+            {props.eyebrow}
+          </span>
+        </Show>
         {/* The heading sample follows the typography variables with the guest
             packs' literal fallbacks (300 / normal) — it used to be decoratively
             italic, which would now lie about an explicit "Normal" pick. */}
-        <span
-          style={{
-            color: "var(--color-text)",
-            "font-family": "var(--font-display)",
-            "font-size": "calc(1.5rem * var(--invite-heading-scale, 1))",
-            "font-weight": "var(--invite-heading-weight, 300)",
-            "font-style": "var(--invite-heading-style, normal)",
-          }}
-          class="leading-none"
-        >
-          {props.heading}
-        </span>
+        <Show when={props.heading}>
+          <span
+            style={{
+              color: "var(--color-text)",
+              "font-family": "var(--font-display)",
+              "font-size": "calc(1.5rem * var(--invite-heading-scale, 1))",
+              "font-weight": "var(--invite-heading-weight, 300)",
+              "font-style": "var(--invite-heading-style, normal)",
+            }}
+            class="leading-none"
+          >
+            {props.heading}
+          </span>
+        </Show>
         {/* Body sample in the body font on the section surface, so the font and
             the text-on-surface contrast are both visible. */}
         <span

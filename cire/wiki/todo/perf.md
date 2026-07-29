@@ -11,6 +11,16 @@ last-reviewed: 2026-07-29
 
 See [[review-findings]] for severity prefix conventions.
 
+### Closing section — review findings (claude/cire-footer-customisation-xkc09y, 2026-07-29)
+
+Raised by the pre-merge performance review of the invite's closing section. See the root wiki's `[[invite-builder]]`.
+
+- [x] **P-W1** — the closing image loaded eagerly although the section sits below every event card and is guaranteed off-screen at mount, so its fetch raced the in-viewport event images (which ARE `loading="lazy"`) and billed a per-call Images transform for every guest who unlocked, scrolled or not. **Fixed on branch:** `loading="lazy" decoding="async"`, plus `content-visibility: auto` on the section so the crop path's background layer defers too.
+- [x] **P-I2** — the srcset carried a single 320w candidate, so `sizes` was inert and a 3× phone got an under-resolved monogram; and the bare `src` named no variant, which resolves to `card` server-side and would mint a second transform-cache entry for a URL the browser never fetches. **Fixed on branch:** two candidates (`thumb`/`card`) and an explicit `thumb` src.
+- [x] **P-I3** — the crop path always requested `card` (800w) for a box at most 200 CSS px wide. **Fixed on branch:** the variant is picked from the crop's tightness (`card` only below half-width, where the `100/w` scale genuinely needs the pixels).
+- [ ] **P-W2** — `images_updated_at` is a **single per-wedding** column used as the cache-key version for *every* slot, so an organiser nudging their monogram's crop invalidates the transform cache for hero (incl. the preloaded `hero-bg` LCP variant), story **and** footer, in every colo and format. This branch does not break the invariant (the version is still server-derived — S-M1 holds) but adds a third slot's worth of bump events. **Fix:** fold the slot's R2 key into the cache key for exact per-slot invalidation — the per-event serve route already does this (`imageKeyForEvent` derives its version from the key), so no new column or migration is needed. Compounds with **P-I1** above; take that one first.
+- [ ] *Checked, not a concern:* `loadReferencedKeys`' unfiltered customisation read is unchanged in row count — D1 bills rows read, not columns, so the widened projection is free, and a bare `where` without a supporting index would look like a fix without being one.
+
 ### Hero phone crop — review findings (claude/hero-image-responsive-crop-b6b74u, 2026-07-23)
 
 Raised by the pre-merge performance review of the per-device hero crop. See [[web]] and the root wiki's `[[invite-builder]]`.

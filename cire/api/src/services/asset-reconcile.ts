@@ -11,7 +11,7 @@ import { reapR2Objects } from "./r2-cleanup";
  *
  * Invite images live in the `cire-assets` R2 bucket (binding `ASSETS`), keyed
  * `assets/<weddingId>/<slot>-<uuid>`. The keys are referenced by
- * `wedding_invite_customisations.hero_image_key`/`story_image_key` and
+ * `wedding_invite_customisations`' per-slot image keys (hero / story / footer) and
  * `events.event_image_key`. When a re-upload's (or remove's) BEST-EFFORT delete
  * of the SUPERSEDED object fails, that object is orphaned forever — nothing in
  * D1 references it anymore, and there is no R2 lifecycle rule. The retention
@@ -100,12 +100,17 @@ function loadReferencedKeys(): Effect.Effect<Set<string>, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
 
-    // hero/story keys (one customisation row per wedding). Only non-null.
+    // Every wedding-level image slot's key (one customisation row per wedding).
+    // MUST list every column in `INVITE_IMAGE_SLOTS` — a slot missing here is
+    // not a no-op, it is data loss: this set is what marks an object LIVE, so an
+    // unlisted slot's images look orphaned and get swept once past the grace
+    // window. Adding an image slot means adding its key column here.
     const custRows = yield* dbQuery(() =>
       db
         .select({
           hero: weddingInviteCustomisations.heroImageKey,
           story: weddingInviteCustomisations.storyImageKey,
+          footer: weddingInviteCustomisations.footerImageKey,
         })
         .from(weddingInviteCustomisations)
         .all(),
@@ -122,8 +127,11 @@ function loadReferencedKeys(): Effect.Effect<Set<string>, never, DbService> {
 
     const referenced = new Set<string>();
     for (const r of custRows) {
-      if (r.hero) referenced.add(r.hero);
-      if (r.story) referenced.add(r.story);
+      // Iterate the row's values rather than naming each slot again — one place
+      // to update (the select above) instead of two that can drift apart.
+      for (const key of Object.values(r)) {
+        if (key) referenced.add(key);
+      }
     }
     for (const r of eventRows) {
       if (r.key) referenced.add(r.key);

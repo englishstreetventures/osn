@@ -66,8 +66,9 @@ const preloadHeroHref = heroBase ? `${heroBase}${heroSep}variant=hero-bg` : null
       details={initialInvite?.details ?? null}
       welcomeMessage={initialInvite?.welcome?.message ?? null}
     />
-    {/* Sign the invite off in the couple's name, so the last thing a guest
-        reads is who invited them and not the legal links. */}
+    {/* Site-wide chrome: the couple's name over the legal links. Always here,
+        on the invite and on the legal pages alike. The couple's own sign-off is
+        a section INSIDE InvitePage above — it sits behind the claim gate. */}
     <SiteFooter closing={initialInvite?.hero.title ?? null} />
     {/* Site-wide consent surface. `client:idle` so it never competes with the
         invite's first paint — nothing third-party can load before it hydrates

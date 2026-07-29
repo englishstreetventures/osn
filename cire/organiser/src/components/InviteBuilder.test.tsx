@@ -339,7 +339,8 @@ describe("InviteBuilder theme", () => {
     await waitFor(() => screen.getByText("Save invite"));
 
     // One tone control per section, in guest-page order (hero, story, welcome,
-    // events); each offers the same three surfaces.
+    // events); each offers the same three surfaces. The closing section has NO
+    // control of its own — it reuses the welcome surface.
     const raised = screen.getAllByText("Raised");
     expect(raised.length).toBe(4);
     fireEvent.click(raised[2]); // welcome
@@ -352,6 +353,22 @@ describe("InviteBuilder theme", () => {
     expect(sent.storyTone).toBeNull();
     expect(sent.detailsTone).toBeNull();
     expect(sent.heroTone).toBeNull();
+  });
+
+  // The closing section deliberately adds NO tone field — it reuses the welcome
+  // surface, so the theme body must stay the four lanes it has always had.
+  it("sends no extra tone lane for the closing section", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
+
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    await waitFor(() => screen.getByText("Save invite"));
+
+    fireEvent.click(screen.getAllByText("Raised")[0]); // hero — make the half dirty
+    fireEvent.click(screen.getByText("Save invite"));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    expect(sentBody("/theme")).not.toHaveProperty("footerTone");
   });
 
   it("seeds the hero display sliders from the loaded customisation", async () => {
@@ -674,6 +691,51 @@ describe("InviteBuilder theme", () => {
     )) as HTMLInputElement;
     expect(eyebrow.value).toBe("");
     expect((screen.getByLabelText("Welcome greeting") as HTMLInputElement).value).toBe("");
+    // Same mid-deploy tolerance for the footer note (no `footer` key at all).
+    expect((screen.getByLabelText("Closing note (optional)") as HTMLTextAreaElement).value).toBe(
+      "",
+    );
+  });
+
+  it("seeds the footer note and sends it on Save invite", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({ ...EMPTY_CUSTOMISATION, footer: { message: "No boxed gifts please" } }),
+    ); // initial load
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // text save
+
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+
+    const note = (await waitFor(() =>
+      screen.getByLabelText("Closing note (optional)"),
+    )) as HTMLTextAreaElement;
+    expect(note.value).toBe("No boxed gifts please");
+
+    fireEvent.input(note, { target: { value: "Looking forward to celebrating with you" } });
+    fireEvent.click(screen.getByText("Save invite"));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    expect(sentBody("/text").footerMessage).toBe("Looking forward to celebrating with you");
+    // Copy-only edit: the theme half stays untouched so the guest image caches
+    // aren't busted for nothing (P-W1).
+    expect(sentBody("/theme")).toBeNull();
+  });
+
+  it("clears the footer note to null when the organiser empties the field", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({ ...EMPTY_CUSTOMISATION, footer: { message: "No boxed gifts please" } }),
+    );
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
+
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+
+    const note = (await waitFor(() =>
+      screen.getByLabelText("Closing note (optional)"),
+    )) as HTMLTextAreaElement;
+    fireEvent.input(note, { target: { value: "" } });
+    fireEvent.click(screen.getByText("Save invite"));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    expect(sentBody("/text").footerMessage).toBeNull();
   });
 });
 
@@ -686,22 +748,24 @@ describe("InviteBuilder shown/hidden badges", () => {
     toastError.mockReset();
   });
 
-  /** All segment badges, in DOM order: [hero, story]. */
+  /** All segment badges, in DOM order: [hero, story, footer]. */
   const badges = (container: HTMLElement) =>
     [...container.querySelectorAll("[data-segment-badge]")] as HTMLElement[];
 
-  it("marks both hero and story 'Hidden — empty' for a blank invite", async () => {
+  it("marks hero, story and footer 'Hidden — empty' for a blank invite", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
     const { container } = render(() => (
       <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
     ));
 
-    await waitFor(() => expect(badges(container)).toHaveLength(2));
-    const [hero, story] = badges(container);
+    await waitFor(() => expect(badges(container)).toHaveLength(3));
+    const [hero, story, footer] = badges(container);
     expect(hero.dataset.shown).toBe("false");
     expect(story.dataset.shown).toBe("false");
+    expect(footer.dataset.shown).toBe("false");
     expect(hero.textContent).toContain("Hidden — empty");
     expect(story.textContent).toContain("Hidden — empty");
+    expect(footer.textContent).toContain("Hidden — empty");
   });
 
   it("marks a section 'Shown' when its content is present", async () => {
@@ -710,16 +774,18 @@ describe("InviteBuilder shown/hidden badges", () => {
         ...EMPTY_CUSTOMISATION,
         hero: { title: "Vera & Ravi", subtitle: null, imageUrl: null },
         story: { eyebrow: null, heading: "How It Began", body: null, imageUrl: null },
+        footer: { message: "No boxed gifts please" },
       }),
     );
     const { container } = render(() => (
       <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
     ));
 
-    await waitFor(() => expect(badges(container)).toHaveLength(2));
-    const [hero, story] = badges(container);
+    await waitFor(() => expect(badges(container)).toHaveLength(3));
+    const [hero, story, footer] = badges(container);
     expect(hero.dataset.shown).toBe("true");
     expect(story.dataset.shown).toBe("true");
+    expect(footer.dataset.shown).toBe("true");
     expect(hero.textContent).toContain("Shown");
   });
 
@@ -729,7 +795,7 @@ describe("InviteBuilder shown/hidden badges", () => {
       <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
     ));
 
-    await waitFor(() => expect(badges(container)).toHaveLength(2));
+    await waitFor(() => expect(badges(container)).toHaveLength(3));
     expect(badges(container)[0].dataset.shown).toBe("false");
 
     // Typing a couple title flips the hero badge without any save.
@@ -741,6 +807,43 @@ describe("InviteBuilder shown/hidden badges", () => {
     await waitFor(() => expect(badges(container)[0].dataset.shown).toBe("false"));
     // No network save was triggered by typing.
     expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks the footer 'Shown' from an image alone, with no note typed", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        ...EMPTY_CUSTOMISATION,
+        footer: { message: null, imageUrl: "/api/invite/anita-ben/image/footer?v=1" },
+      }),
+    );
+    const { container } = render(() => (
+      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+    ));
+
+    await waitFor(() => expect(badges(container)).toHaveLength(3));
+    expect(badges(container)[2].dataset.shown).toBe("true");
+    // …and the note field really is empty — the badge came from the image.
+    expect((screen.getByLabelText("Closing note (optional)") as HTMLTextAreaElement).value).toBe(
+      "",
+    );
+  });
+
+  it("flips the footer badge live, and whitespace-only stays hidden", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
+    const { container } = render(() => (
+      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+    ));
+
+    await waitFor(() => expect(badges(container)).toHaveLength(3));
+    const footerBadge = () => badges(container)[2];
+    expect(footerBadge().dataset.shown).toBe("false");
+
+    const field = screen.getByLabelText("Closing note (optional)");
+    fireEvent.input(field, { target: { value: "Looking forward to celebrating with you" } });
+    await waitFor(() => expect(footerBadge().dataset.shown).toBe("true"));
+
+    fireEvent.input(field, { target: { value: "   " } });
+    await waitFor(() => expect(footerBadge().dataset.shown).toBe("false"));
   });
 });
 

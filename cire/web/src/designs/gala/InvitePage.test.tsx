@@ -470,4 +470,118 @@ describe("gala InvitePage", () => {
     await waitFor(() => expect(getByText(/Preview mode/i)).toBeTruthy(), { timeout: 2000 });
     expect(window.location.search).not.toContain("code");
   });
+
+  it("hides the closing section until the guest claims their code, then shows it", async () => {
+    // The closing content rides the CLAIM response — the public invite payload
+    // redacts it (S-H1), so there is no prop to seed it with pre-claim.
+    const claimed = {
+      ...claim,
+      preview: true,
+      closing: { message: "No boxed gifts please", imageUrl: null, imageCrop: null },
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(claimed), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container, queryByText } = render(() => <InvitePage apiUrl="https://api.test" />);
+
+    // Pre-claim: the section is not in the DOM, and neither is its copy.
+    expect(container.querySelector("[data-invite-closing]")).toBeNull();
+    expect(queryByText("No boxed gifts please")).toBeNull();
+
+    // Claim (the ?code= deep-link path drives it without typing).
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+    cleanup();
+    const after = render(() => <InvitePage apiUrl="https://api.test" />);
+
+    await waitFor(() =>
+      expect(after.container.querySelector("[data-invite-closing]")).toBeTruthy(),
+    );
+    expect(after.getByText("No boxed gifts please")).toBeTruthy();
+  });
+
+  it("renders the closing image on its own, with no note", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            ...claim,
+            preview: true,
+            closing: {
+              message: null,
+              imageUrl: "/api/invite/anita-ben/image/footer?v=7",
+              imageCrop: null,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { container } = render(() => <InvitePage apiUrl="https://api.test" />);
+
+    const section = await waitFor(() => {
+      const el = container.querySelector("[data-invite-closing]");
+      expect(el).toBeTruthy();
+      return el as HTMLElement;
+    });
+    const img = section.querySelector("img") as HTMLImageElement;
+    // The path is resolved against the API origin, not the guest site's, and
+    // names a bounded variant so it can't mint a transform outside the allowlist.
+    expect(img.getAttribute("src")).toBe(
+      "https://api.test/api/invite/anita-ben/image/footer?v=7&variant=thumb",
+    );
+    // Off-screen at mount (it sits below every event card), so it must not
+    // race the in-viewport event images for bandwidth.
+    expect(img.getAttribute("loading")).toBe("lazy");
+    expect(section.querySelector("p")).toBeNull();
+  });
+
+  it("omits the closing section entirely when neither a note nor an image is set", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ...claim, preview: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { container, getByText } = render(() => <InvitePage apiUrl="https://api.test" />);
+
+    // Wait for the claim to land, so "absent" isn't just "not rendered yet".
+    await waitFor(() => expect(getByText(/Preview mode/i)).toBeTruthy(), { timeout: 2000 });
+    expect(container.querySelector("[data-invite-closing]")).toBeNull();
+  });
+
+  // Whitespace-only is not content — same rule as every other invite segment.
+  it("omits the closing section for a whitespace-only note", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            ...claim,
+            preview: true,
+            closing: { message: "   ", imageUrl: null, imageCrop: null },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+    const { container, getByText } = render(() => <InvitePage apiUrl="https://api.test" />);
+
+    await waitFor(() => expect(getByText(/Preview mode/i)).toBeTruthy(), { timeout: 2000 });
+    expect(container.querySelector("[data-invite-closing]")).toBeNull();
+  });
 });

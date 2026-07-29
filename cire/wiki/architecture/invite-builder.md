@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-templates]]"
-last-reviewed: 2026-07-28
+last-reviewed: 2026-07-29
 ---
 
 # Invite Builder
@@ -28,15 +28,102 @@ Single source of truth: `cire/api/src/schemas/invite.ts`.
 | Our Story            | `story`    | `storyEyebrow`, `storyHeading`, `storyBody`  |
 | Code Entry & Welcome | —          | `welcomeMessage` (post-claim greeting line)   |
 | Events ("details")   | —          | `detailsEyebrow`, `detailsHeading`            |
+| Closing (`footer`)   | `footer`   | `footerMessage` (closing note, **no default**) |
+|   ↳ post-claim only, and reuses the welcome tone | | |
 
 The `details`/`welcome` copy fields landed in migration
 `0028_details_welcome_copy.sql` — they closed the last hardcoded guest-facing
 copy (the "Celebrate With Us" / "Your Events" events header and the
 "We are delighted to invite you…" greeting).
 
-Image slots: `INVITE_IMAGE_SLOTS = ["hero", "story"]`. The same union bounds the
-`:slot` route param, the R2 key namespace, and the observability span/log
-attributes (no free-form strings). Adding a slot is a conscious schema change.
+### The closing section
+
+The invite's last section — the couple's own sign-off — built over three
+migrations: `0049_invite_footer_message.sql` (the note),
+`0050_invite_footer_image.sql` (`footer_image_key` + `footer_image_crop`, a
+small centred monogram / motif / signature above it). Note and image are
+INDEPENDENT: either alone renders.
+
+**It is behind the claim gate — enforced at the API, not in the render tree.**
+The first cut gated it only with `<Show when={claimResult()}>`, which controls
+rendering, not delivery: the note still shipped in the unauthenticated
+`GET /api/invite/:slug` body and in the SSR'd island props, so it was one `curl`
+away (S-H1). The gate is now real:
+
+- `inviteService.getForSlug` **redacts** `footer` from the public payload. Every
+  other field there (hero, story, events header, welcome greeting, theme) is
+  public by design — it paints the shell anyone opening the link sees.
+- `claimService.lookup` returns the closing content in the **claim response**,
+  beside the events list, to a session that proved household membership.
+- `GET /api/invite/:slug/image/footer` requires a valid `cire_session` **whose
+  family belongs to this wedding** (`inviteService.sessionOwnsWedding` — a bare
+  session only proves the holder claimed *some* household's code), and responds
+  `Cache-Control: private`. It 404s rather than 401/403, so an unclaimed visitor
+  cannot learn whether a closing image exists.
+
+`hero` and `story` stay public and publicly cacheable; only `footer` is gated. It is deliberately NOT given the events section's
+`opacity-0` class: the unlock choreography animates the events, and a section
+that needs a motion chunk to become visible is a section that can stay invisible
+when that chunk fails to load (the exact failure `UnlockReveal.motion.ts` warns
+about). It sits below every event card, so it is off-screen while the reveal
+plays.
+
+**It has no tone setting of its own.** It paints the WELCOME section's surface
+(`sectionVars(theme, "welcome")`, passed in as `themeVars`). The welcome
+greeting and the closing note are the couple's two direct addresses to their
+guests, so they read as a matched pair — and the builder gains no extra knob for
+a section whose whole job is a sentence and a motif. `THEME_SECTIONS` stays the
+four lanes it has always had.
+
+**It is NOT part of `SiteFooter`.** Two different things live at the bottom of
+an invite and the distinction is load-bearing:
+
+| | `InviteClosing.astro` | `SiteFooter.astro` |
+|---|---|---|
+| What | Invite content — the couple's motif + closing note | Site chrome — couple's title + Privacy/Terms/Privacy-choices |
+| Where | Only the invite, immediately above the footer | Every document (invite, `/privacy`, `/terms`, 404) |
+| When | Conditional — nothing set ⇒ **renders nothing at all** | Always (compliance blocker C-H4) |
+| Themed | Yes — reuses the **welcome** tone, no setting of its own | No — inherits the root palette |
+| Gated | Yes — only after the guest claims their code | No — always |
+
+The first implementation put the note and image *inside* `SiteFooter`. That was
+wrong in three ways: it would have rendered invite content on the legal pages,
+it left the couple's words stranded in a legal-links block instead of a section
+of their own, and — because `SiteFooter` is outside the island — it exposed the
+note to anyone with the URL, before any code was entered.
+
+**Naming.** Storage and the wire say `footer_*` / `footer` (the image slot's R2
+namespace and public URL segment too); the builder says "Closing Section". The
+data-layer name is accurate — it IS the invite's footer section — but showing an
+organiser "footer" beside a page that also has a legal footer would be ambiguous
+about which one they're editing. Deliberate mapping, not drift.
+
+On the note specifically: It is the one
+copy field with **no built-in default**: it exists so a couple can add a closing
+line of their own ("Looking forward to celebrating with you", "No boxed gifts
+please"), and there is no sensible neutral sentence to invent on their behalf.
+So it behaves like the conditional segments below rather than like the fields
+above — blank means the line is simply not rendered, and every existing wedding
+keeps today's footer (couple's title over the legal links) until an organiser
+fills it in. Cap 300 chars, same as the welcome greeting.
+
+Image slots: `INVITE_IMAGE_SLOTS = ["hero", "story", "footer"]`. The same union
+bounds the `:slot` route param, the R2 key namespace, and the observability
+span/log attributes (no free-form strings). Adding a slot is a conscious schema
+change — and a wider one than it looks:
+
+- **`SLOT_COLUMNS` in `cire/api/src/services/invite.ts`** is the one place the
+  union maps onto storage (key column, crop column, and the hero-only mobile
+  crop column). Every read/write indexes it. Before `footer` landed the service
+  branched `slot === "hero" ? … : …` in five places, each of which would have
+  silently treated a third slot as the story slot; the map exists so that class
+  of bug can't recur.
+- **`loadReferencedKeys` in `asset-reconcile.ts` must list the new key column.**
+  This one is not a no-op if missed — that query is what marks an object LIVE,
+  so an unlisted slot's images read as orphans and get swept after the grace
+  window. Pinned by a reconcile test that seeds every slot.
+- `CROP_ASPECT` in `cire/organiser/src/lib/image-crop.ts` needs the slot's
+  default editor shape (`footer` is 1∶1 — it renders small and centred).
 
 A `null` text field (or an all-whitespace value, which the service normalises to
 `null`) means **use the built-in default** — so a partially-filled section still
@@ -49,7 +136,8 @@ never paint an empty full-screen hero or an empty "Our Story" surface. "Absent"
 means null, empty-string, **or whitespace-only** (typing only spaces does not
 fill a field). The single source of truth for these predicates is
 `cire/web/src/components/invite-emptiness.ts` (`hasText`, `isHeroEmpty`,
-`isStoryEmpty`, `hasPinterest`, `hasDressCode`).
+`isStoryEmpty`, `hasFooterMessage`, `isFooterEmpty`, `hasPinterest`,
+`hasDressCode`).
 
 | Segment                       | Rendered when…                                            | Where                                   |
 | ----------------------------- | --------------------------------------------------------- | --------------------------------------- |
@@ -57,6 +145,7 @@ fill a field). The single source of truth for these predicates is
 | **Our Story**                 | it has a heading **OR** a body **OR** a story image        | `InviteHeader.tsx` (`showStory`)        |
 | **Event → Inspiration**       | the event has a `pinterestUrl`                             | `DetailsModal.tsx` (`hasPinterest`)     |
 | **Event → Dress Code**        | the event has a dress-code description **OR** a palette swatch | `DetailsModal.tsx` (`hasDressCode`) |
+| **Closing section**           | it has a note **OR** an image (whole section), post-claim   | `InviteClosing.tsx` (`isFooterEmpty`)   |
 
 Image-only or title-only heroes are valid (the neutral "You're Invited" fallback
 title only renders **inside** an otherwise-shown hero). All built-in fallback
@@ -68,7 +157,8 @@ builder (the old values live in the PR #248 description). The Our-Story eyebrow 
 label, not content — it does not keep the section alive on its own.
 
 **Builder reflection (no surprises):** `InviteBuilder.tsx` shows a per-section
-badge — **"Shown"** vs **"Hidden — empty"** — on the Hero and Our Story fieldsets,
+badge — **"Shown"** vs **"Hidden — empty"** — on the Hero, Our Story and Closing
+Section fieldsets,
 driven by the **same** emptiness logic (mirrored in
 `cire/organiser/src/lib/invite-emptiness.ts`, since the two packages share no
 code). The badge updates **live** as the organiser types, so they know exactly
@@ -154,7 +244,8 @@ one colour keeps the rest coherent.
 
 Each section carries a `tone` — `ground` | `card` | `raised`, i.e. which derived
 surface it sits on (`hero_tone`, `story_tone`, `details_tone`, `welcome_tone`;
-`null` ⇒ `ground`). Alternating surfaces down the page is what made sections read
+`null` ⇒ `ground`). The closing section reuses the welcome tone rather than
+adding a fifth — see above. Alternating surfaces down the page is what made sections read
 as distinct; eight free colours were never what did that work. There is
 deliberately no "sit on the accent" tone — that needs the text tokens to flip
 too, and a half-flipped section is the unreadable output the derivation exists to
@@ -250,7 +341,12 @@ typography-option columns `theme_heading_size` / `theme_heading_weight` /
 `0027`, back-filling the hero accent → `palette_gilt` and the hero surface →
 `palette_card`) + the nullable copy columns
 `details_eyebrow` / `details_heading` / `welcome_message`
-(`0028_details_welcome_copy.sql`) + the two **hero display** columns
+(`0028_details_welcome_copy.sql`) + `footer_message`
+(`0049_invite_footer_message.sql` — the footer's closing note, which unlike its
+neighbours has no built-in default: NULL ⇒ nothing rendered) +
+`footer_image_key` / `footer_image_crop` (`0050_invite_footer_image.sql` — the
+closing section's optional motif, same R2-key + crop-JSON storage as the other
+slots) + the two **hero display** columns
 `hero_image_style` (`blurred | regular`, **NOT NULL DEFAULT `blurred`**) and
 `hero_title_backdrop` (`none | solid`, **NOT NULL DEFAULT `none`**). The two
 hero-display columns are NOT NULL with defaults that reproduce today's look, so a
@@ -287,7 +383,10 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
   behind `osnAuth()` + `weddingOwner()`:
   - `GET /invite` → current customisation (text + image URLs + theme +
     `heroDisplay`).
-  - `PUT /invite/text` → upsert the five text fields (empty ⇒ default).
+  - `PUT /invite/text` → upsert the copy fields (total body — the builder always
+    submits every key). Empty/whitespace ⇒ `null`, which means "use the built-in
+    default" for every field except `footerMessage`, where it means "render
+    nothing".
   - `PUT /invite/theme` → upsert the theme (fonts + per-section colours) **plus the
     two hero display options** (`heroImageStyle ∈ {blurred,regular}`,
     `heroTitleBackdrop ∈ {none,solid}` — both required, total body). A bad colour,

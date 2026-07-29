@@ -74,4 +74,16 @@ export interface ClaimResult {
   members: FamilyMember[];
   events: EventSummary[];
   rsvps: RsvpSummary[];
+  /**
+   * The invite's CLOSING SECTION — the couple's sign-off to this household.
+   * Delivered here rather than in the public `GET /api/invite/:slug` because it
+   * is addressed to the invited household (S-H1); the public payload redacts it.
+   * Optional on the wire so a mid-deploy payload from an older API simply
+   * renders no closing section.
+   */
+  closing?: {
+    message: string | null;
+    imageUrl: string | null;
+    imageCrop?: ImageCrop | null;
+  };
 }

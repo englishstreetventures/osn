@@ -10,6 +10,7 @@ import {
   type InviteTheme,
   sectionVars,
 } from "../../components/invite-theme";
+import { InviteClosing } from "../../components/InviteClosing";
 import { LoginSection } from "../../components/LoginSection";
 import { PulseAccountLink } from "../../components/PulseAccountLink";
 import { RsvpModal } from "../../components/RsvpModal";
@@ -31,6 +32,13 @@ interface InviteCustomisationResponse {
   theme?: InviteTheme | null;
   details?: DetailsCopy | null;
   welcome?: { message: string | null } | null;
+  // The closing section (the couple's sign-off). Optional on the wire so a
+  // mid-deploy payload from an older API simply renders no closing section.
+  footer?: {
+    message: string | null;
+    imageUrl?: string | null;
+    imageCrop?: ImageCrop | null;
+  } | null;
 }
 
 /** The slice of the invite customisation this island renders. */
@@ -226,6 +234,28 @@ export default function InvitePage(props: InvitePageProps) {
               </AuthProvider>
             </Show>
           </section>
+        )}
+      </Show>
+
+      {/* The couple's sign-off — their motif and closing note, the invite's last
+          section. Its content arrives IN THE CLAIM RESPONSE, not the public
+          invite payload: it is addressed to the invited household, so the API
+          redacts it from `GET /api/invite/:slug` (S-H1). Reading it off
+          `claimResult()` is therefore both the render gate and the only place
+          the data exists — the two cannot drift apart. Deliberately NOT
+          `opacity-0`: the unlock choreography animates the events section, and a
+          section that depends on a motion chunk to become visible is one that
+          can stay invisible when that chunk fails to load. It sits below every
+          event card, so it is off-screen while that plays out. */}
+      <Show when={claimResult()}>
+        {(data) => (
+          <InviteClosing
+            apiUrl={props.apiUrl}
+            message={data().closing?.message}
+            imageUrl={data().closing?.imageUrl}
+            imageCrop={data().closing?.imageCrop}
+            themeVars={filterThemeVars(welcomeVars())}
+          />
         )}
       </Show>
 

@@ -37,6 +37,9 @@ export interface ImageCrop {
  *                     matching the portrait viewport it targets. Not an upload
  *                     slot — the same hero image, framed a second time.
  *   - `story`       — the two-column story photo; a gentle 3∶2.
+ *   - `footer`      — the footer monogram / motif / signature; square, since the
+ *                     slot renders small and centred and a square reads as
+ *                     deliberate at that size.
  *   - `event`       — the event card photo; 4∶3.
  * The guest render is exact for any chosen shape (it reads the captured dims).
  */
@@ -44,6 +47,7 @@ export const CROP_ASPECT = {
   hero: 16 / 9,
   "hero-mobile": 9 / 16,
   story: 3 / 2,
+  footer: 1,
   event: 4 / 3,
 } as const;
 

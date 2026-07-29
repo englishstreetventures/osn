@@ -19,8 +19,8 @@ import { reapR2Objects } from "./r2-cleanup";
  *    `guests_r2_key`. The sweep deletes the `imports` rows, so these objects
  *    ARE orphaned by it and must be reaped here (IB-S-L2 / C-H1).
  *
- * NOTE — the `cire-assets` invite images (`wedding_invite_customisations`
- * hero/story keys + `events.event_image_key`) are deliberately NOT reaped here:
+ * NOTE — the `cire-assets` invite images (`wedding_invite_customisations`'
+ * per-slot image keys + `events.event_image_key`) are deliberately NOT reaped here:
  * the retention sweep KEEPS the wedding + events shell + the published invite,
  * so those rows survive and keep pointing at their objects (the invite stays
  * live). Deleting them would 404 the live invite and dangle the DB keys. The

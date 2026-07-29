@@ -19,8 +19,12 @@ import { Schema } from "effect";
  * `:slot` route param, the R2 key namespace, and (imported via `import type`)
  * the bounded span/log attributes. Adding a slot is a conscious schema change,
  * never a free-form string.
+ *
+ * `footer` (migration 0050) is the small centred image above the footer's
+ * closing note — a monogram, motif or signature. Like the note it is entirely
+ * optional: no key ⇒ nothing renders.
  */
-export const INVITE_IMAGE_SLOTS = ["hero", "story"] as const;
+export const INVITE_IMAGE_SLOTS = ["hero", "story", "footer"] as const;
 export type InviteImageSlot = (typeof INVITE_IMAGE_SLOTS)[number];
 
 export function isInviteImageSlot(value: string): value is InviteImageSlot {
@@ -213,6 +217,12 @@ export const InviteTextBody = Schema.Struct({
   // "We are delighted to invite you to celebrate with us."). A short personal
   // sentence or two, so a modest cap.
   welcomeMessage: copyField(300),
+  // Closing note in the invite footer — the line the couple signs off with
+  // ("Looking forward to celebrating with you", "No boxed gifts please"). Unlike
+  // the fields above it has NO built-in default: null/whitespace ⇒ the footer
+  // note is not rendered. A short sign-off, so the same modest cap as the
+  // welcome greeting.
+  footerMessage: copyField(300),
   // Optional host override for the FIRST line of the copyable invite message
   // (the line above the guest-site URL + family code). A free-text string capped
   // at 600 chars — a couple of short sentences, enough for a warm personal note

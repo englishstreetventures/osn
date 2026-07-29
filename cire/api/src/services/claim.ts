@@ -1,4 +1,12 @@
-import { families, guests, events, guestEvents, rsvps, weddings } from "@cire/db";
+import {
+  families,
+  guests,
+  events,
+  guestEvents,
+  rsvps,
+  weddingInviteCustomisations,
+  weddings,
+} from "@cire/db";
 import { eq, and, asc, inArray, ne, isNull } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
@@ -149,6 +157,7 @@ export const claimService = {
       //  (c) this family's RSVPs.
       const {
         wedding: [wedding],
+        closingRow: [closing],
         guestRows,
         rsvpRows,
       } = yield* Effect.all(
@@ -158,6 +167,23 @@ export const claimService = {
               .select({ slug: weddings.slug })
               .from(weddings)
               .where(eq(weddings.id, family.weddingId))
+              .all(),
+          ),
+          // The CLOSING SECTION (the couple's sign-off) rides the claim payload,
+          // NOT the public `GET /api/invite/:slug` — it is addressed to the
+          // invited household, so it is delivered only to a session that proved
+          // household membership, exactly like the events list beside it.
+          closingRow: dbQuery(() =>
+            db
+              .select({
+                message: weddingInviteCustomisations.footerMessage,
+                imageKey: weddingInviteCustomisations.footerImageKey,
+                imageCrop: weddingInviteCustomisations.footerImageCrop,
+                updatedAt: weddingInviteCustomisations.updatedAt,
+                imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
+              })
+              .from(weddingInviteCustomisations)
+              .where(eq(weddingInviteCustomisations.weddingId, family.weddingId))
               .all(),
           ),
           guestRows: dbQuery(() =>
@@ -259,6 +285,9 @@ export const claimService = {
       }
       eventList.sort((a, b) => a.sortOrder - b.sortOrder);
 
+      // The image URL's `?v=` tracks the IMAGE version like every other slot's
+      // (WT-P-I1), coalescing to `updatedAt` for rows that predate migration 0029.
+      const closingVersion = (closing?.imagesUpdatedAt ?? closing?.updatedAt)?.getTime() ?? 0;
       return {
         familyId: family.id,
         publicId: family.publicId,
@@ -267,6 +296,15 @@ export const claimService = {
         members: Array.from(memberMap.values()),
         events: eventList,
         rsvps: rsvpRows,
+        closing: {
+          message: closing?.message ?? null,
+          imageUrl: closing?.imageKey
+            ? `/api/invite/${encodeURIComponent(slug)}/image/footer?v=${closingVersion}`
+            : null,
+          // Only surface a rectangle when there is an image to crop; `decodeCrop`
+          // drops a malformed/legacy value so a bad rect never reaches a style.
+          imageCrop: closing?.imageKey ? decodeCrop(closing.imageCrop) : null,
+        },
       };
     }).pipe(
       Effect.tap(() => Effect.sync(() => metricClaimAttempt("ok"))),

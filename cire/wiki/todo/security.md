@@ -12,6 +12,14 @@ last-reviewed: 2026-07-29
 
 See [[overview]] for observability rules that apply to all security-sensitive code paths. See [[review-findings]] for severity prefix conventions.
 
+### Closing section — review findings (claude/cire-footer-customisation-xkc09y, 2026-07-29)
+
+Raised by the pre-merge security review of the invite's closing section. See the root wiki's `[[invite-builder]]`.
+
+- [x] **S-H1** — **The closing section's claim gate was cosmetic.** `<Show when={claimResult()}>` controls rendering, not delivery: the note shipped in the unauthenticated `GET /api/invite/:slug` body and in the SSR'd island props, and the motif bytes served to anyone who derived the URL from the public slug. Confirmed by probe (an anonymous request returned the note) before fixing. **Fixed on branch:** `inviteService.getForSlug` redacts `footer`; `claimService.lookup` delivers it in the claim response; `GET /api/invite/:slug/image/footer` requires a `cire_session` bound to that wedding (`sessionOwnsWedding`) and answers `Cache-Control: private`, 404ing rather than 401/403. `hero`/`story` untouched. See `[[cire-auth]]`.
+- [ ] **S-L1** — `SLOT_COLUMNS`' **crop** column names have no compile-time binding to the Drizzle table. The `key` entries are checked (they index `weddingInviteCustomisations[keyColumn]`), but `cropResetsFor` returns `Record<string, null>` and `setCrop` builds `{ [keyColumn]: … }` via computed keys, which widen to `string` — so a typo in a future slot's crop column type-checks. **Fix:** type the map against `keyof typeof weddingInviteCustomisations.$inferInsert` and give `cropResetsFor` a `Partial<$inferInsert>` return type. See `[[invite-builder]]`.
+- [ ] **S-L2** — `loadReferencedKeys` (`asset-reconcile.ts`) now treats every selected column as an R2 key via `Object.values(r)`, and nothing enforces that a new slot is added to the select. Correct today; the invariant is comment-enforced only, and omission is silent data loss (live images swept past the grace window). **Fix:** derive the select from `INVITE_IMAGE_SLOTS` / `SLOT_COLUMNS` so omission is a compile error. Pairs with **T-S3** in `[[web]]`.
+
 ### Guest invite taste pass — review findings (fix/cire-invite-taste-pass, 2026-07-22)
 
 The pre-merge security review came back **clean** — no finding at any severity. The change is presentational: no route, auth gate, wire type or data path moved. Two things were checked explicitly. The footer's new closing line renders a server-fetched hero title through Astro's auto-escaping (the package has no `set:html` or `innerHTML` sink), and the reveal's reduced-motion early return cannot expose or hide events — it returns synchronously before any `await`, the events section stays behind its `<Show when={claimResult()}>` gate, and the existing `catch` force-reveal is unchanged. The accessibility findings (C-M1, C-L1, C-L2) are recorded in `[[web]]`.

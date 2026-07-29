@@ -1,0 +1,11 @@
+-- Footer note on the guest invite — the closing line a couple signs off with
+-- ("Looking forward to celebrating with you", "No boxed gifts please"). The
+-- footer already renders the couple's hero title above the legal links; this
+-- adds an optional message above it.
+--
+-- Deliberately NO built-in default (unlike welcome_message / details_*): NULL —
+-- or a whitespace-only value, which the API normalises to NULL — means the note
+-- is not rendered at all, matching how the hero, Our-Story, inspiration and
+-- dress-code segments hide themselves when empty. Existing weddings therefore
+-- keep exactly today's footer until an organiser fills it in.
+ALTER TABLE `wedding_invite_customisations` ADD `footer_message` text;

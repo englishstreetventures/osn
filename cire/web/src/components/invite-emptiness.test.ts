@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 
-import { hasDressCode, hasPinterest, hasText, isHeroEmpty, isStoryEmpty } from "./invite-emptiness";
+import {
+  hasDressCode,
+  hasFooterMessage,
+  hasPinterest,
+  hasText,
+  isFooterEmpty,
+  isHeroEmpty,
+  isStoryEmpty,
+} from "./invite-emptiness";
 
 describe("hasText", () => {
   it("is false for null, undefined, empty, and whitespace-only", () => {
@@ -76,5 +84,34 @@ describe("hasDressCode", () => {
 
   it("is true with at least one palette swatch", () => {
     expect(hasDressCode(null, [{ name: "Gold", color: "#d4af37" }])).toBe(true);
+  });
+});
+
+describe("hasFooterMessage", () => {
+  it("is false for absent / whitespace-only notes (footer note not rendered)", () => {
+    expect(hasFooterMessage(null)).toBe(false);
+    expect(hasFooterMessage(undefined)).toBe(false);
+    expect(hasFooterMessage("")).toBe(false);
+    expect(hasFooterMessage("   ")).toBe(false);
+  });
+
+  it("is true once the couple has written something", () => {
+    expect(hasFooterMessage("No boxed gifts please")).toBe(true);
+  });
+});
+
+describe("isFooterEmpty", () => {
+  const empty = { message: null, imageUrl: null };
+
+  it("is empty with neither a note nor an image", () => {
+    expect(isFooterEmpty(empty)).toBe(true);
+    expect(isFooterEmpty({ message: "  ", imageUrl: "  " })).toBe(true);
+    expect(isFooterEmpty({ message: undefined, imageUrl: undefined })).toBe(true);
+  });
+
+  // The two are independent — either alone keeps the sign-off block alive.
+  it("is not empty with only a note, or only an image", () => {
+    expect(isFooterEmpty({ ...empty, message: "No boxed gifts please" })).toBe(false);
+    expect(isFooterEmpty({ ...empty, imageUrl: "/api/invite/x/image/footer?v=1" })).toBe(false);
   });
 });

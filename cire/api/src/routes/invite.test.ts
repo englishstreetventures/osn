@@ -115,6 +115,7 @@ const emptyText = JSON.stringify({
   detailsEyebrow: null,
   detailsHeading: null,
   welcomeMessage: null,
+  footerMessage: null,
   inviteMessage: null,
 });
 
@@ -123,6 +124,27 @@ async function authHeaders(profileId: string): Promise<Record<string, string>> {
 }
 
 const orgBase = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/invite`;
+
+/**
+ * Claim a seeded household's code and return its `cire_session` cookie header.
+ * The closing section's image is delivered only to a claimed session (S-H1), so
+ * the serve tests need a real one rather than a hand-made token.
+ */
+async function guestCookie(
+  app: ReturnType<typeof buildApp>["app"],
+  publicId = "TESTONE-IVY-AA11",
+): Promise<string> {
+  const res = await appRequest(app, "/api/claim", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ publicId }),
+  });
+  expect(res.status).toBe(200);
+  const setCookie = res.headers.get("set-cookie") ?? "";
+  const token = /cire_session=([^;]+)/.exec(setCookie)?.[1];
+  expect(token).toBeTruthy();
+  return `cire_session=${token}`;
+}
 
 describe("GET /api/invite/:slug (public)", () => {
   it("returns all-null defaults for an uncustomised wedding, no auth needed", async () => {
@@ -162,6 +184,7 @@ describe("PUT /invite/text (organiser)", () => {
     detailsEyebrow: null,
     detailsHeading: null,
     welcomeMessage: null,
+    footerMessage: null,
     inviteMessage: null,
   };
 
@@ -249,6 +272,114 @@ describe("PUT /invite/text (organiser)", () => {
     expect(body.details.eyebrow).toBeNull();
     expect(body.details.heading).toBeNull();
     expect(body.welcome.message).toBeNull();
+  });
+
+  it("saves the footer note (trimmed) and surfaces it on the ORGANISER read", async () => {
+    const { app } = buildApp();
+    const put = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...payload, footerMessage: "  No boxed gifts please  " }),
+    });
+    expect(put.status).toBe(200);
+
+    const org = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
+    const body = (await org.json()) as { footer: { message: string | null } };
+    expect(body.footer.message).toBe("No boxed gifts please");
+  });
+
+  // The delivery point for the closing section. Pinned here (beside the
+  // redaction test below) so the pair reads as one contract: withheld from the
+  // public payload, handed to a session that claimed a code.
+  it("delivers the footer note in the claim response instead", async () => {
+    const { app } = buildApp();
+    await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...payload, footerMessage: "No boxed gifts please" }),
+    });
+
+    const claimed = await appRequest(app, "/api/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ publicId: "TESTONE-IVY-AA11" }),
+    });
+    expect(claimed.status).toBe(200);
+    const body = (await claimed.json()) as { closing: { message: string | null } };
+    expect(body.closing.message).toBe("No boxed gifts please");
+  });
+
+  // S-H1. The closing section is addressed to the invited household, so it is
+  // delivered ONLY in the claim response. `GET /api/invite/:slug` is
+  // unauthenticated — anything it returns is readable by anyone with the slug,
+  // so the note must not be in it. Asserted on the RAW body, not a parsed field:
+  // the point is that the string never crosses the wire.
+  it("withholds the footer note from the unauthenticated public read", async () => {
+    const { app } = buildApp();
+    await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...payload, footerMessage: "No boxed gifts please" }),
+    });
+
+    const pub = await appRequest(app, `/api/invite/${SLUG}`);
+    const raw = await pub.text();
+    expect(raw).not.toContain("No boxed gifts please");
+    expect((JSON.parse(raw) as { footer: { message: null } }).footer.message).toBeNull();
+    // The public shell (hero/story/welcome copy) is unaffected — it is public by
+    // design and paints the invite before any code is entered.
+    expect(raw).toContain("Anita & Ben");
+  });
+
+  // The footer note is the first copy field with NO built-in default: null must
+  // survive to the guest site so it renders nothing, rather than falling back.
+  it("reports a null footer note for an uncustomised wedding (segment hidden)", async () => {
+    const { app } = buildApp();
+    const org = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
+    const body = (await org.json()) as { footer: { message: string | null } };
+    expect(body.footer.message).toBeNull();
+  });
+
+  it("clears the footer note back to hidden when saved as whitespace", async () => {
+    const { app } = buildApp();
+    const headers = { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) };
+    const set = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ ...payload, footerMessage: "See you there!" }),
+    });
+    expect(set.status).toBe(200);
+
+    const clear = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ ...payload, footerMessage: "   " }),
+    });
+    expect(clear.status).toBe(200);
+
+    const org = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
+    const body = (await org.json()) as { footer: { message: string | null } };
+    expect(body.footer.message).toBeNull();
+  });
+
+  it("rejects an over-long footer note with 400 (cap 300)", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...payload, footerMessage: "x".repeat(301) }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts an exactly-at-cap footer note (300 chars)", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, `${orgBase}/text`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+      body: JSON.stringify({ ...payload, footerMessage: "x".repeat(300) }),
+    });
+    expect(res.status).toBe(200);
   });
 
   it("rejects an over-long welcome greeting with 400 (cap 300)", async () => {
@@ -371,6 +502,7 @@ describe("co-host invite access (weddingMember)", () => {
         detailsEyebrow: null,
         detailsHeading: null,
         welcomeMessage: null,
+        footerMessage: null,
         inviteMessage: null,
       }),
     });
@@ -412,6 +544,7 @@ describe("co-host invite access (weddingMember)", () => {
         detailsEyebrow: null,
         detailsHeading: null,
         welcomeMessage: null,
+        footerMessage: null,
         inviteMessage: null,
       }),
     });
@@ -461,6 +594,175 @@ describe("invite image upload + serve + remove", () => {
     expect(((await after.json()) as { hero: { imageUrl: null } }).hero.imageUrl).toBeNull();
   });
 
+  // Slot isolation. Until 0049 there were exactly two slots and the service
+  // branched `slot === "hero" ? … : …` everywhere, so a third slot would have
+  // been written into the story's columns. These pin each slot to its own.
+  it("uploads a footer image, serves it, and surfaces it on the public read", async () => {
+    const { app } = buildApp();
+
+    const up = await appRequest(app, `${orgBase}/image/footer`, {
+      method: "POST",
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+      body: PNG,
+    });
+    expect(up.status).toBe(200);
+    const { imageUrl } = (await up.json()) as { imageUrl: string };
+    expect(imageUrl).toContain(`/api/invite/${SLUG}/image/footer`);
+
+    const org = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
+    const body = (await org.json()) as {
+      footer: { imageUrl: string | null };
+      story: { imageUrl: string | null };
+      hero: { imageUrl: string | null };
+    };
+    expect(body.footer.imageUrl).toContain("/image/footer");
+    // The footer's key must NOT have landed in a sibling slot's column.
+    expect(body.story.imageUrl).toBeNull();
+    expect(body.hero.imageUrl).toBeNull();
+
+    // The bytes need a claimed session (S-H1) — see the gate tests below.
+    const img = await appRequest(app, imageUrl, { headers: { Cookie: await guestCookie(app) } });
+    expect(img.status).toBe(200);
+    expect(new Uint8Array(await img.arrayBuffer())).toEqual(PNG);
+
+    const del = await appRequest(app, `${orgBase}/image/footer`, {
+      method: "DELETE",
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+    });
+    expect(del.status).toBe(200);
+    const after = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
+    expect(((await after.json()) as { footer: { imageUrl: null } }).footer.imageUrl).toBeNull();
+  });
+
+  it("keeps the story image when the footer image is removed", async () => {
+    const { app } = buildApp();
+    const headers = await authHeaders(BOOTSTRAP_OWNER);
+
+    for (const slot of ["story", "footer"]) {
+      const up = await appRequest(app, `${orgBase}/image/${slot}`, {
+        method: "POST",
+        headers,
+        body: PNG,
+      });
+      expect(up.status).toBe(200);
+    }
+
+    const del = await appRequest(app, `${orgBase}/image/footer`, { method: "DELETE", headers });
+    expect(del.status).toBe(200);
+
+    const pub = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
+    const body = (await pub.json()) as {
+      footer: { imageUrl: string | null };
+      story: { imageUrl: string | null };
+    };
+    expect(body.footer.imageUrl).toBeNull();
+    expect(body.story.imageUrl).toContain("/image/story");
+  });
+
+  it("saves a footer crop into the footer's own column, leaving the story's alone", async () => {
+    const { app } = buildApp();
+    const headers = await authHeaders(BOOTSTRAP_OWNER);
+    const crop = { x: 0.1, y: 0.1, w: 0.5, h: 0.5, natW: 1000, natH: 1000 };
+
+    for (const slot of ["story", "footer"]) {
+      await appRequest(app, `${orgBase}/image/${slot}`, { method: "POST", headers, body: PNG });
+    }
+
+    const put = await appRequest(app, `${orgBase}/image/footer/crop`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify({ crop }),
+    });
+    expect(put.status).toBe(200);
+
+    const org = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
+    const body = (await org.json()) as {
+      footer: { imageCrop: typeof crop | null };
+      story: { imageCrop: typeof crop | null };
+    };
+    expect(body.footer.imageCrop).toEqual(crop);
+    expect(body.story.imageCrop).toBeNull();
+  });
+
+  // `mobile` is a hero-only second rectangle (0046). The footer renders at one
+  // aspect, so it must be refused rather than silently written to its only crop.
+  it("400s a mobile-screen crop on the footer slot", async () => {
+    const { app } = buildApp();
+    const headers = await authHeaders(BOOTSTRAP_OWNER);
+    await appRequest(app, `${orgBase}/image/footer`, { method: "POST", headers, body: PNG });
+
+    const res = await appRequest(app, `${orgBase}/image/footer/crop`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify({ crop: { x: 0, y: 0, w: 1, h: 1 }, screen: "mobile" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("reports a null footer image for an uncustomised wedding", async () => {
+    const { app } = buildApp();
+    const pub = await appRequest(app, orgBase, { headers: await authHeaders(BOOTSTRAP_OWNER) });
+    const body = (await pub.json()) as {
+      footer: { imageUrl: string | null; imageCrop: unknown };
+    };
+    expect(body.footer.imageUrl).toBeNull();
+    expect(body.footer.imageCrop).toBeNull();
+  });
+
+  // ── S-H1: the closing motif is session-gated ──────────────────────────────
+  it("404s the footer image without a claimed session", async () => {
+    const { app } = buildApp();
+    await appRequest(app, `${orgBase}/image/footer`, {
+      method: "POST",
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+      body: PNG,
+    });
+
+    // No cookie at all — the same 404 an absent image gives, so an unclaimed
+    // visitor cannot even learn whether a closing image exists.
+    const anon = await appRequest(app, `/api/invite/${SLUG}/image/footer`);
+    expect(anon.status).toBe(404);
+
+    // A garbage cookie is no better than none.
+    const bogus = await appRequest(app, `/api/invite/${SLUG}/image/footer`, {
+      headers: { Cookie: "cire_session=not-a-real-token" },
+    });
+    expect(bogus.status).toBe(404);
+  });
+
+  it("serves the footer image to a claimed session, marked private", async () => {
+    const { app } = buildApp();
+    await appRequest(app, `${orgBase}/image/footer`, {
+      method: "POST",
+      headers: await authHeaders(BOOTSTRAP_OWNER),
+      body: PNG,
+    });
+
+    const res = await appRequest(app, `/api/invite/${SLUG}/image/footer`, {
+      headers: { Cookie: await guestCookie(app) },
+    });
+    expect(res.status).toBe(200);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
+    // No shared cache may keep a copy of session-gated bytes.
+    expect(res.headers.get("cache-control")).toContain("private");
+  });
+
+  // The public slots must NOT have been dragged behind the gate — the hero and
+  // story paint the invite shell before any code is entered.
+  it("still serves hero and story images with no session, publicly cacheable", async () => {
+    const { app } = buildApp();
+    for (const slot of ["hero", "story"]) {
+      await appRequest(app, `${orgBase}/image/${slot}`, {
+        method: "POST",
+        headers: await authHeaders(BOOTSTRAP_OWNER),
+        body: PNG,
+      });
+      const res = await appRequest(app, `/api/invite/${SLUG}/image/${slot}`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toContain("public");
+    }
+  });
+
   it("rejects a non-image body with 415", async () => {
     const { app } = buildApp();
     const res = await appRequest(app, `${orgBase}/image/hero`, {
@@ -471,9 +773,11 @@ describe("invite image upload + serve + remove", () => {
     expect(res.status).toBe(415);
   });
 
+  // Was `footer` until that became a real slot (0049) — any name outside
+  // INVITE_IMAGE_SLOTS must still be rejected rather than silently mapped.
   it("400s for an unknown slot", async () => {
     const { app } = buildApp();
-    const res = await appRequest(app, `${orgBase}/image/footer`, {
+    const res = await appRequest(app, `${orgBase}/image/banner`, {
       method: "POST",
       headers: await authHeaders(BOOTSTRAP_OWNER),
       body: PNG,

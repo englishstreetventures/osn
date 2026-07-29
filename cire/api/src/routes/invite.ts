@@ -6,6 +6,7 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { parseSessionToken } from "../lib/cookie";
 import { getWaitUntil } from "../lib/execution-ctx";
 import { metricImageTransform } from "../metrics";
 import { osnAuth } from "../middleware/osn-auth";
@@ -43,6 +44,7 @@ import type {
   ImageVariant,
   OutputFormat,
 } from "../services/invite-image-transform";
+import { sessionService } from "../services/session";
 
 // Sentinel parse hook: stop Elysia consuming the body so handlers parse it by
 // hand (JSON for text, raw bytes for images) — matches the import route.
@@ -57,13 +59,24 @@ const manualParse = { parse: () => ({}) };
  * hit. Adding `Origin` to Vary ensures the browser caches CORS-mode and
  * no-cors-mode responses separately, preventing the mode-mixing that broke the
  * crop editor for any future cross-origin consumer. */
-function imageResponseHeaders(contentType: string): Record<string, string> {
+function imageResponseHeaders(contentType: string, visibility: "public" | "private" = "public") {
   return {
     "Content-Type": contentType,
     "X-Content-Type-Options": "nosniff",
-    "Cache-Control": "public, max-age=31536000, immutable",
+    // `private` for session-gated slots (the closing section's motif): the bytes
+    // are only for the household that claimed a code, so no shared cache — CDN,
+    // proxy or otherwise — may keep a copy it could hand to another visitor. The
+    // per-colo Workers Cache API is still used for them (see
+    // `serveTransformedImage`); that lookup happens AFTER the session check, so
+    // an unauthenticated request never reaches it.
+    "Cache-Control": `${visibility}, max-age=31536000, immutable`,
     Vary: "Accept, Origin",
   };
+}
+
+/** Slots whose bytes require a claimed guest session (see `getForSlug`). */
+function slotRequiresSession(slot: InviteImageSlot): boolean {
+  return slot === "footer";
 }
 
 /**
@@ -91,8 +104,20 @@ function serveTransformedImage(args: {
   format: OutputFormat;
   blurOverride?: number;
   images?: ImagesBindingLike;
+  /** `private` for session-gated slots — no shared cache may keep a copy. */
+  visibility?: "public" | "private";
 }): Effect.Effect<Response, AssetR2Error, AssetsR2Service> {
-  const { request, key, version, cacheSlot, variant, format, blurOverride, images } = args;
+  const {
+    request,
+    key,
+    version,
+    cacheSlot,
+    variant,
+    format,
+    blurOverride,
+    images,
+    visibility = "public",
+  } = args;
   return Effect.gen(function* () {
     // Cache API short-circuit. The Images binding bills per call with no
     // per-unique dedupe, so a hit serves the transformed bytes WITHOUT touching
@@ -143,7 +168,9 @@ function serveTransformedImage(args: {
           }),
         ),
       );
-      response = new Response(served.bytes, { headers: imageResponseHeaders(served.contentType) });
+      response = new Response(served.bytes, {
+        headers: imageResponseHeaders(served.contentType, visibility),
+      });
     } else {
       // Original-serve path (no Images binding — local/dev/tests, or an account
       // without the Images product): STREAM R2's body straight into the Response
@@ -153,7 +180,7 @@ function serveTransformedImage(args: {
       const streamed = yield* fetchAssetStream(key);
       metricImageTransform("original", variant, format);
       response = new Response(streamed.body, {
-        headers: imageResponseHeaders(streamed.contentType),
+        headers: imageResponseHeaders(streamed.contentType, visibility),
       });
     }
 
@@ -252,6 +279,32 @@ export const createInvitePublicRoutes = (
             set.status = 404;
             return { error: "Not found" };
           }
+
+          // Session gate for the closing section's motif. The note beside it is
+          // withheld from the public `GET /:slug` (see `getForSlug`) because it
+          // is addressed to the invited household; the image has to be held to
+          // the same line or the gate is only half a gate — the URL is derivable
+          // from the public slug. A valid session must ALSO belong to this
+          // wedding, else any guest of any wedding could read this one's motif.
+          //
+          // 404, not 401/403: an unclaimed visitor should not learn whether a
+          // closing image exists, and the route already 404s a slot with no key.
+          if (slotRequiresSession(slot)) {
+            const token = parseSessionToken(request.headers.get("cookie"));
+            const familyId = token
+              ? yield* sessionService.validate(token).pipe(
+                  Effect.map((session) => session.familyId),
+                  Effect.catchTag("SessionInvalid", () => Effect.succeed(null)),
+                )
+              : null;
+            const authorised = familyId
+              ? yield* inviteService.sessionOwnsWedding(familyId, params.slug)
+              : false;
+            if (!authorised) {
+              set.status = 404;
+              return { error: "Not found" };
+            }
+          }
           // Server-derived IMAGE version (`imagesUpdatedAt`, migration 0029):
           // a re-upload / crop / hero-blur change mints a new cache key (fresh
           // entry) so the new image is never served stale — while copy/colour
@@ -277,6 +330,7 @@ export const createInvitePublicRoutes = (
             key,
             version,
             cacheSlot: `${params.slug}:${slot}`,
+            visibility: slotRequiresSession(slot) ? "private" : "public",
             variant,
             format,
             blurOverride,
