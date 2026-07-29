@@ -1,5 +1,5 @@
 ---
-title: "Letter-reveal invite — plan (Canvas UI study)"
+title: "Letter-reveal invite — plan (own HTML-in-canvas effect)"
 tags: [architecture, web, plan, design-packs]
 related:
   - "[[index]]"
@@ -12,160 +12,164 @@ last-reviewed: 2026-07-29
 # Letter-reveal invite — plan
 
 Goal: a closed letter/envelope on screen that opens up to reveal the cire
-invite. This page records the study of the **Canvas UI** GitHub repo
-([DavidHDev/canvas-ui](https://github.com/DavidHDev/canvas-ui), docs at
-canvasui.dev) and the resulting build plan.
+invite. Decision: we do **not** take components from Canvas UI
+([DavidHDev/canvas-ui](https://github.com/DavidHDev/canvas-ui)) — we use it
+as a **reference implementation** for the HTML-in-canvas technique and build
+our own letter-opening effect on the raw API. Two reasons this is the right
+call beyond preference:
 
-## 1. What Canvas UI actually is
+1. Canvas UI has no letter/envelope component, and its closest one (Peel) is
+   **pointer-driven with no programmatic `open()`** — a hover flourish, not
+   the scripted "letter opens" choreography we want. Building our own gives
+   us a timeline-driven effect Peel structurally can't be.
+2. Owning the code removes the MIT + Commons Clause question entirely and
+   keeps `cire/web` free of vendored third-party source.
 
-- A library of ~26 "creative canvas" components (Peel, Cloth, Shatter,
-  Particle Reveal, Particle Scroll, Laser, Liquid, Glass, Frost, Ripple, …)
-  that run **WebGL effects over live HTML**.
-- **Distribution:** shadcn-compatible registry, source-vendored into the
-  consuming repo — `npx shadcn@latest add @canvas-ui/<component>-<framework>`.
-  There is a first-class **Solid** variant of every component
-  (e.g. `Peel.solid.tsx` + framework-agnostic `PeelVanilla.ts`), which matches
-  `cire/web` (Astro + SolidJS). The interesting components have **zero npm
-  runtime dependencies** (hand-rolled WebGL2, no three.js — three.js is only
-  used by the two `*Object` model-viewer components).
-- **License:** MIT + Commons Clause — free to use inside a product; the
-  restriction is only on reselling the components themselves. Fine for cire.
-- **How it reads the page:** the experimental **HTML-in-canvas API**
-  (`ctx.drawElementImage()` + `canvas.requestPaint()` + a `layoutsubtree`
-  canvas attribute). The live DOM is painted into a texture each frame, a
-  WebGL2 output canvas draws the effect, and the real DOM stays interactive
-  underneath.
+## 1. The HTML-in-canvas API (what we're building on)
 
-### The critical constraint
+The experimental API lets a canvas paint **live DOM** as a texture while the
+real elements stay laid out and interactive:
 
-HTML-in-canvas currently exists **only in Chrome/Edge 140+ behind
-`chrome://flags/#canvas-draw-element`**, or in production via an
-**origin-trial token**. Every component runtime-gates on
-`supportsHtmlInCanvas()`; when unsupported, the DOM-reading components
-(Peel included) render their children as plain HTML and the effect
-**silently no-ops** — `capture()` and the pointer handlers return early.
-There is no software fallback that still peels.
+- `<canvas layoutsubtree>` — child DOM of the canvas is laid out and
+  interactive; the canvas can capture it.
+- `ctx.drawElementImage(element, x, y)` (2D context) paints the live element
+  into the canvas.
+- `canvas.requestPaint()` kick-starts the pipeline; the `paint` event /
+  `onpaint` fires whenever the captured subtree repaints, so captures stay
+  fresh without polling.
 
-For a wedding invite, most guests are on **iOS Safari / mobile browsers**
-(platform priority is iOS > Web > Android), so the Canvas UI effect would be
-invisible to the majority of guests today. Any plan that makes Canvas UI
-*the* letter-opening mechanism fails the audience.
+**Availability (checked 2026-07-29):** origin trial in **Chrome 148–150**
+(May–July 2026, token per origin; an Edge origin trial exists too), local dev
+via `chrome://flags/#canvas-draw-element`. Stable estimated **late 2026** if
+trial metrics hold. **No Safari/WebKit or Firefox support** — so on iOS
+(our top-priority guest platform) the API does not exist and a DOM/CSS
+fallback is mandatory, not optional. Sources:
+[Chrome origin-trial announcement](https://developer.chrome.com/blog/html-in-canvas-origin-trial),
+[Codrops walkthrough](https://tympanus.net/codrops/2026/05/13/exploring-the-html-in-canvas-proposal/).
 
-### Closest components to "a letter that opens"
+## 2. Reference notes from the Canvas UI source
 
-| Component | What it does | Fit |
-|---|---|---|
-| **Peel** | Curls live HTML back from a chosen edge in 3D, revealing a second `under` layer | Closest — reads exactly like lifting a letter flap / peeling the top sheet |
-| Cloth | Hangs live HTML on rippling fabric | Lovely ambience for the letter page itself |
-| Particle Scroll / Laser | Scroll-driven dissolve/reveal of the page | Alternative reveal grammar, not letter-like |
-| Shatter / Particle Reveal | Glass shards / particle field around cursor | Too aggressive for a wedding invite |
+What their vanilla cores (`src/lib/*/⟨Name⟩Vanilla.ts`, esp. `PeelVanilla.ts`)
+demonstrate, worth mirroring in shape (technique, not code):
 
-**Peel API (from source):** props `side` (`left|right|top|bottom`), `mode`
-(`cursor` = progressive with pointer proximity, `hover` = full peel in the
-edge zone), `reveal` (px of `under` exposed at full peel), `zone`, `curl`,
-`bow`, `shade`, `shine`, `shineColor`, `bulge`, `perspective`, `smoothing`;
-Solid component takes `children` (the sheet) + `under` (revealed layer).
-Instance exposes only `setOptions` / `resize` / `destroy`.
-
-Two more limits worth naming:
-
-1. **Peel is pointer-driven, not scriptable.** There is no `open()` — the
-   peel follows cursor proximity to an edge. It's a hover flourish, not a
-   choreographed "letter opens" sequence. On touch it only reacts to
-   press-drag.
-2. `reveal` exposes a strip of the under layer (default 250 px), not a full
-   page transition.
-
-## 2. Recommendation
-
-**Own the letter-opening as a cire design pack; use Canvas UI's Peel as a
-progressive enhancement, not the mechanism.**
-
-- The baseline letter/envelope opening is built with what the guest site
-  already ships: CSS 3D transforms + the `motion` package, choreographed in a
-  `*.motion.ts` file exactly like the existing
-  `designs/*/UnlockReveal.motion.ts` (inline end-state writes, `tryAnimate`
-  timeout guards, `prefersReducedMotion()` → `settleRevealed()`). This works
-  for **every** guest, including iOS.
-- On browsers where `supportsHtmlInCanvas()` is true, the vendored Peel adds
-  the tactile touch: the letter's folded top sheet peels under the cursor
-  before the guest commits to opening (and/or the envelope flap gets the
-  curl+shine treatment). Everyone else simply doesn't get the flourish —
-  never a broken or missing invite.
+- **Two canvases + the content between them.** A *source* canvas carries
+  `layoutsubtree` and hosts the live DOM as its child; a separate *output*
+  WebGL2 canvas (`position: absolute; inset: 0; pointer-events: none`)
+  renders the effect on top. The DOM stays clickable/selectable because it
+  is real DOM the whole time.
+- **Feature detection** is a runtime probe, not UA sniffing:
+  `typeof ctx.drawElementImage === "function" &&
+  typeof canvas.requestPaint === "function"` (their
+  `supportsHtmlInCanvas()`), plus a null-return when `webgl2` context
+  creation fails — jsdom/test environments fall through to the DOM path for
+  free.
+- **Capture pipeline:** `source.onpaint = capture`; `capture()` does
+  `ctx.reset()` → `drawElementImage(content, 0, 0)` → upload the source
+  canvas into a WebGL texture with `texImage2D(..., source)` → `ctx.reset()`.
+  `requestPaint()` is called on every resize; `onpaint` re-fires on DOM
+  repaints so live regions (countdowns, images loading in) stay fresh.
+- **Geometry:** a subdivided unit-grid mesh (~90×90) deformed entirely in
+  the vertex shader; the DOM texture is just sampled across it. A fold/curl
+  is a per-vertex transform — exactly what a letter unfold needs.
+- **Hygiene worth copying:** on-demand rAF (a `wake()`/`start()` pair — the
+  loop parks when the animation settles), DPR capped at 2,
+  `ResizeObserver` + `IntersectionObserver` gating, a `prefers-reduced-motion`
+  listener, an "under" layer kept `visibility: hidden` until the first
+  capture lands, and a `destroy()` that removes every listener/observer and
+  deletes every GL resource.
+- **Their gap (our opportunity):** effects are pointer-reactive
+  (`pointermove` → target → damped spring). None expose a timeline. Our core
+  will instead expose `progress(t)` / `open()` so the choreographer scripts
+  the opening — which also makes the effect work on **touch** (tap to open),
+  where Peel's cursor model does nothing.
 
 ## 3. Build plan
 
-### Phase 1 — `letter` design pack (baseline, no Canvas UI)
+### Phase 1 — `letter` design pack with the DOM/CSS opening (the baseline)
+
+This ships first and is the experience most guests get (all of iOS, and any
+Chrome without the trial token).
 
 1. **Catalog:** add `{ id: "letter", name: "Letter", tier: "free" }` to
-   `DESIGNS` in `cire/invite-designs/src/index.ts`. The `DesignId` union then
-   forces a matching pack in `cire/web/src/designs/registry.ts` (type error
-   until it exists); the organiser selector picks it up from the catalog
-   automatically.
+   `DESIGNS` in `cire/invite-designs/src/index.ts`; the `DesignId` union
+   forces the matching pack in `cire/web/src/designs/registry.ts`, and the
+   organiser selector picks it up from the catalog automatically.
 2. **Pack:** `cire/web/src/designs/letter/` mirroring classic/gala —
    `Document.astro`, `InviteHeader.tsx`, `InvitePage.tsx`,
-   `LetterReveal.motion.ts` (+ tests for each). Reuse the shared islands
-   (`LoginSection`, `EventCard`, RSVP flow) unchanged.
-3. **Scene:** a centred closed envelope built from layered elements —
-   envelope back, interior, letter card, flap (CSS `perspective` +
-   `rotateX` on the flap, `transform-origin: top`), and a wax-seal button
-   reusing the cire-landing seal's visual identity (flat/CSS rendition — do
-   **not** pull in the landing's three.js scene).
-4. **Choreography** in `LetterReveal.motion.ts`:
-   - *Arrive:* envelope settles in, seal glints once.
-   - *Open:* tap/click the seal → flap rotates open → letter card rises out
-     of the envelope and scales up to become the invite header, greeting +
-     claim form (`LoginSection`) rendered **on the letter**.
-   - *Unlock:* successful claim plays the existing unlock grammar (welcome +
-     staggered event cards), now framed as the letter unfolding to full
-     length. Returning guests with a live session get a short auto-open
-     (envelope already slit) instead of the seal interaction.
-   - Every step writes its end state inline and is timeout-guarded so a
-     stalled animation can never hide the invite (Motion v12 reverts final
-     keyframe values — same trap `UnlockReveal.motion.ts` documents).
-   - `prefers-reduced-motion`: skip to the opened, fully-revealed state.
+   `LetterReveal.motion.ts` (+ tests). Shared islands (`LoginSection`,
+   `EventCard`, RSVP flow) unchanged.
+3. **Scene:** layered elements — envelope back, interior, letter card, flap
+   (CSS `perspective` + `rotateX`, `transform-origin: top`), a wax-seal
+   button echoing the cire-landing seal's visual identity (flat/CSS — not
+   the landing's three.js scene).
+4. **Choreography** in `LetterReveal.motion.ts`: arrive (envelope settles,
+   seal glints) → open (tap the seal, flap rotates, letter rises and scales
+   into the invite header with greeting + claim form on the letter) →
+   unlock (successful claim plays the unlock grammar as the letter unfolding
+   to full length). Returning guests with a live session get a short
+   auto-open. Every step writes its end state inline and is timeout-guarded
+   (Motion v12 reverts final keyframe values — the trap
+   `UnlockReveal.motion.ts` documents); `prefers-reduced-motion` settles
+   straight to the opened state.
 5. **Tests:** mirror `UnlockReveal.motion.test.ts` (reduced-motion settle,
-   guarded steps, end-state invariants), pack render tests, and the
-   registry/resolve coverage that keeps unknown ids falling back to classic.
+   guarded steps, end-state invariants) + pack render tests + registry/
+   resolve fallback coverage.
 
-### Phase 2 — Canvas UI Peel enhancement (vendored)
+### Phase 2 — our own HTML-in-canvas unfold (progressive enhancement)
 
-1. Vendor the Solid Peel via the registry —
-   `npx shadcn@latest add @canvas-ui/peel-solid` — landing the source under
-   `cire/web/src/components/canvasui/Peel/` (`Peel.solid.tsx`,
-   `PeelVanilla.ts`; no new npm deps). Keep the license header; note the
-   Commons Clause in the file.
-2. Wrap the letter's folded top sheet: `<Peel side="top" mode="cursor"
-   under={<detail layer>}>` so hovering the fold curls it with shade + shine
-   before the guest opens the letter. Mount only when
-   `supportsHtmlInCanvas()` is true; call `destroy()` once the open
-   choreography starts so no GPU loop idles behind the invite (perf-backlog
-   hygiene; the component caps DPR at 2 and runs its rAF on demand).
-3. Lint note: `PeelVanilla.ts` uses `console.error` for shader-compile
-   failures — route through the frontend's accepted pattern or strip, so
-   oxlint stays clean.
-4. **No consent/CSP work needed:** the code is vendored source, no
-   third-party origin is contacted at runtime, so it needs no vendor-registry
-   entry and no CSP change (see [[consent]] — the framework governs third
-   *parties*, not first-party WebGL).
+A bespoke effect where the **invite itself is the sheet**: the live DOM is
+captured as the texture, folded closed, and unfolds in 3D on open.
 
-### Phase 3 (optional) — origin trial for native mode
+1. **Module:** `cire/web/src/lib/letter-open/` — a vanilla TS core
+   `createLetterUnfold(elements, options): LetterUnfoldInstance | null` plus
+   a thin Solid wrapper island. Same layering discipline as the reference
+   (core is framework-free and unit-testable; wrapper only wires refs and
+   lifecycle).
+2. **Core contract** (the part Peel doesn't have):
+   - `progress(t: 0..1)` — pure function of timeline position; and
+     `open({ duration, ease }): Promise<void>` driving it on the on-demand
+     rAF loop.
+   - Geometry: subdivided grid mesh; vertex shader folds the sheet at one or
+     two crease lines (tri-fold letter) with soft self-shading near the
+     creases; `t = 0` fully folded, `t = 1` flat.
+   - Capture pipeline and hygiene exactly as the reference notes above
+     (probe, `onpaint` → texture upload, DPR cap, observers, full
+     `destroy()`).
+   - Returns `null` when the probe or `webgl2` context fails — the caller
+     falls back to the CSS path. This also keeps jsdom tests trivially on
+     the fallback branch.
+3. **Handoff:** at `t = 1` the output canvas cross-fades out, the real DOM
+   (which was there, laid out, the whole time) takes over, and the instance
+   is `destroy()`ed — no capture loop or GL context lingers behind an
+   invite the guest is now just reading (perf-backlog hygiene).
+4. **Integration:** `LetterReveal.motion.ts` stays the single choreographer.
+   On the open beat it asks the module: native path → `await unfold.open()`;
+   null → the Phase 1 CSS flap/rise animation. Same beats, same end state,
+   same reduced-motion settle either way.
+5. **Tests:** fold geometry + timeline easing as pure functions
+   (deterministic, no GL); wrapper tests assert the null-probe fallback
+   renders plain DOM and that `destroy()` is called after open completes.
 
-Register `invite.cireweddings.com` for the Chrome `canvas-draw-element`
-origin trial and ship the token (meta tag or `_headers`) so flag-less Chrome
-guests get the Peel flourish in production. Pure enhancement; revisit when
-the API's standardisation picture is clearer. Skipping this phase costs
-nothing — the effect stays flag-gated for developers only.
+### Phase 3 — origin trial token (makes Phase 2 real for guests)
+
+The trial is running **now** (Chrome 148–150). Register
+`invite.cireweddings.com` for the HTML-in-canvas origin trial and ship the
+token (meta tag in the letter pack's `Document.astro`, or a header). During
+the trial, real Chrome guests get the WebGL unfold with no flags; everyone
+else keeps the baseline. Watch for API renames landing with the stable
+release (late 2026 estimate) — the probe isolates us: only
+`supportsHtmlInCanvas()` and `capture()` touch the experimental surface.
 
 ## 4. Open decisions
 
-- **New pack vs. reskinning classic** — plan assumes a third pack `letter`,
-  which keeps classic/gala untouched and gives organisers the choice; if the
-  couple wants it as *the* look, it can also ship as the wedding's stored
-  `designId` default.
-- **Tier** — `free` for now; the `premium` entitlement gate exists but is
-  dormant. A letter pack is a plausible first premium design if that gate is
-  ever switched on.
-- **Touch affordance for Peel** — `mode: "cursor"` does nothing meaningful
-  on touch; the enhancement is desktop-only by nature. Acceptable (baseline
-  handles touch), but worth confirming.
+- **New pack vs. reskinning classic** — plan assumes a third pack `letter`;
+  a couple can still make it their default via the stored `designId`.
+- **Tier** — `free` for now; the dormant `premium` gate makes this a
+  plausible first premium design later.
+- **Fold grammar** — tri-fold letter unfold vs. envelope-flap + rise with a
+  single curl. Decide on the storyboard before building the mesh; the core
+  contract (`progress(t)`) is the same either way.
+- **Trial expiry behaviour** — when the origin trial lapses (or the API
+  ships stable under a changed name), the probe fails and guests silently
+  get the baseline. Acceptable by design; note it in the deploy runbook when
+  Phase 3 lands.

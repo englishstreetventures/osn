@@ -21,7 +21,7 @@ Map of Content for the Cire wedding invite project.
 - [[platform-plan]] — build plan for the wedding-management platform (guests/events decoupled from the invite, vendors + availability, pricing estimates, budget, checklist, seating, comms)
 - [[guest-event-editor]] — plan for the interactive events + guests editor alongside the CSV schema (round-trip export, before-image revert, shared pre-save checks)
 - [[consent]] — site-wide cookie/third-party consent: categories, the vendor registry, the `cire_consent` record, and how to add a gated third party
-- [[letter-reveal-plan]] — plan for a letter/envelope that opens to reveal the invite (Canvas UI study + `letter` design pack)
+- [[letter-reveal-plan]] — plan for a letter/envelope that opens to reveal the invite (`letter` design pack + our own HTML-in-canvas unfold, Canvas UI as reference)
 
 ## Systems
 
